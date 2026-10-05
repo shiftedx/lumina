@@ -1,0 +1,9 @@
+.ed-people ul { display: grid; gap: var(--g-space-2); margin: 0; padding: 0; list-style: none; }
+.ed-people li { display: grid; grid-template-columns: auto 1fr 1fr auto auto auto auto auto; gap: var(--g-space-2); align-items: center; }
+.ed-people-head { display: flex; align-items: center; justify-content: space-between; }
+.ed-people-grip { background: none; border: 0; color: inherit; cursor: grab; }
+@media (max-width: 640px) { .ed-people li { grid-template-columns: 1fr 1fr auto auto auto auto; } .ed-people-grip { display: none; } }
+.ed-person { display: grid; grid-template-columns: auto 1fr; gap: var(--g-space-3); align-items: start; }
+.ed-person-photo { display: flex; flex-wrap: wrap; gap: var(--g-space-2); align-self: center; }
+.ed-person-name { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--g-space-2); align-items: end; }
+.ed-person-name > :first-child { flex: 1 1 14rem; }

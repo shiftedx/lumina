@@ -1,0 +1,10 @@
+/* The metadata editor. Tokens only. */
+.ed { display: grid; gap: var(--g-space-4); max-width: 960px; margin: 0 auto; padding-bottom: var(--g-space-6); scroll-padding-bottom: 96px; }
+.ed-head { display: flex; align-items: flex-start; gap: var(--g-space-4); }
+.ed-head .g-masthead { flex: 1; min-width: 0; }
+.ed-poster { flex: none; object-fit: cover; border-radius: var(--g-radius); }
+.ed-footer { position: sticky; bottom: 0; display: flex; gap: var(--g-space-3); padding: var(--g-space-3) 0; border-top: var(--g-rule); background: var(--g-paper); }
+.ed-banner { display: grid; gap: var(--g-space-3); padding: var(--g-space-3) 0; border-block: var(--g-rule); }
+.ed-banner-actions { display: flex; flex-wrap: wrap; gap: var(--g-space-3); }
+/* On a phone the fixed tab bar covers a footer stuck to the bottom, so it sticks above the bar. */
+@media (max-width: 680px) { .ed { padding-inline: var(--g-space-3); } .ed-row { grid-template-columns: 1fr auto; } .ed-row > :first-child { grid-column: 1 / -1; } .ed-src { justify-self: start; } .ed-footer { bottom: calc(56px + env(safe-area-inset-bottom)); } :root:has(.ed), .ed { scroll-padding-bottom: calc(150px + env(safe-area-inset-bottom)); } }

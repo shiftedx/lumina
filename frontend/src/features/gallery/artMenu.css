@@ -1,0 +1,21 @@
+/* The one hover menu on cover art (ArtMenu). Ink on a dark halo so it reads on bright art; no colour of its own. */
+.gallery .g-art-host { position: relative; min-width: 0; }
+.gallery .g-row > .g-art-host { height: 100%; }
+.gallery .g-art-menu { position: absolute; z-index: 2; top: calc(6px + (var(--art-halo) - var(--g-control)) / 2); left: calc(6px + (var(--art-halo) - var(--g-control)) / 2); --art-halo: 28px; }
+/* The unwatched triangle owns the top-right of a poster, the LIVE badge the top-left of a live card: the menu takes the free corner. */
+.gallery .g-remote-card.has-badge .g-art-menu, .gallery .g-art-host.has-badge .g-art-menu { right: calc(6px + (var(--art-halo) - var(--g-control)) / 2); left: auto; }
+.gallery .g-art-menu-button { position: relative; display: grid; width: var(--g-control); height: var(--g-control); place-items: center; padding: 0; border: 0; border-radius: var(--g-radius); background: none; color: var(--g-on-art); cursor: pointer; opacity: 0; transition: opacity var(--g-hover); }
+.gallery .g-art-menu-button::before { content: ''; position: absolute; inset: calc((var(--g-control) - var(--art-halo)) / 2); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-overlay-halo) 62%, transparent); }
+.gallery .g-art-menu-button svg { position: relative; width: 16px; height: 16px; }
+.gallery .g-art-menu-button:focus-visible { outline: var(--g-focus-width) solid var(--g-on-art); outline-offset: 1px; opacity: 1; }
+.gallery .g-art-menu-button[aria-expanded='true'] { opacity: 1; }
+.gallery .g-art-host:focus-within .g-art-menu-button, .gallery .g-still-card:focus-within .g-art-menu-button { opacity: 1; }
+@media (hover: hover) {
+  .gallery .g-art-host:hover .g-art-menu-button, .gallery .g-still-card:hover .g-art-menu-button { opacity: 1; }
+  .gallery .g-art-menu-button:hover::before { background: color-mix(in srgb, var(--g-overlay-halo) 80%, transparent); }
+}
+/* No hover on touch: always there, quiet; the halo shrinks to 24px, the target stays the full control size. */
+@media (hover: none) {
+  .gallery .g-art-menu { --art-halo: 24px; }
+  .gallery .g-art-menu-button { opacity: .8; }
+}

@@ -1,0 +1,22 @@
+.gallery.g-explore .g-explore-results-title { font: var(--g-type-h2); }
+.gallery .g-explore-notice { display: flex; align-items: center; gap: 8px; margin: 24px 0 0; }
+.gallery .g-explore-notice svg { width: 14px; height: 14px; }
+.gallery .g-explore-group { margin-top: 40px; padding-top: 24px; border-top: var(--g-rule); }
+.gallery .g-explore-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
+.gallery .g-explore-wall.is-short { grid-template-columns: repeat(auto-fill, 180px); }
+.gallery .g-explore-wall[aria-busy='true'] { opacity: .7; }
+.gallery .g-explore-wall .g-still-slot { aspect-ratio: 16 / 9; border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius); }
+.gallery .g-explore-posters { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 24px; margin-bottom: 24px; }
+.gallery .g-explore-channels { display: flex; gap: 24px; overflow-x: auto; padding-bottom: 8px; }
+.gallery .g-explore-channel { display: grid; flex: none; justify-items: center; gap: 8px; width: 144px; padding: 0; border: 0; background: none; color: var(--g-ink); text-align: center; text-decoration: none; cursor: pointer; }
+.gallery .g-explore-channel-name { font: 400 17px / 1.25 var(--g-serif); }
+.gallery .g-explore-jump { display: flex; flex-wrap: wrap; align-items: center; }
+.gallery .g-explore-source-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0; padding: 12px 0; border-top: var(--g-rule); border-bottom: var(--g-rule); }
+.gallery .g-explore-more { margin-top: 24px; }
+.gallery .g-explore-empty-title { margin: 0; font: var(--g-type-h2); }
+@media (max-width: 1023px) { .gallery .g-explore-wall { gap: 16px; } }
+@media (max-width: 599px) { .gallery .g-explore-wall { grid-template-columns: 1fr; gap: 12px; } }
+
+.gallery .g-category-chips { flex-wrap: nowrap; overflow-x: auto; margin: 4px 0 8px; padding: 2px 0 6px; scrollbar-width: none; }
+.gallery .g-category-chips .g-chip { flex: none; }
+.gallery .g-explore-group > h2 { margin: 0 0 16px; font: var(--g-type-h2); }

@@ -1,0 +1,8 @@
+.ed-details { display: grid; gap: var(--g-space-3); }
+.ed-row { display: grid; grid-template-columns: 1fr auto auto; align-items: end; gap: var(--g-space-2); }
+.ed-row.is-edited { border-inline-start: 2px solid var(--g-gold); padding-inline-start: 8px; }
+.ed-src { padding: 2px 8px; border: var(--g-hairline); border-radius: var(--g-radius); font: var(--g-type-caption); color: var(--g-ink-2); }
+.ed-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.ed-chip { display: inline-flex; align-items: center; border: var(--g-hairline); border-radius: var(--g-radius); padding-inline-start: 12px; }
+.ed-days { display: flex; flex-wrap: wrap; gap: var(--g-space-2); border: 0; padding: 0; }
+@media (min-width: 900px) { .ed-row:not(:has(textarea, .ed-chipbox, .ed-days)) { max-width: 480px; } }

@@ -1,0 +1,30 @@
+/* Home's edit mode. Foundation tokens only: no colour literal (brand rule; galleryColours.test.ts scans
+   this file). */
+.gallery .h-editor { --h-edit-row: 64px; --h-control: var(--g-control); padding: var(--g-space-5) 0 var(--g-space-7); }
+.gallery .h-edit-hint { margin: 0 0 var(--g-space-4); font: var(--g-type-body); color: var(--g-ink-2); }
+.gallery .h-edit { margin: 0; padding: 0; list-style: none; border-top: var(--g-rule); }
+.gallery .h-edit-row { display: grid; grid-template-columns: var(--h-control) minmax(0, 1fr) auto var(--h-control) var(--h-control) var(--h-control); align-items: center; gap: var(--g-space-3); height: var(--h-edit-row); border-bottom: var(--g-rule); background: var(--g-paper); transition: transform var(--g-hover); }
+.gallery .h-edit-row[data-dragging] { position: relative; z-index: 2; background: var(--g-paper-2); outline: var(--g-hairline); transition: none; }
+.gallery .h-edit-name { overflow: hidden; font: italic 600 20px / 1.2 var(--g-serif); text-overflow: ellipsis; white-space: nowrap; }
+.gallery .h-edit-row.is-hidden .h-edit-name { color: var(--g-ink-3); }
+.gallery .h-edit-status { white-space: nowrap; }
+.gallery .h-handle, .gallery .h-move { display: grid; width: var(--h-control); height: var(--h-control); place-items: center; padding: 0; border: 0; border-radius: var(--g-radius); background: none; color: var(--g-ink); cursor: pointer; }
+.gallery .h-handle { cursor: grab; touch-action: none; }
+.gallery .h-handle[aria-pressed='true'] { outline: var(--g-hairline); background: var(--g-paper-2); }
+.gallery .h-move[aria-disabled='true'] { color: var(--g-ink-3); cursor: default; }
+.gallery .h-handle svg, .gallery .h-move svg { width: 20px; height: 20px; }
+/* The switch is a full 44 (48 on TV) px target; its 24 px track is drawn by ::before. On = ink fill, paper knob; off = hairline. */
+.gallery .h-switch { position: relative; width: var(--h-control); height: var(--h-control); padding: 0; border: 0; background: none; cursor: pointer; }
+.gallery .h-switch::before { content: ''; position: absolute; top: 50%; left: 0; box-sizing: border-box; width: 100%; height: 24px; border: var(--g-hairline); border-radius: 12px; transform: translateY(-50%); }
+.gallery .h-switch[aria-checked='true']::before { background: var(--g-ink); }
+.gallery .h-switch-knob { position: absolute; top: 50%; left: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--g-ink); transform: translateY(-50%); transition: transform var(--g-hover); }
+.gallery .h-switch[aria-checked='true'] .h-switch-knob { background: var(--g-paper); transform: translate(calc(var(--h-control) - 24px), -50%); }
+.gallery .h-edit-actions { display: flex; justify-content: flex-end; gap: var(--g-space-3); margin-top: var(--g-space-5); }
+@media (max-width: 599px) {
+  .gallery .h-editor { --h-edit-row: 56px; }
+  .gallery .h-edit-row { grid-template-columns: var(--h-control) minmax(0, 1fr) var(--h-control) var(--h-control) var(--h-control); gap: var(--g-space-2); }
+  .gallery .h-edit-status { display: none; }
+  .gallery .h-edit-name { font-size: 17px; }
+}
+@media (min-width: 1600px) { .gallery .h-editor { --h-edit-row: 72px; } }
+@media (prefers-reduced-motion: reduce) { .gallery .h-edit-row { transition: none; } }

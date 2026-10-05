@@ -1,0 +1,9 @@
+# Intel QSV/VAAPI hardware transcoding (Linux hosts with /dev/dri). Operator guide: docker/README.md.
+#   docker compose -f docker-compose.yml -f docker-compose.qsv.yml up -d
+# LUMINA_RENDER_GID is the host's render group id: stat -c %g /dev/dri/renderD128
+services:
+  yt-dlp-ui:
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      LUMINA_RENDER_GID: ${LUMINA_RENDER_GID:?Set LUMINA_RENDER_GID to the host render group id (stat -c %g /dev/dri/renderD128)}

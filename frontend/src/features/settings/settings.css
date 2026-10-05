@@ -1,0 +1,282 @@
+/* Settings rows, ⓘ explanations and Save bars. One row system: label and description left, every
+   control in one right-hand column with the same edges in every section. Switches and buttons end at its right edge;
+   fields fill it. Rows are separated by hairlines only, and a block row's fields (.g-subrows) reuse the same columns. */
+.g-setting-row { display: grid; grid-template-columns: minmax(0, 1fr) min(20rem, 48%); align-items: center; gap: 12px 40px; min-width: 0; padding: 20px 0; border-bottom: 1px solid var(--g-rule-soft); }
+.g-setting-row.is-switch { grid-template-columns: minmax(0, 1fr) auto; }
+.g-setting-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.g-setting-label { margin: 0; font: var(--g-type-ui-strong); overflow-wrap: anywhere; }
+.g-setting-desc { flex-basis: 100%; max-width: 62ch; margin: 0; color: var(--g-ink-2); font: var(--g-type-small); }
+.g-setting-tag { color: var(--g-ink-3); font: var(--g-type-label); letter-spacing: var(--g-track-label); text-transform: uppercase; }
+.g-setting-control { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; min-width: 0; }
+.g-setting-control > .g-field, .g-setting-control > .g-control-stack { flex: 1 1 100%; }
+.g-setting-row.is-block > .g-setting-control { grid-column: 1 / -1; display: grid; justify-content: stretch; gap: 12px; }
+.g-setting-detail { grid-column: 1 / -1; max-width: 62ch; color: var(--g-ink-2); font: var(--g-type-small); }
+.g-setting-group-head { margin: 32px 0 0; font: var(--g-type-h3); }
+.g-info { position: relative; }
+.g-info-note { position: absolute; top: calc(100% + 4px); left: 0; z-index: var(--g-z-sticky); width: min(360px, 80vw); }
+.g-info-note[hidden] { display: none; }
+.g-control-stack { display: grid; gap: 4px; }
+/* Fields inside a block row: label left, control in the row's control column. */
+.g-subrows { display: grid; min-width: 0; }
+.g-subrows > * { min-width: 0; }
+.g-subrows > .g-field, .g-subrows > .g-subrow, .g-subrows .g-segmented { display: grid; grid-template-columns: minmax(0, 1fr) min(20rem, 48%); align-items: center; gap: 4px 40px; padding: 8px 0; }
+.g-subrows > .g-field > *, .g-subrows .g-segmented > * { grid-column: 2; }
+.g-subrows > .g-field > .g-field-label, .g-subrows .g-segmented > legend { float: left; grid-column: 1; grid-row: 1 / span 3; align-self: start; margin: 0; padding: 10px 0 0; color: var(--g-ink-2); font: var(--g-type-ui); letter-spacing: normal; text-transform: none; }
+.g-subrows > .g-subrow > :last-child:not(:first-child) { justify-self: end; }
+.g-subrows .g-segmented { grid-template-columns: minmax(0, 1fr) auto; }
+.g-subrows > .g-switch, .g-subrows > .g-actions { padding: 8px 0; }
+.setting-profile-who { display: flex; align-items: center; gap: 12px; }
+.g-setting-control .g-switch-label, .g-settings-advanced .g-switch-label { color: var(--g-ink-2); font: var(--g-type-ui); }
+.g-subrows > .caption-style-rows { display: contents; }
+.g-subrows .caption-preview { max-width: min(20rem, 48%); margin-inline-start: auto; }
+.g-subrows > .g-actions, .g-setting-control .g-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--g-button-gap, 12px); }
+.g-subrows > .g-choice, .g-subrows > .is-control { inline-size: min(20rem, 48%); margin-inline-start: auto; }
+.g-subrows > .g-panel { margin: 0; padding: 16px 0 0; border-top: 1px solid var(--g-rule-soft); }
+.g-setting-form { display: grid; }
+/* The Save bar sits in the flow at the end of its form; it sticks to the screen's foot only while there is something to save. */
+.g-save-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; }
+.g-save-bar.is-pending { position: sticky; bottom: 0; z-index: var(--g-z-sticky); padding-bottom: calc(16px + env(safe-area-inset-bottom)); border-top: 1px solid var(--g-rule-soft); background: var(--g-paper); }
+.g-save-status { min-height: 1.5em; margin: 0; }
+.g-save-actions { display: flex; gap: 8px; margin-inline-start: auto; }
+.g-save-actions .g-button { white-space: normal; }
+@media (max-width: 679px) {
+  .g-setting-row:not(.is-switch), .g-subrows > .g-field, .g-subrows > .g-subrow, .g-subrows .g-segmented { grid-template-columns: minmax(0, 1fr); }
+  .g-subrows > .g-field > *, .g-subrows > .g-field > .g-field-label, .g-segmented > *, .g-segmented > legend { grid-column: 1; grid-row: auto; padding-top: 0; }
+  .g-subrows .caption-preview { max-width: none; }
+  .g-setting-row.is-inline > .g-setting-control { justify-content: flex-start; }
+  .g-subrows > .g-choice, .g-subrows > .is-control { inline-size: auto; margin-inline-start: 0; }
+  .g-save-bar.is-pending { bottom: calc(56px + env(safe-area-inset-bottom)); }
+}
+
+/* ---- shell ---- */
+.g-settings { display: grid; grid-template-columns: var(--g-sidebar) minmax(0, 1fr); grid-template-areas: 'head head' 'side pane'; gap: 32px 48px; padding: 32px var(--g-gutter) 96px; }
+.g-settings > .g-masthead { grid-area: head; }
+.g-settings-sidebar { position: sticky; top: calc(var(--g-topbar) + 24px); grid-area: side; align-self: start; display: grid; gap: 24px; max-height: calc(100dvh - var(--g-topbar) - 48px); overflow-y: auto; overscroll-behavior: contain; }
+/* A labelless switch's input sits under its track; keep it on top so taps and clicks reach it. */
+.g-settings .g-switch input { z-index: 1; }
+.g-settings-advanced .g-switch { margin-top: 8px; }
+.g-settings-advanced-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; margin: 0 0 8px; padding-bottom: 16px; border-bottom: 1px solid var(--g-rule-soft); color: var(--g-ink-2); }
+.g-settings-group ul { display: grid; gap: 2px; margin: 8px 0 0; padding: 0; list-style: none; }
+.g-settings-link { display: flex; min-height: var(--g-control); align-items: center; padding: 0 12px; border-inline-start: 2px solid transparent; color: var(--g-ink-2); font: var(--g-type-ui); text-decoration: none; }
+.g-settings-link[aria-current='page'] { border-inline-start-color: var(--g-gold); background: var(--g-selected); color: var(--g-ink); font: var(--g-type-ui-strong); }
+@media (hover: hover) { .g-settings-link:not([aria-current='page']):hover { background: var(--g-wash); } }
+.g-settings-pane { grid-area: pane; min-width: 0; }
+.g-settings-back { display: none; }
+.g-settings-section-head { display: grid; gap: 8px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--g-rule-soft); }
+.g-settings-section-head h2 { margin: 0; font: var(--g-type-h2); }
+.g-settings-summary, .settings-section-summary { max-width: 62ch; margin: 0; color: var(--g-ink-2); font: var(--g-type-lede); }
+@media (max-width: 679px) {
+  .g-settings { grid-template-columns: 1fr; grid-template-areas: 'head' 'side' 'pane'; padding-top: 20px; }
+  .g-settings-sidebar { position: static; max-height: none; overflow: visible; }
+  .g-settings[data-view='list'] .g-settings-pane, .g-settings[data-view='detail'] .g-settings-sidebar { display: none; }
+  .g-settings[data-view='detail'] .g-settings-back { display: inline-flex; margin-bottom: 16px; }
+}
+@media (forced-colors: active) { .g-settings-link[aria-current='page'] { border-inline-start-color: Highlight; } }
+.settings-result-group > h2 { margin: 18px 0 0; color: var(--g-ink); font: var(--g-type-h3); }
+.settings-pinned-note { margin: 4px 0 0; color: var(--g-gold-ink); font-size: 12px; }
+
+/* 10-foot step: every Settings target is at least 48 px. Nothing here depends on hover or on :has()
+   (older TV browsers lack it): checkbox and radio labels are matched by their own classes. `.setting-target` is
+   the class to add to any new label or control a future row needs to grow. */
+@media (min-width: 1600px) {
+  .g-settings button, .g-settings .g-button, .g-settings select, .g-settings summary, .g-settings input:not([type='checkbox']):not([type='radio']) { min-height: var(--g-control); }
+}
+
+/* AI & models. */
+
+.setting-models { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.setting-model { display: grid; min-width: 0; gap: 6px; }
+.setting-model-head { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.setting-model-head strong { color: var(--g-ink); overflow-wrap: anywhere; }
+.setting-model small, .setting-model p { margin: 0; color: var(--g-ink-3); font-size: 12px; }
+.setting-model-progress { display: grid; gap: 4px; }
+.setting-model .auth-error { color: var(--g-danger); }
+.setting-feature-detail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
+
+/* ---- from lumina.css (app polish split) ---- */
+.settings-card { display: flex; min-width: 0; min-height: 220px; flex-direction: column; justify-content: space-between; padding: 24px; border: 1px solid var(--g-rule-soft); border-radius: 10px; background: var(--g-wash); overflow-wrap: anywhere; }
+.settings-card > header { display: flex; align-items: center; gap: 13px; }
+.settings-card h2 { margin: 0; color: var(--g-ink); font-family: 'Newsreader', serif; font-size: 26px; font-weight: 400; }
+.settings-card p { margin: 5px 0 0; color: var(--g-ink-3); font-size: 11px; line-height: 1.6; }
+.settings-card .g-button { align-self: flex-start; }
+.settings-note strong { color: var(--g-ink-2); font-weight: 500; }
+.library-curation-controls > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
+.library-curation-controls h2 { margin: 0; color: var(--g-ink); font-family: 'Newsreader', serif; font-size: 28px; font-weight: 400; }
+.library-curation-controls h3 { margin: 0; color: var(--g-ink); font-family: 'Newsreader', serif; font-size: 21px; font-weight: 400; }
+.library-curation-controls p { color: var(--g-ink-3); font-size: 11px; line-height: 1.55; }
+@media (max-width: 680px) {
+  .settings-card { min-height: 200px; padding: 19px; }
+  .library-curation-controls > header { flex-direction: column; }
+}
+/* Wraps instead of scrolling so every section stays visible on phones. */
+.admin-overview { display: grid; gap: 18px; }
+.admin-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.admin-toolbar p { margin: 0; color: var(--g-ink-3); font-size: 12px; }
+.admin-toolbar .g-button svg { width: 15px; }
+.admin-panel { min-width: 0; }
+.admin-panel h2 { margin: 0 0 6px; color: var(--g-ink); font-family: 'Newsreader', serif; font-size: 22px; font-weight: 400; }
+.admin-panel h3 { margin: 20px 0 8px; color: var(--g-ink-2); font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
+.admin-table small, .admin-failures small { display: block; color: var(--g-ink-3); font-family: inherit; font-size: 11px; }
+.admin-table-scroll { position: relative; overflow-x: auto; margin-top: 12px; }
+.admin-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 13px; }
+.admin-table th, .admin-table td { padding: 11px 10px; border-top: 1px solid var(--g-rule-soft); color: var(--g-ink-2); font-weight: 400; text-align: left; vertical-align: top; }
+.admin-table thead th { border-top: 0; color: var(--g-ink-3); font-size: 11px; }
+.admin-table tbody th { color: var(--g-ink); overflow-wrap: anywhere; }
+.admin-columns { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; }
+.admin-counts { display: grid; margin: 10px 0 0; padding: 0; list-style: none; }
+.admin-counts li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--g-rule-soft); color: var(--g-ink-2); font-size: 13px; }
+.admin-counts strong { color: var(--g-ink); font-variant-numeric: tabular-nums; }
+.admin-failures { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.admin-failures li { padding: 10px 0; border-top: 1px solid var(--g-rule-soft); }
+.admin-failures p { margin: 0 0 4px; color: var(--g-ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.admin-note { margin: 0; color: var(--g-ink-3); font-size: 12px; line-height: 1.5; }
+.admin-note strong { color: var(--g-ink-2); font-weight: 500; }
+@media (max-width: 960px) {
+  .admin-columns { grid-template-columns: 1fr; }
+}
+.admin-overview > * { min-width: 0; }
+.admin-member-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-confirm { display: grid; gap: 10px; padding: 12px 0; border-block: 1px solid var(--g-rule); }
+.admin-confirm p { margin: 0; color: var(--g-ink-2); font-size: 12px; }
+.admin-confirm strong { color: var(--g-ink); }
+/* Admin storage */
+.admin-storage { display: grid; gap: 18px; }
+.admin-storage > *, .admin-storage fieldset { min-width: 0; }
+.admin-storage code { color: var(--g-ink); font-size: 12px; overflow-wrap: anywhere; }
+.admin-root-state { margin: 0; color: var(--g-ink-2); font-size: 12px; line-height: 1.5; }
+.admin-root-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; margin: 0; }
+.admin-root-facts dt { color: var(--g-ink-3); font-size: 11px; }
+.admin-root-facts dd { margin: 2px 0 0; color: var(--g-ink); font-size: 12px; font-variant-numeric: tabular-nums; }
+.admin-add-root { display: grid; gap: 16px; padding-top: 18px; border-top: 1px solid var(--g-rule-soft); }
+.admin-add-root h3, .admin-add-root p { margin: 0; }
+.admin-rule-fields { display: grid; width: 100%; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px; }
+.admin-rule-list { display: grid; gap: 12px; margin: 16px 0; padding: 0; list-style: none; }
+.admin-rule > fieldset { display: grid; gap: 12px; margin: 0; padding: 16px 0 0; border: 0; border-top: 1px solid var(--g-rule-soft); }
+.admin-rule > fieldset > legend { float: left; padding: 0; color: var(--g-ink); font: var(--g-type-ui-strong); }
+.admin-rule-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.admin-rule-head .g-button { min-width: 40px; min-height: 40px; justify-content: center; }
+.admin-rule-head .g-button svg { width: 16px; }
+.admin-chips { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; border: 0; }
+.admin-chips legend { width: 100%; margin-bottom: 6px; padding: 0; color: var(--g-ink-2); font-size: 11px; }
+.admin-chips small { color: var(--g-ink-3); }
+.admin-rule-footer { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.admin-rule-footer .settings-select { width: min(300px, 100%); }
+.admin-rule-footer .g-button svg { width: 15px; }
+.admin-test-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: 12px; margin: 14px 0; }
+.admin-decision { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--g-rule); }
+.admin-decision p { margin: 0; color: var(--g-ink-2); overflow-wrap: anywhere; }
+.admin-import-form { display: grid; gap: 16px; margin-top: 16px; }
+.admin-import-step { display: grid; gap: 10px; justify-items: start; min-width: 0; margin: 0; padding: 16px 0 0; border: 0; border-top: 1px solid var(--g-rule-soft); }
+.admin-import-step > legend { float: left; padding: 0; color: var(--g-ink); font: var(--g-type-ui-strong); }
+.admin-import-step code { overflow-wrap: anywhere; }
+.admin-import-roots { display: grid; width: 100%; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.admin-import-roots li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; padding: 10px 0; border-top: 1px solid var(--g-rule-soft); }
+.admin-import-roots li > .g-button { grid-row: 1 / span 2; grid-column: 2; }
+.admin-import-entries-head { margin-top: 6px; align-items: end; }
+.admin-import-entries-head h3 { margin: 0; }
+.admin-import-entries-head .settings-select { width: min(200px, 100%); }
+.admin-import-run { display: grid; gap: 16px; }
+.admin-import-run > * { margin: 0; }
+.admin-table a { color: var(--g-ink); }
+.admin-counts .g-button { min-height: 32px; padding: 0; border: 0; background: none; color: var(--g-ink-2); font-weight: 400; text-align: left; overflow-wrap: anywhere; }
+.admin-counts .g-button:hover { background: none; color: var(--g-ink); text-decoration: underline; }
+.admin-counts .g-button[aria-current] { color: var(--g-ink); font-weight: 600; }
+@media (max-width: 680px) {
+  .admin-import-roots li { grid-template-columns: 1fr; }
+  .admin-import-roots li > .g-button { grid-row: auto; grid-column: auto; justify-self: start; }
+  .admin-test-form { grid-template-columns: 1fr; }
+  .admin-rule-footer .settings-select { width: 100%; }
+}
+.admin-backups { display: grid; margin: 14px 0 0; padding: 0; list-style: none; }
+.admin-backups li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px 16px; padding: 14px 0; border-top: 1px solid var(--g-rule-soft); }
+.admin-backups li > div:first-child { display: grid; gap: 4px; justify-items: start; }
+.admin-backups strong { color: var(--g-ink); font-size: 14px; font-weight: 500; }
+.admin-backups small { color: var(--g-ink-3); font-size: 12px; }
+.admin-backups .admin-confirm { grid-column: 1 / -1; }
+@media (max-width: 720px) {
+  .admin-backups li { grid-template-columns: 1fr; }
+}
+.admin-columns-top { align-items: start; }
+.admin-panel summary { display: flex; min-height: var(--g-control); align-items: center; color: var(--g-ink-2); font-size: 13px; cursor: pointer; }
+.admin-steps { margin: 4px 0 0; padding-left: 18px; color: var(--g-ink-2); font-size: 12px; line-height: 1.6; }
+/* Admin Tasks and AI sections. */
+[data-setting-id="ai.api-key"] input:disabled { opacity: .55; }
+.admin-ai-test { display: grid; gap: 6px; width: 100%; padding: 12px 0 0; border-top: 1px solid var(--g-rule-soft); }
+.admin-ai-test p { margin: 0; color: var(--g-ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.admin-ai-test small { color: var(--g-ink-3); font-size: 11px; }
+.admin-ai-test ul { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; color: var(--g-ink-2); font: var(--g-type-small); list-style: none; }
+
+/* ---- You sections, Home & discovery, Connected apps, Captions ---- */
+/* Tables, tabs, status text, choices and the list-row base live in ui/ui.css; only Settings-specific additions follow. */
+.g-stream-cache { display: grid; gap: 12px; }
+.g-source-settings { display: grid; gap: 14px; }
+.g-setting-note { display: block; max-width: 62ch; min-height: 1.5em; margin: 0; color: var(--g-ink-2); font: var(--g-type-small); }
+.g-fieldset { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.g-fieldset > legend { margin-bottom: 8px; font: var(--g-type-ui-strong); }
+.g-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.g-dialog .g-list { max-height: 40vh; overflow: auto; }
+.g-list-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 0; overflow-wrap: anywhere; }
+.g-list-row-copy { display: grid; min-width: 0; }
+.g-mono { font: var(--g-type-mono); overflow-wrap: anywhere; }
+/* ---- overview, diagnostics, tasks ---- */
+.g-stat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin: 0 0 var(--g-space-5); }
+.g-stat-strip > div { display: grid; gap: 4px; padding: 0 20px; border-inline-start: 1px solid var(--g-rule-soft); }
+.g-stat-strip > div:first-child { padding-inline-start: 0; border-inline-start: 0; }
+.g-stat-strip dt { color: var(--g-ink-2); font: var(--g-type-small); }
+.g-stat-strip dd { margin: 0; font: var(--g-type-h2); font-variant-numeric: tabular-nums; }
+.g-stat-strip dd.admin-metric-note { color: var(--g-ink-2); font: var(--g-type-small); }
+.g-stat { display: flex; flex-direction: column; gap: 4px; padding: 0 24px; border-inline-start: 1px solid var(--g-rule-soft); }
+.g-stat:first-child { padding-inline-start: 0; border-inline-start: 0; }
+.g-stat > dt { order: 2; }
+.g-stat-figure { order: 1; margin: 0; font: var(--g-type-h2); font-variant-numeric: tabular-nums; }
+.g-stat-note, .g-stat-strip dd.g-stat-note { order: 3; margin: 0; color: var(--g-ink-2); font: var(--g-type-small); }
+.g-panel { min-width: 0; margin: 0 0 32px; }
+.g-panel-title { margin: 0 0 8px; font: var(--g-type-h3); }
+.g-table-scroll { overflow-x: auto; }
+.g-table tbody th { padding: 12px 12px 12px 0; border-bottom: 1px solid var(--g-rule-soft); color: var(--g-ink); font: var(--g-type-ui-strong); letter-spacing: normal; overflow-wrap: anywhere; text-transform: none; vertical-align: top; }
+.g-table small { display: block; margin-top: 2px; color: var(--g-ink-2); font: var(--g-type-small); font-weight: 400; }
+.g-log { max-height: 50vh; overflow: auto; margin: 8px 0 0; padding: 12px 16px; border-radius: var(--g-radius); background: var(--g-paper-2); color: var(--g-ink); font: var(--g-type-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.g-task-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.g-list-row.g-task, .g-list-row.setting-model { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 16px 0; }
+.g-task-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.g-task-head strong { min-width: 0; font: var(--g-type-ui-strong); overflow-wrap: anywhere; }
+.g-task-head .g-task-private { color: var(--g-ink-2); font-style: italic; }
+.g-task-error { margin: 0; padding: 8px 12px; border-inline-start: 2px solid var(--g-ink-2); background: var(--g-paper-2); font: var(--g-type-mono); overflow-wrap: anywhere; }
+.g-task-more { justify-self: start; margin-top: 12px; }
+@media (max-width: 599px) { .g-stat { padding: 0 12px; } }
+/* ---- library and storage ---- */
+.g-roots .g-progress { margin-bottom: 4px; }
+.g-root-detail > td { padding-top: 0; }
+.g-artwork-progress { display: grid; gap: 8px; max-width: 420px; }
+.g-artwork-progress p { margin: 0; }
+.g-import-counters dd { font: var(--g-type-h3); }
+/* ---- members and member access (2.8) ---- */
+.admin-issued-link, .g-invite-form { display: grid; gap: 8px; justify-items: start; }
+.g-invite-form { gap: 16px; justify-items: stretch; }
+.admin-issued-link .g-field { width: 100%; }
+.g-member-link { display: grid; color: inherit; text-decoration: none; }
+@media (hover: hover) { .g-member-link:hover { background: var(--g-wash); } }
+.g-member-head { grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 16px; }
+.g-subrows > .g-day { grid-template-columns: minmax(0, 1fr) auto; }
+.g-member-nav { margin-bottom: 8px; }
+.g-day-ranges, .g-day-range { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.g-day-range .g-input { width: 7.5rem; }
+@media (max-width: 679px) { .g-member-head { grid-template-columns: auto minmax(0, 1fr); } .g-day-ranges { justify-content: flex-start; } }
+/* ---- backups, AI and media ---- */
+.g-feature-switch { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 12px; }
+.g-feature-switch small { order: -1; color: var(--g-ink-2); font: var(--g-type-small); text-align: end; }
+.admin-download { display: grid; gap: 12px; margin-top: 12px; }
+.setting-model-progress .g-progress { display: block; inline-size: 100%; block-size: 4px; background: var(--g-rule-soft); }
+.setting-model-progress .g-progress-fill { display: block; block-size: 100%; background: var(--g-gold); }
+.setting-model-progress .g-progress.is-indeterminate .g-progress-fill { inline-size: 30%; }
+
+/* ---- information architecture + full width ---- */
+.g-settings-home { display: grid; gap: 40px; }
+.g-settings-home-head { margin: 0 0 12px; font: var(--g-type-h3); }
+.g-settings-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); gap: var(--g-grid-gap); margin: 0; padding: 0; list-style: none; }
+.g-settings-card { position: relative; display: grid; align-content: start; gap: 4px; min-height: 80px; padding: 16px 0; border-top: 1px solid var(--g-rule-soft); }
+.g-settings-card-link { color: var(--g-ink); font: var(--g-type-ui-strong); text-decoration: none; }
+/* The whole card is the link's hit area; the link alone takes focus (no :has(), for older TV browsers). */
+.g-settings-card-link::after { content: ''; position: absolute; inset: 0; }
+.g-settings-card:focus-within { border-top-color: var(--g-gold); }
+.g-settings-card-summary { max-width: 62ch; margin: 0; color: var(--g-ink-2); font: var(--g-type-small); }

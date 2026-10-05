@@ -1,0 +1,21 @@
+import type { SettingsSectionDef } from '../settingsTypes';
+import { AnimeLanguage, RadarrCard, SonarrCard } from './requestsArr';
+import { RequestsProvider } from './requestsContext';
+import { RequestsEnabled, SmtpForm, SmtpTest } from './requestsMail';
+import { HouseholdPolicies, MemberPolicies } from './requestsPolicies';
+
+/** Settings → Server → Requests: Sonarr/Radarr, anime language, SMTP, and who may request what. */
+export const REQUESTS_SECTION: SettingsSectionDef = {
+  id: 'requests', group: 'server', label: 'Requests', aliases: ['sonarr', 'radarr', 'overseerr', 'jellyseerr'], summary: 'Let members ask for movies, shows and anime, and where those requests are sent.',
+  Provider: RequestsProvider,
+  entries: [
+    { id: 'requests.enabled', label: 'Allow requests', layout: 'switch', description: 'Members can request movies, shows and anime.', keywords: ['requests', 'on', 'off', 'turn off', 'enable', 'request tab'], info: 'Shows the Requests tab to members so they can ask for movies, shows and anime. Turning it off hides the tab and stops new requests, and keeps existing ones. Affects everyone on this server.', Control: RequestsEnabled },
+    { id: 'requests.sonarr', label: 'Sonarr', layout: 'block', keywords: ['sonarr', 'shows', 'tv', 'series', 'api key', 'test connection', 'root folder', 'quality profile', 'path mapping', 'anime root', 'tvdb'], info: 'The Sonarr server that downloads requested shows and anime. Its API key is stored on this server and never shown again, so type a new one to replace it. Path mapping tells Lumina where Sonarr saves files as Lumina sees them.', Control: SonarrCard },
+    { id: 'requests.radarr', label: 'Radarr', layout: 'block', keywords: ['radarr', 'movies', 'films', 'api key', 'test connection', 'root folder', 'quality profile', 'path mapping'], info: 'The Radarr server that downloads requested movies. Its API key is stored on this server and never shown again, so type a new one to replace it. Path mapping tells Lumina where Radarr saves files as Lumina sees them.', Control: RadarrCard },
+    { id: 'requests.anime-language', label: 'Anime language', layout: 'block', advanced: true, keywords: ['anime', 'dub', 'sub', 'dubbed', 'subbed', 'english dub', 'japanese', 'subtitles', 'dual audio', 'custom format', 'quality profile', 'create profiles'], info: 'Which Sonarr quality profile Lumina uses when a member asks for an anime in English dub or in Japanese with subtitles. One click creates both profiles in Sonarr, and running it again changes nothing. Affects anime series requests.', Control: AnimeLanguage },
+    { id: 'requests.smtp', label: 'Email (SMTP)', layout: 'block', keywords: ['smtp', 'email', 'mail', 'host', 'port', 'starttls', 'ssl', 'username', 'password', 'from address', 'notifications'], info: 'The mail server Lumina uses to email members and the owner about requests. The password is stored on this server and never shown again. Leave it empty to send no email.', Control: SmtpForm },
+    { id: 'requests.smtp-test', label: 'Email check', layout: 'block', keywords: ['smtp', 'email', 'test email', 'send test', 'mail'], info: 'Sends one short message through the saved mail settings so you can see that it arrives. Save your email settings first. Nothing else changes.', Control: SmtpTest },
+    { id: 'requests.policies', label: 'Household request policies', layout: 'block', keywords: ['quota', 'limit', 'approval', 'auto-approve', 'auto approve', 'may request', 'permissions', 'unlimited', 'movies', 'shows', 'anime', 'defaults'], info: 'Who may request movies, shows and anime by default, which requests need your approval, and how many a member can make in a period. Members without a custom setting follow these. Vault owners are always allowed and approved.', Control: HouseholdPolicies },
+    { id: 'requests.member-policies', label: 'Member request policies', layout: 'block', keywords: ['quota', 'limit', 'approval', 'override', 'custom', 'reset to defaults', 'per member', 'permissions'], info: 'Give one member different rules from the household defaults, for example no approval needed or a higher limit. Resetting returns them to the defaults. Affects only the member you change.', Control: MemberPolicies },
+  ],
+};

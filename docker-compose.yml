@@ -1,0 +1,73 @@
+# Lumina 1.0. Operator guide: docker/README.md. Put overrides in a `.env` file next to this one.
+services:
+  yt-dlp-ui:
+    restart: unless-stopped
+    # Shutdown finishes model downloads' joins and stops on-device model servers; Docker's 10 s default is too short.
+    stop_grace_period: 30s
+    image: ${LUMINA_DOCKER_IMAGE:-lumina:local}
+    build:
+      context: .
+      args:
+        LUMINA_SOURCE_REVISION: ${LUMINA_SOURCE_REVISION:-unrecorded}
+    # Loopback only. Remote access goes through the HTTPS proxy in docker-compose.https.example.yml.
+    ports:
+      - "127.0.0.1:8765:8765"
+    environment:
+      # Server time zone: "Nightly at" library scans use it. Set TZ in .env (e.g. America/Chicago); default UTC.
+      TZ: ${TZ:-UTC}
+      LUMINA_HOST: 0.0.0.0
+      LUMINA_DATA_DIR: /app/backend/.data
+      # Numeric host account that owns ./app-data (and any managed media mount). Never 0.
+      LUMINA_RUNTIME_UID: ${LUMINA_RUNTIME_UID:-1000}
+      LUMINA_RUNTIME_GID: ${LUMINA_RUNTIME_GID:-1000}
+      # Container paths under which an admin may register extra storage roots (comma-separated).
+      LUMINA_STORAGE_MOUNT_PARENTS: ${LUMINA_STORAGE_MOUNT_PARENTS:-/media}
+      # OpenAI-compatible endpoints; empty = feature off. Admin → AI can override these defaults.
+      LUMINA_AI_BASE_URL: ${LUMINA_AI_BASE_URL:-}
+      LUMINA_AI_MODEL: ${LUMINA_AI_MODEL:-}
+      # Optional external speech server; the built-in on-device speech model needs none of this. e.g. http://asr:8000/v1
+      LUMINA_ASR_BASE_URL: ${LUMINA_ASR_BASE_URL:-}
+      LUMINA_ASR_MODEL: ${LUMINA_ASR_MODEL:-}
+      # TMDB v3 key or v4 read token for movie/TV metadata; empty = off. Admin → Media server overrides it.
+      LUMINA_TMDB_API_KEY: ${LUMINA_TMDB_API_KEY:-}
+      # Read-only mount of Jellyfin's metadata/People folder for cast photos (docker/README.md); empty = off.
+      LUMINA_JELLYFIN_PEOPLE_DIR: ${LUMINA_JELLYFIN_PEOPLE_DIR:-}
+    volumes:
+      # Database, backups, caches and the built-in Library (app-data/library/).
+      - ./app-data:/app/backend/.data
+      # Example external media: mount read-only, then register it under Admin → Storage as "external".
+      # - /srv/plex/movies:/media/movies:ro
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=512m
+    cap_drop:
+      - ALL
+    # Only the root entrypoint/init use these (chown the data dir, drop to the runtime account, forward
+    # SIGTERM to it); the Lumina process itself runs with no effective capabilities.
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+      - KILL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    # Survive abuse: a runaway transcode, model or decompression bomb is OOM-killed instead of taking the host down.
+    mem_limit: ${LUMINA_MEM_LIMIT:-5g}
+    memswap_limit: ${LUMINA_MEM_LIMIT:-5g}
+    ulimits:
+      nofile: 65536
+
+  # Optional local speech-to-text server for ASR transcripts (issue #143). Off by default: only
+  # starts with `docker compose --profile asr up -d`. No host port; reachable from yt-dlp-ui only,
+  # at the default project network's DNS name `asr`. See docker/README.md "External speech-to-text server (optional)".
+  asr:
+    profiles: ["asr"]
+    image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu
+    restart: unless-stopped
+    volumes:
+      # faster-whisper model cache; download a model into it once (docker/README.md) before first use.
+      - ./app-data/asr-models:/home/ubuntu/.cache/huggingface/hub

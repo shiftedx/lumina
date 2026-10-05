@@ -1,0 +1,6 @@
+/* A channel's avatar: a circle with a soft ring, a serif monogram when there is no image,
+   and a 2px gold outer ring beside the LIVE badge when the channel is live (never the ring alone). */
+.g-avatar { position: relative; display: inline-grid; flex: none; place-items: center; overflow: hidden; border: 1px solid var(--g-rule-soft); border-radius: 50%; background: var(--g-paper-2); }
+.g-avatar-monogram { font: italic 600 calc(var(--g-avatar-size, 40px) * .38) / 1 var(--g-serif, Georgia, serif); color: var(--g-ink-2); }
+.g-avatar.is-live { overflow: visible; box-shadow: 0 0 0 2px var(--g-paper), 0 0 0 4px var(--g-gold); }
+.g-avatar.is-live img { border-radius: 50%; }

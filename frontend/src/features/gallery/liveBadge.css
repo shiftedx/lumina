@@ -1,0 +1,21 @@
+/*
+ * The one LIVE badge, shared with the Live shelf. Global rules, because the player's
+ * control bar sits outside .gallery. Colours come from the art set in styles/tokens.css.
+ */
+.g-live { display: inline-flex; flex: none; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 2px; font: 700 11px / 1 var(--g-sans, ui-sans-serif, system-ui, sans-serif); letter-spacing: .14em; font-variant-numeric: tabular-nums; text-transform: uppercase; white-space: nowrap; }
+.g-live.on-art, .g-live.on-bar { background: var(--g-art-chip); color: var(--g-art-paper); }
+.g-live.on-paper { background: var(--g-ink, var(--g-art-chip)); color: var(--g-paper, var(--g-art-paper)); }
+.g-live-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--g-gold); }
+.g-live.is-upcoming .g-live-dot { box-sizing: border-box; border: 1.5px solid var(--g-gold); background: transparent; }
+.g-live.is-live .g-live-dot { animation: g-live 1.6s ease-in-out infinite; }
+@keyframes g-live { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+/* On artwork: top-left, inset 8px (6px on phone); the top-right corner stays the foundation's markers'. */
+.g-live.is-corner { position: absolute; top: 8px; left: 8px; z-index: 2; }
+@media (max-width: 599px) {
+  .g-live.on-art { height: 18px; font-size: 11px; }
+  .g-live.is-corner { top: 6px; left: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .g-live.is-live .g-live-dot { animation: none; }
+}
+.g-live.g-live-inline { margin-left: 8px; vertical-align: middle; }

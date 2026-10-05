@@ -1,0 +1,53 @@
+/* Split from lumina.css. Owner: */
+@font-face {
+  font-family: 'Newsreader';
+  src: url('/fonts/Newsreader-variable.woff2') format('woff2-variations');
+  font-display: swap;
+  font-style: normal;
+  font-weight: 200 800;
+}
+@font-face {
+  font-family: 'Newsreader';
+  src: url('/fonts/Newsreader-Italic-variable.woff2') format('woff2-variations');
+  font-display: swap;
+  font-style: italic;
+  font-weight: 200 800;
+}
+:root { font-family: var(--g-sans); font-synthesis: none; background: var(--g-paper); color: var(--g-ink); }
+* { box-sizing: border-box; }
+html { background: var(--g-paper); scroll-behavior: smooth; }
+body { margin: 0; min-width: 0; min-height: 100vh; overflow-x: clip; background: var(--g-paper); color: var(--g-ink); }
+button, input, textarea, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { color: inherit; }
+img { display: block; max-width: 100%; }
+.artwork-placeholder { display: grid; width: 100%; height: 100%; place-items: center; overflow: hidden; background: linear-gradient(145deg, color-mix(in srgb, var(--g-gold) 18%, transparent), color-mix(in srgb, var(--g-gold) 9%, transparent)); color: var(--g-gold-ink); }
+.artwork-placeholder-mark { position: relative; display: block; width: 32px; height: 16px; overflow: hidden; border-bottom: 1px solid currentColor; opacity: .72; }
+.artwork-placeholder-mark::before { position: absolute; bottom: -9px; left: 8px; width: 14px; height: 14px; border: 1px solid currentColor; border-radius: 50%; content: ''; }
+.artwork-placeholder-mark i { position: absolute; bottom: 0; left: 50%; width: 1px; height: 13px; background: currentColor; transform-origin: bottom; }
+.artwork-placeholder-mark i:nth-child(1) { transform: rotate(-54deg); }
+.artwork-placeholder-mark i:nth-child(2) { transform: rotate(0); }
+.artwork-placeholder-mark i:nth-child(3) { transform: rotate(54deg); }
+img[data-artwork-loading='true'] { opacity: .58; background: var(--g-paper-3); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; margin: -1px; padding: 0; border: 0; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+.spin { animation: spin .8s linear infinite; }
+@keyframes onboarding-in { from { opacity: 0; transform: translateY(10px); } }
+@keyframes shimmer { to { background-position-x: -200%; } }
+
+/* Metric-matched serif fallback: the Newsreader swap moves no line box by more than 1px. */
+@font-face { font-family: 'Newsreader Fallback'; src: local('Georgia'); size-adjust: 102.85%; ascent-override: 71.95%; descent-override: 25.28%; line-gap-override: 0%; }
+
+/* Focus: one ring from the tokens; overlays restate it with --g-overlay-focus. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: var(--g-focus-width) solid var(--g-focus); outline-offset: 3px; }
+.lumina-main :focus-visible, #main-content { scroll-margin-top: calc(var(--g-topbar) + 16px + env(safe-area-inset-top)); }
+
+/* Motion: the app's only reduced-motion rule. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after, ::backdrop { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+.thumbnail-placeholder { display: grid; width: 100%; height: 100%; place-items: center; color: var(--g-ink-3); }
+.thumbnail-placeholder svg { width: 30px; }
+/* The Watch fullscreen host (fullscreenHost.tsx) adds no box until it is the fullscreen element. */
+.watch-host { display: contents; }

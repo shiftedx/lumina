@@ -1,0 +1,8 @@
+/* The Fix-match dialog. The title page's styles live in features/gallery/titlePage.css. */
+
+.identify-search { display: grid; grid-template-columns: 1fr 110px auto; align-items: end; gap: var(--g-space-3); margin: var(--g-space-4) 0; }
+.identify-results { display: grid; gap: var(--g-space-3); margin: 0; padding: 0; list-style: none; }
+.identify-results li { display: grid; grid-template-columns: 64px 1fr auto; align-items: start; gap: var(--g-space-4); padding: var(--g-space-3); border: var(--g-rule); border-radius: var(--g-radius); }
+.identify-results p { display: -webkit-box; overflow: hidden; margin: var(--g-space-1) 0 0; font: var(--g-type-caption); color: var(--g-ink-2); -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.identify-poster { width: 64px; aspect-ratio: 2 / 3; border-radius: var(--g-radius); background: var(--g-paper-3); object-fit: cover; }
+@media (max-width: 520px) { .identify-search { grid-template-columns: 1fr; } .identify-results li { grid-template-columns: 48px 1fr; } .identify-results li .g-button { grid-column: 1 / -1; } }

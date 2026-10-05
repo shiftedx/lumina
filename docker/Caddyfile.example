@@ -1,0 +1,8 @@
+# No `log` directive on purpose: Jellyfin stream URLs carry ApiKey tokens. See docker/README.md "Jellyfin apps".
+{$LUMINA_HOSTNAME} {
+	encode zstd gzip
+	reverse_proxy yt-dlp-ui:8765 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto https
+	}
+}

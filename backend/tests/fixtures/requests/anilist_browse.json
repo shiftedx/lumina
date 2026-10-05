@@ -1,0 +1,6 @@
+{"data":{"Page":{"pageInfo":{"lastPage":4},"media":[
+ {"id":154587,"title":{"romaji":"Sousou no Frieren","english":"Frieren: Beyond Journey's End","native":"葬送のフリーレン"},"format":"TV","status":"RELEASING","episodes":28,"duration":24,"season":"FALL","seasonYear":2026,"startDate":{"year":2026,"month":10,"day":2},
+  "description":"An elf mage<br>outlives her party.","coverImage":{"extraLarge":"https://s4.anilist.co/frieren.jpg","color":"#aee4f5"},"bannerImage":"https://s4.anilist.co/frieren-banner.jpg","averageScore":91,"popularity":500000,"genres":["Adventure","Fantasy"],
+  "studios":{"nodes":[{"name":"Madhouse","isAnimationStudio":true},{"name":"Some Publisher","isAnimationStudio":false}]},"nextAiringEpisode":{"episode":2,"airingAt":1791000000},"trailer":{"id":"frierentrailer","site":"youtube"},"isAdult":false},
+ {"id":20001,"title":{"romaji":"Unmappable Movie","english":null,"native":"x"},"format":"MOVIE","status":"FINISHED","episodes":1,"season":"SUMMER","seasonYear":2026,"startDate":{"year":2026,"month":null,"day":null},"description":null,"coverImage":{"extraLarge":"https://s4.anilist.co/m.jpg","color":null},"bannerImage":null,"averageScore":null,"popularity":10,"genres":[],"studios":{"nodes":[]},"nextAiringEpisode":null,"trailer":null,"isAdult":false}
+]}}}

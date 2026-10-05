@@ -1,0 +1,13 @@
+name: Feature
+description: Suggest a change
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes:
+      label: Problem
+      description: What you're trying to do and what gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposal

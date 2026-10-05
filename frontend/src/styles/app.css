@@ -1,0 +1,3 @@
+/* Global styles in cascade order. Component CSS is imported by its component. */
+@import './tokens.css';
+@import './base.css';

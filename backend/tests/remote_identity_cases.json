@@ -1,0 +1,14 @@
+[
+  {"provider": "youtube", "id": "dQw4w9WgXcQ", "webpage_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "identity": "youtube:dQw4w9WgXcQ"},
+  {"provider": "youtube", "id": null, "webpage_url": "https://youtu.be/dQw4w9WgXcQ?si=abc", "identity": "youtube:dQw4w9WgXcQ"},
+  {"provider": "youtube", "id": null, "webpage_url": "https://m.youtube.com/watch?feature=share&v=abcdefghijk", "identity": "youtube:abcdefghijk"},
+  {"provider": "youtube", "id": "abcdefghijk", "webpage_url": "https://www.youtube.com/watch?v=abcdefghijk&list=PL1", "identity": "youtube:abcdefghijk"},
+  {"provider": "youtube", "id": "Shorty12345", "webpage_url": "https://www.youtube.com/shorts/Shorty12345", "identity": "youtube:Shorty12345"},
+  {"provider": "youtube", "id": "abcdefghijk", "webpage_url": null, "identity": "youtube:abcdefghijk"},
+  {"provider": "twitch", "id": "12345", "webpage_url": "https://www.twitch.tv/somecreator", "identity": "url:https://www.twitch.tv/somecreator"},
+  {"provider": "twitch", "id": null, "webpage_url": "https://WWW.Twitch.TV/Other", "identity": "url:https://www.twitch.tv/Other"},
+  {"provider": "kick", "id": "k1", "webpage_url": "https://kick.com/Streamer?utm_source=x&b=2#live", "identity": "url:https://kick.com/Streamer?b=2"},
+  {"provider": "soundcloud", "id": "9", "webpage_url": "https://soundcloud.com/artist/track?z=1&a=2", "identity": "url:https://soundcloud.com/artist/track?a=2&z=1"},
+  {"provider": "soundcloud", "id": null, "webpage_url": "https://soundcloud.com/a/b?q=hello%20world", "identity": "url:https://soundcloud.com/a/b?q=hello+world"},
+  {"provider": "kick", "id": null, "webpage_url": null, "identity": null}
+]

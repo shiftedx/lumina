@@ -1,0 +1,115 @@
+/* Home, under .gallery.home. Foundation tokens only: no colour literal (brand rule; galleryColours.test.ts
+   scans this file). */
+
+/* Sizes per the layout table: desktop, then tablet, phone and TV overrides. */
+.gallery.home {
+  --h-poster: 168px; --h-still: 320px; --h-square: 200px; --h-gap: 24px; --h-shelf-space: 48px; --h-control: var(--g-control);
+  width: 100%; max-width: none; padding: 0 var(--g-gutter) 96px;
+}
+@media (max-width: 1023px) { .gallery.home { --h-poster: 150px; --h-still: 280px; --h-square: 180px; --h-gap: 16px; --h-shelf-space: 40px; } }
+@media (max-width: 599px) { .gallery.home { --h-poster: 30vw; --h-still: min(72vw, 300px); --h-square: 40vw; --h-gap: 12px; --h-shelf-space: 32px; } }
+@media (min-width: 1600px) {
+  .gallery.home { --h-poster: 220px; --h-still: 400px; --h-square: 260px; --h-gap: 32px; --h-shelf-space: 64px; }
+}
+.gallery.home [data-focus-item]:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 4px; }
+
+/* Masthead. */
+.gallery.home .h-masthead { padding: var(--g-space-6) 0 var(--g-space-4); border-bottom: var(--g-hairline); }
+.gallery.home .h-kicker-line { display: flex; min-height: var(--h-control); align-items: center; justify-content: space-between; gap: var(--g-space-4); }
+.gallery.home .h-masthead h1 { width: fit-content; margin: var(--g-space-2) 0 0; font: var(--g-type-masthead); letter-spacing: var(--g-track-display); color: var(--g-ink); }
+@media (max-width: 599px) {
+  .gallery.home .h-masthead { display: flex; flex-direction: column-reverse; }
+  .gallery.home .h-masthead h1 { margin: 0 0 var(--g-space-2); }
+}
+
+/* Hero carousel: slides move sideways; portrait art is a poster over a blurred copy of itself. */
+.gallery.home .h-hero { --h-art: min(56vh, 560px); position: relative; margin: 0 calc(-1 * var(--g-gutter)); overflow: hidden; background: var(--g-overlay-bg); color: var(--g-on-art); touch-action: pan-y; }
+.gallery.home .h-hero-stage { display: grid; }
+.gallery.home .h-slide { position: relative; display: flex; grid-area: 1 / 1; height: var(--h-art); min-height: 340px; align-items: flex-end; padding: 0 var(--g-gutter) var(--g-space-6); overflow: hidden; background: var(--h-hero-colour); }
+.gallery.home .h-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
+.gallery.home .is-backdrop .h-hero-art .g-art-image { animation: h-drift 20s ease-out both; }
+.gallery.home .h-hero-blur > img { filter: blur(40px) brightness(.5); transform: scale(1.2); }
+.gallery.home .h-hero-poster { position: absolute; top: var(--g-space-6); right: calc(var(--g-gutter) + 8%); height: calc(100% - 2 * var(--g-space-6) - var(--g-control)); aspect-ratio: 2 / 3; box-shadow: var(--g-elev-2); }
+.gallery.home .h-hero-scrim { position: absolute; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--g-overlay-bg) 64%, transparent), transparent 70%), var(--g-scrim); pointer-events: none; }
+.gallery.home .h-hero-text { position: relative; z-index: 1; max-width: 560px; }
+.gallery.home .h-hero .g-label { color: inherit; }
+.gallery.home .h-hero-title { margin: var(--g-space-2) 0; font: var(--g-type-display); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
+.gallery.home .h-hero-logo { width: auto; max-width: 100%; max-height: 120px; aspect-ratio: auto; }
+.gallery.home .h-hero-progress { display: block; width: 240px; height: 3px; margin: var(--g-space-3) 0 0; background: var(--g-progress-track); }
+.gallery.home .h-hero-progress > span { display: block; height: 100%; background: var(--g-gold); }
+.gallery.home .h-hero-overview { display: -webkit-box; margin: var(--g-space-3) 0 0; overflow: hidden; font: var(--g-type-body); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.gallery.home .h-hero-why { margin: var(--g-space-2) 0 0; font: var(--g-type-body); font-style: italic; }
+.gallery.home .h-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--g-space-3); margin-top: var(--g-space-5); }
+.gallery.home .h-hero .g-button, .gallery.home .h-hero-step { border-color: currentColor; color: inherit; }
+.gallery.home .h-hero .is-primary { border-color: transparent; background: var(--g-art-paper); color: var(--g-badge-ink); }
+.gallery.home .h-hero :focus-visible { outline-color: currentColor; }
+/* The move: the arriving slide glides in from its side, the leaving one is pushed out, the copy settles a beat later. */
+.gallery.home .h-slide.is-in { animation: h-in 720ms cubic-bezier(.16, 1, .3, 1) both; }
+.gallery.home .h-slide.is-in .h-hero-text { animation: h-copy 560ms 160ms cubic-bezier(.16, 1, .3, 1) both; }
+.gallery.home .h-slide.is-out { z-index: 0; animation: h-out 720ms cubic-bezier(.16, 1, .3, 1) both; pointer-events: none; }
+@keyframes h-in { from { transform: translate3d(calc(var(--h-dir) * 100%), 0, 0); } }
+@keyframes h-out { to { transform: translate3d(calc(var(--h-dir) * -35%), 0, 0); filter: brightness(.4); } }
+@keyframes h-copy { from { opacity: 0; transform: translate3d(calc(var(--h-dir) * 32px), 0, 0); } }
+@keyframes h-drift { from { transform: scale(1.06); } }
+.gallery.home .h-hero-controls { position: absolute; right: var(--g-gutter); bottom: var(--g-space-5); z-index: 2; display: flex; align-items: center; }
+.gallery.home .h-pips { display: flex; }
+.gallery.home .h-pip { position: relative; width: 36px; height: var(--g-control); padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
+.gallery.home .h-pip::before, .gallery.home .h-pip-fill { content: ''; position: absolute; inset: calc(50% - 1.5px) 5px auto; height: 3px; border-radius: 2px; background: var(--g-overlay-track); }
+.gallery.home .h-pip-fill { background: var(--g-gold); transform-origin: left; animation: h-pip 8s linear; }
+.gallery.home .h-hero.is-paused .h-pip-fill { animation-play-state: paused; }
+@keyframes h-pip { from { transform: scaleX(0); } }
+.gallery.home .h-hero-step { background: var(--g-art-chip); opacity: 0; transition: opacity var(--g-hover); }
+.gallery.home .h-hero:hover .h-hero-step, .gallery.home .h-hero:focus-within .h-hero-step { opacity: 1; }
+@media (hover: none), (max-width: 599px) { .gallery.home .h-hero-step { display: none; } }
+.gallery.home .h-pip[aria-selected='true']::before { background: var(--g-on-art); }
+@media (prefers-reduced-motion: reduce) { .gallery.home .h-hero * { animation: none !important; } }
+@media (max-width: 1023px) { .gallery.home .h-hero { --h-art: min(50vh, 480px); } .gallery.home .h-hero-text { max-width: 480px; } }
+@media (min-width: 1600px) { .gallery.home .h-hero { --h-art: min(62vh, 680px); } .gallery.home .h-hero-text { max-width: 720px; } }
+/* Phone: the art on top (pips over it), the text below on paper, ink-filled primary, no overview. */
+@media (max-width: 599px) {
+  .gallery.home .h-hero { --h-art: min(75vw, 420px); background: var(--g-paper); color: var(--g-ink); }
+  /* A floor for the copy, so an advance between slides of different lengths rarely moves the shelves below. */
+  .gallery.home .h-slide { display: block; height: auto; min-height: calc(var(--h-art) + 216px); padding: calc(var(--h-art) + var(--g-space-4)) var(--g-gutter) 0; background: var(--g-paper); color: var(--g-ink) !important; }
+  .gallery.home .h-slide::before { content: ''; position: absolute; inset: 0 0 auto; height: var(--h-art); background: var(--h-hero-colour); }
+  .gallery.home .h-hero-art { inset: 0 0 auto; height: var(--h-art); }
+  .gallery.home .h-hero-poster { height: calc(var(--h-art) - 2 * var(--g-space-6) - var(--g-control)); }
+  .gallery.home .h-hero-scrim, .gallery.home .h-hero-overview { display: none; }
+  .gallery.home .h-hero .g-label { color: var(--g-ink-3); }
+  .gallery.home .h-hero .is-primary { background: var(--g-ink); color: var(--g-paper); }
+  .gallery.home .h-hero-controls { top: calc(var(--h-art) - var(--g-control)); bottom: auto; color: var(--g-on-art); }
+}
+
+/* Shelves. */
+.gallery.home .h-shelf { margin-top: var(--h-shelf-space); }
+.gallery.home .h-shelf-head { display: flex; align-items: center; gap: var(--g-space-4); margin-bottom: var(--g-space-4); padding-top: var(--g-space-4); border-top: var(--g-rule); }
+.gallery.home .h-shelf-head h2 { flex: 1; min-width: 0; margin: 0; font: var(--g-type-h2); color: var(--g-ink); }
+.gallery.home .h-inline-button { min-height: var(--h-control); padding: 0; border: 0; background: none; color: var(--g-ink); font: italic 600 16px / 1.3 var(--g-serif); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.gallery.home .h-row-buttons { display: flex; gap: var(--g-space-2); }
+.gallery.home .h-row { display: flex; gap: var(--h-gap); margin: 0 calc(-1 * var(--g-gutter)); padding: 4px var(--g-gutter) var(--g-space-2); overflow-x: auto; list-style: none; scroll-padding-inline: var(--g-gutter); scroll-snap-type: x proximity; scrollbar-width: none; }
+.gallery.home .h-row::-webkit-scrollbar { display: none; }
+.gallery.home .h-card { position: relative; flex: none; width: var(--h-still); scroll-snap-align: start; }
+.gallery.home .h-shelf.is-poster .h-card { width: var(--h-poster); }
+.gallery.home .h-shelf.is-square .h-card, .gallery.home .h-card:has(.g-art-square) { width: var(--h-square); }
+.gallery.home .h-row.is-frames { overflow: hidden; }
+.gallery.home .h-frame { flex: none; width: var(--h-still); aspect-ratio: 16 / 9; border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius); }
+.gallery.home .h-shelf.is-poster .h-frame { width: var(--h-poster); aspect-ratio: 2 / 3; }
+.gallery.home .h-shelf.is-square .h-frame { width: var(--h-square); aspect-ratio: 1; }
+.gallery.home .h-shelf-error { margin: 0; font: var(--g-type-body); color: var(--g-ink-2); }
+.gallery.home .h-note { margin: 0 0 var(--g-space-3); font: var(--g-type-body); color: var(--g-ink-2); }
+.gallery.home .h-notes { margin-bottom: var(--g-space-3); }
+/* The × on Continue and Next up cards. */
+/* Hidden with visibility (not opacity) until the card is hovered or holds focus: focusing the card reveals it, so arrows and Tab reach it. */
+.gallery.home .h-remove { position: absolute; top: 6px; right: 6px; z-index: 3; display: grid; width: 32px; height: 32px; place-items: center; padding: 0; border: 1px solid currentColor; border-radius: var(--g-radius); background: var(--g-art-chip); color: var(--g-art-paper); visibility: hidden; cursor: pointer; }
+.gallery.home .h-remove svg { width: 16px; height: 16px; }
+.gallery.home .h-card:hover .h-remove, .gallery.home .h-card:focus-within .h-remove { visibility: visible; }
+@media (hover: none), (max-width: 599px) { .gallery.home .h-remove { width: 44px; height: 44px; visibility: visible; } }
+@media (min-width: 1600px) { .gallery.home .h-remove { width: 48px; height: 48px; } }
+@media (max-width: 599px) { .gallery.home .h-row { scroll-snap-type: x mandatory; } }
+
+/* Start card and personalize prompt. */
+.gallery.home .h-start, .gallery.home .h-personalize { margin-top: var(--g-space-7); padding-top: var(--g-space-5); border-top: var(--g-hairline); }
+.gallery.home .h-start h2, .gallery.home .h-personalize h2 { margin: var(--g-space-2) 0; font: var(--g-type-h2); color: var(--g-ink); }
+.gallery.home .h-start p:not(.g-label), .gallery.home .h-personalize p:not(.g-label) { max-width: 60ch; margin: 0 0 var(--g-space-4); font: var(--g-type-body); color: var(--g-ink-2); }
+.gallery.home .h-start .g-label, .gallery.home .h-personalize .g-label { margin: 0; }
+.gallery.home .h-start-actions { display: flex; flex-wrap: wrap; gap: var(--g-space-3); }
+@media (pointer: fine) and (min-width: 1024px) { .gallery.home .h-masthead h1 { font-size: 56px; } }

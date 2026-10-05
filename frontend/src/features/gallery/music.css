@@ -1,0 +1,89 @@
+/* Music: album and artist cards, the album and artist pages and the Music tab. Only --g-* tokens inside .gallery: no colour literals. */
+
+/* -- album card: the card reuses .g-poster, .g-caption and .g-art-square; nothing of its own yet -- */
+
+/* -- album and artist pages -- */
+.gallery.g-album-page, .gallery.g-artist-page { width: 100%; max-width: var(--g-page-width); margin: 0 auto; padding: 24px var(--g-gutter) 96px; }
+.gallery .g-back { display: inline-flex; min-height: var(--g-control); align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--g-ink-2); cursor: pointer; }
+.gallery .g-back svg { width: 16px; height: 16px; }
+.gallery .g-album-layout { display: grid; grid-template-columns: minmax(320px, 440px) 1fr; gap: 48px; align-items: start; margin-top: 48px; }
+.gallery .g-album-cover { position: sticky; top: calc(var(--g-topbar) + env(safe-area-inset-top) + 24px); }
+.gallery .g-album-body { display: grid; min-width: 0; align-content: start; gap: 16px; }
+.gallery .g-album-body > p { margin: 0; }
+.gallery .g-album-title { margin: 0; padding-bottom: 16px; border-bottom: 2px solid var(--g-accent); font: var(--g-type-display); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
+.gallery .g-album-title:focus-visible { outline-offset: 4px; }
+.gallery .g-album-artist { font: var(--g-type-lede); font-style: italic; color: var(--g-ink-2); }
+.gallery .g-album-artist a { color: var(--g-ink); text-underline-offset: 3px; }
+.gallery .g-album-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.gallery .g-album-actions :disabled { cursor: default; opacity: .5; }
+.gallery .g-album-note { font: var(--g-type-body); color: var(--g-ink-2); }
+.gallery .g-disc { margin: 24px 0 0; padding-top: 16px; border-top: var(--g-rule); }
+.gallery .g-tracklist ol { margin: 0; padding: 0; list-style: none; }
+.gallery .g-tracklist li + li { border-top: var(--g-rule); }
+.gallery .g-track { position: relative; display: grid; width: 100%; min-height: var(--g-control); grid-template-columns: 40px 1fr auto; align-items: center; gap: 12px; padding: 8px 0; border: 0; background: none; color: var(--g-ink); text-align: left; cursor: pointer; }
+.gallery .g-track-number { display: grid; justify-items: end; font: 500 11px / 1 var(--g-sans); font-variant-numeric: tabular-nums; color: var(--g-ink-3); }
+.gallery .g-track-number > * { grid-area: 1 / 1; }
+.gallery .g-track-glyph { width: 14px; height: 14px; visibility: hidden; }
+.gallery .g-track-name { display: grid; min-width: 0; gap: 2px; }
+.gallery .g-track-title { overflow: hidden; font: 400 17px / 1.3 var(--g-serif); text-overflow: ellipsis; white-space: nowrap; text-underline-offset: 3px; }
+.gallery .g-track-duration { display: inline-flex; align-items: center; gap: 6px; font: 400 13px / 1 var(--g-sans); font-variant-numeric: tabular-nums; color: var(--g-ink-2); }
+.gallery .g-track-duration svg { width: 14px; height: 14px; color: var(--g-ink-3); }
+.gallery .g-track-progress { position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: var(--g-rule-soft); }
+.gallery .g-track-progress > span { display: block; height: 100%; background: var(--g-gold); }
+.gallery .g-track:focus-visible .g-track-index { visibility: hidden; }
+.gallery .g-track:focus-visible .g-track-glyph { visibility: visible; }
+.gallery .g-track:focus-visible .g-track-title { text-decoration: underline; }
+@media (hover: hover) {
+  .gallery .g-track:hover .g-track-index { visibility: hidden; }
+  .gallery .g-track:hover .g-track-glyph { visibility: visible; }
+  .gallery .g-track:hover .g-track-title { text-decoration: underline; }
+}
+.gallery .g-artist-head { display: grid; grid-template-columns: 240px 1fr; gap: 32px; align-items: end; margin-top: 48px; }
+.gallery .g-artist-text { display: grid; min-width: 0; gap: 16px; }
+.gallery .g-artist-text > p { margin: 0; }
+.gallery .g-artist-albums { margin-top: 48px; }
+.gallery.g-artist-page .g-chapter { display: flex; align-items: baseline; gap: 12px; margin: 0 0 24px; font: var(--g-type-chapter); letter-spacing: var(--g-track-chapter); }
+/* wallColumns as CSS: 168 px cards, never fewer than three columns. */
+.gallery .g-album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--g-poster-min), calc((100% - 2 * var(--g-grid-gap)) / 3)), 1fr)); gap: var(--g-grid-gap); margin: 0; padding: 0; list-style: none; }
+@media (max-width: 1023px) {
+  .gallery .g-album-layout { grid-template-columns: minmax(240px, 320px) 1fr; gap: 32px; }
+}
+@media (max-width: 599px) {
+  .gallery .g-album-layout { grid-template-columns: 1fr; gap: 24px; margin-top: 24px; }
+  .gallery .g-album-cover { position: static; width: min(100%, 420px); justify-self: center; }
+  .gallery .g-album-actions .g-album-play { flex: 1; }
+  .gallery .g-track { min-height: 56px; }
+  .gallery .g-artist-head { grid-template-columns: 1fr; margin-top: 24px; }
+  .gallery .g-artist-image { width: 160px; }
+  .gallery .g-album-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* -- music tab -- */
+.gallery .g-view-switch { margin-top: 16px; }
+.gallery .g-shelf { margin: 24px 0 8px; }
+.gallery .g-shelf-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.gallery .g-shelf-head h2 { margin: 0; }
+.gallery .g-shelf-row { display: grid; grid-auto-columns: 168px; grid-auto-flow: column; gap: var(--g-grid-gap); margin: 0; padding: 0 0 8px; overflow-x: auto; overscroll-behavior-x: contain; list-style: none; scroll-snap-type: x proximity; }
+.gallery .g-shelf-row > li { scroll-snap-align: start; }
+@media (max-width: 599px) {
+  .gallery .g-shelf-row { grid-auto-columns: 28vw; }
+}
+
+/* -- audio stage -- */
+/* The stage is its own .gallery so the tokens apply; it sits under the player's controls inside the frame. */
+.player-frame.has-audio-stage { container-type: size; }
+.player-frame.has-audio-stage .lumina-player { background: none; }
+.gallery.g-audio-stage { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: var(--g-space-2); padding: var(--g-space-5) var(--g-space-5) 96px; color: var(--g-on-art); text-align: center; }
+.gallery.g-audio-stage .g-audio-art { width: min(60vh, 480px, calc(100cqh - 200px)); min-width: var(--g-control); border-radius: var(--g-radius); }
+.gallery.g-audio-stage > p { max-width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gallery .g-audio-title { margin-top: var(--g-space-3); font: italic 700 28px / 1.2 var(--g-serif); }
+.gallery .g-audio-byline, .gallery .g-audio-next { font: var(--g-type-label); letter-spacing: var(--g-track-label); text-transform: uppercase; opacity: .8; }
+@media (max-width: 599px) {
+  .gallery .g-audio-title { font-size: 22px; }
+}
+/* Mini player: the art at 48 px beside the track name replaces the video thumbnail. */
+.watch-mini .player-frame.has-audio-stage { height: 64px; aspect-ratio: auto; container-type: normal; }
+.watch-mini .gallery.g-audio-stage { grid-auto-flow: column; justify-content: start; gap: var(--g-space-3); padding: var(--g-space-2); text-align: left; }
+.watch-mini .gallery.g-audio-stage .g-audio-art { width: 48px; }
+.watch-mini .gallery .g-audio-title { margin: 0; font-size: 15px; }
+.watch-mini .gallery .g-audio-byline, .watch-mini .gallery .g-audio-next { display: none; }

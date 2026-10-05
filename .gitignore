@@ -1,0 +1,26 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+!*.env.example
+.coverage
+coverage.xml
+htmlcov/
+.idea/
+.vscode/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+.pytest_cache/
+.playwright-cli/
+output/
+backend/.data/
+backend/.venv
+app-data/
+private/
+shared/
+frontend/dist/
+frontend/node_modules
+
+# Worktree bootstrap log (build artifact)
+.bootstrap.log

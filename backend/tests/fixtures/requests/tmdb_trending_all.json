@@ -1,0 +1,5 @@
+{"page":1,"total_pages":3,"results":[
+ {"id":603,"media_type":"movie","title":"The Matrix","original_title":"The Matrix","release_date":"1999-03-30","overview":"A hacker learns the truth.","poster_path":"/matrix.jpg","backdrop_path":"/matrix-bd.jpg","genre_ids":[28,878],"vote_average":8.2,"vote_count":25000,"original_language":"en"},
+ {"id":1399,"media_type":"tv","name":"Game of Thrones","original_name":"Game of Thrones","first_air_date":"2011-04-17","overview":"Noble houses.","poster_path":"/got.jpg","backdrop_path":"/got-bd.jpg","genre_ids":[18,10765],"vote_average":8.4,"vote_count":24000,"original_language":"en","origin_country":["US"]},
+ {"id":99,"media_type":"person","name":"Somebody"}
+]}

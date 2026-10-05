@@ -1,0 +1,18 @@
+.ed-art-grid { display: grid; gap: var(--g-space-3); grid-template-columns: 1fr; }
+@media (min-width: 600px) { .ed-art-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); } }
+.ed-art-card { border: var(--g-hairline); border-radius: var(--g-radius); padding: var(--g-space-2); }
+.ed-art-frame { aspect-ratio: 16 / 9; overflow: hidden; display: grid; place-items: center; }
+.ed-art-frame[data-type="Primary"] { aspect-ratio: 2 / 3; }
+.ed-art-frame[data-type="Logo"] { aspect-ratio: 3 / 1; }
+.ed-art-frame img { width: 100%; height: 100%; object-fit: cover; }
+.ed-art-frame[data-type="Logo"] img { object-fit: contain; }
+.ed-art-empty { color: var(--g-ink-2); text-align: center; }
+.ed-art-caption { display: flex; align-items: center; gap: var(--g-space-1); }
+.ed-art-caption strong { flex: 1; }
+.ed-art-picks { display: grid; gap: var(--g-space-2); grid-template-columns: 1fr 1fr; }
+.ed-art-picks[data-type="Backdrop"] { grid-template-columns: 1fr; }
+@media (min-width: 700px) { .ed-art-picks { grid-template-columns: repeat(3, 1fr); } }
+.ed-art-picks .g-choice { border-radius: var(--g-radius); }
+.ed-art-picks .g-choice:has(input:checked) { outline: 2px solid var(--g-gold); }
+.ed-art-picks .g-choice:has(input:focus-visible) { outline: 2px solid var(--g-focus); }
+.ed-art-picks img { inline-size: 100%; }

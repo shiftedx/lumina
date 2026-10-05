@@ -1,0 +1,25 @@
+name: Bug
+description: Something is broken
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+      description: Steps to reproduce, what you expected, what you saw.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Version
+      description: Settings → Diagnostics, or the release you deployed.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Setup
+      description: Host OS and arch, browser or Jellyfin app, remote setup (loopback, HTTPS proxy, LAN HTTP).
+  - type: textarea
+    attributes:
+      label: Logs
+      description: "`docker compose logs --tail=100 yt-dlp-ui`. Remove hostnames, tokens and media titles you don't want public."
+      render: text

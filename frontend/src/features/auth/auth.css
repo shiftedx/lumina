@@ -1,0 +1,66 @@
+/* Sign-in, setup, invite, reset: two editorial columns on desktop, one on phone. Tokens only. The panel
+   is first in the DOM (focus order) and placed right by the grid. */
+.g-auth { position: relative; isolation: isolate; display: grid; min-height: 100dvh; grid-template-columns: 40% minmax(0, 1fr); background: var(--g-paper); color: var(--g-ink); }
+.g-auth-side { grid-area: 1 / 1; display: grid; grid-template-rows: auto 1fr auto; padding: 48px; border-right: 1px solid var(--g-rule-soft); background: var(--g-paper-2); }
+.g-auth-quote { align-self: center; max-width: 18ch; margin: 0; font: var(--g-type-quote); }
+.g-auth-host { margin: 0; color: var(--g-ink-3); }
+.g-auth-bar { display: none; }
+.g-auth-main { grid-area: 1 / 2; display: grid; place-items: center; padding: 48px 24px; }
+.g-auth-column { display: grid; width: min(400px, 100%); gap: 24px; }
+.g-auth-form { display: grid; gap: 16px; }
+
+/* Release showcase: full-bleed backdrops, the form on a blurred dark panel, caption bottom-left. Always dark. */
+.g-auth.has-art { grid-template-columns: minmax(0, 1fr) min(480px, 40%); background: var(--g-overlay-bg); }
+.has-art .g-auth-side { grid-template-rows: auto 1fr; justify-items: start; border: 0; background: none; }
+.has-art .g-auth-main { border-left: 1px solid var(--g-overlay-rule); background: var(--g-overlay-panel); backdrop-filter: blur(28px) saturate(1.2); }
+.g-show-art { position: absolute; z-index: -1; inset: 0; overflow: hidden; }
+.g-show-art img { position: absolute; width: 100%; height: 100%; object-fit: cover; animation: g-show-drift 11s linear both; }
+.g-show-art img.is-in { animation: g-show-in 1.4s cubic-bezier(.16, 1, .3, 1) both, g-show-drift 11s linear both; }
+.g-show-art.is-held img { animation-play-state: paused; }
+.g-show-art.is-held img.is-in { animation-play-state: running, paused; } /* a held slide still finishes fading in */
+.g-show-art::after { position: absolute; inset: 0; content: ''; background: linear-gradient(to top, color-mix(in srgb, var(--g-overlay-bg) 90%, transparent) 4%, transparent 55%), linear-gradient(color-mix(in srgb, var(--g-overlay-bg) 60%, transparent), transparent 28%); }
+@keyframes g-show-in { from { opacity: 0; } }
+@keyframes g-show-drift { from { transform: scale(1.04); } to { transform: scale(1.12) translate3d(-1.5%, -1%, 0); } }
+.g-show-caption { display: grid; align-self: end; gap: 20px; }
+.g-show-now { display: grid; justify-items: start; gap: 12px; margin: 0; animation: g-show-in 900ms cubic-bezier(.16, 1, .3, 1) both; }
+.g-show-when { color: var(--g-gold-ink); font: var(--g-type-label); letter-spacing: var(--g-track-label); text-transform: uppercase; }
+.g-show-title { max-width: 16ch; font: var(--g-type-display); letter-spacing: var(--g-track-display); text-wrap: balance; }
+.g-show-logo { max-width: min(360px, 100%); max-height: 112px; object-fit: contain; object-position: left bottom; }
+.g-show-controls { display: flex; align-items: center; gap: 8px; margin-left: -12px; }
+.g-show-pips { display: flex; flex-wrap: wrap; }
+.g-show-pip { position: relative; width: 28px; height: 24px; padding: 0; border: 0; background: none; cursor: pointer; }
+.g-show-pip::before, .g-show-pip i { position: absolute; top: 11px; right: 4px; left: 4px; height: 2px; content: ''; background: color-mix(in srgb, var(--g-ink) 35%, transparent); }
+.g-show-pip:hover::before { background: var(--g-ink); }
+.g-show-pip i { background: var(--g-gold); transform-origin: left; animation: g-show-pace 8s linear both; }
+.g-show-pips.is-held i { animation-play-state: paused; }
+@keyframes g-show-pace { from { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .g-show-art img, .g-show-art img.is-in, .g-show-now { animation: none; }
+}
+@media (max-width: 767px) {
+  .g-auth { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .g-auth-side { display: none; }
+  .g-auth-bar { display: block; padding: calc(16px + env(safe-area-inset-top)) 16px 0; }
+  .g-auth-main { grid-area: 2 / 1; place-items: start center; padding: 24px 16px; }
+  .g-auth.has-art { grid-template-columns: 1fr; grid-template-rows: minmax(120px, 18dvh) auto minmax(200px, 1fr); }
+  .has-art .g-auth-bar { padding-bottom: 16px; }
+  .has-art .g-auth-main { border: solid var(--g-overlay-rule); border-width: 1px 0; }
+  .has-art .g-auth-side { grid-area: 3 / 1; display: grid; padding: 24px 16px calc(16px + env(safe-area-inset-bottom)); }
+  .has-art .g-auth-side > .g-brand { display: none; }
+  .g-show-logo { max-height: 72px; }
+}
+
+/* "Who's watching?": 160 × 200 tiles, hairline frame on hover and focus; no per-member colour. */
+.g-picker { display: grid; justify-items: center; gap: 32px; }
+.g-picker-note { margin: 0; color: var(--g-ink-2); font: var(--g-type-ui); }
+.g-picker-tiles { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
+.g-picker-tile-wrap { position: relative; }
+.g-picker-tile-wrap .g-icon-button { position: absolute; top: 4px; right: 4px; }
+.g-picker-tile { display: grid; width: 160px; min-height: 200px; place-items: center; align-content: center; gap: 10px; padding: 16px 12px; border: 1px solid transparent; border-radius: var(--g-radius); background: none; color: var(--g-ink); cursor: pointer; text-align: center; }
+.g-picker-tile:focus-visible, .g-picker-tile:hover { border-color: var(--g-ink); }
+.g-picker-tile[aria-disabled='true'] { cursor: default; }
+.g-picker-tile.is-asking { width: 260px; cursor: default; border-color: var(--g-rule-soft); }
+.g-picker-name { font: var(--g-type-h3); }
+.g-picker-label { min-height: 1em; color: var(--g-ink-3); }
+.g-picker-plus { display: grid; width: 96px; height: 96px; place-items: center; border: 1px dashed var(--g-ink-3); border-radius: var(--g-radius-round); }
+.g-picker-problem { margin: 0; color: var(--g-danger); font: var(--g-type-ui); }

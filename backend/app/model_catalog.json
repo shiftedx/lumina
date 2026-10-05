@@ -1,0 +1,65 @@
+{
+  "hosts": ["huggingface.co"],
+  "cdn_host_suffixes": [".hf.co"],
+  "models": [
+    {
+      "id": "granite-embedding-97m-multilingual-r2-q8",
+      "role": "search",
+      "default": true,
+      "name": "Granite Embedding 97M multilingual",
+      "description": "Fast search model that understands many languages. A community Q8_0 conversion of IBM's model, pinned by checksum.",
+      "licence": "Apache-2.0",
+      "ram_bytes": 912680550,
+      "engine": {"dimensions": 384, "pooling": null, "query_prefix": "", "document_prefix": ""},
+      "files": [
+        {"name": "granite-embedding-97M-multilingual-r2-Q8_0.gguf", "url": "https://huggingface.co/mykor/granite-embedding-97m-multilingual-r2-GGUF/resolve/45ce642d3fab2033d167ec09641a159010f7d9d9/granite-embedding-97M-multilingual-r2-Q8_0.gguf", "sha256": "25155b89638e501ac33495fa278d551d7545e1e2f62722a499bba1f064c080f2", "size": 115061088}
+      ]
+    },
+    {
+      "id": "nomic-embed-text-v1.5-q8",
+      "role": "search",
+      "default": false,
+      "name": "Nomic Embed Text v1.5",
+      "description": "English-only search model with an official GGUF from its authors. About 3.5 times slower than the default.",
+      "licence": "Apache-2.0",
+      "ram_bytes": 590558003,
+      "engine": {"dimensions": 768, "pooling": null, "query_prefix": "search_query: ", "document_prefix": "search_document: "},
+      "files": [
+        {"name": "nomic-embed-text-v1.5.Q8_0.gguf", "url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/0188c9bf409793f810680a5a431e7b899c46104c/nomic-embed-text-v1.5.Q8_0.gguf", "sha256": "3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7", "size": 146146432}
+      ]
+    },
+    {
+      "id": "faster-whisper-small-int8",
+      "role": "speech",
+      "default": true,
+      "name": "Whisper small",
+      "description": "Speech-to-text in 99 languages with word timings. About 7 times faster than real time on a 4-core household CPU.",
+      "licence": "MIT",
+      "ram_bytes": 858993459,
+      "engine": {"language": null},
+      "files": [
+        {"name": "config.json", "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/config.json", "sha256": "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828", "size": 2370},
+        {"name": "model.bin", "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/model.bin", "sha256": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671", "size": 483546902},
+        {"name": "tokenizer.json", "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/tokenizer.json", "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab", "size": 2203239},
+        {"name": "vocabulary.txt", "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/vocabulary.txt", "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913", "size": 459861}
+      ]
+    },
+    {
+      "id": "faster-whisper-large-v3-turbo-int8",
+      "role": "speech",
+      "default": false,
+      "name": "Whisper large-v3-turbo (accurate)",
+      "description": "More accurate speech-to-text for non-English or noisy audio. About 2 times faster than real time on a 4-core household CPU.",
+      "licence": "MIT",
+      "ram_bytes": 1717986918,
+      "engine": {"language": null},
+      "files": [
+        {"name": "config.json", "url": "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/config.json", "sha256": "b0253ea6c0d3bea6b1e19e91a02acfd3b53f4467362efcb5a3e6b16c9b3a9b7e", "size": 2263},
+        {"name": "model.bin", "url": "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/model.bin", "sha256": "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da", "size": 1617884929},
+        {"name": "preprocessor_config.json", "url": "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/preprocessor_config.json", "sha256": "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711", "size": 340},
+        {"name": "tokenizer.json", "url": "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/tokenizer.json", "sha256": "297b13372ac43916285644fb9687add3cc62ee2a1adb60da3dc25cc94c1871fd", "size": 2710337},
+        {"name": "vocabulary.json", "url": "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2/resolve/4df90f75321148c3a29a9e2351b7ddf8f5b115a8/vocabulary.json", "sha256": "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1", "size": 1068114}
+      ]
+    }
+  ]
+}

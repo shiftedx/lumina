@@ -1,0 +1,9 @@
+{
+  "page": 1,
+  "results": [
+    {"id": 2316, "name": "The Office", "original_name": "The Office", "first_air_date": "2005-03-24", "overview": "The everyday lives of office employees in the Scranton, Pennsylvania branch of the fictional Dunder Mifflin Paper Company.", "poster_path": "/7DJKHzAi83BmQrWLrYYOqcoKfhR.jpg"},
+    {"id": 2996, "name": "The Office", "original_name": "The Office", "first_air_date": "2001-07-09", "overview": "A mockumentary about life in a mid-sized suboffice paper merchants in a bleak British industrial town.", "poster_path": "/xtLwGRmG7MBIRu8nMpX5Sge0j6l.jpg"}
+  ],
+  "total_pages": 1,
+  "total_results": 2
+}

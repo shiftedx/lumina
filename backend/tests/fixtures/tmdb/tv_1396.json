@@ -1,0 +1,36 @@
+{
+  "id": 1396,
+  "name": "Breaking Bad",
+  "original_name": "Breaking Bad",
+  "tagline": "Change the equation.",
+  "overview": "Walter White, a New Mexico chemistry teacher, is diagnosed with Stage III cancer and given a prognosis of only two years left to live.",
+  "first_air_date": "2008-01-20",
+  "last_air_date": "2013-09-29",
+  "status": "Ended",
+  "episode_run_time": [45, 47],
+  "vote_average": 8.9,
+  "vote_count": 15003,
+  "poster_path": "/ztkUQFLlC19CCMYHW9o1zWhJRNq.jpg",
+  "backdrop_path": "/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg",
+  "genres": [{"id": 18, "name": "Drama"}, {"id": 80, "name": "Crime"}],
+  "networks": [{"id": 174, "name": "AMC"}],
+  "created_by": [{"id": 66633, "name": "Vince Gilligan", "profile_path": "/z3E0DhBg1V1PZVEtS9vfFPzOWYB.jpg"}],
+  "seasons": [
+    {"season_number": 0, "name": "Specials", "episode_count": 9},
+    {"season_number": 1, "name": "Season 1", "episode_count": 7},
+    {"season_number": 2, "name": "Season 2", "episode_count": 13},
+    {"season_number": 3, "name": "Season 3", "episode_count": 13},
+    {"season_number": 4, "name": "Season 4", "episode_count": 13},
+    {"season_number": 5, "name": "Season 5", "episode_count": 16}
+  ],
+  "aggregate_credits": {
+    "cast": [
+      {"id": 17419, "name": "Bryan Cranston", "roles": [{"character": "Walter White", "episode_count": 62}], "profile_path": "/7Jahy5LZX2Fo8fGJltMreAI49hC.jpg"},
+      {"id": 84497, "name": "Aaron Paul", "roles": [{"character": "Jesse Pinkman", "episode_count": 62}], "profile_path": "/8Kce1utfytAG5m1PbtVoDzmDZJH.jpg"}
+    ],
+    "crew": []
+  },
+  "content_ratings": {"results": [{"iso_3166_1": "DE", "rating": "16"}, {"iso_3166_1": "US", "rating": "TV-MA"}]},
+  "images": {"logos": [{"file_path": "/ggFHVNu6YYI5L9pCfOacjizRGt.png", "iso_639_1": "en"}]},
+  "external_ids": {"imdb_id": "tt0903747", "tvdb_id": 81189}
+}

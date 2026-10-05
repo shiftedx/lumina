@@ -1,0 +1,8 @@
+.gallery .g-channels-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
+.gallery .g-channels-tiles .g-still-slot { aspect-ratio: 16 / 9; border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius); }
+.gallery .g-channel-card { display: block; color: var(--g-ink); text-decoration: none; }
+.gallery .g-channel-card-frame { position: relative; display: block; border-radius: var(--g-radius); }
+.gallery .g-channel-card-avatar { position: absolute; bottom: -12px; left: 12px; box-shadow: 0 0 0 2px var(--g-paper); }
+.gallery .g-channel-card .g-still-caption { padding-top: 18px; }
+.gallery .g-channel-card:focus-visible { outline-offset: 4px; }
+@media (max-width: 599px) { .gallery .g-channels-tiles { grid-template-columns: 1fr; gap: 16px; } }

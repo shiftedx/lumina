@@ -1,0 +1,10 @@
+.gallery.g-streaming { width: 100%; max-width: none; padding: 32px var(--g-gutter) 96px; }
+.gallery.g-streaming > .g-masthead { grid-template-columns: 1fr; }
+.gallery.g-streaming > .g-masthead .g-masthead-actions { width: min(420px, 100%); }
+.gallery.g-streaming .g-search { width: 100%; max-width: none; }
+.gallery .g-streaming-bar { flex-wrap: wrap; justify-content: space-between; }
+.gallery .g-streaming-bar .g-segmented-options { flex-wrap: nowrap; gap: 24px; }
+/* Mode switches read as the Library tab row: no boxes; the choice is ink, bold and gold-underlined. */
+.gallery .g-streaming-bar .g-segment { margin-left: 0; padding: 0; border: 0; border-radius: 0; background: none; color: var(--g-ink-2); text-underline-offset: 6px; }
+.gallery .g-streaming-bar .g-segment:has(input:checked) { background: none; color: var(--g-ink); font-weight: 700; text-decoration: underline 2px var(--g-gold); }
+.gallery .g-streaming-bar + div > section:first-child { margin-top: 0; border-top: 0; }

@@ -1,0 +1,12 @@
+.library-curation-controls { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--g-rule-soft); border-radius: 10px; background: var(--g-wash); }
+.library-curation-controls > header .settings-select { width: min(260px, 100%); flex: 0 0 auto; }
+.library-curation-controls > .settings-card { min-height: 0; gap: 15px; padding: 18px; }
+.library-curation-controls ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.library-curation-controls li { display: inline-flex; min-height: var(--g-control); align-items: center; gap: 7px; padding: 4px 4px 4px 10px; border: 1px solid var(--g-rule-soft); border-radius: 7px; color: var(--g-ink-2); font-size: 11px; }
+.library-curation-controls form { display: grid; gap: 10px; }
+.library-curation-controls form > .g-button { justify-self: start; }
+@media (max-width: 680px) {
+  .library-curation-controls { padding: 14px; }
+  .library-curation-controls > header .settings-select { width: 100%; }
+  .library-curation-controls > .settings-card { min-height: 0; padding: 14px; }
+}

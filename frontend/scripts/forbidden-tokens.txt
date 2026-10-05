@@ -1,0 +1,15 @@
+# Retired token names (regex fragments after "--"), one per line. Integration adds the legacy names here
+# (app polish spec 1.8 step 6); check-styles.mjs then fails on any use or definition in src/.
+surface(-[a-z]+)?
+text-(primary|strong|body|secondary|muted)
+accent(-[a-z]+)?
+line(-strong)?
+border-subtle
+danger
+success
+shadow
+[a-z]+-rgb
+(ink|pearl|teal|caramel|coral)-[0-9]+
+
+sidebar-width
+topbar-height

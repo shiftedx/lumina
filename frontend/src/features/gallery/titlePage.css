@@ -1,0 +1,148 @@
+/* Gallery title page. Uses the frozen tokens from gallery.css. The gallery rules weigh up to
+   (0,3,0) (.gallery .g-label, .gallery .g-art-backdrop, .gallery :focus-visible, .gallery .g-art-logo .g-art-image), so
+   every rule here for an element that carries a gallery class, or that the gallery's :focus-visible reaches, starts with
+   .gallery.t-page and outweighs the gallery rules whatever order the sheets load in. */
+
+.t-page { position: relative; min-height: calc(100vh - var(--g-topbar)); padding-bottom: calc(var(--g-space-8) + env(safe-area-inset-bottom)); font: var(--g-type-body); }
+.t-page :focus-visible { outline: 2px solid var(--g-focus); outline-offset: 3px; }
+.t-page h1:focus { outline: none; }
+.t-page h1:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 4px; }
+@keyframes t-page-in { from { opacity: 0; } }
+/* The story arrives after the page; it fades in the same way rather than popping into the column. */
+@media (prefers-reduced-motion: no-preference) { .t-page, .t-story { animation: t-page-in var(--g-page); } }
+/* The app's reduced-motion rule leaves .01ms on every element; the gallery clears it inside .gallery, this clears the page root. */
+@media (prefers-reduced-motion: reduce) { .gallery.t-page { transition: none !important; animation: none !important; } }
+
+/* Hero: full-bleed backdrop fading into paper; a colour field when there is none. */
+.t-hero { position: relative; display: flex; height: max(420px, min(70vh, 680px)); align-items: flex-end; overflow: hidden; padding: 0 max(var(--g-gutter), (100% - var(--g-page-width)) / 2) var(--g-space-6); background: var(--g-paper-2); }
+.gallery.t-page .t-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; }
+.t-hero-fade { position: absolute; inset: auto 0 0; height: 55%; background: linear-gradient(transparent 0%, color-mix(in srgb, var(--g-paper) 45%, transparent) 50%, var(--g-paper) 100%); pointer-events: none; }
+/* A top scrim keeps the white Back label legible on bright art. */
+.t-page:not(.is-plain) .t-hero::before { content: ''; position: absolute; inset: 0 0 auto; z-index: 1; height: 140px; background: linear-gradient(color-mix(in srgb, var(--g-overlay-halo) 50%, transparent), color-mix(in srgb, var(--g-overlay-halo) 30%, transparent) 35%, color-mix(in srgb, var(--g-overlay-halo) 12%, transparent) 70%, transparent); pointer-events: none; }
+/* Rings on the hero take the text colour: white on art, the colour field's ink on a plain hero. */
+.gallery.t-page .t-hero :focus-visible { outline-color: currentColor; }
+.gallery.t-page .t-back { position: absolute; top: var(--g-space-4); left: max(var(--g-gutter), (100% - var(--g-page-width)) / 2); z-index: 2; display: inline-flex; min-height: var(--g-control); align-items: center; gap: var(--g-space-1); padding: 0 var(--g-space-2) 0 0; border: 0; background: none; color: var(--g-on-art); text-shadow: 0 1px 3px color-mix(in srgb, var(--g-overlay-halo) 60%, transparent); cursor: pointer; }
+.gallery.t-page .t-back svg { width: 16px; height: 16px; }
+.gallery.t-page.is-plain .t-back { color: inherit; text-shadow: none; }
+.t-page.is-plain .t-headline { position: relative; max-width: var(--g-page-width); }
+
+/* Body: two columns pulled up over the hero; the story sits in the main column after the actions. */
+.t-body { position: relative; display: grid; max-width: calc(var(--g-page-width) + 2 * var(--g-gutter)); margin: -120px auto 0; padding: 0 var(--g-gutter); grid-template-areas: 'main side'; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); column-gap: var(--g-space-7); align-items: start; }
+.t-page.is-plain .t-body { margin-top: var(--g-space-6); }
+.t-main { grid-area: main; min-width: 0; }
+.t-headline { margin: 0 0 var(--g-space-4); font: var(--g-type-display); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
+/* The title's accent hairline under the masthead. */
+.t-headline::after { content: ''; display: block; width: 72px; margin-top: var(--g-space-4); border-top: 1px solid var(--g-accent); }
+.gallery.t-page .t-logo { display: block; max-width: min(100%, 600px); height: 160px; background: none; }
+.gallery.t-page .t-logo .g-art-image { width: auto; max-width: 100%; height: 100%; max-height: 160px; object-fit: contain; object-position: left bottom; }
+.gallery.t-page .t-meta { margin: 0 0 var(--g-space-4); color: var(--g-ink-2); font-variant-numeric: tabular-nums; }
+.t-meta-part { white-space: nowrap; }
+.t-lede { max-width: 64ch; margin: 0 0 var(--g-space-4); font: var(--g-type-lede); }
+/* Three lines tall at least, so the cap never hangs into the tagline or the actions. */
+.t-lede.has-dropcap { min-height: 4.5em; }
+.t-lede.has-dropcap::first-letter { float: left; padding: 4px 8px 0 0; color: var(--g-accent); font: 700 3.1em / .8 var(--g-serif); }
+@supports (initial-letter: 3) { .t-lede.has-dropcap::first-letter { float: none; padding: 0 8px 0 0; font-size: 1em; line-height: 1; initial-letter: 3; } }
+.t-tagline { margin: 0 0 var(--g-space-4); color: var(--g-ink-2); font: italic 400 18px / 1.4 var(--g-serif); }
+
+/* Versions, actions and notices. */
+.t-versions { display: flex; flex-wrap: wrap; gap: var(--g-space-2); margin: 0 0 var(--g-space-4); padding: 0; border: 0; }
+.gallery.t-page .t-versions legend { margin-bottom: var(--g-space-2); color: var(--g-ink-3); }
+.t-versions label { display: inline-flex; min-height: var(--g-control); align-items: center; gap: var(--g-space-2); padding: 0 var(--g-space-4); border: var(--g-rule); border-radius: var(--g-radius); cursor: pointer; font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; }
+.t-versions label:has(input:checked) { border: var(--g-hairline); font-weight: 700; }
+.t-versions label:has(input:focus-visible) { outline: 2px solid var(--g-focus); outline-offset: 3px; }
+.t-actions { display: flex; flex-wrap: wrap; gap: var(--g-space-3); margin: var(--g-space-5) 0 var(--g-space-3); }
+
+@media (hover: hover) {
+  .t-episode:hover .t-episode-title { text-decoration: underline; text-underline-offset: 3px; }
+}
+.t-actions .g-button:disabled { border-style: dashed; cursor: not-allowed; }
+.t-note { margin: var(--g-space-2) 0 0; color: var(--g-ink-2); }
+
+/* Side column: hairline rule, 24px in, 74px down. */
+.t-side { grid-area: side; margin: 74px 0 0; padding-left: var(--g-space-5); border-left: var(--g-hairline); }
+.t-side > div + div { margin-top: var(--g-space-4); }
+.gallery.t-page .t-side dt { color: var(--g-ink-3); }
+.t-side dd { margin: var(--g-space-1) 0 0; }
+
+/* The story so far. */
+.t-story { margin-top: var(--g-space-6); padding-top: var(--g-space-5); border-top: var(--g-hairline); }
+.t-story-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--g-space-2) var(--g-space-4); }
+.t-h2 { margin: 0 0 var(--g-space-4); font: var(--g-type-h2); }
+.gallery.t-page .t-source, .gallery.t-page .t-point-label { color: var(--g-ink-3); }
+.t-points { display: grid; gap: var(--g-space-3); margin: 0; padding-left: 1.2em; }
+.gallery.t-page .t-point-label { display: block; }
+
+/* Sections below the body. */
+.t-section { max-width: calc(var(--g-page-width) + 2 * var(--g-gutter)); margin: var(--g-space-7) auto 0; padding: var(--g-space-5) var(--g-gutter) 0; border-top: var(--g-rule); }
+.t-seasons { padding-top: 0; border-top: 0; }
+.t-tabs { gap: var(--g-space-5); margin-bottom: var(--g-space-5); border-top: var(--g-hairline); border-bottom: 0; scrollbar-width: none; }
+
+/* Episode row: sideways, snapping, bleeding to the page edges. */
+/* Rows fade across the gutters, so a card cut by the page edge reads as "more this way"; at rest at either end nothing fades. */
+.t-episodes, .t-row { mask-image: linear-gradient(to right, transparent, var(--g-overlay-halo) var(--g-gutter), var(--g-overlay-halo) calc(100% - var(--g-gutter)), transparent); }
+.t-episodes { position: relative; display: flex; gap: var(--g-space-5); overflow-x: auto; margin: 0 calc(-1 * var(--g-gutter)); padding: 0 var(--g-gutter) var(--g-space-3); list-style: none; scroll-snap-type: x proximity; scroll-padding-inline: var(--g-gutter); overscroll-behavior-x: contain; }
+.t-episodes > li { position: relative; flex: none; width: 320px; scroll-snap-align: start; }
+.t-episode { display: grid; width: 100%; align-content: start; gap: var(--g-space-2); padding: 0; border: 0; background: none; color: inherit; cursor: pointer; text-align: left; }
+.t-episode-more { position: absolute; top: var(--g-space-2); right: var(--g-space-2); }
+.t-episode:disabled { cursor: not-allowed; }
+.gallery.t-page .t-episode:focus-visible { outline-offset: 4px; }
+.t-episode:focus-visible .t-episode-title { text-decoration: underline; text-underline-offset: 3px; }
+.t-still { position: relative; display: block; overflow: hidden; aspect-ratio: 16 / 9; border-radius: var(--g-radius); }
+.gallery.t-page .t-still > .g-art { position: absolute; inset: 0; }
+.t-episode-title { font: var(--g-type-episode); }
+.gallery.t-page .t-episode-meta { color: var(--g-ink-3); font-variant-numeric: tabular-nums; }
+.t-episode-blurb { display: -webkit-box; overflow: hidden; color: var(--g-ink-2); font: var(--g-type-body); -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.t-row-state { margin: 0; padding: var(--g-space-5) 0; color: var(--g-ink-2); font: var(--g-type-body); }
+.t-row-state .g-button { margin-left: var(--g-space-3); }
+
+/* Key scenes: pull quotes with an accent rule. */
+.t-quotes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--g-space-6); margin: 0; padding: 0; list-style: none; }
+.t-quote { display: grid; align-content: start; gap: var(--g-space-3); padding-left: var(--g-space-4); border-left: 2px solid var(--g-accent); }
+.t-quote-text { margin: 0; font: var(--g-type-quote); }
+.t-quote-caption { margin: 0; color: var(--g-ink-2); font: var(--g-type-body); }
+.gallery.t-page .t-quote-play { justify-self: start; }
+
+/* Cast and poster rows. */
+.t-row { display: flex; gap: var(--g-space-5); overflow-x: auto; margin: 0 calc(-1 * var(--g-gutter)); padding: 0 var(--g-gutter) var(--g-space-3); list-style: none; scroll-padding-inline: var(--g-gutter); overscroll-behavior-x: contain; }
+.t-row > li { flex: none; }
+.t-person { display: grid; width: 112px; justify-items: center; gap: var(--g-space-2); padding: var(--g-space-1); border: 0; background: none; color: inherit; cursor: pointer; text-align: center; }
+.t-portrait { width: 64px; height: 64px; overflow: hidden; border-radius: 50%; object-fit: cover; object-position: 50% 20%; }
+.t-portrait.artwork-placeholder { display: grid; place-items: center; background: var(--g-paper-2); }
+.gallery img.t-portrait[data-artwork-loading='true'] { opacity: 1; background: var(--g-paper-2); }
+.t-monogram { color: var(--g-ink-2); font: italic 700 26px / 1 var(--g-serif); }
+.t-person-name { font: 400 15px / 1.3 var(--g-serif); }
+.gallery.t-page .t-person-role { color: var(--g-ink-3); }
+.gallery.t-page .t-row-poster { width: 168px; }
+
+/* Extras: serif rows with labels. */
+.t-extra-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.t-extra { display: flex; width: 100%; min-height: 56px; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--g-space-2) var(--g-space-4); padding: var(--g-space-3) 0; border: 0; border-bottom: var(--g-rule); background: none; color: inherit; cursor: pointer; text-align: left; }
+.t-extra-name { font: italic 600 18px / 1.3 var(--g-serif); }
+.gallery.t-page .t-extra-meta { color: var(--g-ink-3); }
+
+/* Not found and failures. */
+.t-problem { display: grid; max-width: 560px; gap: var(--g-space-3); justify-items: start; margin: 0 auto; padding: var(--g-space-8) var(--g-gutter); }
+.t-problem h1 { margin: 0; font: var(--g-type-h2); }
+.t-problem p { margin: 0; color: var(--g-ink-2); }
+
+/* Phone (< 600 px): one column, the side column after the actions, snapping rows. */
+@media (max-width: 599px) {
+  .t-hero { height: min(75vw, 420px); padding-bottom: var(--g-space-4); }
+  .t-body { margin-top: -46px; grid-template-areas: 'main' 'side'; grid-template-columns: minmax(0, 1fr); }
+  .t-page.is-plain .t-body { margin-top: var(--g-space-5); }
+  .t-side { margin-top: var(--g-space-5); padding: var(--g-space-5) 0 0; border-top: var(--g-rule); border-left: 0; }
+  .t-actions .g-button { flex: 1 1 auto; }
+  .t-tagline { font-size: 16px; }
+  .t-episodes { gap: var(--g-space-3); }
+  .t-episodes > li { width: min(72vw, 300px); }
+  .t-row { gap: var(--g-space-3); scroll-snap-type: x mandatory; }
+  .t-row > li { scroll-snap-align: start; }
+  .gallery.t-page .t-row-poster { width: 34vw; }
+  .t-quotes { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 10-foot step, every control >= 48px. */
+@media (min-width: 1600px) {
+  .t-versions label, .gallery.t-page .t-back { min-height: var(--g-control); }
+}
+@media (pointer: fine) and (min-width: 600px) { .t-actions { gap: var(--g-space-2); } }

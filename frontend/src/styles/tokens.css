@@ -1,0 +1,224 @@
+/* Lumina design tokens. The only file that defines colour values: check-styles.mjs fails the
+   build on a colour literal anywhere else in src/. Dark is the default and the no-JS fallback; light is data-theme.
+   Names are frozen; values follow the spec tables and tokens.test.ts. */
+:root {
+  color-scheme: dark;
+
+    --g-serif: 'Newsreader', 'Newsreader Fallback', Georgia, 'Times New Roman', serif;
+  --g-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --g-type-display: italic 700 clamp(44px, 5.2vw, 84px) / .95 var(--g-serif);
+  --g-type-masthead: italic 700 56px / 1 var(--g-serif);
+  --g-type-h2: italic 600 27px / 1.15 var(--g-serif);
+  --g-type-h3: italic 600 19px / 1.25 var(--g-serif);
+  --g-type-lede: 400 19px / 1.5 var(--g-serif);
+  --g-type-body: 400 15px / 1.55 var(--g-serif);
+  --g-type-episode: italic 700 16px / 1.25 var(--g-serif);
+  --g-type-caption: 500 14px / 1.25 var(--g-serif);
+  --g-type-quote: italic 400 22px / 1.35 var(--g-serif);
+  --g-type-chapter: italic 700 40px / 1.05 var(--g-serif);
+  --g-type-ui: 400 14px / 1.45 var(--g-sans);
+  --g-type-ui-strong: 600 14px / 1.45 var(--g-sans);
+  --g-type-small: 400 12px / 1.45 var(--g-sans);
+  --g-type-label: 600 11px / 1.3 var(--g-sans);
+  --g-type-button: 600 11px / 1 var(--g-sans);
+  --g-type-rail: 600 11px / 1 var(--g-sans);
+  --g-type-mono: 400 12px / 1.45 ui-monospace, 'SF Mono', Menlo, monospace;
+  --g-track-display: -.015em;
+  --g-track-label: .18em;
+  --g-track-button: .12em;
+  --g-track-rail: .06em;
+  --g-track-chapter: -.01em;
+
+    --g-paper: #0f0e0c;
+  --g-paper-2: #1a1814;
+  --g-paper-3: #221f1a;
+  --g-ink: #efe9dd;
+  --g-ink-2: #c9c2b4;
+  --g-ink-3: #9d968a;
+  --g-rule-soft: color-mix(in srgb, var(--g-ink) 18%, transparent);
+  --g-field-rule: color-mix(in srgb, var(--g-ink) 50%, transparent);
+  --g-wash: color-mix(in srgb, var(--g-ink) 8%, transparent);
+  --g-selected: color-mix(in srgb, var(--g-ink) 12%, transparent);
+  --g-gold: #e5a00d;
+  --g-gold-ink: #f0b43a;
+  --g-on-gold: #15130f;
+  --g-focus: #efe9dd;
+  --g-danger: #e58a74;
+  --g-danger-wash: color-mix(in srgb, var(--g-danger) 12%, transparent);
+  --g-success: #8cc79a;
+  --g-accent: var(--g-ink);   --g-scrim-modal: rgb(0 0 0 / .6);
+
+    --g-overlay-bg: #000;
+  --g-overlay-panel: color-mix(in srgb, #0f0e0c 88%, transparent);
+  --g-overlay-ink: #efe9dd;
+  --g-overlay-ink-2: #c9c2b4;
+  --g-overlay-rule: color-mix(in srgb, #efe9dd 24%, transparent);
+  --g-overlay-track: color-mix(in srgb, #fff 35%, transparent);
+  --g-overlay-buffer: color-mix(in srgb, #fff 55%, transparent);
+  --g-overlay-focus: #efe9dd;
+  --g-overlay-halo: #000;
+  --g-overlay-hover: color-mix(in srgb, var(--g-overlay-ink) 14%, transparent);
+  --g-art-paper: #f4f1ea;   --g-art-chip: rgb(21 19 15 / .86);   --g-scrim: linear-gradient(transparent, rgb(0 0 0 / .72));
+  --g-scrim-top: linear-gradient(rgb(0 0 0 / .6), transparent);
+  --g-on-art: var(--g-overlay-ink);
+  --g-progress-track: var(--g-overlay-track);
+  --g-badge-ink: var(--g-on-gold);
+
+    --g-caption-box: rgb(0 0 0 / .6);
+  --g-caption-solid: #000;
+  --g-caption-shadow: 0 0 4px #000, 0 1px 2px #000;
+
+  --g-elev-1: 0 8px 24px rgb(0 0 0 / .5);
+  --g-elev-2: 0 24px 64px rgb(0 0 0 / .6);
+
+    --g-hairline: 1px solid var(--g-ink);
+  --g-rule: 1px solid var(--g-rule-soft);
+  --g-space-1: 4px;
+  --g-space-2: 8px;
+  --g-space-3: 12px;
+  --g-space-4: 16px;
+  --g-space-5: 24px;
+  --g-space-6: 32px;
+  --g-space-7: 48px;
+  --g-space-8: 72px;
+  --g-gutter: 48px;
+  --g-grid-gap: 24px;
+  --g-button-gap: 12px;
+  --g-poster-min: 168px;
+  --g-caption-height: 44px;
+  --g-reading-width: 1240px;
+  --g-page-width: 1680px;
+  --g-radius: 2px;
+  --g-radius-sheet: 12px;
+  --g-radius-round: 999px;
+  --g-control: 44px;
+  --g-topbar: 64px;
+  --g-sidebar: 232px;
+  --g-focus-width: 2px;
+
+    --g-z-sticky: 50;
+  --g-z-sidebar: 60;
+  --g-z-topbar: 70;
+  --g-z-mini: 80;
+  --g-z-menu: 90;     --g-z-toast: 120;
+
+    --g-fade: 400ms ease-out;
+  --g-page: 240ms ease;
+  --g-drawer: 280ms cubic-bezier(.2, .7, .2, 1);
+  --g-hover: 160ms ease;
+  --g-pop: 140ms cubic-bezier(.2, .7, .2, 1);
+  --g-dialog: 200ms cubic-bezier(.2, .7, .2, 1);
+  --g-toast: 200ms ease-out;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --g-paper: #f4f1ea;
+  --g-paper-2: #ece7dc;
+  --g-paper-3: #fbf9f4;
+  --g-ink: #15130f;
+  --g-ink-2: #4a463f;
+  --g-ink-3: #615c53;
+  --g-wash: color-mix(in srgb, var(--g-ink) 6%, transparent);
+  --g-selected: color-mix(in srgb, var(--g-ink) 10%, transparent);
+  --g-gold-ink: #8a5a00;
+  --g-focus: #15130f;
+  --g-danger: #a3321f;
+  --g-danger-wash: color-mix(in srgb, var(--g-danger) 8%, transparent);
+  --g-success: #2f6b3a;
+  --g-scrim-modal: rgb(0 0 0 / .45);
+  --g-elev-1: 0 8px 24px rgb(21 19 15 / .12);
+  --g-elev-2: 0 24px 64px rgb(21 19 15 / .18);
+}
+
+/* A dark subtree in the light theme (sign-in over release art): the dark set, re-declared where var() resolves. */
+:root[data-theme='light'] .g-dark {
+  color-scheme: dark; --g-accent: var(--g-ink);
+  --g-paper: #0f0e0c; --g-paper-2: #1a1814; --g-paper-3: #221f1a; --g-ink: #efe9dd; --g-ink-2: #c9c2b4; --g-ink-3: #9d968a;
+  --g-rule-soft: color-mix(in srgb, var(--g-ink) 18%, transparent); --g-field-rule: color-mix(in srgb, var(--g-ink) 50%, transparent);
+  --g-wash: color-mix(in srgb, var(--g-ink) 8%, transparent); --g-selected: color-mix(in srgb, var(--g-ink) 12%, transparent);
+  --g-gold-ink: #f0b43a; --g-focus: #efe9dd; --g-danger: #e58a74; --g-danger-wash: color-mix(in srgb, var(--g-danger) 12%, transparent); --g-success: #8cc79a;
+}
+
+@media (min-width: 1600px) {
+  :root { --g-control: 48px; }
+}
+
+@media (max-width: 1279px) {
+  :root { --g-gutter: 32px; }
+}
+
+@media (min-width: 1600px) {
+  .gallery.home { --g-gutter: 72px; --g-type-masthead: italic 700 72px / 1 var(--g-serif); }
+}
+
+@media (min-width: 1920px) {
+  .gallery.g-all { --g-gutter: 72px; }
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --g-type-display: italic 700 clamp(40px, 6vw, 56px) / .95 var(--g-serif);
+    --g-type-masthead: italic 700 44px / 1 var(--g-serif);
+    --g-type-chapter: italic 700 34px / 1.05 var(--g-serif);
+    --g-grid-gap: 16px;
+  }
+}
+
+@media (max-width: 599px) {
+  :root {
+    --g-type-display: italic 700 34px / .95 var(--g-serif);
+    --g-type-masthead: italic 700 34px / 1 var(--g-serif);
+    --g-type-chapter: italic 700 26px / 1.05 var(--g-serif);
+    --g-type-h2: italic 600 21px / 1.15 var(--g-serif);
+    --g-type-h3: italic 600 17px / 1.25 var(--g-serif);
+    --g-type-lede: 400 15px / 1.5 var(--g-serif);
+    --g-type-body: 400 14px / 1.5 var(--g-serif);
+    --g-type-episode: italic 700 14px / 1.25 var(--g-serif);
+    --g-type-quote: italic 400 17px / 1.35 var(--g-serif);
+    --g-type-label: 600 10px / 1.3 var(--g-sans);
+    --g-gutter: 16px;
+    --g-grid-gap: 8px;
+    --g-caption-height: 0px;
+  }
+}
+
+/* Mouse/trackpad density; touch and TV keep 44/48px. */
+@media (pointer: fine) and (min-width: 600px) {
+  :root {
+    --g-control: 36px;
+    --g-type-display: italic 700 clamp(40px, 4.2vw, 64px) / .95 var(--g-serif);
+    --g-type-masthead: italic 700 48px / 1 var(--g-serif);
+    --g-type-h2: italic 600 23px / 1.15 var(--g-serif);
+    --g-type-lede: 400 16px / 1.5 var(--g-serif);
+    --g-type-body: 400 14px / 1.55 var(--g-serif);
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --g-paper: Canvas; --g-paper-2: Canvas; --g-paper-3: Canvas;
+    --g-ink: CanvasText; --g-ink-2: CanvasText; --g-ink-3: CanvasText;
+    --g-rule-soft: CanvasText; --g-wash: transparent; --g-selected: Highlight;
+    --g-gold: Highlight; --g-gold-ink: LinkText; --g-on-gold: HighlightText;
+    --g-focus: Highlight; --g-danger: CanvasText; --g-success: CanvasText;
+    --g-overlay-panel: Canvas; --g-overlay-ink: CanvasText; --g-overlay-ink-2: CanvasText;
+    --g-overlay-rule: CanvasText; --g-overlay-focus: Highlight;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --g-ink-2: #efe9dd; --g-ink-3: #c9c2b4; --g-focus-width: 3px;
+    --g-rule-soft: color-mix(in srgb, var(--g-ink) 45%, transparent);
+    --g-wash: color-mix(in srgb, var(--g-ink) 12%, transparent);
+  }
+  :root[data-theme='light'] {
+    --g-ink-2: #15130f; --g-ink-3: #4a463f;
+    --g-rule-soft: color-mix(in srgb, var(--g-ink) 45%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --g-fade: 0ms linear; --g-page: 0ms linear; --g-drawer: 0ms linear; --g-hover: 0ms linear; --g-pop: 0ms linear; --g-dialog: 0ms linear; --g-toast: 0ms linear; }
+}

@@ -1,0 +1,18 @@
+/* Settings → Server → Requests. Lumina tokens only; fields use the Settings sub-row columns. */
+.g-req { display: grid; gap: 8px; min-width: 0; }
+.g-req-maps { display: grid; gap: 8px; margin: 0; padding: 16px 0 8px; border: 0; border-top: 1px solid var(--g-rule-soft); }
+.g-req-maps > legend { float: left; display: flex; align-items: baseline; gap: 8px; padding: 0; color: var(--g-ink-2); font: var(--g-type-ui); }
+.g-req-map-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.g-req-map-arrow { width: 16px; color: var(--g-ink-3); }
+.g-req-line { margin: 0; font: var(--g-type-small); color: var(--g-ink-2); }
+.g-actions.g-req-status { justify-content: space-between; }
+.g-req-scroll { overflow-x: auto; }
+.g-req-quota { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.g-req-quota .g-input { width: 5.5rem; }
+.g-req-members { display: grid; margin: 0; padding: 0; list-style: none; }
+.g-req-member { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--g-rule-soft); }
+@media (max-width: 679px) {
+  .g-req-map-row { grid-template-columns: minmax(0, 1fr); }
+  .g-req-map-row > .g-icon-button { justify-self: end; }
+  .g-req-map-arrow { display: none; }
+}

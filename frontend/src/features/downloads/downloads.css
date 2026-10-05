@@ -1,0 +1,66 @@
+/* Split from lumina.css. Owner: */
+.household-collections { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--g-rule-soft); }
+.household-collections > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.household-collections h2 { margin: 0; color: var(--g-ink); font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.household-collections header p { max-width: 68ch; margin: 5px 0 0; color: var(--g-ink-3); font-size: 11px; line-height: 1.5; }
+.collection-row strong { overflow: hidden; color: var(--g-ink); font-size: 12px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.collection-row small { color: var(--g-ink-3); font-size: 11px; }
+/* Editorial Downloads. Tokens only. */
+.g-downloads { padding: 32px var(--g-gutter) 96px; }
+.g-downloads-section { margin-top: 40px; }
+.g-downloads-section h2 { display: flex; align-items: baseline; gap: 12px; margin: 0 0 8px; font: var(--g-type-h2); }
+.g-downloads-section h2 > button { align-self: center; margin-left: auto; }
+.g-downloads ul { margin: 0; padding: 0; list-style: none; }
+.g-downloads-more { display: flex; justify-content: center; margin-top: 24px; }
+.g-list-row { display: grid; align-items: center; gap: 16px; padding: 12px 8px; border-bottom: var(--g-rule); }
+.g-list-row-title { color: var(--g-ink); font-weight: 600; overflow-wrap: anywhere; }
+.g-list-row-meta { color: var(--g-ink-2); font: var(--g-type-small); overflow-wrap: anywhere; }
+.g-list-row-meta.is-error { color: var(--g-ink); }
+.g-list-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.g-list-row.g-job { display: grid; grid-template-columns: 128px minmax(0, 1fr) auto; min-height: 72px; content-visibility: auto; contain-intrinsic-size: auto 88px; }
+.g-job-thumb { display: grid; width: 128px; aspect-ratio: 16 / 9; place-items: center; overflow: hidden; background: var(--g-wash); color: var(--g-ink-3); }
+.g-job-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.g-job-thumb svg { width: 20px; }
+.g-job-copy { display: grid; gap: 4px; min-width: 0; }
+.g-clamp-2 { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.g-job-attempts { grid-column: 2 / -1; color: var(--g-ink-2); font: var(--g-type-small); }
+.g-job-attempts ol { margin: 4px 0 0; padding-left: 18px; }
+@media (max-width: 599px) {
+  .g-list-row.g-job { grid-template-columns: 96px minmax(0, 1fr); }
+  .g-job-thumb { width: 96px; }
+  .g-job .g-list-row-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+.download-control { position: relative; display: flex; }
+.download-control > .g-button.is-primary:first-child { border-radius: 7px 0 0 7px; }
+.download-control > .g-button.is-primary:only-child { border-radius: 7px; }
+.download-menu { position: absolute; top: calc(100% + 7px); left: 0; z-index: 20; width: min(270px, calc(100vw - 30px)); padding: 8px; border: 1px solid var(--g-ink-3); border-radius: 8px; background: var(--g-paper-2); box-shadow: var(--g-elev-2); }
+.download-menu > p { margin: 5px 8px 7px; color: var(--g-ink-3); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+.download-menu button { display: flex; width: 100%; min-height: var(--g-control); align-items: center; justify-content: space-between; gap: 10px; padding: 9px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; text-align: left; }
+.download-menu button:hover, .download-menu button.selected { background: var(--g-selected); }
+.download-menu button span { display: flex; min-width: 0; flex-direction: column; }
+.download-menu strong, .download-menu small { overflow-wrap: anywhere; }
+.download-menu strong { color: var(--g-ink); font-size: 11px; }
+.download-menu small { margin-top: 3px; color: var(--g-ink-3); font-size: 11px; }
+.download-menu svg { width: 15px; color: var(--g-ink); }
+@media (max-width: 680px) {
+  .download-control { min-width: 0; grid-column: 1 / -1; }
+  .download-control > .g-button:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+}
+
+/* Playlist acquisition and batch saves */
+.g-playlist { margin-top: 32px; }
+.g-playlist-list { max-height: 430px; overflow-y: auto; border-block: var(--g-rule); }
+.g-playlist-row { display: grid; grid-template-columns: auto 96px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 66px; border-bottom: 1px solid var(--g-rule-soft); }
+.g-playlist-row[aria-disabled='true'] { color: var(--g-ink-3); }
+.g-playlist-thumb { width: 96px; aspect-ratio: 16 / 9; overflow: hidden; }
+.g-playlist-copy { display: grid; min-width: 0; gap: 4px; }
+.g-playlist-footer { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 0; border-top: 1px solid var(--g-rule-soft); background: var(--g-paper-3); }
+.g-batch { grid-template-columns: minmax(0, 1fr); align-items: start; }
+.g-batch-entries { display: grid; gap: 4px; margin-top: 8px; }
+.g-batch-entries > li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: var(--g-control); border-top: 1px solid var(--g-rule-soft); }
+.g-batch-entries svg { width: 15px; height: 15px; }
+@media (max-width: 599px) {
+  .g-playlist-row { grid-template-columns: auto 64px minmax(0, 1fr); }
+  .g-playlist-thumb { width: 64px; }
+  .g-playlist-row > .g-button { grid-column: 3; justify-self: start; }
+}

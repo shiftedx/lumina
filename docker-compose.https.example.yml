@@ -1,0 +1,42 @@
+services:
+  yt-dlp-ui:
+    environment:
+      LUMINA_APP_PUBLIC_URL: https://${LUMINA_HOSTNAME:?Set LUMINA_HOSTNAME to the public DNS name}
+      LUMINA_FRONTEND_PUBLIC_URL: https://${LUMINA_HOSTNAME:?Set LUMINA_HOSTNAME to the public DNS name}
+      LUMINA_ALLOWED_ORIGINS: https://${LUMINA_HOSTNAME:?Set LUMINA_HOSTNAME to the public DNS name}
+      LUMINA_SESSION_COOKIE_SECURE: "true"
+      LUMINA_TRUSTED_PROXY_IPS: 172.30.0.2/32
+    networks:
+      lumina-proxy:
+        ipv4_address: 172.30.0.3
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    environment:
+      LUMINA_HOSTNAME: ${LUMINA_HOSTNAME:?Set LUMINA_HOSTNAME to the public DNS name}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./docker/Caddyfile.example:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      lumina-proxy:
+        ipv4_address: 172.30.0.2
+    depends_on:
+      yt-dlp-ui:
+        condition: service_healthy
+        restart: true
+
+networks:
+  lumina-proxy:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/29
+
+volumes:
+  caddy-data:
+  caddy-config:

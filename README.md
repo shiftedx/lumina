@@ -11,6 +11,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/shiftedx/lumina/releases/latest"><img src="https://img.shields.io/github/v/release/shiftedx/lumina?color=e5a00d&label=release" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-e5a00d" alt="AGPL-3.0"></a>
   <img src="https://img.shields.io/badge/runs%20on-Docker-e5a00d" alt="Docker">
   <img src="https://img.shields.io/badge/works%20with-Infuse%20%26%20Jellyfin%20apps-e5a00d" alt="Works with Infuse and Jellyfin apps">

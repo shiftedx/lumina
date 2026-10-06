@@ -6,7 +6,6 @@ from pathlib import Path
 import re
 from urllib.parse import ParseResult, urlparse
 
-from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -133,8 +132,10 @@ class EnvSettings(BaseSettings):
     # TMDB v3 API key used until an admin saves one (write-only). Unset/"" = no TMDB.
     tmdb_api_key: str = ""
     # Read-only folder of cast photos in the metadata/People layout; unset/"" = off.
-    # LUMINA_JELLYFIN_PEOPLE_DIR is the name before 2.11 and is still read.
-    people_dir: str = Field("", validation_alias=AliasChoices("LUMINA_PEOPLE_DIR", "LUMINA_JELLYFIN_PEOPLE_DIR"))
+    people_dir: str = ""
+    # The name before 2.11, used while LUMINA_PEOPLE_DIR is empty: docker-compose.yml always passes the
+    # new name, so an alias would let its empty value hide an old name set in an override.
+    jellyfin_people_dir: str = ""
 
     model_config = SettingsConfigDict(env_prefix="LUMINA_", extra="ignore")
 

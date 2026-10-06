@@ -580,9 +580,20 @@ def test_an_unmounted_people_folder_gives_no_portrait_urls(titled, tmp_path: Pat
         assert cast_photos.image_urls(session, {ada, AMY}) == {AMY: f"/api/people/{AMY}/image"}
 
 
-@pytest.mark.parametrize("name", ["LUMINA_PEOPLE_DIR", "LUMINA_JELLYFIN_PEOPLE_DIR"])
-def test_people_dir_reads_the_new_name_and_the_old_one(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LUMINA_PEOPLE_DIR", raising=False)
-    monkeypatch.delenv("LUMINA_JELLYFIN_PEOPLE_DIR", raising=False)
-    monkeypatch.setenv(name, "/media/people")
-    assert EnvSettings().people_dir == "/media/people"
+@pytest.mark.parametrize(("new", "old", "expected"), [
+    ("/media/people", None, "/media/people"),
+    (None, "/media/people", "/media/people"),
+    ("", "/media/people", "/media/people"),  # docker-compose.yml passes the new name empty; an override sets the old
+    ("/media/new", "/media/old", "/media/new"),
+])
+def test_people_dir_reads_the_new_name_then_the_old_one(
+    new: str | None, old: str | None, expected: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name, value in (("LUMINA_PEOPLE_DIR", new), ("LUMINA_JELLYFIN_PEOPLE_DIR", old)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    monkeypatch.setattr(cast_photos, "settings", EnvSettings())
+    monkeypatch.setattr(cast_photos.os.path, "realpath", lambda value: value)
+    assert cast_photos.people_dir() == Path(expected)

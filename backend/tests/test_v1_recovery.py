@@ -162,6 +162,21 @@ def test_scheduled_backup_retention_keeps_manual(admin) -> None:  # noqa: ANN001
     assert len(list(root.glob("*-scheduled.db"))) == 2  # pruned copies are gone from disk
 
 
+def test_pre_upgrade_backups_keep_the_newest_three(admin) -> None:  # noqa: ANN001
+    manual = backups.create_backup("manual")
+    root = backups.backup_root()
+    stamps = [datetime.now(UTC) - timedelta(days=days_ago) for days_ago in (1, 2, 3, 4, 5)]
+    for stamp in stamps:
+        name = f"lumina-{stamp:%Y%m%dT%H%M%S}Z-pre-upgrade"
+        (root / f"{name}.db").write_bytes((root / f"{manual['name']}.db").read_bytes())
+        (root / f"{name}.json").write_text(json.dumps({**manual, "name": name, "kind": "pre-upgrade", "created_at": stamp.isoformat()}))
+    backups.run_scheduled(keep=7)
+    names = [row["name"] for row in backups.list_backups()]
+    kept = [name for name in names if name.endswith("-pre-upgrade")]
+    assert kept == [f"lumina-{stamp:%Y%m%dT%H%M%S}Z-pre-upgrade" for stamp in stamps[:3]]  # the newest three
+    assert manual["name"] in names and len(list(root.glob("*-pre-upgrade.db"))) == 3
+
+
 def test_server_lock_is_shared_between_instances() -> None:
     first, second = backups.hold_server_lock(), backups.hold_server_lock()
     try:

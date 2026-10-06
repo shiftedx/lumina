@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, func, select
 
 from app import db as db_module
-from app.config import settings
+from app.config import EnvSettings, settings
 from app.db import Base
 from app.main import app
 from app.main import artwork as app_artwork
@@ -138,7 +138,7 @@ def people(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for relative in ("A/Ada Rook/folder.png", "A/Andre Coutu/folder.png"):
         (folder / relative).parent.mkdir(parents=True, exist_ok=True)
         (folder / relative).write_bytes(PHOTO)
-    monkeypatch.setattr(settings, "jellyfin_people_dir", str(folder))
+    monkeypatch.setattr(settings, "people_dir", str(folder))
     Base.metadata.create_all(bind=db_module.engine)
     return folder
 
@@ -222,13 +222,13 @@ def test_no_folder_means_no_photo_and_an_empty_folder_is_offline(people: Path, t
     with db_module.SessionLocal() as session:
         ada = photo(session, "A/Ada Rook/folder.png")
         assert ada.images == {"Primary": {"path": "A/Ada Rook/folder.png"}} and cast_photos.people_dir_online()
-        monkeypatch.setattr(settings, "jellyfin_people_dir", "")
+        monkeypatch.setattr(settings, "people_dir", "")
         assert cast_photos.subject(session, ada.id).images == {} and not cast_photos.people_dir_online()
         with pytest.raises(FileNotFoundError):
             cast_photos.image_bytes(cast_photos.subject(session, ada.id), app_artwork)
     unmounted = tmp_path / "unmounted"
     unmounted.mkdir()  # a bind mount of a missing host folder shows up empty
-    monkeypatch.setattr(settings, "jellyfin_people_dir", str(unmounted))
+    monkeypatch.setattr(settings, "people_dir", str(unmounted))
     assert not cast_photos.people_dir_online()
 
 
@@ -239,7 +239,7 @@ def test_a_tmdb_photo_is_offered_only_while_tmdb_is_on_and_never_over_a_local_on
         assert both.images == {"Primary": {"path": "A/Ada Rook/folder.png"}} and only.images == {}
         monkeypatch.setattr(settings, "tmdb_api_key", "test-key")
         assert cast_photos.subject(session, only.id).images == {"Primary": {"tmdb": "/bo.jpg"}}
-        monkeypatch.setattr(settings, "jellyfin_people_dir", "")
+        monkeypatch.setattr(settings, "people_dir", "")
         assert cast_photos.subject(session, both.id).images == {"Primary": {"tmdb": "/ada.jpg"}}
 
 
@@ -331,12 +331,12 @@ def test_an_unmounted_folder_skips_people_and_a_missing_file_fails_once(people: 
         gone = photo(session, "Z/Gone/folder.png").id
     unmounted = tmp_path / "unmounted"
     unmounted.mkdir()
-    monkeypatch.setattr(settings, "jellyfin_people_dir", str(unmounted))
+    monkeypatch.setattr(settings, "people_dir", str(unmounted))
     with db_module.SessionLocal() as session:
         assert renditions.scan(session).order == []
     renditions.ArtworkRenditions()._prepare(ada, "Primary")
     assert _row(ada) is None  # skipped, not failed: prepared once the folder is back
-    monkeypatch.setattr(settings, "jellyfin_people_dir", str(people))
+    monkeypatch.setattr(settings, "people_dir", str(people))
     worker = renditions.ArtworkRenditions()
     while worker.run_once():
         pass
@@ -375,7 +375,7 @@ AMY = synthetic_id("tmdb-person:9273")
 @pytest.fixture
 def titled(db_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN001, ANN201
     """title_support's tree on the in-memory database; MOVIE is what these tests credit people on."""
-    monkeypatch.setattr(settings, "jellyfin_people_dir", str(tmp_path))  # configured: image_urls reads no file
+    monkeypatch.setattr(settings, "people_dir", str(tmp_path))  # configured: image_urls reads no file
     with db_factory() as session:
         session.add_all([make_user(ALICE, username="alice"), make_user(BOB, username="bob")])
         seed_tree(session, tmp_path.resolve() / "media")
@@ -439,7 +439,7 @@ def test_without_the_folder_only_tmdb_photos_show_and_only_while_tmdb_is_on(titl
         NfoPerson(id=person_name_id("Ada Rook"), name="Ada Rook", image_path="A/Ada Rook/folder.png"),
         NfoPerson(id=bo, name="Bo Tran", tmdb_path="/bo.jpg"),
     ])
-    monkeypatch.setattr(settings, "jellyfin_people_dir", "")
+    monkeypatch.setattr(settings, "people_dir", "")
 
     def urls() -> list[str | None]:
         return [person["image_url"] for person in member(api_client, titled, ALICE).get(f"/api/titles/{MOVIE}").json()["people"]]
@@ -571,10 +571,18 @@ def test_a_height_only_request_for_a_missing_photo_is_not_found(infuse, people: 
 def test_an_unmounted_people_folder_gives_no_portrait_urls(titled, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     unmounted = tmp_path / "unmounted"
     unmounted.mkdir()  # an unmounted bind mount is an empty folder
-    monkeypatch.setattr(settings, "jellyfin_people_dir", str(unmounted))
+    monkeypatch.setattr(settings, "people_dir", str(unmounted))
     ada = person_name_id("Ada Rook")
     with titled() as session:
         session.add_all([NfoPerson(id=ada, name="Ada Rook", image_path="A/Ada Rook/folder.png"),
                          Person(id=AMY, tmdb_id=9273, name="Amy Adams", profile_path="/amy.jpg")])
         session.commit()
         assert cast_photos.image_urls(session, {ada, AMY}) == {AMY: f"/api/people/{AMY}/image"}
+
+
+@pytest.mark.parametrize("name", ["LUMINA_PEOPLE_DIR", "LUMINA_JELLYFIN_PEOPLE_DIR"])
+def test_people_dir_reads_the_new_name_and_the_old_one(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LUMINA_PEOPLE_DIR", raising=False)
+    monkeypatch.delenv("LUMINA_JELLYFIN_PEOPLE_DIR", raising=False)
+    monkeypatch.setenv(name, "/media/people")
+    assert EnvSettings().people_dir == "/media/people"

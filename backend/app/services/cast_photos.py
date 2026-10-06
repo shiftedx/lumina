@@ -1,6 +1,6 @@
 """Cast photos : NFO-credited people, their photo files and image URLs.
 
-A person's photo is a Jellyfin ``metadata/People`` file under the operator's read-only LUMINA_JELLYFIN_PEOPLE_DIR,
+A person's photo is a Jellyfin ``metadata/People`` file under the operator's read-only LUMINA_PEOPLE_DIR,
 else an image.tmdb.org headshot while TMDB is on. Files are read only through ``artifact_file`` (inside the folder,
 no symlink anywhere below it, a regular file) and ``read_regular_file`` (O_NOFOLLOW, capped). The rendition pipeline
 sees a person as a title of type ``person`` (``subject``).
@@ -32,7 +32,7 @@ PHOTO_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
 
 def people_dir() -> Path | None:
     """The configured folder, resolved (artifact_file compares real paths); None when unset."""
-    value = settings.jellyfin_people_dir.strip()
+    value = settings.people_dir.strip()
     return Path(os.path.realpath(value)) if value else None
 
 

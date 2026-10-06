@@ -26,6 +26,7 @@ from app.persistence import atomic_write
 NAME = re.compile(r"^lumina-\d{8}T\d{6}Z-(manual|scheduled|pre-upgrade)$")
 COUNTED_TABLES = ("users", "library_items", "media_artifacts", "library_notes", "playback_progress", "storage_roots")
 SCHEDULE_INTERVAL = timedelta(days=1)
+PRE_UPGRADE_KEEP = 3  # each upgrade adds a full copy; older ones only repeat a schema the newest already covers
 LOCK_FILENAME = ".lumina.lock"
 _create_lock = threading.Lock()
 
@@ -168,13 +169,18 @@ def delete_backup(name: str) -> None:
 
 
 def run_scheduled(keep: int, now: datetime | None = None) -> dict[str, Any] | None:
-    """Daily backup plus retention of the newest ``keep`` scheduled ones; manual backups are never pruned."""
+    """Daily backup plus retention of the newest ``keep`` scheduled and PRE_UPGRADE_KEEP pre-upgrade ones.
+
+    Manual backups are never pruned.
+    """
     now = now or datetime.now(UTC)
-    scheduled = [item for item in list_backups() if item.get("kind") == "scheduled"]
+    listed = list_backups()
+    scheduled = [item for item in listed if item.get("kind") == "scheduled"]
     created = None
     if not scheduled or now - datetime.fromisoformat(scheduled[0]["created_at"]) >= SCHEDULE_INTERVAL:
         created = create_backup("scheduled")
         scheduled.insert(0, created)
-    for stale in scheduled[keep:]:
+    pre_upgrade = [item for item in listed if item.get("kind") == "pre-upgrade"]
+    for stale in scheduled[keep:] + pre_upgrade[PRE_UPGRADE_KEEP:]:
         delete_backup(stale["name"])
     return created

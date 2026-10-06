@@ -1,5 +1,9 @@
 # Release notes
 
+## Lumina 2.10.2
+
+- Selected filter chips (Requests, Explore, Streaming and elsewhere) show only the gold underline, without a filled pill behind them. Request chip rows line up with the page edge.
+
 ## Lumina 2.10.1
 
 **Upgrade steps** (once):

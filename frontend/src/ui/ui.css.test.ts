@@ -32,9 +32,10 @@ describe('ui.css', () => {
     expect(rule('.g-text-button')).toMatch(/padding: 0;/);
     expect(rule('.g-text-button::before')).toMatch(/position: absolute; inset: 0 -8px/);
   });
-  it('marks a pressed chip with a soft fill and a gold underline, not a box', () => {
+  it('marks a pressed chip with a gold underline only: no fill, no box', () => {
     expect(rule('.g-chip')).toMatch(/border: 0/);
-    expect(rule(".g-chip[aria-pressed='true']")).toMatch(/background: var\(--g-selected\).*text-decoration: underline 2px var\(--g-gold-ink\)/);
+    expect(rule(".g-chip[aria-pressed='true']")).toMatch(/text-decoration: underline 2px var\(--g-gold-ink\)/);
+    expect(rule(".g-chip[aria-pressed='true']")).not.toMatch(/background/);
   });
   it('never lifts or scales on hover', () => {
     for (const match of css.matchAll(/[^{}]*:hover[^{}]*\{([^}]*)\}/g)) expect(match[1]).not.toMatch(/transform/);

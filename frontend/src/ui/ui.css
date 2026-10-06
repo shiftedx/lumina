@@ -23,7 +23,7 @@
 .g-icon-button { display: inline-grid; width: var(--g-control); height: var(--g-control); flex: none; place-items: center; padding: 0; border: 1px solid transparent; border-radius: var(--g-radius); background: transparent; color: var(--g-ink); cursor: pointer; }
 .g-h2 { margin: 0; font: var(--g-type-h2); }
 .g-chip { border: 0; border-radius: var(--g-radius-round); color: var(--g-ink-2); font: var(--g-type-ui); }
-.g-chip[aria-pressed='true'] { background: var(--g-selected); color: var(--g-ink); text-decoration: underline 2px var(--g-gold-ink); text-underline-offset: 6px; }
+.g-chip[aria-pressed='true'] { color: var(--g-ink); text-decoration: underline 2px var(--g-gold-ink); text-underline-offset: 6px; }
 .g-text-button::before { position: absolute; inset: 0 -8px; content: ''; }
 .g-text-button { position: relative; display: inline-flex; min-width: 44px; min-height: var(--g-control); align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: var(--g-ink); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; font: var(--g-type-ui-strong); }
 .g-inline-error, .g-empty-result { display: grid; justify-items: start; gap: var(--g-button-gap); margin: 0; padding: 32px 0; font: var(--g-type-lede); }

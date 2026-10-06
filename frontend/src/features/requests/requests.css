@@ -17,6 +17,9 @@
 .rq-tabs [aria-current] { border-bottom-color: var(--g-gold); color: var(--g-ink); }
 .rq-chips { display: flex; gap: 8px; margin: 0 0 var(--g-space-3); padding: 4px 0; overflow-x: auto; scrollbar-width: none; }
 .rq-chips .g-chip { flex: none; }
+/* Unfilled chips: pull the row back by the chip padding so the first label sits on the content edge. */
+.rq-chips { margin-inline-start: -16px; }
+@media (pointer: fine) and (min-width: 600px) { .rq-chips { margin-inline-start: -12px; } }
 .rq-filter-line { display: flex; flex-wrap: wrap; gap: 0 var(--g-space-6); }
 
 /* Art */

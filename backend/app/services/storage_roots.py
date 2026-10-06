@@ -8,7 +8,9 @@ for an empty library.
 """
 from __future__ import annotations
 
+from hashlib import sha256
 import os
+import re
 import stat
 import uuid
 from pathlib import Path
@@ -23,6 +25,44 @@ MODES = ("managed", "external")
 SENTINEL_NAME = ".lumina-root"
 PROBE_DIRNAME = ".lumina-probe"
 ONLINE_STATES = ("available", "low_space")
+
+
+MOUNTINFO = Path("/proc/self/mountinfo")
+_OCTAL_ESCAPE = re.compile(r"\\([0-7]{3})")
+
+
+def _mount_of(path: Path, device: int) -> tuple[str, str, str] | None:
+    """(fstype, source, root) of the mount ``path`` sits on: the deepest mount point above it on ``device``."""
+    major, minor = os.major(device), os.minor(device)
+    best: tuple[int, tuple[str, str, str]] | None = None
+    try:
+        lines = MOUNTINFO.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        fields, _, tail = line.partition(" - ")
+        parts, rest = fields.split(), tail.split()
+        if len(parts) < 5 or len(rest) < 2 or parts[2] != f"{major}:{minor}":
+            continue
+        point = _OCTAL_ESCAPE.sub(lambda match: chr(int(match[1], 8)), parts[4])
+        if (path == Path(point) or Path(point) in path.parents) and (best is None or len(point) > best[0]):
+            best = (len(point), (rest[0], rest[1], parts[3]))
+    return best[1] if best else None
+
+
+def external_identity(path: Path, device: int) -> str:
+    """What is mounted at an external root, stable across remounts and reboots.
+
+    A local filesystem's statvfs fsid comes from its UUID. A network filesystem reports fsid 0 and gets a new
+    st_dev on every mount, so it is named by its mount instead: type, source and root, hashed to fit the column.
+    """
+    fsid = os.statvfs(path).f_fsid
+    if fsid:
+        return f"fsid:{fsid:x}"
+    mount = _mount_of(path, device)
+    if mount is None:
+        return f"dev:{device}"
+    return "mount:" + sha256("\0".join(mount).encode()).hexdigest()[:32]
 
 
 class StorageRootError(ValueError):
@@ -174,10 +214,12 @@ class StorageRootService:
             return {**observation, "state": "permission_denied"}
 
         if root.mode == "external":
-            device = str(status.st_dev)
+            identity = external_identity(path, status.st_dev)
             if root.identity is None and verify:
-                root.identity = device
-            if root.identity != device:
+                root.identity = identity
+            elif root.identity is not None and root.identity.isdigit() and root.identity == str(status.st_dev):
+                root.identity = identity  # a pre-2.11 st_dev identity, upgraded while it still matches
+            if root.identity != identity:
                 return {**observation, "state": "identity_mismatch"}
         else:
             sentinel = path / SENTINEL_NAME

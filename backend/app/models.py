@@ -1173,7 +1173,7 @@ class NfoPerson(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    image_path: Mapped[str | None] = mapped_column(Text, nullable=True)  # relative to LUMINA_JELLYFIN_PEOPLE_DIR
+    image_path: Mapped[str | None] = mapped_column(Text, nullable=True)  # relative to LUMINA_PEOPLE_DIR
     tmdb_path: Mapped[str | None] = mapped_column(Text, nullable=True)  # "/x.jpg": an image.tmdb.org <thumb> or the TMDB top-up
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 

@@ -61,7 +61,7 @@ def _signal(process: subprocess.Popen, sig: int) -> None:
 def measure_loudness(ffmpeg: str, path: Path, stream_index: int, *, stop: threading.Event, busy: Callable[[], bool]) -> dict[str, Any] | None:
     """EBU R128 of one audio stream (loudnorm's first pass), or None when asked to stop.
 
-    Runs on one thread and is paused with SIGSTOP whenever ``busy()`` says a video encode runs.
+    Runs niced on one thread and is paused with SIGSTOP whenever ``busy()`` says a video encode runs.
     """
     cmd = [
         ffmpeg, "-nostdin", "-hide_banner", "-nostats", "-threads", "1", *LOCAL_INPUT_ARGS, "-i", str(path),
@@ -69,6 +69,8 @@ def measure_loudness(ffmpeg: str, path: Path, stream_index: int, *, stop: thread
     ]
     with tempfile.TemporaryFile() as stderr:
         process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=stderr)
+        with contextlib.suppress(OSError):  # background work: yield the CPU to playback and the UI
+            os.setpriority(os.PRIO_PROCESS, process.pid, 19)
         paused, ran = False, 0.0
         try:
             while process.poll() is None:

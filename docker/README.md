@@ -33,7 +33,7 @@ All settings are `LUMINA_*` environment variables (full list: `backend/app/confi
 | `LUMINA_ASR_BASE_URL` / `_ASR_MODEL` | empty (off) | OpenAI-compatible speech-to-text endpoint for transcripts. |
 | `LUMINA_TMDB_API_KEY` | empty (off) | TMDB v3 API key or v4 read token for movie and TV metadata and artwork. An admin can change or clear it under **Settings → Media server** (write-only). |
 | `LUMINA_ARTWORK_PASS` | `on` | `off` stops the background pass that prepares small copies of artwork; they are then made only when first requested. |
-| `LUMINA_JELLYFIN_PEOPLE_DIR` | unset | Container path of a read-only mount of Jellyfin's `metadata/People` folder. Cast photos for titles whose NFO files Jellyfin wrote. |
+| `LUMINA_PEOPLE_DIR` | unset | Container path of a read-only folder of cast photos in the `metadata/People` layout, such as a copy of Jellyfin's. Cast photos for titles whose NFO files name them. `LUMINA_JELLYFIN_PEOPLE_DIR`, the name before 2.11, is still read. |
 | `LUMINA_JELLYFIN_TRACE` | `0` | `1` logs each Jellyfin request's method, route template and query parameter names (never values or headers). Use it only while capturing client traffic. |
 | `LUMINA_LAN_HTTP` | `false` | `true` serves plain http on a private LAN IP without a proxy. Set it only through the override in "LAN HTTP mode". |
 | `TZ` | `UTC` | Server time zone, e.g. `America/Chicago`. Library scans set to **Nightly at** use it. See "Automatic scans and folder watching". |
@@ -75,7 +75,7 @@ From 1.9.0 the recommender also runs background yt-dlp searches and channel list
 
 ## Backups and restore
 
-**Settings → Backups → Back up now** writes a consistent SQLite copy plus a manifest to `app-data/backups/` while Lumina runs; a daily automatic backup keeps the newest 7. **Verify** re-checks the checksum, integrity and schema version. Backups contain password/session hashes (never the saved AI API key; re-enter it in Settings → AI & models after a restore): they are admin-only and `0600`, and **Download** asks for your password again. Copy `app-data/backups/` off the host, together with `app-data/totp-key`: backups hold the database only, and without that key file every two-step verification authenticator in them is unreadable (see Two-step verification below).
+**Settings → Backups → Back up now** writes a consistent SQLite copy plus a manifest to `app-data/backups/` while Lumina runs; a daily automatic backup keeps the newest 7, and the daily pass also keeps only the newest 3 `pre-upgrade` backups. **Verify** re-checks the checksum, integrity and schema version. Backups contain password/session hashes (never the saved AI API key; re-enter it in Settings → AI & models after a restore): they are admin-only and `0600`, and **Download** asks for your password again. Copy `app-data/backups/` off the host, together with `app-data/totp-key`: backups hold the database only, and without that key file every two-step verification authenticator in them is unreadable (see Two-step verification below).
 
 Media is not in these backups. Neither are on-device models (`app-data/models/`); they re-download from Settings if lost. Back up `app-data/library/` and managed roots with your usual file tooling, and mount every root at the same container path before restoring.
 
@@ -364,8 +364,8 @@ Passwords are never stored, and newer Lumina progress is never overwritten, so r
 
 **Cast photos.** When Jellyfin wrote your NFO files, they name a photo for most cast members in Jellyfin's `metadata/People` folder. Lumina can show those photos without TMDB:
 
-1. Mount that folder read-only, for example `- /srv/jellyfin/data/metadata/People:/media/jellyfin-people:ro`.
-2. Set `LUMINA_JELLYFIN_PEOPLE_DIR=/media/jellyfin-people`. Do not register it as a storage root.
+1. Copy that folder somewhere Lumina keeps its own data and mount it read-only, for example `- /srv/lumina/people:/media/people:ro`. Jellyfin can then be removed.
+2. Set `LUMINA_PEOPLE_DIR=/media/people`. Do not register it as a storage root.
 3. Rescan each video root once (**Imports → Import a folder**). This records every credit's photo and role.
 
 Lumina reads only files inside that folder, never through a symlink, and only JPEG, PNG or WebP up to 2 MiB. It makes small portraits in the background after all other artwork. While the folder is unmounted, people show their initials. The files must be readable by `LUMINA_RUNTIME_UID`.

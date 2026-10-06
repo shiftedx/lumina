@@ -31,7 +31,7 @@ services:
       # TMDB v3 key or v4 read token for movie/TV metadata; empty = off. Admin → Media server overrides it.
       LUMINA_TMDB_API_KEY: ${LUMINA_TMDB_API_KEY:-}
       # Read-only mount of Jellyfin's metadata/People folder for cast photos (docker/README.md); empty = off.
-      LUMINA_JELLYFIN_PEOPLE_DIR: ${LUMINA_JELLYFIN_PEOPLE_DIR:-}
+      LUMINA_PEOPLE_DIR: ${LUMINA_PEOPLE_DIR:-${LUMINA_JELLYFIN_PEOPLE_DIR:-}}
     volumes:
       # Database, backups, caches and the built-in Library (app-data/library/).
       - ./app-data:/app/backend/.data

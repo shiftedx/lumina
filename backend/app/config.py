@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 from urllib.parse import ParseResult, urlparse
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -131,8 +132,9 @@ class EnvSettings(BaseSettings):
     asr_server_script: str = "/opt/lumina-asr/server.py"
     # TMDB v3 API key used until an admin saves one (write-only). Unset/"" = no TMDB.
     tmdb_api_key: str = ""
-    # Read-only mount of Jellyfin's metadata/People folder for cast photos; unset/"" = off.
-    jellyfin_people_dir: str = ""
+    # Read-only folder of cast photos in the metadata/People layout; unset/"" = off.
+    # LUMINA_JELLYFIN_PEOPLE_DIR is the name before 2.11 and is still read.
+    people_dir: str = Field("", validation_alias=AliasChoices("LUMINA_PEOPLE_DIR", "LUMINA_JELLYFIN_PEOPLE_DIR"))
 
     model_config = SettingsConfigDict(env_prefix="LUMINA_", extra="ignore")
 

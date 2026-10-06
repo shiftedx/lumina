@@ -56,6 +56,14 @@ def test_a_known_sine_measures_within_one_lu(tmp_path: Path) -> None:
 
 
 @needs_ffmpeg
+def test_measurement_runs_niced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    niced: list[tuple[int, int, int]] = []
+    monkeypatch.setattr(pw.os, "setpriority", lambda which, who, prio: niced.append((which, who, prio)))
+    measure_loudness(shutil.which("ffmpeg"), _audio(tmp_path / "sine.m4a", 1), 0, stop=threading.Event(), busy=lambda: False)
+    assert niced == [(pw.os.PRIO_PROCESS, niced[0][1], 19)] and niced[0][1] > 0
+
+
+@needs_ffmpeg
 def test_measurement_pauses_while_a_video_encode_runs(tmp_path: Path) -> None:
     media = _audio(tmp_path / "long.m4a", 240)  # seconds of work unpaused; it must never finish while paused
     stop = threading.Event()

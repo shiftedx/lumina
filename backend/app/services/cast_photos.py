@@ -32,7 +32,7 @@ PHOTO_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
 
 def people_dir() -> Path | None:
     """The configured folder, resolved (artifact_file compares real paths); None when unset."""
-    value = settings.people_dir.strip()
+    value = settings.people_dir.strip() or settings.jellyfin_people_dir.strip()
     return Path(os.path.realpath(value)) if value else None
 
 

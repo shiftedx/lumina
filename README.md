@@ -83,7 +83,11 @@ FastAPI and SQLite in `backend/`, React, TypeScript and Vite in `frontend/`. Arc
 
 Lumina plays public sources only. It stores no provider credentials and does not handle DRM. You are responsible for following the terms of the sites you use.
 
-Screenshot content: [Blender Studio](https://studio.blender.org) open movies (CC BY), artwork via [TMDB](https://www.themoviedb.org). Lumina uses the TMDB API but is not endorsed or certified by TMDB.
+## Credits
+
+Lumina stands on [yt-dlp](https://github.com/yt-dlp/yt-dlp), [FFmpeg](https://ffmpeg.org) (via [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg)), [llama.cpp](https://github.com/ggml-org/llama.cpp) and [faster-whisper](https://github.com/SYSTRAN/faster-whisper), with metadata from [TMDB](https://www.themoviedb.org) and [AniList](https://anilist.co). Full list and licenses: [CREDITS.md](CREDITS.md). This product uses the TMDB API but is not endorsed or certified by TMDB. Lumina is not affiliated with Jellyfin, YouTube, Twitch or any other project or service it works with.
+
+Screenshots show [Blender Studio](https://studio.blender.org) open movies (CC BY).
 
 ## License
 

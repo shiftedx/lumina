@@ -8,7 +8,7 @@ an owner. 2.9.0 sealed with a key derived from app-data/art-secret ("v1:"); star
 
 Owner recovery without a working second factor (documented in docker/README.md)::
 
-    docker compose exec yt-dlp-ui python -m app.services.two_factor reset <username>
+    docker compose exec lumina python -m app.services.two_factor reset <username>
 """
 from __future__ import annotations
 

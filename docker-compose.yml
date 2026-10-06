@@ -1,6 +1,6 @@
-# Lumina 1.0. Operator guide: docker/README.md. Put overrides in a `.env` file next to this one.
+# Lumina. Operator guide: docker/README.md. Put overrides in a `.env` file next to this one.
 services:
-  yt-dlp-ui:
+  lumina:
     restart: unless-stopped
     # Shutdown finishes model downloads' joins and stops on-device model servers; Docker's 10 s default is too short.
     stop_grace_period: 30s
@@ -62,7 +62,7 @@ services:
       nofile: 65536
 
   # Optional local speech-to-text server for ASR transcripts (issue #143). Off by default: only
-  # starts with `docker compose --profile asr up -d`. No host port; reachable from yt-dlp-ui only,
+  # starts with `docker compose --profile asr up -d`. No host port; reachable from lumina only,
   # at the default project network's DNS name `asr`. See docker/README.md "External speech-to-text server (optional)".
   asr:
     profiles: ["asr"]

@@ -1,6 +1,6 @@
 # Lumina Docker operator guide
 
-Lumina 1.0 ships as one container: the FastAPI backend serves the built React app on port 8765. Docker Compose is the supported install path. Read `RELEASE_NOTES.md`, `SECURITY.md` and `LICENSE` before exposing an installation.
+Lumina ships as one container: the FastAPI backend serves the built React app on port 8765. Docker Compose is the supported install path. Read `RELEASE_NOTES.md`, `SECURITY.md` and `LICENSE` before exposing an installation.
 
 ## Install
 
@@ -12,14 +12,14 @@ LUMINA_RUNTIME_GID=$(id -g)
 LUMINA_SOURCE_REVISION=$(git rev-parse HEAD)
 EOF
 docker compose up --build -d
-docker compose ps          # yt-dlp-ui must report "healthy"
+docker compose ps          # lumina must report "healthy"
 ```
 
-Open <http://127.0.0.1:8765>. Stop with `docker compose down`; logs with `docker compose logs --tail=100 yt-dlp-ui`.
+Open <http://127.0.0.1:8765>. Stop with `docker compose down`; logs with `docker compose logs --tail=100 lumina`.
 
 The image is multi-stage (the frontend is built in a Node stage; only `dist/`, the Node binary yt-dlp needs for YouTube, ffmpeg and the hash-locked Python runtime reach the final image). The container runs read-only with all capabilities dropped except those the entrypoint needs to `chown` the data directory, then drops to the numeric `LUMINA_RUNTIME_UID:LUMINA_RUNTIME_GID` account (never 0) with `setpriv`, clearing every supplementary group except the optional host render group (`LUMINA_RENDER_GID`, see "Hardware transcoding"). The image healthcheck polls `GET /api/health`.
 
-ffmpeg/ffprobe are [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg) 8.1.2-5 (GPL; QSV/VAAPI, OpenCL tone-mapping and chromaprint), installed from the release's `trixie_amd64`/`trixie_arm64` `.deb`. Each is pinned by sha256 in the `Dockerfile` (`ADD --checksum`) and symlinked from `/usr/lib/jellyfin-ffmpeg/` into `/usr/local/bin/`. On amd64 the image also installs Intel's OpenCL runtime (`intel-opencl-icd` 26.31.39395.13, `intel-igc-core-2`/`intel-igc-opencl-2` 2.40.13, `libigdgmm12` 22.10.0) from Intel's GitHub releases, again pinned by sha256. It is not packaged for Debian trixie, and the versions match Jellyfin's own trixie image. The media toolchain adds ~150 MB over the previous static build. Both ffmpeg binaries are GPL-licensed; see `LICENSE` for how this applies to redistribution. To upgrade, read the new digests with `gh api repos/jellyfin/jellyfin-ffmpeg/releases/latest --jq '.assets[] | select(.name | test("trixie_(amd64|arm64).deb$")) | .name + " " + .digest'` (Intel: `gh api repos/intel/compute-runtime/releases/tags/<ver>` and `repos/intel/intel-graphics-compiler/releases/tags/v<ver>`), update the `ADD` lines, and rebuild.
+ffmpeg/ffprobe are [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg) 8.1.2-5 (GPL; QSV/VAAPI, OpenCL tone-mapping and chromaprint), installed from the release's `trixie_amd64`/`trixie_arm64` `.deb`. Each is pinned by sha256 in the `Dockerfile` (`ADD --checksum`) and symlinked from `/usr/lib/jellyfin-ffmpeg/` into `/usr/local/bin/`. On amd64 the image also installs Intel's OpenCL runtime (`intel-opencl-icd` 26.31.39395.13, `intel-igc-core-2`/`intel-igc-opencl-2` 2.40.13, `libigdgmm12` 22.10.0) from Intel's GitHub releases, again pinned by sha256. It is not packaged for Debian trixie, and the versions match Jellyfin's own trixie image. The media toolchain adds ~150 MB over the previous static build. Both ffmpeg binaries are GPL-licensed; [`CREDITS.md`](../CREDITS.md) links their source and lists every bundled component. To upgrade, read the new digests with `gh api repos/jellyfin/jellyfin-ffmpeg/releases/latest --jq '.assets[] | select(.name | test("trixie_(amd64|arm64).deb$")) | .name + " " + .digest'` (Intel: `gh api repos/intel/compute-runtime/releases/tags/<ver>` and `repos/intel/intel-graphics-compiler/releases/tags/v<ver>`), update the `ADD` lines, and rebuild.
 
 ## Configure
 
@@ -83,7 +83,7 @@ Restore is offline:
 
 ```bash
 docker compose down
-docker compose run --rm --no-deps yt-dlp-ui python -m app.restore /app/backend/.data/backups/lumina-<timestamp>-manual.db
+docker compose run --rm --no-deps lumina python -m app.restore /app/backend/.data/backups/lumina-<timestamp>-manual.db
 docker compose up -d
 ```
 
@@ -213,7 +213,7 @@ docker compose exec asr curl -sX POST http://localhost:8000/v1/models/Systran%2F
 ```
 
 Then set `LUMINA_ASR_BASE_URL=http://asr:8000/v1` and `LUMINA_ASR_MODEL=Systran/faster-whisper-small` in `.env`
-(or the same fields under **Settings → AI & models**) and restart `yt-dlp-ui`. The `asr` service has no host port; it is reachable
+(or the same fields under **Settings → AI & models**) and restart `lumina`. The `asr` service has no host port; it is reachable
 only from other containers on the compose project's network, and its model cache (a few hundred MB, downloaded once)
 lives in `./app-data/asr-models`. Transcribing is CPU-only and roughly real-time on a modern core with the `small`
 model; a multi-hour video takes about as long to transcribe.
@@ -261,7 +261,7 @@ Create `docker-compose.lan.yml` next to `docker-compose.yml`:
 
 ```yaml
 services:
-  yt-dlp-ui:
+  lumina:
     ports:
       - "${LUMINA_LAN_IP:?set LUMINA_LAN_IP in .env}:8765:8765"   # added to the loopback mapping, which keeps working on the host
     environment:
@@ -282,7 +282,7 @@ Startup refuses the mode unless the public URL is `http://` on a private IPv4 li
 
 ```yaml
 services:
-  yt-dlp-ui:
+  lumina:
     labels:
       traefik.http.routers.lumina-lan.rule: Host(`lumina.home.arpa`)
       traefik.http.routers.lumina-lan.entrypoints: web
@@ -301,7 +301,7 @@ Behind Cloudflare Tunnel the proxy's `X-Forwarded-For` is the tunnel host for ev
 The secret is encrypted with its own key, `app-data/totp-key` (32 random bytes, `0600`, made at the first enrollment), and bound to its account. **Back that file up with your backups and never delete it**: without it (or after restoring a backup into a data directory without it) every enrolled authenticator is unreadable, and startup logs an error saying so. Members then sign in with a recovery code, or are reset. Lumina never replaces an existing key file; a damaged one is reported rather than overwritten. Upgrading from 2.9.0, whose key came from `app-data/art-secret`, re-encrypts every secret under the new key at the first start (all or nothing; a crash part-way leaves them as they were and the next start retries). Leave `art-secret` in place until that start has run: a secret it can no longer open stays as it was, with an error in the log, and moves once the file is restored and Lumina restarted. Members' "Don't ask again on this device" choices end once at that upgrade. Afterwards deleting `art-secret` only changes artwork URLs and ends trusted devices. If the only vault owner has lost both their phone and their recovery codes, reset them from the host:
 
 ```sh
-docker compose exec yt-dlp-ui python -m app.services.two_factor reset <username>
+docker compose exec lumina python -m app.services.two_factor reset <username>
 ```
 
 **App passwords.** Jellyfin apps (Infuse, Swiftfin) and HTTP Basic clients cannot ask for a code, so an account with two-step verification refuses its account password there ("Use an app password from Lumina → Settings → Connected apps") and accepts an **app password** instead: **Settings → Connected apps → Add an app** makes one per device, shows the server address, username and password once, and stores only a digest. Revoking it signs out the app that used it; changing or resetting the account password revokes all of them. Accounts without two-step verification keep signing in to apps with their normal password, and turning it on does not sign out apps that already signed in (**Sign out all apps** does, keeping app passwords). An app password works only for app and HTTP Basic sign-in, never on the web sign-in form. Over HTTP Basic it only browses and plays media (reads, playback progress, watched): it is never a vault owner and cannot manage accounts, settings, connected apps or two-step verification. Password reset links, two-step resets, role and active changes, invitations, the public address and backup downloads need a signed-in browser (never an agent token or HTTP Basic), and an owner turns their own two-step verification off under Settings → You, not with the member reset.
@@ -341,7 +341,7 @@ Backups keep the Jellyfin server key, so a restored vault keeps its `ServerId` a
 	}
 ```
 
-To diagnose a client, set `LUMINA_JELLYFIN_TRACE=1` in `.env`, restart, reproduce, then read `docker compose logs yt-dlp-ui | grep jellyfin.` (method, route and parameter names only). `jellyfin.unhandled` lines name requests Lumina does not serve yet. Turn the flag off afterwards.
+To diagnose a client, set `LUMINA_JELLYFIN_TRACE=1` in `.env`, restart, reproduce, then read `docker compose logs lumina | grep jellyfin.` (method, route and parameter names only). `jellyfin.unhandled` lines name requests Lumina does not serve yet. Turn the flag off afterwards.
 
 ### Moving over from Jellyfin
 

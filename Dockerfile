@@ -48,6 +48,7 @@ RUN git init -q /src \
     && cmake --build /build -j"$(nproc)" --target llama-server \
     && mkdir -p /opt/lumina-llama/bin \
     && cp /build/bin/llama-server /opt/lumina-llama/bin/ \
+    && cp /src/LICENSE /opt/lumina-llama/LICENSE \
     && find /build \( -name 'lib*.so' -o -name 'lib*.so.*' \) -exec cp -a {} /opt/lumina-llama/bin/ \; \
     && ls /opt/lumina-llama/bin/libggml-cpu-*.so >/dev/null
 
@@ -63,7 +64,7 @@ FROM python:3.12.14-slim-trixie@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f82
 
 ARG LUMINA_SOURCE_REVISION=unrecorded
 
-LABEL org.opencontainers.image.title="Lumina Media Vault" \
+LABEL org.opencontainers.image.title="Lumina" \
       org.opencontainers.image.source="https://github.com/shiftedx/lumina" \
       org.opencontainers.image.revision="$LUMINA_SOURCE_REVISION" \
       org.opencontainers.image.version="1.0.0" \
@@ -92,9 +93,10 @@ COPY docker/lumina-asr/server.py /opt/lumina-asr/server.py
 COPY backend/ /app/backend/
 COPY --from=frontend-build /build/frontend/dist /app/frontend/dist
 COPY --from=frontend-build /usr/local/bin/node /usr/local/bin/node
-COPY docker/entrypoint.sh /usr/local/bin/yt-dlp-ui-entrypoint.sh
+COPY --from=frontend-build /usr/local/LICENSE /usr/local/share/doc/node/LICENSE
+COPY docker/entrypoint.sh /usr/local/bin/lumina-entrypoint.sh
 
-RUN chmod +x /usr/local/bin/yt-dlp-ui-entrypoint.sh \
+RUN chmod +x /usr/local/bin/lumina-entrypoint.sh \
     && mkdir -p /app/backend/.data \
     && pip install --require-hashes -r /app/backend/requirements.runtime.lock \
     && /opt/lumina-llama/bin/llama-server --version \
@@ -105,4 +107,4 @@ EXPOSE 8765
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=12 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health', timeout=2)"]
 
-ENTRYPOINT ["/usr/local/bin/yt-dlp-ui-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/lumina-entrypoint.sh"]

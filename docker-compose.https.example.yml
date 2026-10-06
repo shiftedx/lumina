@@ -1,5 +1,5 @@
 services:
-  yt-dlp-ui:
+  lumina:
     environment:
       LUMINA_APP_PUBLIC_URL: https://${LUMINA_HOSTNAME:?Set LUMINA_HOSTNAME to the public DNS name}
       LUMINA_FRONTEND_PUBLIC_URL: https://${LUMINA_HOSTNAME:?Set LUMINA_HOSTNAME to the public DNS name}
@@ -27,7 +27,7 @@ services:
       lumina-proxy:
         ipv4_address: 172.30.0.2
     depends_on:
-      yt-dlp-ui:
+      lumina:
         condition: service_healthy
         restart: true
 

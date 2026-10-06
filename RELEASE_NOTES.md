@@ -1,8 +1,16 @@
 # Release notes
 
-## Unreleased
+## Lumina 2.10.1
 
-- **Settings are now `LUMINA_*`.** Every environment variable that started with `YTDLP_UI_` now starts with `LUMINA_` (for example `LUMINA_RUNTIME_UID`). Before upgrading, rename them in `.env` and any compose override: `sed -i 's/^YTDLP_UI_/LUMINA_/' .env`. Old names are ignored.
+**Upgrade steps** (once):
+
+1. `docker compose down`. The Compose service and container are now named `lumina`, so the old container must stop first.
+2. Rename settings in `.env` and any compose override: `sed -i 's/^YTDLP_UI_/LUMINA_/' .env`. Old names are ignored. If an override names the service, rename it to `lumina`.
+3. `docker compose up --build -d`.
+
+- **Anime requests work again.** AniList's Cloudflare front had started answering Lumina with a challenge page, so the anime season, schedule and list views failed. Lumina now identifies itself to AniList, and a refused request logs its HTTP status.
+- **One name.** Settings use the `LUMINA_` prefix, the Compose service is `lumina`, and the app reports its real version in Diagnostics.
+- Lumina is now open source at [github.com/shiftedx/lumina](https://github.com/shiftedx/lumina). [CREDITS.md](CREDITS.md) and Settings → You → About credit yt-dlp, FFmpeg and every other project and service Lumina is built on.
 
 ## Lumina 2.10.0
 

@@ -1111,8 +1111,8 @@ wheels = [
 ]
 
 [[package]]
-name = "yt-dlp-ui-backend"
-version = "1.0.0"
+name = "lumina-backend"
+version = "2.10.1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

@@ -21,5 +21,5 @@ body:
   - type: textarea
     attributes:
       label: Logs
-      description: "`docker compose logs --tail=100 yt-dlp-ui`. Remove hostnames, tokens and media titles you don't want public."
+      description: "`docker compose logs --tail=100 lumina`. Remove hostnames, tokens and media titles you don't want public."
       render: text

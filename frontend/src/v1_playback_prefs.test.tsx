@@ -43,9 +43,11 @@ describe('playback preferences', () => {
     expect(onChange).toHaveBeenLastCalledWith({ profanity: { enabled: true, words: ['heck', 'frick*'] } });
   });
 
-  it('credits TMDB in About', () => {
+  it('credits TMDB, yt-dlp and the other upstreams in About', () => {
     settings(vi.fn(), 'about');
     expect(screen.getByRole('heading', { level: 2, name: 'About' })).toBeTruthy();
     expect(screen.getByText(TMDB_ATTRIBUTION)).toBeTruthy();
+    expect(screen.getByText(/built on yt-dlp, FFmpeg/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'All credits' }).getAttribute('href')).toBe('https://github.com/shiftedx/lumina/blob/main/CREDITS.md');
   });
 });

@@ -1,12 +1,12 @@
 {
-  "name": "yt-dlp-ui-frontend",
+  "name": "lumina-frontend",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.10.1",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build && node scripts/check-styles.mjs",
+    "build": "tsc --noEmit && vite build && node scripts/licenses.mjs && node scripts/check-styles.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:browser": "playwright test",

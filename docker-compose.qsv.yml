@@ -2,7 +2,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.qsv.yml up -d
 # LUMINA_RENDER_GID is the host's render group id: stat -c %g /dev/dri/renderD128
 services:
-  yt-dlp-ui:
+  lumina:
     devices:
       - /dev/dri:/dev/dri
     environment:

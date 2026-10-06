@@ -134,4 +134,4 @@ def test_docker_publishes_only_to_loopback() -> None:
     compose_path = Path(__file__).resolve().parents[2] / "docker-compose.yml"
     compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
 
-    assert compose["services"]["yt-dlp-ui"]["ports"] == ["127.0.0.1:8765:8765"]
+    assert compose["services"]["lumina"]["ports"] == ["127.0.0.1:8765:8765"]

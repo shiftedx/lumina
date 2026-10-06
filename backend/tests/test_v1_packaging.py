@@ -1,5 +1,6 @@
 """The Docker packaging stays browser-only, credential-free and pinned to one toolchain source."""
 from pathlib import Path
+import json
 import re
 import subprocess
 
@@ -107,3 +108,11 @@ def test_model_runtimes_are_built_portable_from_pinned_sources() -> None:
     bases = set(re.findall(r"^FROM python:(\S+)", dockerfile, re.M))
     assert len(bases) == 1 and "@sha256:" in bases.pop()
     assert "faster-whisper" not in (ROOT / "backend" / "requirements.runtime.lock").read_text()  # Lumina's own deps unchanged
+
+
+def test_image_carries_the_license_texts_of_copied_binaries_and_the_bundle() -> None:
+    """Binaries copied without their package (llama.cpp, Node.js) bring their LICENSE; the web build writes its notices."""
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    assert "cp /src/LICENSE /opt/lumina-llama/LICENSE" in dockerfile
+    assert "COPY --from=frontend-build /usr/local/LICENSE /usr/local/share/doc/node/LICENSE" in dockerfile
+    assert "node scripts/licenses.mjs" in json.loads((ROOT / "frontend" / "package.json").read_text())["scripts"]["build"]

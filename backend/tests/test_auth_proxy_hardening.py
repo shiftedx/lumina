@@ -253,7 +253,7 @@ def test_entrypoints_leave_forwarding_trust_to_the_application() -> None:
 def test_base_compose_restarts_and_health_checks_lumina() -> None:
     repository_root = Path(__file__).resolve().parents[2]
     compose = yaml.safe_load((repository_root / "docker-compose.yml").read_text(encoding="utf-8"))
-    service = compose["services"]["yt-dlp-ui"]
+    service = compose["services"]["lumina"]
 
     assert service["restart"] == "unless-stopped"
     # The healthcheck lives in the image (Dockerfile HEALTHCHECK, asserted by test_v1_packaging).

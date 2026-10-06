@@ -2,7 +2,7 @@
  * Pure preference helpers for the desktop navigation menu. The caller owns
  * browser storage and member-settings I/O; this module only defines precedence.
  */
-export const SIDEBAR_COLLAPSED_STORAGE_KEY = 'yt-dlp-ui.sidebar-collapsed';
+export const SIDEBAR_COLLAPSED_STORAGE_KEY = 'lumina.sidebar-collapsed';
 
 export type SidebarPreferenceSource = 'member' | 'local' | 'default';
 

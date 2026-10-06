@@ -131,6 +131,10 @@ function Credits() {
         <p className="g-setting-note">{TMDB_ATTRIBUTION}</p>
         <div className="g-actions"><ButtonLink href="https://www.themoviedb.org/" rel="noreferrer noopener" target="_blank" variant="secondary">Visit TMDB</ButtonLink></div>
       </div>
+      <div className="g-subrow">
+        <p className="g-setting-note">Lumina is built on yt-dlp, FFmpeg (jellyfin-ffmpeg), llama.cpp and faster-whisper. Anime data comes from AniList and intro markers from TheIntroDB.</p>
+        <div className="g-actions"><ButtonLink href="https://github.com/shiftedx/lumina/blob/main/CREDITS.md" rel="noreferrer noopener" target="_blank" variant="secondary">All credits</ButtonLink></div>
+      </div>
     </div>
   );
 }
@@ -209,7 +213,7 @@ export const YOU_SECTIONS: readonly SettingsSectionDef[] = [
   {
     id: 'about', group: 'you', label: 'About', summary: 'Credits for the details and artwork Lumina shows.',
     entries: [
-      { id: 'about.credits', label: 'Credits', layout: 'block', keywords: ['tmdb', 'the movie database', 'attribution', 'artwork', 'licence', 'license'], info: 'Where movie and show details and artwork come from. Lumina uses TMDB for them when the vault owner adds a TMDB key. Nothing here changes a setting.', Control: Credits },
+      { id: 'about.credits', label: 'Credits', layout: 'block', keywords: ['yt-dlp', 'ffmpeg', 'anilist', 'tmdb', 'the movie database', 'attribution', 'artwork', 'licence', 'license'], info: 'Where movie and show details and artwork come from. Lumina uses TMDB for them when the vault owner adds a TMDB key. Nothing here changes a setting.', Control: Credits },
     ],
   },
 ];

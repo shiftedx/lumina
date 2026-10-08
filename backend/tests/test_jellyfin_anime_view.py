@@ -33,8 +33,8 @@ USER_VIEWS = [
     ("b8e6e5f3a40f598dbdc1c27bf7a21d37", "Collections", "boxsets"),
     ("5fe4102fd93e5680bd01138b092b10d7", "Channels", "tvshows"),
 ]
-VIEW_KEYS = {"Id", "ServerId", "Name", "SortName", "Type", "CollectionType", "IsFolder", "ImageTags", "BackdropImageTags",
-             "LocationType", "PlayAccess", "UserData"}
+VIEW_KEYS = {"Id", "ServerId", "Name", "SortName", "Type", "CollectionType", "IsFolder", "MediaType", "ImageTags",
+             "BackdropImageTags", "LocationType", "PlayAccess", "CanDelete", "CanDownload", "UserData"}
 
 
 @pytest.fixture
@@ -187,11 +187,12 @@ def test_album_and_artist_ids_are_404_everywhere(jf: TestClient) -> None:
     for title_id in (ALBUM, ARTIST):
         hex_id = HEX(title_id)
         for path in (f"/Items/{hex_id}", f"/Users/{me}/Items/{hex_id}", f"/Items/{hex_id}/Images/Primary",
-                     f"/Users/{me}/Items/{hex_id}/UserData", f"/Shows/{hex_id}/Seasons", f"/Items/{hex_id}/SpecialFeatures"):
+                     f"/Users/{me}/Items/{hex_id}/UserData", f"/Items/{hex_id}/SpecialFeatures"):
             assert get(jf, path).status_code == 404, path
-        assert get(jf, "/Items", ParentId=hex_id).status_code == 404
-        assert get(jf, "/Items/Latest", ParentId=hex_id).status_code == 404
-        assert get(jf, "/UserItems/Resume", ParentId=hex_id).status_code == 404
+        assert get(jf, f"/Shows/{hex_id}/Seasons").json()["Items"] == []  # lists below an unknown parent are empty
+        assert get(jf, "/Items", ParentId=hex_id).json()["Items"] == []
+        assert get(jf, "/Items/Latest", ParentId=hex_id).json() == []
+        assert get(jf, "/UserItems/Resume", ParentId=hex_id).json()["Items"] == []
         for path in (f"/Users/{me}/PlayedItems/{hex_id}", f"/Users/{me}/FavoriteItems/{hex_id}"):
             assert jf.post(path, headers=headers).status_code == 404, path
         assert jf.post(f"/Items/{hex_id}/PlaybackInfo", json={}, headers=headers).status_code == 404

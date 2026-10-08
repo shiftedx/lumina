@@ -253,7 +253,7 @@ def test_playback_starts_are_refused_with_the_code_and_when(house: TestClient) -
     assert house.get(f"/api/library/{FILE[S1E1]}/media").json()["detail"] == "outside_hours"
     assert house.post("/api/preview", json={"source_url": "https://vimeo.com/1"}).status_code != 403  # browsing is not watching
     jellyfin = house.post(f"/Items/{FILE[S1E1].replace('-', '')}/PlaybackInfo", headers=mediabrowser(ALICE_TOKEN))
-    assert (jellyfin.status_code, jellyfin.json()["detail"]) == (403, "outside_hours")
+    assert (jellyfin.status_code, jellyfin.content) == (403, b"")  # an error on the Jellyfin surface has no body
     house.who["id"] = BOB
     assert house.get(f"/api/library/{FILE[S1E1]}/playback-options").status_code != 403
 
@@ -338,7 +338,7 @@ def test_a_running_session_stops_within_a_minute_of_the_limit(house: TestClient,
     assert reply.json()["detail"] == "screen_time_up"
     assert seconds_today() == 80  # a player that keeps reporting is still watching: counted, and refused each time
     jellyfin = house.post("/Sessions/Playing/Progress", json={"ItemId": FILE[S1E1].replace("-", ""), "PositionTicks": TICKS}, headers=mediabrowser(ALICE_TOKEN))
-    assert (jellyfin.status_code, jellyfin.json()["detail"]) == (403, "screen_time_up")
+    assert (jellyfin.status_code, jellyfin.content) == (403, b"")
     with SessionLocal() as session:
         assert session.get(ScreenTime, (ALICE, date(2026, 10, 5))).seconds >= 60
 

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app import db as db_module
 from app.main import app
 from app.models import MediaTitle, TitleUpload, utcnow
+from app.services.connected_apps import image_grants
 from app.services.media_titles import jellyfin_id
 from title_support import ALICE_TOKEN, MOVIE, POSTER, jellyfin_household, mediabrowser
 
@@ -58,6 +59,7 @@ def test_index_1_to_4_is_served_with_a_token_or_the_signed_tag_and_5_is_404(jf) 
     assert jf.get(f"{path}/1", headers=HEADERS).content == DATA[SHAS[1]]
     assert jf.get(f"{path}/2", params={"tag": tags[2]}).content == DATA[SHAS[2]]
     assert jf.get(f"{path}/2", params={"tag": tags[1]}).status_code == 404  # another index's tag
+    image_grants.clear()  # the calls above grant this address its art for minutes
     assert jf.get(f"{path}/1").status_code == 404  # neither
     assert jf.get(f"{path}/3", headers=HEADERS).status_code == 404  # empty slot
     assert jf.get(f"{path}/5", headers=HEADERS).status_code == 404

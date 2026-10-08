@@ -54,13 +54,13 @@ def _count(value: object) -> int | None:
 
 def playback_request(body: Mapping[str, Any] | None, query: Mapping[str, str]) -> PlaybackRequest:
     """PlaybackInfo input from the posted PlaybackInfoDto, falling back to (lowercased) query keys."""
-    body = body if isinstance(body, Mapping) else {}
+    body = {str(key).lower(): value for key, value in body.items()} if isinstance(body, Mapping) else {}  # Streamyfin posts camelCase
 
-    def pick(body_key: str) -> object:
-        value = body.get(body_key)
-        return value if value is not None else query.get(body_key.lower())
+    def pick(name: str) -> object:
+        value = body.get(name.lower())
+        return value if value is not None else query.get(name.lower())
 
-    profile = body.get("DeviceProfile")
+    profile = body.get("deviceprofile")
     return PlaybackRequest(
         profile=profile if isinstance(profile, dict) else None,
         max_bitrate=_count(pick("MaxStreamingBitrate")),

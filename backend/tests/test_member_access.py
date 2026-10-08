@@ -259,9 +259,10 @@ def test_jellyfin_libraries_without_a_section_are_absent(household: TestClient, 
         view_id = jellyfin_id(synthetic_id(f"view:{view}"))
         listed = jf(household, "GET", "/Items", viewer, params={"ParentId": view_id})
         latest = jf(household, "GET", "/Items/Latest", viewer, params={"ParentId": view_id})
-        granted = viewer != GUEST  # by Section: the kid's Anime id still resolves (granted, just nothing visible in it)
-        assert (listed.status_code == 200) == granted, (name, listed.status_code)
-        assert (latest.status_code == 200) == (listed.status_code == 200), name
+        # An ungranted library lists as empty, exactly like a missing one (Jellyfin apps read a 404 body as data).
+        assert (listed.status_code, latest.status_code) == (200, 200), name
+        if viewer == GUEST:
+            assert (listed.json()["Items"], latest.json()) == ([], []), name
 
 
 @pytest.mark.parametrize("viewer", [KID, ADULT])

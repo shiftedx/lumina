@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.media_schemas import PlaybackSessionRequest
 from app.models import HouseholdCollection, LibraryItem, User
+from app.routers.jellyfin_probes import split_csv
 from app.routers.local_playback import open_session  # the shared start path
 from app.services import jellyfin as jf
 from app.services import playlists as pl
@@ -186,7 +187,7 @@ def search_hints(
 
 
 def similar(
-    item_id: str, limit: int = Query(12, ge=1, le=100), fields: str = "",
+    item_id: str, limit: int = Query(12, ge=1, le=100), fields: list[str] = Query([]),
     caller: JellyfinCaller = Depends(jellyfin_caller), db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     ref = parse_item_id(item_id)
@@ -196,7 +197,7 @@ def similar(
         if ref and LibraryService(db).get_item(ref, caller.user) is not None:
             return {"Items": [], "TotalRecordCount": 0, "StartIndex": 0}
         raise HTTPException(status_code=404, detail="Item not found")
-    dtos = jf.JellyfinMapper(db, caller.user, [f for f in fields.split(",") if f]).by_ids(refs)
+    dtos = jf.JellyfinMapper(db, caller.user, split_csv(fields)).by_ids(refs)
     return {"Items": dtos, "TotalRecordCount": len(dtos), "StartIndex": 0}
 
 
@@ -261,11 +262,11 @@ def playlist_info(playlist_id: str, caller: JellyfinCaller = Depends(jellyfin_ca
 
 
 def get_playlist_items(
-    playlist_id: str, startindex: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=500), fields: str = "",
+    playlist_id: str, startindex: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=500), fields: list[str] = Query([]),
     caller: JellyfinCaller = Depends(jellyfin_caller), db: Session = Depends(get_db, scope="function"),
 ) -> dict:
     playlist = _run(lambda: pl.get_playlist(db, caller.user, parse_item_id(playlist_id) or ""))
-    rows = playlist_items_dtos(db, caller.user, playlist, [f for f in fields.split(",") if f])
+    rows = playlist_items_dtos(db, caller.user, playlist, split_csv(fields))
     return jf.query_result(rows[startindex:startindex + limit], len(rows), startindex)
 
 

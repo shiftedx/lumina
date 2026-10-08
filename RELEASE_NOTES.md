@@ -1,5 +1,28 @@
 # Release notes
 
+## Lumina 2.12.0
+
+- Jellyfin for Roku can play. Play used to send the Roku back to its home screen: the app asked for a movie's additional parts, Lumina answered 404 with an error body, and the app read that body as the list and crashed. The app also names an item as its own media source, which Lumina did not accept.
+- Every Jellyfin app that talks the API should now sign in, browse and play: Roku, Android TV, Findroid, Swiftfin, Streamyfin, the Kodi add-ons, Fladder and Infuse. Music apps sign in and show an empty library. Apps that only load a server-hosted Jellyfin web page (the official phone app, Jellyfin Media Player) are not supported.
+  - Errors from the Jellyfin API have no body, and a list asked about a missing or hidden folder is empty instead of an error.
+  - Lumina now answers more of the endpoints apps call without asking, among them additional parts, intros, theme media, ancestors, item counts, the caller's own session, encoding options and media folders. They return real or empty results.
+  - Kodi can start playback. Android TV's previous-episode button, cast and crew pages and search hints work.
+  - Apps can download a file for offline viewing when the member can stream it.
+  - Streamyfin's chosen version and device profile are honoured.
+  - `/socket` accepts signed-in apps and sends keep-alives, so apps stop reconnecting in a loop.
+  - Roku poster views cannot send a token. For 10 minutes after a signed-in Jellyfin request, art requested from the same device address without a token is served as that member, re-checked on every request.
+  - Art served to one caller is no longer marked cacheable by shared caches.
+- The per-address stream grant from 2.11.0 can no longer be borrowed by forging Cloudflare's visitor header on the LAN.
+
+## Lumina 2.11.0
+
+- Jellyfin for Android TV (0.19) can sign in and play. Lumina now sends every field the app requires; before, one missing field failed sign-in or sent Play back to the home screen. The app's player fetches the video without credentials, so after a signed-in app asks to play an item, that address may stream that item for 4 hours as the same user. Every other stream request still needs a token.
+- `LUMINA_PEOPLE_DIR` replaces `LUMINA_JELLYFIN_PEOPLE_DIR` for cast photos. The old name is still read.
+- An external storage root on a network share stays available after a remount or reboot. Lumina now recognises it by its server and export instead of a device number that changes on every mount.
+- The daily backup pass keeps only the newest 3 pre-upgrade backups.
+- Background probe warming runs at low CPU priority.
+- `LUMINA_JELLYFIN_TRACE=1` now writes its per-request lines to the server log. Before, they were dropped everywhere except in tests.
+
 ## Lumina 2.10.2
 
 - Selected filter chips (Requests, Explore, Streaming and elsewhere) show only the gold underline, without a filled pill behind them. Request chip rows line up with the page edge.

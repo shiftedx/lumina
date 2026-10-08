@@ -342,7 +342,7 @@ def test_transcript_tracks_are_external_streams_rendered_from_the_db(vault: Vaul
     assert vtt.text.startswith("WEBVTT") and "Fish &amp; &lt;chips&gt;" in vtt.text
     assert "Hello" in vault.jf.get(f"{subtitles}/2/Stream.srt", headers=tv.headers).text  # the sidecar still serves as-is
     for bad in ("4/Stream.srt", "-1/Stream.srt", "99999999999/Stream.srt", "3/Stream.exe", "x/Stream.srt", "3/Stream..%2F..%2Fetc"):
-        assert vault.jf.get(f"{subtitles}/{bad}", headers=tv.headers).status_code in (404, 422), bad
+        assert vault.jf.get(f"{subtitles}/{bad}", headers=tv.headers).status_code in (404, 400), bad
     bob = login(vault, "bob", "bob-tv")
     assert vault.jf.get(f"{subtitles}/3/Stream.srt", headers=bob.headers).status_code == 404  # private item
 
@@ -387,7 +387,7 @@ def test_search_hint_from_dto() -> None:
         "ImageTags": {"Primary": "p", "Thumb": "t"}, "BackdropImageTags": ["b"], "UserData": {"Played": False},
     }
     assert search_hint(dto, "pil") == {
-        "ItemId": "ab" * 16, "Id": "ab" * 16, "Name": "Pilot", "MatchedTerm": "pil", "Type": "Episode", "IsFolder": False,
+        "ItemId": "ab" * 16, "Id": "ab" * 16, "Name": "Pilot", "MatchedTerm": "pil", "Artists": [], "Type": "Episode", "IsFolder": False,
         "MediaType": "Video", "IndexNumber": 1, "ParentIndexNumber": 1, "ProductionYear": 2020, "RunTimeTicks": 10,
         "Series": "Vault Show", "PrimaryImageTag": "p", "ThumbImageTag": "t", "ThumbImageItemId": "ab" * 16,
         "BackdropImageTag": "b", "BackdropImageItemId": "ab" * 16,
@@ -422,7 +422,7 @@ def test_search_similar_and_suggestions_are_visibility_scoped(vault: Vault) -> N
     moment = vault.jf.get(hints, headers=tv.headers, params={"searchTerm": "whale"}).json()["SearchHints"]
     assert moment[0]["Id"] == jellyfin_id(episode["id"]) and moment[0]["Type"] == "Episode" and moment[0]["Series"] == "Vault Show"
     assert vault.jf.get(hints, headers=tv.headers, params={"searchTerm": "whale", "includeItemTypes": "Movie"}).json()["SearchHints"] == []
-    assert vault.jf.get(hints, headers=tv.headers, params={"searchTerm": "x" * 201}).status_code == 422
+    assert vault.jf.get(hints, headers=tv.headers, params={"searchTerm": "x" * 201}).status_code == 400
     assert vault.jf.get(hints, headers=tv.headers).status_code == 400  # the blank-searchTerm 400 stands
     assert vault.jf.get(hints, headers=bob.headers, params={"searchTerm": "arrival"}).json() == {"SearchHints": [], "TotalRecordCount": 0}
 
@@ -602,7 +602,7 @@ def test_dismiss_and_next_up_options_over_jellyfin(vault: Vault) -> None:
     assert [i["Id"] for i in vault.jf.get(nextup, headers=tv.headers, params={"enableRewatching": "false"}).json()["Items"]] == [hexes["e3"]]
     future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
     assert vault.jf.get(nextup, headers=tv.headers, params={"nextUpDateCutoff": future}).json()["Items"] == []
-    assert vault.jf.get(nextup, headers=tv.headers, params={"nextUpDateCutoff": "not-a-date"}).status_code == 422
+    assert vault.jf.get(nextup, headers=tv.headers, params={"nextUpDateCutoff": "not-a-date"}).status_code == 400
 
     progress = {"ItemId": hexes["e3"], "MediaSourceId": jellyfin_id(e3["play_item_id"]), "PositionTicks": 300_000_000}
     assert vault.jf.post("/Sessions/Playing/Progress", headers=tv.headers, json=progress).status_code == 204
@@ -757,7 +757,7 @@ def test_golden_traffic_replay_hits_real_routes() -> None:
 
 def test_trace_logs_route_templates_and_parameter_names_only(vault: Vault, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     monkeypatch.setattr(settings, "jellyfin_trace", True)
-    caplog.set_level(logging.INFO, logger="app.jellyfin")  # scoped: unscoped INFO also lifts httpx's own request-URL logging
+    caplog.set_level(logging.INFO, logger="lumina.jellyfin")  # scoped: unscoped INFO also lifts httpx's own request-URL logging
     tv = login(vault)
     vault.jf.get("/Items", headers=tv.headers, params={"searchTerm": "secret-title-words", "ApiKey": tv.token})
     vault.jf.get("/NoSuchRoute/abc", headers=tv.headers)
@@ -873,7 +873,8 @@ def test_facet_browsing_lists_and_filters_what_the_member_can_see(vault: Vault) 
     assert [g["Name"] for g in facet("/Genres", tv, StartIndex="1", Limit="1")["Items"]] == ["Drama"]
     assert facet("/Genres", tv, IncludeItemTypes="Series")["Items"] == []
     studio = facet("/Studios", tv)["Items"]
-    assert studio == [{"Name": "21 Laps", "ServerId": studio[0]["ServerId"], "Id": jellyfin_id(synthetic_id("studio:21 Laps")), "Type": "Studio", "ImageTags": {}, "BackdropImageTags": []}]
+    assert studio == [{"Name": "21 Laps", "ServerId": studio[0]["ServerId"], "Id": jellyfin_id(synthetic_id("studio:21 Laps")), "Type": "Studio", "ImageTags": {}, "BackdropImageTags": [],
+                       "UserData": studio[0]["UserData"]}]
     people = {p["Name"]: p for p in facet("/Persons", tv)["Items"]}
     assert people["Amy Adams"]["Id"] == jellyfin_id(AMY) and people["Amy Adams"]["Type"] == "Person"
     assert people["Local Only"]["Id"] == jellyfin_id(synthetic_id("person-name:local only"))
@@ -892,7 +893,7 @@ def test_facet_browsing_lists_and_filters_what_the_member_can_see(vault: Vault) 
     assert facet("/Items/Filters", tv, IncludeItemTypes="Movie") == {
         "Genres": ["Comedy", "Drama", "Science Fiction"], "Tags": ["cerebral"], "OfficialRatings": ["PG-13"], "Years": [1997, 2014, 2016]}
     assert facet("/Items/Filters2", tv)["Genres"][0] == {"Name": "Comedy", "Id": comedy}
-    assert vault.jf.get("/Genres", headers=tv.headers, params={"ParentId": "0" * 32}).status_code == 404
+    assert vault.jf.get("/Genres", headers=tv.headers, params={"ParentId": "0" * 32}).json()["Items"] == []
 
     # Bob can see none of the admin's private titles: no facet, no filter match, no id lookup leaks them.
     assert facet("/Genres", bob)["Items"] == [] and facet("/Studios", bob)["Items"] == [] and facet("/Persons", bob)["Items"] == []

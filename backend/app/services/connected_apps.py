@@ -9,7 +9,10 @@ import hmac
 import logging
 import re
 import secrets
+import threading
+import time
 import uuid
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import unquote
@@ -22,7 +25,8 @@ from app.db import get_db
 from app.media_schemas import ConnectedApp, ConnectedAppScope
 from app.models import AppSettings, DeviceToken, User
 from app.persistence import write_transaction
-from app.security import DEVICE_TOKEN_IDLE_DAYS, client_ip, resolve_device_token, session_digest, utcnow
+from app.security import DEVICE_TOKEN_IDLE_DAYS, resolve_device_token, session_digest, utcnow
+from app.services.rate_limit import grant_address
 from app.services.local_playback_sessions import sessions
 from app.services import member_access, two_factor
 from app.services.media_titles import parse_item_id
@@ -246,6 +250,70 @@ def require_jellyfin_enabled(db: Session = Depends(get_db, scope="function")) ->
         raise HTTPException(status_code=404, detail="Not Found")
 
 
+STREAM_GRANT_SECONDS = 4 * 3600
+IMAGE_GRANT_SECONDS = 600
+STREAM_GRANT_LIMIT = 512
+
+
+class _StreamGrants:
+    """(client address, item id) -> the token that asked PlaybackInfo for it.
+
+    Jellyfin's /Videos/{id}/stream needs no auth, and Jellyfin for Android TV 0.19's player sends none.
+    A grant lets that one address stream that one item as the PlaybackInfo caller, so the normal
+    token checks (revocation, idle expiry, member access, screen time) still run on every request.
+    In-memory: after a restart the stream 401s until the client asks PlaybackInfo again.
+    """
+
+    def __init__(self, seconds: float = STREAM_GRANT_SECONDS, *, sliding: bool = True) -> None:
+        self._seconds, self._sliding = seconds, sliding
+        self._items: OrderedDict[tuple[str, str], tuple[str, float]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def put(self, address: str | None, item_ids: list[str | None], token: str) -> None:
+        if not address:
+            return
+        expires = time.monotonic() + self._seconds
+        with self._lock:
+            for item_id in filter(None, item_ids):
+                self._items[(address, item_id)] = (token, expires)
+                self._items.move_to_end((address, item_id))
+            while len(self._items) > STREAM_GRANT_LIMIT:
+                self._items.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._items.clear()
+
+    def get(self, address: str | None, item_id: str | None) -> str | None:
+        with self._lock:
+            found = self._items.get((address, item_id)) if address and item_id else None
+            if found is None or found[1] < time.monotonic():
+                return None
+            if self._sliding:  # a paused film keeps it
+                self._items[(address, item_id)] = (found[0], time.monotonic() + self._seconds)
+            return found[0]
+
+
+stream_grants = _StreamGrants()
+# Poster nodes (Jellyfin for Roku) cannot send a header, and some art requests carry no signed tag. Any authenticated
+# Jellyfin request from an address refreshes this grant (the token it presented); /Items/{id}/Images/... may then use it
+# for ids that are random, never for a request that names a tag. Not sliding: an address that stops calling the API loses it.
+image_grants = _StreamGrants(IMAGE_GRANT_SECONDS, sliding=False)
+IMAGE_GRANT_KEY = "images"
+
+
+def jellyfin_stream_user(
+    request: Request,
+    item_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    _enabled: None = Depends(require_jellyfin_enabled),
+) -> User:
+    """``jellyfin_user`` for /Videos/{id}/stream, which may arrive without credentials under a PlaybackInfo grant."""
+    if parse_client_auth(request).token is None:
+        request.state.stream_grant_token = stream_grants.get(grant_address(request), parse_item_id(item_id))
+    return jellyfin_user(request, db, _enabled)
+
+
 def jellyfin_user(
     request: Request,
     db: Session = Depends(get_db, scope="function"),
@@ -256,7 +324,9 @@ def jellyfin_user(
     Returns a transient User snapshot, so no DB session is held while a route streams a file.
     A legacy ``{uid}`` path segment or ``userId`` query value must be the caller, else 404.
     """
-    resolved = resolve_device_token(db, request, parse_client_auth(request).token, kind="jellyfin")
+    presented = parse_client_auth(request).token
+    token = presented or getattr(request.state, "stream_grant_token", None)
+    resolved = resolve_device_token(db, request, token, kind="jellyfin")
     if resolved is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     record, user = resolved
@@ -267,5 +337,7 @@ def jellyfin_user(
     if any(parse_item_id(value) != parse_item_id(user.id) for value in claimed):
         raise HTTPException(status_code=404, detail="Not Found")
     request.state.connected_app_id = record.id
+    if presented:
+        image_grants.put(grant_address(request), [IMAGE_GRANT_KEY], presented)
     snapshot = User(id=user.id, username=user.username, display_name=user.display_name, role=user.role, is_active=user.is_active)
     return member_access.carry_access(db, snapshot, user)  # ADR 0019: the Jellyfin API's queries take the literal clause

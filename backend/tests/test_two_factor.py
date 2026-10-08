@@ -275,7 +275,7 @@ def test_jellyfin_apps_and_basic_use_an_app_password_on_two_step_accounts(client
     secret, _ = _enroll(client, login(client, "kid"))
     client.cookies.clear()
     refused = client.post("/users/authenticatebyname", json={"Username": "kid", "Pw": PASSWORD}, headers=MB)
-    assert refused.status_code == 401 and "app password" in refused.json()["detail"]
+    assert (refused.status_code, refused.content) == (401, b"")  # Jellyfin apps read an error body as data
     basic = _fresh().get("/api/session/me", auth=("kid", PASSWORD))
     assert basic.status_code == 401 and "app password" in basic.json()["detail"]
     csrf = client.post("/api/session/two-factor", json={"challenge": _challenge(client, "kid"), "code": _now_code(secret, 1)}).json()["csrf_token"]

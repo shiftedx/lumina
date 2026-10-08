@@ -14,6 +14,7 @@ from typing import Annotated, Any, Literal
 
 import yt_dlp
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -979,11 +980,26 @@ titles.register(app, artwork)
 jellyfin.register(app, artwork)  # after jellyfin_auth.register(app)
 
 
+def jellyfin_error(request: Request, status_code: int, headers: dict[str, str] | None = None) -> Response | None:
+    """An error on the Jellyfin-compatible surface keeps its status and has no body, as Jellyfin's own errors do:
+    some clients (Roku) parse any body as the answer they asked for, so a JSON error object reads as a result."""
+    if request.scope["path"].startswith("/jellyfin/") or request.scope["path"] == "/jellyfin":  # JellyfinPathMiddleware's rewrite
+        return Response(status_code=status_code, headers=headers)
+    return None
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error_without_body_on_jellyfin(request: Request, exc: StarletteHTTPException) -> Response:
+    return jellyfin_error(request, exc.status_code, dict(exc.headers or {})) or await http_exception_handler(request, exc)
+
+
 @app.exception_handler(RequestValidationError)
 async def request_validation_error_without_submitted_values(
-    _request: Request,
+    request: Request,
     exc: RequestValidationError,
-) -> JSONResponse:
+) -> Response:
+    if (empty := jellyfin_error(request, 400)) is not None:  # Jellyfin has no 422
+        return empty
     safe_errors = [
         {key: error[key] for key in ("type", "loc", "msg") if key in error}
         for error in exc.errors()
@@ -1018,7 +1034,9 @@ async def unsupported_remote_playback(_request: Request, exc: UnsupportedPlaybac
 
 
 @app.exception_handler(OperationalError)
-async def database_temporarily_unavailable(_request: Request, _exc: OperationalError) -> JSONResponse:
+async def database_temporarily_unavailable(request: Request, _exc: OperationalError) -> Response:
+    if (empty := jellyfin_error(request, 503, {"Retry-After": "1"})) is not None:
+        return empty
     return JSONResponse(
         status_code=503,
         content={"detail": "Storage is temporarily unavailable. Please try again."},
@@ -1027,9 +1045,11 @@ async def database_temporarily_unavailable(_request: Request, _exc: OperationalE
 
 
 @app.exception_handler(Exception)
-async def internal_server_error_with_security_headers(_request: Request, _exc: Exception) -> JSONResponse:
+async def internal_server_error_with_security_headers(request: Request, _exc: Exception) -> Response:
     # Starlette's ServerErrorMiddleware is outside application middleware, so its
     # generated 500 must carry the policy explicitly without reflecting details.
+    if (empty := jellyfin_error(request, 500, SECURITY_HEADERS)) is not None:
+        return empty
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"},

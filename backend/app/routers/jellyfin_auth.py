@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from sqlalchemy.orm import Session
@@ -76,11 +77,15 @@ def user_dto(user: User, server_id: str) -> dict[str, Any]:
             "EnableAudioPlaybackTranscoding": True,
             "EnableVideoPlaybackTranscoding": True,
             "EnablePlaybackRemuxing": True,
+            # Required (non-null) in Jellyfin SDK 1.7 UserPolicy: Jellyfin for Android TV 0.19.10 cannot sign in without them.
+            "EnableSyncTranscoding": True,
+            "EnableMediaConversion": True,
             "EnableContentDownloading": True,
             "EnableRemoteAccess": True,
             "EnableContentDeletion": False,
             "EnableContentDeletionFromFolders": [],
             "EnableCollectionManagement": False,
+            "EnableLyricManagement": False,
             "EnableSubtitleManagement": False,
             "EnableLiveTvAccess": False,
             "EnableLiveTvManagement": False,
@@ -99,7 +104,7 @@ def user_dto(user: User, server_id: str) -> dict[str, Any]:
     }
 
 
-def _session_info(record: DeviceToken, user: User, server_id: str) -> dict[str, Any]:
+def session_info(record: DeviceToken, user: User, server_id: str) -> dict[str, Any]:
     info = {
         "Id": jellyfin_id(record.id),
         "UserId": jellyfin_id(user.id),
@@ -109,6 +114,9 @@ def _session_info(record: DeviceToken, user: User, server_id: str) -> dict[str, 
         "DeviceName": record.device_name,
         "ApplicationVersion": record.client_version,
         "LastActivityDate": _iso(record.last_seen_at),
+        "LastPlaybackCheckIn": _iso(record.last_seen_at) or "0001-01-01T00:00:00Z",  # required by SDK 1.7, like HasCustomDeviceName
+        "HasCustomDeviceName": False,
+        "PlayState": {"CanSeek": False, "IsPaused": False, "IsMuted": False, "RepeatMode": "RepeatNone", "PlaybackOrder": "Default"},
         "IsActive": True,
         "SupportsMediaControl": False,
         "SupportsRemoteControl": False,
@@ -125,6 +133,12 @@ def _local_address(request: Request) -> str:
     return public_address.origin_for(request.url.hostname) or settings.resolved_app_public_url
 
 
+def _server_port(request: Request) -> int:
+    """The port the caller reached the server on: the configured address it arrived by (the proxy hides it from request.url)."""
+    arrived = urlparse(_local_address(request))
+    return arrived.port or (443 if arrived.scheme == "https" else 80 if arrived.scheme == "http" else request.url.port or 80)
+
+
 def _public_system_info(request: Request, db: Session) -> dict[str, Any]:
     return {
         "LocalAddress": _local_address(request),  # the API is also served at the root
@@ -133,6 +147,7 @@ def _public_system_info(request: Request, db: Session) -> dict[str, Any]:
         "ProductName": JELLYFIN_PRODUCT_NAME,
         "Id": jellyfin_server_id(db),
         "StartupWizardCompleted": True,
+        "OperatingSystem": "Linux",
     }
 
 
@@ -144,6 +159,7 @@ def get_system_info(request: Request, _user: User = Depends(jellyfin_user), db: 
     # No *Path fields: the server's filesystem layout is never disclosed.
     return {
         **_public_system_info(request, db),
+        "WebSocketPortNumber": _server_port(request),
         "HasPendingRestart": False,
         "IsShuttingDown": False,
         "SupportsLibraryMonitor": False,
@@ -196,7 +212,7 @@ def authenticate_by_name(
     audit_log.info("login.success user=%s client=%s app=jellyfin token_id=%s", user.id, client_ip(request), record.id)
     server_id = jellyfin_server_id(db)
     response.headers["Cache-Control"] = "no-store"
-    return {"User": user_dto(user, server_id), "SessionInfo": _session_info(record, user, server_id), "AccessToken": token, "ServerId": server_id}
+    return {"User": user_dto(user, server_id), "SessionInfo": session_info(record, user, server_id), "AccessToken": token, "ServerId": server_id}
 
 
 def sign_out(request: Request, user: User = Depends(jellyfin_user), db: Session = Depends(get_db, scope="function")) -> Response:

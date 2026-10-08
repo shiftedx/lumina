@@ -150,6 +150,14 @@ def empty_follow_feed_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_image_grants() -> None:
+    """A Jellyfin call grants its address tag-less art for minutes; the table is process-wide, so each test starts empty."""
+    from app.services.connected_apps import image_grants
+
+    image_grants.clear()
+
+
+@pytest.fixture(autouse=True)
 def import_stop_event_clear() -> None:
     """An app lifespan shutdown leaves the process-wide import stop_event set, which makes drive() exit at once."""
     from app.services import library_import

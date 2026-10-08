@@ -11,6 +11,7 @@ from app import db as db_module
 from app.main import app
 from app.models import MediaTitle
 from app.services import art_urls, renditions
+from app.services.connected_apps import image_grants
 from app.services.media_titles import jellyfin_id
 from app.services.titles import title_image_source
 from art_support import artwork_row, fake_calls, give_art, png_header, use_fake_ffmpeg, write_rendition
@@ -89,7 +90,7 @@ def test_max_width_gets_the_smallest_rendition_at_least_that_wide(jf) -> None:  
     client, _, _ = jf
     response = client.get(PATH, params={"maxWidth": 300}, headers=WEBP)
     assert (response.status_code, response.content, response.headers["content-type"]) == (200, b"webp-480", "image/webp")
-    assert response.headers["cache-control"] == "public, max-age=31536000" and "Accept" in [v.strip() for v in response.headers["vary"].split(",")]
+    assert response.headers["cache-control"] == "private, max-age=31536000" and "Accept" in [v.strip() for v in response.headers["vary"].split(",")]
     assert client.get(PATH, params={"fillHeight": 300}, headers=WEBP).content == b"webp-240"  # 300 x 1000/1500 = 200
     assert client.get(PATH, params={"maxWidth": 300, "format": "jpg"}, headers=WEBP).content == b"jpg-480"
 
@@ -104,6 +105,7 @@ def test_a_signed_tag_without_a_token_still_gets_renditions_and_visibility_still
     client, _, _ = jf
     tag = client.get(f"/Items/{jellyfin_id(SERIES)}", headers=mediabrowser(ALICE_TOKEN)).json()["ImageTags"]["Primary"]
     assert client.get(PATH, params={"tag": tag, "maxWidth": 200}, headers={"Accept": "image/webp"}).content == b"webp-240"
+    image_grants.clear()  # the sign-in above grants this address its art for minutes
     assert client.get(PATH, params={"maxWidth": 200}, headers={"Accept": "image/webp"}).status_code == 404  # neither
     assert client.get(f"/Items/{jellyfin_id(SECRET_SERIES)}/Images/Primary", params={"maxWidth": 200}, headers=WEBP).status_code == 404
 
@@ -127,7 +129,7 @@ def test_infuse_without_webp_gets_jpeg_made_once_then_from_disk(jf, tmp_path, mo
         art_urls.rendition_file(key, width, "jpg").unlink()
     first = client.get(PATH, params={"maxWidth": 300}, headers=INFUSE)
     assert (first.status_code, first.content, first.headers["content-type"]) == (200, b"r" * 64, "image/jpeg")
-    assert first.headers["cache-control"] == "public, max-age=31536000"
+    assert first.headers["cache-control"] == "private, max-age=31536000"
     assert client.get(PATH, params={"maxWidth": 300}, headers=INFUSE).content == b"r" * 64
     assert len(fake_calls(log)) == 1 and "-c:v" in fake_calls(log)[0]["argv"] and "mjpeg" in fake_calls(log)[0]["argv"]
 
@@ -162,7 +164,7 @@ def test_a_height_only_request_with_no_known_aspect_serves_the_original_uncached
     client, _, _ = jf  # MOVIE has no title_artwork row (unlike SERIES in this fixture): dims are unknown
     response = client.get(f"/Items/{jellyfin_id(MOVIE)}/Images/Primary", params={"fillHeight": 450}, headers=WEBP)
     assert (response.status_code, response.content, response.headers["cache-control"]) == (200, POSTER, "no-store")
-    assert client.get(f"/Items/{jellyfin_id(MOVIE)}/Images/Primary", headers=WEBP).headers["cache-control"] == "public, max-age=31536000"
+    assert client.get(f"/Items/{jellyfin_id(MOVIE)}/Images/Primary", headers=WEBP).headers["cache-control"] == "private, max-age=31536000"
 
 
 def test_head_with_size_params_never_starts_generation(jf, tmp_path, monkeypatch) -> None:  # noqa: ANN001

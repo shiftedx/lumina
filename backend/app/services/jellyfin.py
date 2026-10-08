@@ -238,10 +238,14 @@ def media_streams(probe: dict, item: LibraryItem) -> list[dict]:
             "ChannelLayout": stream.get("channel_layout"), "SampleRate": _int(stream.get("sample_rate")),
             "BitRate": _int(stream.get("bit_rate")), "PixelFormat": stream.get("pix_fmt"), "ColorTransfer": transfer,
             "RealFrameRate": _number(stream.get("frame_rate")), "AverageFrameRate": _number(stream.get("frame_rate")),
-            "VideoRange": ("HDR" if transfer in HDR_TRANSFERS else "SDR") if video else None,
-            "VideoRangeType": {"smpte2084": "HDR10", "arib-std-b67": "HLG"}.get(transfer, "SDR") if video else None,
-            "IsTextSubtitleStream": (codec in TEXT_SUBTITLE_CODECS) if kind == "Subtitle" else None,
-            "SupportsExternalStream": False if kind == "Subtitle" else None,
+            "VideoRange": ("HDR" if transfer in HDR_TRANSFERS else "SDR") if video else "Unknown",
+            "VideoRangeType": {"smpte2084": "HDR10", "arib-std-b67": "HLG"}.get(transfer, "SDR") if video else "Unknown",
+            "AudioSpatialFormat": "None", "IsOriginal": False,  # non-null in the current spec
+            "DeliveryMethod": "Embed" if kind == "Subtitle" else None,
+            # Non-null in Jellyfin SDK 1.7 (Android TV 0.19 fails to load the item without them).
+            "IsHearingImpaired": bool(stream.get("hearing_impaired")),
+            "IsTextSubtitleStream": kind == "Subtitle" and codec in TEXT_SUBTITLE_CODECS,
+            "SupportsExternalStream": False,
         }))
     base, hex_id = sidecar_base(probe), jid(item.id)
     for offset, sidecar in enumerate(sidecars(item)):
@@ -254,6 +258,7 @@ def media_streams(probe: dict, item: LibraryItem) -> list[dict]:
             "DisplayTitle": display_title("Subtitle", sidecar, SUBTITLE_CODECS[fmt], external=True),
             "IsDefault": bool(sidecar.get("default")), "IsForced": bool(sidecar.get("forced")),
             "IsHearingImpaired": bool(sidecar.get("hearing_impaired")), "IsExternal": True, "IsInterlaced": False,
+            "VideoRange": "Unknown", "VideoRangeType": "Unknown", "AudioSpatialFormat": "None", "IsOriginal": False,
             "IsTextSubtitleStream": True, "SupportsExternalStream": True, "DeliveryMethod": "External",
             "DeliveryUrl": f"/Videos/{hex_id}/{hex_id}/Subtitles/{index}/0/Stream.{fmt}",
         }))
@@ -277,9 +282,10 @@ def media_source(item: LibraryItem, artifact: MediaArtifact | None, probe: dict 
         "Size": size, "Bitrate": int(size * 8 / duration) if size and duration else None,
         "RunTimeTicks": to_ticks(duration) if duration else None,
         "ETag": hashlib.sha256(fingerprint.encode()).hexdigest()[:32],
-        "IsRemote": False, "ReadAtNativeFramerate": False, "IgnoreDts": False, "IgnoreIndex": False, "GenPtsInput": False,
+        "IsRemote": False, "UseMostCompatibleTranscodingProfile": False, "ReadAtNativeFramerate": False, "IgnoreDts": False, "IgnoreIndex": False, "GenPtsInput": False,
         "SupportsDirectPlay": True, "SupportsDirectStream": True,
         "SupportsTranscoding": False,  # 09 integration sets this and TranscodingUrl from decide()
+        "TranscodingSubProtocol": "http", "HasSegments": False,  # Jellyfin's defaults; required by SDK 1.7
         "IsInfiniteStream": False, "RequiresOpening": False, "RequiresClosing": False, "RequiresLooping": False,
         "SupportsProbing": True, "MediaStreams": streams, "MediaAttachments": [], "Formats": [], "RequiredHttpHeaders": {},
         "DefaultAudioStreamIndex": next((s["Index"] for s in audio if s.get("IsDefault")), audio[0]["Index"] if audio else None),
@@ -471,7 +477,8 @@ def playlist_dto(playlist: pl.Playlist, server_id: str) -> dict:
     return {
         "Id": jid(playlist.id), "ServerId": server_id, "Name": playlist.name, "Type": "Playlist",
         "IsFolder": True, "MediaType": "Video", "ChildCount": len(playlist.entries), "ImageTags": {},
-        "BackdropImageTags": [], "LocationType": "FileSystem", "PlayAccess": "Full",
+        "BackdropImageTags": [], "LocationType": "FileSystem", "PlayAccess": "Full", "CanDelete": False, "CanDownload": False,
+        "UserData": user_data_dto(playlist.id, TitleUserData()),
     }
 
 
@@ -495,8 +502,8 @@ class JellyfinMapper:
         view_id = synthetic_id(f"view:{view}")
         return {
             "Id": jid(view_id), "ServerId": self.server_id, "Name": name, "SortName": name, "Type": "CollectionFolder",
-            "CollectionType": collection, "IsFolder": True, "ImageTags": {}, "BackdropImageTags": [],
-            "LocationType": "FileSystem", "PlayAccess": "Full", "UserData": user_data_dto(view_id, TitleUserData()),
+            "CollectionType": collection, "IsFolder": True, "MediaType": "Unknown", "ImageTags": {}, "BackdropImageTags": [],
+            "LocationType": "FileSystem", "PlayAccess": "Full", "CanDelete": False, "CanDownload": False, "UserData": user_data_dto(view_id, TitleUserData()),
         } | self.view_counts(view)
 
     def view_counts(self, view: str) -> dict:
@@ -557,7 +564,8 @@ class JellyfinMapper:
         image_tags = {kind: tag for kind in ("Primary", "Logo", "Thumb", "Banner") if (tag := title_tag(self.key, title, kind, self.scope))}
         dto = compact({
             "Id": jid(title.id), "ServerId": self.server_id, "Name": title.name, "SortName": title.sort_name or title.name,
-            "Type": JF_TYPES[title.type], "IsFolder": folder, "MediaType": None if folder else "Video", "ParentId": jid(parent_id),
+            # An episode with no season or series would reach clients as an Episode without SeriesId/SeasonId, which they dereference.
+            "Type": "Video" if title.type == "episode" and not (season and series) else JF_TYPES[title.type], "IsFolder": folder, "MediaType": "Unknown" if folder else "Video", "ParentId": jid(parent_id),
             "SeriesId": jid(series.id) if series else None, "SeriesName": series.name if series else None,
             "SeasonId": jid(season.id) if season else None, "SeasonName": season.name if season else None,
             "IndexNumber": title.index_number, "IndexNumberEnd": title.index_number_end,
@@ -571,9 +579,11 @@ class JellyfinMapper:
             "SeriesPrimaryImageTag": title_tag(self.key, series, "Primary", self.scope),
             "ParentBackdropItemId": jid(series.id) if series_backdrop else None,
             "ParentBackdropImageTags": [series_backdrop] if series_backdrop else None,
-            "LocationType": "FileSystem", "PlayAccess": "Full",
+            "LocationType": "FileSystem", "PlayAccess": "Full", "CanDelete": False, "CanDownload": not folder,
             "UserData": user_data_dto(title.id, batch.user_data(title), runtime),
         })
+        if sources:  # detail views: clients index these without a check
+            dto |= {"People": [], "Taglines": [], "Tags": [], "Chapters": []}
         if sources and not folder:
             versions = sorted(batch.versions.get(title.id, []), key=lambda item: preferred is None or item.id != preferred.id)
             dto["MediaSources"] = [media_source(item, batch.artifacts.get(item.id)) for item in versions]
@@ -603,11 +613,12 @@ class JellyfinMapper:
                 "PremiereDate": jf_day((item.metadata_summary or {}).get("upload_date")),
                 "RunTimeTicks": to_ticks(runtime) if runtime else None,
                 "ImageTags": {"Primary": tag}, "BackdropImageTags": [], "ProviderIds": {},
-                "LocationType": "FileSystem", "PlayAccess": "Full",
+                "LocationType": "FileSystem", "PlayAccess": "Full", "CanDelete": False, "CanDownload": True,
                 "UserData": user_data_dto(item.id, user_data_from(progress.get(item.id), favorite=item.id in favorites), runtime),
             })
             dto |= self.channel_fields(item)
             if sources:
+                dto |= {"People": [], "Taglines": [], "Tags": [], "Chapters": []}
                 dto["MediaSources"] = [media_source(item, artifact)]
                 dto["MediaStreams"] = dto["MediaSources"][0]["MediaStreams"]
                 if dto["MediaSources"][0].get("Path"):
@@ -781,7 +792,8 @@ class JellyfinMapper:
             key=lambda row: (row[0].casefold(), row[1]),
         )
         items = [
-            {"Name": name, "ServerId": self.server_id, "Id": jid(ref_id), "Type": FACETS[kind][2], "ImageTags": {}, "BackdropImageTags": []}
+            {"Name": name, "ServerId": self.server_id, "Id": jid(ref_id), "Type": FACETS[kind][2], "ImageTags": {}, "BackdropImageTags": [],
+             "UserData": user_data_dto(ref_id, TitleUserData())}
             for name, ref_id in rows[start:start + limit]
         ]
         return query_result(items, len(rows), start)
@@ -854,7 +866,7 @@ class JellyfinMapper:
             tag = image_tag(self.key, channel.id, "Primary", channel.newest_item_id, self.scope)
             dto = {
                 "Id": jid(channel.id), "ServerId": self.server_id, "Name": channel.name, "SortName": channel.name,
-                "IsFolder": True, "ChildCount": channel.children, "RecursiveItemCount": channel.count,
+                "IsFolder": True, "MediaType": "Unknown", "CanDelete": False, "CanDownload": False, "ChildCount": channel.children, "RecursiveItemCount": channel.count,
                 "DateCreated": jf_date(channel.newest_at), "ImageTags": {"Primary": tag}, "BackdropImageTags": [],
                 "ProviderIds": {}, "LocationType": "FileSystem", "PlayAccess": "Full",
                 "UserData": user_data_dto(channel.id, TitleUserData(is_favorite=channel.id in favorites)),
@@ -1043,8 +1055,9 @@ def playable_versions(db: Session, user: User, entity: Entity | None) -> list[Li
 def pick_version(db: Session, user: User, entity: Entity | None, media_source_id: str | None = None) -> LibraryItem | None:
     """MediaSourceId selects a version of the named item; without one, the preferred version."""
     versions = playable_versions(db, user, entity)
-    if media_source_id:
-        wanted = parse_item_id(media_source_id)
+    wanted = parse_item_id(media_source_id) if media_source_id else None
+    own = entity is not None and wanted == entity.id  # Jellyfin's primary source id is the item's own id: "the default"
+    if media_source_id and not own:
         return next((version for version in versions if version.id == wanted), None)
     return versions[0] if versions else None
 

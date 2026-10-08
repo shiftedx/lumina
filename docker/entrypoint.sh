@@ -31,4 +31,4 @@ if [ "$(stat -c %u:%g "$data_dir")" != "$runtime_uid:$runtime_gid" ]; then
   chown -R "$runtime_uid:$runtime_gid" "$data_dir"
 fi
 
-exec setpriv --reuid="$runtime_uid" --regid="$runtime_gid" "$groups" python -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --no-proxy-headers --no-access-log --timeout-keep-alive 30
+exec setpriv --reuid="$runtime_uid" --regid="$runtime_gid" "$groups" python -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --no-proxy-headers --no-access-log --timeout-keep-alive 30 --ws-max-size 65536

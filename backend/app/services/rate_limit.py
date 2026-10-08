@@ -103,6 +103,43 @@ def _peer_is_trusted_proxy(peer: IPv4Address | IPv6Address) -> bool:
     return any(peer in network for network in settings.trusted_proxy_networks if peer.version == network.version)
 
 
+def _forwarded_hop(forwarded_for: str) -> str:
+    """A chain (Cloudflare edge -> cloudflared -> Traefik) appends one hop per proxy. Walk from the right and
+    take the first address that is not itself a trusted proxy: entries left of it are client-supplied."""
+    for raw in reversed(forwarded_for.split(",")):
+        hop = _canonical_address(raw)
+        if not _peer_is_trusted_proxy(ip_address(hop)):
+            return hop
+    return hop
+
+
+def _tunnel_visitor(request: Request, peer: IPv4Address | IPv6Address) -> str | None:
+    """Cloudflare's visitor header, when this request is one the tunnel carries to the public address's host."""
+    visitor = request.headers.get("cf-connecting-ip")
+    if visitor is None or not _peer_is_trusted_proxy(peer) or not public_address.host() or request.url.hostname != public_address.host():
+        return None
+    if not visitor.strip() or "," in visitor:
+        raise HTTPException(status_code=400, detail="Invalid client forwarding address.")
+    return _canonical_address(visitor)
+
+
+def grant_address(request: Request) -> str | None:
+    """The address a grant (stream, image) is keyed on: one the requester cannot choose. Behind the tunnel the visitor
+    header is client-supplied, so it only counts together with the hop that actually reached the proxy."""
+    try:
+        peer = ip_address((request.client.host if request.client else "").strip())
+    except ValueError:
+        return resolve_client_key(request)
+    try:
+        visitor = _tunnel_visitor(request, peer)
+        if visitor is None:
+            return resolve_client_key(request)
+        forwarded_for = request.headers.get("x-forwarded-for")
+        return f"{visitor}|{_forwarded_hop(forwarded_for) if forwarded_for is not None else peer}"
+    except HTTPException:
+        return None
+
+
 def resolve_client_key(request: Request | None) -> str:
     if request is None:
         return "test-client"
@@ -113,22 +150,13 @@ def resolve_client_key(request: Request | None) -> str:
         except ValueError:
             return "unknown"
         forwarded_for = request.headers.get("x-forwarded-for")
-        visitor = request.headers.get("cf-connecting-ip")
         # Cloudflare Tunnel: the proxy's X-Forwarded-For is the tunnel host for every visitor, so the public address is
         # keyed by Cloudflare's visitor header. A LAN host could forge it, which only moves IP buckets; account lockout
-        # does not depend on it.
-        if _peer_is_trusted_proxy(peer) and visitor is not None and public_address.host() and request.url.hostname == public_address.host():
-            if not visitor.strip() or "," in visitor:
-                raise HTTPException(status_code=400, detail="Invalid client forwarding address.")
-            return _canonical_address(visitor)
+        # and grants (grant_address) do not depend on it alone.
+        if (visitor := _tunnel_visitor(request, peer)) is not None:
+            return visitor
         if _peer_is_trusted_proxy(peer) and forwarded_for is not None:
-            # A chain (Cloudflare edge -> cloudflared -> Traefik) appends one hop per proxy. Walk from the right and
-            # take the first address that is not itself a trusted proxy: entries left of it are client-supplied.
-            for raw in reversed(forwarded_for.split(",")):
-                hop = _canonical_address(raw)
-                if not _peer_is_trusted_proxy(ip_address(hop)):
-                    return hop
-            return hop
+            return _forwarded_hop(forwarded_for)
         if isinstance(peer, IPv6Address) and peer.ipv4_mapped is not None:
             return str(peer.ipv4_mapped)
         return str(peer)

@@ -3,34 +3,44 @@
 Routes are mounted under the private prefix /jellyfin, which clients cannot reach. ``JellyfinPathMiddleware``
 maps a root path whose first segment is a Jellyfin route segment (``/Items`` -> ``/jellyfin/items``, case and
 slash variants too) onto those lowercase routes and lowercases query keys, so apps connect with host:port alone.
-``app.routers.jellyfin_auth`` owns system/*, users/* and quickconnect and is registered first;
-this router owns everything else and ends in a JSON catch-all. Every route is gated by
+``app.routers.jellyfin_auth`` owns sign-in and the user routes and is registered first; ``jellyfin_probes`` answers the
+endpoints clients call that Lumina has nothing behind; this router owns everything else and ends in an empty-bodied 404 catch-all. Every route is gated by
 ``require_jellyfin_enabled``; legacy ``/users/{uid}/…`` routes rely on ``jellyfin_user``'s uid check.
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
+import json
 import logging
 import re
+import time
 import uuid
+from collections import Counter
+from contextlib import suppress
+from dataclasses import replace
 from typing import Annotated
 from urllib.parse import parse_qsl, quote, urlencode
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Query, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Query, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.routing import BaseRoute
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import settings
-from app.db import get_db
 from app.models import Person, PlaybackProgress, User
+from app.db import session_scope
 from app.persistence import read_regular_file, write_transaction
+from app.security import resolve_device_token
+from app.services.rate_limit import enforce_rate_limit, grant_address
 from app.schemas import PlaybackProgressUpdateRequest
-from app.routers import jellyfin_integration
+from app.routers import jellyfin_integration, jellyfin_probes
 from app.routers.jellyfin_integration import JellyfinCaller, jellyfin_caller, playback_body, playlist_listing, transcript_subtitle
+from app.routers.jellyfin_probes import Caller, Db, entity_or_404, split_csv
 from app.services import activity, cast_photos, screen_time
 from app.services import jellyfin as jf
 from app.services import renditions
@@ -39,19 +49,21 @@ from app.services.playlists import has_playlists
 from app.services.artwork import ArtworkError, ArtworkService
 from app.services.jellyfin_discovery import dismisses_resume, naive_utc, next_up_filtered
 from app.services.jellyfin_playback import PLAY_SESSION_ID, annotate_media_sources, append_transcript_streams, playback_request
-from app.services.connected_apps import jellyfin_server_key, jellyfin_user, require_jellyfin_enabled
+from app.services.connected_apps import (
+    IMAGE_GRANT_KEY, image_grants, jellyfin_server_key, jellyfin_stream_user, jellyfin_user, parse_client_auth, require_jellyfin_enabled,
+    stream_grants,
+)
 from app.services.library import LibraryService
 from app.services.local_playback_sessions import sessions
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService
 from app.services.media_titles import from_ticks, parse_item_id
 from app.services.playback import PlaybackProgressService
-from app.services.rate_limit import enforce_rate_limit
 from app.services.title_metadata import load_person_image, person_visible
 from app.services.titles import EXTRA_BACKDROPS, TitleService, image_key, title_image_source
 from app.services.transcripts import TranscriptError, parse_caption, render
 
-logger = logging.getLogger("app.jellyfin")
+logger = logging.getLogger("lumina.jellyfin")
 PRIVATE_PREFIX = "/jellyfin"  # where the routes are mounted; clients use the root form only
 _RETIRED = re.compile(r"^/+(?:jellyfin|emby)(?:/|$)", re.IGNORECASE)  # /jellyfin/… and /emby/… from clients: 404
 _ID_SEGMENT = re.compile(r"(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f-]{27}|\d+)(?=\.|$)")
@@ -62,6 +74,13 @@ _ALL_METHODS = ["GET", "HEAD", "POST", "PUT", "DELETE"]
 SUBTITLE_MEDIA_TYPES = {"srt": "application/x-subrip", "vtt": "text/vtt", "ass": "text/x-ssa", "ssa": "text/x-ssa"}
 MAX_SUBTITLE_BYTES = 10 * 1024 * 1024
 MEDIA_UNAVAILABLE = "Media file is not available."  # fixed text: an OSError can name a server path
+SOCKET_KEEP_ALIVE_SECONDS = 60  # what ForceKeepAlive asks of the client; clients send KeepAlive at half of it
+SOCKET_IDLE_SECONDS = 150
+SOCKET_LIFETIME_SECONDS = 3600  # a revoked token ends the socket within the hour; clients reconnect
+MAX_SOCKET_MESSAGE = 4096
+MAX_SOCKETS = 256
+MAX_SOCKETS_PER_TOKEN = 4
+open_sockets: Counter[str] = Counter()  # token -> open sockets; one event loop, so no lock
 
 
 def normalize_jellyfin_path(path: str, root_segments: frozenset[str], *, any_segment: bool = False) -> str | None:
@@ -126,7 +145,7 @@ class JellyfinPathMiddleware:
             await self.app(scope, receive, send)
             return
         if _RETIRED.match(scope["path"]):  # the mount is private and there are no prefixed aliases
-            await JSONResponse(status_code=404, content={"detail": "Not found"})(scope, receive, send)
+            await Response(status_code=404)(scope, receive, send)
             return
         # A credentialed call to an endpoint we do not serve (/Genres) reaches the gated JSON catch-all, never the SPA shell.
         normalized = normalize_jellyfin_path(scope["path"], self.root_segments, any_segment=has_jellyfin_credential(scope))
@@ -149,8 +168,6 @@ class JellyfinPathMiddleware:
 
 
 router = APIRouter(prefix=PRIVATE_PREFIX, dependencies=[Depends(require_jellyfin_enabled)])
-Caller = Annotated[User, Depends(jellyfin_user)]
-Db = Annotated[Session, Depends(get_db, scope="function")]
 
 
 # ==== A. Fixed paths: keep ABOVE every "/items/{item_id}…" and "/users/{uid}/items/{item_id}…" route. ====
@@ -158,10 +175,13 @@ Db = Annotated[Session, Depends(get_db, scope="function")]
 @router.get("/items/latest")
 @router.get("/users/{uid}/items/latest")
 def latest_items(user: Caller, db: Db, query: Annotated[jf.ItemsQuery, Query()]) -> list[dict]:
+    asked = {value.lower() for value in query.csv("includeitemtypes")}
+    if asked and not query.types() and "video" not in asked:
+        return []  # only types Lumina does not serve (Audio, MusicAlbum, ...): empty, not everything
     try:
         return jf.JellyfinMapper(db, user, query.csv("fields")).latest(query.parentid, query.types(), min(query.page_limit(20), 200))
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail="Item not found") from exc
+    except LookupError:
+        return []  # an unknown or hidden parent is an empty list: a client reads an error object as items
 
 
 @router.get("/useritems/resume")
@@ -169,8 +189,8 @@ def latest_items(user: Caller, db: Db, query: Annotated[jf.ItemsQuery, Query()])
 def resume_items(user: Caller, db: Db, query: Annotated[jf.ItemsQuery, Query()]) -> dict:
     try:
         return jf.JellyfinMapper(db, user, query.csv("fields")).resume(query.parentid, query.types(), query.startindex, query.page_limit())
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail="Item not found") from exc
+    except LookupError:
+        return jf.query_result([], 0, query.startindex)
 
 
 @router.get("/shows/nextup")
@@ -184,13 +204,6 @@ def next_up(user: Caller, db: Db, query: Annotated[jf.ItemsQuery, Query()]) -> d
 
 
 # ==== B. Entity routes (Tasks 6–10 add here). ====
-
-def entity_or_404(db: Session, user: User, raw_id: str) -> jf.Entity:
-    entity = jf.resolve(db, user, raw_id)
-    if entity is None:
-        raise HTTPException(status_code=404, detail="Item not found")
-    return entity
-
 
 @router.get("/userviews")
 @router.get("/users/{uid}/views")
@@ -220,8 +233,8 @@ def virtual_folders(user: Caller, db: Db) -> list[dict]:
 def facet_page(kind: str, user: User, db: Session, query: jf.ItemsQuery) -> dict:
     try:
         return jf.JellyfinMapper(db, user).facets(kind, query)
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail="Item not found") from exc
+    except LookupError:
+        return jf.query_result([], 0, query.startindex)
 
 
 @router.get("/genres")
@@ -272,8 +285,8 @@ def list_items(user: Caller, db: Db, query: Annotated[jf.ItemsQuery, Query()]) -
         return listing
     try:
         return jf.JellyfinMapper(db, user, query.csv("fields")).items(query)
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail="Item not found") from exc
+    except LookupError:
+        return jf.query_result([], 0, query.startindex)
 
 
 @router.get("/items/{item_id}")
@@ -284,25 +297,42 @@ def get_item(item_id: str, user: Caller, db: Db) -> dict:
         return mapper.entity_dto(entity)
     playlist = mapper.playlist(entity_id) if (entity_id := parse_item_id(item_id)) else None  # playlists open by id too
     if playlist is None:
+        playlist = person_dto(mapper, entity_id)
+    if playlist is None:
         raise HTTPException(status_code=404, detail="Item not found")
     return playlist
 
 
+def person_dto(mapper: jf.JellyfinMapper, person_id: str | None) -> dict | None:
+    """A person the caller's visible titles credit (the ids People[] and /Persons emit); None otherwise."""
+    wanted = jf.jid(person_id)
+    if wanted is None:
+        return None
+    found = mapper.facets("person", jf.ItemsQuery(personids=[wanted], limit=jf.MAX_PAGE))
+    return next((dto for dto in found["Items"] if dto["Id"] == wanted), None)
+
+
 @router.get("/shows/{series_id}/seasons")
 def show_seasons(series_id: str, user: Caller, db: Db, fields: list[str] = Query([])) -> dict:
+    entity = jf.resolve(db, user, series_id)
     try:
-        return jf.JellyfinMapper(db, user, fields).seasons(entity_or_404(db, user, series_id))
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail="Series not found") from exc
+        return jf.JellyfinMapper(db, user, split_csv(fields)).seasons(entity) if entity is not None else jf.query_result([], 0)
+    except LookupError:
+        return jf.query_result([], 0)
 
 
 @router.get("/shows/{series_id}/episodes")
-def show_episodes(series_id: str, user: Caller, db: Db, query: Annotated[jf.ItemsQuery, Query()]) -> dict:
+def show_episodes(series_id: str, request: Request, user: Caller, db: Db, query: Annotated[jf.ItemsQuery, Query()]) -> dict:
+    entity = jf.resolve(db, user, series_id)
     try:
-        return jf.JellyfinMapper(db, user, query.csv("fields")).episodes(
-            entity_or_404(db, user, series_id), query, query.startindex, query.page_limit())
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail="Series not found") from exc
+        if entity is None:
+            raise LookupError("series")
+        mapper = jf.JellyfinMapper(db, user, query.csv("fields"))
+        if adjacent := request.query_params.get("adjacentto"):  # keys arrive lower-cased; read here to keep the query model alone
+            return around_episode(mapper.episodes(entity, query, 0, jf.MAX_PAGE), parse_item_id(adjacent))
+        return mapper.episodes(entity, query, query.startindex, query.page_limit())
+    except LookupError:
+        return jf.query_result([], 0, query.startindex)
 
 
 
@@ -325,16 +355,28 @@ def _person_photo(request: Request, db: Session, photo, kind: str, tag: str | No
     except FileNotFoundError as exc:  # also from sized()'s height-only branch, which reads the original
         raise HTTPException(status_code=404, detail="Image not found") from exc
     return Response(content=served.content, media_type=served.content_type, headers={
-        "Cache-Control": "public, max-age=31536000" if served.cacheable else "no-store", "Vary": "Accept", "X-Content-Type-Options": "nosniff",
+        "Cache-Control": ("public" if signed else "private") + ", max-age=31536000" if served.cacheable else "no-store",
+        "Vary": "Accept", "X-Content-Type-Options": "nosniff",
     })
+
+
+def around_episode(episodes: dict, wanted: str | None) -> dict:
+    """The episode before, the episode and the one after, in play order (a first episode has no predecessor)."""
+    items = episodes["Items"]
+    at = next((i for i, dto in enumerate(items) if parse_item_id(dto["Id"]) == wanted), None)
+    if at is None:
+        return jf.query_result([], 0)
+    around = items[max(at - 1, 0):at + 2]
+    return jf.query_result(around, len(around))
 
 
 @router.api_route("/items/{item_id}/images/{image_type}", methods=["GET", "HEAD"])
 @router.api_route("/items/{item_id}/images/{image_type}/{image_index}", methods=["GET", "HEAD"])
 def item_image(
     item_id: str, image_type: str, request: Request, db: Db,
-    image_index: int = 0, tag: str | None = Query(None, max_length=128),
+    image_index: int = 0, tag: str | None = Query(None, max_length=128), tags: str | None = Query(None, max_length=128),
 ) -> Response:
+    tag = tag or tags  # Roku sends the misspelt "Tags" for people, similar items and list rows
     kind = jf.IMAGE_TYPES.get(image_type)
     extra_backdrop = kind == "Backdrop" and 0 < image_index <= EXTRA_BACKDROPS
     if kind is None or not (image_index == 0 or extra_backdrop):
@@ -345,7 +387,21 @@ def item_image(
         if exc.status_code != 401:
             raise
         caller = None
+    granted = False
+    if caller is None and tag is None and (grant := image_grants.get(grant_address(request), IMAGE_GRANT_KEY)):
+        # A poster that can send neither header nor tag: the token an authenticated call from this address presented
+        # minutes ago. It is that member's full check (revocation, visibility), but only for the ids checked below.
+        request.state.stream_grant_token = grant
+        try:
+            caller, granted = jellyfin_user(request, db), True
+        except HTTPException as exc:
+            if exc.status_code != 401:
+                raise
     enforce_rate_limit("artwork_serve", request, user_id=caller.id if caller is not None else None)
+    if granted:  # titles and Library items have random ids; a person's, view's or Channels folder's is derived from a name
+        entity = jf.resolve(db, caller, item_id) if caller is not None else None
+        if entity is None or (entity.title is None and entity.item is None):
+            raise HTTPException(status_code=404, detail="Image not found")
     person_id = parse_item_id(item_id)
     photo = cast_photos.subject(db, person_id) if person_id is not None else None  # NFO person, or a household photo
     person = db.get(Person, person_id) if person_id is not None and photo is None else None
@@ -367,7 +423,7 @@ def item_image(
         except ArtworkError as exc:
             raise HTTPException(status_code=404, detail="Image not found") from exc
         return Response(content=art.content, media_type=art.content_type, headers={
-            "Cache-Control": "public, max-age=31536000", "X-Content-Type-Options": "nosniff",
+            "Cache-Control": ("private" if caller is not None else "public") + ", max-age=31536000", "X-Content-Type-Options": "nosniff",
         })
     size = {key: value for key, value in request.query_params.items() if key in renditions.SIZE_PARAMS}  # keys arrive lower-cased
     try:
@@ -378,7 +434,8 @@ def item_image(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Image not found") from exc
     # A restricted member's tag (longer than the shared 32 chars) dies with their access: never in a shared cache.
-    cache = ("private, max-age=300" if tag is not None and len(tag) > 32 else "public, max-age=31536000") if served.cacheable else "no-store"
+    # Art a token (or a grant) earned is that caller's answer, never for a shared cache; a signed tag's is shareable.
+    cache = ("private, max-age=300" if tag is not None and len(tag) > 32 else "private, max-age=31536000" if caller is not None else "public, max-age=31536000") if served.cacheable else "no-store"
     return Response(content=served.content, media_type=served.content_type, headers={
         "Cache-Control": cache, "Vary": "Accept", "X-Content-Type-Options": "nosniff",
     })
@@ -387,13 +444,17 @@ def item_image(
 @router.api_route("/items/{item_id}/playbackinfo", methods=["GET", "POST"])
 def playback_info(
     item_id: str, request: Request, user: Caller, db: Db, body: Annotated[dict, Depends(playback_body)],
-    caller: Annotated[JellyfinCaller, Depends(jellyfin_caller)], mediasourceid: str | None = Query(None, max_length=64),
+    caller: Annotated[JellyfinCaller, Depends(jellyfin_caller)],
 ) -> dict:
     """MediaSources for the named item, probing on demand (cached by fingerprint); decide() per source."""
     screen_time.enforce(db, user, fresh=True)
-    versions = jf.playable_versions(db, user, entity_or_404(db, user, item_id))
-    if mediasourceid is not None:
-        versions = [version for version in versions if version.id == parse_item_id(mediasourceid)]
+    entity = entity_or_404(db, user, item_id)
+    versions = jf.playable_versions(db, user, entity)
+    wanted = playback_request(body, request.query_params)  # MediaSourceId from the body or the query, any key case
+    if wanted.media_source_id == entity.id:  # the item's own id is Jellyfin's "primary source", i.e. no selection
+        wanted = replace(wanted, media_source_id=None)
+    if wanted.media_source_id is not None:
+        versions = [version for version in versions if version.id == wanted.media_source_id]
     probes, artifacts, sources = MediaProbeService(db), MediaArtifactService(db), []
     for version in versions:
         try:
@@ -408,7 +469,8 @@ def playback_info(
     if not sources:
         raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE)
     play_session_id = uuid.uuid4().hex
-    annotate_media_sources(db, caller.user, caller.token_id, caller.token, sources, playback_request(body, request.query_params), play_session_id)
+    stream_grants.put(grant_address(request), [parse_item_id(item_id), *(version.id for version in versions)], caller.token)
+    annotate_media_sources(db, caller.user, caller.token_id, caller.token, sources, wanted, play_session_id)
     for stream in (stream for source in sources for stream in source.get("MediaStreams") or []):
         if stream.get("DeliveryMethod") == "External" and stream.get("DeliveryUrl"):
             # Players fetch DeliveryUrl without auth headers; Jellyfin appends the caller's ApiKey the same way.
@@ -418,8 +480,18 @@ def playback_info(
 
 @router.api_route("/videos/{item_id}/stream", methods=["GET", "HEAD"])
 @router.api_route("/videos/{item_id}/stream.{container}", methods=["GET", "HEAD"])
-def video_stream(item_id: str, request: Request, user: Caller, db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> FileResponse:
+def video_stream(item_id: str, request: Request, user: Annotated[User, Depends(jellyfin_stream_user)], db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> FileResponse:
     """Direct play with Range (like /api/library/{id}/media); the session closes before bytes stream."""
+    return media_file(item_id, request, user, db, mediasourceid)
+
+
+@router.api_route("/items/{item_id}/download", methods=["GET", "HEAD"])
+def download(item_id: str, request: Request, user: Caller, db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> FileResponse:
+    """The version's file as an attachment: allowed exactly when streaming is. A token is required (no PlaybackInfo grant)."""
+    return media_file(item_id, request, user, db, mediasourceid, attachment=True)
+
+
+def media_file(item_id: str, request: Request, user: User, db: Session, mediasourceid: str | None, *, attachment: bool = False) -> FileResponse:
     version = jf.pick_version(db, user, jf.resolve(db, user, item_id), mediasourceid)
     if version is None:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -429,10 +501,10 @@ def video_stream(item_id: str, request: Request, user: Caller, db: Db, mediasour
         raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from exc
     device = getattr(request.state, "connected_app_id", None) or "web"  # set by the Connected app token check
     screen_time.enforce(db, user)  # every Range request: at most one real check a minute
-    activity.guard(user.id, version.id, device)
-    if request.method == "GET":
+    activity.guard(user.id, version.id, device)  # an admin stop ends downloads too
+    if request.method == "GET" and not attachment:  # a download is not a watch session
         activity.touch(user.id, version.id, device)
-    return FileResponse(path)
+    return FileResponse(path, filename=path.name if attachment else None)
 
 
 @router.get("/videos/{item_id}/{source_id}/subtitles/{index}/stream.{fmt}")
@@ -642,7 +714,7 @@ def display_preferences(
     return {
         "Id": preferences_id, "SortBy": "SortName", "SortOrder": "Ascending", "RememberIndexing": False,
         "RememberSorting": False, "ScrollDirection": "Horizontal", "ShowBackdrop": True, "ShowSidebar": False,
-        "Client": client, "CustomPrefs": {},
+        "Client": client, "CustomPrefs": {}, "PrimaryImageHeight": 250, "PrimaryImageWidth": 250,
     }
 
 
@@ -668,23 +740,81 @@ def empty_list(_user: Caller) -> list:
 
 @router.get("/userimage")
 @router.get("/users/{uid}/images/{image_type}")
-def no_user_image(_user: Caller) -> JSONResponse:
-    return JSONResponse(status_code=404, content={"detail": "Not found"})
+def no_user_image() -> Response:
+    """Members have no avatar here. Roku asks before it has a token, so this needs none (and says 404, not 401)."""
+    return Response(status_code=404)
 
 
-# ==== D. Catch-all: keep LAST. A probe we do not serve is a JSON 404, logged without query values. ====
+# ==== D. Catch-all: keep LAST. A probe we do not serve is an empty 404, logged without query values. ====
 
 @router.api_route("", methods=_ALL_METHODS, include_in_schema=False)
 @router.api_route("/{rest:path}", methods=_ALL_METHODS, include_in_schema=False)
-def unhandled(request: Request) -> JSONResponse:
+def unhandled(request: Request) -> Response:
     logger.warning("jellyfin.unhandled %s %s", request.method, masked_path(request.url.path))
-    return JSONResponse(status_code=404, content={"detail": "Not found"})
+    return Response(status_code=404)
+
+
+def socket_token(websocket: WebSocket) -> str | None:
+    """The same credential sources and token check as the HTTP routes (cookies are never read)."""
+    with session_scope() as db:
+        try:
+            require_jellyfin_enabled(db)
+        except HTTPException:
+            return None
+        # WebSocket and Request share the headers, query and client the resolver reads.
+        token = parse_client_auth(websocket).token
+        return token if resolve_device_token(db, websocket, token, kind="jellyfin") is not None else None  # type: ignore[arg-type]
+
+
+def socket_message(kind: str, data: object = None) -> dict:
+    return {"MessageType": kind, "MessageId": uuid.uuid4().hex} | ({} if data is None else {"Data": data})
+
+
+async def jellyfin_socket(websocket: WebSocket) -> None:
+    """Jellyfin's /socket: an authenticated client is told how often to send KeepAlive, which is answered; any other
+    message is ignored (Lumina pushes nothing and takes no remote commands). Idle, oversize or long-lived sockets end."""
+    token = await run_in_threadpool(socket_token, websocket)
+    if token is None:
+        await websocket.close(code=1008)
+        return
+    if open_sockets[token] >= MAX_SOCKETS_PER_TOKEN or sum(open_sockets.values()) >= MAX_SOCKETS:
+        await websocket.close(code=1013)  # try again later
+        return
+    open_sockets[token] += 1
+    try:
+        await websocket.accept()
+        deadline = time.monotonic() + SOCKET_LIFETIME_SECONDS
+        await asyncio.wait_for(websocket.send_json(socket_message("ForceKeepAlive", SOCKET_KEEP_ALIVE_SECONDS)), SOCKET_IDLE_SECONDS)
+        while (remaining := deadline - time.monotonic()) > 0:
+            incoming = await asyncio.wait_for(websocket.receive(), min(remaining, SOCKET_IDLE_SECONDS))
+            if incoming["type"] == "websocket.disconnect":
+                return
+            text = incoming.get("text")
+            if len(text or incoming.get("bytes") or "") > MAX_SOCKET_MESSAGE:
+                await websocket.close(code=1009)
+                return
+            try:
+                message = json.loads(text) if text else None
+            except ValueError:
+                message = None
+            if isinstance(message, dict) and message.get("MessageType") == "KeepAlive":
+                await asyncio.wait_for(websocket.send_json(socket_message("KeepAlive")), SOCKET_IDLE_SECONDS)
+    except (TimeoutError, WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        open_sockets[token] -= 1
+        if open_sockets[token] <= 0:
+            del open_sockets[token]
+    with suppress(RuntimeError):  # already closed by the peer
+        await websocket.close()
 
 
 def register(app: FastAPI, artwork: ArtworkService) -> None:
     """Call after jellyfin_auth.register(app) so its routes precede this catch-all."""
     app.state.artwork = artwork
     jellyfin_integration.register(app)  # before this router: its routes win over the stubs and the catch-all
+    app.include_router(jellyfin_probes.router)
+    app.add_api_websocket_route("/socket", jellyfin_socket)  # before main.py mounts the SPA, which closes websockets
     app.include_router(router)
-    # app.routes lists the auth and integration routes; this router is included as one opaque entry, so read its own routes.
-    app.add_middleware(JellyfinPathMiddleware, root_segments=jellyfin_segments([*app.routes, *router.routes]))
+    # app.routes lists the auth and integration routes; these routers are included as opaque entries, so read their own routes.
+    app.add_middleware(JellyfinPathMiddleware, root_segments=jellyfin_segments([*app.routes, *jellyfin_probes.router.routes, *router.routes]))

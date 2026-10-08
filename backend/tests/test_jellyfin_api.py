@@ -122,20 +122,20 @@ def test_disabled_api_is_404_everywhere(tmp_path: Path) -> None:
     client = TestClient(app, base_url="http://localhost")
     for path in ("/Plugins", "/Plugins/nope", "/Branding/Configuration", "/System/Info/Public", "/users/public", "/Genres"):
         response = get(client, path)
-        assert response.status_code == 404 and response.headers["content-type"] == "application/json"
+        assert response.status_code == 404 and response.content == b""
 
 
-def test_unknown_route_is_a_logged_json_404(jf: TestClient, caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.WARNING, logger="app.jellyfin")
+def test_unknown_route_is_a_logged_empty_404(jf: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.WARNING, logger="lumina.jellyfin")
     response = get(jf, "/Some/Probe/0123456789ABCDEF0123456789ABCDEF")
-    assert (response.status_code, response.json()) == (404, {"detail": "Not found"})
+    assert (response.status_code, response.content) == (404, b"")
     assert "jellyfin.unhandled GET /jellyfin/some/probe/{id}" in caplog.text
-    # Endpoints we do not serve answer JSON to a Jellyfin client, never the SPA shell with 200 (clients decode it).
-    for path in ("/Artists", "/Trailers", "/LiveTv/Channels", "/Environment/Drives"):
+    # Endpoints we do not serve answer an empty 404 to a Jellyfin client, never the SPA shell with 200 (clients decode it).
+    for path in ("/Environment/Drives", "/Genres/Action", "/Audio/0123456789ABCDEF0123456789ABCDEF/stream"):
         response = get(jf, path)
-        assert (response.status_code, response.json()) == (404, {"detail": "Not found"}), path
-    assert jf.get("/Artists", params={"api_key": ALICE_TOKEN}).json() == {"detail": "Not found"}
-    assert jf.post("/ClientLog/Document", headers={"X-Emby-Token": ALICE_TOKEN}).json() == {"detail": "Not found"}
+        assert (response.status_code, response.content) == (404, b""), path
+    assert jf.get("/Environment/Drives", params={"api_key": ALICE_TOKEN}).content == b""
+    assert jf.post("/Environment/Validate", headers={"X-Emby-Token": ALICE_TOKEN}).content == b""
 
 
 def test_stubs_answer_client_probes(jf: TestClient) -> None:
@@ -156,7 +156,7 @@ def test_legacy_uid_must_be_the_caller(jf: TestClient) -> None:
 
 def test_trace_logs_names_never_values_or_tokens(jf: TestClient, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "jellyfin_trace", True)
-    caplog.set_level(logging.INFO, logger="app.jellyfin")
+    caplog.set_level(logging.INFO, logger="lumina.jellyfin")
     jf.get("/Plugins", params={"api_key": ALICE_TOKEN, "SearchTerm": "secret-title"})
     get(jf, "/Plugins")
     get(jf, "/Unknown/Thing", ApiKey=ALICE_TOKEN)
@@ -165,6 +165,11 @@ def test_trace_logs_names_never_values_or_tokens(jf: TestClient, caplog: pytest.
     jf.get("/Plugins", params={"ApiKey": ALICE_TOKEN, "SearchTerm": "secret-title"})
     assert "jellyfin.trace GET /jellyfin/plugins apikey,searchterm" in caplog.text
     assert ALICE_TOKEN not in caplog.text and "secret-title" not in caplog.text
+
+
+def test_trace_reaches_server_logs_without_caplog() -> None:
+    # caplog lowers levels itself; production only has the "lumina" logger's INFO handler.
+    assert logging.getLogger("lumina.jellyfin").isEnabledFor(logging.INFO)
 
 
 import json  # noqa: E402
@@ -179,13 +184,18 @@ from title_support import (  # noqa: E402
 )
 
 PROPS = json.loads((Path(__file__).parent / "fixtures" / "jellyfin_oas_props.json").read_text())
+# Non-null fields the Kotlin SDK refuses to deserialize without: one missing key fails the whole response in the app.
+REQUIRED = json.loads((Path(__file__).parent / "fixtures" / "jellyfin_sdk_required.json").read_text())
 TV, MOVIES = jellyfin_id(synthetic_id("view:tvshows")), jellyfin_id(synthetic_id("view:movies"))
 HEX = jellyfin_id
 
 
 def assert_known(payload: dict, schema: str) -> None:
-    unknown = set(payload) - set(PROPS[schema])
+    unknown = set(payload) - set(PROPS[schema]) if schema in PROPS else set()  # UserPolicy etc.: SDK-required only
     assert not unknown, f"{schema} emits non-Jellyfin keys {sorted(unknown)}"
+    if schema in REQUIRED:
+        missing = {key for key in REQUIRED[schema] if payload.get(key) is None}
+        assert not missing, f"{schema} lacks SDK-required keys {sorted(missing)}"
 
 
 def assert_item(dto: dict) -> None:
@@ -269,7 +279,7 @@ def test_private_titles_and_files_are_404_by_id_and_as_parent(jf: TestClient) ->
     for target in (SECRET_SERIES, SECRET_EPISODE, FILE[SECRET_EPISODE]):
         assert get(jf, f"/Items/{HEX(target)}").status_code == 404
         assert get(jf, f"/Items/{HEX(target)}", token=BOB_TOKEN).status_code == 200
-    assert get(jf, "/Items", ParentId=HEX(SECRET_SERIES)).status_code == 404
+    assert get(jf, "/Items", ParentId=HEX(SECRET_SERIES)).json()["Items"] == []  # hidden looks like missing: an empty list
     assert get(jf, "/Items", Ids=f"{HEX(SECRET_SERIES)},{HEX(MOVIE)}").json()["TotalRecordCount"] == 1
 
 
@@ -299,7 +309,7 @@ def test_paging_edges_keep_the_true_total(jf: TestClient, monkeypatch: pytest.Mo
     assert (past_end["Items"], past_end["TotalRecordCount"], past_end["StartIndex"]) == ([], 4, 50)
     monkeypatch.setattr(jf_service, "MAX_PAGE", 2)
     assert len(get(jf, "/Items", Limit=100_000, **query).json()["Items"]) == 2
-    assert get(jf, "/Items", StartIndex=-1, **query).status_code == 422
+    assert get(jf, "/Items", StartIndex=-1, **query).status_code == 400
 
 
 def test_emitted_keys_are_jellyfin_property_names(jf: TestClient) -> None:
@@ -318,6 +328,9 @@ def test_emitted_keys_are_jellyfin_property_names(jf: TestClient) -> None:
     assert_known(signed_in.json(), "AuthenticationResult")
     assert_known(signed_in.json()["User"], "UserDto")
     assert_known(signed_in.json()["SessionInfo"], "SessionInfoDto")
+    for name in ("Policy", "Configuration"):
+        assert_known(signed_in.json()["User"][name], f"User{name}")
+    assert_known(get(jf, "/DisplayPreferences/usersettings", Client="androidtv").json(), "DisplayPreferencesDto")
 
 
 from app.models import LibraryItem  # noqa: E402
@@ -360,7 +373,7 @@ def test_channel_video_dto_points_at_its_synthetic_folders(jf: TestClient) -> No
 def test_private_channel_is_invisible(jf: TestClient) -> None:
     assert get(jf, f"/Items/{BOBCHAN}").status_code == 404
     assert get(jf, f"/Items/{HEX(CHANNEL_PRIVATE)}").status_code == 404
-    assert get(jf, "/Items", ParentId=BOBCHAN).status_code == 404
+    assert get(jf, "/Items", ParentId=BOBCHAN).json()["Items"] == []
     assert get(jf, f"/Items/{BOBCHAN}", token=BOB_TOKEN).status_code == 200
     with db_module.SessionLocal() as session:  # a tombstoned upload drops out of its channel
         session.get(LibraryItem, CHANNEL_OLD).status = "missing"
@@ -391,8 +404,8 @@ def test_shows_seasons_and_episodes(jf: TestClient) -> None:
     assert names(get(jf, path, Season=2)) == ["Return"]
     assert names(get(jf, path, StartItemId=HEX(S1E2))) == ["Second", "Return"]
     assert get(jf, path, Limit=1, StartIndex=1).json()["TotalRecordCount"] == 4
-    assert get(jf, f"/Shows/{HEX(MOVIE)}/Episodes").status_code == 404
-    assert get(jf, f"/Shows/{HEX(SECRET_SERIES)}/Seasons").status_code == 404
+    assert get(jf, f"/Shows/{HEX(MOVIE)}/Episodes").json()["Items"] == []
+    assert get(jf, f"/Shows/{HEX(SECRET_SERIES)}/Seasons").json()["Items"] == []
     assert names(get(jf, f"/Shows/{CHAN}/Seasons")) == ["2024", "2025"]
     assert names(get(jf, f"/Shows/{CHAN}/Episodes")) == ["Old upload", "New upload"]
     assert names(get(jf, f"/Shows/{CHAN}/Episodes", Season=2025)) == ["New upload"]
@@ -486,6 +499,10 @@ def test_playback_info_lists_playable_versions(jf: TestClient, no_ffprobe: None)
                   json={"DeviceProfile": {}}, headers=headers)
     body = one.json()
     assert_known(body, "PlaybackInfoResponse")
+    for source in body["MediaSources"]:
+        assert_known(source, "MediaSourceInfo")
+        for stream in source["MediaStreams"]:
+            assert_known(stream, "MediaStream")
     assert [s["Id"] for s in body["MediaSources"]] == [HEX(MOVIE_4K)] and len(body["PlaySessionId"]) == 32
     assert [s["Index"] for s in body["MediaSources"][0]["MediaStreams"]] == [0, 1, 2, 3]
     assert all(not source["Path"].startswith(("/tmp", "/private", "/media", "/mnt")) for source in body["MediaSources"])  # library-relative only
@@ -507,6 +524,7 @@ def test_playback_info_lists_playable_versions(jf: TestClient, no_ffprobe: None)
 
 
 def test_stream_direct_play_with_range(jf: TestClient) -> None:
+    stream_grants.clear()
     path = f"/Videos/{HEX(MOVIE)}/stream.mkv"
     query = {"Static": "true", "MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN}
     head = jf.head(path, params=query)
@@ -517,6 +535,20 @@ def test_stream_direct_play_with_range(jf: TestClient) -> None:
     assert jf.get(f"/Videos/{HEX(CHANNEL_NEW)}/stream", headers={"X-Emby-Token": ALICE_TOKEN}).status_code == 200
     assert jf.get(path, params={"Static": "true"}).status_code == 401
     assert jf.get(f"/Videos/{HEX(SECRET_EPISODE)}/stream", params={"api_key": ALICE_TOKEN}).status_code == 404
+
+
+def test_playback_info_grants_a_credential_free_stream(jf: TestClient) -> None:
+    # Jellyfin for Android TV 0.19's player sends no credentials: PlaybackInfo lets that address stream that item.
+    stream_grants.clear()
+    bare = {"Static": "true", "MediaSourceId": HEX(MOVIE_4K)}
+    assert jf.get(f"/Videos/{HEX(MOVIE)}/stream", params=bare).status_code == 401
+    assert get(jf, f"/Items/{HEX(MOVIE)}/PlaybackInfo").status_code == 200
+    assert jf.get(f"/Videos/{HEX(MOVIE)}/stream", params=bare).status_code == 200
+    assert jf.get(f"/Videos/{HEX(FILE[S1E1])}/stream", params={"Static": "true"}).status_code == 401  # only the granted item
+    with db_module.SessionLocal() as session:  # revoking the app ends the grant with it
+        session.query(DeviceToken).filter_by(user_id=ALICE).delete()
+        session.commit()
+    assert jf.get(f"/Videos/{HEX(MOVIE)}/stream", params=bare).status_code == 401
 
 
 def test_external_subtitles_are_served_as_stored_or_converted(jf: TestClient) -> None:
@@ -535,9 +567,10 @@ def test_images_need_a_token_or_the_signed_tag(jf: TestClient, tmp_path: Path) -
     path = f"/Items/{HEX(SERIES)}/Images/Primary"
     with_token = get(jf, path)
     assert (with_token.status_code, with_token.content) == (200, POSTER)
-    assert with_token.headers["cache-control"] == "public, max-age=31536000"
+    assert with_token.headers["cache-control"] == "private, max-age=31536000"  # a token's answer is never for a shared cache
     assert jf.head(path, headers=mediabrowser(ALICE_TOKEN)).status_code == 200
-    assert jf.get(path).status_code == 404  # no token, no tag
+    image_grants.clear()
+    assert jf.get(path).status_code == 404  # no token, no tag, and no recent call from this address
     assert jf.get(path, params={"tag": "0" * 32}).status_code == 404
     assert jf.get(path, params={"tag": tag}).content == POSTER  # Infuse fetches art without auth using the issued tag
     assert get(jf, f"/Items/{HEX(SERIES)}/Images/Backdrop").status_code == 404
@@ -676,7 +709,7 @@ def test_foreign_and_garbage_ids_write_nothing(jf: TestClient) -> None:
                  {"ItemId": TV, "PositionTicks": TICKS}, {"ItemId": HEX(S1E1), "MediaSourceId": HEX(MOVIE_4K), "PositionTicks": TICKS},
                  {"PositionTicks": TICKS}):
         assert post(jf, "/Sessions/Playing/Progress", body).status_code == 404, body
-    assert post(jf, "/Sessions/Playing", {"ItemId": HEX(S1E1), "PositionTicks": -1}).status_code == 422
+    assert post(jf, "/Sessions/Playing", {"ItemId": HEX(S1E1), "PositionTicks": -1}).status_code == 400
     for path in (f"/UserPlayedItems/{HEX(SECRET_SERIES)}", f"/UserFavoriteItems/{HEX(SECRET_EPISODE)}",
                  f"/UserFavoriteItems/{TV}", f"/UserPlayedItems/{TV}", f"/UserPlayedItems/garbage",
                  f"/UserItems/{HEX(SECRET_SERIES)}/UserData"):
@@ -688,6 +721,7 @@ def test_foreign_and_garbage_ids_write_nothing(jf: TestClient) -> None:
 
 
 from app.models import DeviceToken  # noqa: E402
+from app.services.connected_apps import image_grants, stream_grants  # noqa: E402
 from support import make_user  # noqa: E402
 from title_support import SECRET_SEASON, device_token  # noqa: E402
 
@@ -813,7 +847,7 @@ def test_jellyfin_and_emby_prefixes_never_reach_the_api(jf: TestClient) -> None:
                  "/jellyfin/System/Info/Public", "/jellyfin/system/info/public", "/emby/System/Info/Public", "/jellyfin",
                  "http://localhost//JELLYFIN//emby/Items/"):
         response = get(jf, path)
-        assert (response.status_code, response.json()) == (404, {"detail": "Not found"}), path
+        assert (response.status_code, response.content) == (404, b""), path
 
 
 def test_imported_item_runtime_falls_back_to_the_cached_probe(jf: TestClient) -> None:
@@ -855,7 +889,7 @@ def test_root_form_serves_items_and_streams_with_the_same_auth(jf: TestClient, c
     assert jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"ApiKey": ALICE_TOKEN}).status_code == 200
     assert jf.head(f"/videos/{HEX(MOVIE)}/stream.mkv", params={"api_key": ALICE_TOKEN}).status_code == 200
     assert jf.get(f"/Videos/{HEX(SECRET_EPISODE)}/stream", params={"api_key": ALICE_TOKEN}).status_code == 404
-    caplog.set_level(logging.WARNING, logger="app.jellyfin")
+    caplog.set_level(logging.WARNING, logger="lumina.jellyfin")
     assert get(jf, "/Items/0123456789ABCDEF0123456789ABCDEF/Some/Probe").status_code == 404
     assert "jellyfin.unhandled GET /jellyfin/items/{id}/{id}/{id}" in caplog.text
     assert jf.get("/api/health").json()["status"] == "ok"  # /api is never the Jellyfin surface

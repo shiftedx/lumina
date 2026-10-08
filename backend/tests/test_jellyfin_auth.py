@@ -215,7 +215,7 @@ def test_disabled_surface_is_404_everywhere(jf) -> None:
     assert client.get("/users/me", headers={"X-Emby-Token": token}).status_code == 404
     for path in ("/System/Info/Public", "/users/public"):  # the root form adds no surface while off
         response = client.get(path)
-        assert response.status_code == 404 and response.headers["content-type"] == "application/json", path
+        assert response.status_code == 404 and response.content == b"", path
 
 
 def test_root_form_discovers_and_signs_in(jf) -> None:
@@ -309,8 +309,8 @@ def test_public_info_over_the_public_address_never_names_the_lan_address(jf) -> 
 
 
 @pytest.mark.parametrize(("method", "path"), [
-    ("GET", "/Users"), ("POST", "/Users/New"), ("GET", "/System/Configuration"), ("GET", "/System/Logs"),
-    ("GET", "/ScheduledTasks"), ("GET", "/Sessions"), ("GET", "/Devices"), ("GET", "/Auth/Keys"), ("POST", "/Auth/Keys"),
+    ("GET", "/Users"), ("POST", "/Users/New"), ("GET", "/System/Logs"),
+    ("GET", "/ScheduledTasks"), ("GET", "/Devices"), ("GET", "/Auth/Keys"), ("POST", "/Auth/Keys"),
     ("GET", "/Startup/Configuration"), ("POST", "/Startup/User"), ("POST", "/Library/Refresh"), ("POST", "/System/Restart"),
     ("POST", "/QuickConnect/Initiate"), ("POST", "/Users/AuthenticateWithQuickConnect"), ("POST", f"/Users/{uuid.UUID(BOB).hex}/Password"),
 ])

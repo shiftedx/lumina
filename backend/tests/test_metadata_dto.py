@@ -61,7 +61,7 @@ def test_lock_data_and_locked_fields(jf: TestClient) -> None:
 def test_cleared_fields_are_omitted(jf: TestClient) -> None:
     edit(MOVIE, meta={"genres": None, "tags": None, "overview": None}, sources={"genres": "user", "tags": "user", "overview": "user"})
     dto = fetch(jf, MOVIE)
-    assert not dto.get("Genres") and "Tags" not in dto and "Overview" not in dto
+    assert not dto.get("Genres") and dto["Tags"] == [] and "Overview" not in dto  # apps dereference Tags unchecked
 
 
 def test_jellyfin_still_accepts_no_writes(jf: TestClient) -> None:

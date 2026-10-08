@@ -60,7 +60,7 @@ def search_refs(db: Session, user: User, term: str, types: set[str] | None, limi
 
 def search_hint(dto: dict[str, Any], term: str) -> dict[str, Any]:
     """SearchHint from a BaseItemDto (Jellyfin property names only)."""
-    hint: dict[str, Any] = {"ItemId": dto["Id"], "Id": dto["Id"], "Name": dto.get("Name"), "MatchedTerm": term}
+    hint: dict[str, Any] = {"ItemId": dto["Id"], "Id": dto["Id"], "Name": dto.get("Name"), "MatchedTerm": term, "Artists": []}
     hint.update({key: dto[key] for key in _HINT_KEYS if dto.get(key) is not None})
     if dto.get("SeriesName"):
         hint["Series"] = dto["SeriesName"]

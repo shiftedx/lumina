@@ -7,6 +7,7 @@ import re
 import uuid
 from collections.abc import Callable
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 from typing import Any, Iterable, Literal
@@ -27,6 +28,22 @@ from app.services.media_artifacts import MediaArtifactService
 from app.services.reco.events import library_channel_key
 from app.services.storage_roots import ONLINE_STATES
 from app.services.webhooks import WebhookService
+
+
+@lru_cache(maxsize=128)
+def _snapshot_title_visibility(user_id: str, role: str, limits: tuple | None):  # noqa: ANN202
+    # Cache SQL construction only, never rows or allow/deny decisions. Each use
+    # still queries the current items, ratings and roots through the same predicate.
+    snapshot = User(id=user_id, role=role)
+    if limits is None:
+        access = None
+    else:
+        sections, movie_max, tv_max, unrated = limits
+        access = member_access.EffectiveAccess(
+            sections=sections, movie_rating_max=movie_max, tv_rating_max=tv_max, unrated=unrated,
+        )
+    snapshot.__dict__[member_access.ACCESS_ATTR] = access
+    return LibraryService._build_visible_title_predicate(snapshot)
 
 
 LIBRARY_PAGE_DEFAULT_LIMIT = 60
@@ -772,6 +789,19 @@ class LibraryService:
         OR'd join that SQLite cannot index. Member access (ADR 0019) arrives through the item predicate: a title is
         visible exactly when an item at or below it passes the member's Section and rating limits.
         """
+        if member_access.ACCESS_ATTR in user.__dict__:
+            access = user.__dict__[member_access.ACCESS_ATTR] if user.role != "admin" else None
+            limits = (
+                (access.sections, access.movie_rating_max, access.tv_rating_max, access.unrated)
+                if access is not None else None
+            )
+            return _snapshot_title_visibility(user.id, user.role, limits)
+        # Attached users and unknown transient callers retain the live access-row
+        # path; only an explicit request snapshot has immutable literal limits.
+        return LibraryService._build_visible_title_predicate(user)
+
+    @staticmethod
+    def _build_visible_title_predicate(user: User):  # noqa: ANN205
         leaf, season = aliased(MediaTitle), aliased(MediaTitle)
         items = select(LibraryItem.id).where(LibraryService.visible_predicate(user), LibraryItem.status != "missing")
         via_leaf = items.join(leaf, leaf.id == LibraryItem.title_id)

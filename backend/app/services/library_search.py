@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from typing import Callable, Iterable
 
 from sqlalchemy import delete, event, literal_column, select, text
-from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.engine import Connection, Engine, Row
 from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import Session, aliased
 
@@ -603,6 +603,33 @@ class LibrarySearchService:
         )]
         visible = self.visible_title_ids(user, ranked)
         return [title_id for title_id in ranked if title_id in visible][: max(1, limit)]
+
+    def title_records_for_query(
+        self, user: User, query: str, *, limit: int, linked_ids: Iterable[str] = (), extra_terms: Iterable[str] = (),
+    ) -> list[Row]:
+        """The same bounded title FTS pool plus linked titles, visibility checked and projected together."""
+        from app.services.library import LibraryService
+
+        match, fetch = self._fetch(query, limit, extra_terms)
+        ranked = [row[0] for row in self.db.execute(
+            text(f"SELECT title_id FROM {TITLE_FTS_TABLE} WHERE {TITLE_FTS_TABLE} MATCH :match "
+                 f"ORDER BY bm25({TITLE_FTS_TABLE}), rowid LIMIT :fetch"),
+            {"match": match, "fetch": fetch},
+        )] if match is not None else []
+        linked = sorted(set(linked_ids))
+        wanted = list(dict.fromkeys([*ranked, *linked]))
+        if not wanted:
+            return []
+        visible = {row.id: row for row in self.db.execute(select(
+            MediaTitle.id, MediaTitle.type, MediaTitle.parent_id, MediaTitle.name, MediaTitle.year, MediaTitle.metadata_json,
+        ).where(MediaTitle.id.in_(wanted), LibraryService.visible_title_predicate(user)))}
+        # Preserve the separate FTS result ceiling before adding linked titles.
+        # These can match a version or summary even when their title text does not.
+        ids = list(dict.fromkeys([
+            *[title_id for title_id in ranked if title_id in visible][:max(1, limit)],
+            *[title_id for title_id in linked if title_id in visible],
+        ]))
+        return [visible[title_id] for title_id in ids]
 
     def moment_hits(self, user: User, query: str, *, limit: int, extra_terms: Iterable[str] = ()) -> list[MomentHit]:
         """Top visible transcript windows and summary rows; present items only, visibility joined in SQL."""

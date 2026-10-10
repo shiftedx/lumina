@@ -6,10 +6,12 @@ import threading
 from collections import OrderedDict
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
+from functools import lru_cache
 from hashlib import sha256
 from typing import Literal, Protocol
 
 from sqlalchemy import or_, select
+from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 
 from app.models import LibraryNote, LibraryItem, LibraryTag, MediaTitle, SourceAutomation, User
@@ -330,8 +332,9 @@ class SemanticDiscovery:
         semantic_floor: float = 0.08,
     ) -> list[DiscoveryMatch]:
         ranked: list[DiscoveryMatch] = []
+        query_terms = set(_content_tokens(query))
         for entry in indexed:
-            lexical = _lexical_score(entry.document, query)
+            lexical = _lexical_score(entry.document, query, query_terms=query_terms)
             if semantic_scores is not None:
                 semantic = semantic_scores.get(self._document_key(entry.document), 0.0)
             else:
@@ -413,11 +416,11 @@ class SemanticDiscovery:
                 versions.setdefault(item.title_id, []).append(item.title)
                 if item_id in summaries:
                     summaries_by_title.setdefault(item.title_id, []).append(summaries[item_id])
-        title_ids = list(dict.fromkeys([
-            *search.title_ids_for_query(member, query, limit=CANDIDATE_LIMIT, extra_terms=extra_terms),
-            *sorted(search.visible_title_ids(member, [*versions, *(t for t, kind in vector_hits if kind == "title")])),
-        ]))
-        documents = self._title_documents(db, title_ids, versions, summaries_by_title)
+        title_records = search.title_records_for_query(
+            member, query, limit=CANDIDATE_LIMIT, extra_terms=extra_terms,
+            linked_ids=[*versions, *(t for t, kind in vector_hits if kind == "title")],
+        )
+        documents = self._title_documents(db, title_records, versions, summaries_by_title)
         plain = [item_id for item_id in item_ids if item_id in links and not links[item_id].title_id]
         if plain and needs_library:
             tags_by_item, comments_by_item = self._member_curation(db, member, plain)
@@ -501,9 +504,9 @@ class SemanticDiscovery:
 
     @staticmethod
     def _title_documents(
-        db: Session, title_ids: list[str], versions: dict[str, list[str]], summaries: dict[str, list[str]],
+        db: Session, title_records: list[Row], versions: dict[str, list[str]], summaries: dict[str, list[str]],
     ) -> list[SearchDocument]:
-        if not title_ids:
+        if not title_records:
             return []
         columns = (
             MediaTitle.id, MediaTitle.type, MediaTitle.parent_id, MediaTitle.name, MediaTitle.year, MediaTitle.metadata_json,
@@ -518,8 +521,8 @@ class SemanticDiscovery:
                 for row in db.execute(select(*columns).where(MediaTitle.id.in_(ids)))
             }
 
-        known = records(title_ids)
-        titles = dict(known)
+        titles = {row.id: _TitleSearchRecord(**row._mapping) for row in title_records}
+        known = dict(titles)
         for _generation in range(2):  # parents, then grandparents: episodes need their series name
             missing = {t.parent_id for t in known.values() if t.parent_id and t.parent_id not in known}
             if missing:
@@ -530,8 +533,7 @@ class SemanticDiscovery:
                 titles[title_id], title_search_fields(titles[title_id], lookup),
                 versions.get(title_id, []), summaries.get(title_id, []),
             )
-            for title_id in title_ids
-            if title_id in titles
+            for title_id in titles
         ]
 
     @staticmethod
@@ -624,22 +626,27 @@ def _cosine(left: dict[str, float], right: dict[str, float]) -> float:
     return sum(value * right.get(key, 0.0) for key, value in left.items())
 
 
-def _lexical_score(document: SearchDocument, query: str) -> float:
-    phrase = query.casefold()
-    query_terms = set(_content_tokens(query))
+@lru_cache(maxsize=1024)
+def _lexical_fields(fields: tuple[tuple[str, str], ...]) -> tuple[tuple[float, str, frozenset[str]], ...]:
+    """Pure text preparation, bounded independently of member visibility and query results."""
     weights = {
         "title": 5.0, "tags": 4.0, "channel": 3.0, "uploader": 3.0, "series": 3.0, "people": 3.0, "genres": 2.0,
         "description": 1.5, "versions": 1.0, "transcript": 1.0, "summary": 1.0, "source": 1.0, "type": 1.0, "rules": 1.0,
     }
+    return tuple(
+        (weights.get(name, 1.0), normalized, frozenset(_content_tokens(normalized)))
+        for name, value in fields if (normalized := value.casefold())
+    )
+
+
+def _lexical_score(document: SearchDocument, query: str, *, query_terms: set[str] | None = None) -> float:
+    phrase = query.casefold()
+    if query_terms is None:
+        query_terms = set(_content_tokens(query))
     score = 0.0
-    for field_name, value in document.fields:
-        normalized = value.casefold()
-        if not normalized:
-            continue
-        weight = weights.get(field_name, 1.0)
+    for weight, normalized, field_terms in _lexical_fields(document.fields):
         if phrase in normalized:
             score += weight * (2.0 if normalized.startswith(phrase) else 1.0)
-        field_terms = set(_content_tokens(normalized))
         score += weight * 0.35 * len(query_terms & field_terms)
     return score
 

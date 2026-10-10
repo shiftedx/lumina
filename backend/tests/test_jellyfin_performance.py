@@ -237,3 +237,101 @@ def test_item_burst_does_not_hold_database_slots_needed_by_other_routes() -> Non
         finally:
             item_release.set()
         assert all(future.result(timeout=3).status_code == 200 for future in item_futures)
+
+
+def test_title_visibility_reuses_sql_shape_but_rechecks_the_database() -> None:
+    from sqlalchemy import select
+    from app.models import LibraryItem, MediaTitle
+    from app.services import member_access
+    from app.services.library import LibraryService
+    from support import memory_session_factory
+
+    db = memory_session_factory()()
+    db.add_all([
+        User(id="viewer", username="viewer", display_name="Viewer", role="viewer", is_active=True),
+        MediaTitle(id="movie", type="movie", key="test:movie", name="Movie", category="movies"),
+        LibraryItem(id="version", title="Movie", title_id="movie", status="available", visibility="shared"),
+    ])
+    db.commit()
+
+    def snapshot(user_id="viewer", access=None):  # noqa: ANN001, ANN202
+        user = User(id=user_id, role="viewer")
+        user.__dict__[member_access.ACCESS_ATTR] = access
+        return user
+
+    first = LibraryService.visible_title_predicate(snapshot())
+    second = LibraryService.visible_title_predicate(snapshot())
+    assert first is second, "only the SQL expression is reusable; no visibility results are cached"
+    query = select(MediaTitle.id).where(first)
+    assert list(db.scalars(query)) == ["movie"]
+    db.get(LibraryItem, "version").status = "missing"
+    db.commit()
+    assert list(db.scalars(query)) == []
+
+    hidden = LibraryService.visible_title_predicate(snapshot(access=member_access.EffectiveAccess(sections=frozenset({"shows"}))))
+    other = LibraryService.visible_title_predicate(snapshot("another-viewer"))
+    assert hidden is not first and other is not first
+    db.get(LibraryItem, "version").status = "available"
+    db.commit()
+    assert list(db.scalars(select(MediaTitle.id).where(hidden))) == []
+    assert list(db.scalars(query)) == ["movie"]
+    db.close()
+
+
+def test_cached_title_visibility_preserves_literal_and_live_access_sql() -> None:
+    from sqlalchemy import select
+    from sqlalchemy.dialects import sqlite
+    from app.models import MediaTitle
+    from app.services import member_access
+    from app.services.library import LibraryService, _snapshot_title_visibility
+
+    for role in ("viewer", "admin"):
+        for access in (
+            None,
+            member_access.EffectiveAccess(),
+            member_access.EffectiveAccess(sections=frozenset({"movies"}), movie_rating_max="PG", unrated="hide"),
+            member_access.EffectiveAccess(sections=frozenset({"root:example"}), tv_rating_max="TV-Y7"),
+        ):
+            user = User(id="scope-member", role=role)
+            user.__dict__[member_access.ACCESS_ATTR] = access
+            cached = select(MediaTitle.id).where(LibraryService.visible_title_predicate(user))
+            original = select(MediaTitle.id).where(LibraryService._build_visible_title_predicate(user))
+            compile_options = {"dialect": sqlite.dialect(), "compile_kwargs": {"literal_binds": True}}
+            assert str(cached.compile(**compile_options)) == str(original.compile(**compile_options))
+
+    # A caller without carried access must still consult the live member_access row.
+    bare = User(id="scope-member", role="viewer")
+    sql = str(select(MediaTitle.id).where(LibraryService.visible_title_predicate(bare)).compile(**compile_options))
+    assert "member_access" in sql
+    for index in range(140):
+        snapshot = User(id=f"bounded-{index}", role="viewer")
+        snapshot.__dict__[member_access.ACCESS_ATTR] = None
+        LibraryService.visible_title_predicate(snapshot)
+    assert _snapshot_title_visibility.cache_info().currsize <= 128
+
+
+def test_repeated_ranking_tokenizes_query_once_and_reuses_unchanged_fields(monkeypatch) -> None:  # noqa: ANN001
+    from app.services.semantic_discovery import SearchDocument, _IndexedDocument
+
+    discovery = SemanticDiscovery()
+    entries = tuple(_IndexedDocument(document=SearchDocument(
+        kind="library", record_id=str(index), title="Uniquequery Adventure", subtitle="",
+        fields=(("title", "Uniquequery Adventure"), ("description", "Uniquequery documentary")), signature="same-text",
+    ), embedding={}) for index in range(3))
+    expected = discovery._rank(entries, "uniquequery", "lexical", {})
+    tokenized = []
+    original = semantic_discovery._content_tokens
+
+    def counted(value):  # noqa: ANN001, ANN202
+        tokenized.append(value)
+        return original(value)
+
+    monkeypatch.setattr(semantic_discovery, "_content_tokens", counted)
+    assert discovery._rank(entries, "uniquequery", "lexical", {}) == expected
+    assert [match.score for match in expected] == [15.275] * 3
+    assert tokenized == ["uniquequery"]
+    changed = _IndexedDocument(document=SearchDocument(
+        kind="library", record_id="edited", title="Different", subtitle="",
+        fields=(("title", "Different"),), signature="changed-text",
+    ), embedding={})
+    assert discovery._rank((changed,), "uniquequery", "lexical", {}) == []

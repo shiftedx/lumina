@@ -131,8 +131,8 @@ def test_range_sends_a_small_first_chunk_before_bulk_reads(tmp_path: Path) -> No
 
     asyncio.run(request())
     body = [message["body"] for message in messages[1:]]
-    assert [len(chunk) for chunk in body[:4]] == [64 * 1024] * 4
-    assert len(body[4]) == MEDIA_FILE_CHUNK_SIZE
+    assert len(body[0]) == 256 * 1024
+    assert len(body[1]) == MEDIA_FILE_CHUNK_SIZE
     assert b"".join(body) == payload
     assert messages[-1]["more_body"] is False
 

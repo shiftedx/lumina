@@ -37,7 +37,7 @@ def test_media_file_response_preserves_range_bytes_with_fewer_bounded_reads(tmp_
     headers = dict(response_start["headers"])
     assert response_start["status"] == 206
     assert headers[b"content-range"] == f"bytes {start}-{end}/{len(payload)}".encode()
-    assert [len(chunk) for chunk in body] == [MEDIA_FILE_CHUNK_SIZE, end - start + 1 - MEDIA_FILE_CHUNK_SIZE]
+    assert [len(chunk) for chunk in body] == [MediaFileResponse.first_chunk_size, end - start + 1 - MediaFileResponse.first_chunk_size]
     assert b"".join(body) == payload[start : end + 1]
 
 
@@ -70,7 +70,10 @@ def test_media_file_response_keeps_head_and_multipart_range_semantics(tmp_path: 
     assert b"Content-Range: bytes 10-12/32" in body and b"\x0a\x0b\x0c" in body
 
 
-def test_media_file_response_closes_the_file_when_the_client_disconnects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("range_header", [None, b"bytes=0-"])
+def test_media_file_response_closes_the_file_when_the_client_disconnects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, range_header: bytes | None,
+) -> None:
     media = tmp_path / "media.bin"
     media.write_bytes(b"a" * (MEDIA_FILE_CHUNK_SIZE + 1))
     opened = []
@@ -91,8 +94,128 @@ def test_media_file_response_closes_the_file_when_the_client_disconnects(tmp_pat
             if message["type"] == "http.response.body":
                 raise ConnectionError("client disconnected")
 
-        await MediaFileResponse(media)({"type": "http", "method": "GET", "headers": []}, receive, disconnect)
+        headers = [] if range_header is None else [(b"range", range_header)]
+        await MediaFileResponse(media)({"type": "http", "method": "GET", "headers": headers}, receive, disconnect)
 
     with pytest.raises(ConnectionError, match="client disconnected"):
         asyncio.run(request())
     assert len(opened) == 1 and opened[0]._fp.closed is True
+
+
+def test_range_sends_a_small_first_chunk_before_bulk_reads(tmp_path: Path) -> None:
+    media = tmp_path / "startup.bin"
+    payload = bytes(range(251)) * (3 * MEDIA_FILE_CHUNK_SIZE // 251 + 1)
+    media.write_bytes(payload)
+    messages = []
+
+    async def request():  # noqa: ANN202
+        async def receive():  # noqa: ANN202
+            return {"type": "http.request"}
+
+        async def send(message):  # noqa: ANN001
+            messages.append(message)
+
+        await MediaFileResponse(media)({"type": "http", "method": "GET", "headers": [(b"range", b"bytes=0-")]}, receive, send)
+
+    asyncio.run(request())
+    body = [message["body"] for message in messages[1:]]
+    assert len(body[0]) == 64 * 1024
+    assert len(body[1]) == MEDIA_FILE_CHUNK_SIZE
+    assert b"".join(body) == payload
+    assert messages[-1]["more_body"] is False
+
+
+@pytest.mark.parametrize("method,header,status,expected", [
+    ("GET", b"bytes=10-19", 206, bytes(range(10, 20))),
+    ("GET", b"bytes=-5", 206, bytes(range(27, 32))),
+    ("HEAD", b"bytes=10-19", 206, b""),
+    ("GET", b"bytes=32-", 416, b""),
+])
+def test_startup_chunk_keeps_range_boundaries(tmp_path: Path, method: str, header: bytes, status: int, expected: bytes) -> None:
+    media = tmp_path / "bounds.bin"
+    media.write_bytes(bytes(range(32)))
+    messages = []
+
+    async def request():  # noqa: ANN202
+        async def receive():  # noqa: ANN202
+            return {"type": "http.request"}
+
+        async def send(message):  # noqa: ANN001
+            messages.append(message)
+
+        await MediaFileResponse(media)({"type": "http", "method": method, "headers": [(b"range", header)]}, receive, send)
+
+    asyncio.run(request())
+    assert messages[0]["status"] == status
+    assert b"".join(message["body"] for message in messages[1:]) == expected
+
+
+def test_range_stops_reading_when_receive_disconnects_and_send_ignores_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Uvicorn's send may return silently after its receive reports disconnect."""
+    media = tmp_path / "abandoned.bin"
+    media.write_bytes(b"x" * (16 * MEDIA_FILE_CHUNK_SIZE))
+    opened, read_bytes = [], []
+    real_open = responses.anyio.open_file
+
+    async def tracked_open(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        handle = await real_open(*args, **kwargs)
+        original_read = handle.read
+
+        async def read(size):  # noqa: ANN001, ANN202
+            body = await original_read(size)
+            read_bytes.append(len(body))
+            return body
+
+        handle.read = read
+        opened.append(handle)
+        return handle
+
+    monkeypatch.setattr(responses.anyio, "open_file", tracked_open)
+
+    async def request() -> None:
+        disconnected = asyncio.Event()
+
+        async def receive() -> dict:
+            await disconnected.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict) -> None:
+            if message["type"] == "http.response.body":
+                disconnected.set()  # later sends intentionally return without an error
+
+        await MediaFileResponse(media)({"type": "http", "method": "GET", "headers": [(b"range", b"bytes=0-")]}, receive, send)
+
+    asyncio.run(request())
+    assert sum(read_bytes) <= MediaFileResponse.first_chunk_size + MEDIA_FILE_CHUNK_SIZE
+    assert len(opened) == 1 and opened[0]._fp.closed
+
+
+def test_shared_response_keeps_disconnect_receivers_request_scoped(tmp_path: Path) -> None:
+    media = tmp_path / "shared.bin"
+    payload = bytes(range(251)) * (4 * MEDIA_FILE_CHUNK_SIZE // 251 + 1)
+    media.write_bytes(payload)
+    response = MediaFileResponse(media)
+
+    async def request(header: bytes, abandon: bool) -> bytes:
+        disconnected = asyncio.Event()
+        bodies = []
+
+        async def receive() -> dict:
+            await disconnected.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict) -> None:
+            if message["type"] == "http.response.body":
+                bodies.append(message["body"])
+                if abandon or not message["more_body"]:
+                    disconnected.set()
+
+        await response({"type": "http", "method": "GET", "headers": [(b"range", header)]}, receive, send)
+        return b"".join(bodies)
+
+    async def both() -> list[bytes]:
+        return await asyncio.gather(request(b"bytes=0-", True), request(b"bytes=13-2097152", False))
+
+    abandoned, complete = asyncio.run(both())
+    assert len(abandoned) <= response.first_chunk_size + MEDIA_FILE_CHUNK_SIZE
+    assert complete == payload[13:2097153]

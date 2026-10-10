@@ -514,7 +514,7 @@ def download(item_id: str, request: Request, user: Caller, db: Db, mediasourceid
 
 
 def media_file(item_id: str, request: Request, user: User, db: Session, mediasourceid: str | None, *, attachment: bool = False) -> MediaFileResponse:
-    version = jf.pick_version(db, user, jf.resolve(db, user, item_id), mediasourceid)
+    version = jf.stream_version(db, user, item_id, mediasourceid)
     if version is None:
         raise HTTPException(status_code=404, detail="Item not found")
     try:

@@ -1056,12 +1056,39 @@ def playable_versions(db: Session, user: User, entity: Entity | None) -> list[Li
 
 def pick_version(db: Session, user: User, entity: Entity | None, media_source_id: str | None = None) -> LibraryItem | None:
     """MediaSourceId selects a version of the named item; without one, the preferred version."""
-    versions = playable_versions(db, user, entity)
     wanted = parse_item_id(media_source_id) if media_source_id else None
+    if (
+        media_source_id and entity is not None and entity.title is not None
+        and entity.title.type in LEAF_TYPES and wanted != entity.id
+    ):
+        # A named version needs no preferred-version ranking or title-page data.
+        # Keep both the parent check and the live item visibility check.
+        return db.scalar(select(LibraryItem).options(defer(LibraryItem.metadata_json)).where(
+            LibraryItem.id == wanted, LibraryItem.title_id == entity.title.id,
+            LibraryItem.extra_type.is_(None), LibraryItem.status != "missing",
+            LibraryService.visible_predicate(user),
+        ))
+    versions = playable_versions(db, user, entity)
     own = entity is not None and wanted == entity.id  # Jellyfin's primary source id is the item's own id: "the default"
     if media_source_id and not own:
         return next((version for version in versions if version.id == wanted), None)
     return versions[0] if versions else None
+
+
+def stream_version(db: Session, user: User, raw_id: str, media_source_id: str | None) -> LibraryItem | None:
+    """A named file under a visible leaf in one query; the item's own id still means its preferred version."""
+    entity_id, wanted = parse_item_id(raw_id), parse_item_id(media_source_id) if media_source_id else None
+    if media_source_id and wanted != entity_id:
+        if entity_id is None or wanted is None:
+            return None
+        parent = select(MediaTitle.id).where(
+            MediaTitle.id == entity_id, MediaTitle.type.in_(LEAF_TYPES), TitleService.visible(user),
+        )
+        return db.scalar(select(LibraryItem).options(defer(LibraryItem.metadata_json)).where(
+            LibraryItem.id == wanted, LibraryItem.title_id.in_(parent), LibraryItem.extra_type.is_(None),
+            LibraryItem.status != "missing", LibraryService.visible_predicate(user),
+        ))
+    return pick_version(db, user, resolve(db, user, raw_id), media_source_id)
 
 
 def sidecar_file(db: Session, item: LibraryItem, index: int) -> tuple[Path, str] | None:

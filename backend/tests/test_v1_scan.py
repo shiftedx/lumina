@@ -131,6 +131,25 @@ def test_scan_cancel_resume_deduplicates(library: Path, monkeypatch: pytest.Monk
         assert db.query(MediaArtifact).count() == 7
 
 
+def test_rescan_requeues_a_probe_after_a_missing_file_returns(library: Path) -> None:
+    media = library / "Movies" / "Return.mp4"
+    write(media)
+    with client_for("admin") as admin:
+        root_id = register_root(admin, library)
+        run = admin.post("/api/admin/imports", json={"root_id": root_id}).json()
+        assert admin.get(run["status_url"]).json()["state"] == "succeeded"
+        with db_module.SessionLocal() as db:
+            artifact = db.query(MediaArtifact).one()
+            artifact.probe = {"fingerprint": None, "error": "missing", "loudness": {"error": "missing"}}
+            db.commit()
+
+        rerun = admin.post("/api/admin/imports", json={"root_id": root_id}).json()
+        assert admin.get(rerun["status_url"]).json()["state"] == "succeeded"
+    with db_module.SessionLocal() as db:
+        probe = db.query(MediaArtifact).one().probe
+        assert probe is None or probe.get("error") != "missing"  # the background worker may already have retried
+
+
 def test_symlink_and_permission_errors(library: Path, tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     write(outside / "secret.mp4", b"secret")

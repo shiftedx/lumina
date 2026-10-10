@@ -380,7 +380,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
         // A <video> error carries no status, so a failed direct file asks the server for one byte to learn why.
         if (!session) void fetch(libraryMediaUrl(playId), { credentials: 'include', headers: { Range: 'bytes=0-0' } }).then(async (response) => { const body = await response.text(); const stop = accessStopCode(response.status, body); if (stop) reportAccessStop(stop); else if (isStoppedByAdmin(response.status, body)) setStoppedByAdmin(true); }).catch(() => undefined);
         return playerProps.onError?.(media);
-      }} extensions={{ ...extensions, quality }} onLoadedMetadata={loaded} onMediaReplaced={(at) => { askedRef.current = at; setMediaEpoch((epoch) => epoch + 1); }} ref={mediaRef} source={source} />
+      }} extensions={{ ...extensions, quality }} onLoadedMetadata={loaded} onMediaReplaced={(at) => { askedRef.current = at; setMediaEpoch((epoch) => epoch + 1); }} onPlayIntentChange={(playing) => { resumePlayingRef.current = playing; playerProps.onPlayIntentChange?.(playing); }} ref={mediaRef} source={source} />
       {suggestLower && nextLower !== null ? (
         <div className="quality-suggestion" role="status">
           <span>This video keeps pausing to buffer.</span>

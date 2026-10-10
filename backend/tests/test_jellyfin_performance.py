@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
+from fastapi import Depends, FastAPI, Response
+from fastapi.testclient import TestClient
+
 from app.models import User
-from app.routers import jellyfin_integration
+from app.routers import jellyfin, jellyfin_integration
 from app.services import jellyfin as jf
 from app.services import semantic_discovery
 from app.services.semantic_discovery import SemanticDiscovery
@@ -103,3 +107,133 @@ def test_jellyfin_title_batch_skips_unused_artwork_loading(monkeypatch) -> None:
 
     assert mapper.title_dtos([title]) == [{"LockData": False, "LockedFields": []}]
     assert calls == [{"with_artifacts": False, "with_metadata": False, "with_artwork": False}]
+
+
+def test_item_requests_admit_at_most_two_database_workers() -> None:
+    """A burst waits before dependencies and the sync worker pool, not inside SQLite."""
+    app = FastAPI()
+    entered = threading.Event()
+    release = threading.Event()
+    lock = threading.Lock()
+    active = peak = 0
+
+    @app.get("/jellyfin/items")
+    def items() -> dict:
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+            if active >= 2:
+                entered.set()
+        try:
+            assert release.wait(timeout=2)
+            return {"Items": []}
+        finally:
+            with lock:
+                active -= 1
+
+    app.add_middleware(jellyfin.JellyfinPathMiddleware, root_segments=frozenset({"items"}))
+    with TestClient(app) as client, ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(client.get, "/Items") for _ in range(8)]
+        try:
+            assert entered.wait(timeout=1)
+            time.sleep(0.05)
+            assert peak == 2
+        finally:
+            release.set()
+        assert [future.result(timeout=2).status_code for future in futures] == [200] * 8
+
+
+def test_item_gate_releases_slots_after_route_exceptions() -> None:
+    """Two failed item requests release both slots for the queued request."""
+    app = FastAPI()
+    failed = threading.Event()
+    release = threading.Event()
+    successor = threading.Event()
+    lock = threading.Lock()
+    calls = 0
+
+    @app.get("/jellyfin/items")
+    def items() -> dict:
+        nonlocal calls
+        with lock:
+            calls += 1
+            call = calls
+            if calls >= 2:
+                failed.set()
+        if call <= 2:
+            assert release.wait(timeout=2)
+            raise RuntimeError("expected")
+        successor.set()
+        return {"Items": []}
+
+    app.add_middleware(jellyfin.JellyfinPathMiddleware, root_segments=frozenset({"items"}))
+    with TestClient(app, raise_server_exceptions=False) as client, ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [pool.submit(client.get, "/Items") for _ in range(3)]
+        try:
+            assert failed.wait(timeout=1)
+            assert not successor.wait(timeout=0.05)
+        finally:
+            release.set()
+        assert sorted(future.result(timeout=2).status_code for future in futures) == [200, 500, 500]
+
+
+def test_item_burst_does_not_hold_database_slots_needed_by_other_routes() -> None:
+    """Current-user, system-info and progress calls complete while 32 item calls are queued."""
+    app = FastAPI()
+    database_slots = threading.BoundedSemaphore(15)  # SQLAlchemy's 5 + 10 overflow default
+    item_release = threading.Event()
+    two_items = threading.Event()
+    lock = threading.Lock()
+    active_items = 0
+
+    def database_session():  # noqa: ANN202
+        assert database_slots.acquire(timeout=2)
+        try:
+            yield
+        finally:
+            database_slots.release()
+
+    @app.get("/jellyfin/items")
+    def items(_db=Depends(database_session)) -> dict:  # noqa: B008, ANN001
+        nonlocal active_items
+        with lock:
+            active_items += 1
+            if active_items >= 2:
+                two_items.set()
+        try:
+            assert item_release.wait(timeout=3)
+            return {"Items": []}
+        finally:
+            with lock:
+                active_items -= 1
+
+    @app.get("/jellyfin/users/member")
+    def current_user(_db=Depends(database_session)) -> dict:  # noqa: B008, ANN001
+        return {"Id": "member"}
+
+    @app.get("/jellyfin/system/info/public")
+    def system_info(_db=Depends(database_session)) -> dict:  # noqa: B008, ANN001
+        return {"ServerName": "Lumina"}
+
+    @app.post("/jellyfin/sessions/playing/progress", status_code=204)
+    def progress(_db=Depends(database_session)) -> Response:  # noqa: B008, ANN001
+        return Response(status_code=204)
+
+    app.add_middleware(
+        jellyfin.JellyfinPathMiddleware,
+        root_segments=frozenset({"items", "sessions", "system", "users"}),
+    )
+    with TestClient(app) as client, ThreadPoolExecutor(max_workers=35) as pool:
+        item_futures = [pool.submit(client.get, "/Items") for _ in range(32)]
+        try:
+            assert two_items.wait(timeout=1)
+            controls = [
+                pool.submit(client.get, "/Users/member"),
+                pool.submit(client.get, "/System/Info/Public"),
+                pool.submit(client.post, "/Sessions/Playing/Progress"),
+            ]
+            assert [future.result(timeout=1).status_code for future in controls] == [200, 200, 204]
+        finally:
+            item_release.set()
+        assert all(future.result(timeout=3).status_code == 200 for future in item_futures)

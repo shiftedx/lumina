@@ -244,10 +244,14 @@ def jellyfin_server_id(db: Session) -> str:
     return hmac.new(jellyfin_server_key(db), _SERVER_ID_LABEL, hashlib.sha256).hexdigest()[:32]
 
 
-def require_jellyfin_enabled(db: Session = Depends(get_db, scope="function")) -> None:
-    """Every /jellyfin route 404s while the admin has the surface switched off."""
-    if not YtDlpService(db).get_app_settings().jellyfin_enabled:
+def require_jellyfin_enabled(db: Session = Depends(get_db, scope="function")) -> AppSettings:
+    """404 while disabled; retain the settings row in FastAPI's request dependency cache."""
+    # SQLAlchemy's identity map uses weak references. Keeping this request's row
+    # alive lets ServerId and other helpers reuse it without reloading every column.
+    record = db.get(AppSettings, 1)
+    if record is None or not record.jellyfin_enabled:
         raise HTTPException(status_code=404, detail="Not Found")
+    return record
 
 
 STREAM_GRANT_SECONDS = 4 * 3600
@@ -306,7 +310,7 @@ def jellyfin_stream_user(
     request: Request,
     item_id: str,
     db: Session = Depends(get_db, scope="function"),
-    _enabled: None = Depends(require_jellyfin_enabled),
+    _enabled: AppSettings | None = Depends(require_jellyfin_enabled),
 ) -> User:
     """``jellyfin_user`` for /Videos/{id}/stream, which may arrive without credentials under a PlaybackInfo grant."""
     if parse_client_auth(request).token is None:
@@ -317,7 +321,7 @@ def jellyfin_stream_user(
 def jellyfin_user(
     request: Request,
     db: Session = Depends(get_db, scope="function"),
-    _enabled: None = Depends(require_jellyfin_enabled),
+    _enabled: AppSettings | None = Depends(require_jellyfin_enabled),
 ) -> User:
     """Authenticate a /jellyfin request by its jellyfin device token.
 

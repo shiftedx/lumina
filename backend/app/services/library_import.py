@@ -486,6 +486,10 @@ class LibraryImportService:
                         sidecars.append((item.id, os.path.dirname(relative), text_tracks))
                 else:
                     outcome = "relinked" if relative in moves else "updated" if relative in hashes or artifact.lifecycle != "available" else "unchanged"
+                    # A positive stat is the retry signal for a path the background probe saw missing.
+                    # Keep every other cached failure until the file fingerprint changes.
+                    if (artifact.probe or {}).get("error") == "missing":
+                        artifact.probe = None
                     artifact.relative_path, artifact.lifecycle = relative, "available"
                     for item in items.get(artifact.id, []):
                         # A sidecar edited in place under the same name is re-read only when its

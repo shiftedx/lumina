@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
 from xml.sax.saxutils import quoteattr
 
 from app.services.playback_log import log_playback
-from app.services.stream_cache import PersistentStreamRangeCache, StreamCacheKey
+from app.services.stream_cache import MEDIA_FILE_CHUNK_SIZE, PersistentStreamRangeCache, StreamCacheKey
 
 
 PlaybackStatus = Literal["ready", "unsupported"]
@@ -2276,7 +2276,7 @@ def _rendition_label(track: MediaTrack) -> str:
 
 
 class _FileRangeBody:
-    def __init__(self, path: Path, start: int, end: int, chunk_size: int = 64 * 1024) -> None:
+    def __init__(self, path: Path, start: int, end: int, chunk_size: int = MEDIA_FILE_CHUNK_SIZE) -> None:
         self._file = path.open("rb")
         self._file.seek(start)
         self._remaining = end - start + 1

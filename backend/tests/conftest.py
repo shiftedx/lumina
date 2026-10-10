@@ -86,7 +86,7 @@ def api_client(db_factory):
     """
     from fastapi.testclient import TestClient
 
-    from app.db import get_db
+    from app.db import get_db, session_scope, stream_session_scope
     from app.main import app
     from app.security import get_current_user
     from app.services.rate_limit import rate_limiter
@@ -100,6 +100,9 @@ def api_client(db_factory):
                 session.rollback()
                 raise
 
+    async def override_stream_session_scope():
+        return lambda: session_scope(db_factory)
+
     clients: list[TestClient] = []
 
     def build(user=None, **kwargs) -> TestClient:
@@ -110,6 +113,7 @@ def api_client(db_factory):
         return client
 
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[stream_session_scope] = override_stream_session_scope
     rate_limiter.clear()
     try:
         yield build
@@ -117,6 +121,7 @@ def api_client(db_factory):
         for client in clients:
             client.close()
         app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(stream_session_scope, None)
         app.dependency_overrides.pop(get_current_user, None)
         rate_limiter.clear()
 

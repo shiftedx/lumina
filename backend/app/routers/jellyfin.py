@@ -17,7 +17,8 @@ import re
 import time
 import uuid
 from collections import Counter
-from contextlib import suppress
+from collections.abc import Callable
+from contextlib import AbstractContextManager, suppress
 from dataclasses import replace
 from typing import Annotated
 from urllib.parse import parse_qsl, quote, urlencode
@@ -34,7 +35,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import settings
 from app.models import Person, PlaybackProgress, User
-from app.db import get_db, session_scope
+from app.db import get_db, session_scope, stream_session_scope
 from app.persistence import read_regular_file, write_transaction
 from app.security import resolve_device_token
 from app.services.rate_limit import enforce_rate_limit, grant_address
@@ -509,12 +510,13 @@ def playback_info(
 def video_stream(
     item_id: str,
     request: Request,
-    db: Session = Depends(get_db, scope="function"),
+    db_scope: Annotated[Callable[[], AbstractContextManager[Session]], Depends(stream_session_scope)],
     mediasourceid: str | None = Query(None, max_length=64),
 ) -> MediaFileResponse:
     """Direct play with Range (like /api/library/{id}/media); the session closes before bytes stream."""
-    caller = jellyfin_stream_user(request, item_id, db, mediasourceid)
-    return media_file(item_id, request, caller.user, db, mediasourceid, credential_resolution=caller.resolution)
+    with db_scope() as db:
+        caller = jellyfin_stream_user(request, item_id, db, mediasourceid)
+        return media_file(item_id, request, caller.user, db, mediasourceid, credential_resolution=caller.resolution)
 
 
 @router.api_route("/items/{item_id}/download", methods=["GET", "HEAD"])

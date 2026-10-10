@@ -1,8 +1,10 @@
 """Jellyfin client compatibility: the error-body policy, empty-not-404 lists, client probes, downloads and /socket."""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+import anyio
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -17,6 +19,7 @@ from app.routers import jellyfin_probes
 from app.services import activity, media_probe, public_address
 from app.services.rate_limit import grant_address
 from app.services.connected_apps import image_grants
+from app.services.media_response import MediaFileResponse
 from app.services.media_titles import jellyfin_id, synthetic_id
 from test_jellyfin_api import MOVIES, TV, get, post
 from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, FILE, TRAILER, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SEASON1, SECRET_SERIES, SERIES, jellyfin_household, mediabrowser
@@ -538,6 +541,92 @@ def test_selected_admin_stream_combines_credential_and_registered_file_in_one_qu
     assert "join device_tokens" in statements[0].lower()
     assert "join users" in statements[0].lower()
     assert "join media_artifacts" in statements[0].lower()
+
+
+def test_selected_stream_enters_one_worker_before_head_headers(jf: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The direct-range endpoint enters its DB context inside its only sync worker."""
+    original_run_sync = anyio.to_thread.run_sync
+    header_sent = False
+    status = None
+    dispatches: list[str] = []
+
+    async def tracked_run_sync(func, *args, **kwargs):  # noqa: ANN001, ANN202
+        if not header_sent:
+            dispatches.append(getattr(func, "__name__", type(func).__name__))
+        return await original_run_sync(func, *args, **kwargs)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", tracked_run_sync)
+
+    async def request() -> None:
+        nonlocal header_sent, status
+
+        async def receive() -> dict:
+            return {"type": "http.request"}
+
+        async def send(message: dict) -> None:
+            nonlocal header_sent, status
+            if message["type"] == "http.response.start":
+                header_sent = True
+                status = message["status"]
+
+        await app(
+            {
+                "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "HEAD",
+                "scheme": "http", "path": f"/Videos/{HEX(MOVIE)}/stream", "raw_path": f"/Videos/{HEX(MOVIE)}/stream".encode(),
+                "query_string": f"MediaSourceId={HEX(MOVIE_4K)}&api_key={ALICE_TOKEN}".encode(),
+                "headers": [(b"host", b"localhost")], "client": ("testclient", 50000), "server": ("localhost", 80), "root_path": "", "extensions": {},
+            },
+            receive,
+            send,
+        )
+
+    asyncio.run(request())
+    assert (status, header_sent, len(dispatches)) == (200, True, 1)
+
+
+def test_selected_stream_closes_its_session_before_head_response(jf: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The response opens no bytes until the direct stream's session is already closed."""
+    from sqlalchemy.orm import Session
+
+    closed = False
+    close = Session.close
+    response_call = MediaFileResponse.__call__
+
+    def tracked_close(self) -> None:  # noqa: ANN001
+        nonlocal closed
+        closed = True
+        close(self)
+
+    async def checked_response(self, scope, receive, send):  # noqa: ANN001, ANN202
+        assert closed
+        return await response_call(self, scope, receive, send)
+
+    monkeypatch.setattr(Session, "close", tracked_close)
+    monkeypatch.setattr(MediaFileResponse, "__call__", checked_response)
+    response = jf.head(
+        f"/Videos/{HEX(MOVIE)}/stream",
+        params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN},
+    )
+    assert response.status_code == 200
+
+
+def test_direct_stream_uses_the_api_client_session_scope_override(tmp_path: Path, db_factory, api_client) -> None:  # noqa: ANN001
+    """The stream's explicit factory override sees only api_client's in-memory database."""
+    from support import make_user, seed_app_settings
+    from title_support import device_token, seed_tree
+
+    root = tmp_path / "factory-media"
+    with db_factory.begin() as db:
+        db.add_all([make_user(ALICE, username="alice"), make_user(BOB, username="bob")])
+        seed_tree(db, root)
+        device_token(db, ALICE, ALICE_TOKEN)
+        seed_app_settings(db, jellyfin_enabled=True)
+    client = api_client(base_url="http://localhost")
+    response = client.head(
+        f"/Videos/{HEX(MOVIE)}/stream",
+        params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN},
+    )
+    assert response.status_code == 200
 
 
 def test_stream_disabled_precedes_an_invalid_explicit_token(jf: TestClient) -> None:

@@ -514,18 +514,18 @@ def download(item_id: str, request: Request, user: Caller, db: Db, mediasourceid
 
 
 def media_file(item_id: str, request: Request, user: User, db: Session, mediasourceid: str | None, *, attachment: bool = False) -> MediaFileResponse:
-    version = jf.stream_version(db, user, item_id, mediasourceid)
-    if version is None:
-        raise HTTPException(status_code=404, detail="Item not found")
     try:
-        path = LibraryService(db).resolve_media_path(version)
+        found = jf.stream_file(db, user, item_id, mediasourceid)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from exc
+    if found is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    version_id, path = found
     device = getattr(request.state, "connected_app_id", None) or "web"  # set by the Connected app token check
     screen_time.enforce(db, user)  # every Range request: at most one real check a minute
-    activity.guard(user.id, version.id, device)  # an admin stop ends downloads too
+    activity.guard(user.id, version_id, device)  # an admin stop ends downloads too
     if request.method == "GET" and not attachment:  # a download is not a watch session
-        activity.touch(user.id, version.id, device)
+        activity.touch(user.id, version_id, device)
     return MediaFileResponse(path, filename=path.name if attachment else None)
 
 

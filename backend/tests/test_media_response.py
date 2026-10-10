@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from starlette import responses
 
+from app.services import media_response
 from app.services.media_response import MediaFileResponse
 from app.services.stream_cache import MEDIA_FILE_CHUNK_SIZE
 
@@ -77,14 +78,24 @@ def test_media_file_response_closes_the_file_when_the_client_disconnects(
     media = tmp_path / "media.bin"
     media.write_bytes(b"a" * (MEDIA_FILE_CHUNK_SIZE + 1))
     opened = []
-    real_open = responses.anyio.open_file
+    if range_header is None:
+        real_open = responses.anyio.open_file
 
-    async def tracked_open(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
-        handle = await real_open(*args, **kwargs)
-        opened.append(handle)
-        return handle
+        async def tracked_open(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            handle = await real_open(*args, **kwargs)
+            opened.append(handle)
+            return handle
 
-    monkeypatch.setattr(responses.anyio, "open_file", tracked_open)
+        monkeypatch.setattr(responses.anyio, "open_file", tracked_open)
+    else:
+        real_open_seek_read = media_response._open_seek_read
+
+        def tracked_open_seek_read(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            handle, chunk = real_open_seek_read(*args, **kwargs)
+            opened.append(handle)
+            return handle, chunk
+
+        monkeypatch.setattr(media_response, "_open_seek_read", tracked_open_seek_read)
 
     async def request() -> None:
         async def receive() -> dict:
@@ -99,7 +110,8 @@ def test_media_file_response_closes_the_file_when_the_client_disconnects(
 
     with pytest.raises(ConnectionError, match="client disconnected"):
         asyncio.run(request())
-    assert len(opened) == 1 and opened[0]._fp.closed is True
+    assert len(opened) == 1
+    assert (opened[0]._fp.closed if range_header is None else opened[0].closed) is True
 
 
 def test_range_sends_a_small_first_chunk_before_bulk_reads(tmp_path: Path) -> None:
@@ -123,6 +135,46 @@ def test_range_sends_a_small_first_chunk_before_bulk_reads(tmp_path: Path) -> No
     assert len(body[1]) == MEDIA_FILE_CHUNK_SIZE
     assert b"".join(body) == payload
     assert messages[-1]["more_body"] is False
+
+
+def test_range_combines_open_seek_and_first_read_in_one_worker_handoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media = tmp_path / "startup-handoff.bin"
+    media.write_bytes(b"x" * (MediaFileResponse.first_chunk_size + 1))
+    original_run_sync = media_response.anyio.to_thread.run_sync
+    header_sent = False
+    first_body_sent = False
+    handoffs: list[str] = []
+
+    async def tracked_run_sync(func, *args, **kwargs):  # noqa: ANN001, ANN202
+        if header_sent and not first_body_sent:
+            handoffs.append(getattr(func, "__name__", type(func).__name__))
+        return await original_run_sync(func, *args, **kwargs)
+
+    monkeypatch.setattr(media_response.anyio.to_thread, "run_sync", tracked_run_sync)
+
+    async def request() -> None:
+        nonlocal header_sent, first_body_sent
+
+        async def receive() -> dict:
+            return {"type": "http.request"}
+
+        async def send(message: dict) -> None:
+            nonlocal header_sent, first_body_sent
+            if message["type"] == "http.response.start":
+                header_sent = True
+            elif message["type"] == "http.response.body":
+                first_body_sent = True
+
+        await MediaFileResponse(media)(
+            {"type": "http", "method": "GET", "headers": [(b"range", b"bytes=0-")]},
+            receive,
+            send,
+        )
+
+    asyncio.run(request())
+    assert handoffs == ["_open_seek_read"]
 
 
 @pytest.mark.parametrize("method,header,status,expected", [
@@ -155,22 +207,32 @@ def test_range_stops_reading_when_receive_disconnects_and_send_ignores_it(tmp_pa
     media = tmp_path / "abandoned.bin"
     media.write_bytes(b"x" * (16 * MEDIA_FILE_CHUNK_SIZE))
     opened, read_bytes = [], []
-    real_open = responses.anyio.open_file
+    real_open_seek_read = media_response._open_seek_read
 
-    async def tracked_open(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
-        handle = await real_open(*args, **kwargs)
-        original_read = handle.read
+    class TrackedFile:
+        def __init__(self, handle):  # noqa: ANN001
+            self._handle = handle
 
-        async def read(size):  # noqa: ANN001, ANN202
-            body = await original_read(size)
+        def read(self, size: int) -> bytes:
+            body = self._handle.read(size)
             read_bytes.append(len(body))
             return body
 
-        handle.read = read
-        opened.append(handle)
-        return handle
+        def close(self) -> None:
+            self._handle.close()
 
-    monkeypatch.setattr(responses.anyio, "open_file", tracked_open)
+        @property
+        def closed(self) -> bool:
+            return self._handle.closed
+
+    def tracked_open_seek_read(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        handle, chunk = real_open_seek_read(*args, **kwargs)
+        read_bytes.append(len(chunk))
+        tracked = TrackedFile(handle)
+        opened.append(tracked)
+        return tracked, chunk
+
+    monkeypatch.setattr(media_response, "_open_seek_read", tracked_open_seek_read)
 
     async def request() -> None:
         disconnected = asyncio.Event()
@@ -187,7 +249,7 @@ def test_range_stops_reading_when_receive_disconnects_and_send_ignores_it(tmp_pa
 
     asyncio.run(request())
     assert sum(read_bytes) <= MediaFileResponse.first_chunk_size + MEDIA_FILE_CHUNK_SIZE
-    assert len(opened) == 1 and opened[0]._fp.closed
+    assert len(opened) == 1 and opened[0].closed
 
 
 def test_shared_response_keeps_disconnect_receivers_request_scoped(tmp_path: Path) -> None:

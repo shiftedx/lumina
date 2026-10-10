@@ -1,6 +1,7 @@
 """File response tuned for video-sized local and cached playback bodies."""
 from collections.abc import Callable, Iterable
 from contextvars import ContextVar
+from typing import BinaryIO
 
 import anyio
 from fastapi.responses import FileResponse, StreamingResponse
@@ -12,6 +13,17 @@ from starlette.types import Receive, Scope, Send
 from app.services.stream_cache import MEDIA_FILE_CHUNK_SIZE
 
 _file_receive: ContextVar[Receive] = ContextVar("media_file_receive")
+
+
+def _open_seek_read(path: str, start: int, size: int) -> tuple[BinaryIO, bytes]:
+    """Open a range and return its first bytes in one worker-thread handoff."""
+    file = open(path, "rb")  # noqa: SIM115 - ownership transfers to the response.
+    try:
+        file.seek(start)
+        return file, file.read(size)
+    except BaseException:
+        file.close()
+        raise
 
 
 class MediaFileResponse(FileResponse):
@@ -49,24 +61,24 @@ class MediaFileResponse(FileResponse):
         # receive too, so a stopped player never reads the rest of a large file.
         async with create_collapsing_task_group() as group:
             group.start_soon(self._listen_for_disconnect, group)
-            file = None
+            file: BinaryIO | None = None
             try:
-                file = await anyio.open_file(self.path, mode="rb")
-                await file.seek(start)
                 size = self.first_chunk_size
+                requested = min(size, end - start)
+                file, chunk = await anyio.to_thread.run_sync(_open_seek_read, str(self.path), start, requested)
                 while True:
-                    requested = min(size, end - start)
-                    chunk = await file.read(requested)
                     start += len(chunk)
                     more_body = len(chunk) == requested and start < end
                     await send({"type": "http.response.body", "body": chunk, "more_body": more_body})
                     if not more_body:
                         break
                     size = self.chunk_size
+                    requested = min(size, end - start)
+                    chunk = await anyio.to_thread.run_sync(file.read, requested)
             finally:
                 if file is not None:
                     with anyio.CancelScope(shield=True):
-                        await file.aclose()
+                        await anyio.to_thread.run_sync(file.close)
             group.cancel_scope.cancel()
 
 

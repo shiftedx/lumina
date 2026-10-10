@@ -19,7 +19,7 @@ from sqlalchemy import Integer, cast, false, func, or_, select, true
 from sqlalchemy.orm import Session, aliased, defer
 
 from app.media_schemas import TitlePerson, TitleUserData
-from app.models import AppSettings, LibraryItem, MediaArtifact, MediaTitle, MemberFavorite, PlaybackProgress, User
+from app.models import AppSettings, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberFavorite, PlaybackProgress, StorageRoot, User
 from app.schemas import PlaybackProgressUpdateRequest
 from app.services.artwork import ArtworkError, ArtworkService
 from app.services.connected_apps import jellyfin_server_id, jellyfin_server_key
@@ -1075,8 +1075,8 @@ def pick_version(db: Session, user: User, entity: Entity | None, media_source_id
     return versions[0] if versions else None
 
 
-def stream_version(db: Session, user: User, raw_id: str, media_source_id: str | None) -> LibraryItem | None:
-    """A named file under a visible leaf in one query; the item's own id still means its preferred version."""
+def stream_file(db: Session, user: User, raw_id: str, media_source_id: str | None) -> tuple[str, Path] | None:
+    """Resolve a visible version and its registered file; the item's own id means its preferred version."""
     entity_id, wanted = parse_item_id(raw_id), parse_item_id(media_source_id) if media_source_id else None
     if media_source_id and wanted != entity_id:
         if entity_id is None or wanted is None:
@@ -1084,11 +1084,22 @@ def stream_version(db: Session, user: User, raw_id: str, media_source_id: str | 
         parent = select(MediaTitle.id).where(
             MediaTitle.id == entity_id, MediaTitle.type.in_(LEAF_TYPES), TitleService.visible(user),
         )
-        return db.scalar(select(LibraryItem).options(defer(LibraryItem.metadata_json)).where(
+        row = db.execute(select(
+            LibraryItem.id, MediaArtifact.lifecycle, MediaArtifact.relative_path, StorageRoot.enabled, StorageRoot.path,
+        ).outerjoin(LibraryItemArtifact, LibraryItemArtifact.library_item_id == LibraryItem.id)
+            .outerjoin(MediaArtifact, MediaArtifact.id == LibraryItemArtifact.artifact_id)
+            .outerjoin(StorageRoot, StorageRoot.id == MediaArtifact.root_id).where(
             LibraryItem.id == wanted, LibraryItem.title_id.in_(parent), LibraryItem.extra_type.is_(None),
             LibraryItem.status != "missing", LibraryService.visible_predicate(user),
-        ))
-    return pick_version(db, user, resolve(db, user, raw_id), media_source_id)
+        )).one_or_none()
+        if row is None:
+            return None
+        version_id, lifecycle, relative_path, enabled, root_path = row
+        if lifecycle != "available" or not enabled:
+            raise FileNotFoundError("Library item media is not available.")
+        return version_id, artifact_file(root_path, relative_path)
+    version = pick_version(db, user, resolve(db, user, raw_id), media_source_id)
+    return (version.id, LibraryService(db).resolve_media_path(version)) if version is not None else None
 
 
 def sidecar_file(db: Session, item: LibraryItem, index: int) -> tuple[Path, str] | None:

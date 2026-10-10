@@ -487,3 +487,52 @@ def test_connected_app_auth_loads_the_token_and_member_together(jf: TestClient) 
         event.remove(db_module.engine, "before_cursor_execute", capture)
     assert len(statements) == 1, "the token and its current member need one live query"
     assert "join users" in statements[0].lower()
+
+
+def test_selected_stream_loads_its_registered_file_with_the_visible_version(jf: TestClient) -> None:
+    from sqlalchemy import event
+
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):  # noqa: ANN001
+        if "from library_items" in statement.lower() or "from media_artifacts" in statement.lower():
+            statements.append(statement)
+
+    event.listen(db_module.engine, "before_cursor_execute", capture)
+    try:
+        response = jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN},
+                          headers={"Range": "bytes=0-9"})
+        assert (response.status_code, len(response.content)) == (206, 10)
+    finally:
+        event.remove(db_module.engine, "before_cursor_execute", capture)
+    assert len(statements) == 1, "a selected stream resolves visibility and its registered file together"
+    assert "join media_artifacts" in statements[0].lower()
+    assert "join storage_roots" in statements[0].lower()
+
+
+@pytest.mark.parametrize("unavailable", ["quarantined", "disabled", "unlinked", "symlink"])
+def test_selected_stream_rechecks_registered_file_availability(jf: TestClient, unavailable: str, tmp_path: Path) -> None:
+    from app.models import LibraryItemArtifact, MediaArtifact, StorageRoot
+
+    path = f"/Videos/{HEX(MOVIE)}/stream"
+    params = {"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN}
+    assert jf.get(path, params=params).status_code == 200
+    with db_module.SessionLocal() as db:
+        link = db.get(LibraryItemArtifact, MOVIE_4K)
+        artifact = db.get(MediaArtifact, link.artifact_id)
+        root = db.get(StorageRoot, artifact.root_id)
+        if unavailable == "quarantined":
+            artifact.lifecycle = "quarantined"
+        elif unavailable == "disabled":
+            root.enabled = False
+        elif unavailable == "unlinked":
+            db.delete(link)
+        else:
+            media = Path(root.path) / artifact.relative_path
+            replacement = tmp_path / "replacement.mkv"
+            replacement.write_bytes(media.read_bytes())
+            media.unlink()
+            media.symlink_to(replacement)
+        db.commit()
+    response = jf.get(path, params=params)
+    assert (response.status_code, response.content) == (404, b"")

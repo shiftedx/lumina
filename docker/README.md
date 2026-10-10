@@ -4,18 +4,35 @@ Lumina ships as one container: the FastAPI backend serves the built React app on
 
 ## Install
 
+The release Compose file defaults to the pinned multi-platform image `ghcr.io/shiftedx/lumina:2.13.0` for amd64 and arm64. It pulls the published image; it does not build on the host.
+
 ```bash
-git clone https://github.com/shiftedx/lumina lumina && cd lumina
+mkdir lumina && cd lumina
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v2.13.0/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v2.13.0/SHA256SUMS
+grep 'docker-compose.yml$' SHA256SUMS | shasum -a 256 -c -
 cat > .env <<EOF
 LUMINA_RUNTIME_UID=$(id -u)
 LUMINA_RUNTIME_GID=$(id -g)
-LUMINA_SOURCE_REVISION=$(git rev-parse HEAD)
 EOF
-docker compose up --build -d
+docker compose pull lumina
+docker compose up -d --no-build lumina
 docker compose ps          # lumina must report "healthy"
 ```
 
 Open <http://127.0.0.1:8765>. Stop with `docker compose down`; logs with `docker compose logs --tail=100 lumina`.
+
+To keep a release-tag checkout for Compose overrides, clone the same release instead: `git clone --branch v2.13.0 --depth 1 https://github.com/shiftedx/lumina lumina`. Create the same `.env`, then run the same `pull` and `up -d --no-build` commands. The optional hardware and HTTPS sections below download their companion release files.
+
+### Build from source
+
+Local developers can opt into a source build without changing the published-image install path:
+
+```bash
+printf '\nLUMINA_DOCKER_IMAGE=lumina:local\n' >> .env
+docker compose build lumina
+docker compose up -d lumina
+```
 
 The image is multi-stage (the frontend is built in a Node stage; only `dist/`, the Node binary yt-dlp needs for YouTube, ffmpeg and the hash-locked Python runtime reach the final image). The container runs read-only with all capabilities dropped except those the entrypoint needs to `chown` the data directory, then drops to the numeric `LUMINA_RUNTIME_UID:LUMINA_RUNTIME_GID` account (never 0) with `setpriv`, clearing every supplementary group except the optional host render group (`LUMINA_RENDER_GID`, see "Hardware transcoding"). The image healthcheck polls `GET /api/health`.
 
@@ -37,7 +54,7 @@ All settings are `LUMINA_*` environment variables (full list: `backend/app/confi
 | `LUMINA_JELLYFIN_TRACE` | `0` | `1` logs each Jellyfin request's method, route template and query parameter names (never values or headers). Use it only while capturing client traffic. |
 | `LUMINA_LAN_HTTP` | `false` | `true` serves plain http on a private LAN IP without a proxy. Set it only through the override in "LAN HTTP mode". |
 | `TZ` | `UTC` | Server time zone, e.g. `America/Chicago`. Library scans set to **Nightly at** use it. See "Automatic scans and folder watching". |
-| `LUMINA_DOCKER_IMAGE` | `lumina:local` | Image tag Compose builds and runs. |
+| `LUMINA_DOCKER_IMAGE` | `ghcr.io/shiftedx/lumina:2.13.0` | Pinned published image. Set `lumina:local` only when intentionally building the checked-out source. |
 
 AI and ASR values are only defaults: an admin can change or clear them under **Settings → AI & models** (the API key is write-only there). Tunables such as `LUMINA_QUARANTINE_RETENTION_HOURS`, `LUMINA_REMOTE_STREAM_*`, `LUMINA_RELAY_*` and `LUMINA_LIVE_RECORDING_*` keep safe defaults; add them to the `environment:` block only when you need to.
 
@@ -92,7 +109,20 @@ The command refuses while a server holds the data directory, verifies the backup
 
 ## Upgrades
 
-To update: `git pull`, update `LUMINA_SOURCE_REVISION` in `.env`, `docker compose up --build -d`. When a release raises the schema version, Lumina first writes an automatic `pre-upgrade` backup (listed under Settings → Backups), then applies its additive upgrade steps in one transaction. It refuses to open a database from a newer release; to roll back, see "Rollback after a schema upgrade" below (the pre-upgrade backup is the last resort).
+To update, set or replace the image line in `.env` with the exact release you want, then pull and restart only Lumina. These commands leave `app-data/` and every media mount in place:
+
+Set this line in `.env` (replace an existing `LUMINA_DOCKER_IMAGE` line):
+
+```dotenv
+LUMINA_DOCKER_IMAGE=ghcr.io/shiftedx/lumina:2.13.0
+```
+
+```bash
+docker compose pull lumina
+docker compose up -d --no-build lumina
+```
+
+For a checkout-based install, first update the Compose file with `git fetch origin tag v2.13.0 && git checkout --detach v2.13.0`. When a release raises the schema version, Lumina first writes an automatic `pre-upgrade` backup (listed under Settings → Backups), then applies its additive upgrade steps in one transaction. It refuses to open a database from a newer release; to roll back, see "Rollback after a schema upgrade" below (the pre-upgrade backup is the last resort).
 
 ### Rollback after a schema upgrade
 
@@ -155,7 +185,7 @@ SQL
 
 Artwork renditions of the removed albums are orphans that the daily cache sweep deletes. Rolling back also drops cast-photo renditions; upgrading again prepares them again in the background. The Music volume can stay mounted: 1.5.1 lists its files as plain tracks.
 
-Then start the rollback image (set `LUMINA_SOURCE_REVISION` back, `docker compose up --build -d`). Upgrading again later re-applies the steps safely: they skip a column or index that is already there, step 7 re-dates every title from the file times the scans recorded (no file is read, so an unplugged root does not matter), and step 8 sorts every title into Movies, Shows or Anime again. Restoring the `pre-upgrade` backup is a last resort only: it loses progress and every other change made since the upgrade.
+For a rollback to 2.13.0 or newer, set the published version in `LUMINA_DOCKER_IMAGE=ghcr.io/shiftedx/lumina:<rollback-release>` in `.env`, then run `docker compose pull lumina` and `docker compose up -d --no-build lumina`. Releases before 2.13.0 have no published image: check out the required tag and use the source-build instructions above. Upgrading again later re-applies the steps safely: they skip a column or index that is already there, step 7 re-dates every title from the file times the scans recorded (no file is read, so an unplugged root does not matter), and step 8 sorts every title into Movies, Shows or Anime again. Restoring the `pre-upgrade` backup is a last resort only: it loses progress and every other change made since the upgrade.
 
 ## Automatic scans and folder watching
 
@@ -228,8 +258,9 @@ at it instead of running the `asr` service.
 On a Linux host with an Intel GPU, add the override so the container gets `/dev/dri` and the host's render group:
 
 ```bash
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v2.13.0/docker-compose.qsv.yml
 echo "LUMINA_RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
-docker compose -f docker-compose.yml -f docker-compose.qsv.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.qsv.yml up -d --no-build
 ```
 
 The entrypoint grants only that one supplementary group. Without the override Lumina transcodes in software. On Docker Desktop for Mac there is no `/dev/dri`, so it always runs in software.
@@ -243,8 +274,12 @@ Direct LAN HTTP responses compress text assets and JSON when the client accepts 
 Keep port 8765 on loopback. The only supported remote topology is one TLS-terminating Caddy proxy in front of Lumina (`docker-compose.https.example.yml` + `docker/Caddyfile.example`). Create the first administrator over loopback first: remote mode refuses to start on an empty database.
 
 ```bash
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v2.13.0/docker-compose.https.example.yml
+mkdir -p docker
+curl -fsSL https://github.com/shiftedx/lumina/releases/download/v2.13.0/Caddyfile.example -o docker/Caddyfile.example
 echo LUMINA_HOSTNAME=vault.example.com >> .env
-docker compose -f docker-compose.yml -f docker-compose.https.example.yml up --build -d
+docker compose -f docker-compose.yml -f docker-compose.https.example.yml pull
+docker compose -f docker-compose.yml -f docker-compose.https.example.yml up -d --no-build
 curl --fail https://vault.example.com/api/health
 ```
 
@@ -273,7 +308,8 @@ services:
 ```
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.lan.yml up --build -d
+docker compose -f docker-compose.yml -f docker-compose.lan.yml pull lumina
+docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d --no-build lumina
 curl --fail http://192.168.1.20:8765/api/health
 ```
 

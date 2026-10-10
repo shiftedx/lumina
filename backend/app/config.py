@@ -9,7 +9,7 @@ from urllib.parse import ParseResult, urlparse
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-APP_VERSION = "2.12.0"
+APP_VERSION = "2.13.0"
 WILDCARD_HOSTS = {"0.0.0.0", "::", "[::]"}
 # Opt-in LAN HTTP mode (ADR 0001 amendment): RFC 1918 IPv4 only. No IPv6: Starlette's TrustedHostMiddleware
 # cannot match a bracketed IPv6 Host header, so such a URL would start but reject every request.

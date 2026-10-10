@@ -1,5 +1,16 @@
 # Release notes
 
+## Lumina 2.13.0
+
+Lumina 2.13.0 uses `ghcr.io/shiftedx/lumina:2.13.0` for amd64 and arm64. Install or upgrade with the pinned image in the [operator guide](docker/README.md); 2.13.0 has no schema change.
+
+- **Faster library and app browsing.** Search reuses bounded ranked references while SQLite data is unchanged, projects only the discovery fields it needs, and avoids duplicate item hydration. Jellyfin-compatible browsing bounds expensive concurrent item reads, renders search results in bounded batches, and reuses settings within a request.
+- **Faster direct play, with live authorization intact.** A selected Jellyfin stream resolves its caller and visible file in one live query, prepares the response in one worker, avoids buffering byte-range headers in compression middleware, and stops reading a local file when a player disconnects. Direct routes still recheck current device/member eligibility, visibility and screen time on every request; grant-backed streams also revalidate the original token.
+- **More reliable playback controls.** Pause or play intent survives source, quality and external-control changes. A queued player disconnect stops before the first bulk range read; streaming resources close when a client goes away.
+- **Smoother library work.** Folder watching indexes directory children and subtree removals. New or changed media gets codec facts before lower-priority loudness analysis, and an unavailable file is queued again when it returns.
+- **Smaller and quicker to deploy.** The production image omits development payloads. LAN text and JSON responses compress when negotiated; media, ranges and event streams remain uncompressed.
+- **Measured, not assumed.** Controlled Lumina/Jellyfin harnesses now check decoded frames and quality transitions. The direct-play qualification did not establish a universal win: pooled idle was about 0.2 ms behind Jellyfin, and varied-media results were mixed.
+
 ## Lumina 2.12.0
 
 - Jellyfin for Roku can play. Play used to send the Roku back to its home screen: the app asked for a movie's additional parts, Lumina answered 404 with an error body, and the app read that body as the list and crashed. The app also names an item as its own media source, which Lumina did not accept.

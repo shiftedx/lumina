@@ -1,16 +1,27 @@
 """The Docker packaging stays browser-only, credential-free and pinned to one toolchain source."""
 from pathlib import Path
 import json
+import os
 import re
 import subprocess
 
 import pytest
+import yaml
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("LUMINA_PACKAGING_ROOT", Path(__file__).resolve().parents[2]))
 
 
 def _pins() -> dict[str, str]:
     return dict(line.split() for line in (ROOT / ".tool-versions").read_text().splitlines() if line.strip())
+
+
+def _release_workflow() -> tuple[dict, str]:
+    raw = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+    return yaml.safe_load(raw), raw
+
+
+def _step(steps: list[dict], name: str) -> dict:
+    return next(step for step in steps if step.get("name") == name)
 
 
 def test_docker_base_images_match_the_single_toolchain_pin() -> None:
@@ -116,3 +127,75 @@ def test_image_carries_the_license_texts_of_copied_binaries_and_the_bundle() -> 
     assert "cp /src/LICENSE /opt/lumina-llama/LICENSE" in dockerfile
     assert "COPY --from=frontend-build /usr/local/LICENSE /usr/local/share/doc/node/LICENSE" in dockerfile
     assert "node scripts/licenses.mjs" in json.loads((ROOT / "frontend" / "package.json").read_text())["scripts"]["build"]
+
+
+def test_release_versions_and_default_public_image_stay_aligned() -> None:
+    """A release tag must name the version users pull and the runtime reports."""
+    app_version = re.search(r'^APP_VERSION = "([^"]+)"$', (ROOT / "backend" / "app" / "config.py").read_text(), re.M)
+    assert app_version
+    version = app_version.group(1)
+    assert json.loads((ROOT / "frontend" / "package.json").read_text())["version"] == version
+    lock = json.loads((ROOT / "frontend" / "package-lock.json").read_text())
+    assert lock["version"] == version and lock["packages"][""]["version"] == version
+    assert re.search(rf'^version = "{re.escape(version)}"$', (ROOT / "backend" / "pyproject.toml").read_text(), re.M)
+    assert f'org.opencontainers.image.version="{version}"' in (ROOT / "Dockerfile").read_text()
+    assert f"ghcr.io/shiftedx/lumina:{version}" in (ROOT / "docker-compose.yml").read_text()
+
+
+def test_release_workflow_builds_native_arches_then_publishes_a_digest_manifest() -> None:
+    workflow, raw = _release_workflow()
+    jobs = workflow["jobs"]
+    assert workflow[True]["push"]["tags"] == ["v*"]
+    assert jobs["build"]["needs"] == "validate"
+    assert jobs["publish-manifest"]["needs"] == ["validate", "build"]
+    assert jobs["build"]["strategy"]["matrix"]["include"] == [
+        {"arch": "amd64", "runner": "ubuntu-24.04"},
+        {"arch": "arm64", "runner": "ubuntu-24.04-arm"},
+    ]
+    build = jobs["build"]
+    assert build["runs-on"] == "${{ matrix.runner }}"
+    build_step = next(step for step in build["steps"] if step.get("id") == "build")
+    assert build_step["with"]["platforms"] == "linux/${{ matrix.arch }}"
+    assert "push-by-digest=true" in build_step["with"]["outputs"]
+    assert "name-canonical=true" in build_step["with"]["outputs"]
+    assert build_step["with"]["build-args"].strip() == "LUMINA_SOURCE_REVISION=${{ github.sha }}"
+    assert build_step["with"]["sbom"] is True and build_step["with"]["provenance"] == "mode=max"
+    smoke = _step(build["steps"], "Smoke the native release image")["run"]
+    for contract in ("docker run -d --rm", "linux/${{ matrix.arch }}", "org.opencontainers.image.revision", "org.opencontainers.image.version", "docker image inspect", "app.main:app", "--no-proxy-headers", 'open("/proc/1/status")', "api/health", "api/bootstrap/status", "needs_setup", "ffmpeg -version", "ffprobe -version", "llama-server --version", "faster_whisper, ctranslate2", "docker stop --time 30"):
+        assert contract in smoke
+    publish = _step(jobs["publish-manifest"]["steps"], "Publish and verify the multi-platform manifest")["run"]
+    assert "docker buildx imagetools create" in publish and "docker buildx imagetools inspect" in publish
+    assert 'arches == {"amd64", "arm64"}' in publish
+    assert "entry.get(\"platform\"" in publish
+    assert "ghcr.io/shiftedx/lumina" in raw
+
+
+def test_release_workflow_has_minimal_permissions_and_immutable_action_pins() -> None:
+    workflow, raw = _release_workflow()
+    assert workflow["permissions"] == {"contents": "read"}
+    for job_name in ("build", "publish-manifest"):
+        assert workflow["jobs"][job_name]["permissions"] == {"contents": "read", "packages": "write"}
+    assert "password: ${{ secrets.GITHUB_TOKEN }}" in raw
+    assert "secrets." not in raw.replace("secrets.GITHUB_TOKEN", "")
+    uses = re.findall(r"^\s*uses:\s*[^@\s]+@([^\s#]+)", raw, re.M)
+    assert uses and all(re.fullmatch(r"[0-9a-f]{40}", pin) for pin in uses)
+
+
+def test_release_tag_validation_accepts_only_the_checked_in_release_version(tmp_path: Path) -> None:
+    workflow, _ = _release_workflow()
+    script = workflow["jobs"]["validate"]["steps"][1]["run"]
+    version = re.search(r'^APP_VERSION = "([^"]+)"$', (ROOT / "backend" / "app" / "config.py").read_text(), re.M).group(1)
+    output = tmp_path / "output"
+    valid = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script], cwd=ROOT,
+        env={**os.environ, "GITHUB_REF_NAME": f"v{version}", "GITHUB_OUTPUT": str(output)},
+        capture_output=True, text=True, check=False,
+    )
+    assert valid.returncode == 0, valid.stderr
+    assert output.read_text() == f"version={version}\n"
+    invalid = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script], cwd=ROOT,
+        env={**os.environ, "GITHUB_REF_NAME": "v2.13", "GITHUB_OUTPUT": str(tmp_path / "invalid-output")},
+        capture_output=True, text=True, check=False,
+    )
+    assert invalid.returncode == 1 and "vMAJOR.MINOR.PATCH" in invalid.stderr

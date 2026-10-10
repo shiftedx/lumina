@@ -49,15 +49,17 @@
 
 ## Run
 
-Needs Docker with Compose, on amd64 or arm64.
+Needs Docker with Compose, on amd64 or arm64. Lumina 2.13.0 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:2.13.0`.
 
 ```bash
-git clone https://github.com/shiftedx/lumina && cd lumina
+mkdir lumina && cd lumina
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v2.13.0/docker-compose.yml
 printf 'LUMINA_RUNTIME_UID=%s\nLUMINA_RUNTIME_GID=%s\n' "$(id -u)" "$(id -g)" > .env
-docker compose up --build -d
+docker compose pull lumina
+docker compose up -d --no-build lumina
 ```
 
-Open <http://127.0.0.1:8765> and create the first admin.
+Open <http://127.0.0.1:8765> and create the first admin. The commands pull the published image; they do not build Lumina locally. The [operator guide](docker/README.md) covers checksum verification, upgrades, release-tag checkouts and source builds.
 
 | To | See |
 | --- | --- |

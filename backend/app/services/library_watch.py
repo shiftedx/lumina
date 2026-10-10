@@ -184,6 +184,13 @@ class RootWatch:
         self.cutoff = full_run_cutoff_ns
         self._mono, self._normalize, self._workers = monotonic, normalize, workers
         self.dirs: dict[str, int] = dict(known)  # known-good mtime per directory ('' = the root), as the rows hold
+        self._child_dirs: dict[str, set[str]] = {}
+        self._sparse_tree = False
+        for path in self.dirs:
+            if path:
+                parent = path.rpartition("/")[0]
+                self._child_dirs.setdefault(parent, set()).add(path)
+                self._sparse_tree |= parent not in self.dirs
         self.dirty: dict[str, DirtyDir] = {}
         self.cursor = 0
         self.phase: Literal["baseline", "watching", "too_large"] = "watching" if known else "baseline"
@@ -231,7 +238,8 @@ class RootWatch:
                 pass
             except OSError:
                 self._errors += 1
-                self.dirs.setdefault(path, 0)  # unknown-good: the sweep sees a change and relists it later
+                if path not in self.dirs:
+                    self._remember_dir(path, 0)  # unknown-good: the sweep sees a change and relists it later
         if self.phase == "baseline" and not self._queue:
             self.phase = "watching"
             self._finish_pass()
@@ -241,7 +249,7 @@ class RootWatch:
         self._listed += 1
         mark = self.cutoff is not None and seen > self.cutoff
         # A dirty directory's stored known-good is the last full run, so rows written now re-detect it after a restart.
-        self.dirs[path] = self.cutoff if mark else seen
+        self._remember_dir(path, self.cutoff if mark else seen)
         if mark:
             dirty = self.dirty[path] = DirtyDir(seen, deep=any(m > self.cutoff for m in listing.nonmedia.values()))
             if not self.overflow:
@@ -257,7 +265,7 @@ class RootWatch:
         self._changed, self._last_change = True, datetime.now(UTC)
         ref = self.dirs.get(path)
         if ref is None:
-            self.dirs[path] = seen
+            self._remember_dir(path, seen)
         dirty = self.dirty.setdefault(path, DirtyDir(seen, new=new))
         dirty.seen_mtime, dirty.pass_no = seen, self._pass_no
         if ref is not None and any(m > ref for m in listing.nonmedia.values()):
@@ -386,21 +394,44 @@ class RootWatch:
             self._queue.append(path)
             self._queued.add(path)
 
+    def _remember_dir(self, path: str, seen: int) -> None:
+        self.dirs[path] = seen
+        if path:
+            parent = path.rpartition("/")[0]
+            self._child_dirs.setdefault(parent, set()).add(path)
+            self._sparse_tree |= parent not in self.dirs
+
     def _children(self, path: str) -> set[str]:
-        # O(dirs) per relisted directory; a children index if relists of 50k-dir roots get hot.
-        return {p for p in self.dirs if p and p != path and p.rpartition("/")[0] == path}
+        return self._child_dirs.get(path, set()).copy()
 
     def _purge(self, top: str) -> set[str]:
-        gone = {p for p in self.dirs if _under(p, top)} | {top}
+        if self._sparse_tree or not top:
+            # A partial restored tree can have descendants without their parent rows.
+            gone = {p for p in self.dirs if _under(p, top)} | {top}
+        else:
+            gone, pending = {top}, [top]
+            while pending:
+                children = self._child_dirs.get(pending.pop(), ())
+                gone.update(children)
+                pending.extend(children)
         for p in gone:
             self.dirs.pop(p, None)
             self.dirty.pop(p, None)
+            if p:
+                self._child_dirs.pop(p, None)
+            parent = p.rpartition("/")[0]
+            siblings = self._child_dirs.get(parent)
+            if siblings is not None:
+                siblings.discard(p)
+                if not siblings:
+                    self._child_dirs.pop(parent, None)
         return gone
 
     def _check_caps(self) -> None:
         if len(self.dirs) > MAX_DIRS:
             self.phase = "too_large"
             self.dirs, self.dirty, self._order = {}, {}, []
+            self._child_dirs.clear()
             self._queue.clear()
             self._queued.clear()
 

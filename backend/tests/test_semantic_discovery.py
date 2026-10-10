@@ -1,5 +1,5 @@
 import pytest
-from app.models import LibraryNote, LibraryItem, LibraryTag, SourceAutomation, User
+from app.models import LibraryNote, LibraryItem, LibraryTag, MediaTitle, SourceAutomation, User
 from app.services.library_curation import LibraryCurationService
 from app.services.media_notes import MediaNotesService
 from app.services.semantic_discovery import SemanticDiscovery
@@ -431,6 +431,159 @@ def test_search_loads_only_candidate_items_not_the_whole_library() -> None:
     # candidate(s) are loaded.
     assert "filler-0" not in loaded_ids
     assert len(loaded_ids) <= 10
+
+
+def test_title_only_search_does_not_hydrate_item_or_automation_records() -> None:
+    """A typed title search needs item link fields for scoring, not full item/channel records."""
+    from sqlalchemy import event
+
+    from app.services.semantic_discovery import match_title_id
+
+    session = make_session()
+    member = User(id="member-1", username="member", display_name="Member", role="viewer", is_active=True)
+    session.add_all(
+        [
+            member,
+            MediaTitle(
+                id="aurora-movie", type="movie", key="test:aurora", name="Aurora Benchmark", year=2025,
+                provider_ids={"Tmdb": "1"}, field_sources={"name": "path"}, images={"Primary": {"tag": "unused"}},
+                metadata_json={"overview": "A polar expedition", "genres": ["Documentary"]},
+            ),
+            LibraryItem(
+                id="aurora-version", user_id=member.id, visibility="private", title="Aurora Benchmark 4K",
+                title_id="aurora-movie", metadata_json={"formats": [{"large": "unused"}]}, status="available",
+            ),
+            SourceAutomation(
+                id="aurora-channel", user_id=member.id, label="Aurora Benchmark Channel",
+                source_url="https://example.test/aurora", source_type="channel", cron_expression="0 * * * *",
+            ),
+        ]
+    )
+    session.commit()
+    reindex(session)
+    session.expunge_all()
+    member = session.get(User, member.id)
+    assert member is not None
+
+    loaded_items: list[str] = []
+    statements: list[str] = []
+
+    @event.listens_for(LibraryItem, "load")
+    def _record_item(target, _context) -> None:  # noqa: ANN001
+        loaded_items.append(target.id)
+
+    @event.listens_for(session.get_bind(), "before_cursor_execute")
+    def _record_sql(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:  # noqa: ANN001
+        statements.append(statement)
+
+    try:
+        result = SemanticDiscovery().search(session, member, "aurora benchmark", limit=10, types={"movie"})
+        statement_count = len(statements)
+        assert [(match.kind, match.record_id, match_title_id(match)) for match in result.matches] == [
+            ("title", "aurora-movie", "aurora-movie")
+        ]
+        title = result.matches[0].media_title
+        assert title is not None
+        assert (title.name, title.type, title.year, title.metadata_json["genres"]) == (
+            "Aurora Benchmark", "movie", 2025, ["Documentary"],
+        )
+        assert len(statements) == statement_count, "accessing projected search fields must not trigger lazy SQL"
+    finally:
+        event.remove(LibraryItem, "load", _record_item)
+        event.remove(session.get_bind(), "before_cursor_execute", _record_sql)
+
+    assert loaded_items == []
+    assert not any("source_automations" in statement.casefold() for statement in statements)
+    title_loads = [
+        statement.casefold() for statement in statements
+        if "from media_titles" in statement.casefold() and "where media_titles.id in" in statement.casefold()
+    ]
+    assert title_loads
+    assert all("media_titles.provider_ids" not in statement and "media_titles.images" not in statement for statement in title_loads)
+
+
+def test_untyped_search_keeps_full_item_and_automation_records() -> None:
+    session = make_session()
+    member = User(id="member-1", username="member", display_name="Member", role="viewer", is_active=True)
+    session.add_all(
+        [
+            member,
+            LibraryItem(
+                id="aurora-item", user_id=member.id, visibility="private", title="Aurora Field Notes",
+                uploader="Expedition", metadata_json={"description": "aurora benchmark"}, status="available",
+            ),
+            SourceAutomation(
+                id="aurora-channel", user_id=member.id, label="Aurora Benchmark Channel",
+                source_url="https://example.test/aurora", source_type="channel", cron_expression="0 * * * *",
+            ),
+        ]
+    )
+    session.commit()
+    reindex(session)
+
+    result = SemanticDiscovery().search(session, member, "aurora benchmark", limit=10)
+    by_id = {match.record_id: match for match in result.matches}
+
+    assert by_id["aurora-item"].library_item is not None
+    assert by_id["aurora-item"].library_item.metadata_json == {"description": "aurora benchmark"}
+    assert by_id["aurora-channel"].automation is not None
+    assert by_id["aurora-channel"].automation.source_url == "https://example.test/aurora"
+
+
+def test_dense_search_passes_requested_types_to_candidate_materialization(monkeypatch) -> None:  # noqa: ANN001
+    from types import SimpleNamespace
+
+    from app.services import semantic_discovery
+
+    discovery = SemanticDiscovery()
+    member = User(id="member", username="member", display_name="Member", role="viewer", is_active=True)
+    seen: list[object] = []
+    monkeypatch.setattr(semantic_discovery.embeddings, "serving", lambda _db: SimpleNamespace(model_id="model"))
+    monkeypatch.setattr(semantic_discovery.embeddings, "query_vector", lambda *_args: [1.0])
+    monkeypatch.setattr(semantic_discovery.embeddings, "vector_map", lambda *_args: {})
+    monkeypatch.setattr(semantic_discovery.embeddings, "nearest", lambda *_args: [])
+
+    def candidates(_db, _member, _query, _vector_hits=(), *, types=None):  # noqa: ANN001
+        seen.append(types)
+        return []
+
+    monkeypatch.setattr(discovery, "_candidate_documents", candidates)
+
+    result = discovery.search(None, member, "aurora", types={"movie"})
+
+    assert result.matches == ()
+    assert seen == [{"movie"}]
+
+
+def test_episode_search_keeps_full_item_payload_for_moment_hits() -> None:
+    from app.services.semantic_discovery import match_title_id
+    from app.services.transcripts import TranscriptService
+
+    session = make_session()
+    member = User(id="member", username="member", display_name="Member", role="viewer", is_active=True)
+    series = MediaTitle(id="series", type="series", key="test:series", name="Workshop", metadata_json={})
+    season = MediaTitle(id="season", type="season", key="test:season", name="Season 1", parent_id=series.id, metadata_json={})
+    episode = MediaTitle(id="episode", type="episode", key="test:episode", name="The Missing Tool", parent_id=season.id, metadata_json={})
+    item = LibraryItem(
+        id="episode-version", user_id=member.id, visibility="private", title="Workshop S01E01",
+        title_id=episode.id, uploader="Studio", metadata_json={"description": "full payload"}, status="available",
+    )
+    session.add_all([member, series, season, episode, item])
+    session.commit()
+    TranscriptService(session).store(
+        item.id, language="en", source_kind="source_caption", cues=[(61_000, 62_000, "the vermilion stapler appears")],
+    )
+    session.commit()
+    reindex(session)
+
+    result = SemanticDiscovery().search(
+        session, member, "vermilion stapler", limit=10, types={"episode", "moment", "library"},
+    )
+    moment = next(match for match in result.matches if match.kind == "moment")
+
+    assert (moment.record_id, moment.start_ms, match_title_id(moment)) == ("episode-version@61000", 61_000, "episode")
+    assert moment.library_item is not None
+    assert (moment.library_item.uploader, moment.library_item.metadata_json) == ("Studio", {"description": "full payload"})
 
 
 def test_member_index_is_capacity_bounded_across_many_queries() -> None:

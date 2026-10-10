@@ -12,14 +12,14 @@ from starlette.requests import Request
 from app import db as db_module
 from app.config import settings
 from app.main import app
-from app.models import DeviceToken, MemberAccess
+from app.models import DeviceToken, LibraryItem, MemberAccess
 from app.routers import jellyfin_probes
 from app.services import activity, media_probe, public_address
 from app.services.rate_limit import grant_address
 from app.services.connected_apps import image_grants
 from app.services.media_titles import jellyfin_id, synthetic_id
 from test_jellyfin_api import MOVIES, TV, get, post
-from title_support import ALICE, ALICE_TOKEN, BOB_TOKEN, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SEASON1, SECRET_SERIES, SERIES, jellyfin_household, mediabrowser
+from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, FILE, TRAILER, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SEASON1, SECRET_SERIES, SERIES, jellyfin_household, mediabrowser
 
 HEX = jellyfin_id
 EMPTY = {"Items": [], "TotalRecordCount": 0, "StartIndex": 0}
@@ -439,3 +439,33 @@ def test_a_camel_case_body_is_read_like_pascal_case(jf: TestClient, no_ffprobe: 
     body = post(jf, f"/Items/{HEX(MOVIE)}/PlaybackInfo", {"mediaSourceId": HEX(MOVIE_4K), "deviceProfile": only_h264}).json()
     assert [source["Id"] for source in body["MediaSources"]] == [HEX(MOVIE_4K)]
     assert body["MediaSources"][0]["SupportsDirectPlay"] is False and "TranscodingUrl" in body["MediaSources"][0]
+
+
+def test_explicit_stream_version_does_not_load_title_page_data(jf: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.titles import TitleService
+
+    def unused_page(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise AssertionError("a selected file does not need progress, favorites or artwork")
+
+    monkeypatch.setattr(TitleService, "load", unused_page)
+    monkeypatch.setattr(TitleService, "get_visible", unused_page)
+    response = jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN},
+                      headers={"Range": "bytes=0-9"})
+    assert (response.status_code, response.content) == (206, b"\0" * 10)
+
+
+@pytest.mark.parametrize("source", [UNKNOWN, HEX(S1E1), HEX(FILE[S1E1]), HEX(SECRET_SERIES), HEX(TRAILER)])
+def test_explicit_stream_version_must_belong_to_the_visible_leaf(jf: TestClient, source: str) -> None:
+    response = jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"MediaSourceId": source, "api_key": ALICE_TOKEN})
+    assert (response.status_code, response.content) == (404, b"")
+
+
+def test_named_stream_version_does_not_borrow_its_parents_visibility(jf: TestClient) -> None:
+    with db_module.SessionLocal() as db:
+        version = db.get(LibraryItem, MOVIE_4K)
+        version.visibility, version.user_id = "private", BOB
+        db.commit()
+    path = f"/Videos/{HEX(MOVIE)}/stream"
+    params = {"MediaSourceId": HEX(MOVIE_4K)}
+    assert jf.get(path, params=params, headers=mediabrowser(ALICE_TOKEN)).status_code == 404
+    assert jf.get(path, params=params, headers=mediabrowser(BOB_TOKEN)).status_code == 200

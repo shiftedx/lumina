@@ -17,7 +17,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -234,6 +234,7 @@ from app.services.library_import import LibraryImportService, stop_event as impo
 from app.services.job_manager import JobAdmissionError, JobConflictError, JobManager
 from app.services.media_artifacts import MediaArtifactService, artifact_file
 from app.services.media_notes import MediaNotesService
+from app.services.media_response import ClosingStreamingResponse, MediaFileResponse
 from app.services.local_playback_sessions import sessions as local_playback_sessions
 from app.services.embeddings import start_backfill as start_embedding_backfill
 from app.services.library_automation import FIRST_TICK_DELAY_S, automation as library_automation
@@ -1856,11 +1857,11 @@ WATCH_TIME = Depends(screen_time.require_watch_time)  # a running stream re-chec
 
 
 def _streaming_response(spec) -> StreamingResponse:  # noqa: ANN001
-    return StreamingResponse(
+    return ClosingStreamingResponse(
         spec.body,
         status_code=spec.status_code,
         headers=spec.headers,
-        background=BackgroundTask(spec.close),
+        close=spec.close,
     )
 
 
@@ -3673,7 +3674,7 @@ def stream_library_item(
     item_id: str,
     request: Request,
     credentials: Annotated[HTTPBasicCredentials | None, Depends(basic_auth)] = None,
-) -> FileResponse:
+) -> MediaFileResponse:
     current_user = resolve_request_user_snapshot(request, credentials=credentials)
     with SessionLocal() as db:
         service = LibraryService(db)
@@ -3689,7 +3690,7 @@ def stream_library_item(
     activity.guard(current_user.id, item.id, device)
     if request.method == "GET":
         activity.touch(current_user.id, item.id, device)
-    return FileResponse(path, filename=path.name, content_disposition_type="inline")
+    return MediaFileResponse(path, filename=path.name, content_disposition_type="inline")
 
 
 @app.post("/api/library/{item_id}/delete-file", response_model=LibraryItemResponse)

@@ -500,6 +500,7 @@ def test_title_only_search_does_not_hydrate_item_or_automation_records() -> None
     ]
     assert title_loads
     assert all("media_titles.provider_ids" not in statement and "media_titles.images" not in statement for statement in title_loads)
+    assert sum("exists" in statement for statement in title_loads) == 1, "check and project title candidates in one query"
 
 
 def test_untyped_search_keeps_full_item_and_automation_records() -> None:

@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     # Shutdown finishes model downloads' joins and stops on-device model servers; Docker's 10 s default is too short.
     stop_grace_period: 30s
-    image: ${LUMINA_DOCKER_IMAGE:-lumina:local}
+    image: ${LUMINA_DOCKER_IMAGE:-ghcr.io/shiftedx/lumina:2.13.0}
     build:
       context: .
       args:

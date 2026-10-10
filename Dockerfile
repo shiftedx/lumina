@@ -68,7 +68,7 @@ ARG LUMINA_SOURCE_REVISION=unrecorded
 LABEL org.opencontainers.image.title="Lumina" \
       org.opencontainers.image.source="https://github.com/shiftedx/lumina" \
       org.opencontainers.image.revision="$LUMINA_SOURCE_REVISION" \
-      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.version="2.13.0" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -96,6 +96,7 @@ COPY --from=frontend-build /build/frontend/dist /app/frontend/dist
 COPY --from=frontend-build /usr/local/bin/node /usr/local/bin/node
 COPY --from=frontend-build /usr/local/LICENSE /usr/local/share/doc/node/LICENSE
 COPY docker/entrypoint.sh /usr/local/bin/lumina-entrypoint.sh
+COPY LICENSE CREDITS.md RELEASE_NOTES.md /usr/local/share/doc/lumina/
 
 RUN chmod +x /usr/local/bin/lumina-entrypoint.sh \
     && mkdir -p /app/backend/.data \

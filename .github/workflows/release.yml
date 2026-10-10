@@ -1,0 +1,159 @@
+name: Publish release image
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/shiftedx/lumina
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "release tags must be vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+          version="${tag#v}"
+          expected="$(sed -nE 's/^APP_VERSION = "([^"]+)"$/\1/p' backend/app/config.py)"
+          test "$version" = "$expected"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: validate
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            LUMINA_SOURCE_REVISION=${{ github.sha }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          sbom: true
+          provenance: mode=max
+      - name: Smoke the native release image
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="lumina-release-smoke-${{ matrix.arch }}"
+          image="${{ env.IMAGE }}@${{ steps.build.outputs.digest }}"
+          cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run -d --rm --name "$container" --platform "linux/${{ matrix.arch }}" "$image"
+          test "$(docker image inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$GITHUB_SHA"
+          test "$(docker image inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')" = '${{ needs.validate.outputs.version }}'
+          test "$(docker image inspect "$image" --format '{{.Architecture}}')" = '${{ matrix.arch }}'
+          for _ in $(seq 1 60); do
+            if docker exec "$container" python -c 'import json, urllib.request; health = urllib.request.urlopen("http://127.0.0.1:8765/api/health", timeout=1); assert health.status == 200; bootstrap = json.load(urllib.request.urlopen("http://127.0.0.1:8765/api/bootstrap/status", timeout=1)); assert bootstrap["needs_setup"] is True; frontend = urllib.request.urlopen("http://127.0.0.1:8765/", timeout=1); assert frontend.status == 200 and b"id=\"root\"" in frontend.read()'; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec "$container" python -c 'cmd = open("/proc/1/cmdline", "rb").read().split(bytes([0]))[:-1]; assert cmd == [b"python", b"-m", b"uvicorn", b"app.main:app", b"--host", b"0.0.0.0", b"--port", b"8765", b"--no-proxy-headers", b"--no-access-log", b"--timeout-keep-alive", b"30", b"--ws-max-size", b"65536"], cmd; assert open("/proc/1/status").read().split("Uid:")[1].splitlines()[0].split()[0] == "1000"'
+          docker exec "$container" python -c 'import json, urllib.request; assert urllib.request.urlopen("http://127.0.0.1:8765/api/health", timeout=1).status == 200; assert json.load(urllib.request.urlopen("http://127.0.0.1:8765/api/bootstrap/status", timeout=1))["needs_setup"] is True; assert b"id=\"root\"" in urllib.request.urlopen("http://127.0.0.1:8765/", timeout=1).read()'
+          docker exec "$container" sh -c 'test -s /usr/local/share/doc/lumina/LICENSE && test -s /usr/local/share/doc/lumina/CREDITS.md && test -s /usr/local/share/doc/lumina/RELEASE_NOTES.md'
+          docker exec "$container" ffmpeg -version
+          docker exec "$container" ffprobe -version
+          docker exec "$container" /opt/lumina-llama/bin/llama-server --version
+          docker exec "$container" /opt/lumina-asr/bin/python -c 'import faster_whisper, ctranslate2'
+          docker stop --time 30 "$container"
+      - name: Export the architecture digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/digests"
+          digest='${{ steps.build.outputs.digest }}'
+          touch "${RUNNER_TEMP}/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-manifest:
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 15
+    steps:
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-digest-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+      - name: Publish and verify the multi-platform manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ needs.validate.outputs.version }}'
+          image_name='${{ env.IMAGE }}'
+          digests=("${RUNNER_TEMP}/digests"/*)
+          test "${#digests[@]}" -eq 2
+          refs=()
+          for digest_file in "${digests[@]}"; do
+            digest="$(basename "$digest_file")"
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+            refs+=("${image_name}@sha256:${digest}")
+          done
+          docker buildx imagetools create -t "${image_name}:${version}" "${refs[@]}"
+          docker buildx imagetools inspect --raw "${image_name}:${version}" > "${RUNNER_TEMP}/manifest.json"
+          python - "${RUNNER_TEMP}/manifest.json" <<'PY'
+          import json
+          import sys
+
+          manifest = json.load(open(sys.argv[1]))
+          arches = {
+              entry.get("platform", {}).get("architecture")
+              for entry in manifest["manifests"]
+              if entry.get("platform", {}).get("os") == "linux"
+          }
+          assert arches == {"amd64", "arm64"}, arches
+          PY

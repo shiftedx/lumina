@@ -2,8 +2,12 @@
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.background import BackgroundTask
+from starlette.responses import StreamingResponse
 
+from app.http_compression import ResponseCompressionMiddleware
 from app.main import app
 from app.services.media_titles import jellyfin_id
 from title_support import ALICE_TOKEN, MOVIE, MOVIE_1080, jellyfin_household, mediabrowser
@@ -43,6 +47,36 @@ def test_full_and_ranged_media_remain_byte_exact_with_gzip_accepted(client: Test
     assert "content-encoding" not in ranged.headers
     assert ranged.headers["content-range"] == "bytes 0-2047/4096"
     assert int(ranged.headers["content-length"]) == 2048
+
+
+def test_octet_stream_probe_is_not_compressed(client: TestClient) -> None:
+    response = client.get(
+        "/Playback/BitrateTest", params={"size": 4096},
+        headers={**mediabrowser(ALICE_TOKEN), "Accept-Encoding": "gzip"},
+    )
+    assert response.status_code == 200
+    assert response.content == bytes(4096)
+    assert "content-encoding" not in response.headers
+    assert int(response.headers["content-length"]) == 4096
+
+
+def test_excluded_stream_keeps_background_cleanup() -> None:
+    closed: list[bool] = []
+    streaming = FastAPI()
+
+    @streaming.get("/media")
+    def media():  # noqa: ANN202
+        return StreamingResponse(
+            iter([b"x" * 2048]), media_type="video/mp4", background=BackgroundTask(closed.append, True),
+        )
+
+    streaming.add_middleware(ResponseCompressionMiddleware, minimum_size=1000, compresslevel=3)
+    with TestClient(streaming) as test_client:
+        response = test_client.get("/media", headers={"Accept-Encoding": "gzip"})
+
+    assert response.content == b"x" * 2048
+    assert "content-encoding" not in response.headers
+    assert closed == [True]
 
 
 @pytest.mark.parametrize("encoding", ["gzip;q=0, identity", "GZIP; q=0.000", "br, gzip;q=0, *;q=1"])

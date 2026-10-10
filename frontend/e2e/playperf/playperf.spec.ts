@@ -9,15 +9,23 @@ import { expect, libraryItemId, test } from '../realstack/realstack';
 const TTFF_BUDGET = Number(process.env.TTFF_BUDGET ?? 3000); // the remux p50 budget (client_metrics.BUDGETS)
 const SWITCH_BUDGET = Number(process.env.SWITCH_BUDGET ?? 4000);
 const TITLES = (process.env.PLAYPERF_TITLES ?? 'Perf Direct,Perf Remux,Perf Hevc,Perf Gop,Perf Encode').split(',');
-type W = Window & { __perfFirstFrame?: number; __perfEmptied?: number };
-// When the <video> last dropped its source: a switch's new playback starts after it.
-const emptiedProbe = () => document.addEventListener('emptied', () => { (window as W).__perfEmptied = Date.now(); }, true);
+type W = Window & { __perfFirstFrame?: number };
 const bufferState = (v: HTMLVideoElement) => JSON.stringify({ t: v.currentTime, readyState: v.readyState, paused: v.paused, seeking: v.seeking, error: v.error?.code, buffered: Array.from({ length: v.buffered.length }, (_, i) => [v.buffered.start(i), v.buffered.end(i)]) });
+type DecodedFrame = { height: number; mediaTime: number; src: string };
+
+async function nextDecodedFrame(video: import('@playwright/test').Locator): Promise<DecodedFrame> {
+  return video.evaluate((media: HTMLVideoElement) => new Promise<DecodedFrame>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('No decoded frame after source switch')), 10_000);
+    media.requestVideoFrameCallback((_now, metadata) => {
+      window.clearTimeout(timer);
+      resolve({ height: media.videoHeight, mediaTime: metadata.mediaTime, src: media.currentSrc });
+    });
+  }));
+}
 
 for (const title of TITLES) {
   test(`${title}: start and quality switches`, async ({ page }) => {
     await page.addInitScript(firstFrameProbe);
-    await page.addInitScript(emptiedProbe);
     await page.goto('/library');
     const id = await libraryItemId(page, title);
     const results: Record<string, number | string> = {};
@@ -29,34 +37,44 @@ for (const title of TITLES) {
     await expect.poll(time, { timeout: 30_000 }).toBeGreaterThan(3);
     console.log(`PLAYPERF ${title} ttff ${results.ttff}`);
     results.mode = (await page.locator('[data-playback-mode]').getAttribute('data-playback-mode')) ?? '?';
-    for (const choice of ['720p', '480p', /^(Original|Auto)$/]) {
+    for (const [choice, expectedHeight] of [['720p', 720], ['480p', 480], [/^(Original|Auto)$/, 1080]] as const) {
       await video.hover();
       await page.getByRole('button', { name: 'Playback settings' }).click();
       const radio = page.getByRole('radio', { name: choice });
       const from = await time();
       const clicked = Date.now();
+      const switchedResource = page.waitForRequest((request) => request.method() === 'GET' && (
+        expectedHeight === 1080
+          ? new URL(request.url()).pathname === `/api/library/${id}/media`
+          : /\/api\/playback-sessions\/[^/]+\/index\.m3u8$/.test(new URL(request.url()).pathname)
+      ));
       await radio.dispatchEvent('click');
       await page.keyboard.press('Escape');
-      // Sampled every 100 ms from the switch's new source (the old one plays on until the answer, then rewinds to the
-      // asked second): resumed at the first sample from which the clock never stalls or jumps and advances > 1 s over 1.5 s.
+      const resource = await switchedResource;
+      const frame = await nextDecodedFrame(video);
+      expect(frame.height, `switch to ${String(choice)} decoded height`).toBe(expectedHeight);
+      if (expectedHeight === 1080) expect(frame.src).toContain(`/api/library/${id}/media`);
+      else expect(frame.src).toMatch(/^blob:/);
+      // Sampled every 100 ms after a decoded frame from the requested source: resumed at the first sample from which
+      // the clock never stalls or jumps and advances > 1 s over 1.5 s. Chrome does not consistently dispatch
+      // `emptied` when a native source is replaced by MediaSource, so that event cannot identify this boundary.
       let resumed = -1;
       let landed = -1;
       const samples: Array<[number, number]> = [];
       const deadline = clicked + 20_000;
       while (resumed < 0 && Date.now() < deadline) {
-        const [t, emptied] = await video.evaluate((v: HTMLVideoElement) => [v.currentTime, (window as W).__perfEmptied ?? 0]);
+        const t = await time();
         samples.push([Date.now(), t]);
-        const fresh = samples.filter(([at]) => at > emptied && emptied >= clicked);
-        const k = fresh.findIndex(([at, start], index) => {
-          const window_ = fresh.slice(index).filter(([later]) => later <= at + 1500);
-          return fresh.at(-1)![0] >= at + 1500 && window_.every(([, value], j) => j === 0 || (value > window_[j - 1][1] && value - window_[j - 1][1] < 0.5)) && window_.at(-1)![1] - start > 1;
+        const k = samples.findIndex(([at, start], index) => {
+          const window_ = samples.slice(index).filter(([later]) => later <= at + 1500);
+          return samples.at(-1)![0] >= at + 1500 && window_.every(([, value], j) => j === 0 || (value > window_[j - 1][1] && value - window_[j - 1][1] < 0.5)) && window_.at(-1)![1] - start > 1;
         });
-        if (k >= 0) { resumed = fresh[k][0] - clicked; landed = fresh[k][1]; }
+        if (k >= 0) { resumed = samples[k][0] - clicked; landed = samples[k][1]; }
         await page.waitForTimeout(100);
       }
       if (resumed < 0) console.log('PLAYPERF hung', await video.evaluate(bufferState));
       results[String(choice)] = resumed;
-      console.log(`PLAYPERF ${title} switch ${String(choice)} from ${from.toFixed(1)} -> ${resumed} ms, landed at ${landed.toFixed(1)}`);
+      console.log(`PLAYPERF ${title} switch ${String(choice)} from ${from.toFixed(1)} -> ${resumed} ms, landed at ${landed.toFixed(1)}, frame ${frame.mediaTime.toFixed(1)} at ${frame.height}p via ${new URL(resource.url()).pathname}`);
       if (resumed >= 0) expect(Math.abs(landed - from), `switch to ${String(choice)} landed at ${landed} for ${from}`).toBeLessThan(2);
       if (resumed < 0) break;
       await page.waitForTimeout(2000);

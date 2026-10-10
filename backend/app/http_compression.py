@@ -1,4 +1,6 @@
 """Text response compression with explicit client opt-outs respected."""
+import re
+
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -23,6 +25,7 @@ _EXCLUDED_CONTENT_TYPE_PREFIXES = (
     "video/",
 )
 _BYPASS_HEADER = "x-lumina-compression-bypass"
+_DIRECT_JELLYFIN_STREAM = re.compile(r"^/jellyfin/videos/[^/]+/stream(?:\.[^/]+)?$")
 
 
 class _ExcludeCompressedContent:
@@ -68,6 +71,7 @@ class ResponseCompressionMiddleware(GZipMiddleware):
     """Use Starlette's compression and streaming exclusions, honoring gzip;q=0."""
 
     def __init__(self, app: ASGIApp, minimum_size: int = 500, compresslevel: int = 9) -> None:
+        self._uncompressed_app = app
         super().__init__(_ExcludeCompressedContent(app), minimum_size=minimum_size, compresslevel=compresslevel)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -75,6 +79,16 @@ class ResponseCompressionMiddleware(GZipMiddleware):
             await super().__call__(scope, receive, send)
             return
         request_headers = Headers(scope=scope)
+        if (
+            scope["method"] in {"GET", "HEAD"}
+            and "range" in request_headers
+            and _DIRECT_JELLYFIN_STREAM.fullmatch(scope["path"])
+        ):
+            # JellyfinPathMiddleware normalized this byte-exact route before
+            # compression. Skip Starlette's identity responder, which delays
+            # response headers until MediaFileResponse's first file read.
+            await self._uncompressed_app(scope, receive, send)
+            return
         if "range" in request_headers or _declines_gzip(request_headers.get("accept-encoding", "")):
             # Starlette checks for the substring "gzip", including gzip;q=0.
             # Copy the scope so outer middleware keeps the client's original headers.

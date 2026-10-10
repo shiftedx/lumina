@@ -866,7 +866,6 @@ def register(app: FastAPI, artwork: ArtworkService) -> None:
     jellyfin_integration.register(app)  # before this router: its routes win over the stubs and the catch-all
     app.include_router(jellyfin_probes.router)
     app.add_api_websocket_route("/socket", jellyfin_socket)  # before main.py mounts the SPA, which closes websockets
-    app.include_router(stream_router)
     app.include_router(router)
     # app.routes lists the auth and integration routes; these routers are included as opaque entries, so read their own routes.
     app.add_middleware(JellyfinPathMiddleware, root_segments=jellyfin_segments([

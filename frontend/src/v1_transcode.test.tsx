@@ -55,6 +55,7 @@ describe('converted local playback', () => {
 
     let position = 8; // inside the converted part: plain seek, no restart
     Object.defineProperty(media, 'currentTime', { configurable: true, get: () => position, set: (value: number) => { position = value; } });
+    Object.defineProperty(media, 'paused', { configurable: true, value: false });
     fireEvent(media, new Event('seeking'));
     fireEvent.loadedMetadata(media);
     expect(onLoadedMetadata).toHaveBeenCalledTimes(1);
@@ -87,6 +88,7 @@ describe('converted local playback', () => {
     const media = container.querySelector('video') as HTMLVideoElement;
     let position = 0;
     Object.defineProperty(media, 'currentTime', { configurable: true, get: () => position, set: (value: number) => { position = value; } });
+    Object.defineProperty(media, 'paused', { configurable: true, value: false });
     // The restart at 45 s copies video from the keyframe at 40.4 s.
     vi.mocked(fetch).mockImplementation(async (url) => new Response(JSON.stringify(String(url).includes('?start=')
       ? { session_id: 'sess-2', mode: 'transcode', playback_url: '/api/playback-sessions/sess-2/index.m3u8', start: 40.4 } : null), { status: String(url).includes('?start=') ? 201 : 204 }));

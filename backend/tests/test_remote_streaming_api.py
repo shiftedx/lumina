@@ -5,6 +5,7 @@ from contextlib import nullcontext
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect
 
 from app import main as main_module
 from app.models import User
@@ -14,14 +15,72 @@ from app.services.remote_streaming import (
     HlsAsset,
     HlsPresentation,
     RemoteStreamingService,
+    StreamResponseSpec,
     StreamNotFoundError,
     UpstreamMediaResponse,
+    _FileRangeBody,
 )
 from app.services.yt_dlp_service import YtDlpService
 
 
 async def collect_streaming_response(response) -> bytes:  # noqa: ANN001
     return b"".join([chunk async for chunk in response.body_iterator])
+
+
+def test_streaming_response_closes_file_body_once_when_send_disconnects(tmp_path) -> None:  # noqa: ANN001
+    media = tmp_path / "segment.m4s"
+    media.write_bytes(b"segment-body")
+    body = _FileRangeBody(media, 0, media.stat().st_size - 1)
+    closes = []
+
+    def close() -> None:
+        closes.append("closed")
+        body.close()
+
+    response = main_module._streaming_response(StreamResponseSpec(200, {}, body, close))
+
+    async def request() -> None:
+        async def receive() -> dict:
+            return {"type": "http.request"}
+
+        async def disconnect(message: dict) -> None:
+            if message["type"] == "http.response.body":
+                raise OSError("client disconnected")
+
+        await response(
+            {"type": "http", "method": "GET", "headers": [], "asgi": {"spec_version": "2.4"}},
+            receive,
+            disconnect,
+        )
+
+    with pytest.raises(ClientDisconnect):
+        asyncio.run(request())
+    assert closes == ["closed"] and body._file.closed is True
+
+
+def test_streaming_response_closes_once_after_success() -> None:
+    closes = []
+    messages = []
+    response = main_module._streaming_response(
+        StreamResponseSpec(200, {"Content-Type": "video/mp4"}, [b"media"], lambda: closes.append("closed"))
+    )
+
+    async def request() -> None:
+        async def receive() -> dict:
+            return {"type": "http.request"}
+
+        async def send(message: dict) -> None:
+            messages.append(message)
+
+        await response(
+            {"type": "http", "method": "GET", "headers": [], "asgi": {"spec_version": "2.4"}},
+            receive,
+            send,
+        )
+
+    asyncio.run(request())
+    assert closes == ["closed"]
+    assert b"".join(message["body"] for message in messages if message["type"] == "http.response.body") == b"media"
 
 
 class IntegrationReader:

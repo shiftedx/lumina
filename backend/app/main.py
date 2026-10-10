@@ -21,7 +21,6 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES
 from app.http_compression import ResponseCompressionMiddleware
 from app.services import network_policy, public_address, two_factor
 from starlette.background import BackgroundTask
@@ -947,7 +946,6 @@ app.add_middleware(
     ResponseCompressionMiddleware,
     minimum_size=1000,
     compresslevel=3,
-    exclude_content_types=(*DEFAULT_EXCLUDED_CONTENT_TYPES, "application/octet-stream"),
 )
 admin_storage.register(app)
 admin_invites.register(app)

@@ -13,6 +13,11 @@ for (const { title, via, codecs } of [
   { title: 'Realstack Transcode', via: 'Transcoded', codecs: 'HEVC / AAC' },
 ]) {
   test(`${title} plays real frames in WebKit (${via})`, async ({ page }) => {
+    if (via === 'Transcoded') {
+      // Recent WebKit builds decode HEVC directly. Model a client where HEVC failed so this
+      // case continues to exercise the server's real H.264 transcode and WebKit decode path.
+      await page.addInitScript(() => localStorage.setItem('lumina.hevcFailed', '1'));
+    }
     await page.goto('/library/movies');
     await page.getByRole('button', { name: new RegExp(`^${title},`) }).first().click();
     await page.getByRole('button', { name: /^(Play|Resume|Start)/ }).first().click();
@@ -22,6 +27,8 @@ for (const { title, via, codecs } of [
 }
 
 test('seeking beyond the converted range restarts the transcode and lands near the target', async ({ page }) => {
+  // Keep this a deterministic transcode scenario on WebKit builds that can decode HEVC.
+  await page.addInitScript(() => localStorage.setItem('lumina.hevcFailed', '1'));
   await page.goto('/library/movies');
   await page.getByRole('button', { name: /^Realstack Seek,/ }).first().click();
   await page.getByRole('button', { name: /^(Play|Resume|Start)/ }).first().click();

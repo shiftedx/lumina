@@ -15,6 +15,7 @@ import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from urllib.parse import unquote
 
 from fastapi import Depends, HTTPException, Request
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.media_schemas import ConnectedApp, ConnectedAppScope
-from app.models import AppSettings, DeviceToken, User
+from app.models import AppSettings, DeviceToken, MemberAccess, User
 from app.persistence import write_transaction
 from app.security import DEVICE_TOKEN_IDLE_DAYS, MAX_BEARER_LENGTH, resolve_device_token, session_digest, utcnow, validate_device_token_record
 from app.services.rate_limit import grant_address
@@ -31,6 +32,9 @@ from app.services.local_playback_sessions import sessions
 from app.services import member_access, two_factor
 from app.services.media_titles import parse_item_id
 from app.services.yt_dlp_service import YtDlpService
+
+if TYPE_CHECKING:
+    from app.services.jellyfin import CredentialStreamFile
 
 audit_log = logging.getLogger("lumina.audit")
 
@@ -161,6 +165,14 @@ class ClientAuth:
     device: str | None = None
     device_id: str | None = None
     version: str | None = None
+
+
+@dataclass(frozen=True)
+class StreamCaller:
+    """The authenticated stream user and, for the one-query path, its selected-file row."""
+
+    user: User
+    resolution: CredentialStreamFile | None = None
 
 
 def _auth_params(value: str | None) -> dict[str, str]:
@@ -307,7 +319,14 @@ IMAGE_GRANT_KEY = "images"
 
 
 def _jellyfin_snapshot(
-    db: Session, request: Request, record: DeviceToken, user: User, presented: str | None,
+    db: Session,
+    request: Request,
+    record: DeviceToken,
+    user: User,
+    presented: str | None,
+    *,
+    loaded_access: MemberAccess | None = None,
+    access_was_loaded: bool = False,
 ) -> User:
     """Apply the shared Jellyfin claims, grants, and detached access snapshot."""
     claimed = [value for key, value in request.query_params.multi_items() if key.lower() == "userid"]
@@ -320,10 +339,12 @@ def _jellyfin_snapshot(
     if presented:
         image_grants.put(grant_address(request), [IMAGE_GRANT_KEY], presented)
     snapshot = User(id=user.id, username=user.username, display_name=user.display_name, role=user.role, is_active=user.is_active)
+    if access_was_loaded:
+        return member_access.carry_loaded_access(db, snapshot, user, loaded_access)
     return member_access.carry_access(db, snapshot, user)  # ADR 0019: the Jellyfin API's queries take the literal clause
 
 
-def jellyfin_stream_user(request: Request, item_id: str, db: Session) -> User:
+def jellyfin_stream_user(request: Request, item_id: str, db: Session, media_source_id: str | None = None) -> StreamCaller:
     """Resolve a stream caller in its endpoint worker.
 
     An explicit credential combines the API-enable gate, token, and member lookup
@@ -334,7 +355,27 @@ def jellyfin_stream_user(request: Request, item_id: str, db: Session) -> User:
     if presented is None:
         enabled = require_jellyfin_enabled(db)
         request.state.stream_grant_token = stream_grants.get(grant_address(request), parse_item_id(item_id))
-        return jellyfin_user(request, db, enabled)
+        return StreamCaller(jellyfin_user(request, db, enabled))
+
+    wanted, entity_id = parse_item_id(media_source_id), parse_item_id(item_id)
+    if len(presented) <= MAX_BEARER_LENGTH and wanted is not None and entity_id is not None and wanted != entity_id:
+        # Imported lazily because app.services.jellyfin also exposes the server-id helpers above.
+        from app.services import jellyfin as jf
+
+        result = jf.selected_stream_with_credential(
+            db, item_id, media_source_id, token_digest=session_digest(presented),
+            cutoff=utcnow() - timedelta(days=DEVICE_TOKEN_IDLE_DAYS),
+        )
+        if result is None or not result.enabled:
+            raise HTTPException(status_code=404, detail="Not Found")
+        resolved = validate_device_token_record(db, request, (result.token, result.user) if result.token is not None else None)
+        if resolved is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        record, user = resolved
+        return StreamCaller(
+            _jellyfin_snapshot(db, request, record, user, presented, loaded_access=result.access, access_was_loaded=True),
+            resolution=result,
+        )
 
     token_match = (
         and_(DeviceToken.token_digest == session_digest(presented), DeviceToken.kind == "jellyfin")
@@ -355,7 +396,7 @@ def jellyfin_stream_user(request: Request, item_id: str, db: Session) -> User:
     if resolved is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     record, user = resolved
-    return _jellyfin_snapshot(db, request, record, user, presented)
+    return StreamCaller(_jellyfin_snapshot(db, request, record, user, presented))
 
 
 def jellyfin_user(

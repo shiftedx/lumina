@@ -513,8 +513,8 @@ def video_stream(
     mediasourceid: str | None = Query(None, max_length=64),
 ) -> MediaFileResponse:
     """Direct play with Range (like /api/library/{id}/media); the session closes before bytes stream."""
-    user = jellyfin_stream_user(request, item_id, db)
-    return media_file(item_id, request, user, db, mediasourceid)
+    caller = jellyfin_stream_user(request, item_id, db, mediasourceid)
+    return media_file(item_id, request, caller.user, db, mediasourceid, credential_resolution=caller.resolution)
 
 
 @router.api_route("/items/{item_id}/download", methods=["GET", "HEAD"])
@@ -523,9 +523,18 @@ def download(item_id: str, request: Request, user: Caller, db: Db, mediasourceid
     return media_file(item_id, request, user, db, mediasourceid, attachment=True)
 
 
-def media_file(item_id: str, request: Request, user: User, db: Session, mediasourceid: str | None, *, attachment: bool = False) -> MediaFileResponse:
+def media_file(
+    item_id: str,
+    request: Request,
+    user: User,
+    db: Session,
+    mediasourceid: str | None,
+    *,
+    attachment: bool = False,
+    credential_resolution: jf.CredentialStreamFile | None = None,
+) -> MediaFileResponse:
     try:
-        found = jf.stream_file(db, user, item_id, mediasourceid)
+        found = jf.credential_stream_file(credential_resolution) if credential_resolution is not None else jf.stream_file(db, user, item_id, mediasourceid)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from exc
     if found is None:

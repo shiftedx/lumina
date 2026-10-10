@@ -510,7 +510,7 @@ def test_selected_stream_loads_its_registered_file_with_the_visible_version(jf: 
     assert "join storage_roots" in statements[0].lower()
 
 
-def test_selected_admin_stream_combines_enable_gate_and_token_member_lookup(jf: TestClient) -> None:
+def test_selected_admin_stream_combines_credential_and_registered_file_in_one_query(jf: TestClient) -> None:
     from sqlalchemy import event
 
     with db_module.SessionLocal() as db:
@@ -520,7 +520,7 @@ def test_selected_admin_stream_combines_enable_gate_and_token_member_lookup(jf: 
     statements = []
 
     def capture(_connection, _cursor, statement, _parameters, _context, _many):  # noqa: ANN001
-        if statement.lstrip().lower().startswith("select"):
+        if statement.lstrip().lower().startswith(("select", "with")):
             statements.append(statement)
 
     event.listen(db_module.engine, "before_cursor_execute", capture)
@@ -533,11 +533,11 @@ def test_selected_admin_stream_combines_enable_gate_and_token_member_lookup(jf: 
         assert (response.status_code, len(response.content)) == (206, 10)
     finally:
         event.remove(db_module.engine, "before_cursor_execute", capture)
-    assert len(statements) == 2
+    assert len(statements) == 1
     assert "from app_settings" in statements[0].lower()
     assert "join device_tokens" in statements[0].lower()
     assert "join users" in statements[0].lower()
-    assert "join media_artifacts" in statements[1].lower()
+    assert "join media_artifacts" in statements[0].lower()
 
 
 def test_stream_disabled_precedes_an_invalid_explicit_token(jf: TestClient) -> None:

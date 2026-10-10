@@ -63,6 +63,7 @@ class MediaFileResponse(FileResponse):
             group.start_soon(self._listen_for_disconnect, group)
             file: BinaryIO | None = None
             try:
+                initial_range = start == 0
                 size = self.first_chunk_size
                 requested = min(size, end - start)
                 file, chunk = await anyio.to_thread.run_sync(_open_seek_read, str(self.path), start, requested)
@@ -72,6 +73,11 @@ class MediaFileResponse(FileResponse):
                     await send({"type": "http.response.body", "body": chunk, "more_body": more_body})
                     if not more_body:
                         break
+                    if initial_range:
+                        # A transport disconnect queued by the first body needs one turn
+                        # to reach the listener before the first bulk read is submitted.
+                        await anyio.lowlevel.checkpoint()
+                        initial_range = False
                     size = self.chunk_size
                     requested = min(size, end - start)
                     chunk = await anyio.to_thread.run_sync(file.read, requested)

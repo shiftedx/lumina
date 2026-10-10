@@ -10,6 +10,16 @@ from app.services import media_response
 from app.services.media_response import MediaFileResponse
 from app.services.stream_cache import MEDIA_FILE_CHUNK_SIZE
 
+try:
+    import uvloop
+except ImportError:  # pragma: no cover - optional on unsupported platforms
+    UVLOOP_LOOP = pytest.param(
+        asyncio.new_event_loop, id="uvloop", marks=pytest.mark.skip(reason="uvloop is not installed"),
+    )
+else:
+    UVLOOP_LOOP = pytest.param(uvloop.new_event_loop, id="uvloop")
+
+
 
 def test_media_file_response_preserves_range_bytes_with_fewer_bounded_reads(tmp_path: Path) -> None:
     media = tmp_path / "media.bin"
@@ -249,6 +259,68 @@ def test_range_stops_reading_when_receive_disconnects_and_send_ignores_it(tmp_pa
 
     asyncio.run(request())
     assert sum(read_bytes) <= MediaFileResponse.first_chunk_size + MEDIA_FILE_CHUNK_SIZE
+    assert len(opened) == 1 and opened[0].closed
+
+
+@pytest.mark.parametrize("loop_factory", [pytest.param(asyncio.new_event_loop, id="asyncio"), UVLOOP_LOOP])
+def test_initial_range_gives_a_queued_disconnect_time_before_bulk_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, loop_factory,
+) -> None:  # noqa: ANN001
+    """A transport disconnect queued by the first body prevents speculative bulk reading."""
+    media = tmp_path / "queued-disconnect.bin"
+    media.write_bytes(b"x" * (MediaFileResponse.first_chunk_size + MEDIA_FILE_CHUNK_SIZE + 1))
+    bulk_reads, opened = [], []
+    real_open_seek_read = media_response._open_seek_read
+
+    class TrackedFile:
+        def __init__(self, handle):  # noqa: ANN001
+            self._handle = handle
+
+        def read(self, size: int) -> bytes:
+            bulk_reads.append(size)
+            return self._handle.read(size)
+
+        def close(self) -> None:
+            self._handle.close()
+
+        @property
+        def closed(self) -> bool:
+            return self._handle.closed
+
+    def tracked_open_seek_read(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        handle, chunk = real_open_seek_read(*args, **kwargs)
+        tracked = TrackedFile(handle)
+        opened.append(tracked)
+        return tracked, chunk
+
+    monkeypatch.setattr(media_response, "_open_seek_read", tracked_open_seek_read)
+
+    async def request() -> list[int]:
+        disconnected = asyncio.Event()
+        body_sizes = []
+
+        async def receive() -> dict:
+            await disconnected.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict) -> None:
+            if message["type"] == "http.response.body":
+                body_sizes.append(len(message["body"]))
+                if len(body_sizes) == 1:
+                    # The protocol schedules the disconnect after this send has returned.
+                    asyncio.get_running_loop().call_soon(disconnected.set)
+
+        await MediaFileResponse(media)(
+            {"type": "http", "method": "GET", "headers": [(b"range", b"bytes=0-")]}, receive, send,
+        )
+        return body_sizes
+
+    loop = loop_factory()
+    try:
+        assert loop.run_until_complete(request()) == [MediaFileResponse.first_chunk_size]
+    finally:
+        loop.close()
+    assert bulk_reads == []
     assert len(opened) == 1 and opened[0].closed
 
 

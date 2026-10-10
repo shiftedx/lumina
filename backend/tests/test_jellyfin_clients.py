@@ -543,6 +543,16 @@ def test_selected_admin_stream_combines_credential_and_registered_file_in_one_qu
     assert "join media_artifacts" in statements[0].lower()
 
 
+def test_selected_stream_template_has_no_runtime_expanding_type_lists() -> None:
+    """The cached direct-stream shape keeps its static access categories fixed."""
+    from sqlalchemy.dialects import sqlite
+    from app.services.jellyfin import _selected_stream_with_credential_statement
+
+    compiled = _selected_stream_with_credential_statement().compile(dialect=sqlite.dialect())
+    assert len(compiled.post_compile_params) == 0
+    assert {"token_digest", "cutoff", "entity_id", "wanted"} <= compiled.params.keys()
+
+
 def test_selected_stream_enters_one_worker_before_head_headers(jf: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """The direct-range endpoint enters its DB context inside its only sync worker."""
     original_run_sync = anyio.to_thread.run_sync

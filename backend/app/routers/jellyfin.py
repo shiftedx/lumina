@@ -163,8 +163,12 @@ class JellyfinPathMiddleware:
         if _RETIRED.match(scope["path"]):  # the mount is private and there are no prefixed aliases
             await Response(status_code=404)(scope, receive, send)
             return
-        # A credentialed call to an endpoint we do not serve (/Genres) reaches the gated JSON catch-all, never the SPA shell.
-        normalized = normalize_jellyfin_path(scope["path"], self.root_segments, any_segment=has_jellyfin_credential(scope))
+        # Known roots (including /Videos) need no credential parsing to classify.
+        # Only a credentialed call to an endpoint we do not serve (/Genres) reaches
+        # the gated JSON catch-all instead of the SPA shell.
+        normalized = normalize_jellyfin_path(scope["path"], self.root_segments)
+        if normalized is None and has_jellyfin_credential(scope):
+            normalized = normalize_jellyfin_path(scope["path"], self.root_segments, any_segment=True)
         # A root path the SPA also answers (/library/…) stays the SPA's for a browser page load.
         if normalized and normalized.split("/")[2] in SPA_SEGMENTS and is_browser_navigation(scope):
             normalized = None

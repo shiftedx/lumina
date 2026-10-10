@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
+from app.routers import jellyfin as jellyfin_router
 from app.routers.jellyfin import SPA_SEGMENTS, JellyfinPathMiddleware, lower_query_keys, masked_path, normalize_jellyfin_path
 from app.services.media_titles import jellyfin_id
 from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, jellyfin_household, mediabrowser
@@ -535,6 +536,20 @@ def test_stream_direct_play_with_range(jf: TestClient) -> None:
     assert jf.get(f"/Videos/{HEX(CHANNEL_NEW)}/stream", headers={"X-Emby-Token": ALICE_TOKEN}).status_code == 200
     assert jf.get(path, params={"Static": "true"}).status_code == 401
     assert jf.get(f"/Videos/{HEX(SECRET_EPISODE)}/stream", params={"api_key": ALICE_TOKEN}).status_code == 404
+
+
+def test_known_stream_route_skips_credential_parsing_for_classification(jf: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Known roots normalize query keys without pre-parsing credentials in middleware."""
+    def unexpected_credential_parse(_scope) -> bool:  # noqa: ANN001
+        raise AssertionError("known direct streams do not need credential classification")
+
+    monkeypatch.setattr(jellyfin_router, "has_jellyfin_credential", unexpected_credential_parse)
+    response = jf.get(
+        f"/VIDEOS/{HEX(MOVIE)}/STREAM",
+        params={"MediaSourceId": HEX(MOVIE_4K), "ApiKey": ALICE_TOKEN},
+        headers={"Range": "bytes=0-9"},
+    )
+    assert (response.status_code, response.content) == (206, b"\0" * 10)
 
 
 def test_playback_info_grants_a_credential_free_stream(jf: TestClient) -> None:

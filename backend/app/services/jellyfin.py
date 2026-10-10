@@ -16,8 +16,10 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Integer, and_, bindparam, cast, false, func, or_, select, true
+from sqlalchemy import Integer, and_, bindparam, cast, false, func, literal, or_, select, true
 from sqlalchemy.orm import Session, aliased, defer
+from sqlalchemy.sql import operators, visitors
+from sqlalchemy.sql.elements import BinaryExpression, BindParameter
 
 from app.media_schemas import TitlePerson, TitleUserData
 from app.models import AppSettings, DeviceToken, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberAccess, MemberFavorite, PlaybackProgress, StorageRoot, User
@@ -1145,6 +1147,38 @@ def _credential_visible_title(credential):  # noqa: ANN001, ANN202
     )
 
 
+_STATIC_STREAM_TYPE_SETS = frozenset((
+    LEAF_TYPES,
+    member_access.MUSIC_TYPES,
+    ("movie",),
+    member_access.TV_TYPES,
+    ("movie", *member_access.TV_TYPES),
+))
+
+
+def _fixed_stream_type_lists(statement):  # noqa: ANN001, ANN202
+    """Replace only the cached statement's immutable type-list expansions.
+
+    The live member-access predicates deliberately use scalar subqueries.  Their
+    fixed media-type categories otherwise become SQLAlchemy expanding parameters
+    on every range request, even though this cached template never changes.
+    """
+    def replace(node):  # noqa: ANN001, ANN202
+        if not (
+            isinstance(node, BinaryExpression)
+            and node.operator in (operators.in_op, operators.not_in_op)
+            and isinstance(node.right, BindParameter)
+            and node.right.expanding
+            and isinstance(node.right.value, (list, tuple))
+            and tuple(node.right.value) in _STATIC_STREAM_TYPE_SETS
+        ):
+            return None
+        values = tuple(literal(value) for value in node.right.value)
+        return node.left.in_(values) if node.operator is operators.in_op else node.left.not_in(values)
+
+    return visitors.replacement_traverse(statement, {}, replace)
+
+
 @lru_cache(maxsize=1)
 def _selected_stream_with_credential_statement():  # noqa: ANN202
     """The immutable SQL shape for the explicit selected-stream fast path.
@@ -1206,7 +1240,7 @@ def _selected_stream_with_credential_statement():  # noqa: ANN202
         )
         .cte("selected_stream_file")
     )
-    return (
+    statement = (
         select(
             credential.c.enabled,
             DeviceToken,
@@ -1224,6 +1258,7 @@ def _selected_stream_with_credential_statement():  # noqa: ANN202
         .outerjoin(MemberAccess, MemberAccess.user_id == credential.c.user_id)
         .outerjoin(selected, true())
     )
+    return _fixed_stream_type_lists(statement)
 
 
 def selected_stream_with_credential(

@@ -390,6 +390,18 @@ def resolve_device_token(db: Session, request: Request, token: str | None, *, ki
         return None
     found = (db.query(DeviceToken, User).outerjoin(User, User.id == DeviceToken.user_id)
         .filter(DeviceToken.token_digest == session_digest(token), DeviceToken.kind == kind).first())
+    return validate_device_token_record(db, request, found)
+
+
+def validate_device_token_record(
+    db: Session, request: Request, found: tuple[DeviceToken, User | None] | None,
+) -> tuple[DeviceToken, User] | None:
+    """Validate an already-loaded connected-app credential and keep its existing lifecycle rules.
+
+    Some hot paths load the app setting, token, and member in one query.  Keeping the
+    expiry and touch behavior here makes those paths use precisely the same token
+    lifecycle as ``resolve_device_token``.
+    """
     if found is None:
         return None
     record, user = found

@@ -1,8 +1,10 @@
 """Jellyfin client compatibility: the error-body policy, empty-not-404 lists, client probes, downloads and /socket."""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+import anyio
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -12,11 +14,12 @@ from starlette.requests import Request
 from app import db as db_module
 from app.config import settings
 from app.main import app
-from app.models import DeviceToken, LibraryItem, MemberAccess
+from app.models import AppSettings, DeviceToken, LibraryItem, MemberAccess, User
 from app.routers import jellyfin_probes
 from app.services import activity, media_probe, public_address
 from app.services.rate_limit import grant_address
 from app.services.connected_apps import image_grants
+from app.services.media_response import MediaFileResponse
 from app.services.media_titles import jellyfin_id, synthetic_id
 from test_jellyfin_api import MOVIES, TV, get, post
 from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, FILE, TRAILER, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SEASON1, SECRET_SERIES, SERIES, jellyfin_household, mediabrowser
@@ -487,3 +490,245 @@ def test_connected_app_auth_loads_the_token_and_member_together(jf: TestClient) 
         event.remove(db_module.engine, "before_cursor_execute", capture)
     assert len(statements) == 1, "the token and its current member need one live query"
     assert "join users" in statements[0].lower()
+
+
+def test_selected_stream_loads_its_registered_file_with_the_visible_version(jf: TestClient) -> None:
+    from sqlalchemy import event
+
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):  # noqa: ANN001
+        if "from library_items" in statement.lower() or "from media_artifacts" in statement.lower():
+            statements.append(statement)
+
+    event.listen(db_module.engine, "before_cursor_execute", capture)
+    try:
+        response = jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN},
+                          headers={"Range": "bytes=0-9"})
+        assert (response.status_code, len(response.content)) == (206, 10)
+    finally:
+        event.remove(db_module.engine, "before_cursor_execute", capture)
+    assert len(statements) == 1, "a selected stream resolves visibility and its registered file together"
+    assert "join media_artifacts" in statements[0].lower()
+    assert "join storage_roots" in statements[0].lower()
+
+
+def test_selected_admin_stream_combines_credential_and_registered_file_in_one_query(jf: TestClient) -> None:
+    from sqlalchemy import event
+
+    with db_module.SessionLocal() as db:
+        db.get(User, ALICE).role = "admin"
+        db.commit()
+
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):  # noqa: ANN001
+        if statement.lstrip().lower().startswith(("select", "with")):
+            statements.append(statement)
+
+    event.listen(db_module.engine, "before_cursor_execute", capture)
+    try:
+        response = jf.get(
+            f"/Videos/{HEX(MOVIE)}/stream",
+            params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN},
+            headers={"Range": "bytes=0-9"},
+        )
+        assert (response.status_code, len(response.content)) == (206, 10)
+    finally:
+        event.remove(db_module.engine, "before_cursor_execute", capture)
+    assert len(statements) == 1
+    assert "from app_settings" in statements[0].lower()
+    assert "join device_tokens" in statements[0].lower()
+    assert "join users" in statements[0].lower()
+    assert "join media_artifacts" in statements[0].lower()
+
+
+def test_selected_stream_template_binds_only_live_request_values() -> None:
+    """The cached direct-stream shape compiles static policy values once."""
+    from sqlalchemy.dialects import sqlite
+    from app.services.jellyfin import _selected_stream_with_credential_statement
+
+    compiled = _selected_stream_with_credential_statement().compile(dialect=sqlite.dialect())
+    assert len(compiled.post_compile_params) == 0
+    assert len(compiled.literal_execute_params) == 0
+    assert set(compiled.params) == {"token_digest", "cutoff", "entity_id", "wanted"}
+
+
+@pytest.mark.parametrize("required", [True, False])
+def test_static_stream_template_keeps_defaulted_binds_live(required: bool) -> None:
+    """A future named policy bind must not be frozen at its construction default."""
+    from sqlalchemy import bindparam, create_engine, select
+    from sqlalchemy.dialects import sqlite
+    from app.services.jellyfin import _inline_static_stream_values
+
+    statement = _inline_static_stream_values(select(bindparam("future_policy", value=1, required=required)))
+    compiled = statement.compile(dialect=sqlite.dialect())
+    assert set(compiled.params) == {"future_policy"}
+    engine = create_engine("sqlite://")
+    with engine.connect() as connection:
+        assert connection.scalar(statement, {"future_policy": 7}) == 7
+        assert connection.scalar(statement, {"future_policy": 9}) == 9
+    engine.dispose()
+
+
+def test_selected_stream_enters_one_worker_before_head_headers(jf: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The direct-range endpoint enters its DB context inside its only sync worker."""
+    original_run_sync = anyio.to_thread.run_sync
+    header_sent = False
+    status = None
+    dispatches: list[str] = []
+
+    async def tracked_run_sync(func, *args, **kwargs):  # noqa: ANN001, ANN202
+        if not header_sent:
+            dispatches.append(getattr(func, "__name__", type(func).__name__))
+        return await original_run_sync(func, *args, **kwargs)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", tracked_run_sync)
+
+    async def request() -> None:
+        nonlocal header_sent, status
+
+        async def receive() -> dict:
+            return {"type": "http.request"}
+
+        async def send(message: dict) -> None:
+            nonlocal header_sent, status
+            if message["type"] == "http.response.start":
+                header_sent = True
+                status = message["status"]
+
+        await app(
+            {
+                "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "HEAD",
+                "scheme": "http", "path": f"/Videos/{HEX(MOVIE)}/stream", "raw_path": f"/Videos/{HEX(MOVIE)}/stream".encode(),
+                "query_string": f"MediaSourceId={HEX(MOVIE_4K)}&api_key={ALICE_TOKEN}".encode(),
+                "headers": [(b"host", b"localhost")], "client": ("testclient", 50000), "server": ("localhost", 80), "root_path": "", "extensions": {},
+            },
+            receive,
+            send,
+        )
+
+    asyncio.run(request())
+    assert (status, header_sent, len(dispatches)) == (200, True, 1)
+
+
+def test_selected_stream_closes_its_session_before_head_response(jf: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The response opens no bytes until the direct stream's session is already closed."""
+    from sqlalchemy.orm import Session
+
+    closed = False
+    close = Session.close
+    response_call = MediaFileResponse.__call__
+
+    def tracked_close(self) -> None:  # noqa: ANN001
+        nonlocal closed
+        closed = True
+        close(self)
+
+    async def checked_response(self, scope, receive, send):  # noqa: ANN001, ANN202
+        assert closed
+        return await response_call(self, scope, receive, send)
+
+    monkeypatch.setattr(Session, "close", tracked_close)
+    monkeypatch.setattr(MediaFileResponse, "__call__", checked_response)
+    response = jf.head(
+        f"/Videos/{HEX(MOVIE)}/stream",
+        params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN},
+    )
+    assert response.status_code == 200
+
+
+def test_direct_stream_uses_the_api_client_session_scope_override(tmp_path: Path, db_factory, api_client) -> None:  # noqa: ANN001
+    """The stream's explicit factory override sees only api_client's in-memory database."""
+    from support import make_user, seed_app_settings
+    from title_support import device_token, seed_tree
+
+    root = tmp_path / "factory-media"
+    with db_factory.begin() as db:
+        db.add_all([make_user(ALICE, username="alice"), make_user(BOB, username="bob")])
+        seed_tree(db, root)
+        device_token(db, ALICE, ALICE_TOKEN)
+        seed_app_settings(db, jellyfin_enabled=True)
+    client = api_client(base_url="http://localhost")
+    response = client.head(
+        f"/Videos/{HEX(MOVIE)}/stream",
+        params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN},
+    )
+    assert response.status_code == 200
+
+
+def test_stream_disabled_precedes_an_invalid_explicit_token(jf: TestClient) -> None:
+    with db_module.SessionLocal() as db:
+        db.get(AppSettings, 1).jellyfin_enabled = False
+        db.commit()
+    assert jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"api_key": "not-a-token"}).status_code == 404
+
+
+def test_stream_rejects_an_invalid_explicit_token_without_hashing_an_oversized_one(jf: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import connected_apps
+
+    calls = []
+
+    def never_hash(_token: str) -> str:
+        calls.append(_token)
+        raise AssertionError("oversized credentials must not be hashed")
+
+    monkeypatch.setattr(connected_apps, "session_digest", never_hash)
+    response = jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"api_key": "x" * 513})
+    assert (response.status_code, calls) == (401, [])
+
+
+@pytest.mark.parametrize("change", ["revoked", "inactive"])
+def test_stream_rechecks_explicit_token_member_state_on_every_range(jf: TestClient, change: str) -> None:
+    path = f"/Videos/{HEX(MOVIE)}/stream"
+    params = {"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN}
+    assert jf.get(path, params=params, headers={"Range": "bytes=0-9"}).status_code == 206
+    with db_module.SessionLocal() as db:
+        if change == "revoked":
+            db.query(DeviceToken).filter_by(user_id=ALICE, kind="jellyfin").delete()
+        else:
+            db.get(User, ALICE).is_active = False
+        db.commit()
+    assert jf.get(path, params=params, headers={"Range": "bytes=0-9"}).status_code == 401
+
+
+def test_stream_returns_the_fixed_404_when_the_file_disappears_after_authorization(jf: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path.resolve() / "media" / "Movie (2020)" / "Movie (2020) - 4K.mkv"
+    original_stat = Path.stat
+
+    def missing(path: Path, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        if path == target:
+            raise FileNotFoundError
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", missing)
+    response = jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN})
+    assert (response.status_code, response.content) == (404, b"")
+
+
+@pytest.mark.parametrize("unavailable", ["quarantined", "disabled", "unlinked", "symlink"])
+def test_selected_stream_rechecks_registered_file_availability(jf: TestClient, unavailable: str, tmp_path: Path) -> None:
+    from app.models import LibraryItemArtifact, MediaArtifact, StorageRoot
+
+    path = f"/Videos/{HEX(MOVIE)}/stream"
+    params = {"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN}
+    assert jf.get(path, params=params).status_code == 200
+    with db_module.SessionLocal() as db:
+        link = db.get(LibraryItemArtifact, MOVIE_4K)
+        artifact = db.get(MediaArtifact, link.artifact_id)
+        root = db.get(StorageRoot, artifact.root_id)
+        if unavailable == "quarantined":
+            artifact.lifecycle = "quarantined"
+        elif unavailable == "disabled":
+            root.enabled = False
+        elif unavailable == "unlinked":
+            db.delete(link)
+        else:
+            media = Path(root.path) / artifact.relative_path
+            replacement = tmp_path / "replacement.mkv"
+            replacement.write_bytes(media.read_bytes())
+            media.unlink()
+            media.symlink_to(replacement)
+        db.commit()
+    response = jf.get(path, params=params)
+    assert (response.status_code, response.content) == (404, b"")

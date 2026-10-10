@@ -17,7 +17,8 @@ import re
 import time
 import uuid
 from collections import Counter
-from contextlib import suppress
+from collections.abc import Callable
+from contextlib import AbstractContextManager, suppress
 from dataclasses import replace
 from typing import Annotated
 from urllib.parse import parse_qsl, quote, urlencode
@@ -34,7 +35,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import settings
 from app.models import Person, PlaybackProgress, User
-from app.db import session_scope
+from app.db import get_db, session_scope, stream_session_scope
 from app.persistence import read_regular_file, write_transaction
 from app.security import resolve_device_token
 from app.services.rate_limit import enforce_rate_limit, grant_address
@@ -162,8 +163,12 @@ class JellyfinPathMiddleware:
         if _RETIRED.match(scope["path"]):  # the mount is private and there are no prefixed aliases
             await Response(status_code=404)(scope, receive, send)
             return
-        # A credentialed call to an endpoint we do not serve (/Genres) reaches the gated JSON catch-all, never the SPA shell.
-        normalized = normalize_jellyfin_path(scope["path"], self.root_segments, any_segment=has_jellyfin_credential(scope))
+        # Known roots (including /Videos) need no credential parsing to classify.
+        # Only a credentialed call to an endpoint we do not serve (/Genres) reaches
+        # the gated JSON catch-all instead of the SPA shell.
+        normalized = normalize_jellyfin_path(scope["path"], self.root_segments)
+        if normalized is None and has_jellyfin_credential(scope):
+            normalized = normalize_jellyfin_path(scope["path"], self.root_segments, any_segment=True)
         # A root path the SPA also answers (/library/…) stays the SPA's for a browser page load.
         if normalized and normalized.split("/")[2] in SPA_SEGMENTS and is_browser_navigation(scope):
             normalized = None
@@ -189,6 +194,10 @@ class JellyfinPathMiddleware:
                 logger.info("jellyfin.trace %s %s %s", scope["method"], route, ",".join(names))
 
 
+# Streaming has its own small router so the explicit-device-token hot path can
+# gate settings, authenticate, and resolve the registered file in one endpoint
+# worker.  The larger compatibility surface retains the shared enable gate.
+stream_router = APIRouter(prefix=PRIVATE_PREFIX)
 router = APIRouter(prefix=PRIVATE_PREFIX, dependencies=[Depends(require_jellyfin_enabled)])
 
 
@@ -500,11 +509,18 @@ def playback_info(
     return {"MediaSources": sources, "PlaySessionId": play_session_id}
 
 
-@router.api_route("/videos/{item_id}/stream", methods=["GET", "HEAD"])
-@router.api_route("/videos/{item_id}/stream.{container}", methods=["GET", "HEAD"])
-def video_stream(item_id: str, request: Request, user: Annotated[User, Depends(jellyfin_stream_user)], db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> MediaFileResponse:
+@stream_router.api_route("/videos/{item_id}/stream", methods=["GET", "HEAD"])
+@stream_router.api_route("/videos/{item_id}/stream.{container}", methods=["GET", "HEAD"])
+def video_stream(
+    item_id: str,
+    request: Request,
+    db_scope: Annotated[Callable[[], AbstractContextManager[Session]], Depends(stream_session_scope)],
+    mediasourceid: str | None = Query(None, max_length=64),
+) -> MediaFileResponse:
     """Direct play with Range (like /api/library/{id}/media); the session closes before bytes stream."""
-    return media_file(item_id, request, user, db, mediasourceid)
+    with db_scope() as db:
+        caller = jellyfin_stream_user(request, item_id, db, mediasourceid)
+        return media_file(item_id, request, caller.user, db, mediasourceid, credential_resolution=caller.resolution)
 
 
 @router.api_route("/items/{item_id}/download", methods=["GET", "HEAD"])
@@ -513,20 +529,33 @@ def download(item_id: str, request: Request, user: Caller, db: Db, mediasourceid
     return media_file(item_id, request, user, db, mediasourceid, attachment=True)
 
 
-def media_file(item_id: str, request: Request, user: User, db: Session, mediasourceid: str | None, *, attachment: bool = False) -> MediaFileResponse:
-    version = jf.stream_version(db, user, item_id, mediasourceid)
-    if version is None:
-        raise HTTPException(status_code=404, detail="Item not found")
+def media_file(
+    item_id: str,
+    request: Request,
+    user: User,
+    db: Session,
+    mediasourceid: str | None,
+    *,
+    attachment: bool = False,
+    credential_resolution: jf.CredentialStreamFile | None = None,
+) -> MediaFileResponse:
     try:
-        path = LibraryService(db).resolve_media_path(version)
+        found = jf.credential_stream_file(credential_resolution) if credential_resolution is not None else jf.stream_file(db, user, item_id, mediasourceid)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from exc
+    if found is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    version_id, path = found
     device = getattr(request.state, "connected_app_id", None) or "web"  # set by the Connected app token check
     screen_time.enforce(db, user)  # every Range request: at most one real check a minute
-    activity.guard(user.id, version.id, device)  # an admin stop ends downloads too
+    activity.guard(user.id, version_id, device)  # an admin stop ends downloads too
     if request.method == "GET" and not attachment:  # a download is not a watch session
-        activity.touch(user.id, version.id, device)
-    return MediaFileResponse(path, filename=path.name if attachment else None)
+        activity.touch(user.id, version_id, device)
+    try:
+        stat_result = path.stat()
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from exc
+    return MediaFileResponse(path, filename=path.name if attachment else None, stat_result=stat_result)
 
 
 @router.get("/videos/{item_id}/{source_id}/subtitles/{index}/stream.{fmt}")
@@ -839,4 +868,6 @@ def register(app: FastAPI, artwork: ArtworkService) -> None:
     app.add_api_websocket_route("/socket", jellyfin_socket)  # before main.py mounts the SPA, which closes websockets
     app.include_router(router)
     # app.routes lists the auth and integration routes; these routers are included as opaque entries, so read their own routes.
-    app.add_middleware(JellyfinPathMiddleware, root_segments=jellyfin_segments([*app.routes, *jellyfin_probes.router.routes, *router.routes]))
+    app.add_middleware(JellyfinPathMiddleware, root_segments=jellyfin_segments([
+        *app.routes, *jellyfin_probes.router.routes, *stream_router.routes, *router.routes,
+    ]))

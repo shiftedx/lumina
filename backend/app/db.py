@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from contextlib import contextmanager
+from collections.abc import Callable
+from contextlib import AbstractContextManager, contextmanager
 from typing import Iterator
 
 from sqlalchemy import create_engine, event, inspect, text
@@ -300,8 +301,8 @@ def init_db() -> None:
 
 
 @contextmanager
-def session_scope() -> Iterator[Session]:
-    session = SessionLocal()
+def session_scope(session_factory: Callable[[], Session] | None = None) -> Iterator[Session]:
+    session = (SessionLocal if session_factory is None else session_factory)()
     try:
         yield session
         session.commit()
@@ -321,3 +322,8 @@ def session_scope() -> Iterator[Session]:
 def get_db() -> Iterator[Session]:
     with session_scope() as session:
         yield session
+
+
+async def stream_session_scope() -> Callable[[], AbstractContextManager[Session]]:
+    """Defer a direct stream's normal session lifecycle to its sync endpoint worker."""
+    return session_scope

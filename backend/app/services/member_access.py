@@ -239,6 +239,14 @@ def carry_access(db: Session, snapshot: User, source: User) -> User:
     return snapshot
 
 
+def carry_loaded_access(db: Session, snapshot: User, source: User, row: MemberAccess | None) -> User:
+    """Carry a MemberAccess row already selected with authentication into this request only."""
+    access = None if source.role == "admin" or row is None else effective(row)
+    db.info.setdefault(_MEMO, {})[(source.id, generation(source.id))] = access
+    snapshot.__dict__[ACCESS_ATTR] = access
+    return snapshot
+
+
 def _limits(user: User, db: Session | None = None):  # noqa: ANN202
     """(title_ok(t), untitled_ok(item)) builders for a limited member, or None (admin, or known to have no row).
 

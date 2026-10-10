@@ -947,6 +947,9 @@ app.add_middleware(
     minimum_size=1000,
     compresslevel=3,
 )
+# Keep direct-stream patterns ahead of unrelated routes. The Jellyfin normalizer
+# is installed by jellyfin.register below.
+app.include_router(jellyfin.stream_router)
 admin_storage.register(app)
 admin_invites.register(app)
 admin_backups.register(app)

@@ -724,13 +724,16 @@ def test_repeated_sweep_failures_surface_as_degraded_health_and_admin_diagnostic
         engine.dispose()
 
 
-def test_session_scope_runs_after_commit_actions_only_after_the_teardown_commit(tmp_path, monkeypatch) -> None:  # noqa: ANN001
-    """Routes without a seam call commit at the get_db teardown; queued actions must drain there."""
+@pytest.mark.parametrize("injected", [False, True], ids=["default", "injected"])
+def test_session_scope_runs_after_commit_actions_only_after_the_teardown_commit(tmp_path, injected: bool) -> None:  # noqa: ANN001
+    """Both the default and an injected factory retain commit and action drain."""
     engine, session_factory = make_session_factory(tmp_path)
-    monkeypatch.setattr(app_db, "SessionLocal", session_factory)
+    original_factory = app_db.SessionLocal
+    if not injected:
+        app_db.SessionLocal = session_factory
     delivered: list[str] = []
     try:
-        with app_db.session_scope() as session:
+        with app_db.session_scope(session_factory if injected else None) as session:
             session.add(make_user())
             session.flush()
             persistence.queue_after_commit(session, lambda: delivered.append("delivered"))
@@ -739,24 +742,43 @@ def test_session_scope_runs_after_commit_actions_only_after_the_teardown_commit(
         with session_factory() as verifier:
             assert verifier.get(User, "member-1") is not None
     finally:
+        app_db.SessionLocal = original_factory
         engine.dispose()
 
 
-def test_session_scope_discards_after_commit_actions_on_rollback(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+@pytest.mark.parametrize("injected", [False, True], ids=["default", "injected"])
+def test_session_scope_discards_after_commit_actions_and_closes_on_rollback(tmp_path, injected: bool) -> None:  # noqa: ANN001
     engine, session_factory = make_session_factory(tmp_path)
-    monkeypatch.setattr(app_db, "SessionLocal", session_factory)
     delivered: list[str] = []
+    closed = []
+
+    def tracking_factory():  # noqa: ANN202
+        session = session_factory()
+        close = session.close
+
+        def tracked_close() -> None:
+            closed.append(session)
+            close()
+
+        session.close = tracked_close  # type: ignore[method-assign]
+        return session
+
+    original_factory = app_db.SessionLocal
+    if not injected:
+        app_db.SessionLocal = tracking_factory
     try:
         with pytest.raises(RuntimeError, match="boom"):
-            with app_db.session_scope() as session:
+            with app_db.session_scope(tracking_factory if injected else None) as session:
                 session.add(make_user())
                 session.flush()
                 persistence.queue_after_commit(session, lambda: delivered.append("delivered"))
                 raise RuntimeError("boom")
         assert delivered == [], "the action ran for a rolled-back request"
+        assert len(closed) == 1
         with session_factory() as verifier:
             assert verifier.get(User, "member-1") is None
     finally:
+        app_db.SessionLocal = original_factory
         engine.dispose()
 
 

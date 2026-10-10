@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from app import db as db_module
 from app.main import app
-from app.models import MediaTitle, MemberAccess, User
+from app.models import LibraryItem, MediaTitle, MemberAccess, User
 from app.security import get_current_user
 from app.services import member_access
 from app.services.media_titles import apply_field, jellyfin_id
@@ -150,6 +150,54 @@ def test_the_jellyfin_api_obeys_the_same_access(household: TestClient, viewer: s
     for term, title_id, files in (("Pilot", S1E1, SHOW_FILES), ("Movie", MOVIE, MOVIE_FILES)):  # the fixture's indexed titles
         hints = {h["Id"] for h in jf(household, "GET", "/Search/Hints", viewer, params={"SearchTerm": term}).json()["SearchHints"]}
         assert (jellyfin_id(title_id) in hints) == bool(files & sees), term
+
+
+@pytest.mark.parametrize(("viewer", "parent", "source"), [
+    (KID, MOVIE, MOVIE_4K),  # restricted: the R-rated movie stays hidden
+    (KID, S1E1, FILE[S1E1]),  # restricted: the TV-Y7 episode remains playable
+    (GUEST, MOVIE, MOVIE_4K),  # restricted to music/root sections
+    (ADULT, MOVIE, MOVIE_4K),  # no MemberAccess row
+    (KID, ANIME_EPISODE, ANIME_FILE),  # restricted: unrated-hide applies to anime too
+    (ADMIN, MOVIE, uid(0xF01)),  # ownerless selected version, admitted only by the admin branch
+    (ADULT, MOVIE, uid(0xF01)),  # ownerless private sources stay admin-only
+    (KID, MOVIE, uid(0xF02)),  # a member's own private item bypasses their shared-item limits
+    (ADULT, MOVIE, uid(0xF02)),  # another unrestricted member cannot borrow that private item
+    (ADULT, MOVIE, FILE[S1E1]),  # a source from another title cannot borrow the parent's visibility
+    (ADMIN, MOVIE, TRAILER),  # extras are never a direct-play version
+])
+def test_selected_jellyfin_stream_matches_the_live_visibility_resolver(
+    household: TestClient, viewer: str, parent: str, source: str,
+) -> None:
+    """The one-query selected source path has the exact old resolver's access answer."""
+    from app.models import StorageRoot
+    from app.services import jellyfin as jellyfin_service
+
+    ownerless, own_private = uid(0xF01), uid(0xF02)
+    with db_module.SessionLocal() as session:
+        if session.get(LibraryItem, ownerless) is None:
+            root = session.get(StorageRoot, ROOT)
+            add_file(
+                session, Path(root.path), "Movie (2020)/Movie (2020) - ownerless.mkv", item_id=ownerless,
+                title_id=MOVIE, owner=None, visibility="private", title="Movie · ownerless", kind="movie", duration=7200,
+            )
+            add_file(
+                session, Path(root.path), "Movie (2020)/Movie (2020) - kid-private.mkv", item_id=own_private,
+                title_id=MOVIE, owner=KID, visibility="private", title="Movie · kid private", kind="movie", duration=7200,
+            )
+            session.commit()
+        legacy_user = session.get(User, viewer)
+        try:
+            expected = jellyfin_service.stream_file(session, legacy_user, parent, source)
+        except FileNotFoundError:
+            expected = None
+    response = household.get(
+        f"/Videos/{jellyfin_id(parent)}/stream",
+        params={"MediaSourceId": jellyfin_id(source)},
+        headers=mediabrowser(TOKENS[viewer]) | {"Range": "bytes=0-9"},
+    )
+    assert response.status_code == (206 if expected is not None else 404)
+    if expected is not None:
+        assert response.content == b"\0" * 10
 
 
 def test_admin_access_api(household: TestClient) -> None:

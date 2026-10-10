@@ -63,9 +63,6 @@ class MediaFileResponse(FileResponse):
             group.start_soon(self._listen_for_disconnect, group)
             file: BinaryIO | None = None
             try:
-                # End-index MP4s ask for another range while parsing this prefix.
-                # Give that request a chance before buffering a bulk chunk.
-                startup_end = min(end, 4 * self.first_chunk_size) if start == 0 else start
                 size = self.first_chunk_size
                 requested = min(size, end - start)
                 file, chunk = await anyio.to_thread.run_sync(_open_seek_read, str(self.path), start, requested)
@@ -75,7 +72,7 @@ class MediaFileResponse(FileResponse):
                     await send({"type": "http.response.body", "body": chunk, "more_body": more_body})
                     if not more_body:
                         break
-                    size = self.first_chunk_size if start < startup_end else self.chunk_size
+                    size = self.chunk_size
                     requested = min(size, end - start)
                     chunk = await anyio.to_thread.run_sync(file.read, requested)
             finally:

@@ -57,7 +57,8 @@ RUN git init -q /src \
 FROM python:3.12.14-slim-trixie@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f AS asr-venv
 COPY docker/lumina-asr/requirements.lock /tmp/lumina-asr.lock
 RUN python -m venv /opt/lumina-asr \
-    && /opt/lumina-asr/bin/pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/lumina-asr.lock
+    && /opt/lumina-asr/bin/pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/lumina-asr.lock \
+    && /opt/lumina-asr/bin/python -m pip uninstall --yes pip
 
 
 FROM python:3.12.14-slim-trixie@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f

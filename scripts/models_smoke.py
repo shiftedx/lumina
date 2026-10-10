@@ -26,7 +26,22 @@ CATALOG = Path(__file__).with_name("models_smoke_catalog.json")
 DOWNLOAD_TIMEOUT_SECONDS = 900
 
 
+def image_contract() -> None:
+    """Development and installer payloads do not ship in the production image."""
+    assert not Path("/app/backend/tests").exists(), "backend tests reached the runtime image"
+    assert not list(Path("/opt/lumina-asr/bin").glob("pip*")), "ASR venv still has a pip executable"
+    result = subprocess.run(
+        [
+            "/opt/lumina-asr/bin/python", "-c",
+            "import importlib.util; raise SystemExit(importlib.util.find_spec('pip') is not None)",
+        ],
+        check=False,
+    )
+    assert result.returncode == 0, "ASR venv still contains the pip installer"
+
+
 def main() -> None:
+    image_contract()
     model_catalog.CATALOG_PATH = CATALOG
     catalog = model_catalog.catalog()
     manager = model_downloads.manager

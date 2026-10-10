@@ -218,11 +218,18 @@ def search_items(db: Session, user: User, query: jf.ItemsQuery) -> dict:
     on search results (accepted ceiling); route the refs through the filtered query if a client needs them.
     """
     refs = search_refs(db, user, query.searchterm or "", item_types(",".join(query.csv("includeitemtypes"))), SEARCH_LIMIT)
-    dtos = jf.JellyfinMapper(db, user, query.csv("fields")).by_ids(refs)
-    if query.csv("sortby"):
-        dtos.sort(key=lambda dto: (dto.get("SortName") or dto.get("Name") or "").casefold())
     start, limit = query.startindex, query.page_limit()
-    return jf.query_result(dtos[start:start + limit], len(dtos), start)
+    # Relevance order is already final, so an ordinary page only needs DTOs for
+    # its own refs. Rendering every ranked result first made a 60-item Jellyfin
+    # search pay TitleService's batches and serialization work for up to 200.
+    page = refs if query.csv("sortby") else refs[start:start + limit]
+    dtos = jf.JellyfinMapper(db, user, query.csv("fields")).by_ids(page)
+    total = len(refs)  # search_refs emits only visibility-checked Jellyfin title/item refs
+    if query.csv("sortby"):
+        total = len(dtos)  # preserve the old defensive count if by_ids drops a concurrently removed ref
+        dtos.sort(key=lambda dto: (dto.get("SortName") or dto.get("Name") or "").casefold())
+        dtos = dtos[start:start + limit]
+    return jf.query_result(dtos, total, start)
 
 
 def playlist_items_dtos(db: Session, user: User, playlist: pl.Playlist, fields: list[str]) -> list[dict]:

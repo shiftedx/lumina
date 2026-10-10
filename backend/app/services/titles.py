@@ -441,7 +441,10 @@ class TitleService:
 
     # ---- set-based page loading ------------------------------------------------
 
-    def load(self, user: User, titles: Iterable[MediaTitle], *, with_artifacts: bool = False, with_metadata: bool = False) -> TitleBatch:
+    def load(
+        self, user: User, titles: Iterable[MediaTitle], *, with_artifacts: bool = False, with_metadata: bool = False,
+        with_artwork: bool = True,
+    ) -> TitleBatch:
         """Ancestors, versions (+artifacts), progress, favorites, folder counts and art rows for ``titles``: ≤ 7 queries."""
         batch = TitleBatch(titles={title.id: title for title in titles}, art_scope=member_access.art_scope(self.db, user))
         page = list(batch.titles.values())
@@ -454,7 +457,8 @@ class TitleService:
         batch.progress = self.progress_for(user, [item.id for items in batch.versions.values() for item in items])
         batch.favorites = self.favorites_for(user, [title.id for title in page])
         self._load_folder_counts(batch, user, [title for title in page if title.type in FOLDER_TYPES or title.type in MUSIC_TITLE_TYPES])
-        self._load_artwork(batch, page)
+        if with_artwork:
+            self._load_artwork(batch, page)
         return batch
 
     def _load_artwork(self, batch: TitleBatch, page: list[MediaTitle]) -> None:

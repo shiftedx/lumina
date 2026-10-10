@@ -1,6 +1,6 @@
 """Connected apps (ADR 0010): per-device, scoped, revocable bearer credentials for non-browser clients.
 
-Resolution lives in app.security (resolve_device_token); this module mints, lists and revokes.
+Token lifecycle validation lives in app.security; this module mints, lists, revokes and resolves stream callers.
 """
 from __future__ import annotations
 
@@ -18,14 +18,14 @@ from datetime import timedelta
 from urllib.parse import unquote
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import or_
+from sqlalchemy import and_, false, or_
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.media_schemas import ConnectedApp, ConnectedAppScope
 from app.models import AppSettings, DeviceToken, User
 from app.persistence import write_transaction
-from app.security import DEVICE_TOKEN_IDLE_DAYS, resolve_device_token, session_digest, utcnow
+from app.security import DEVICE_TOKEN_IDLE_DAYS, MAX_BEARER_LENGTH, resolve_device_token, session_digest, utcnow, validate_device_token_record
 from app.services.rate_limit import grant_address
 from app.services.local_playback_sessions import sessions
 from app.services import member_access, two_factor
@@ -306,16 +306,56 @@ image_grants = _StreamGrants(IMAGE_GRANT_SECONDS, sliding=False)
 IMAGE_GRANT_KEY = "images"
 
 
-def jellyfin_stream_user(
-    request: Request,
-    item_id: str,
-    db: Session = Depends(get_db, scope="function"),
-    _enabled: AppSettings | None = Depends(require_jellyfin_enabled),
+def _jellyfin_snapshot(
+    db: Session, request: Request, record: DeviceToken, user: User, presented: str | None,
 ) -> User:
-    """``jellyfin_user`` for /Videos/{id}/stream, which may arrive without credentials under a PlaybackInfo grant."""
-    if parse_client_auth(request).token is None:
+    """Apply the shared Jellyfin claims, grants, and detached access snapshot."""
+    claimed = [value for key, value in request.query_params.multi_items() if key.lower() == "userid"]
+    if "uid" in request.path_params:
+        claimed.append(request.path_params["uid"])
+    # Every claim must be the caller: a route may read any one of repeated userId values.
+    if any(parse_item_id(value) != parse_item_id(user.id) for value in claimed):
+        raise HTTPException(status_code=404, detail="Not Found")
+    request.state.connected_app_id = record.id
+    if presented:
+        image_grants.put(grant_address(request), [IMAGE_GRANT_KEY], presented)
+    snapshot = User(id=user.id, username=user.username, display_name=user.display_name, role=user.role, is_active=user.is_active)
+    return member_access.carry_access(db, snapshot, user)  # ADR 0019: the Jellyfin API's queries take the literal clause
+
+
+def jellyfin_stream_user(request: Request, item_id: str, db: Session) -> User:
+    """Resolve a stream caller in its endpoint worker.
+
+    An explicit credential combines the API-enable gate, token, and member lookup
+    into one live query.  Header-less players retain their PlaybackInfo grant path:
+    its enable gate remains before the grant lookup and normal Jellyfin resolver.
+    """
+    presented = parse_client_auth(request).token
+    if presented is None:
+        enabled = require_jellyfin_enabled(db)
         request.state.stream_grant_token = stream_grants.get(grant_address(request), parse_item_id(item_id))
-    return jellyfin_user(request, db, _enabled)
+        return jellyfin_user(request, db, enabled)
+
+    token_match = (
+        and_(DeviceToken.token_digest == session_digest(presented), DeviceToken.kind == "jellyfin")
+        if len(presented) <= MAX_BEARER_LENGTH
+        else false()
+    )
+    found = (
+        db.query(AppSettings.jellyfin_enabled, DeviceToken, User)
+        .select_from(AppSettings)
+        .outerjoin(DeviceToken, token_match)
+        .outerjoin(User, User.id == DeviceToken.user_id)
+        .filter(AppSettings.id == 1)
+        .one_or_none()
+    )
+    if found is None or not found[0]:
+        raise HTTPException(status_code=404, detail="Not Found")
+    resolved = validate_device_token_record(db, request, (found[1], found[2]) if found[1] is not None else None)
+    if resolved is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    record, user = resolved
+    return _jellyfin_snapshot(db, request, record, user, presented)
 
 
 def jellyfin_user(
@@ -334,14 +374,4 @@ def jellyfin_user(
     if resolved is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     record, user = resolved
-    claimed = [value for key, value in request.query_params.multi_items() if key.lower() == "userid"]
-    if "uid" in request.path_params:
-        claimed.append(request.path_params["uid"])
-    # Every claim must be the caller: a route may read any one of repeated userId values.
-    if any(parse_item_id(value) != parse_item_id(user.id) for value in claimed):
-        raise HTTPException(status_code=404, detail="Not Found")
-    request.state.connected_app_id = record.id
-    if presented:
-        image_grants.put(grant_address(request), [IMAGE_GRANT_KEY], presented)
-    snapshot = User(id=user.id, username=user.username, display_name=user.display_name, role=user.role, is_active=user.is_active)
-    return member_access.carry_access(db, snapshot, user)  # ADR 0019: the Jellyfin API's queries take the literal clause
+    return _jellyfin_snapshot(db, request, record, user, presented)

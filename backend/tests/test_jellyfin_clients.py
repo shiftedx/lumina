@@ -12,7 +12,7 @@ from starlette.requests import Request
 from app import db as db_module
 from app.config import settings
 from app.main import app
-from app.models import DeviceToken, LibraryItem, MemberAccess
+from app.models import AppSettings, DeviceToken, LibraryItem, MemberAccess, User
 from app.routers import jellyfin_probes
 from app.services import activity, media_probe, public_address
 from app.services.rate_limit import grant_address
@@ -508,6 +508,85 @@ def test_selected_stream_loads_its_registered_file_with_the_visible_version(jf: 
     assert len(statements) == 1, "a selected stream resolves visibility and its registered file together"
     assert "join media_artifacts" in statements[0].lower()
     assert "join storage_roots" in statements[0].lower()
+
+
+def test_selected_admin_stream_combines_enable_gate_and_token_member_lookup(jf: TestClient) -> None:
+    from sqlalchemy import event
+
+    with db_module.SessionLocal() as db:
+        db.get(User, ALICE).role = "admin"
+        db.commit()
+
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):  # noqa: ANN001
+        if statement.lstrip().lower().startswith("select"):
+            statements.append(statement)
+
+    event.listen(db_module.engine, "before_cursor_execute", capture)
+    try:
+        response = jf.get(
+            f"/Videos/{HEX(MOVIE)}/stream",
+            params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN},
+            headers={"Range": "bytes=0-9"},
+        )
+        assert (response.status_code, len(response.content)) == (206, 10)
+    finally:
+        event.remove(db_module.engine, "before_cursor_execute", capture)
+    assert len(statements) == 2
+    assert "from app_settings" in statements[0].lower()
+    assert "join device_tokens" in statements[0].lower()
+    assert "join users" in statements[0].lower()
+    assert "join media_artifacts" in statements[1].lower()
+
+
+def test_stream_disabled_precedes_an_invalid_explicit_token(jf: TestClient) -> None:
+    with db_module.SessionLocal() as db:
+        db.get(AppSettings, 1).jellyfin_enabled = False
+        db.commit()
+    assert jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"api_key": "not-a-token"}).status_code == 404
+
+
+def test_stream_rejects_an_invalid_explicit_token_without_hashing_an_oversized_one(jf: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import connected_apps
+
+    calls = []
+
+    def never_hash(_token: str) -> str:
+        calls.append(_token)
+        raise AssertionError("oversized credentials must not be hashed")
+
+    monkeypatch.setattr(connected_apps, "session_digest", never_hash)
+    response = jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"api_key": "x" * 513})
+    assert (response.status_code, calls) == (401, [])
+
+
+@pytest.mark.parametrize("change", ["revoked", "inactive"])
+def test_stream_rechecks_explicit_token_member_state_on_every_range(jf: TestClient, change: str) -> None:
+    path = f"/Videos/{HEX(MOVIE)}/stream"
+    params = {"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN}
+    assert jf.get(path, params=params, headers={"Range": "bytes=0-9"}).status_code == 206
+    with db_module.SessionLocal() as db:
+        if change == "revoked":
+            db.query(DeviceToken).filter_by(user_id=ALICE, kind="jellyfin").delete()
+        else:
+            db.get(User, ALICE).is_active = False
+        db.commit()
+    assert jf.get(path, params=params, headers={"Range": "bytes=0-9"}).status_code == 401
+
+
+def test_stream_returns_the_fixed_404_when_the_file_disappears_after_authorization(jf: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path.resolve() / "media" / "Movie (2020)" / "Movie (2020) - 4K.mkv"
+    original_stat = Path.stat
+
+    def missing(path: Path, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        if path == target:
+            raise FileNotFoundError
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", missing)
+    response = jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN})
+    assert (response.status_code, response.content) == (404, b"")
 
 
 @pytest.mark.parametrize("unavailable", ["quarantined", "disabled", "unlinked", "symlink"])

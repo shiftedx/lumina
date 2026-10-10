@@ -34,7 +34,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import settings
 from app.models import Person, PlaybackProgress, User
-from app.db import session_scope
+from app.db import get_db, session_scope
 from app.persistence import read_regular_file, write_transaction
 from app.security import resolve_device_token
 from app.services.rate_limit import enforce_rate_limit, grant_address
@@ -189,6 +189,10 @@ class JellyfinPathMiddleware:
                 logger.info("jellyfin.trace %s %s %s", scope["method"], route, ",".join(names))
 
 
+# Streaming has its own small router so the explicit-device-token hot path can
+# gate settings, authenticate, and resolve the registered file in one endpoint
+# worker.  The larger compatibility surface retains the shared enable gate.
+stream_router = APIRouter(prefix=PRIVATE_PREFIX)
 router = APIRouter(prefix=PRIVATE_PREFIX, dependencies=[Depends(require_jellyfin_enabled)])
 
 
@@ -500,10 +504,16 @@ def playback_info(
     return {"MediaSources": sources, "PlaySessionId": play_session_id}
 
 
-@router.api_route("/videos/{item_id}/stream", methods=["GET", "HEAD"])
-@router.api_route("/videos/{item_id}/stream.{container}", methods=["GET", "HEAD"])
-def video_stream(item_id: str, request: Request, user: Annotated[User, Depends(jellyfin_stream_user)], db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> MediaFileResponse:
+@stream_router.api_route("/videos/{item_id}/stream", methods=["GET", "HEAD"])
+@stream_router.api_route("/videos/{item_id}/stream.{container}", methods=["GET", "HEAD"])
+def video_stream(
+    item_id: str,
+    request: Request,
+    db: Session = Depends(get_db, scope="function"),
+    mediasourceid: str | None = Query(None, max_length=64),
+) -> MediaFileResponse:
     """Direct play with Range (like /api/library/{id}/media); the session closes before bytes stream."""
+    user = jellyfin_stream_user(request, item_id, db)
     return media_file(item_id, request, user, db, mediasourceid)
 
 
@@ -526,7 +536,11 @@ def media_file(item_id: str, request: Request, user: User, db: Session, mediasou
     activity.guard(user.id, version_id, device)  # an admin stop ends downloads too
     if request.method == "GET" and not attachment:  # a download is not a watch session
         activity.touch(user.id, version_id, device)
-    return MediaFileResponse(path, filename=path.name if attachment else None)
+    try:
+        stat_result = path.stat()
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from exc
+    return MediaFileResponse(path, filename=path.name if attachment else None, stat_result=stat_result)
 
 
 @router.get("/videos/{item_id}/{source_id}/subtitles/{index}/stream.{fmt}")
@@ -837,6 +851,9 @@ def register(app: FastAPI, artwork: ArtworkService) -> None:
     jellyfin_integration.register(app)  # before this router: its routes win over the stubs and the catch-all
     app.include_router(jellyfin_probes.router)
     app.add_api_websocket_route("/socket", jellyfin_socket)  # before main.py mounts the SPA, which closes websockets
+    app.include_router(stream_router)
     app.include_router(router)
     # app.routes lists the auth and integration routes; these routers are included as opaque entries, so read their own routes.
-    app.add_middleware(JellyfinPathMiddleware, root_segments=jellyfin_segments([*app.routes, *jellyfin_probes.router.routes, *router.routes]))
+    app.add_middleware(JellyfinPathMiddleware, root_segments=jellyfin_segments([
+        *app.routes, *jellyfin_probes.router.routes, *stream_router.routes, *router.routes,
+    ]))

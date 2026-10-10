@@ -30,6 +30,7 @@ class MediaFileResponse(FileResponse):
     """Start ranges with a small read, then amortize worker calls with media-sized chunks."""
 
     chunk_size = MEDIA_FILE_CHUNK_SIZE
+    initial_chunk_size = 16 * 1024
     first_chunk_size = 64 * 1024
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -64,7 +65,7 @@ class MediaFileResponse(FileResponse):
             file: BinaryIO | None = None
             try:
                 initial_range = start == 0
-                size = self.first_chunk_size
+                size = self.initial_chunk_size if initial_range else self.first_chunk_size
                 requested = min(size, end - start)
                 file, chunk = await anyio.to_thread.run_sync(_open_seek_read, str(self.path), start, requested)
                 while True:

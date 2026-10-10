@@ -554,13 +554,14 @@ def test_selected_stream_template_binds_only_live_request_values() -> None:
     assert set(compiled.params) == {"token_digest", "cutoff", "entity_id", "wanted"}
 
 
-def test_static_stream_template_keeps_required_defaulted_binds_live() -> None:
-    """A future required policy bind must not be frozen at its construction default."""
+@pytest.mark.parametrize("required", [True, False])
+def test_static_stream_template_keeps_defaulted_binds_live(required: bool) -> None:
+    """A future named policy bind must not be frozen at its construction default."""
     from sqlalchemy import bindparam, create_engine, select
     from sqlalchemy.dialects import sqlite
     from app.services.jellyfin import _inline_static_stream_values
 
-    statement = _inline_static_stream_values(select(bindparam("future_policy", value=1, required=True)))
+    statement = _inline_static_stream_values(select(bindparam("future_policy", value=1, required=required)))
     compiled = statement.compile(dialect=sqlite.dialect())
     assert set(compiled.params) == {"future_policy"}
     engine = create_engine("sqlite://")

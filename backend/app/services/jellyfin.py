@@ -1194,6 +1194,7 @@ def _inline_static_stream_values(statement):  # noqa: ANN001, ANN202
         if not (
             isinstance(node, BindParameter)
             and node.key not in _STREAM_RUNTIME_BIND_KEYS
+            and node.unique
             and not node.required
             and node.callable is None
             and not node.expanding

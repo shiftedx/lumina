@@ -90,6 +90,8 @@ type LuminaPlayerProps = {
   onError?: (media: HTMLMediaElement) => boolean | void;
   onLoadedMetadata?: (media: HTMLMediaElement) => void;
   onPause?: (media: HTMLMediaElement) => void;
+  /** User controls asked playback to start or pause; source-change media events do not call this. */
+  onPlayIntentChange?: (playing: boolean) => void;
   onSeeked?: (media: HTMLMediaElement) => void;
   onTimeUpdate?: (media: HTMLMediaElement) => void;
 };
@@ -171,7 +173,7 @@ function setAttr(element: Element, name: string, value: string | null) {
 const SEEK_KEY_DELTAS: Record<string, number> = { arrowleft: -5, arrowdown: -5, arrowright: 5, arrowup: 5, pagedown: -10, pageup: 10 };
 
 export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(function LuminaPlayer(
-  { audio, className, extensions, mediaRef, onCanPlay, onMediaReplaced, onEnded, onError, onLoadedMetadata, onPause, onSeeked, onTimeUpdate, source, title },
+  { audio, className, extensions, mediaRef, onCanPlay, onMediaReplaced, onEnded, onError, onLoadedMetadata, onPause, onPlayIntentChange, onSeeked, onTimeUpdate, source, title },
   forwardedRef,
 ) {
   const prefs = useContext(PlayerPreferencesContext);
@@ -319,6 +321,7 @@ export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(func
   async function play() {
     const media = nativeRef.current;
     if (!media) return;
+    onPlayIntentChange?.(true);
     setNotice(null);
     try {
       await media.play();
@@ -332,6 +335,7 @@ export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(func
   }
 
   function pause() {
+    onPlayIntentChange?.(false);
     nativeRef.current?.pause();
     setIsPlaying(false);
   }

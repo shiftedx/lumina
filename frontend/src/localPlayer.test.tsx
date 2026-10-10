@@ -80,6 +80,27 @@ describe('LocalLibraryPlayer tracks and probe', () => {
     play.mockRestore();
   });
 
+  it('honors Play pressed while a quality restart is still preparing', async () => {
+    api.getLocalPlaybackOptions.mockResolvedValue(direct);
+    let resolveSession!: (session: { session_id: string; mode: string; playback_url: string; start: number }) => void;
+    api.startLocalPlaybackSession.mockReturnValue(new Promise((resolve) => { resolveSession = resolve; }));
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    const props = { itemId: 'i1', kind: 'video' as const, poster: null, title: 'Film' };
+    const view = render(<LocalLibraryPlayer {...props} request={{}} />);
+    await waitFor(() => expect(screen.getByLabelText('Film video').getAttribute('src')).toBe('/api/library/i1/media'));
+
+    view.rerender(<LocalLibraryPlayer {...props} request={{ max_height: 720 }} />);
+    await waitFor(() => expect(api.startLocalPlaybackSession).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    expect(play).toHaveBeenCalledTimes(1);
+
+    resolveSession({ session_id: 's1', mode: 'transcode', playback_url: '/api/playback-sessions/s1/index.m3u8', start: 0 });
+    await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
+    expect((screen.getByLabelText('Film video') as HTMLVideoElement).autoplay).toBe(true);
+    play.mockRestore();
+  });
+
   it('reports null when the probe is unreachable and still plays the file', async () => {
     api.getLocalPlaybackOptions.mockRejectedValue(new Error('offline'));
     const onOptions = vi.fn();

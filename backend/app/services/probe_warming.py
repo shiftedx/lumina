@@ -22,7 +22,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import OperationalError
 
 from app.db import SessionLocal
@@ -143,29 +143,57 @@ class ProbeWarming:
                 self._wake.wait(IDLE_SECONDS)
                 self._wake.clear()
 
-    def _next(self, db) -> MediaArtifact | None:  # noqa: ANN001
+    @staticmethod
+    def _needs_probe() -> Any:
+        """SQL predicate for a new, changed or pre-stream-cache artifact."""
+        fingerprint = func.json_extract(MediaArtifact.probe, "$.fingerprint")
+        expected = func.printf("%d:%d", MediaArtifact.size, MediaArtifact.mtime_ns)
+        stale = and_(
+            MediaArtifact.size.is_not(None), MediaArtifact.mtime_ns.is_not(None),
+            fingerprint.is_not(None), fingerprint != expected,
+        )
+        incomplete = and_(
+            func.json_type(MediaArtifact.probe, "$.streams").is_(None),
+            func.json_extract(MediaArtifact.probe, "$.error").is_(None),
+            func.json_type(MediaArtifact.probe, "$.loudness").is_(None),
+        )
+        return or_(MediaArtifact.probe.is_(None), stale, incomplete)
+
+    def _next(self, db) -> tuple[MediaArtifact, bool] | None:  # noqa: ANN001
+        """Return (artifact, probe_only), prioritizing opened items then codec readiness."""
         artifacts = MediaArtifactService(db)
         while self._wanted:
             found = artifacts.artifact_for(self._wanted.popleft())
             if found and found[0].lifecycle == "available" and "loudness" not in (found[0].probe or {}):
-                return found[0]
-        return (
+                return found[0], False
+        unprobed = (
+            db.query(MediaArtifact)
+            .join(StorageRoot, StorageRoot.id == MediaArtifact.root_id)
+            .filter(MediaArtifact.lifecycle == "available", StorageRoot.enabled.is_(True), self._needs_probe())
+            .order_by(MediaArtifact.created_at.desc())
+            .first()
+        )
+        if unprobed is not None:
+            return unprobed, True
+        unmeasured = (
             db.query(MediaArtifact)
             .join(StorageRoot, StorageRoot.id == MediaArtifact.root_id)
             .filter(MediaArtifact.lifecycle == "available", StorageRoot.enabled.is_(True), func.json_extract(MediaArtifact.probe, "$.loudness").is_(None))
             .order_by(MediaArtifact.created_at.desc())
             .first()
         )
+        return (unmeasured, False) if unmeasured is not None else None
 
     def run_once(self) -> bool:
         """Warm one file. False when nothing is left (or when stopping)."""
         with SessionLocal() as db:
-            artifact = self._next(db)
-            if artifact is None:
+            selected = self._next(db)
+            if selected is None:
                 return False
+            artifact, probe_only = selected
             artifact_id = artifact.id
         try:
-            return self._warm(artifact_id)
+            return self._probe(artifact_id) if probe_only else self._warm(artifact_id)
         except OperationalError:
             raise  # a busy database or writer slot is transient: _loop retries it later
         except Exception as exc:  # noqa: BLE001 - stamp it so it leaves the head of the newest-first queue
@@ -174,8 +202,32 @@ class ProbeWarming:
                 artifact = db.get(MediaArtifact, artifact_id)
                 if artifact is not None:
                     with write_transaction(db, name="probe_warming"):
-                        artifact.probe = {**(artifact.probe or {}), "loudness": {"error": "measure_failed"}}
+                        if probe_only:
+                            fingerprint = (
+                                f"{artifact.size}:{artifact.mtime_ns}"
+                                if artifact.size is not None and artifact.mtime_ns is not None else None
+                            )
+                            artifact.probe = {
+                                "fingerprint": fingerprint, "error": "probe_failed",
+                                "loudness": {"error": "measure_failed"},
+                            }
+                        else:
+                            artifact.probe = {**(artifact.probe or {}), "loudness": {"error": "measure_failed"}}
             return True
+
+    def _probe(self, artifact_id: str) -> bool:
+        """Cache codec facts only, so full-file loudness work cannot block library readiness."""
+        with SessionLocal() as db:
+            artifact = db.get(MediaArtifact, artifact_id)
+            root = db.get(StorageRoot, artifact.root_id)
+            try:
+                path = artifact_file(root.path, artifact.relative_path)
+            except FileNotFoundError:
+                with write_transaction(db, name="probe_warming"):
+                    artifact.probe = {"fingerprint": None, "error": "missing", "loudness": {"error": "missing"}}
+                return True
+            MediaProbeService(db).cached_facts(artifact, path)
+        return True
 
     def _warm(self, artifact_id: str) -> bool:
         with SessionLocal() as db:

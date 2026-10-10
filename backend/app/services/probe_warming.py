@@ -1,10 +1,10 @@
 """Post-import probe warming and loudness analysis.
 
-One background thread probes files whose cached facts are missing or stale and measures the
-loudness of their default audio track, one file at a time. The next file is the one someone
-just opened, else the newest with ``json_extract(probe, '$.loudness') IS NULL``, so a restart
-resumes where it stopped. The loudness pass pauses while any video encode runs. Results live
-inside ``artifact.probe``, so a changed file (new fingerprint) is re-measured for free.
+One background thread first drains missing or stale codec probes, then measures the loudness
+of default audio tracks one file at a time. An item someone just opened jumps both queues. The
+database is the durable queue, so a restart resumes either phase where it stopped. Loudness
+pauses while any video encode runs. Results live inside ``artifact.probe``, so a changed file
+(new fingerprint) is probed again before its loudness is re-measured.
 """
 from __future__ import annotations
 

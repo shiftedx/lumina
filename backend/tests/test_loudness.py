@@ -141,6 +141,32 @@ def test_a_stale_fingerprint_is_reprobed_before_its_loudness_is_remeasured(
     assert _loudness("changed.mp4") == MEASURED
 
 
+def test_a_prioritized_stale_item_with_old_loudness_still_enters_the_probe_phase(
+    household: None, worker: ProbeWarming, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = settings.library_root / "alice" / "changed.mp4"
+    item_id = _download("alice", path)
+    with db_module.SessionLocal() as db:
+        artifact = db.query(MediaArtifact).one()
+        status = path.stat()
+        artifact.size, artifact.mtime_ns = status.st_size, status.st_mtime_ns
+        artifact.probe = {"fingerprint": "1:1", "streams": [], "loudness": MEASURED}
+        db.commit()
+    probes: list[str] = []
+
+    def probe(self, candidate):  # noqa: ANN001
+        probes.append(candidate.name)
+        return {"streams": [{"type": "audio", "index": 0, "default": True}]}
+
+    monkeypatch.setattr(pw.MediaProbeService, "_probe", probe)
+    monkeypatch.setattr(pw, "media_tool", lambda db, name: "ffmpeg")
+    worker.prioritize(item_id)
+
+    assert worker.run_once() and probes == ["changed.mp4"]
+    assert _loudness("changed.mp4") is None
+    assert worker.run_once() and worker.measured == ["changed.mp4"]
+
+
 @needs_ffmpeg
 def test_newest_first_restart_safe_and_opened_items_jump_the_queue(household: None, worker: ProbeWarming) -> None:
     older = _download("alice", make_media(settings.library_root / "alice" / "older.mp4"), remote_id="older")

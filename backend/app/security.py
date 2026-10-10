@@ -388,11 +388,12 @@ def resolve_device_token(db: Session, request: Request, token: str | None, *, ki
     """
     if not token or len(token) > MAX_BEARER_LENGTH:
         return None
-    record = db.query(DeviceToken).filter(DeviceToken.token_digest == session_digest(token), DeviceToken.kind == kind).first()
-    if record is None:
+    found = (db.query(DeviceToken, User).outerjoin(User, User.id == DeviceToken.user_id)
+        .filter(DeviceToken.token_digest == session_digest(token), DeviceToken.kind == kind).first())
+    if found is None:
         return None
+    record, user = found
     now = utcnow()
-    user = db.get(User, record.user_id)
     if user is None or not user.is_active or record.last_seen_at + timedelta(days=DEVICE_TOKEN_IDLE_DAYS) <= now:
         try:
             with write_transaction(db, name="device_token_expire"):

@@ -238,6 +238,8 @@ After the container is up, open **Settings → Playback & transcoding**, keep ha
 
 ## Remote HTTPS
 
+Direct LAN HTTP responses compress text assets and JSON when the client accepts gzip. Media bodies, byte ranges and event streams keep their original representation. The shipped Caddyfile sets `header_up Accept-Encoding identity` so Caddy continues choosing zstd or gzip for HTTPS clients; add that line to an existing Caddy reverse-proxy block when updating.
+
 Keep port 8765 on loopback. The only supported remote topology is one TLS-terminating Caddy proxy in front of Lumina (`docker-compose.https.example.yml` + `docker/Caddyfile.example`). Create the first administrator over loopback first: remote mode refuses to start on an empty database.
 
 ```bash

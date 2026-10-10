@@ -252,7 +252,10 @@ def test_a_playlist_replaced_while_it_is_served_is_answered_whole(household: Non
     try:
         with _client("alice") as client:
             for _ in range(300):
-                response = client.get(body["playback_url"])
+                # This test compares the entity length with the decoded body to prove the playlist was
+                # read atomically. Disable transfer compression: HTTPX decodes gzip while retaining its
+                # wire Content-Length, which is intentionally different from the decoded body length.
+                response = client.get(body["playback_url"], headers={"Accept-Encoding": "identity"})
                 assert response.status_code == 200
                 assert int(response.headers["content-length"]) == len(response.content)
                 assert response.text.startswith("#EXTM3U\n") and response.text.endswith("seg0.m4s\n")

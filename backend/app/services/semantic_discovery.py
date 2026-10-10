@@ -44,6 +44,18 @@ class SemanticEncoder(Protocol):
 
 
 @dataclass(frozen=True)
+class _TitleSearchRecord:
+    """The title fields search ranks; avoids hydrating unrelated DTO metadata."""
+
+    id: str
+    type: str
+    parent_id: str | None
+    name: str
+    year: int | None
+    metadata_json: dict
+
+
+@dataclass(frozen=True)
 class SearchDocument:
     kind: MatchKind
     record_id: str
@@ -53,7 +65,7 @@ class SearchDocument:
     signature: str
     library_item: LibraryItem | None = None
     automation: SourceAutomation | None = None
-    media_title: MediaTitle | None = None
+    media_title: MediaTitle | _TitleSearchRecord | None = None
     start_ms: int | None = None  # moment documents only
 
     @property
@@ -73,7 +85,7 @@ class DiscoveryMatch:
     match_mode: Literal["hybrid", "lexical", "semantic"]
     library_item: LibraryItem | None = None
     automation: SourceAutomation | None = None
-    media_title: MediaTitle | None = None
+    media_title: MediaTitle | _TitleSearchRecord | None = None
     start_ms: int | None = None  # moment documents only
 
 
@@ -223,7 +235,7 @@ class SemanticDiscovery:
         if dense is not None:
             return self._dense_search(db, member, normalized_query, dense, choice.model_id, limit=limit, types=types)
 
-        documents = _filter_types(self._candidate_documents(db, member, normalized_query), types)
+        documents = _filter_types(self._candidate_documents(db, member, normalized_query, types=types), types)
         with self._lock:
             index = self._member_indexes.setdefault(member.id, _MemberIndex())
             try:
@@ -257,7 +269,9 @@ class SemanticDiscovery:
     def _dense_search(self, db, member, query, dense, model_id, *, limit, types) -> DiscoveryResult:  # noqa: ANN001
         """Stored vectors score the semantic side; an unembedded document scores 0 (vector spaces never mix)."""
         vectors = embeddings.vector_map(db, model_id)
-        documents = _filter_types(self._candidate_documents(db, member, query, embeddings.nearest(vectors, dense)), types)
+        documents = _filter_types(
+            self._candidate_documents(db, member, query, embeddings.nearest(vectors, dense), types=types), types,
+        )
         scores = {
             self._document_key(document): embeddings.cosine(dense, vectors[document.record_id][1])
             for document in documents
@@ -353,6 +367,7 @@ class SemanticDiscovery:
 
     def _candidate_documents(
         self, db: Session, member: User, query: str, vector_hits: Sequence[tuple[str, str]] = (),
+        *, types: Collection[str] | None = None,
     ) -> list[SearchDocument]:
         """Visible candidates: item FTS ∪ title FTS ∪ transcript FTS ∪ vector top-K, plus the member's automations.
 
@@ -370,11 +385,30 @@ class SemanticDiscovery:
             *search.visible_item_ids(member, [target for target, kind in vector_hits if kind == "item"]),
         ]))
         loaded = list(dict.fromkeys([*item_ids, *(hit.item_id for hit in moments)]))
-        items = {item.id: item for item in db.query(LibraryItem).filter(LibraryItem.id.in_(loaded)).all()} if loaded else {}
+        needs_library = types is None or "library" in types
+        needs_moments = types is None or "moment" in types
+        # Any item-backed result needs full rows, so load them once. A title-only
+        # search needs just these three link fields to build version and summary text.
+        needs_full_items = needs_library or needs_moments
+        items = (
+            {item.id: item for item in db.query(LibraryItem).filter(LibraryItem.id.in_(loaded)).all()}
+            if loaded and needs_full_items else {}
+        )
+        if not loaded:
+            links = {}
+        elif needs_full_items:
+            links = items
+        else:
+            links = {
+                row.id: row
+                for row in db.execute(
+                    select(LibraryItem.id, LibraryItem.title, LibraryItem.title_id).where(LibraryItem.id.in_(loaded))
+                )
+            }
         versions: dict[str, list[str]] = {}
         summaries_by_title: dict[str, list[str]] = {}
         for item_id in item_ids:
-            item = items.get(item_id)
+            item = links.get(item_id)
             if item is not None and item.title_id:
                 versions.setdefault(item.title_id, []).append(item.title)
                 if item_id in summaries:
@@ -384,8 +418,8 @@ class SemanticDiscovery:
             *sorted(search.visible_title_ids(member, [*versions, *(t for t, kind in vector_hits if kind == "title")])),
         ]))
         documents = self._title_documents(db, title_ids, versions, summaries_by_title)
-        plain = [item_id for item_id in item_ids if item_id in items and not items[item_id].title_id]
-        if plain:
+        plain = [item_id for item_id in item_ids if item_id in links and not links[item_id].title_id]
+        if plain and needs_library:
             tags_by_item, comments_by_item = self._member_curation(db, member, plain)
             documents += [
                 self._library_document(
@@ -394,13 +428,14 @@ class SemanticDiscovery:
                 for item_id in plain
             ]
         moment_items: set[str] = set()
-        for hit in moments:
+        for hit in moments if needs_moments else ():
             if hit.start_ms is None or hit.item_id in moment_items or hit.item_id not in items:
                 continue
             moment_items.add(hit.item_id)
             documents.append(self._moment_document(items[hit.item_id], hit))
-        automations = db.query(SourceAutomation).filter(SourceAutomation.user_id == member.id).all()
-        documents.extend(self._automation_document(automation) for automation in automations)
+        if types is None or "channel" in types or "automation" in types:
+            automations = db.query(SourceAutomation).filter(SourceAutomation.user_id == member.id).all()
+            documents.extend(self._automation_document(automation) for automation in automations)
         return documents
 
     @staticmethod
@@ -470,12 +505,25 @@ class SemanticDiscovery:
     ) -> list[SearchDocument]:
         if not title_ids:
             return []
-        known = {t.id: t for t in db.scalars(select(MediaTitle).where(MediaTitle.id.in_(title_ids)))}
+        columns = (
+            MediaTitle.id, MediaTitle.type, MediaTitle.parent_id, MediaTitle.name, MediaTitle.year, MediaTitle.metadata_json,
+        )
+
+        def records(ids) -> dict[str, _TitleSearchRecord]:  # noqa: ANN001
+            return {
+                row.id: _TitleSearchRecord(
+                    id=row.id, type=row.type, parent_id=row.parent_id, name=row.name,
+                    year=row.year, metadata_json=row.metadata_json,
+                )
+                for row in db.execute(select(*columns).where(MediaTitle.id.in_(ids)))
+            }
+
+        known = records(title_ids)
         titles = dict(known)
         for _generation in range(2):  # parents, then grandparents: episodes need their series name
             missing = {t.parent_id for t in known.values() if t.parent_id and t.parent_id not in known}
             if missing:
-                known.update({t.id: t for t in db.scalars(select(MediaTitle).where(MediaTitle.id.in_(missing)))})
+                known.update(records(missing))
         lookup = lambda title_id: known.get(title_id or "")  # noqa: E731
         return [
             SemanticDiscovery._title_document(
@@ -488,7 +536,8 @@ class SemanticDiscovery:
 
     @staticmethod
     def _title_document(
-        title: MediaTitle, text_fields: dict[str, str], version_titles: list[str], summaries: list[str],
+        title: MediaTitle | _TitleSearchRecord,
+        text_fields: dict[str, str], version_titles: list[str], summaries: list[str],
     ) -> SearchDocument:
         fields = (
             ("title", title.name),

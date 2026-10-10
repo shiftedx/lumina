@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import cProfile
+import hashlib
 import io
 import json
 import os
@@ -22,6 +23,7 @@ import statistics
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,6 +39,7 @@ from app.models import User  # noqa: E402
 from app.routers.jellyfin_integration import search_items  # noqa: E402
 from app.services import member_access  # noqa: E402
 from app.services.jellyfin import ItemsQuery, JellyfinMapper  # noqa: E402
+from app.services.semantic_discovery import search_ids  # noqa: E402
 
 
 def distribution(values: list[float]) -> dict[str, object]:
@@ -121,9 +124,13 @@ def main() -> int:
         with sessions() as db:
             return search_items(db, request_user(db), search_query)
 
+    def untyped_search() -> list[dict]:
+        with sessions() as db:
+            return [asdict(ref) for ref in search_ids(db, request_user(db), args.search_term, types=None, limit=200)]
+
     service = {}
     payloads = {}
-    for name, action in (("items_page", page), ("items_search", search)):
+    for name, action in (("items_page", page), ("items_search", search), ("semantic_search_untyped", untyped_search)):
         before_count, before_ms = sql["count"], sql["milliseconds"]
         samples, payload = timed(action, args.samples, args.warmups)
         payload = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -132,6 +139,7 @@ def main() -> int:
         service[name] = {
             **distribution(samples),
             "response_bytes": len(payload.encode()),
+            "response_sha256": hashlib.sha256(payload.encode()).hexdigest(),
             "sql_statements_per_call": (sql["count"] - before_count) / calls,
             "sql_ms_per_call": (sql["milliseconds"] - before_ms) / calls,
             "profile_one_call": profile(action),
@@ -144,7 +152,7 @@ def main() -> int:
         app = FastAPI()
 
         @app.get("/dict")
-        def normal_dict() -> dict:
+        def normal_dict():  # noqa: ANN202
             return payload
 
         @app.get("/response")

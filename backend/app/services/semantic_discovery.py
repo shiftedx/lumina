@@ -230,20 +230,29 @@ class SemanticDiscovery:
                 self._synchronize(index, documents)
                 query_embedding = self._encoder.encode(normalized_query)
                 mode: SearchMode = "hybrid"
-                indexed = tuple(index.documents[self._document_key(document)] for document in documents)
+                # Snapshot the entries: a later request may refresh the cached
+                # ORM document while this one ranks its independent candidates.
+                indexed = tuple(
+                    _IndexedDocument(document=entry.document, embedding=entry.embedding)
+                    for document in documents
+                    for entry in (index.documents[self._document_key(document)],)
+                )
             except Exception:
                 # Typeahead must stay useful if an optional semantic adapter fails.
                 mode = "lexical"
                 query_embedding = {}
                 indexed = tuple(_IndexedDocument(document=document, embedding={}) for document in documents)
+            generation = index.generation
 
-            matches = self._rank(indexed, normalized_query, mode, query_embedding)[:limit]
-            return DiscoveryResult(
-                query=normalized_query,
-                mode=mode,
-                matches=tuple(matches),
-                index_generation=index.generation,
-            )
+        # Ranking reads only the request's snapshot. Keeping it outside the
+        # process-wide cache lock lets concurrent searches rank in parallel.
+        matches = self._rank(indexed, normalized_query, mode, query_embedding)[:limit]
+        return DiscoveryResult(
+            query=normalized_query,
+            mode=mode,
+            matches=tuple(matches),
+            index_generation=generation,
+        )
 
     def _dense_search(self, db, member, query, dense, model_id, *, limit, types) -> DiscoveryResult:  # noqa: ANN001
         """Stored vectors score the semantic side; an unembedded document scores 0 (vector spaces never mix)."""

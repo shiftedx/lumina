@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Integer, and_, bindparam, cast, false, func, literal, or_, select, true
+from sqlalchemy import Integer, and_, bindparam, cast, false, func, literal, literal_column, or_, select, true
+from sqlalchemy.dialects import sqlite
 from sqlalchemy.orm import Session, aliased, defer
 from sqlalchemy.sql import operators, visitors
 from sqlalchemy.sql.elements import BinaryExpression, BindParameter
@@ -1154,6 +1155,9 @@ _STATIC_STREAM_TYPE_SETS = frozenset((
     member_access.TV_TYPES,
     ("movie", *member_access.TV_TYPES),
 ))
+_STREAM_RUNTIME_BIND_KEYS = frozenset(("token_digest", "cutoff", "entity_id", "wanted"))
+_STATIC_STREAM_VALUE_TYPES = (str, int, bool)
+_SQLITE_DIALECT = sqlite.dialect()
 
 
 def _fixed_stream_type_lists(statement):  # noqa: ANN001, ANN202
@@ -1175,6 +1179,30 @@ def _fixed_stream_type_lists(statement):  # noqa: ANN001, ANN202
             return None
         values = tuple(literal(value) for value in node.right.value)
         return node.left.in_(values) if node.operator is operators.in_op else node.left.not_in(values)
+
+    return visitors.replacement_traverse(statement, {}, replace)
+
+
+def _inline_static_stream_values(statement):  # noqa: ANN001, ANN202
+    """Inline this cached SQLite statement's immutable primitive defaults.
+
+    The four caller values remain ordinary binds.  SQLAlchemy's SQLite compiler
+    owns quoting each static token, while unknown or non-scalar defaults stay
+    bound for their normal runtime handling.
+    """
+    def replace(node):  # noqa: ANN001, ANN202
+        if not (
+            isinstance(node, BindParameter)
+            and node.key not in _STREAM_RUNTIME_BIND_KEYS
+            and not node.required
+            and node.callable is None
+            and not node.expanding
+            and not node.literal_execute
+            and type(node.value) in _STATIC_STREAM_VALUE_TYPES
+        ):
+            return None
+        token = str(node.compile(dialect=_SQLITE_DIALECT, compile_kwargs={"literal_binds": True}))
+        return literal_column(token, type_=node.type)
 
     return visitors.replacement_traverse(statement, {}, replace)
 
@@ -1258,7 +1286,7 @@ def _selected_stream_with_credential_statement():  # noqa: ANN202
         .outerjoin(MemberAccess, MemberAccess.user_id == credential.c.user_id)
         .outerjoin(selected, true())
     )
-    return _fixed_stream_type_lists(statement)
+    return _inline_static_stream_values(_fixed_stream_type_lists(statement))
 
 
 def selected_stream_with_credential(

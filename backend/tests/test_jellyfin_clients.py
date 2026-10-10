@@ -543,14 +543,31 @@ def test_selected_admin_stream_combines_credential_and_registered_file_in_one_qu
     assert "join media_artifacts" in statements[0].lower()
 
 
-def test_selected_stream_template_has_no_runtime_expanding_type_lists() -> None:
-    """The cached direct-stream shape keeps its static access categories fixed."""
+def test_selected_stream_template_binds_only_live_request_values() -> None:
+    """The cached direct-stream shape compiles static policy values once."""
     from sqlalchemy.dialects import sqlite
     from app.services.jellyfin import _selected_stream_with_credential_statement
 
     compiled = _selected_stream_with_credential_statement().compile(dialect=sqlite.dialect())
     assert len(compiled.post_compile_params) == 0
-    assert {"token_digest", "cutoff", "entity_id", "wanted"} <= compiled.params.keys()
+    assert len(compiled.literal_execute_params) == 0
+    assert set(compiled.params) == {"token_digest", "cutoff", "entity_id", "wanted"}
+
+
+def test_static_stream_template_keeps_required_defaulted_binds_live() -> None:
+    """A future required policy bind must not be frozen at its construction default."""
+    from sqlalchemy import bindparam, create_engine, select
+    from sqlalchemy.dialects import sqlite
+    from app.services.jellyfin import _inline_static_stream_values
+
+    statement = _inline_static_stream_values(select(bindparam("future_policy", value=1, required=True)))
+    compiled = statement.compile(dialect=sqlite.dialect())
+    assert set(compiled.params) == {"future_policy"}
+    engine = create_engine("sqlite://")
+    with engine.connect() as connection:
+        assert connection.scalar(statement, {"future_policy": 7}) == 7
+        assert connection.scalar(statement, {"future_policy": 9}) == 9
+    engine.dispose()
 
 
 def test_selected_stream_enters_one_worker_before_head_headers(jf: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

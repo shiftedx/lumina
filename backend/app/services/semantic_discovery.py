@@ -387,17 +387,16 @@ class SemanticDiscovery:
         loaded = list(dict.fromkeys([*item_ids, *(hit.item_id for hit in moments)]))
         needs_library = types is None or "library" in types
         needs_moments = types is None or "moment" in types
-        # Untyped/local and episode searches need both item-backed document kinds,
-        # so preserve their existing single full-row query. A title-only search
-        # needs just these three link fields to build version and summary text.
-        needs_all_items = needs_library and needs_moments
+        # Any item-backed result needs full rows, so load them once. A title-only
+        # search needs just these three link fields to build version and summary text.
+        needs_full_items = needs_library or needs_moments
         items = (
             {item.id: item for item in db.query(LibraryItem).filter(LibraryItem.id.in_(loaded)).all()}
-            if loaded and needs_all_items else {}
+            if loaded and needs_full_items else {}
         )
         if not loaded:
             links = {}
-        elif needs_all_items:
+        elif needs_full_items:
             links = items
         else:
             links = {
@@ -421,7 +420,7 @@ class SemanticDiscovery:
         documents = self._title_documents(db, title_ids, versions, summaries_by_title)
         plain = [item_id for item_id in item_ids if item_id in links and not links[item_id].title_id]
         moment_ids = list(dict.fromkeys(hit.item_id for hit in moments if hit.start_ms is not None and hit.item_id in links))
-        if loaded and not needs_all_items:
+        if loaded and not needs_full_items:
             full_ids = list(dict.fromkeys([
                 *(plain if needs_library else []),
                 *(moment_ids if needs_moments else []),

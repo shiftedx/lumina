@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -32,6 +32,7 @@ from app.services.library import LibraryService
 from app.services.local_playback_sessions import master_playlist, sessions, with_api_key
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService, loudness_gain_db
+from app.services.media_response import MediaFileResponse
 from app.services.media_segments import jellyfin_segments, segments_for
 from app.services.media_titles import jellyfin_id, parse_item_id, synthetic_id
 from app.services.transcripts import TranscriptService
@@ -136,7 +137,7 @@ def hls_file(
         return Response(with_api_key(path.read_text(encoding="utf-8"), caller.token), media_type=MPEGURL, headers={"Cache-Control": "no-store"})
     if name == "init.mp4":  # a seek's run rewrites it in place: read it whole, never stat-then-open (pp-encode's playlist race)
         return Response(path.read_bytes(), media_type="video/mp4", headers={"Cache-Control": "no-store"})
-    return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
+    return MediaFileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
 
 
 def stop_active_encodings(playsessionid: str = "", caller: JellyfinCaller = Depends(jellyfin_caller)) -> Response:
@@ -217,11 +218,18 @@ def search_items(db: Session, user: User, query: jf.ItemsQuery) -> dict:
     on search results (accepted ceiling); route the refs through the filtered query if a client needs them.
     """
     refs = search_refs(db, user, query.searchterm or "", item_types(",".join(query.csv("includeitemtypes"))), SEARCH_LIMIT)
-    dtos = jf.JellyfinMapper(db, user, query.csv("fields")).by_ids(refs)
-    if query.csv("sortby"):
-        dtos.sort(key=lambda dto: (dto.get("SortName") or dto.get("Name") or "").casefold())
     start, limit = query.startindex, query.page_limit()
-    return jf.query_result(dtos[start:start + limit], len(dtos), start)
+    # Relevance order is already final, so an ordinary page only needs DTOs for
+    # its own refs. Rendering every ranked result first made a 60-item Jellyfin
+    # search pay TitleService's batches and serialization work for up to 200.
+    page = refs if query.csv("sortby") else refs[start:start + limit]
+    dtos = jf.JellyfinMapper(db, user, query.csv("fields")).by_ids(page)
+    total = len(refs)  # search_refs emits only visibility-checked Jellyfin title/item refs
+    if query.csv("sortby"):
+        total = len(dtos)  # preserve the old defensive count if by_ids drops a concurrently removed ref
+        dtos.sort(key=lambda dto: (dto.get("SortName") or dto.get("Name") or "").casefold())
+        dtos = dtos[start:start + limit]
+    return jf.query_result(dtos, total, start)
 
 
 def playlist_items_dtos(db: Session, user: User, playlist: pl.Playlist, fields: list[str]) -> list[dict]:

@@ -539,7 +539,9 @@ class JellyfinMapper:
 
     def title_dtos(self, titles: list[MediaTitle], *, sources: bool | None = None, batch: TitleBatch | None = None) -> list[dict]:
         sources = self.sources if sources is None else sources
-        batch = batch or self.titles.load(self.user, titles, with_artifacts=sources, with_metadata=sources)
+        batch = batch or self.titles.load(
+            self.user, titles, with_artifacts=sources, with_metadata=sources, with_artwork=False,
+        )
         dtos = [self.title_dto(title, batch, sources=sources) for title in titles]
         people = people_for_titles(self.db, titles) if (sources or self.people) else {}  # one query, only when projected
         for title, dto in zip(titles, dtos, strict=True):

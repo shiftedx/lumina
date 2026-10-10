@@ -469,3 +469,21 @@ def test_named_stream_version_does_not_borrow_its_parents_visibility(jf: TestCli
     params = {"MediaSourceId": HEX(MOVIE_4K)}
     assert jf.get(path, params=params, headers=mediabrowser(ALICE_TOKEN)).status_code == 404
     assert jf.get(path, params=params, headers=mediabrowser(BOB_TOKEN)).status_code == 200
+
+
+def test_connected_app_auth_loads_the_token_and_member_together(jf: TestClient) -> None:
+    from sqlalchemy import event
+
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):  # noqa: ANN001
+        if "from device_tokens" in statement.lower() or "from users" in statement.lower():
+            statements.append(statement)
+
+    event.listen(db_module.engine, "before_cursor_execute", capture)
+    try:
+        assert get(jf, "/System/Info").status_code == 200
+    finally:
+        event.remove(db_module.engine, "before_cursor_execute", capture)
+    assert len(statements) == 1, "the token and its current member need one live query"
+    assert "join users" in statements[0].lower()

@@ -6,6 +6,8 @@
 !.env.example
 __pycache__
 *.py[cod]
+**/__pycache__
+**/*.py[cod]
 *.tsbuildinfo
 .playwright-cli
 output
@@ -14,6 +16,7 @@ backend/.pytest_cache
 backend/.venv
 backend/__pycache__
 backend/app/__pycache__
+backend/tests
 desktop
 *.mp3
 *.mp4

@@ -106,6 +106,27 @@ describe('converted local playback', () => {
     expect(hlsCalls.startLoads[0]).toBeCloseTo(4.6);
   });
 
+  it('keeps a paused HLS stream paused after a far-seek restart', async () => {
+    routeFetch({ status: 201, body: { session_id: 'sess-1', mode: 'transcode', playback_url: '/api/playback-sessions/sess-1/index.m3u8', start: 0 } });
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    const { container } = render(<LocalLibraryPlayer itemId="item-paused-seek" kind="video" poster={null} title="Clip" />);
+    await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
+    const media = container.querySelector('video') as HTMLVideoElement;
+    let position = 45;
+    Object.defineProperties(media, {
+      currentTime: { configurable: true, get: () => position, set: (value: number) => { position = value; } },
+      paused: { configurable: true, value: true },
+    });
+
+    fireEvent(media, new Event('seeking'));
+    await waitFor(() => expect(hlsCalls.sources).toHaveLength(2));
+    expect(media.autoplay).toBe(false);
+    hlsCalls.manifestParsed[0]();
+    expect(position).toBe(45);
+    expect(play).not.toHaveBeenCalled();
+    play.mockRestore();
+  });
+
   it('only restarts outside [start, edge]', () => {
     expect(needsRestart(30, 0, 12)).toBe(true);
     expect(needsRestart(10, 0, 12)).toBe(false);
@@ -165,6 +186,7 @@ describe('converted local playback', () => {
     await waitFor(() => expect(view.container.querySelector('video')?.getAttribute('src')).toMatch(/\/api\/library\/item-10\/media$/));
     expect(hlsCalls.destroyed).toBe(destroyed + 1);
     const media = view.container.querySelector('video') as HTMLVideoElement;
+    expect(media.autoplay).toBe(false);
     fireEvent.loadedMetadata(media);
     expect(media.currentTime).toBe(300);
     expect(onLoadedMetadata).not.toHaveBeenCalled();

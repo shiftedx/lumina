@@ -419,14 +419,6 @@ class SemanticDiscovery:
         ]))
         documents = self._title_documents(db, title_ids, versions, summaries_by_title)
         plain = [item_id for item_id in item_ids if item_id in links and not links[item_id].title_id]
-        moment_ids = list(dict.fromkeys(hit.item_id for hit in moments if hit.start_ms is not None and hit.item_id in links))
-        if loaded and not needs_full_items:
-            full_ids = list(dict.fromkeys([
-                *(plain if needs_library else []),
-                *(moment_ids if needs_moments else []),
-            ]))
-            if full_ids:
-                items = {item.id: item for item in db.query(LibraryItem).filter(LibraryItem.id.in_(full_ids)).all()}
         if plain and needs_library:
             tags_by_item, comments_by_item = self._member_curation(db, member, plain)
             documents += [

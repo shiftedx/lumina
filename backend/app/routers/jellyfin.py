@@ -22,8 +22,9 @@ from dataclasses import replace
 from typing import Annotated
 from urllib.parse import parse_qsl, quote, urlencode
 
+import anyio
+from anyio.lowlevel import RunVar
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Query, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -57,6 +58,7 @@ from app.services.library import LibraryService
 from app.services.local_playback_sessions import sessions
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService
+from app.services.media_response import MediaFileResponse
 from app.services.media_titles import from_ticks, parse_item_id
 from app.services.playback import PlaybackProgressService
 from app.services.title_metadata import load_person_image, person_visible
@@ -67,6 +69,9 @@ logger = logging.getLogger("lumina.jellyfin")
 PRIVATE_PREFIX = "/jellyfin"  # where the routes are mounted; clients use the root form only
 _RETIRED = re.compile(r"^/+(?:jellyfin|emby)(?:/|$)", re.IGNORECASE)  # /jellyfin/… and /emby/… from clients: 404
 _ID_SEGMENT = re.compile(r"(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f-]{27}|\d+)(?=\.|$)")
+_ITEM_LIST_PATH = re.compile(r"^/jellyfin/(?:items|users/[^/]+/items)$")
+_ITEM_READ_SLOTS = 2
+_item_read_limiter: RunVar[anyio.CapacityLimiter] = RunVar("jellyfin_item_read_limiter")
 # Top-level paths the SPA answers (frontend/src/app/routes.ts parseRoute); test_jellyfin_api keeps them in sync.
 SPA_SEGMENTS = frozenset({"admin", "channel", "downloads", "explore", "library", "live", "music", "settings", "streaming", "subscriptions", "title", "watch"})
 _CREDENTIAL_HEADERS = ("x-emby-authorization", "x-emby-token", "x-mediabrowser-token")
@@ -81,6 +86,16 @@ MAX_SOCKET_MESSAGE = 4096
 MAX_SOCKETS = 256
 MAX_SOCKETS_PER_TOKEN = 4
 open_sockets: Counter[str] = Counter()  # token -> open sockets; one event loop, so no lock
+
+
+def item_read_limiter() -> anyio.CapacityLimiter:
+    """Per-event-loop admission before item requests consume a DB connection or sync worker."""
+    try:
+        return _item_read_limiter.get()
+    except LookupError:
+        limiter = anyio.CapacityLimiter(_ITEM_READ_SLOTS)
+        _item_read_limiter.set(limiter)
+        return limiter
 
 
 def normalize_jellyfin_path(path: str, root_segments: frozenset[str], *, any_segment: bool = False) -> str | None:
@@ -159,7 +174,14 @@ class JellyfinPathMiddleware:
         scope["path"], scope["raw_path"] = normalized, quote(normalized).encode("ascii")
         scope["query_string"] = lower_query_keys(scope.get("query_string", b""))
         try:
-            await self.app(scope, receive, send)
+            if scope["method"] == "GET" and _ITEM_LIST_PATH.fullmatch(normalized):
+                # SQLite/ORM row materialization burns substantially more CPU when many
+                # identical reads run at once. Queue here, before auth opens the request
+                # session and before FastAPI gives the sync route an AnyIO worker.
+                async with item_read_limiter():
+                    await self.app(scope, receive, send)
+            else:
+                await self.app(scope, receive, send)
         finally:
             if settings.jellyfin_trace:
                 route = getattr(scope.get("route"), "path", "[unmatched]")
@@ -480,18 +502,18 @@ def playback_info(
 
 @router.api_route("/videos/{item_id}/stream", methods=["GET", "HEAD"])
 @router.api_route("/videos/{item_id}/stream.{container}", methods=["GET", "HEAD"])
-def video_stream(item_id: str, request: Request, user: Annotated[User, Depends(jellyfin_stream_user)], db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> FileResponse:
+def video_stream(item_id: str, request: Request, user: Annotated[User, Depends(jellyfin_stream_user)], db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> MediaFileResponse:
     """Direct play with Range (like /api/library/{id}/media); the session closes before bytes stream."""
     return media_file(item_id, request, user, db, mediasourceid)
 
 
 @router.api_route("/items/{item_id}/download", methods=["GET", "HEAD"])
-def download(item_id: str, request: Request, user: Caller, db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> FileResponse:
+def download(item_id: str, request: Request, user: Caller, db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> MediaFileResponse:
     """The version's file as an attachment: allowed exactly when streaming is. A token is required (no PlaybackInfo grant)."""
     return media_file(item_id, request, user, db, mediasourceid, attachment=True)
 
 
-def media_file(item_id: str, request: Request, user: User, db: Session, mediasourceid: str | None, *, attachment: bool = False) -> FileResponse:
+def media_file(item_id: str, request: Request, user: User, db: Session, mediasourceid: str | None, *, attachment: bool = False) -> MediaFileResponse:
     version = jf.pick_version(db, user, jf.resolve(db, user, item_id), mediasourceid)
     if version is None:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -504,7 +526,7 @@ def media_file(item_id: str, request: Request, user: User, db: Session, mediasou
     activity.guard(user.id, version.id, device)  # an admin stop ends downloads too
     if request.method == "GET" and not attachment:  # a download is not a watch session
         activity.touch(user.id, version.id, device)
-    return FileResponse(path, filename=path.name if attachment else None)
+    return MediaFileResponse(path, filename=path.name if attachment else None)
 
 
 @router.get("/videos/{item_id}/{source_id}/subtitles/{index}/stream.{fmt}")

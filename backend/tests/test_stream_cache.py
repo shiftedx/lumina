@@ -7,6 +7,7 @@ from threading import Event, Lock, Thread
 
 from app.services.remote_streaming import ByteRange, RemoteStreamingService, UpstreamMediaResponse
 from app.services.stream_cache import (
+    MEDIA_FILE_CHUNK_SIZE,
     PersistentStreamRangeCache,
     StreamCacheKey,
     StreamCachePolicy,
@@ -99,6 +100,22 @@ def test_incomplete_response_is_never_committed(tmp_path: Path) -> None:
 
     assert cache.lookup(key) is None
     assert list((tmp_path / "cache" / ".tmp").iterdir()) == []
+
+
+def test_cached_media_reads_in_bounded_playback_chunks_and_closes_on_cancel(tmp_path: Path) -> None:
+    payload = b"a" * MEDIA_FILE_CHUNK_SIZE + b"tail"
+    cache = PersistentStreamRangeCache(tmp_path / "cache")
+    key = _key(end=len(payload) - 1)
+    _capture(cache, key, payload)
+    cached = cache.lookup(key)
+    assert cached is not None
+    body, close = cached.open()
+
+    chunks = iter(body)
+    assert next(chunks) == payload[:MEDIA_FILE_CHUNK_SIZE]
+    close()  # StreamingResponse's background task does this when the client disconnects.
+
+    assert body._file.closed is True
 
 
 def test_owner_policy_evicts_old_videos_and_enforces_byte_quota(tmp_path: Path) -> None:

@@ -5,7 +5,7 @@ import time
 from typing import Any, Literal
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from app.services.library import LibraryService
 from app.services.local_playback_sessions import ConversionError, PlaybackSession, SessionCapError, SupersededError, sessions
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService, loudness_gain_db, media_tool
+from app.services.media_response import MediaFileResponse
 from app.services.playback_decision import RUNGS, ClientCaps, Limits, caps_from_browser_profiles, decide
 from app.services.playback_log import log_playback
 from app.services.probe_warming import probe_warming
@@ -196,7 +197,7 @@ def start_playback_session(
     return PlaybackSessionResponse(session_id=session.id, mode=session.mode, playback_url=f"/api/playback-sessions/{session.id}/index.m3u8", start=session.media_start, kind=session.kind)
 
 
-def get_playback_session_file(session_id: str, name: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> FileResponse:
+def get_playback_session_file(session_id: str, name: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> MediaFileResponse:
     session = sessions.get(session_id, current_user.id)
     if session is None:
         raise HTTPException(status_code=404, detail="Playback session not found")
@@ -212,7 +213,7 @@ def get_playback_session_file(session_id: str, name: str, current_user: User = D
         return Response(path.read_bytes(), media_type="application/vnd.apple.mpegurl", headers={"Cache-Control": "no-store"})
     if name == "init.mp4":  # small, and a restart may rewrite it: read it whole, never stat-then-open
         return Response(path.read_bytes(), media_type="video/mp4", headers={"Cache-Control": "no-store"})
-    return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
+    return MediaFileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
 
 
 def stop_playback_session(session_id: str, current_user: User = Depends(get_current_user)) -> None:

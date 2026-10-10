@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -32,6 +32,7 @@ from app.services.library import LibraryService
 from app.services.local_playback_sessions import master_playlist, sessions, with_api_key
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService, loudness_gain_db
+from app.services.media_response import MediaFileResponse
 from app.services.media_segments import jellyfin_segments, segments_for
 from app.services.media_titles import jellyfin_id, parse_item_id, synthetic_id
 from app.services.transcripts import TranscriptService
@@ -136,7 +137,7 @@ def hls_file(
         return Response(with_api_key(path.read_text(encoding="utf-8"), caller.token), media_type=MPEGURL, headers={"Cache-Control": "no-store"})
     if name == "init.mp4":  # a seek's run rewrites it in place: read it whole, never stat-then-open (pp-encode's playlist race)
         return Response(path.read_bytes(), media_type="video/mp4", headers={"Cache-Control": "no-store"})
-    return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
+    return MediaFileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
 
 
 def stop_active_encodings(playsessionid: str = "", caller: JellyfinCaller = Depends(jellyfin_caller)) -> Response:

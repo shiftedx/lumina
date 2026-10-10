@@ -25,7 +25,6 @@ from urllib.parse import parse_qsl, quote, urlencode
 import anyio
 from anyio.lowlevel import RunVar
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Query, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -59,6 +58,7 @@ from app.services.library import LibraryService
 from app.services.local_playback_sessions import sessions
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService
+from app.services.media_response import MediaFileResponse
 from app.services.media_titles import from_ticks, parse_item_id
 from app.services.playback import PlaybackProgressService
 from app.services.title_metadata import load_person_image, person_visible
@@ -502,18 +502,18 @@ def playback_info(
 
 @router.api_route("/videos/{item_id}/stream", methods=["GET", "HEAD"])
 @router.api_route("/videos/{item_id}/stream.{container}", methods=["GET", "HEAD"])
-def video_stream(item_id: str, request: Request, user: Annotated[User, Depends(jellyfin_stream_user)], db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> FileResponse:
+def video_stream(item_id: str, request: Request, user: Annotated[User, Depends(jellyfin_stream_user)], db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> MediaFileResponse:
     """Direct play with Range (like /api/library/{id}/media); the session closes before bytes stream."""
     return media_file(item_id, request, user, db, mediasourceid)
 
 
 @router.api_route("/items/{item_id}/download", methods=["GET", "HEAD"])
-def download(item_id: str, request: Request, user: Caller, db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> FileResponse:
+def download(item_id: str, request: Request, user: Caller, db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> MediaFileResponse:
     """The version's file as an attachment: allowed exactly when streaming is. A token is required (no PlaybackInfo grant)."""
     return media_file(item_id, request, user, db, mediasourceid, attachment=True)
 
 
-def media_file(item_id: str, request: Request, user: User, db: Session, mediasourceid: str | None, *, attachment: bool = False) -> FileResponse:
+def media_file(item_id: str, request: Request, user: User, db: Session, mediasourceid: str | None, *, attachment: bool = False) -> MediaFileResponse:
     version = jf.pick_version(db, user, jf.resolve(db, user, item_id), mediasourceid)
     if version is None:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -526,7 +526,7 @@ def media_file(item_id: str, request: Request, user: User, db: Session, mediasou
     activity.guard(user.id, version.id, device)  # an admin stop ends downloads too
     if request.method == "GET" and not attachment:  # a download is not a watch session
         activity.touch(user.id, version.id, device)
-    return FileResponse(path, filename=path.name if attachment else None)
+    return MediaFileResponse(path, filename=path.name if attachment else None)
 
 
 @router.get("/videos/{item_id}/{source_id}/subtitles/{index}/stream.{fmt}")

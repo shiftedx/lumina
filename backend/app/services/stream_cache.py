@@ -17,6 +17,9 @@ from app.persistence import atomic_write, read_regular_file
 
 GIB = 1024 * 1024 * 1024
 DEFAULT_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+# Starlette advances synchronous iterators and async file reads in worker threads.
+# Media-sized chunks reduce those handoffs while bounding one read per stream.
+MEDIA_FILE_CHUNK_SIZE = 1024 * 1024
 CACHE_HEADER_NAMES = frozenset({
     "accept-ranges",
     "cache-control",
@@ -90,7 +93,7 @@ class CachedStreamRange:
 
 
 class _FileBody:
-    def __init__(self, path: Path, expected_length: int, chunk_size: int = 64 * 1024) -> None:
+    def __init__(self, path: Path, expected_length: int, chunk_size: int = MEDIA_FILE_CHUNK_SIZE) -> None:
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
         try:
             file_stat = os.fstat(descriptor)

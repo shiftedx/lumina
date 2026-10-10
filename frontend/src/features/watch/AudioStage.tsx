@@ -41,7 +41,7 @@ const ACTIONS = ['previoustrack', 'nexttrack', 'seekto'] as const;
 const STAGE_SHADE = 'linear-gradient(transparent, color-mix(in srgb, var(--g-overlay-halo) 45%, transparent))';
 
 /** Sets or clears one action; a browser that does not support an action throws, and that action is simply skipped. */
-export function setAction(session: MediaSession, action: (typeof ACTIONS)[number], handler: MediaSessionActionHandler | null) {
+export function setAction(session: MediaSession, action: (typeof ACTIONS)[number] | 'play' | 'pause', handler: MediaSessionActionHandler | null) {
   try {
     session.setActionHandler(action, handler);
   } catch {

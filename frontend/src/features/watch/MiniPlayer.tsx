@@ -1,6 +1,7 @@
 import { Maximize2, Pause, Play, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { IconButton } from '../../ui';
+import { pauseMediaForUser, playMediaForUser } from '../../playIntent';
 
 const LINE_INTERVAL_MS = 250; // the progress line updates at most 4 times a second
 const TOAST_GAP_PX = 12;
@@ -55,8 +56,8 @@ export function MiniPlayer({ title, subtitle, onExpand, onClose }: { title: stri
   function toggle() {
     const element = media();
     if (!element) return;
-    if (element.paused) void element.play().catch(() => undefined);
-    else element.pause();
+    if (paused) void playMediaForUser(element).catch(() => undefined);
+    else pauseMediaForUser(element);
   }
 
   return (

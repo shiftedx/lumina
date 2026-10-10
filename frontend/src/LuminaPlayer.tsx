@@ -17,6 +17,7 @@ import { Captions, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw
 import { type AudioGraph, audioGraphFor } from './features/watch/audioGraph';
 import type { MuteRange } from './types';
 import { captionStyle, DEFAULT_CAPTIONS, type CaptionPrefs } from './features/watch/captionPrefs';
+import { pauseMediaForUser, playMediaForUser, registerMediaPlayIntent } from './playIntent';
 import './features/watch/player.css';
 
 export type LuminaPlayerState = 'loading' | 'ready' | 'unsupported' | 'failed';
@@ -178,6 +179,8 @@ export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(func
 ) {
   const prefs = useContext(PlayerPreferencesContext);
   const nativeRef = useRef<HTMLMediaElement | null>(null);
+  const playIntentRef = useRef(onPlayIntentChange);
+  playIntentRef.current = onPlayIntentChange;
   const shellRef = useRef<HTMLElement | null>(null);
   const controlsRef = useRef<HTMLDivElement | null>(null);
   const controlsTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
@@ -321,10 +324,9 @@ export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(func
   async function play() {
     const media = nativeRef.current;
     if (!media) return;
-    onPlayIntentChange?.(true);
     setNotice(null);
     try {
-      await media.play();
+      await playMediaForUser(media);
       setIsPlaying(true);
     } catch (error) {
       const name = (error as { name?: string } | null)?.name;
@@ -335,8 +337,8 @@ export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(func
   }
 
   function pause() {
-    onPlayIntentChange?.(false);
-    nativeRef.current?.pause();
+    const media = nativeRef.current;
+    if (media) pauseMediaForUser(media);
     setIsPlaying(false);
   }
 
@@ -594,9 +596,11 @@ export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(func
     const media = takeMediaElement(kind);
     const listen = (event: Event) => handlersRef.current[event.type as (typeof MEDIA_EVENTS)[number]]?.(event as MediaEvent);
     MEDIA_EVENTS.forEach((type) => media.addEventListener(type, listen));
+    const unregisterPlayIntent = registerMediaPlayIntent(media, (playing) => playIntentRef.current?.(playing));
     nativeRef.current = media;
     return () => {
       MEDIA_EVENTS.forEach((type) => media.removeEventListener(type, listen));
+      unregisterPlayIntent();
       assignMedia(null);
       if (!releaseMediaElement(media)) media.remove();
     };

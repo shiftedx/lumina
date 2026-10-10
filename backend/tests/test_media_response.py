@@ -48,7 +48,7 @@ def test_media_file_response_preserves_range_bytes_with_fewer_bounded_reads(tmp_
     headers = dict(response_start["headers"])
     assert response_start["status"] == 206
     assert headers[b"content-range"] == f"bytes {start}-{end}/{len(payload)}".encode()
-    assert [len(chunk) for chunk in body] == [MediaFileResponse.first_chunk_size, end - start + 1 - MediaFileResponse.first_chunk_size]
+    assert [len(chunk) for chunk in body] == [64 * 1024, end - start + 1 - 64 * 1024]
     assert b"".join(body) == payload[start : end + 1]
 
 
@@ -141,7 +141,11 @@ def test_range_sends_a_small_first_chunk_before_bulk_reads(tmp_path: Path) -> No
 
     asyncio.run(request())
     body = [message["body"] for message in messages[1:]]
-    assert len(body[0]) == 64 * 1024
+    headers = dict(messages[0]["headers"])
+    assert messages[0]["status"] == 206
+    assert headers[b"content-range"] == f"bytes 0-{len(payload) - 1}/{len(payload)}".encode()
+    assert headers[b"content-length"] == str(len(payload)).encode()
+    assert len(body[0]) == 128 * 1024
     assert len(body[1]) == MEDIA_FILE_CHUNK_SIZE
     assert b"".join(body) == payload
     assert messages[-1]["more_body"] is False
@@ -258,7 +262,7 @@ def test_range_stops_reading_when_receive_disconnects_and_send_ignores_it(tmp_pa
         await MediaFileResponse(media)({"type": "http", "method": "GET", "headers": [(b"range", b"bytes=0-")]}, receive, send)
 
     asyncio.run(request())
-    assert sum(read_bytes) <= MediaFileResponse.first_chunk_size + MEDIA_FILE_CHUNK_SIZE
+    assert sum(read_bytes) <= 128 * 1024 + MEDIA_FILE_CHUNK_SIZE
     assert len(opened) == 1 and opened[0].closed
 
 
@@ -268,7 +272,7 @@ def test_initial_range_gives_a_queued_disconnect_time_before_bulk_read(
 ) -> None:  # noqa: ANN001
     """A transport disconnect queued by the first body prevents speculative bulk reading."""
     media = tmp_path / "queued-disconnect.bin"
-    media.write_bytes(b"x" * (MediaFileResponse.first_chunk_size + MEDIA_FILE_CHUNK_SIZE + 1))
+    media.write_bytes(b"x" * (128 * 1024 + MEDIA_FILE_CHUNK_SIZE + 1))
     bulk_reads, opened = [], []
     real_open_seek_read = media_response._open_seek_read
 
@@ -317,7 +321,7 @@ def test_initial_range_gives_a_queued_disconnect_time_before_bulk_read(
 
     loop = loop_factory()
     try:
-        assert loop.run_until_complete(request()) == [MediaFileResponse.first_chunk_size]
+        assert loop.run_until_complete(request()) == [128 * 1024]
     finally:
         loop.close()
     assert bulk_reads == []
@@ -351,5 +355,5 @@ def test_shared_response_keeps_disconnect_receivers_request_scoped(tmp_path: Pat
         return await asyncio.gather(request(b"bytes=0-", True), request(b"bytes=13-2097152", False))
 
     abandoned, complete = asyncio.run(both())
-    assert len(abandoned) <= response.first_chunk_size + MEDIA_FILE_CHUNK_SIZE
+    assert len(abandoned) <= 128 * 1024 + MEDIA_FILE_CHUNK_SIZE
     assert complete == payload[13:2097153]

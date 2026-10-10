@@ -421,18 +421,16 @@ def test_wall_pages_seek_the_title_indexes(wall_env) -> None:  # noqa: ANN001
             assert f"{index} (type=? AND " in later, later  # a range seek, never a walk from the list's start
 
 
-def test_letter_offsets_and_the_rail_use_the_name_index(wall_env) -> None:  # noqa: ANN001
+def test_letter_offsets_and_the_rail_use_wall_indexes(wall_env) -> None:  # noqa: ANN001
     engine, session, user = wall_env
     service = TitleService(session)
     for kind in ("movie", "series"):
-        for run in (
-            lambda: service.letters(user, types=(kind,), filters=TitleFilters()),
-            lambda: service.page(user, types=(kind,), sort="name", limit=60, letter="M"),
-        ):
-            plan = explain_plan(engine, session, run)
-            assert "ix_media_titles_type_sort" in plan, plan
-            assert "ix_media_titles_type_added" not in plan, plan
-            assert_no_unindexed_scan(plan, "media_titles")
+        rail = explain_plan(engine, session, lambda: service.letters(user, types=(kind,), filters=TitleFilters()))
+        assert any(index in rail for index in WALL_INDEXES), rail
+        assert_no_unindexed_scan(rail, "media_titles")
+        offset = explain_plan(engine, session, lambda: service.page(user, types=(kind,), sort="name", limit=60, letter="M"))
+        assert "ix_media_titles_type_sort" in offset and "ix_media_titles_type_added" not in offset, offset
+        assert_no_unindexed_scan(offset, "media_titles")
 
 
 def test_wall_totals_use_a_wall_index(wall_env) -> None:  # noqa: ANN001
@@ -554,14 +552,13 @@ def test_category_letters_and_totals_use_the_category_indexes(category_env) -> N
     engine, session, user = category_env
     service = TitleService(session)
     for category, types in CATEGORY_TYPES.items():
-        for run in (
-            lambda: service.letters(user, types=types, filters=TitleFilters(), category=category),
-            lambda: service.page(user, types=types, sort="name", limit=60, letter="M", category=category),
-        ):
-            plan = explain_plan(engine, session, run)
-            assert "ix_media_titles_category_sort" in plan, plan
-            assert "ix_media_titles_type_" not in plan, plan
-            assert_no_unindexed_scan(plan, "media_titles")
+        rail = explain_plan(engine, session, lambda: service.letters(user, types=types, filters=TitleFilters(), category=category))
+        assert any(index in rail for index in CATEGORY_INDEXES), rail
+        assert "ix_media_titles_type_" not in rail, rail
+        assert_no_unindexed_scan(rail, "media_titles")
+        offset = explain_plan(engine, session, lambda: service.page(user, types=types, sort="name", limit=60, letter="M", category=category))
+        assert "ix_media_titles_category_sort" in offset and "ix_media_titles_type_" not in offset, offset
+        assert_no_unindexed_scan(offset, "media_titles")
         total = explain_plan(engine, session, lambda: service.count(user, types=types, filters=TitleFilters(), category=category))
         assert any(index in total for index in CATEGORY_INDEXES), total
         assert "ix_media_titles_type_" not in total, total
@@ -600,7 +597,8 @@ def test_music_walls_seek_the_music_indexes(category_env) -> None:  # noqa: ANN0
                 assert_no_unindexed_scan(plan, "media_titles")
             assert f"{index} (type=? AND " in later, later
         letters = explain_plan(engine, session, lambda: service.letters(user, types=(kind,), filters=TitleFilters()))
-        assert "ix_media_titles_music_sort" in letters and "USE TEMP B-TREE FOR ORDER BY" not in letters, letters
+        assert any(index in letters for index in MUSIC_INDEXES), letters
+        assert_no_unindexed_scan(letters, "media_titles")
 
 
 def test_sections_count_from_indexes(category_env) -> None:  # noqa: ANN001

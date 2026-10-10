@@ -616,16 +616,26 @@ class TitleService:
         return self.db.scalar(query) or 0
 
     def letters(self, user: User, *, types: Sequence[str], filters: TitleFilters, category: str | None = None) -> tuple[list[TitleLetter], int]:
-        """The A–Z rail anchors in list order, and the list's total, from one scan of the name index.
+        """The A–Z rail anchors in list order, and the list's total, from one grouped index scan.
 
         Initials outside ASCII A–Z (digits, punctuation, "É" after "Z") share one "#" anchor at the earliest of them.
         """
         initial = func.upper(func.substr(func.coalesce(MediaTitle.sort_name, MediaTitle.name), 1, 1))
         anchors: dict[str, int] = {}
         total = 0
-        rows = self.db.scalars(select(initial).where(*self.list_predicates(user, types, filters, category)).order_by(*TITLE_SORTS["name"]))
-        for total, first in enumerate(rows, start=1):
-            anchors.setdefault(first if len(first) == 1 and "A" <= first <= "Z" else "#", total - 1)
+        # Return one row per actual initial instead of materialising every visible
+        # title in Python. Keep non-ASCII initials separate in SQL because their
+        # groups can straddle A–Z; folding them all to "#" before ordering would
+        # shift the ASCII anchors after an early digit by the count of a trailing É.
+        rows = self.db.execute(
+            select(initial, func.count())
+            .where(*self.list_predicates(user, types, filters, category))
+            .group_by(initial)
+            .order_by(func.min(SORT_NAME))
+        )
+        for first, count in rows:
+            anchors.setdefault(first if len(first) == 1 and "A" <= first <= "Z" else "#", total)
+            total += count
         return [TitleLetter(letter=letter, index=index) for letter, index in anchors.items()], total
 
     def facets(self, user: User, title_type: str | None = None, *, category: str | None = None) -> TitleFacets:

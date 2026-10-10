@@ -178,6 +178,26 @@ def test_total_and_letters_on_the_first_name_page(shelf, api_client) -> None:  #
     assert (created["total"], created["letters"], created["start_index"]) == (12, None, 0)
 
 
+def test_letter_rail_aggregates_initials_in_sql(shelf) -> None:  # noqa: ANN001
+    """A large wall returns one row per initial to Python, not one row per title."""
+    engine = shelf.kw["bind"]
+    statements: list[str] = []
+
+    def record(_connection, _cursor, statement, *_rest) -> None:  # noqa: ANN001
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        with shelf() as session:
+            TitleService(session).letters(session.get(User, "member"), types=("movie",), filters=TitleFilters())
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    rail = next(statement for statement in statements if "upper(substr(coalesce(media_titles.sort_name" in statement)
+    assert "count(*)" in rail.lower() and "group by" in rail.lower(), rail
+
+
 def test_letter_seeks_start_at_the_letter_and_continue(shelf, api_client) -> None:  # noqa: ANN001
     client = client_for(api_client, shelf, "member")
     b = client.get("/api/titles", params={"type": "movie", "letter": "B", "limit": 3}).json()

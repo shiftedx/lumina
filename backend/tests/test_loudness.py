@@ -115,6 +115,33 @@ def test_background_probes_drain_before_loudness_starts(household: None, worker:
     assert not worker.run_once()
 
 
+def test_legacy_loudness_only_cache_is_reprobed_then_remeasured(
+    household: None, worker: ProbeWarming, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = settings.library_root / "alice" / "legacy.mp4"
+    _download("alice", path)
+    status = path.stat()
+    with db_module.SessionLocal() as db:
+        artifact = db.query(MediaArtifact).one()
+        artifact.size, artifact.mtime_ns = status.st_size, status.st_mtime_ns
+        artifact.probe = {"fingerprint": f"{status.st_size}:{status.st_mtime_ns}", "loudness": MEASURED}
+        db.commit()
+    probes: list[str] = []
+
+    def probe(self, candidate):  # noqa: ANN001
+        probes.append(candidate.name)
+        return {"streams": [{"type": "audio", "index": 0, "default": True}]}
+
+    monkeypatch.setattr(pw.MediaProbeService, "_probe", probe)
+    monkeypatch.setattr(pw, "media_tool", lambda db, name: "ffmpeg")
+
+    assert worker.run_once() and probes == ["legacy.mp4"]
+    assert _loudness("legacy.mp4") is None  # replacing an incomplete codec cache queues a safe remeasurement
+    assert worker.run_once() and worker.measured == ["legacy.mp4"]
+    assert _loudness("legacy.mp4") == MEASURED
+    assert not worker.run_once()
+
+
 def test_a_stale_fingerprint_is_reprobed_before_its_loudness_is_remeasured(
     household: None, worker: ProbeWarming, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

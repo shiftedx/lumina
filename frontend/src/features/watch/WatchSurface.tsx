@@ -10,6 +10,7 @@ import { ChatReplayRail, LibraryCapturedChatRail, SourceChatUnavailableNote } fr
 import { LiveRecordingControls } from '../../liveRecordingControls';
 import { Artwork } from '../../Artwork';
 import { LuminaPlayer, PlayerPreferencesContext, type PlayerAudio } from '../../LuminaPlayer';
+import { pauseMediaForUser, playMediaForUser } from '../../playIntent';
 import { LocalLibraryPlayer, loudnessGain } from '../../localPlayer';
 import { ChapterSeekMarkers, DescriptionWithTimestamps, type TimelineChapter } from '../../chapters';
 import { TheaterModeControl } from '../../theaterMode';
@@ -551,7 +552,7 @@ export function WatchSurface({
     autoplayHandledRef.current = null;
     if (player) {
       player.currentTime = 0;
-      void player.play();
+      void playMediaForUser(player);
     }
     latestPlaybackSampleRef.current = { position: 0, duration: Number.isFinite(player?.duration) ? Math.floor(player?.duration || 0) : duration, completed: false };
     remoteCheckpointSuppressionRef.current = null;
@@ -642,10 +643,14 @@ export function WatchSurface({
     session.metadata = new MediaMetadata({ title, artist, artwork: thumbnail ? [{ src: thumbnail }] : [] });
     setAction(session, 'nexttrack', canNext ? () => playNextRef.current() : null);
     setAction(session, 'previoustrack', previousId && onOpenLibraryItem ? () => onOpenLibraryItem(previousId) : null);
+    setAction(session, 'play', () => { const media = playerRef.current; if (media) void playMediaForUser(media).catch(() => undefined); });
+    setAction(session, 'pause', () => { const media = playerRef.current; if (media) pauseMediaForUser(media); });
     return () => {
       session.metadata = null;
       setAction(session, 'nexttrack', null);
       setAction(session, 'previoustrack', null);
+      setAction(session, 'play', null);
+      setAction(session, 'pause', null);
     };
   }, [audio, title, artist, thumbnail, canNext, previousId, onOpenLibraryItem]);
 
@@ -713,7 +718,7 @@ export function WatchSurface({
     <div
       className={mini ? 'watch-surface watch-mini' : 'surface watch-surface'}
       id={mini ? 'mini-player' : undefined}
-      onClick={mini ? (event) => { if (!(event.target as Element).closest('.mini-player-bar, .lumina-player')) { const element = event.currentTarget.querySelector<HTMLMediaElement>('video, audio'); if (element?.paused) void element.play().catch(() => undefined); else element?.pause(); } } : undefined}
+      onClick={mini ? (event) => { if (!(event.target as Element).closest('.mini-player-bar, .lumina-player')) { const element = event.currentTarget.querySelector<HTMLMediaElement>('video, audio'); if (element?.paused) void playMediaForUser(element).catch(() => undefined); else if (element) pauseMediaForUser(element); } } : undefined}
       onDoubleClick={mini ? (event) => { if (!(event.target as Element).closest('.mini-player-bar')) onExpand(); } : undefined}
       tabIndex={mini ? -1 : undefined}
     >

@@ -17,9 +17,11 @@ from app.services.remote_streaming import (
     UnsupportedPlaybackError,
     UpstreamTrackExpiredError,
     UpstreamMediaResponse,
+    _FileRangeBody,
     parse_range_header,
     redact_preview_info,
 )
+from app.services.stream_cache import MEDIA_FILE_CHUNK_SIZE
 
 
 @dataclass
@@ -300,6 +302,18 @@ def test_file_backed_hls_asset_supports_byte_ranges(tmp_path) -> None:  # noqa: 
     assert response.status_code == 206
     assert response.headers["Content-Range"] == "bytes 2-5/10"
     assert collect(response.body) == b"2345"
+
+
+def test_file_backed_hls_range_streams_in_bounded_chunks_and_closes_on_cancel(tmp_path) -> None:
+    segment_path = tmp_path / "large-segment.m4s"
+    segment_path.write_bytes(b"a" * (MEDIA_FILE_CHUNK_SIZE + 9))
+    body = _FileRangeBody(segment_path, 3, segment_path.stat().st_size - 4)
+
+    chunks = iter(body)
+    assert len(next(chunks)) == MEDIA_FILE_CHUNK_SIZE
+    body.close()  # The response background task closes an interrupted range read.
+
+    assert body._file.closed is True
 
 
 def test_hls_assets_share_the_active_media_read_budget() -> None:

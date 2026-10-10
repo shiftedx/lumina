@@ -43,8 +43,9 @@ for (const title of TITLES) {
       const radio = page.getByRole('radio', { name: choice });
       const from = await time();
       const clicked = Date.now();
+      const directOriginal = results.mode === 'direct' && expectedHeight === 1080;
       const switchedResource = page.waitForRequest((request) => request.method() === 'GET' && (
-        expectedHeight === 1080
+        directOriginal
           ? new URL(request.url()).pathname === `/api/library/${id}/media`
           : /\/api\/playback-sessions\/[^/]+\/index\.m3u8$/.test(new URL(request.url()).pathname)
       ));
@@ -53,7 +54,7 @@ for (const title of TITLES) {
       const resource = await switchedResource;
       const frame = await nextDecodedFrame(video);
       expect(frame.height, `switch to ${String(choice)} decoded height`).toBe(expectedHeight);
-      if (expectedHeight === 1080) expect(frame.src).toContain(`/api/library/${id}/media`);
+      if (directOriginal) expect(frame.src).toContain(`/api/library/${id}/media`);
       else expect(frame.src).toMatch(/^blob:/);
       // Sampled every 100 ms after a decoded frame from the requested source: resumed at the first sample from which
       // the clock never stalls or jumps and advances > 1 s over 1.5 s. Chrome does not consistently dispatch

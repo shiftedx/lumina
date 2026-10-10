@@ -121,11 +121,15 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   // Bumped when the player swaps its element (stalled audio clock): hls.js re-attaches to the new one.
   const [mediaEpoch, setMediaEpoch] = useState(0);
   // A version switch replaces the <video> during commit, so the position is read here, while the old
-  // element is still mounted, and kept for the choice effect below.
+  // element is still mounted, and kept with its play intent for the choice effect below.
   const choiceStartRef = useRef(0);
+  const resumePlayingRef = useRef(true);
   const onOptionsRef = useRef(onOptions);
   onOptionsRef.current = onOptions;
-  if (choiceRef.current !== `${itemId}|${key}`) choiceStartRef.current = Math.floor(mediaRef.current?.currentTime ?? 0);
+  if (choiceRef.current !== `${itemId}|${key}`) {
+    choiceStartRef.current = Math.floor(mediaRef.current?.currentTime ?? 0);
+    resumePlayingRef.current = mediaRef.current ? !mediaRef.current.paused : true;
+  }
   const converts = needsSession(options, request);
   const duration = options?.facts?.duration;
   // Bumped by the HEVC fallback to ask for a new decision now that this browser no longer offers HEVC.
@@ -247,6 +251,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
       onSeeking = () => {
         if (!needsRestart(media.currentTime, session.start, player.latestLevelDetails?.edge)) return;
         player.stopLoad();
+        resumePlayingRef.current = !media.paused;
         restartedRef.current = true;
         setTarget((current) => ({ ...current, start: Math.floor(media.currentTime) }));
       };
@@ -265,7 +270,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
       if (at) {
         player.once(Hls.Events.MANIFEST_PARSED, () => {
           media.currentTime = at;
-          void media.play().catch(() => undefined);
+          if (resumePlayingRef.current) void media.play().catch(() => undefined);
         });
       }
       player.on(Hls.Events.FRAG_LOADED, () => { arrivingRef.current = true; });
@@ -314,7 +319,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
     return () => media.removeEventListener('waiting', onWaiting);
   }, [session, mediaEpoch]);
 
-  const base = { id: playId, kind, poster, autoPlay: true, tracks };
+  const base = { id: playId, kind, poster, autoPlay: !restartedRef.current || resumePlayingRef.current, tracks };
   let source: LuminaPlayerSource;
   // Direct resume: the first range request targets the start point. A start at or past the end
   // (a stale position, a moment in the credits) plays from the beginning instead of ending at once.
@@ -375,7 +380,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
         // A <video> error carries no status, so a failed direct file asks the server for one byte to learn why.
         if (!session) void fetch(libraryMediaUrl(playId), { credentials: 'include', headers: { Range: 'bytes=0-0' } }).then(async (response) => { const body = await response.text(); const stop = accessStopCode(response.status, body); if (stop) reportAccessStop(stop); else if (isStoppedByAdmin(response.status, body)) setStoppedByAdmin(true); }).catch(() => undefined);
         return playerProps.onError?.(media);
-      }} extensions={{ ...extensions, quality }} onLoadedMetadata={loaded} onMediaReplaced={(at) => { askedRef.current = at; setMediaEpoch((epoch) => epoch + 1); }} ref={mediaRef} source={source} />
+      }} extensions={{ ...extensions, quality }} onLoadedMetadata={loaded} onMediaReplaced={(at) => { askedRef.current = at; setMediaEpoch((epoch) => epoch + 1); }} onPlayIntentChange={(playing) => { resumePlayingRef.current = playing; playerProps.onPlayIntentChange?.(playing); }} ref={mediaRef} source={source} />
       {suggestLower && nextLower !== null ? (
         <div className="quality-suggestion" role="status">
           <span>This video keeps pausing to buffer.</span>

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('hls.js', () => import('./test/fakeHls'));
@@ -8,6 +8,7 @@ const prefetch = vi.hoisted(() => ({ adoptSpeculativeStart: vi.fn(), holdConvers
 vi.mock('./playbackPrefetch', () => prefetch);
 
 const { LocalLibraryPlayer } = await import('./localPlayer');
+const { MiniPlayer } = await import('./features/watch/MiniPlayer');
 const { hlsCalls, resetHlsCalls } = await import('./test/fakeHls');
 
 const direct = { mode: 'direct', reason: null, facts: { container: 'webm', video_codec: 'vp9', audio_codec: 'opus', width: 1920, height: 1080, duration: 1320 }, audio_tracks: [], quality_heights: [720, 480], loudness_gain_db: -3.5 };
@@ -27,7 +28,108 @@ describe('LocalLibraryPlayer tracks and probe', () => {
     expect(screen.getByLabelText('Film video').querySelector('track')?.id).toBe('s:0');
     rerender(<LocalLibraryPlayer {...props} request={{ max_height: 720 }} />);
     await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
+    expect(hlsCalls.attached[0]).toMatchObject({ media: screen.getByLabelText('Film video') });
     expect(screen.getByLabelText('Film video').querySelector('track')?.id).toBe('s:0');
+  });
+
+  it('keeps a paused direct stream paused when a quality choice starts HLS', async () => {
+    api.getLocalPlaybackOptions.mockResolvedValue(direct);
+    api.startLocalPlaybackSession.mockResolvedValue({ session_id: 's1', mode: 'transcode', playback_url: '/api/playback-sessions/s1/index.m3u8', start: 0 });
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    const props = { itemId: 'i1', kind: 'video' as const, poster: null, title: 'Film' };
+    const view = render(<LocalLibraryPlayer {...props} request={{}} />);
+    const directMedia = await waitFor(() => {
+      const media = screen.getByLabelText('Film video') as HTMLVideoElement;
+      expect(media.getAttribute('src')).toBe('/api/library/i1/media');
+      return media;
+    });
+    Object.defineProperty(directMedia, 'currentTime', { configurable: true, value: 0, writable: true });
+
+    view.rerender(<LocalLibraryPlayer {...props} request={{ max_height: 720 }} />);
+    await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
+    const convertedMedia = screen.getByLabelText('Film video') as HTMLVideoElement;
+    expect(convertedMedia.autoplay).toBe(false);
+    expect(hlsCalls.manifestParsed).toEqual([]);
+    expect(play).not.toHaveBeenCalled();
+    play.mockRestore();
+  });
+
+  it('resumes a playing direct stream when a quality choice starts HLS', async () => {
+    api.getLocalPlaybackOptions.mockResolvedValue(direct);
+    api.startLocalPlaybackSession.mockResolvedValue({ session_id: 's1', mode: 'transcode', playback_url: '/api/playback-sessions/s1/index.m3u8', start: 30 });
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    const props = { itemId: 'i1', kind: 'video' as const, poster: null, title: 'Film' };
+    const view = render(<LocalLibraryPlayer {...props} request={{}} />);
+    const directMedia = await waitFor(() => {
+      const media = screen.getByLabelText('Film video') as HTMLVideoElement;
+      expect(media.getAttribute('src')).toBe('/api/library/i1/media');
+      return media;
+    });
+    Object.defineProperties(directMedia, {
+      currentTime: { configurable: true, value: 30, writable: true },
+      paused: { configurable: true, value: false },
+    });
+
+    view.rerender(<LocalLibraryPlayer {...props} request={{ max_height: 720 }} />);
+    await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
+    const convertedMedia = screen.getByLabelText('Film video') as HTMLVideoElement;
+    expect(convertedMedia.autoplay).toBe(true);
+    hlsCalls.manifestParsed[0]();
+    expect(play).toHaveBeenCalledTimes(1);
+    play.mockRestore();
+  });
+
+  it('honors Play pressed while a quality restart is still preparing', async () => {
+    api.getLocalPlaybackOptions.mockResolvedValue(direct);
+    let resolveSession!: (session: { session_id: string; mode: string; playback_url: string; start: number }) => void;
+    api.startLocalPlaybackSession.mockReturnValue(new Promise((resolve) => { resolveSession = resolve; }));
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    const props = { itemId: 'i1', kind: 'video' as const, poster: null, title: 'Film' };
+    const view = render(<div className="watch-surface"><LocalLibraryPlayer {...props} request={{}} /><MiniPlayer onClose={vi.fn()} onExpand={vi.fn()} title="Film" /></div>);
+    await waitFor(() => expect(screen.getByLabelText('Film video').getAttribute('src')).toBe('/api/library/i1/media'));
+
+    view.rerender(<div className="watch-surface"><LocalLibraryPlayer {...props} request={{ max_height: 720 }} /><MiniPlayer onClose={vi.fn()} onExpand={vi.fn()} title="Film" /></div>);
+    await waitFor(() => expect(api.startLocalPlaybackSession).toHaveBeenCalled());
+    fireEvent.click(within(screen.getByRole('region', { name: 'Mini player: Film' })).getByRole('button', { name: 'Play' }));
+    expect(play).toHaveBeenCalledTimes(1);
+
+    resolveSession({ session_id: 's1', mode: 'transcode', playback_url: '/api/playback-sessions/s1/index.m3u8', start: 0 });
+    await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
+    expect((screen.getByLabelText('Film video') as HTMLVideoElement).autoplay).toBe(true);
+    play.mockRestore();
+  });
+
+  it('honors Pause pressed in the mini player while a quality restart is still preparing', async () => {
+    api.getLocalPlaybackOptions.mockResolvedValue(direct);
+    let resolveSession!: (session: { session_id: string; mode: string; playback_url: string; start: number }) => void;
+    api.startLocalPlaybackSession.mockReturnValue(new Promise((resolve) => { resolveSession = resolve; }));
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    const props = { itemId: 'i1', kind: 'video' as const, poster: null, title: 'Film' };
+    const view = render(<div className="watch-surface"><LocalLibraryPlayer {...props} request={{}} /><MiniPlayer onClose={vi.fn()} onExpand={vi.fn()} title="Film" /></div>);
+    const media = await waitFor(() => {
+      const element = screen.getByLabelText('Film video') as HTMLVideoElement;
+      expect(element.getAttribute('src')).toBe('/api/library/i1/media');
+      return element;
+    });
+    Object.defineProperties(media, {
+      currentTime: { configurable: true, value: 30, writable: true },
+      paused: { configurable: true, value: false },
+    });
+    fireEvent.play(media);
+
+    view.rerender(<div className="watch-surface"><LocalLibraryPlayer {...props} request={{ max_height: 720 }} /><MiniPlayer onClose={vi.fn()} onExpand={vi.fn()} title="Film" /></div>);
+    await waitFor(() => expect(api.startLocalPlaybackSession).toHaveBeenCalled());
+    fireEvent.click(within(screen.getByRole('region', { name: 'Mini player: Film' })).getByRole('button', { name: 'Pause' }));
+    expect(pause).toHaveBeenCalledTimes(1);
+
+    resolveSession({ session_id: 's1', mode: 'transcode', playback_url: '/api/playback-sessions/s1/index.m3u8', start: 30 });
+    await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
+    expect((screen.getByLabelText('Film video') as HTMLVideoElement).autoplay).toBe(false);
+    pause.mockRestore();
   });
 
   it('reports null when the probe is unreachable and still plays the file', async () => {

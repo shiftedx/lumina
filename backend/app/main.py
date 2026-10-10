@@ -21,6 +21,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES
+from app.http_compression import ResponseCompressionMiddleware
 from app.services import network_policy, public_address, two_factor
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
@@ -939,6 +941,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(RequestBodyLimitMiddleware)
+# Compress text assets and JSON for clients connecting directly over LAN HTTP.
+# Media, partial responses and event streams bypass compression in Starlette.
+app.add_middleware(
+    ResponseCompressionMiddleware,
+    minimum_size=1000,
+    compresslevel=3,
+    exclude_content_types=(*DEFAULT_EXCLUDED_CONTENT_TYPES, "application/octet-stream"),
+)
 admin_storage.register(app)
 admin_invites.register(app)
 admin_backups.register(app)

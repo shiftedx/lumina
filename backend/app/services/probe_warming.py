@@ -155,7 +155,6 @@ class ProbeWarming:
         incomplete = and_(
             func.json_type(MediaArtifact.probe, "$.streams").is_(None),
             func.json_extract(MediaArtifact.probe, "$.error").is_(None),
-            func.json_type(MediaArtifact.probe, "$.loudness").is_(None),
         )
         return or_(MediaArtifact.probe.is_(None), stale, incomplete)
 

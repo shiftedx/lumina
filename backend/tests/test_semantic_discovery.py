@@ -586,6 +586,49 @@ def test_episode_search_keeps_full_item_payload_for_moment_hits() -> None:
     assert (moment.library_item.uploader, moment.library_item.metadata_json) == ("Studio", {"description": "full payload"})
 
 
+def test_partial_moment_scope_loads_item_candidates_once() -> None:
+    """Moment-capable scopes should not project links and then hydrate the same items again."""
+    from sqlalchemy import event
+
+    from app.services.semantic_discovery import match_title_id
+    from app.services.transcripts import TranscriptService
+
+    session = make_session()
+    member = User(id="member", username="member", display_name="Member", role="viewer", is_active=True)
+    episode = MediaTitle(id="episode", type="episode", key="test:episode", name="Workshop", metadata_json={})
+    item = LibraryItem(
+        id="episode-version", user_id=member.id, visibility="private", title="Workshop recording",
+        title_id=episode.id, uploader="Studio", metadata_json={"description": "full payload"}, status="available",
+    )
+    session.add_all([member, episode, item])
+    session.commit()
+    TranscriptService(session).store(
+        item.id, language="en", source_kind="source_caption", cues=[(61_000, 62_000, "the vermilion stapler appears")],
+    )
+    session.commit()
+    reindex(session)
+
+    statements: list[str] = []
+
+    @event.listens_for(session.get_bind(), "before_cursor_execute")
+    def _record_sql(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:  # noqa: ANN001
+        if "from library_items" in statement.casefold():
+            statements.append(statement)
+
+    try:
+        result = SemanticDiscovery().search(
+            session, member, "vermilion stapler", limit=10, types={"episode", "moment"},
+        )
+    finally:
+        event.remove(session.get_bind(), "before_cursor_execute", _record_sql)
+
+    assert [(match.kind, match_title_id(match)) for match in result.matches] == [("moment", "episode")]
+    moment = result.matches[0]
+    assert moment.library_item is not None
+    assert moment.library_item.metadata_json == {"description": "full payload"}
+    assert len(statements) == 1
+
+
 def test_member_index_is_capacity_bounded_across_many_queries() -> None:
     session = make_session()
     member = User(id="member-1", username="member", display_name="Member", role="viewer", is_active=True)

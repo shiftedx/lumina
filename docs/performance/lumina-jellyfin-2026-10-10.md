@@ -41,13 +41,13 @@ Each scenario used ten warm-ups and 300 requests at concurrency 1, 8, and 32. Th
 
 ¹ The timeout-depressed wall rate is not used for a comparative throughput claim.
 
-At concurrency 32, final page p50 fell 75.5% from baseline and p95 fell 80.4%; throughput rose 4.32×. Search p50 fell 91.9%, p95 fell 93.9%, and throughput rose 12.88×. Cgroup CPU for the 300-request page batch fell from 29.84 to 4.21 seconds; search fell from 157.10 to 6.63 seconds. Maximum cgroup memory in those batches changed from 199.3 to 175.6 MB for page and 263.5 to 181.6 MB for search.
+At concurrency 32, final page p50 fell 75.5% from baseline and p95 fell 80.4%; throughput rose 4.32×. Search p50 fell 91.9%, p95 fell 93.9%, and throughput rose 12.88×. Cgroup CPU for the 300-request page batch fell from 29.84 to 4.21 seconds; search fell from 157.10 to 6.63 seconds. Maximum Docker-reported container memory in those batches changed from 199.3 to 175.6 MB for page and 263.5 to 181.6 MB for search. Docker's `MemUsage` excludes inactive file cache; these values are neither process RSS nor raw cgroup `memory.current`.
 
 Cross-server search is a practical 60-card client workload, not identical semantics: Lumina reports 200 candidates and Jellyfin 180. The final Lumina page p50 was lower than the all-success Jellyfin control at concurrency 32 (417 versus 548 ms), while final Lumina search p50 was higher (664 versus 290 ms). These local outcomes do not support a blanket server ranking.
 
 ### Metadata compression
 
-Controlled identity/gzip blocks made 50 requests per representation in identity, gzip, gzip, identity order. Baseline served both requests as 209,721-byte identity. Final served identity at 209,721 bytes and gzip at 7,840 bytes, a 96.26% wire reduction, with identical decoded SHA-256. Final median latency was 13.15 ms for identity and 13.22 ms for gzip; measured cgroup CPU was 0.796 and 0.664 seconds respectively. This local sample shows bandwidth reduction without a measurable latency penalty; it is not a remote-network result.
+Controlled identity/gzip blocks made 50 requests per representation in identity, gzip, gzip, identity order. Baseline served both requests as a 209,721-byte identity representation. Final served identity at 209,721 bytes and gzip at 7,840 bytes, a 96.26% reduction in encoded HTTP body `Content-Length`, with identical decoded SHA-256. Total network traffic, including headers and transport overhead, was not measured. Final median latency was 13.15 ms for identity and 13.22 ms for gzip; measured cgroup CPU was 0.796 and 0.664 seconds respectively. This local sample shows a smaller encoded body without a measurable latency penalty; it is not a remote-network result.
 
 ### Direct streaming
 
@@ -89,7 +89,7 @@ Post-scan validation found 302 parsed Lumina probe objects, 302 named video code
 
 The probe-first scheduler was also measured in a same-source native harness at revision `65eda84`, using legacy interleaving versus probe-first ordering. Codec readiness changed from 444.8667 to 8.2983 seconds (53.61×), while full loudness completion changed from 446.3740 to 447.3842 seconds (+0.226%). A separate artifact confirms all 302 stored parsed probe values are canonically identical. This is a scheduling A/B, not a comparison between pristine Git revisions or servers.
 
-Five initialized restart trials used the same successful Jellyfin-compatible `/Users/AuthenticateByName` request and credentials for both servers. Median Docker-start-to-authenticated-ready time was 1.8003 seconds baseline, 1.6875 seconds final, and 4.8955/4.6977 seconds in the Jellyfin controls. Final Lumina ready-time Docker/cgroup memory was 119.9–121.0 MiB; its Jellyfin control was 307.3–320.0 MiB. These values cover model-inactive benchmark settings.
+Five initialized restart trials used the same successful Jellyfin-compatible `/Users/AuthenticateByName` request and credentials for both servers. Median Docker-start-to-authenticated-ready time was 1.8003 seconds baseline, 1.6875 seconds final, and 4.8955/4.6977 seconds in the Jellyfin controls. Final Lumina ready-time Docker-reported container memory was 119.9–121.0 MiB; its Jellyfin control was 307.3–320.0 MiB. Docker's `MemUsage` excludes inactive file cache; these values are neither process RSS nor raw cgroup `memory.current`. They cover model-inactive benchmark settings.
 
 ## Qualification and limits
 
@@ -97,7 +97,7 @@ The final image passed the real tiny Llama and ASR model smoke and an image cont
 
 The final Linux full suite reported 4,440 passed, 8 skipped, and 3 failed, versus pristine baseline 4,404 passed, 8 skipped, and 2 failed. Two FFmpeg media failures were common. The additional final-suite category-planner failure is classified as a pre-existing, fresh-schema layout-dependent SQLite planner risk rather than evidence of a candidate query regression. A 34-case Linux matrix reproduced the bad plan on both sources: baseline failed 10 of 16 repeated exact cases and final failed 4 of 16. Across the exact cases and two prefix controls, all 15 failures created `ix_media_titles_category_added` first and selected the `type_added` plan; all 19 passes created another competing title index first and selected the `category_added` plan. Target SQL and parameters were identical, PRAGMAs matched, and no case had `sqlite_stat1`. The sampled outcomes were repeatable, but the underlying SQLite tie-break mechanism remains unproven. No assertion was changed or weakened.
 
-Other accepted measurements include directory relist median 318.556 to 6.565 ms and subtree remove 575.628 to 0.578 ms, with +7.85 MB at 40,001 directories; typed semantic materialization 18.440 to 14.204 ms with identical response hashes; and pinned media delivery 75.55 to 26.06 ms with combined CPU down 52.2% and first byte 0.78 to 0.86 ms. The title-letter proposal was reverted after only about 10% repeatable gain and a small-library p95 regression.
+Other accepted measurements include directory relist median 318.556 to 6.565 ms and subtree remove 575.628 to 0.578 ms, with +7.85 MB at 40,001 directories; typed semantic materialization 18.440 to 14.204 ms with identical response hashes; and pinned media delivery 75.55 to 26.06 ms with combined CPU down 52.2% and first byte 0.78 to 0.86 ms. The title-letter proposal was reverted: the representative roughly 2,585-row workload showed essentially no median gain and a worse p95, while the roughly 50,000-row synthetic workload improved by about 11%.
 
 ## Reproduction
 

@@ -195,10 +195,11 @@ from sqlalchemy import func, select  # noqa: E402
 
 from app import db as db_module  # noqa: E402
 from app.config import settings  # noqa: E402
-from app.models import ImportRun, LibraryItem, MediaArtifact, User  # noqa: E402
+from app.models import ImportRun, LibraryItem, LibraryItemArtifact, MediaArtifact, User  # noqa: E402
 from app.security import hash_password  # noqa: E402
 from app.services import library_import as library_import_module  # noqa: E402
 from app.services.library_import import LibraryImportService, drive  # noqa: E402
+from app.services.media_probe import MediaProbeService  # noqa: E402
 
 from test_v1_scan import PASSWORD, client_for, register_root, write  # noqa: E402  (shared helpers)
 
@@ -249,6 +250,56 @@ def test_scoped_run_marks_only_gone_files_inside_its_scope(lib) -> None:  # noqa
     run = run_import(root_id, [{"dir": "A", "deep": True}], trigger="watch")
     assert (run.state, run.counters["missing"]) == ("succeeded", 1)
     assert lifecycles()["A/A0.mkv"] == "missing" and lifecycles()["B/B0.mkv"] == "available"
+
+
+def test_shallow_scope_replaces_an_episode_with_a_new_file(lib, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    root, root_id = lib
+    folder = root / "TV" / "Show" / "Season 1"
+    old_path = folder / "Show S01E01 - old.mkv"
+    new_path = folder / "Show S01E01 - replacement.mp4"
+    write(old_path, b"old-episode")
+    run_import(root_id)
+    with db_module.SessionLocal() as db:
+        old = db.scalars(select(LibraryItem)).one()
+        old_id, episode_id = old.id, old.title_id
+
+    old_path.unlink()
+    write(new_path, b"different-replacement-bytes")
+    run = run_import(root_id, [{"dir": "TV/Show/Season 1", "deep": False}], trigger="watch")
+    assert (run.state, run.counters["inspected"], run.counters["indexed"], run.counters["missing"]) == ("succeeded", 1, 1, 1)
+
+    with db_module.SessionLocal() as db:
+        items = db.scalars(select(LibraryItem).order_by(LibraryItem.created_at, LibraryItem.id)).all()
+        assert len(items) == 2
+        old, new = next(item for item in items if item.id == old_id), next(item for item in items if item.id != old_id)
+        assert (old.status, new.status, new.title_id) == ("missing", "available", episode_id)
+        states = dict(db.execute(
+            select(LibraryItemArtifact.library_item_id, MediaArtifact.lifecycle)
+            .join(MediaArtifact, MediaArtifact.id == LibraryItemArtifact.artifact_id)
+        ).all())
+        assert (states[old.id], states[new.id]) == ("missing", "available")
+        new_id = new.id
+
+    facts = {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2", "webm_suffix": False,
+        "video_codec": "h264", "audio_codec": "aac", "width": 160, "height": 120,
+        "duration": 60.0, "bit_rate": 500_000, "audio_tracks": 1, "subtitles": ["subrip"],
+        "streams": [
+            {"index": 0, "type": "video", "codec": "h264", "width": 160, "height": 120},
+            {"index": 1, "type": "audio", "codec": "aac", "channels": 2, "default": True},
+            {"index": 2, "type": "subtitle", "codec": "subrip", "language": "eng", "default": True},
+        ],
+    }
+    monkeypatch.setattr(MediaProbeService, "_probe", lambda self, path: facts)
+    with client_for("admin") as admin:
+        detail = admin.get(f"/api/titles/{episode_id}")
+        assert detail.status_code == 200 and detail.json()["play_item_id"] == new_id
+        assert admin.get(f"/api/library/{old_id}/playback-options").status_code == 404
+        assert admin.get(f"/api/library/{old_id}/subtitle-tracks").status_code == 404
+        options = admin.get(f"/api/library/{new_id}/playback-options")
+        tracks = admin.get(f"/api/library/{new_id}/subtitle-tracks")
+        assert options.status_code == 200 and options.json()["mode"] == "direct"
+        assert tracks.status_code == 200 and [track["id"] for track in tracks.json()] == ["e:2"]
 
 
 def test_shallow_scope_does_not_touch_deeper_files(lib) -> None:  # noqa: ANN001

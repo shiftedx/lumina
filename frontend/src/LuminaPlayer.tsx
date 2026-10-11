@@ -633,12 +633,41 @@ export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(func
   useLayoutEffect(() => {
     const media = nativeRef.current;
     if (!media) return;
-    media.querySelectorAll('track').forEach((track) => track.remove());
-    for (const { id, label, language, src, default: isDefault } of activeSource.tracks ?? []) {
-      const track = Object.assign(document.createElement('track'), { id, kind: 'subtitles', label, src, default: Boolean(isDefault) });
-      if (language) track.srclang = language;
-      media.append(track);
+    const sources = activeSource.tracks ?? [];
+    const unused = [...media.querySelectorAll('track')];
+    const elements = sources.map(({ id, label, language, src, default: isDefault }) => {
+      const existing = unused.findIndex((track) => track.id === id);
+      const track = existing >= 0 ? unused.splice(existing, 1)[0] : document.createElement('track');
+      track.id = id;
+      track.kind = 'subtitles';
+      track.label = label;
+      setAttr(track, 'src', src);
+      setAttr(track, 'srclang', language || null);
+      track.default = Boolean(isDefault);
+      if (!track.parentNode) media.append(track);
+      return track;
+    });
+    unused.forEach((track) => track.remove());
+
+    // A supplied boolean (including false for Off) makes selection caller-controlled. Tracks without
+    // one retain the player's standalone Captions toggle. Reuse loaded nodes across selection changes,
+    // then correct the browser's asynchronous default choice when each VTT finishes loading.
+    if (sources.some((track) => track.default !== undefined)) {
+      const selectedId = sources.find((track) => track.default)?.id ?? null;
+      const syncSelection = () => {
+        let found = false;
+        for (let index = 0; index < media.textTracks.length; index += 1) {
+          const textTrack = media.textTracks[index];
+          const selected: boolean = !found && selectedId !== null && textTrack.id === selectedId;
+          if (textTrack.mode !== (selected ? 'showing' : 'disabled')) textTrack.mode = selected ? 'showing' : 'disabled';
+          found ||= selected;
+        }
+      };
+      elements.forEach((track) => track.addEventListener('load', syncSelection));
+      syncSelection();
+      return () => elements.forEach((track) => track.removeEventListener('load', syncSelection));
     }
+    return undefined;
   }, [trackKey, activeSourceKey, mediaEpoch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A handed-on element loads the next source. A null source empties it, except a blob: (hls.js / dash.js

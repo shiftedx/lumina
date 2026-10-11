@@ -247,6 +247,23 @@ describe('the live line', () => {
 describe('captions', () => {
   const READY_VIDEO = { kind: 'video', src: '/api/library/a/stream', state: 'ready', nativeTitle: 'The Long Walk' } as const;
   const renderSource = (source: Parameters<typeof LuminaPlayer>[0]['source'], prefs: PlayerPreferences = {}) => render(<PlayerPreferencesContext.Provider value={prefs}><LuminaPlayer source={source} title="Clip" /></PlayerPreferencesContext.Provider>);
+  const subtitleSource = (selected: string | null) => ({
+    ...READY_VIDEO,
+    tracks: [
+      { id: 'embedded:2', label: 'English', language: 'eng', src: '/tracks/english.vtt', default: selected === 'embedded:2' },
+      { id: 'embedded:3', label: 'Portuguese', language: 'por', src: '/tracks/portuguese.vtt', default: selected === 'embedded:3' },
+    ],
+  });
+
+  function mockTextTracks(media: HTMLMediaElement) {
+    const tracks = [
+      { id: 'embedded:2', mode: 'disabled' as TextTrackMode },
+      { id: 'embedded:3', mode: 'disabled' as TextTrackMode },
+    ];
+    const list = Object.assign(new EventTarget(), { 0: tracks[0], 1: tracks[1], length: tracks.length });
+    Object.defineProperty(media, 'textTracks', { configurable: true, value: list });
+    return tracks;
+  }
 
   it('maps prefs to the player style', () => {
     renderSource(READY_VIDEO, { captions: { size: 'large', background: 'box' } });
@@ -273,6 +290,41 @@ describe('captions', () => {
     const player = document.querySelector<HTMLElement>('.lumina-player')!;
     expect(player.dataset.captionFallback).toBe('xlarge solid');
     vi.unstubAllGlobals();
+  });
+
+  it('restores exactly the selected subtitle when its track finishes loading after the selection changed', () => {
+    const { rerender } = render(<LuminaPlayer source={subtitleSource(null)} title="Clip" />);
+    const media = screen.getByLabelText('Clip video') as HTMLVideoElement;
+    const tracks = mockTextTracks(media);
+
+    rerender(<LuminaPlayer source={subtitleSource('embedded:2')} title="Clip" />);
+    tracks[0].mode = 'showing';
+    tracks[1].mode = 'showing';
+    media.querySelectorAll('track')[0].dispatchEvent(new Event('load'));
+
+    expect(tracks.map((track) => track.mode)).toEqual(['showing', 'disabled']);
+  });
+
+  it('keeps every subtitle disabled after Off when a track finishes loading', () => {
+    const { rerender } = render(<LuminaPlayer source={subtitleSource('embedded:2')} title="Clip" />);
+    const media = screen.getByLabelText('Clip video') as HTMLVideoElement;
+    const tracks = mockTextTracks(media);
+
+    rerender(<LuminaPlayer source={subtitleSource(null)} title="Clip" />);
+    tracks[0].mode = 'showing';
+    media.querySelectorAll('track')[0].dispatchEvent(new Event('load'));
+
+    expect(tracks.map((track) => track.mode)).toEqual(['disabled', 'disabled']);
+  });
+
+  it('keeps loaded track elements mounted when only the subtitle selection changes', () => {
+    const { rerender } = render(<LuminaPlayer source={subtitleSource(null)} title="Clip" />);
+    const media = screen.getByLabelText('Clip video') as HTMLVideoElement;
+    const english = media.querySelector<HTMLTrackElement>('#embedded\\:2');
+
+    rerender(<LuminaPlayer source={subtitleSource('embedded:2')} title="Clip" />);
+
+    expect(media.querySelector<HTMLTrackElement>('#embedded\\:2')).toBe(english);
   });
 
   it('swaps in a fresh element when the audio clock stalls, tells the owner, and clears the notice on a new source', async () => {

@@ -334,7 +334,7 @@ async function navigateWithMobileTabs(page: Page, label: string, heading: RegExp
   await expectEffectiveTargets(page);
 }
 
-// Destinations outside the phone tabs are reached through the More modal.
+// Destinations outside the phone tabs are reached through the More menu.
 async function navigateWithMore(page: Page, label: string, heading: RegExp) {
   await page.getByRole('button', { name: /^More(,|$)/ }).click();
   await page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: label }).click();
@@ -398,14 +398,14 @@ test('all primary surfaces reflow at a standards-realistic 200% equivalent viewp
   await coverEverySurface(page);
 });
 
-test('navigation modal fits a narrow viewport and scrolls to every action', async ({ page }) => {
+test('navigation menu fits a narrow viewport and scrolls to every action', async ({ page }) => {
   await openApp(page, 320, 480);
   const dialog = page.getByRole('dialog', { name: 'Navigation' });
   await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: 'Open navigation' }).click();
   await expect(dialog).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  const body = dialog.locator('.g-dialog-body');
+  const body = dialog;
   await expect(body).toHaveCSS('overflow-y', 'auto');
   await dialog.getByRole('button', { name: 'Sign out' }).scrollIntoViewIfNeeded();
   await expect(dialog.getByRole('button', { name: 'Sign out' })).toBeVisible();
@@ -414,6 +414,17 @@ test('navigation modal fits a narrow viewport and scrolls to every action', asyn
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused();
+  const more = page.getByRole('button', { name: /^More/ });
+  await more.click();
+  const anchor = await more.boundingBox();
+  const bounds = await dialog.boundingBox();
+  expect(bounds!.y).toBeGreaterThanOrEqual(8);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(anchor!.y);
+  await dialog.getByRole('button', { name: 'Sign out' }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(more).toBeFocused();
+
 });
 
 test('Watch keeps long localized title and metadata readable at 200% equivalent', async ({ page }) => {
@@ -1181,7 +1192,7 @@ test('a terminal failed live-recording surface passes the tagged Axe gate', asyn
   expect((await auditA11y(page)).violations).toEqual([]);
 });
 
-test('navigation focuses Home, traps keyboard focus, and restores its trigger every time', async ({ page }) => {
+test('navigation focuses Home, allows Tab dismissal, and restores its trigger with Escape', async ({ page }) => {
   await openApp(page, 1280, 900);
   const dialog = page.getByRole('dialog', { name: 'Navigation' });
   const trigger = page.getByRole('button', { name: 'Open navigation' });
@@ -1191,14 +1202,13 @@ test('navigation focuses Home, traps keyboard focus, and restores its trigger ev
     await expect(dialog.getByRole('button', { name: 'Home' })).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(dialog.getByRole('button', { name: 'Library' })).toBeFocused();
-    await dialog.getByRole('button', { name: 'My Settings' }).focus();
-    await page.keyboard.press('Tab');
-    // Native dialogs may visit browser chrome before cycling back; the page stays inert.
-    if (!await dialog.getByRole('button', { name: 'Close', exact: true }).evaluate((element) => element === document.activeElement)) await page.keyboard.press('Tab');
-    await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
     await expect(trigger).toBeFocused();
+    await trigger.click();
+    await dialog.getByRole('button', { name: 'My Settings' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(dialog).toHaveCount(0);
   }
 });
 

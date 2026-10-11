@@ -1,9 +1,9 @@
 import { Ellipsis, Search, Server } from 'lucide-react';
-import { memo, type ReactNode, useRef } from 'react';
+import { memo, type ReactNode, useRef, useLayoutEffect, type RefObject } from 'react';
 
 import { allStreamingBlocked, useAccess } from '../features/access/access';
 import { LuminaRouteIcon, type LuminaRouteIconName } from '../LuminaRouteIcons';
-import { Dialog } from '../ui';
+import { place } from '../ui/placement';
 import { moveFocus } from '../features/media/focusNav';
 import { type Surface } from './routes';
 
@@ -28,7 +28,8 @@ export function surfaceIsActive(current: Surface, target: Surface): boolean {
   return current === target || (target === 'streaming' && current === 'subscriptions');
 }
 
-export const MobileTabs = memo(function MobileTabs({ surface, activeDownloads, moreOpen, onNavigate, onSearch, onMore }: {
+export const MobileTabs = memo(function MobileTabs({ surface, activeDownloads, moreOpen, onNavigate, onSearch, onMore, moreButtonRef }: {
+  moreButtonRef?: RefObject<HTMLButtonElement | null>;
   surface: Surface; activeDownloads: number; moreOpen: boolean; onNavigate: (surface: Surface) => void; onSearch: () => void; onMore: () => void;
 }) {
   const noStreaming = allStreamingBlocked(useAccess().access);
@@ -42,16 +43,17 @@ export const MobileTabs = memo(function MobileTabs({ surface, activeDownloads, m
       {tab('library', 'Library', 'library')}
       {noStreaming ? null : tab('streaming', 'Streaming', 'live')}
       <button onClick={onSearch} type="button"><Search aria-hidden="true" /><span>Search</span></button>
-      <button aria-expanded={moreOpen} aria-haspopup="dialog" aria-label={activeDownloads ? `More, ${activeDownloads} active downloads` : 'More'} onClick={onMore} type="button">
+      <button ref={moreButtonRef} aria-expanded={moreOpen} aria-haspopup="dialog" aria-label={activeDownloads ? `More, ${activeDownloads} active downloads` : 'More'} onClick={onMore} type="button">
         <Ellipsis aria-hidden="true" /><span>More</span>{activeDownloads ? <b aria-hidden="true" className="g-nav-count">{activeDownloads}</b> : null}
       </button>
     </nav>
   );
 });
 
-/** Primary destinations live in a modal; the page keeps the entire width beneath the header. */
-export const NavigationDialog = memo(function NavigationDialog({ surface, activeDownloads, pendingRequests = 0, open, onNavigate, onClose, extra, onManageServer, managingServer = false }: {
+/** A compact top-layer menu stays beside its trigger without reserving page space. */
+export const NavigationPopover = memo(function NavigationPopover({ surface, activeDownloads, pendingRequests = 0, open, onNavigate, onClose, extra, onManageServer, managingServer = false, anchorRef }: {
   surface: Surface; activeDownloads: number; open: boolean; onNavigate: (surface: Surface) => void; onClose: () => void;
+  anchorRef?: RefObject<HTMLButtonElement | null>;
   pendingRequests?: number;
   onManageServer?: () => void;
   managingServer?: boolean;
@@ -59,10 +61,51 @@ export const NavigationDialog = memo(function NavigationDialog({ surface, active
   extra?: ReactNode;
 }) {
   const firstNavigationRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const noStreaming = allStreamingBlocked(useAccess().access);
-  const choose = (action: () => void) => { onClose(); action(); };
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!open || !panel) return;
+    const anchor = anchorRef?.current ?? document.querySelector<HTMLButtonElement>('[aria-controls="primary-navigation"]');
+    panel.showPopover?.();
+    const follow = () => {
+      if (!anchor) return;
+      const bounds = anchor.getBoundingClientRect();
+      panel.style.maxHeight = `${Math.max(0, Math.max(window.innerHeight - bounds.bottom - 12, bounds.top - 12))}px`;
+      place(panel, anchor, 'start');
+    };
+    follow();
+    firstNavigationRef.current?.focus({ preventScroll: true });
+    const dismiss = () => { panel.hidePopover?.(); onClose(); anchor?.focus({ preventScroll: true }); };
+    const key = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); }
+      if (event.key === 'Tab') {
+        const controls = [...panel.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input, select, summary, [tabindex="0"]')];
+        const boundary = event.shiftKey ? controls[0] : controls.at(-1);
+        if (document.activeElement === boundary) dismiss();
+      }
+    };
+    const outside = (event: Event) => {
+      const target = event.target as Node | null;
+      if (target && !panel.contains(target) && !anchor?.contains(target)) onClose();
+    };
+    document.addEventListener('keydown', key, true);
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('focusin', outside, true);
+    window.addEventListener('resize', follow);
+    document.addEventListener('scroll', follow, true);
+    return () => {
+      document.removeEventListener('keydown', key, true);
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('focusin', outside, true);
+      window.removeEventListener('resize', follow);
+      document.removeEventListener('scroll', follow, true);
+    };
+  }, [open, anchorRef, onClose]);
+  const choose = (action: () => void) => { panelRef.current?.hidePopover?.(); onClose(); action(); };
+  if (!open) return null;
   return (
-    <Dialog className="g-navigation-modal" initialFocus={firstNavigationRef} onClose={onClose} open={open} title="Navigation">
+    <div aria-label="Navigation" className="g-popover g-navigation-popover" popover="manual" ref={panelRef} role="dialog">
       <nav aria-label="Primary" className="g-navigation-grid" id="primary-navigation" onKeyDown={(event) => moveFocus(event, { targets: '.g-nav-item' })}>
         {navGroups.map(({ label: group, items }) => (
           <div className="g-nav-group" key={group}>
@@ -80,6 +123,6 @@ export const NavigationDialog = memo(function NavigationDialog({ surface, active
         ))}
       </nav>
       {extra}
-    </Dialog>
+    </div>
   );
 });

@@ -9,11 +9,11 @@ const user = { id: 'u1', username: 'a', display_name: 'A', role: 'admin', is_act
 function Host({ onNavigate = vi.fn(), onManageServer = vi.fn() } = {}) {
   const [open, setOpen] = useState(false);
   return <AppShell activity={{ state: 'ready', retrying: false, active: 0 }} announcer={null} compact={false} mainRef={createRef()} menuButtonRef={createRef()} mobile={false}
-    moreItems={null} navigationOpen={open} onAddLink={vi.fn()} onCloseNavigation={() => setOpen(false)} onMenu={() => setOpen(true)} onNavigate={onNavigate} onSearch={vi.fn()} onSettings={vi.fn()} onManageServer={onManageServer}
+    moreItems={null} navigationOpen={open} onAddLink={vi.fn()} onCloseNavigation={() => setOpen(false)} onMenu={() => setOpen((value) => !value)} onNavigate={onNavigate} onSearch={vi.fn()} onSettings={vi.fn()} onManageServer={onManageServer}
     onSignOut={vi.fn()} onTheme={vi.fn()} surface="home" theme="system" user={user}><h1>Page</h1></AppShell>;
 }
 
-describe('navigation modal', () => {
+describe('anchored navigation', () => {
   it('opens from the header, focuses Home, and restores the trigger after cancel', async () => {
     render(<Host />);
     const trigger = screen.getByRole('button', { name: 'Open navigation' });
@@ -22,13 +22,28 @@ describe('navigation modal', () => {
     const dialog = screen.getByRole('dialog', { name: 'Navigation' });
     expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Home' }));
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
-    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
     expect(document.activeElement).toBe(trigger);
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('closes the modal when opening the Library or Manage Server', async () => {
+  it('stays non-modal, toggles from its trigger and dismisses when clicking the page', async () => {
+    render(<Host />);
+    const trigger = screen.getByRole('button', { name: 'Open navigation' });
+    await userEvent.click(trigger);
+    const panel = screen.getByRole('dialog', { name: 'Navigation' });
+    expect(panel.tagName).toBe('DIV');
+    expect(panel.getAttribute('popover')).toBe('manual');
+    expect(panel.getAttribute('aria-modal')).toBeNull();
+    await userEvent.click(trigger);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole('heading', { name: 'Page' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('closes the menu when opening the Library or Manage Server', async () => {
     const onNavigate = vi.fn(); const onManageServer = vi.fn();
     render(<Host onNavigate={onNavigate} onManageServer={onManageServer} />);
     const trigger = screen.getByRole('button', { name: 'Open navigation' });

@@ -8,8 +8,9 @@
 @media (max-width: 680px) {
   .lumina-main:has(> .watch-mini) { padding-bottom: calc(148px + env(safe-area-inset-bottom)); }
 }
-/* ---- navigation modal; pages retain the full width below the header ---- */
-.g-navigation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+/* ---- anchored navigation; pages retain the full width below the header ---- */
+.g-navigation-popover { width: 260px; padding: 12px 8px; border-radius: var(--g-radius-sheet); overflow-y: auto; overscroll-behavior: contain; }
+.g-navigation-grid { display: grid; gap: 12px; }
 .g-nav-group { display: grid; align-content: start; gap: 4px; }
 .g-nav-group-label { margin: 0 12px 8px; color: var(--g-ink-3); font: var(--g-type-ui-strong); }
 .g-nav-item { display: flex; min-height: var(--g-control); align-items: center; gap: 12px; padding: 0 12px; border: 0; border-inline-start: 2px solid transparent; border-radius: 0 var(--g-radius) var(--g-radius) 0; background: none; color: var(--g-ink-2); cursor: pointer; font: var(--g-type-ui); text-align: start; }
@@ -18,7 +19,6 @@
 @media (hover: hover) { .g-nav-item:not(.is-active):hover { background: var(--g-wash); } }
 .g-nav-count { min-width: 20px; height: 20px; margin-inline-start: auto; padding: 0 6px; border-radius: var(--g-radius-round); background: var(--g-gold); color: var(--g-on-gold); font: 600 11px / 20px var(--g-sans); font-variant-numeric: tabular-nums; text-align: center; }
 .lumina-main { margin-left: 0; }
-@media (max-width: 680px) { .g-navigation-grid { grid-template-columns: minmax(0, 1fr); } }
 .g-mobile-tabs { display: none; }
 @media (max-width: 680px) {
   .lumina-main { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }

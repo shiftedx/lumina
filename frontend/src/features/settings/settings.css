@@ -56,7 +56,7 @@
 .g-settings-spaces { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
 .g-settings-spaces a { padding: 0 14px; }
 .g-settings-search { grid-area: search; }
-.g-settings-search .g-input { border: 1px solid var(--g-field-rule); border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
+.g-settings-search .g-input { padding: 0 12px; border: 1px solid var(--g-field-rule); border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
 .g-settings-sidebar { grid-area: side; align-self: start; display: grid; gap: 16px; }
 .g-settings-sidebar ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .g-settings-link { display: flex; min-height: var(--g-control); align-items: center; padding: 8px 12px; border-radius: var(--g-radius); color: var(--g-ink-2); font: var(--g-type-ui); text-decoration: none; }

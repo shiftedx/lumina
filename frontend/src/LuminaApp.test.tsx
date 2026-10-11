@@ -10,7 +10,7 @@ import { CollectionAnnouncer, collectionLoadAnnouncement, preloadLikelySurfaces,
 import { DownloadsSurface } from './features/downloads/DownloadsSurface';
 import { HomeSurface } from './features/home/HomeSurface';
 import type { LiveShelfProps } from './features/home/LiveShelf';
-import { MobileTabs, NavigationDialog } from './app/Navigation';
+import { MobileTabs, NavigationPopover } from './app/Navigation';
 import { OnboardingSurface } from './features/onboarding/Onboarding';
 import { SettingsSurface } from './features/settings/SettingsSurface';
 import { CollectionRecovery, StaleCollectionNotice } from './features/media/MediaCards';
@@ -102,13 +102,13 @@ describe('authenticated navigation accessibility', () => {
   const user = { id: 'user-1', username: 'one', display_name: 'One', role: 'viewer', is_active: true } as const;
 
   it('marks the current destination inside the navigation dialog', () => {
-    const html = renderToStaticMarkup(<NavigationDialog activeDownloads={0} onClose={noop} onNavigate={noop} open surface="library" />);
-    expect(html).toContain('<dialog');
+    const html = renderToStaticMarkup(<NavigationPopover activeDownloads={0} onClose={noop} onNavigate={noop} open surface="library" />);
+    expect(html).toContain('popover="manual"');
     expect(html).toMatch(/aria-current="page" aria-label="Library"/);
   });
 
   it('does not render navigation until its dialog opens', () => {
-    expect(renderToStaticMarkup(<NavigationDialog activeDownloads={0} onClose={noop} onNavigate={noop} open={false} surface="home" />)).toBe('');
+    expect(renderToStaticMarkup(<NavigationPopover activeDownloads={0} onClose={noop} onNavigate={noop} open={false} surface="home" />)).toBe('');
   });
 
   it('marks the active mobile tab, and Watch does not pretend to be Home', () => {

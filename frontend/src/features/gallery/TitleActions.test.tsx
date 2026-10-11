@@ -33,6 +33,29 @@ function Harness({ initial, role = 'viewer', canEdit = false, onEdit, onPlay = (
 }
 
 describe('TitleActions', () => {
+  it('puts the viewing intent first and gives supporting and maintenance actions distinct emphasis', () => {
+    const { container } = render(<Harness canEdit initial={movie} onEdit={() => undefined} role="admin" />);
+    const actions = Array.from(container.querySelectorAll<HTMLButtonElement>('.t-actions button'));
+    expect(actions.map((button) => button.textContent?.trim())).toEqual([
+      'Resume at 42:10',
+      'Add to watchlist',
+      'Trailer',
+      'Mark watched',
+      'Favorite',
+      'Edit details',
+      'Fix match',
+    ]);
+    expect(actions.map((button) => ['is-primary', 'is-secondary', 'is-quiet'].find((name) => button.classList.contains(name)))).toEqual([
+      'is-primary',
+      'is-secondary',
+      'is-secondary',
+      'is-quiet',
+      'is-quiet',
+      'is-quiet',
+      'is-quiet',
+    ]);
+  });
+
   it('shows Edit details beside Fix match only to people who can edit, and opens the editor', async () => {
     const onEdit = vi.fn();
     const { unmount } = render(<Harness canEdit={false} initial={movie} onEdit={onEdit} />);

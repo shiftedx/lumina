@@ -63,6 +63,27 @@ describe('EditorPage', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it('keeps a metadata draft across Artwork without presenting its footer as an artwork action', async () => {
+    api.getTitleMetadata.mockResolvedValue(docFixture('movie'));
+    const onTab = vi.fn();
+    const view = show(null, { onTab });
+    await screen.findByRole('heading', { name: 'Severance' });
+    fireEvent.change(screen.getByLabelText('Overview'), { target: { value: 'A retained draft.' } });
+    expect(screen.getByRole('button', { name: 'Save 1 change' })).toBeTruthy();
+
+    view.rerender(<ToastProvider><EditorPage id="t1" onBack={() => undefined} onTab={onTab as never} tab="artwork" user={user} /></ToastProvider>);
+    expect(screen.getByText('Artwork changes save as you make them. Each one can be undone from History.')).toBeTruthy();
+    expect(screen.getByText('You also have 1 unsaved metadata change.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save 1 change' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
+    expect(onTab).toHaveBeenCalledWith('details');
+
+    view.rerender(<ToastProvider><EditorPage id="t1" onBack={() => undefined} onTab={onTab as never} tab="details" user={user} /></ToastProvider>);
+    expect(screen.getByRole('button', { name: 'Save 1 change' })).toBeTruthy();
+    expect((screen.getByLabelText('Overview') as HTMLTextAreaElement).value).toBe('A retained draft.');
+  });
+
   it.each([['people', 'Add person', 'Name 1'], ['ids', null, 'Other ID name']] as const)('Discard resets the %s tab form with the draft', async (tab, add, _field) => {
     api.getTitleMetadata.mockResolvedValue(docFixture('movie'));
     show(tab as never);

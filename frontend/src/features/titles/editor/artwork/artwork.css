@@ -7,7 +7,7 @@
 .ed-art-frame img { width: 100%; height: 100%; object-fit: cover; }
 .ed-art-frame[data-type="Logo"] img { object-fit: contain; }
 .ed-art-empty { color: var(--g-ink-2); text-align: center; }
-.ed-art-caption { display: flex; align-items: center; gap: var(--g-space-1); }
+.ed-art-caption { display: flex; flex-wrap: wrap; align-items: center; gap: var(--g-space-1); }
 .ed-art-caption strong { flex: 1; }
 .ed-art-picks { display: grid; gap: var(--g-space-2); grid-template-columns: 1fr 1fr; }
 .ed-art-picks[data-type="Backdrop"] { grid-template-columns: 1fr; }

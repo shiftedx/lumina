@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { ApiRequestError, getTitleMetadata, saveMetadataEdits } from '../../../api';
 import type { EditConflict, EditResult, MetadataErrorBody, TitleImageEntry, UserProfile } from '../../../types';
-import { Button, EmptyState, ErrorState, Masthead, SegmentedControl, Skeleton, useToast } from '../../../ui';
+import { Button, EmptyState, ErrorState, Masthead, SegmentedControl, Skeleton, TextButton, useToast } from '../../../ui';
 import { forgetTitle, forgetTitles } from '../../gallery/titleCache';
 import { useUnsavedChanges } from '../../settings/unsavedChanges';
 import { useFetched } from '../titleModel';
@@ -147,17 +147,20 @@ export function EditorPage({ id, tab, onTab, onBack, user }: EditorPageProps) {
         {active === 'details' ? <DetailsTab {...props} /> : null}
         {active === 'people' ? <PeopleTab key={formKey} {...props} /> : null}
         {active === 'artwork' ? (
-          <ArtworkTab
-            doc={doc}
-            onChanged={() => setHistoryRevision((n) => n + 1)}
-            onImages={(images: TitleImageEntry[]) => { patch((current) => ({ ...current, images })); forgetTitle(id); }}
-          />
+          <>
+            {count ? <div className="g-notice" role="status"><span>You also have {count} unsaved metadata change{count === 1 ? '' : 's'}.</span><TextButton onClick={() => onTab('details')}>Review changes</TextButton></div> : null}
+            <ArtworkTab
+              doc={doc}
+              onChanged={() => setHistoryRevision((n) => n + 1)}
+              onImages={(images: TitleImageEntry[]) => { patch((current) => ({ ...current, images })); forgetTitle(id); }}
+            />
+          </>
         ) : null}
         {active === 'ids' ? <IdsTab key={formKey} {...props} /> : null}
         {active === 'episodes' ? <EpisodesTab {...props} /> : null}
         {active === 'history' ? <HistoryTab key={historyRevision} {...props} /> : null}
       </div>
-      <EditorFooter count={count} onDiscard={() => { setDraft({}); setBanner(null); setFormKey((n) => n + 1); }} onSave={() => void save()} saving={saving} />
+      {active === 'artwork' ? null : <EditorFooter count={count} onDiscard={() => { setDraft({}); setBanner(null); setFormKey((n) => n + 1); }} onSave={() => void save()} saving={saving} />}
     </div>
   );
 }

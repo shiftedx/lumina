@@ -69,7 +69,19 @@ The app-wide detector produced **10 signals**. **Nine were false positives**: gu
 - Matched-episode Watch states now establish identity before playback, reclaim space for an empty season, and expose retry without replacing the player. The calibrated raw ratings are 27→34, 23→35, and 18→36. All five phone tool labels now wrap fully at 390px; the generic Watch rating moved 32→33 through minimalism only. That generic 33/40 score excludes the fully populated multi-track Playback menu scored separately below.
 - Settings is strong across its current 53-view capture set. Long diagnostics and schedule workflows remain scan-heavy on phones; per-view pre-fix scores do not exist.
 - A user-reported fully populated Playback menu exposed a distinct P1 state missed by the earlier generic Watch fixture. Its paired Assessment A moved 24→30 after every Quality, Version, Audio, Subtitles, Generate, Sync, Translate, Caption style, and Sound control was retained in readable groups with 44px targets. Before/after full-menu, action, track, Caption style, and Sound slices were inspected at 1280px and 390px in light and dark themes; isolated baseline 5ae failed 4/4 and current passed 4/4. The small phone player still requires scrolling, and the later inset follow-up receives no score increase.
-- Remaining cross-surface P2 work centers on stable overflow cues for Library and Channel tab rows, the Artwork auto-save/footer contradiction, and the weak hierarchy among title actions.
+- A later verified, nonnumeric follow-up resolved the Library and Channel tab overflow cues, the Artwork save-boundary contradiction, and the title-action hierarchy. The formal scores above remain the last design assessment.
+
+## Verified P2 follow-up
+
+This follow-up records implementation and regression evidence after the last formal assessment. **Every Nielsen score, total, before field, and formal assessment count remains unchanged.** The findings below are verified improvements, not a new numerical assessment.
+
+| Group | Verified resolution | Code and regression evidence | Synthetic proof |
+| --- | --- | --- | --- |
+| Library and Channel tabs | Shared, truthful 44px end controls expose both overflow directions. The active tab is revealed after viewport resize and after server sections expand a cached Library row. Arrow-key navigation and every section remain available. | `frontend/src/ui/TabScroller.tsx:19-85`; `frontend/src/ui/TabScroller.test.tsx:17-50`; `frontend/e2e/library-gallery.spec.ts:151-217`; `frontend/e2e/channel-page.spec.ts:68-114` | [Library phone](evidence/p2-library-phone-after.png) |
+| Artwork editor | Artwork continues saving each change immediately with History undo. Its unrelated global draft footer is absent; a retained cross-tab draft is announced with **Review changes** and reappears intact with Save/Discard. Dense card captions wrap without dropping their badge or controls. | `frontend/src/features/titles/editor/artwork/ArtworkTab.tsx:83`; `frontend/src/features/titles/editor/EditorPage.tsx:149-163`; `frontend/src/features/titles/editor/EditorPage.test.tsx:66-85`; `frontend/e2e/metadata-editor.spec.ts:70-84,134-145` | [Artwork desktop](evidence/p2-artwork-desktop-after.png) |
+| Title actions | Play or Resume is the sole primary action. Watchlist and Trailer remain supporting actions; watched, Favorite, editor, and admin match actions remain present with quiet emphasis. | `frontend/src/features/gallery/TitleActions.tsx:89-105`; `frontend/src/features/gallery/TitleActions.test.tsx:35-57,70-113`; `frontend/e2e/title_actions_quality.spec.ts:34-67` | [Title phone](evidence/p2-title-phone-after.png) |
+
+The affected register rows now mark the resolved P2 and the feature behavior to preserve at P3. Other P2 findings, including YouTube Videos layout, Collections work, and the History footer, remain unchanged and out of scope for this follow-up.
 
 ## Watch completion
 

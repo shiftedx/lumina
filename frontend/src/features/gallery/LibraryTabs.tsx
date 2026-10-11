@@ -3,10 +3,11 @@
  * the quiet Deleted link. It renders at once from the member's last sections answer, kept in localStorage, and follows
  * GET /api/library/sections.
  */
-import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useState } from 'react';
 
 import { getLibrarySections } from '../../api';
 import type { LibrarySections } from '../../types';
+import { TabScroller } from '../../ui';
 import { LENS_LABELS, LIBRARY_LENSES, type LibraryLens } from './libraryLens';
 
 /** Where in the Library a member can be: a lens, the All landing at /library, or the Collections pages. */
@@ -91,21 +92,11 @@ export type LibraryTabsProps = {
 };
 
 export function LibraryTabs({ current, sections, isAdmin, onOpen }: LibraryTabsProps) {
-  const nav = useRef<HTMLElement>(null);
-  // Phone: the row scrolls sideways; the current tab starts in view once it is drawn (sections can arrive later).
-  // Only the row moves, never the window: that would undo a restored scroll.
-  const placed = useRef(false);
-  useEffect(() => {
-    const row = nav.current;
-    const tab = row?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (placed.current || !row || !tab) return;
-    placed.current = true;
-    row.scrollLeft = tab.offsetLeft - row.offsetLeft;
-  }, [sections]);
+  const shownTabs = TABS.filter((tab) => tabShown(tab, sections));
+  const deletedShown = isAdmin || (sections?.deleted ?? 0) > 0;
   /** Left and Right step along the row and stop at its ends; Down leaves for the page's next control. */
   const keys = (event: KeyboardEvent<HTMLElement>) => {
-    const row = nav.current;
-    if (!row) return;
+    const row = event.currentTarget;
     const links = [...row.querySelectorAll<HTMLAnchorElement>('a[href]')];
     const at = links.indexOf(document.activeElement as HTMLAnchorElement);
     if (at < 0) return;
@@ -125,10 +116,10 @@ export function LibraryTabs({ current, sections, isAdmin, onOpen }: LibraryTabsP
     <a aria-current={current === place ? 'page' : undefined} className={className} href={placePath(place)} key={place} onClick={(event) => followInApp(event, () => onOpen(place))}>{label}</a>
   );
   return (
-    <nav aria-label="Library" className="g-tabs" data-focus-row onKeyDown={keys} ref={nav}>
-      {TABS.filter((tab) => tabShown(tab, sections)).map((tab) => link(tab, tab === 'all' ? 'All' : LENS_LABELS[tab], 'g-tab'))}
+    <TabScroller activeKey={`${current}:${shownTabs.join(',')}:collections:${deletedShown}`} ariaLabel="Library" as="nav" focusRow onKeyDown={keys} rowClassName="g-tabs">
+      {shownTabs.map((tab) => link(tab, tab === 'all' ? 'All' : LENS_LABELS[tab], 'g-tab'))}
       {link('collections', 'Collections', 'g-tabs-deleted')}
-      {isAdmin || (sections?.deleted ?? 0) > 0 ? link('deleted', LENS_LABELS.deleted, 'g-tabs-deleted') : null}
-    </nav>
+      {deletedShown ? link('deleted', LENS_LABELS.deleted, 'g-tabs-deleted') : null}
+    </TabScroller>
   );
 }

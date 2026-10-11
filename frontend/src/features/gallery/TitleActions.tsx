@@ -9,6 +9,7 @@ import { Check, Clapperboard, Heart, ListPlus, Pencil, Play, Wrench } from 'luci
 import { setFavorite, setTitleWatched } from '../../api';
 import { cancelSpeculativeStart, prefetchPlaybackOptions, speculativeStart } from '../../playbackPrefetch';
 import type { TitleDetail } from '../../types';
+import { Button } from '../../ui';
 import { IdentifyDialog } from '../titles/IdentifyDialog';
 import { primaryAction, versionLabel } from '../titles/titleModel';
 import { queueMedia } from '../watch/WatchQueue';
@@ -87,20 +88,20 @@ export function TitleActions({ detail, user, onPlay, onPatch, onReload, onEdit }
       ) : null}
       <div className="t-actions" data-focus-row>
         {action ? (
-          <button
-            aria-describedby={action.reason ? 't-play-reason' : undefined} className="g-button g-button-text is-primary" data-focus-item disabled={!action.itemId || Boolean(action.reason)}
+          <Button
+            aria-describedby={action.reason ? 't-play-reason' : undefined} data-focus-item disabled={!action.itemId || Boolean(action.reason)} icon={<Play fill="currentColor" />}
             onBlur={endSpeculation} onClick={() => { if (action.itemId) onPlay(action.itemId); }} onFocus={() => { if (warmItem) beginSpeculation(warmItem); }}
-            onPointerEnter={() => { if (warmItem) beginSpeculation(warmItem); }} onPointerLeave={endSpeculation} type="button"
+            onPointerEnter={() => { if (warmItem) beginSpeculation(warmItem); }} onPointerLeave={endSpeculation} variant="primary"
           >
-            <Play aria-hidden="true" fill="currentColor" /> {action.label}
-          </button>
+            {action.label}
+          </Button>
         ) : null}
-        <button aria-pressed={played} className="g-button g-button-text" data-focus-item onClick={() => void toggleWatched()} type="button"><Check aria-hidden="true" /> {played ? 'Watched' : 'Mark watched'}</button>
-        <button aria-pressed={favorite} className="g-button g-button-text" data-focus-item onClick={() => void toggleFavorite()} type="button"><Heart aria-hidden="true" fill={favorite ? 'currentColor' : 'none'} /> Favorite</button>
-        {trailer ? <button className="g-button g-button-text" data-focus-item onClick={() => onPlay(trailer.item_id)} type="button"><Clapperboard aria-hidden="true" /> Trailer</button> : null}
-        {action?.itemId ? <button className="g-button g-button-text" data-focus-item onClick={() => void addToWatchlist()} type="button"><ListPlus aria-hidden="true" /> Add to watchlist</button> : null}
-        {user.can_edit_details && onEdit && ['movie', 'series', 'season', 'episode'].includes(detail.type) ? <button className="g-button g-button-text" data-focus-item onClick={onEdit} type="button"><Pencil aria-hidden="true" /> Edit details</button> : null}
-        {user.role === 'admin' ? <button className="g-button g-button-text" data-focus-item onClick={() => setIdentifying(true)} ref={fixRef} type="button"><Wrench aria-hidden="true" /> Fix match</button> : null}
+        {action?.itemId ? <Button data-focus-item icon={<ListPlus />} onClick={() => void addToWatchlist()}>Add to watchlist</Button> : null}
+        {trailer ? <Button data-focus-item icon={<Clapperboard />} onClick={() => onPlay(trailer.item_id)}>Trailer</Button> : null}
+        <Button data-focus-item icon={<Check />} onClick={() => void toggleWatched()} pressed={played} variant="quiet">{played ? 'Watched' : 'Mark watched'}</Button>
+        <Button data-focus-item icon={<Heart fill={favorite ? 'currentColor' : 'none'} />} onClick={() => void toggleFavorite()} pressed={favorite} variant="quiet">Favorite</Button>
+        {user.can_edit_details && onEdit && ['movie', 'series', 'season', 'episode'].includes(detail.type) ? <Button data-focus-item icon={<Pencil />} onClick={onEdit} variant="quiet">Edit details</Button> : null}
+        {user.role === 'admin' ? <Button data-focus-item icon={<Wrench />} onClick={() => setIdentifying(true)} ref={fixRef} variant="quiet">Fix match</Button> : null}
       </div>
       {action?.reason ? <p className="t-note" id="t-play-reason">{action.reason}</p> : null}
       {notice ? <p className="t-note" role="status">{notice}</p> : null}

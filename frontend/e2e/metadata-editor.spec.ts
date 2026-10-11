@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
 
 import { docFixture } from '../src/features/titles/editor/editorFixtures';
 import { mockApi, mockTitles, signIn } from './lumina-mock';
@@ -19,6 +20,18 @@ async function open(page: Page, viewport = { width: 1536, height: 900 }, path = 
   await page.goto(path);
   await signIn(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Harbor Lights' })).toBeVisible();
+}
+
+async function expectArtworkCaptionsInsideCards(page: Page) {
+  const escaped = await page.locator('.ed-art-card').evaluateAll((cards) => cards.flatMap((card, cardIndex) => {
+    const cardBox = card.getBoundingClientRect();
+    return Array.from(card.querySelector('.ed-art-caption')?.children ?? []).flatMap((child) => {
+      const box = child.getBoundingClientRect();
+      const outside = box.left < cardBox.left - 0.5 || box.right > cardBox.right + 0.5 || box.top < cardBox.top - 0.5 || box.bottom > cardBox.bottom + 0.5;
+      return outside ? [`card ${cardIndex + 1}: ${child.getAttribute('aria-label') || child.textContent?.trim() || child.tagName} escapes its card`] : [];
+    });
+  }));
+  expect(escaped).toEqual([]);
 }
 
 test('flow: edit, save, undo from the toast, reload, then undo from History', async ({ page }) => {
@@ -52,6 +65,22 @@ test('keyboard: Back to title, the sections and the footer are reachable with Ta
   expect(reached.indexOf('Back to title')).toBeGreaterThanOrEqual(0);
   expect(reached.indexOf('Back to title')).toBeLessThan(reached.indexOf('Save 1 change'));
   expect(reached).toContain('Details'); // the section tabs are one radio group: arrows move between them
+});
+
+test('Artwork explains its immediate saves without presenting the metadata draft footer', async ({ page }) => {
+  await open(page);
+  await page.getByRole('textbox', { name: 'Overview' }).fill('A draft kept across sections.');
+  await expect(page.getByRole('button', { name: 'Save 1 change' })).toBeVisible();
+
+  await page.getByRole('radio', { name: 'Artwork' }).check({ force: true });
+  await expect(page.getByText('Artwork changes save as you make them. Each one can be undone from History.')).toBeVisible();
+  await expect(page.getByText('You also have 1 unsaved metadata change.')).toBeVisible();
+  await expect(page.locator('.ed-footer')).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  await page.getByRole('button', { name: 'Review changes' }).click();
+  await expect(page.getByRole('textbox', { name: 'Overview' })).toHaveValue('A draft kept across sections.');
+  await expect(page.getByRole('button', { name: 'Save 1 change' })).toBeVisible();
 });
 
 test('flow: rename a person on every title from the Cast tab (#164)', async ({ page }) => {
@@ -100,4 +129,34 @@ for (const [width, scheme] of [[390, 'light'], [390, 'dark'], [1536, 'light'], [
     await open(page, { width, height: 900 });
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
+}
+
+for (const [width, scheme] of [[390, 'light'], [390, 'dark'], [1536, 'light'], [1536, 'dark']] as const) {
+  test(`Artwork captions keep labels and controls inside their cards at ${width}px, ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await open(page, { width, height: width === 390 ? 844 : 900 }, '/title/movie-1/edit?tab=artwork');
+    const posterCaption = page.locator('.ed-art-card').first().locator('.ed-art-caption');
+    await expect(posterCaption.locator('strong')).toHaveText('Poster');
+    await expect(posterCaption.locator('.g-chip')).toHaveText('From TMDB');
+    await expect(posterCaption.getByRole('button', { name: 'Lock Poster' })).toBeVisible();
+    await expect(posterCaption.getByRole('button', { name: 'Poster options' })).toBeVisible();
+    await expectArtworkCaptionsInsideCards(page);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+}
+
+const qualityOutput = process.env.METADATA_EDITOR_QUALITY_OUT;
+if (qualityOutput) {
+  for (const [width, scheme] of [[390, 'light'], [390, 'dark'], [1536, 'light'], [1536, 'dark']] as const) {
+    test(`capture: Artwork autosave at ${width}px, ${scheme}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await open(page, { width, height: width === 390 ? 844 : 900 });
+      await page.getByRole('textbox', { name: 'Overview' }).fill('A draft kept across sections.');
+      await page.getByRole('radio', { name: 'Artwork' }).check({ force: true });
+      await expect(page.getByText('Artwork changes save as you make them. Each one can be undone from History.')).toBeVisible();
+      await expect(page.getByText('You also have 1 unsaved metadata change.')).toBeVisible();
+      await mkdir(qualityOutput, { recursive: true });
+      await page.screenshot({ fullPage: true, path: `${qualityOutput}/artwork-autosave-${width}-${scheme}.png` });
+    });
+  }
 }

@@ -13,6 +13,7 @@ import type { ChannelPageTab } from '../../app/routes';
 import { type ChannelSubscriptionCommands, findChannelBySource } from '../../channelSubscriptions';
 import type { ChannelPageResponse, LibraryChannelResponse, LibraryItem, RemoteEntry, SourceAutomation } from '../../types';
 import { formatCompactNumber } from '../../utils';
+import { TabScroller } from '../../ui';
 import { ChannelAvatar } from '../gallery/ChannelAvatar';
 import { GalleryArt } from '../gallery/GalleryArt';
 import { fallbackColour } from '../gallery/galleryModel';
@@ -210,9 +211,9 @@ export function ChannelPage(props: ChannelPageProps) {
           </div>
         </section>
       ) : null}
-      <div aria-label="Channel" className="g-tabs t-tabs g-channel-tabs" onKeyDown={onTabKeys} role="tablist">
+      <TabScroller activeKey={`${channelId}:${tab}:${tabs.map(([value, label]) => `${value}:${label}`).join('|')}`} ariaLabel="Channel" className="g-channel-tabs" onKeyDown={onTabKeys} role="tablist" rowClassName="g-tabs t-tabs">
         {tabs.map(([value, label]) => <button aria-controls="g-channel-panel" aria-selected={value === tab} className="g-label" data-focus-item id={`channel-tab-${value}`} key={value} onClick={() => onTabChange(value)} role="tab" tabIndex={value === tab ? 0 : -1} type="button">{label}</button>)}
-      </div>
+      </TabScroller>
       <div aria-labelledby={`channel-tab-${tab}`} id="g-channel-panel" role="tabpanel">{body}</div>
       {settings && follow ? <FollowSettingsDialog automation={follow} commands={props.commands} onChange={props.onAutomationChange} onClose={() => setSettings(false)} onRecover={props.onRecover} onRemoved={props.onAutomationRemoved} /> : null}
     </div>

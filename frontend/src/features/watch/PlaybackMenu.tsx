@@ -120,7 +120,7 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
         <div aria-label="Playback settings" className="playback-menu-panel player-panel" id={id} role="group">
           {styling && captions && onCaptionsChange ? (
             <>
-              <p className="g-label">Caption style</p>
+              <div className="playback-menu-actions"><p className="g-label">Caption style</p></div>
               <CaptionStyleRows onChange={onCaptionsChange} value={captions} />
               <TextButton onClick={() => setStyling(false)}>Back</TextButton>
             </>
@@ -144,8 +144,8 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
           <fieldset><legend className="g-label">Subtitles</legend>
             <label><input checked={subtitle === null} name={`${id}-subtitles`} onChange={() => onSubtitle(null)} type="radio" /> Off</label>
             {tracks.map((track) => <label key={track.id}><input checked={subtitle === track.id} name={`${id}-subtitles`} onChange={() => onSubtitle(track)} type="radio" /> {track.format === 'image' ? `${track.label} (burned in)` : track.label}<small>{ORIGIN_LABELS[track.origin]}</small></label>)}
-            {captions && onCaptionsChange ? <TextButton onClick={() => setStyling(true)}>Caption style…</TextButton> : null}
           </fieldset>
+          {captions && onCaptionsChange ? <TextButton onClick={() => setStyling(true)}>Caption style…</TextButton> : null}
           <div className="playback-menu-actions">
             {action('generate', 'Generate subtitles', { kind: 'generate' })}
             {action('sync', 'Sync to audio', textTrack ? { kind: 'sync', trackId: textTrack.id } : null)}

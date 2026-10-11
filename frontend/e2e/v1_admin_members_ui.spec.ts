@@ -48,7 +48,7 @@ test('invite dialog sends, and shows the link when email is not set up', async (
   await page.route('**/api/admin/invites', (route) => (route.request().method() === 'POST'
     ? route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'iv2', email: 'ana@example.com', status: 'pending', created_at: '2026-10-04T09:00:00Z', expires_at: '2026-10-11T09:00:00Z', sent_at: null, invitation_url: 'http://127.0.0.1:4174/#invite=one-time', email_sent: false }) })
     : route.fallback()));
-  await page.goto('/settings/members');
+  await page.goto('/settings/members?page=invitations');
   await signIn(page);
   await expect(page.getByRole('list', { name: 'Waiting invitations' })).toContainText('Grandad');
   await page.getByRole('button', { name: 'Invite someone' }).click();

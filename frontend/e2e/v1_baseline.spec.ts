@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 import { expect, test } from '@playwright/test';
 import { mockHome } from './home-mock';
 import { assertMediaPlaybackAdvances } from './release-evidence';
@@ -133,10 +134,10 @@ test('browser boots: local login, one synthetic playback, review surfaces render
 
   // The remaining review surfaces render.
   for (const surface of ['Library', 'Streaming']) {
-    await page.getByRole('button', { name: surface, exact: true }).first().click();
+    await navigateApp(page, surface);
     await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
   }
   await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await page.getByRole('menuitem', { name: 'My Settings' }).click();
   await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
 });

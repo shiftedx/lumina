@@ -1,181 +1,124 @@
+import { auditA11y } from './release-evidence';
+import { navigateApp } from './lumina-mock';
 import { expect, test } from '@playwright/test';
+import { categoryForPage, resolveSettingsPage } from '../src/features/settings/navigation';
+import { type SettingsSectionId } from '../src/app/routes';
 import { mockAdminFixtures, mockApi, signIn, user } from './lumina-mock';
 
-/** One Settings with a sidebar, deep links, and old /admin links. */
-
-test('the Settings entry opens Settings, and each section has its own address', async ({ page }) => {
+test('Settings and Manage Server open separate spaces, with bookmarkable subpages and Back', async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 960 });
-  await mockApi(page, { sidebar_collapsed: false });
-  await page.goto('/');
-  await signIn(page);
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Settings', exact: true }).click();
+  await mockApi(page, { sidebar_collapsed: false }); await mockAdminFixtures(page);
+  await page.goto('/'); await signIn(page);
+  await navigateApp(page, 'My Settings');
   await expect(page).toHaveURL(/\/settings$/);
-  await expect(page.getByRole('region', { name: 'All settings' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'My Settings' })).toBeVisible();
   const nav = page.getByRole('navigation', { name: 'Settings sections' });
-  await nav.getByRole('link', { name: 'Members' }).click();
-  await expect(page).toHaveURL(/\/settings\/members$/);
-  await page.reload();
-  await expect(nav.getByRole('link', { name: 'Members' })).toHaveAttribute('aria-current', 'page');
-  await page.goBack();
-  await expect(page).toHaveURL(/\/settings$/);
-  await expect(page.getByRole('region', { name: 'All settings' })).toBeVisible();
+  await expect(nav.getByRole('link')).toHaveCount(7);
+  await expect(nav.getByRole('link', { name: 'Household' })).toHaveCount(0);
+  await page.getByRole('navigation', { name: 'Settings spaces' }).getByRole('link', { name: 'Manage Server' }).click();
+  await expect(page).toHaveURL(/\/manage$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Manage Server' })).toBeVisible();
+  await nav.getByRole('link', { name: 'Household' }).click();
+  await expect(page).toHaveURL(/\/manage\/members\?page=members$/);
+  await page.getByRole('link', { name: 'Invitations', exact: true }).click();
+  await expect(page).toHaveURL(/page=invitations$/);
+  await page.reload(); await expect(page.getByRole('link', { name: 'Invitations', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.goBack(); await expect(page.getByRole('link', { name: 'Members', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
-const REDIRECTS: Array<[string, string, string]> = [
-  ['/admin', 'overview', 'Dashboard'], ['/admin/members', 'members', 'Members'], ['/admin/tasks', 'tasks', 'Tasks'],
-  ['/admin/storage', 'library', 'Library & storage'], ['/admin/imports', 'library', 'Library & storage'], ['/admin/media', 'media', 'Media server'],
-  ['/admin/ai', 'ai', 'AI & models'], ['/admin/backups', 'backups', 'Backups'], ['/admin/diagnostics', 'diagnostics', 'Diagnostics'], ['/admin/nope', 'overview', 'Dashboard'],
-];
-
-test('every old /admin link lands on its Settings section (success criterion 9)', async ({ page }) => {
-  await page.setViewportSize({ width: 1536, height: 960 });
-  await mockApi(page, { sidebar_collapsed: false });
-  await page.goto('/');
-  await signIn(page);
-  for (const [from, section, heading] of REDIRECTS) {
+test('every old admin link still opens its category in Manage Server', async ({ page }) => {
+  await mockApi(page, { sidebar_collapsed: false }); await mockAdminFixtures(page);
+  await page.goto('/'); await signIn(page);
+  for (const [from, section] of [['/admin', 'overview'], ['/admin/members', 'members'], ['/admin/tasks', 'tasks'], ['/admin/storage', 'library'], ['/admin/imports', 'library'], ['/admin/media', 'media'], ['/admin/ai', 'ai'], ['/admin/backups', 'backups'], ['/admin/diagnostics', 'diagnostics']] as const) {
     await page.goto(from);
-    await expect(page, from).toHaveURL(new RegExp(`/settings/${section}$`));
-    await expect(page.getByRole('heading', { level: 2, name: heading, exact: true }), from).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/settings/${section}${from === '/admin/imports' ? '\\?page=imports' : ''}$`));
+    await expect(page.getByRole('heading', { level: 1, name: 'Manage Server' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: categoryForPage(resolveSettingsPage(section as SettingsSectionId)).label, exact: true })).toBeVisible();
   }
 });
 
-test('on a phone, Settings is a list first; a section opens on its own and Back returns', async ({ page }) => {
+test('phone Settings is list then detail, with persistent search and a labelled subpage picker', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await mockApi(page, { sidebar_collapsed: false });
-  await page.goto('/settings');
-  await signIn(page);
+  await mockApi(page, { sidebar_collapsed: false }); await page.goto('/settings'); await signIn(page);
   const nav = page.getByRole('navigation', { name: 'Settings sections' });
-  await expect(nav.getByRole('link', { name: 'Playback', exact: true })).toBeVisible();
   await expect(page.locator('.g-settings-pane')).toBeHidden();
   await nav.getByRole('link', { name: 'Playback', exact: true }).click();
-  await expect(page).toHaveURL(/\/settings\/playback$/);
-  await expect(page.getByRole('heading', { level: 2, name: 'Playback', exact: true })).toBeVisible();
-  await expect(nav.getByRole('link', { name: 'Playback', exact: true })).toBeHidden();
-  await expect(page.getByRole('button', { name: 'All settings' })).toBeVisible(); // the sidebar (and its search) is the list view on a phone
-  await page.goBack();
-  await expect(page).toHaveURL(/\/settings$/);
-  await expect(nav.getByRole('link', { name: 'Display' })).toBeVisible();
-  await nav.getByRole('link', { name: 'Display' }).click();
-  await page.getByRole('button', { name: 'All settings' }).click();
-  await expect(page).toHaveURL(/\/settings$/);
-  await expect(nav.getByRole('link', { name: 'Display' })).toBeVisible();
+  await expect(nav).toBeHidden();
+  await expect(page.getByRole('searchbox', { name: 'Search settings' })).toBeVisible();
+  await page.getByRole('combobox', { name: 'Settings page' }).selectOption('captions');
+  await expect(page.getByRole('heading', { name: 'Captions', exact: true })).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Autoplay next video' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'All settings' }).click(); await expect(page).toHaveURL(/\/settings$/);
+  await expect(nav).toBeVisible();
 });
 
-test('search finds a setting by what it does and changes it in place (success criterion 7)', async ({ page }) => {
-  await page.setViewportSize({ width: 1536, height: 960 });
-  const saved = await mockApi(page, { sidebar_collapsed: false });
-  await page.goto('/settings');
-  await signIn(page);
-  const box = page.getByRole('searchbox', { name: 'Search settings' });
-  await box.fill('dark');
+test('search finds a destination and saves the real setting on its own page', async ({ page }) => {
+  const saved = await mockApi(page, { sidebar_collapsed: false }); await page.goto('/settings'); await signIn(page);
+  await page.getByRole('searchbox', { name: 'Search settings' }).fill('dark');
   const results = page.getByRole('region', { name: 'Search results' });
-  await expect(results.getByRole('heading', { level: 2, name: 'Display' })).toBeVisible();
-  await results.getByRole('radio', { name: 'Dark' }).check();
+  await expect(results.getByRole('radio')).toHaveCount(0);
+  await results.getByRole('link', { name: /Theme/ }).click();
+  await expect(page).toHaveURL(/\/settings\/appearance\?page=display$/);
+  await page.getByRole('radio', { name: 'Dark' }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect.poll(() => saved.some((body) => (body.ui_prefs as Record<string, unknown> | undefined)?.theme === 'dark')).toBe(true);
-  await box.fill('zzzz');
-  await expect(page.getByText('No settings match')).toBeVisible();
 });
 
-test('unsaved Transcoding edits are confirmed before leaving by sidebar, primary navigation or Back', async ({ page }) => {
-  await page.setViewportSize({ width: 1536, height: 960 });
-  await mockApi(page, { sidebar_collapsed: false, settings_advanced: true });
-  await mockAdminFixtures(page);
-  await page.goto('/');
-  await signIn(page);
-  await page.goto('/settings/members');
-  const nav = page.getByRole('navigation', { name: 'Settings sections' });
-  await nav.getByRole('link', { name: 'Transcoding' }).click();
-  const cache = page.getByRole('spinbutton', { name: 'Conversion cache (GB)' });
-  await cache.fill('25');
-
-  page.once('dialog', (dialog) => dialog.dismiss());
-  await nav.getByRole('link', { name: 'Backups' }).click();
-  await expect(page).toHaveURL(/\/settings\/transcoding$/);
-  await expect(cache).toHaveValue('25');
-
-  page.once('dialog', (dialog) => dialog.dismiss());
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Home' }).click();
-  await expect(page).toHaveURL(/\/settings\/transcoding$/);
-
-  page.once('dialog', (dialog) => dialog.dismiss());
-  await page.goBack();
-  await expect(page).toHaveURL(/\/settings\/transcoding$/);
-  await expect(cache).toHaveValue('25');
-
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.goBack();
-  await expect(page).toHaveURL(/\/settings\/members$/);
-});
-
-test('a keyboard alone deactivates a member: Enter opens their page, Deactivate opens a dialog with Cancel focused, Esc returns', async ({ page }) => {
-  await page.setViewportSize({ width: 1536, height: 960 });
-  await mockApi(page, { sidebar_collapsed: false });
-  await mockAdminFixtures(page);
-  await page.route('**/api/admin/users', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify([user, { ...user, id: 'm2', username: 'sam', display_name: 'Sam', role: 'viewer' }]) }));
-  await page.goto('/');
-  await signIn(page);
-  await page.goto('/settings/members');
-  await page.getByRole('list', { name: 'Household members' }).getByRole('link', { name: /Sam/ }).focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { level: 2, name: 'Sam' })).toBeFocused();
-  const deactivate = page.getByRole('button', { name: 'Deactivate' });
-  await deactivate.focus();
-  await page.keyboard.press('Enter');
-  const dialog = page.getByRole('dialog', { name: 'Deactivate Sam?' });
-  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
-  await page.keyboard.press('Escape');
-  await expect(dialog).toBeHidden();
-  await expect(deactivate).toBeFocused();
-});
-
-test('/settings/discovery shows Home & discovery with its three rows and the nav link current', async ({ page }) => {
-  await page.setViewportSize({ width: 1536, height: 960 });
-  await mockApi(page, { sidebar_collapsed: false });
-  await page.goto('/settings/discovery');
-  await signIn(page);
-  await expect(page.getByRole('heading', { level: 2, name: 'Home & discovery', exact: true })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Home & discovery' })).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('.g-settings-pane [data-setting-id]')).toHaveCount(3);
-});
-
-test('Settings uses the full width: a card home and one label | control column at 1536 and 1920', async ({ page }) => {
-  await mockApi(page, { sidebar_collapsed: false });
-  await mockAdminFixtures(page);
-  await page.goto('/');
-  await signIn(page);
-  for (const width of [1536, 1920]) {
-    await page.setViewportSize({ width, height: 960 });
-    await page.goto('/settings');
-    const home = page.getByRole('region', { name: 'All settings' });
-    await expect(home.getByRole('heading', { level: 2 })).toHaveText(['You', 'Server', 'Advanced']);
-    const pane = (await page.locator('.g-settings-pane').boundingBox())!;
-    expect(width - (pane.x + pane.width), 'pane reaches the gutter').toBeLessThanOrEqual(49);
-    const tops = await home.locator('.g-settings-card').evaluateAll((cards) => cards.slice(0, 8).map((card) => Math.round(card.getBoundingClientRect().top)));
-    expect(tops.filter((top) => top === tops[0]).length, 'cards per row').toBeGreaterThanOrEqual(width >= 1920 ? 4 : 3);
-    await page.screenshot({ path: `../output/settings-ia/home-${width}.png`, fullPage: true });
-    await page.goto('/settings/playback');
-    const quality = (await page.getByRole('combobox', { name: 'Maximum quality' }).boundingBox())!;
-    const box = (await page.locator('.g-settings-pane').boundingBox())!;
-    // One control column: fields fill it, and every switch ends at the same right edge.
-    expect(Math.abs(quality.x + quality.width - (box.x + box.width)), 'the field ends at the column edge').toBeLessThanOrEqual(1);
-    expect(quality.width, 'a field is the column width, not the full row').toBeLessThanOrEqual(321);
-    const ends = await page.locator('.g-settings-pane .g-switch-track').evaluateAll((tracks) => tracks.map((track) => Math.round(track.getBoundingClientRect().right)));
-    expect(new Set(ends).size, 'every switch ends at the same x').toBe(1);
-    await page.screenshot({ path: `../output/settings-ia/playback-${width}.png`, fullPage: true });
+test('drafts survive declined subpage, space, navigation and browser Back changes', async ({ page }) => {
+  await mockApi(page, { sidebar_collapsed: false }); await mockAdminFixtures(page);
+  await page.goto('/settings/members'); await signIn(page);
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Maintenance' }).click();
+  await page.getByRole('link', { name: 'Video conversion', exact: true }).click();
+  const cache = page.getByRole('spinbutton', { name: 'Conversion cache (GB)' }); await cache.fill('25');
+  for (const action of [() => page.getByRole('link', { name: 'Backups', exact: true }).click(), () => page.getByRole('navigation', { name: 'Settings spaces' }).getByRole('link', { name: 'My Settings' }).click(), () => navigateApp(page, 'Home'), () => page.goBack()]) {
+    page.once('dialog', (dialog) => dialog.dismiss()); await action();
+    await expect(page).toHaveURL(/\/manage\/transcoding\?page=transcoding$/); await expect(cache).toHaveValue('25');
   }
+  page.once('dialog', (dialog) => dialog.accept()); await page.goBack(); await expect(page).toHaveURL(/\/manage\/backups\?page=backups$/);
 });
 
-test('on a phone the Settings home is the grouped list, then a section, with no card grid', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await mockApi(page, { sidebar_collapsed: false });
-  await page.goto('/settings');
-  await signIn(page);
-  const nav = page.getByRole('navigation', { name: 'Settings sections' });
-  await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'All settings' })).toBeHidden();
-  await page.screenshot({ path: '../output/settings-ia/home-390.png', fullPage: true });
-  await nav.getByRole('link', { name: 'Playback', exact: true }).click();
-  await expect(page.getByRole('heading', { level: 2, name: 'Playback', exact: true })).toBeVisible();
-  await page.screenshot({ path: '../output/settings-ia/playback-390.png', fullPage: true });
+test('keyboard member deactivation focuses Cancel and Escape restores the trigger', async ({ page }) => {
+  await mockApi(page, { sidebar_collapsed: false }); await mockAdminFixtures(page);
+  await page.route('**/api/admin/users', (route) => route.fulfill({ json: [user, { ...user, id: 'm2', username: 'sam', display_name: 'Sam', role: 'viewer' }] }));
+  await page.goto('/settings/members'); await signIn(page);
+  await page.getByRole('list', { name: 'Household members' }).getByRole('link', { name: /Sam/ }).focus(); await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { level: 2, name: 'Sam' })).toBeFocused();
+  const deactivate = page.getByRole('button', { name: 'Deactivate' }); await deactivate.focus(); await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Deactivate Sam?' }).getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await page.keyboard.press('Escape'); await expect(deactivate).toBeFocused();
+});
+
+
+test('invitations open the public address on its new Connections page', async ({ page }) => {
+  await mockApi(page, { sidebar_collapsed: false }); await mockAdminFixtures(page);
+  await page.goto('/manage/members?page=invitations'); await signIn(page);
+  await page.getByRole('button', { name: 'Invite someone', exact: true }).click();
+  await page.getByRole('button', { name: 'Set the public address', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Invite someone' })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/manage\/members\?page=addresses$/);
+  await expect(page.getByRole('textbox', { name: 'Public address', exact: true })).toBeFocused();
+});
+
+test('navigation overlays the full-width page, dismisses by backdrop, and opens both settings spaces', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 960 });
+  await mockApi(page, { sidebar_collapsed: false }); await mockAdminFixtures(page);
+  await page.goto('/settings/playback'); await signIn(page);
+  const main = page.getByRole('main');
+  const before = await main.boundingBox();
+  const trigger = page.getByRole('button', { name: 'Open navigation' });
+  const modal = page.getByRole('dialog', { name: 'Navigation' });
+  await trigger.click();
+  expect((await auditA11y(page)).violations).toEqual([]);
+  const bounds = await modal.boundingBox();
+  expect(Math.abs(bounds!.x + bounds!.width / 2 - 768)).toBeLessThan(2);
+  // Native showModal makes the background inert without changing its layout.
+  expect(await page.locator('#main-content').boundingBox()).toEqual(before);
+  await page.mouse.click(12, 120);
+  await expect(modal).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await navigateApp(page, 'Manage Server');
+  await expect(page.getByRole('heading', { level: 1, name: 'Manage Server' })).toBeFocused();
+  await navigateApp(page, 'My Settings');
+  await expect(page.getByRole('heading', { level: 1, name: 'My Settings' })).toBeFocused();
+  await expect(main).toHaveCSS('margin-left', '0px');
 });

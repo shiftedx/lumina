@@ -11,9 +11,9 @@ vi.mock('../features/auth/memberPicker', () => ({ useDeviceRingSize: () => 1 }))
 
 const user = { id: 'u1', username: 'dana', display_name: 'Dana Lee', role: 'admin', is_active: true } as UserProfile;
 const props = (patch: Partial<TopBarProps> = {}): TopBarProps => ({
-  user, mobile: false, drawer: false, compact: false, menuLabel: 'Close navigation', menuExpanded: true, menuButtonRef: createRef(),
+  user, mobile: false, compact: false, menuLabel: 'Open navigation', menuExpanded: true, menuButtonRef: createRef(),
   activity: { state: 'ready', retrying: false, active: 2 }, theme: 'system',
-  onMenu: vi.fn(), onMenuKeyDown: vi.fn(), onHome: vi.fn(), onSearch: vi.fn(), onAddLink: vi.fn(), onActivity: vi.fn(), onSettings: vi.fn(), onTheme: vi.fn(), onSignOut: vi.fn(),
+  onMenu: vi.fn(), onHome: vi.fn(), onSearch: vi.fn(), onAddLink: vi.fn(), onActivity: vi.fn(), onSettings: vi.fn(), onTheme: vi.fn(), onSignOut: vi.fn(),
   ...patch,
 });
 
@@ -21,7 +21,7 @@ describe('TopBar', () => {
   it('has the menu button, a home brand link and a search trigger named with the shortcut', async () => {
     const p = props();
     render(<TopBar {...p} />);
-    expect(screen.getByRole('button', { name: 'Close navigation' }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Open navigation' }).getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByRole('link', { name: 'Lumina' }).getAttribute('href')).toBe('/');
     await userEvent.click(screen.getByRole('button', { name: /^Search Lumina, (⌘K|Ctrl K)$/ }));
     expect(p.onSearch).toHaveBeenCalledOnce();
@@ -66,7 +66,7 @@ describe('TopBar', () => {
   });
 
   it('is icon-only for Add link on phones and shows only the sun when compact', () => {
-    render(<TopBar {...props({ mobile: true, drawer: true, compact: true })} />);
+    render(<TopBar {...props({ mobile: true, compact: true })} />);
     expect(screen.getByRole('button', { name: 'Add a link' }).textContent).not.toContain('Add link');
     expect(screen.getByText('Lumina').className).toContain('sr-only');
   });

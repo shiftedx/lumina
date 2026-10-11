@@ -4,7 +4,7 @@ import { expect, test } from './realstack';
 /** ADR 0010 amendment: apps add Lumina by host:port alone, and the SPA's own deep links still open Lumina. */
 
 async function allowApps(page: Page, on: boolean) {
-  await page.goto('/settings/media');
+  await page.goto('/settings/media?page=players');
   await page.getByRole('switch', { name: 'Let apps like Infuse connect' }).setChecked(on);
   await page.getByRole('button', { name: 'Save media server settings' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();

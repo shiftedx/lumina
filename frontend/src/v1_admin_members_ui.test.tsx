@@ -394,12 +394,15 @@ describe('Member page', () => {
     await waitFor(() => expect(within(row).getByText('Off')).not.toBeNull());
   });
 
-  it('Permissions link to request policies; Activity loads recent playback and screen time', async () => {
-    const value = host();
+  it('Permissions open the focused policies and editing pages; Activity loads recent playback and screen time', async () => {
+    const onOpenSetting = vi.fn(() => true);
+    const value = host({ onOpenSetting });
     const { tab } = await openMia(value);
     await tab('Permissions');
     await userEvent.click(screen.getByRole('button', { name: 'Open request policies' }));
-    expect(value.onOpenSection).toHaveBeenCalledWith('requests');
+    expect(onOpenSetting).toHaveBeenCalledWith('requests.member-policies');
+    await userEvent.click(screen.getByRole('button', { name: 'Open Library & storage' }));
+    expect(onOpenSetting).toHaveBeenCalledWith('library.editing');
     routes({ '/api/admin/members/mia/activity': { screen_time_today_seconds: 3900, recent: [{ id: 'h1', title: 'Bluey', subtitle: 'S1 E3', started_at: '2026-10-04T08:00:00Z', watched_seconds: 420, client: { name: 'Lumina web' } }] } });
     await tab('Activity');
     expect(await screen.findByText('1 h 05 min')).not.toBeNull();

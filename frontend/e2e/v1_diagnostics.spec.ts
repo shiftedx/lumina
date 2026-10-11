@@ -34,7 +34,7 @@ test('test_admin_diagnostics', async ({ page, context }) => {
   await page.route('**/api/admin/diagnostics', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(report) }));
   await page.goto('/admin/diagnostics');
   await signIn(page);
-  await expect(page.getByRole('heading', { level: 2, name: 'Diagnostics' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Maintenance' })).toBeVisible();
   await expect(page.getByText('Degraded', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: /Copy report/ }).click();
   await expect(page.getByText(/Report copied/)).toBeVisible();

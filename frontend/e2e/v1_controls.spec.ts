@@ -27,13 +27,15 @@ async function openLibraryWatch(page: Page, scheme: 'light' | 'dark', viewport =
   const video = page.locator('video');
   await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.readyState), { timeout: 15_000 }).toBeGreaterThan(0);
   await video.evaluate((element: HTMLVideoElement) => element.pause());
+  await expect(page.getByRole('slider', { name: 'Seek', exact: true })).toBeEnabled();
   return { video, saved };
 }
 
 async function tabTo(page: Page, name: string) {
+  const target = page.getByLabel(name, { exact: true });
   for (let step = 0; step < 60; step += 1) {
     await page.keyboard.press('Tab');
-    if (await page.evaluate((label) => document.activeElement?.getAttribute('aria-label') === label, name)) return;
+    if (await target.evaluateAll((elements) => elements.some((element) => element === document.activeElement))) return;
   }
   throw new Error(`Tab never reached ${name}`);
 }

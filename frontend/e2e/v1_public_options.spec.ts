@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 /**
  * The saved sign-in surface is absent and the credential / generic
  * live-chat API family is never requested, end to end.
@@ -159,8 +160,8 @@ async function login(page: Page) {
 
 async function openSettings(page: Page) {
   await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'Settings' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'My Settings' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: /^(My Settings|Manage Server)$/ })).toBeVisible();
 }
 
 const SIGN_IN_LABEL_PATTERNS = [/saved sign-in/i, /sign in with/i, /auth profile/i, /credential/i, /cookie file/i, /browser sign-in/i, /netrc/i] as const;
@@ -168,9 +169,9 @@ const SIGN_IN_LABEL_PATTERNS = [/saved sign-in/i, /sign in with/i, /auth profile
 async function assertSettingsSurfaceHasNoSignInControls(page: Page) {
   // The surface itself renders (positive control) and the surviving local
   // session control stays.
-  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^(My Settings|Manage Server)$/ })).toBeVisible();
   // Sign out lives on Profile now (the landing is a card grid; the top-bar menu has one too).
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Profile' }).click();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Profile & security' }).click();
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   // Label absence: no saved sign-in card or provider/credential control of
   // any kind. :visible excludes the Password row's ⓘ panel, whose verbatim
@@ -199,7 +200,7 @@ test('desktop 1536x960 dark: Settings has no Saved sign-ins card, a live source 
 
   // A live YouTube source: real media plays at the current edge with no
   // current-chat rail, even though the stale preview advertises current chat.
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Streaming' }).click();
+  await navigateApp(page, 'Streaming');
   await page.getByRole('button', { name: new RegExp(`^${LIVE_TITLE}`) }).click();
 
   const player = page.locator('[data-lumina-player="true"]');

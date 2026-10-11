@@ -5,18 +5,23 @@ import type { AutomationRoot, AutomationRootPatch, AutomationState, ScanSchedule
 import { Button, Field, fieldProps, Select, SegmentedControl, StatusText, TextButton, useToast } from '../../ui';
 import { errorMessage } from '../../utils';
 import { settingDomId, SettingSwitch } from '../settings/SettingRow';
+import { SettingsHostContext } from '../settings/settingsHost';
 import { LibraryRefreshContext } from './AdminStorage';
 import { HOURS, INTERVALS, lastScanLine, nextScanLine, SCHEDULES, scanToast, stateLine } from './libraryAutomationText';
 import { useAdminResource } from './useAdminResource';
 
 const BLOCKED: AutomationState[] = ['scanning', 'preparing', 'waiting_confirmation', 'offline', 'unresponsive', 'needs_first_import'];
 const FAST: AutomationState[] = ['scanning', 'preparing', 'waiting_files'];
-const goToImports = () => document.getElementById(settingDomId('library.imports'))?.scrollIntoView({ block: 'start' });
 
 const LIVE: Partial<Record<AutomationRoot['state'], string>> = { scanning: 'Scanning', preparing: 'Getting ready to watch', waiting_files: 'Waiting for files to finish copying' };
 
 /** Settings → Library & storage → Scans and folder watching. Every control saves at once. */
 export function LibraryAutomation() {
+  const settingsHost = useContext(SettingsHostContext);
+  const goToImports = () => {
+    if (settingsHost?.onOpenSetting) settingsHost.onOpenSetting('library.imports');
+    else document.getElementById(settingDomId('library.imports'))?.scrollIntoView({ block: 'start' });
+  };
   const { data, setData, error, loading, reload } = useAdminResource(getLibraryAutomation, 'Lumina could not load scan settings.');
   const { bump } = useContext(LibraryRefreshContext);
   const toast = useToast();

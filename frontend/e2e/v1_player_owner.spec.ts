@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 import { expect, test, type Page } from '@playwright/test';
 import { item, mockApi, signIn } from './lumina-mock';
 import { SYNTHETIC_MEDIA_BASE64, SYNTHETIC_MEDIA_TYPE } from './synthetic-media';
@@ -38,7 +39,8 @@ async function openWatch(page: Page, viewport = { width: 1536, height: 960 }, sc
 }
 
 async function goHome(page: Page, mobile = false) {
-  await page.getByRole('button', { name: 'Home', exact: true }).and(page.locator(mobile ? '.g-mobile-tabs button' : '#primary-navigation button')).click();
+  if (mobile) await page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: 'Home' }).click();
+  else await navigateApp(page, 'Home');
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('region', { name: /^Mini player: / })).toBeVisible();
 }
@@ -87,7 +89,7 @@ test('test_miniplayer_close_releases', async ({ page }) => {
 test('test_logout_silences_player', async ({ page }) => {
   const { video } = await openWatch(page);
   await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await page.getByRole('menuitem', { name: 'My Settings' }).click();
   await expect(page.getByRole('region', { name: /^Mini player: / })).toBeVisible();
   await page.getByRole('button', { name: /, account menu$/ }).click();
   await page.getByRole('menuitem', { name: 'Sign out' }).click();

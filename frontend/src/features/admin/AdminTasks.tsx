@@ -132,7 +132,7 @@ export function AdminTasks() {
       ) : null}
       {page?.next_cursor ? <Button className="g-task-more" disabled={loading} onClick={() => load(page.next_cursor)}>{loading ? 'Loading…' : 'Load more'}</Button> : null}
       </div>
-      <p className="g-setting-note">Library imports run per storage root; see <a {...appLink('/settings/library')}>Library &amp; storage</a> for scan progress and skipped files.</p>
+      <p className="g-setting-note">Library imports run per storage root; see <a {...appLink('/manage/library?page=imports')}>Library &amp; storage</a> for scan progress and skipped files.</p>
     </div>
   );
 }

@@ -40,6 +40,7 @@ test('first owner sets up the vault, signs in again, adds an external root and i
     await root.getByRole('radio', { name: /Private/ }).check();
     await root.getByRole('button', { name: 'Import now' }).click();
     await expect(page.getByText('Import started. Its progress shows under Imports.')).toBeVisible();
+    await page.getByRole('link', { name: 'Imports', exact: true }).click();
     const run = page.getByRole('region', { name: 'Fixture media Complete' });
     await expect(run).toBeVisible({ timeout: 30_000 });
     await expect(run.getByRole('definition').first()).toHaveText('8');

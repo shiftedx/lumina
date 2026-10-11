@@ -38,14 +38,16 @@ describe('full-width Settings (owner 2026-10-01)', () => {
     expect(shell).not.toContain('max-width');
     expect(shell).toContain('grid-template-columns: var(--g-sidebar) minmax(0, 1fr)');
   });
-  it('keeps a long sidebar sticky and scrollable', () => {
+  it('uses a short category list without an independently scrolling sidebar', () => {
     const side = rule('.g-settings-sidebar');
-    expect(side).toContain('position: sticky');
-    expect(side).toContain('overflow-y: auto');
-    expect(side).toContain('max-height: calc(100dvh - var(--g-topbar) - 48px)');
+    expect(side).not.toContain('overflow-y: auto');
+    expect(side).not.toContain('max-height');
   });
-  it('lays the Settings home out as an auto-filling card grid', () => {
-    expect(rule('.g-settings-cards')).toContain('grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr))');
+  it('keeps search visible in phone detail pages and swaps subpage links for a labelled select', () => {
+    expect(settings).toContain("grid-template-areas: 'head' 'search' 'side' 'pane'");
+    expect(settings).not.toContain(".g-settings[data-view='detail'] .g-settings-search");
+    expect(settings).toContain('.g-settings-page-select { display: block;');
+    expect(settings).toContain('.g-settings-pages { display: none;');
   });
   it('puts every control in one right-hand column of the same width in every row and sub-row, and never flows rows into columns', () => {
     expect(rule('.g-setting-row')).toContain('grid-template-columns: minmax(0, 1fr) min(20rem, 48%)');

@@ -1,5 +1,5 @@
 import { Menu as MenuIcon, Plus, Search } from 'lucide-react';
-import { type CSSProperties, type KeyboardEvent, type RefObject } from 'react';
+import { type CSSProperties, type RefObject } from 'react';
 import { providerBlocked, useAccess } from '../features/access/access';
 import { openMemberPicker } from './commands';
 import { useDeviceRingSize } from '../features/auth/memberPicker';
@@ -11,7 +11,6 @@ import type { CollectionLoadState } from '../workspace';
 export interface TopBarProps {
   user: UserProfile;
   mobile: boolean;
-  drawer: boolean;
   compact: boolean;
   menuLabel: 'Open navigation' | 'Close navigation';
   menuExpanded: boolean;
@@ -19,12 +18,12 @@ export interface TopBarProps {
   activity: { state: CollectionLoadState; retrying: boolean; active: number };
   theme: ThemePreference;
   onMenu: () => void;
-  onMenuKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
   onHome: () => void;
   onSearch: () => void;
   onAddLink: () => void;
   onActivity: () => void;
   onSettings: () => void;
+  onManageServer?: () => void;
   onTheme: (theme: ThemePreference) => void;
   onSignOut: () => void;
 }
@@ -56,7 +55,7 @@ export function TopBar(props: TopBarProps) {
   return (
     <header className="g-topbar">
       <div className="g-topbar-start">
-        <IconButton aria-controls="primary-navigation" aria-expanded={props.menuExpanded} aria-haspopup={props.drawer ? 'dialog' : undefined} icon={<MenuIcon />} label={props.menuLabel} onClick={props.onMenu} onKeyDown={props.onMenuKeyDown} ref={props.menuButtonRef} />
+        <IconButton aria-controls="primary-navigation" aria-expanded={props.menuExpanded} aria-haspopup="dialog" icon={<MenuIcon />} label={props.menuLabel} onClick={props.onMenu} ref={props.menuButtonRef} />
         <a className="g-topbar-brand" href="/" onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return; event.preventDefault(); props.onHome(); }}>
           <BrandMark compact={compact} size="bar" />
         </a>
@@ -79,7 +78,8 @@ export function TopBar(props: TopBarProps) {
           items={[
             { kind: 'group', label: `${name} · ${user.role === 'admin' ? 'Vault owner' : 'Household member'}` },
             { kind: 'item', label: ringSize === 0 ? 'Sign in as someone else…' : 'Switch member…', onSelect: openMemberPicker },
-            { kind: 'item', label: 'Settings', onSelect: props.onSettings },
+            { kind: 'item', label: 'My Settings', onSelect: props.onSettings },
+            ...(props.onManageServer ? [{ kind: 'item' as const, label: 'Manage Server', onSelect: props.onManageServer }] : []),
             { kind: 'group', label: 'Theme' },
             { kind: 'radio', label: 'System', checked: theme === 'system', hint: theme === 'system' ? 'Current' : undefined, onSelect: () => props.onTheme('system') },
             { kind: 'radio', label: 'Light', checked: theme === 'light', hint: theme === 'light' ? 'Current' : undefined, onSelect: () => props.onTheme('light') },

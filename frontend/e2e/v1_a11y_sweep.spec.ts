@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { recoDiagnostics, recoSurfaceStats, suppression, suppressionList } from '../src/test/recoFixtures';
@@ -173,9 +174,9 @@ test('test_focus_return_and_seek: menus close on Escape and hand focus back to t
   const opener = page.getByRole('button', { name: 'Open navigation' });
   await opener.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('dialog', { name: 'Mobile navigation' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Navigation' })).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog', { name: 'Mobile navigation' })).toBeHidden();
+  await expect(page.getByRole('dialog', { name: 'Navigation' })).toBeHidden();
   await expect(opener).toBeFocused();
   // The seek slider is keyboard operable with a visible focus ring.
   const seek = page.getByRole('slider', { name: 'Seek' });
@@ -471,7 +472,8 @@ areaTest('recommendations', async ({ page, visit }) => {
   await expect(page.getByRole('menu')).toBeVisible();
   await visit('explore-menu');
   await page.keyboard.press('Escape');
-  await openSigned(page, '/settings/discovery'); await visit('discovery');
+  await openSigned(page, '/settings/discovery?page=hidden'); await visit('hidden-recommendations');
+  await openSigned(page, '/settings/discovery?page=recommendation-history'); await visit('recommendation-history');
   await page.getByRole('button', { name: /Clear/ }).first().click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await visit('clear-history-dialog');
@@ -525,10 +527,11 @@ areaTest('settings', async ({ page, visit }) => {
   await page.getByRole('textbox', { name: 'TMDB API key' }).fill('synthetic-key');
   await expect(page.locator('.g-save-bar button[type="submit"]')).toBeEnabled();
   await visit('save-bar');
+  page.once('dialog', (dialog) => dialog.accept()); // discard the draft when leaving the form
   await openSigned(page, '/settings');
   const search = page.getByRole('searchbox', { name: 'Search settings' });
   if (await search.isVisible()) { await search.fill('theme'); await visit('search'); }
-  await openSigned(page, '/settings/privacy');
+  await openSigned(page, '/settings/privacy?page=watch-history');
   const row = page.locator('[data-setting-id="privacy.jellyfin-history"]');
   await row.getByLabel('Jellyfin username').fill('alice');
   await row.getByLabel('Jellyfin password').fill('synthetic');
@@ -693,10 +696,8 @@ areaTest('mini-player', async ({ page, width, visit }) => {
   await mockHome(page);
   await openSigned(page, `/watch/library/${item.id}`);
   await pausedVideo(page);
-  const home = width <= 390
-    ? page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: 'Home' })
-    : page.getByRole('button', { name: 'Home', exact: true }).and(page.locator('#primary-navigation button'));
-  await home.click();
+  if (width <= 390) await page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: 'Home' }).click();
+  else await navigateApp(page, 'Home');
   await expect(page.getByRole('region', { name: /^Mini player: / })).toBeVisible();
   await visit('docked', true);
 });
@@ -773,7 +774,7 @@ test('forced colours: focus, selection rules and poster markers stay visible', a
   await page.setViewportSize({ width: 1536, height: 960 });
   await sweepMocks(page);
   const found: string[] = [];
-  const visible = async (selector: string, property: 'outlineColor' | 'borderInlineStartColor' | 'borderTopColor') => {
+  const visible = async (selector: string, property: 'outlineColor' | 'borderInlineStartColor' | 'borderTopColor' | 'borderBottomColor') => {
     const value = await page.locator(selector).first().evaluate((element, name) => getComputedStyle(element)[name as 'outlineColor'], property);
     if (!value || value === 'transparent' || value === 'rgba(0, 0, 0, 0)') found.push(`${selector} ${property} invisible`);
   };
@@ -781,11 +782,13 @@ test('forced colours: focus, selection rules and poster markers stay visible', a
   await signIn(page);
   await settle(page);
   await page.keyboard.press('Tab'); await visible(':focus', 'outlineColor'); // shell focus
+  await page.getByRole('button', { name: 'Open navigation' }).click();
   await visible('.g-nav-item[aria-current="page"]', 'borderInlineStartColor'); // selected rule
+  await page.keyboard.press('Escape');
   await page.keyboard.press('ControlOrMeta+k'); await page.getByRole('combobox').fill('alp');
   await page.keyboard.press('ArrowDown'); await visible('.g-palette-option[aria-selected="true"]', 'borderInlineStartColor'); // palette
   await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
-  await page.goto('/settings/playback'); await visible('.g-settings-link[aria-current="page"]', 'borderInlineStartColor'); // settings
+  await page.goto('/settings/playback'); await visible('.g-settings-page-link[aria-current="page"]', 'borderBottomColor'); // settings
   await page.goto('/library/movies'); await settle(page); await visible('.g-marker-triangle', 'borderTopColor'); // poster markers
   await page.goto('/streaming/live'); await settle(page); await visible('.g-live', 'borderTopColor'); // the LIVE badge keeps an edge
   expect(found).toEqual([]);
@@ -827,7 +830,7 @@ test('reduced motion: nothing animates after an overlay opens', async ({ page })
   await mockRangeMedia(page);
   await page.goto(`/watch/library/${item.id}`); await expect(page.locator('video')).toHaveCount(1);
   await page.locator('video').evaluate((media: HTMLVideoElement) => media.pause());
-  await page.getByRole('button', { name: 'Home', exact: true }).and(page.locator('#primary-navigation button')).click();
+  await navigateApp(page, 'Home');
   await expect(page.getByRole('region', { name: /^Mini player: / })).toBeVisible(); await still('mini player');
   await page.locator('[data-shelf-section="picked_for_you"]').getByRole('button', { name: /^More options for / }).first().click();
   await still('reco menu');
@@ -908,13 +911,14 @@ test('walk 4: the Settings D-pad moves between the sections and the pane', async
   await walkSetup(page);
   await page.goto('/settings/playback'); await signIn(page);
   await settle(page);
-  const link = page.locator('.g-settings-link[aria-current="page"]');
+  const nav = page.getByRole('navigation', { name: 'Settings sections' });
+  const link = nav.locator('.g-settings-link[aria-current="page"]');
   await link.focus();
   await page.keyboard.press('ArrowDown');
-  await expect(page.locator('.g-settings-link:focus')).toHaveCount(1);
+  await expect(nav.locator('.g-settings-link:focus')).toHaveCount(1);
   await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('aria-current'))).not.toBe('page');
   await page.keyboard.press('ArrowRight');
-  await expect.poll(() => page.evaluate(() => document.activeElement?.closest('.g-settings-pane, .settings-pane, main') !== null && !document.activeElement?.classList.contains('g-settings-link'))).toBe(true);
+  await expect(page.locator('.g-settings-page-link[aria-current="page"]')).toBeFocused();
 });
 
 test('walk 5: a confirm dialog closes on Escape and returns focus to its trigger', async ({ page }) => {

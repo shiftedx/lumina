@@ -27,7 +27,7 @@ describe('app routes', () => {
       ['/admin/diagnostics', 'diagnostics'], ['/admin/nope', 'overview'], ['/admin/constructor', 'overview'], ['/admin/tostring', 'overview'],
       ['/admin/Members', 'members'], ['/ADMIN/Tasks', 'tasks'], ['/admin/toString', 'overview'],
     ];
-    for (const [path, section] of cases) expect(parseRoute(path, ''), path).toEqual({ surface: 'settings', section });
+    for (const [path, section] of cases) expect(parseRoute(path, ''), path).toEqual({ surface: 'settings', section, ...(path.toLowerCase().includes('/imports') ? { page: 'imports' } : {}) });
     for (const path of ['/settings/nope', '/settings/constructor', '/settings/Playback', '/settings/']) expect(parseRoute(path, ''), path).toEqual({ surface: 'settings' });
   });
 

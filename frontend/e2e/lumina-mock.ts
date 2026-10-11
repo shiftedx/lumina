@@ -410,3 +410,12 @@ export const pauseAt = (page: Page, seconds: number) => page.locator('video').ev
   media.muted = true; media.pause();
   if (Math.abs(media.currentTime - at) > 0.02) await new Promise<void>((resolve) => { media.addEventListener('seeked', () => resolve(), { once: true }); media.currentTime = at; });
 }, seconds);
+
+/** Open a destination through the header's modal navigation at any viewport. */
+export async function navigateApp(page: Page, destination: string) {
+  const dialog = page.getByRole('dialog', { name: 'Navigation', exact: true });
+  if (!await dialog.isVisible()) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  const label = destination === 'Settings' ? 'My Settings' : destination;
+  await dialog.getByRole('button', { name: new RegExp(`^${label}(,|$)`) }).click();
+  await expect(dialog).toHaveCount(0);
+}

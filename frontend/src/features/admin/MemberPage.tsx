@@ -360,12 +360,12 @@ function Downloads() {
   return <SettingSwitch checked={access.can_download} onChange={(on) => set({ can_download: on })} />;
 }
 function RequestsLink() {
-  const { onOpenSection } = useSettingsHost();
-  return <div className="g-actions"><Button onClick={() => onOpenSection?.('requests')} variant="quiet">Open request policies</Button></div>;
+  const { onOpenSection, onOpenSetting } = useSettingsHost();
+  return <div className="g-actions"><Button onClick={() => onOpenSetting ? onOpenSetting('requests.member-policies') : onOpenSection?.('requests')} variant="quiet">Open request policies</Button></div>;
 }
 function EditingLink() {
-  const { onOpenSection } = useSettingsHost();
-  return <div className="g-actions"><Button onClick={() => onOpenSection?.('library')} variant="quiet">Open Library & storage</Button></div>;
+  const { onOpenSection, onOpenSetting } = useSettingsHost();
+  return <div className="g-actions"><Button onClick={() => onOpenSetting ? onOpenSetting('library.editing') : onOpenSection?.('library')} variant="quiet">Open Library & storage</Button></div>;
 }
 
 // ---- Activity ----

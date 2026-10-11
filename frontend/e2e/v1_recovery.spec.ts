@@ -18,7 +18,7 @@ test('test_admin_backups', async ({ page }) => {
   await page.route('**/api/admin/backups/*/verify', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, problems: [] }) }));
   await page.goto('/admin/backups');
   await signIn(page);
-  await expect(page.getByRole('heading', { level: 2, name: 'Backups', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Maintenance', exact: true })).toBeVisible();
   const row = page.getByRole('listitem', { name: /Automatic backup/ });
   await row.getByRole('button', { name: /Verify/ }).click();
   await expect(row.getByText('Verified: intact and restorable')).toBeVisible();

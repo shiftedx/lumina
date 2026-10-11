@@ -38,9 +38,11 @@ test('test_admin_overview', async ({ page }) => {
   await mockAdmin(page);
   await page.goto('/admin');
   await signIn(page);
-  await expect(page.getByRole('heading', { level: 2, name: 'Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Overview & activity', exact: true })).toBeVisible();
   await expect(page.getByText('1272', { exact: true })).toBeVisible();
   await expect(page.getByRole('row', { name: /Family NAS/ }).getByText('Offline')).toBeVisible();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Maintenance' }).click();
+  await page.getByRole('link', { name: 'Download limits', exact: true }).click();
   await expect(page.getByRole('spinbutton', { name: /Simultaneous downloads/ })).toHaveValue('2');
   expect(errors).toEqual([]);
 });

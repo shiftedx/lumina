@@ -1,4 +1,4 @@
-import { Compass, Download, FolderPlus, Home, Image as ImageIcon, Library, ListVideo, LogOut, Monitor, Moon, Pencil, PanelLeft, Plus, Radio, RefreshCw, Rss, SlidersHorizontal, Sparkles, Sun, Tv, Users, type LucideIcon } from 'lucide-react';
+import { Compass, Download, FolderPlus, Home, Image as ImageIcon, Library, ListVideo, LogOut, Monitor, Moon, Pencil, Menu, Plus, Radio, RefreshCw, Rss, SlidersHorizontal, Sparkles, Sun, Tv, Users, type LucideIcon } from 'lucide-react';
 import { openMemberPicker, requestHomeEdit } from '../../app/commands';
 import type { ThemePreference } from '../../theme';
 import type { ScanLibrariesResult, UserProfile } from '../../types';
@@ -6,12 +6,10 @@ import { matchesQuery } from './paletteModel';
 
 export interface PaletteContext {
   user: UserProfile;
-  mobile: boolean;
-  sidebarCollapsed: boolean;
   theme: ThemePreference;
   navigate: (path: string) => void;
   setTheme: (theme: ThemePreference) => void;
-  toggleSidebar: () => void;
+  openNavigation: () => void;
   signOut: () => void;
   openLinkMode: () => void;
   /** The title on screen (title pages only; set by LuminaApp). */
@@ -53,7 +51,7 @@ export const PALETTE_ACTIONS: readonly PaletteAction[] = [
   { id: 'edit-home', label: 'Edit Home', keywords: ['shelves', 'rows', 'arrange', 'reorder'], icon: Home, when: always, run: (ctx) => { ctx.navigate('/'); requestHomeEdit(); } },
   { id: 'new-collection', label: 'New collection…', keywords: ['group', 'list'], icon: FolderPlus, when: always, run: (ctx) => ctx.navigate('/library/collections?new=collection') },
   { id: 'new-smart-collection', label: 'New smart collection…', keywords: ['rules', 'automatic'], icon: Sparkles, when: always, run: (ctx) => ctx.navigate('/library/collections?new=smart') },
-  { id: 'toggle-sidebar', label: 'Collapse sidebar', keywords: ['sidebar', 'navigation', 'menu'], icon: PanelLeft, when: (ctx) => !ctx.mobile, run: (ctx) => ctx.toggleSidebar() },
+  { id: 'open-navigation', label: 'Open navigation', keywords: ['sidebar', 'navigation', 'menu'], icon: Menu, when: always, run: (ctx) => ctx.openNavigation() },
   { id: 'settings-playback', label: 'Playback settings', keywords: ['captions', 'subtitles', 'quality', 'skip'], icon: Tv, when: always, path: '/settings/playback', run: (ctx) => ctx.navigate('/settings/playback') },
   // Live, YouTube and reco destinations.
   { id: 'go-streaming', label: 'Streaming', keywords: ['explore', 'discover', 'browse', 'popular', 'for you', 'recommended', 'youtube', 'twitch', 'kick', 'search'], icon: Compass, when: always, path: '/streaming', run: (ctx) => ctx.navigate('/streaming') },
@@ -81,7 +79,6 @@ export function scanSummary({ started, queued, skipped }: ScanLibrariesResult): 
 }
 
 function resolved(action: PaletteAction, ctx: PaletteContext): PaletteAction {
-  if (action.id === 'toggle-sidebar') return { ...action, label: ctx.sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar' };
   if (action.id === `theme-${ctx.theme}`) return { ...action, hint: 'Current' };
   return action;
 }

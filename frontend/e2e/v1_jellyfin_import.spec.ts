@@ -17,7 +17,7 @@ test('a member previews and imports their Jellyfin history from Settings', async
     bodies.push({ path, body: request.postDataJSON() });
     return json(SUMMARY);
   });
-  await page.goto('/settings/privacy');
+  await page.goto('/settings/privacy?page=watch-history');
   await signIn(page);
   const row = page.locator('[data-setting-id="privacy.jellyfin-history"]');
   await expect(row.getByText('Jellyfin server: http://192.168.1.20:8096')).toBeVisible();

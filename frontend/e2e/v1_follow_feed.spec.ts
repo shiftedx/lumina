@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 import { expect, test, type Page } from '@playwright/test';
 
 /** Mixed-source follows (YouTube, Twitch, Kick) from the server's single refresh path. */
@@ -91,9 +92,9 @@ async function go(page: Page, mobile: boolean, label: string, heading: RegExp) {
     await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
     return;
   }
-  if (mobile && !['Home', 'Library', 'Live', 'Search'].includes(label)) await page.getByRole('button', { name: 'More', exact: true }).click(); // the tab bar holds four places; the rest sit in its More sheet
-  const nav = mobile && ['Home', 'Library', 'Live', 'Search'].includes(label) ? page.getByRole('navigation', { name: 'Mobile primary navigation' }) : mobile ? page.getByRole('dialog', { name: 'Mobile navigation' }) : page.getByRole('navigation', { name: 'Primary' });
-  await nav.getByRole('button', { name: label }).click();
+  if (mobile && ['Home', 'Library', 'Streaming', 'Search'].includes(label)) {
+    await page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: label }).click();
+  } else await navigateApp(page, label);
   await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
 }
 

@@ -111,7 +111,8 @@ it('links to Library & storage through the app router', async () => {
   render(<AdminTasks />);
   fireEvent.click(await screen.findByRole('link', { name: 'Library & storage' }));
   window.removeEventListener('popstate', onPopState);
-  expect(window.location.pathname).toBe('/settings/library');
+  expect(window.location.pathname).toBe('/manage/library');
+  expect(window.location.search).toBe('?page=imports');
   expect(onPopState).toHaveBeenCalledTimes(1);
 });
 

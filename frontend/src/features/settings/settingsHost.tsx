@@ -40,7 +40,8 @@ export interface SettingsHost {
   onAdvancedChange?: (on: boolean) => void;
   /** Set by the Settings shell: true while advanced rows (and advanced parts of a row) are on screen. Absent means show everything. */
   showAdvanced?: boolean;
-  /** Clears the search and opens a section; false when the person keeps unsaved edits instead. Set by the Settings shell. */
+  /** Opens and focuses a registry row on its page; false when unsaved edits prevent leaving. */
+  onOpenSetting?: (id: string) => boolean;
   onOpenSection?: (section: SettingsSectionId) => boolean;
   /** Opens a member page under Members (or the list, with null). Set by the Settings shell. */
   onOpenMember?: (memberId: string | null) => void;

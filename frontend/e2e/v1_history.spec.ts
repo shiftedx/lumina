@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 import { expect, test, type Page } from '@playwright/test';
 import { mockApi, signIn, user } from './lumina-mock';
 
@@ -72,7 +73,7 @@ test('test_remove_one_and_clear_all: single-entry removal and Settings clear bot
   // Leave the deep-linked "/streaming/search?q=quiet+music" URL first: reloading on it
   // would replay that search (route restoration) and legitimately re-add
   // it, which would test the route restoration, not delete persistence.
-  await page.getByRole('button', { name: 'Home' }).click();
+  await navigateApp(page, 'Home');
   // A reload re-fetches from the server: the removal was persisted, not just client-side.
   await page.reload();
   await reopenSearchEmpty(page);
@@ -82,8 +83,8 @@ test('test_remove_one_and_clear_all: single-entry removal and Settings clear bot
   // Settings offers a bulk clear too.
   await search(page, 'another search');
   await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'Settings' }).click();
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Privacy & data' }).click();
+  await page.getByRole('menuitem', { name: 'My Settings' }).click();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Privacy & connected apps' }).click();
   await expect(page.getByRole('heading', { name: 'Search history' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search history' }).click();
   await expect(page.getByText('No search history yet.')).toBeVisible();

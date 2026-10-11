@@ -404,7 +404,7 @@ describe('enabling a feature that needs something missing', () => {
     render(<SettingsHostContext.Provider value={{ user: admin }}><SectionRows entries={ai.entries.filter((entry) => entry.id === 'ai.translate')} section={ai} /></SettingsHostContext.Provider>);
     await userEvent.click(await screen.findByRole('switch', { name: 'Translate subtitles' }));
     await userEvent.click(screen.getByRole('button', { name: 'Go to Server address' }));
-    await waitFor(() => expect(window.location.pathname).toBe('/settings/ai'));
+    await waitFor(() => expect(window.location.pathname).toBe('/manage/ai'));
     expect(onPop).toHaveBeenCalledTimes(1);
     window.removeEventListener('popstate', onPop);
     window.history.replaceState(null, '', '/');
@@ -444,6 +444,7 @@ describe('Go to Server address inside Settings', () => {
   }
   async function goFromSearch() {
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search settings' }), 'Translate');
+    await userEvent.click(screen.getByRole('link', { name: /Translate subtitles/ }));
     await userEvent.click(await screen.findByRole('switch', { name: 'Translate subtitles' }));
     await userEvent.click(screen.getByRole('button', { name: 'Go to Server address' }));
   }
@@ -456,7 +457,7 @@ describe('Go to Server address inside Settings', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: /^Server address/ })));
     expect(onSection).toHaveBeenCalledWith('ai');
     expect((screen.getByRole('searchbox', { name: 'Search settings' }) as HTMLInputElement).value).toBe('');
-    expect(screen.getByRole('heading', { name: 'AI & models' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'AI features' })).toBeTruthy();
   });
 
   it('searching while already on AI & models goes back to the section and focuses the address', async () => {
@@ -478,7 +479,7 @@ describe('Go to Server address inside Settings', () => {
     api.getAiConfig.mockResolvedValueOnce({ ...config, ...noServer }).mockReturnValueOnce(reload.promise);
     render(<Shell onSection={vi.fn()} start="account" />);
     await goFromSearch();
-    await screen.findByRole('heading', { name: 'AI & models' });
+    await screen.findByRole('heading', { name: 'AI features' });
     const searchbox = screen.getByRole('searchbox', { name: 'Search settings' });
     searchbox.focus();
     await act(async () => { reload.resolve({ ...config, ...noServer }); });

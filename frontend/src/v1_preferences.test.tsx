@@ -32,10 +32,11 @@ describe('Settings surface: grouped sections', () => {
   it('test_settings_grouped_sections: renders one heading and one nav link per group', () => {
     render(<SettingsSurface formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} user={user} />);
     const nav = screen.getByRole('navigation', { name: 'Settings sections' });
-    for (const [id, label] of [['account', 'Profile'], ['appearance', 'Display'], ['discovery', 'Home & discovery'], ['playback', 'Playback'], ['downloads', 'Downloads'], ['apps', 'Connected apps'], ['privacy', 'Privacy & data'], ['about', 'About']]) {
-      expect(within(nav).getByRole('link', { name: label }).getAttribute('href')).toBe(`/settings/${id}`);
+    for (const label of ['Profile & security', 'Playback', 'Display', 'Discovery & streaming', 'Downloads', 'Privacy & connected apps']) {
+      expect(within(nav).getByRole('link', { name: label })).toBeTruthy();
     }
-    expect(screen.getByRole('region', { name: 'All settings' })).toBeTruthy();
+    expect(within(nav).getAllByRole('link')).toHaveLength(7); // six categories plus About
+    expect(screen.getByRole('heading', { level: 1, name: 'My Settings' })).toBeTruthy();
   });
 
   it('test_profile_display_name_edit: saves a trimmed display name through the callback prop', async () => {

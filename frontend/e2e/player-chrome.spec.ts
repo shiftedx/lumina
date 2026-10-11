@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 import { expect, test, type Page } from '@playwright/test';
 import { mockHome } from './home-mock';
 import { item, mockApi, signIn } from './lumina-mock';
@@ -22,7 +23,7 @@ async function openWatch(page: Page, uiPrefs: Record<string, unknown> = { sideba
 }
 
 async function goHome(page: Page) {
-  await page.getByRole('button', { name: 'Home', exact: true }).and(page.locator('#primary-navigation button')).click();
+  await navigateApp(page, 'Home');
   await expect(page.getByRole('region', { name: /^Mini player: / })).toBeVisible();
 }
 

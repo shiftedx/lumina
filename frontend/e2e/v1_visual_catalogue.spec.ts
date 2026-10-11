@@ -1,7 +1,8 @@
+import { navigateApp } from './lumina-mock';
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page, type Route } from '@playwright/test';
-import { episodeSegments, fulfillRangeMedia, item, mockAdminFixtures, mockApi, mockTitles, mockTranscripts, pauseAt, signIn, user } from './lumina-mock';
+import { episodeSegments, fulfillRangeMedia, item, movieTitle, mockAdminFixtures, mockApi, mockTitles, mockTranscripts, pauseAt, signIn, user } from './lumina-mock';
 import { mockPaletteSearch } from './palette-mock';
 import { CHANNEL_ID, caps, liveSnapshotBody, mockChannelPage, mockLibraryChannels, mockLive, mockRemoteArtwork } from './live-youtube-mock';
 import { mockPopular, mockReco, popularWithForYou } from './reco-mock';
@@ -170,8 +171,8 @@ const SCREENS: Shot[] = [
   { area: 'home', state: 'picked-menu', open: async (page) => { await at('/')(page); await page.locator('[data-shelf-section="picked_for_you"]').getByRole('button', { name: /^More options for / }).first().click(); await expect(page.getByRole('menu')).toBeVisible(); } },
   { area: 'home', state: 'art-hover', open: async (page) => { await at('/')(page); await page.locator('.g-poster').first().scrollIntoViewIfNeeded(); await page.locator('.g-art-host').first().hover(); await expect(page.locator('.g-art-host').first().getByRole('button', { name: /^More options for / })).toHaveCSS('opacity', '1'); } },
   { area: 'home', state: 'art-menu', open: async (page) => { await at('/')(page); await page.locator('.g-poster').first().scrollIntoViewIfNeeded(); const host = page.locator('.g-art-host').first(); await host.hover(); await host.getByRole('button', { name: /^More options for / }).click(); await expect(page.getByRole('menu')).toBeVisible(); } },
-  { area: 'library', state: 'poster-hover', open: async (page) => { await at('/library/movies')(page); const host = page.locator('.g-art-host').first(); await host.hover(); await expect(host.getByRole('button', { name: /^More options for / })).toHaveCSS('opacity', '1'); } },
-  { area: 'library', state: 'poster-menu', open: async (page) => { await at('/library/movies')(page); const host = page.locator('.g-art-host').first(); await host.hover(); await host.getByRole('button', { name: /^More options for / }).click(); await expect(page.getByRole('menu')).toBeVisible(); } },
+  { area: 'library', state: 'poster-hover', open: async (page) => { await over(page, /\/api\/titles(\?|$)/, { items: [movieTitle, { ...movieTitle, id: 'movie-2', name: 'Second poster' }], next_cursor: null }); await at('/library/movies')(page); const host = page.locator('.g-art-host').first(); await host.hover(); await expect(host.getByRole('button', { name: /^More options for / })).toHaveCSS('opacity', '1'); } },
+  { area: 'library', state: 'poster-menu', open: async (page) => { await over(page, /\/api\/titles(\?|$)/, { items: [movieTitle, { ...movieTitle, id: 'movie-2', name: 'Second poster' }], next_cursor: null }); await at('/library/movies')(page); const host = page.locator('.g-art-host').first(); await host.hover(); await host.getByRole('button', { name: /^More options for / }).click(); await expect(page.getByRole('menu')).toBeVisible(); } },
   { area: 'diagnostics', state: 'recommendations', open: at('/admin/diagnostics', async (page) => { await expect(page.getByRole('region', { name: 'Recommendations', exact: true })).toBeVisible(); }) },
   { area: 'watch', state: 'web-video', open: at(`/watch/library/${item.id}`) },
   { area: 'explore', state: 'query', open: at('/streaming/search?q=alpine') },
@@ -180,7 +181,7 @@ const SCREENS: Shot[] = [
   { area: 'settings', state: 'activity', open: async (page) => {
     await over(page, '**/api/admin/activity/history**', ACTIVITY_HISTORY);
     await over(page, '**/api/admin/activity', ACTIVITY);
-    await at('/settings/activity', async (shown) => { await expect(shown.getByText('Arrival')).toBeVisible(); })(page);
+    await at('/manage/activity?page=playback-history', async (shown) => { await expect(shown.getByText('Arrival')).toBeVisible(); })(page);
   } },
   { area: 'settings', state: 'discovery', open: at('/settings/discovery') },
   { area: 'settings', state: 'playback', open: at('/settings/playback') },
@@ -192,19 +193,17 @@ const SCREENS: Shot[] = [
   { area: 'collections', state: 'list', open: populated('/library/collections', (page) => over(page, '**/api/collections', COLLECTIONS), (page) => expect(page.locator('.g-collection-tile')).toHaveCount(2)) },
   { area: 'deleted', state: 'list', open: populated('/library/deleted', async (page) => { await over(page, '**/api/library/sections', { movies: 1, shows: 1, anime: 0, albums: 0, artists: 0, saved_audio: 0, youtube: 1, recordings: 0, deleted: 3 }); await over(page, /\/api\/library(\?|$)/, (route: Route) => route.fulfill({ json: { items: new URL(route.request().url()).searchParams.get('status') === 'missing' ? DELETED : [item], next_cursor: null } })); }, (page) => expect(page.locator('.g-deleted-rows li')).toHaveCount(3)) },
   { area: 'player', state: 'controls', open: async (page) => { await at(`/watch/library/${item.id}`)(page); await page.getByRole('slider').first().focus(); } },
-  { area: 'player', state: 'mini', open: async (page) => { await at(`/watch/library/${item.id}`)(page); const drawer = page.getByRole('button', { name: 'Open navigation' }); // the sidebar is a drawer on phones
-      if (await drawer.isVisible()) await drawer.click();
-      await page.getByRole('button', { name: 'Home', exact: true }).and(page.locator('#primary-navigation button')).click(); } },
+  { area: 'player', state: 'mini', open: async (page) => { await at(`/watch/library/${item.id}`)(page); await navigateApp(page, 'Home'); } },
   // Spec 13.1 states (release-review fix): shell, palette, dialogs, settings, empty and error states, collections, player.
-  { area: 'shell', state: 'sidebar-collapsed', open: async (page, prefs) => { prefs.sidebar_collapsed = true; await at('/')(page); } },
+  { area: 'shell', state: 'navigation-closed', open: async (page, prefs) => { prefs.sidebar_collapsed = true; await at('/')(page); } },
   { area: 'shell', state: 'profile-menu', open: async (page) => { await at('/')(page); await page.getByRole('button', { name: /account menu$/ }).click(); await expect(page.getByRole('menu')).toBeVisible(); } },
   { area: 'shell', state: 'activity-popover', open: async (page) => { await at('/')(page); await page.locator('.g-activity').first().hover(); await page.waitForTimeout(400); } },
-  { area: 'shell', state: 'phone-drawer', only: 'phone', open: async (page) => { await at('/')(page); await page.getByRole('button', { name: 'Open navigation' }).click(); await expect(page.getByRole('dialog', { name: 'Mobile navigation' })).toBeVisible(); } },
+  { area: 'shell', state: 'navigation-modal', open: async (page) => { await at('/')(page); await page.getByRole('button', { name: 'Open navigation' }).click(); await expect(page.getByRole('dialog', { name: 'Navigation' })).toBeVisible(); } },
   { area: 'shell', state: 'toast-error-action', open: async (page) => { await over(page, /\/api\/jobs(\?|$)/, (route: Route) => route.abort()); await at('/')(page); await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible(); } },
   { area: 'shell', state: 'toast', open: async (page) => { await at('/')(page); await press(page, 'Edit home'); await press(page, /reset/i); await expect(page.getByRole('button', { name: 'Undo' }).first()).toBeVisible(); } },
   { area: 'palette', state: 'empty', open: async (page) => { await at('/')(page); await page.keyboard.press('ControlOrMeta+k'); await expect(page.getByRole('combobox')).toBeFocused(); } },
   { area: 'palette', state: 'no-results', open: async (page) => { await at('/')(page); await page.keyboard.press('ControlOrMeta+k'); await page.getByRole('combobox').fill('zzzz'); await page.waitForTimeout(500); } },
-  { area: 'palette', state: 'link-invalid', open: async (page) => { await at('/')(page); await press(page, 'Add a link'); await page.getByRole('combobox').fill('not a link'); await page.keyboard.press('Enter'); await expect(page.getByRole('alert')).toBeVisible(); } },
+  { area: 'palette', state: 'link-invalid', open: async (page) => { await at('/')(page); await press(page, 'Add a link'); await expect(page.getByRole('dialog', { name: 'Add a link' })).toBeVisible(); await page.getByRole('combobox').fill('zzzz'); await page.keyboard.press('Enter'); await expect(page.getByRole('alert')).toBeVisible(); } },
   { area: 'palette', state: 'error', open: async (page) => {
     await over(page, '**/api/search?*', { detail: 'down' }, 500); await over(page, '**/api/youtube-search', { detail: 'down' }, 500); // the palette shows its error only when the library and YouTube searches both fail
     await at('/')(page); await page.keyboard.press('ControlOrMeta+k'); await page.getByRole('combobox').fill('alp'); await expect(page.getByText('Search is unavailable right now.')).toBeVisible(); } },
@@ -221,17 +220,17 @@ const SCREENS: Shot[] = [
   { area: 'onboarding', state: 'error', open: async (page) => {
     await onboard(page); await over(page, '**/api/onboarding/skip', { detail: 'down' }, 500); // the Skip failure is the one onboarding error the app renders; a failed finish on step 2 shows none (see the d-int report)
     await press(page, 'Skip for now'); await expect(page.getByText(/could not update your setup/)).toBeVisible(); } },
-  { area: 'settings', state: 'save-bar', open: async (page) => { await at('/settings/overview')(page); await page.getByLabel('Simultaneous downloads').fill('3'); await expect(page.getByText('Unsaved changes').first()).toBeVisible(); } },
+  { area: 'settings', state: 'save-bar', open: async (page) => { await at('/settings/overview?page=download-limits')(page); await page.getByLabel('Simultaneous downloads').fill('3'); await expect(page.getByText('Unsaved changes').first()).toBeVisible(); } },
   { area: 'settings', state: 'search', open: async (page) => { await at('/settings')(page); await page.getByRole('searchbox', { name: 'Search settings' }).fill('play'); await page.waitForTimeout(300); } },
   { area: 'settings', state: 'jellyfin-import', open: async (page) => {
     await over(page, /\/api\/me\/jellyfin-import/, (route: Route) => route.request().method() === 'GET' ? route.fulfill({ json: { server: 'http://192.168.1.20:8096' } }) : route.fulfill({ json: { watched: 12, in_progress: 2, favorites: 3, up_to_date: 4, unmatched: 1, unmatched_names: ['Heat (1995)'] } }));
-    await at('/settings/privacy')(page);
+    await at('/settings/privacy?page=watch-history')(page);
     const row = page.locator('[data-setting-id="privacy.jellyfin-history"]'); await row.getByLabel('Jellyfin username').fill('alice'); await row.getByLabel('Jellyfin password').fill('synthetic-pw');
     await row.getByRole('button', { name: 'Preview', exact: true }).click(); await expect(page.getByRole('dialog', { name: 'Import from Jellyfin?' })).toBeVisible(); } },
-  { area: 'settings', state: 'confirm', open: async (page) => { await at('/settings/discovery')(page); await press(page, 'Clear recommendation history'); await expect(page.getByRole('dialog', { name: 'Clear recommendation history?' })).toBeVisible(); } },
+  { area: 'settings', state: 'confirm', open: async (page) => { await at('/settings/discovery?page=recommendation-history')(page); await press(page, 'Clear recommendation history'); await expect(page.getByRole('dialog', { name: 'Clear recommendation history?' })).toBeVisible(); } },
   { area: 'settings', state: 'identify', open: async (page) => {
     await over(page, '**/api/admin/metadata/unmatched', [{ id: 'movie-1', name: 'Alpine Crossing', type: 'movie', category: 'movies', year: 2024, images: {} }]);
-    await at('/settings/media')(page); await page.getByRole('button', { name: /^Identify / }).first().click(); await expect(page.getByRole('dialog')).toBeVisible(); } },
+    await at('/settings/media?page=matching')(page); await page.getByRole('button', { name: /^Identify / }).first().click(); await expect(page.getByRole('dialog')).toBeVisible(); } },
   { area: 'subscriptions', state: 'empty', open: at('/streaming/channels') },
   { area: 'subscriptions', state: 'error', open: async (page) => { await over(page, '**/api/automations', { detail: 'down' }, 500); await at('/streaming/channels')(page); await expect(page.getByRole('alert').first()).toBeVisible(); } },
   { area: 'subscriptions', state: 'follow-settings', open: async (page) => {
@@ -278,7 +277,7 @@ const SCREENS: Shot[] = [
 ];
 /** Spec 13.1 states beyond the minimum: the release review must see them, so a missing key fails this spec. */
 const REQUIRED = [
-  'shell-sidebar-collapsed', 'shell-profile-menu', 'shell-activity-popover', 'shell-phone-drawer', 'shell-toast',
+  'shell-navigation-closed', 'shell-profile-menu', 'shell-activity-popover', 'shell-navigation-modal', 'shell-toast',
   'palette-empty', 'palette-no-results', 'palette-link-invalid', 'palette-phone-sheet', 'member-picker-dialog',
   'onboarding-interests', 'onboarding-channels', 'onboarding-preparing', 'onboarding-error', 'settings-save-bar', 'settings-search', 'settings-jellyfin-import', 'settings-confirm', 'settings-identify',
   'subscriptions-empty', 'subscriptions-error', 'subscriptions-follow-settings', 'live-empty', 'live-error', 'live-record',

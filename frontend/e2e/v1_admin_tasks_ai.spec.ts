@@ -51,7 +51,7 @@ test('test_admin_tasks_and_ai', async ({ page }) => {
   await mockAdmin(page, cancels);
   await page.goto('/admin/tasks');
   await signIn(page);
-  await expect(page.getByRole('heading', { level: 2, name: 'Tasks' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Maintenance' })).toBeVisible();
   await expect(page.getByText('Private download')).toBeVisible();
   await expect(page.getByText(/only available to subscribers/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Load more' })).toBeVisible();
@@ -61,11 +61,13 @@ test('test_admin_tasks_and_ai', async ({ page }) => {
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect.poll(() => cancels).toEqual(['/api/admin/tasks/asr/a1/cancel']);
 
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'AI & models' }).click();
-  await expect(page.getByRole('heading', { level: 2, name: 'AI & models' })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'AI features' }).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'AI features' })).toBeVisible();
   await expect(page.getByRole('switch', { name: 'Semantic search' })).toBeVisible();
-  await expect(page.getByLabel(/^API key/)).toHaveValue('');
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page.getByText(/Transcripts come only from source captions/)).toBeVisible();
+  await page.getByRole('link', { name: 'Assistant server', exact: true }).click();
+  await expect(page.getByLabel(/^API key/)).toHaveValue('');
   await page.getByRole('button', { name: /Test connection/ }).click();
   await expect(page.getByText('Connected.')).toBeVisible();
   expect(errors).toEqual([]);

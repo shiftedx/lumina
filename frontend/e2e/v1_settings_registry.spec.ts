@@ -1,11 +1,8 @@
+import { SETTINGS_PAGES } from '../src/features/settings/navigation';
 import { expect, test } from '@playwright/test';
 import { mockAdminFixtures, mockApi, signIn } from './lumina-mock';
 
 /** Success criterion 6: every control Settings renders sits in a registry row whose ⓘ has text. */
-
-const SECTIONS = ['account', 'playback', 'appearance', 'discovery', 'downloads', 'apps', 'privacy', 'about', 'overview', 'library', 'media', 'requests', 'transcoding', 'ai', 'members', 'tasks', 'backups', 'diagnostics'];
-/** The registry's row count (v1_settings_registry.test.ts pins the rows themselves). The Jellyfin history import added two, the household migration one, gallery artwork preparation one. The gallery AI extras added two. The library gallery's anime folders added one. Recommendations added two (history, switch). */
-const ROWS = 88; // + members.local-address; + account.two-factor, members.owner-two-factor, overview.source-ports (2.9.0); + members.invitations and members.public-address (2.8 member access); + playback.captions, library.automation and library.editing (2.1.0), playback.mute-words (its own row so the mute switch never repeats its label)
 
 test('every rendered Settings control belongs to a registry row with ⓘ text', async ({ page }) => {
   test.setTimeout(90_000); // 18 sections, each waited on; the default 30 s flakes when other specs share the dev server
@@ -18,13 +15,14 @@ test('every rendered Settings control belongs to a registry row with ⓘ text', 
   await signIn(page);
   const problems: string[] = [];
   const seen = new Set<string>();
-  for (const section of SECTIONS) {
-    await page.goto(`/settings/${section}`);
+  for (const destination of SETTINGS_PAGES) {
+    const section = destination.section;
+    await page.goto(`/settings/${section}?page=${destination.id}`);
     await expect(page.locator('.g-settings-section-head h2')).toBeVisible();
     await page.waitForTimeout(250);
     const report = await page.locator('.g-settings-pane').evaluate((pane) => ({
       orphans: [...pane.querySelectorAll<HTMLElement>('input, select, textarea, button, a[href], summary, [role="switch"], [role="radio"]')]
-        .filter((element) => element.getClientRects().length > 0 && !element.closest('[data-setting-id], .g-save-bar') && !element.matches('.g-settings-back'))
+        .filter((element) => element.getClientRects().length > 0 && !element.closest('[data-setting-id], .g-save-bar') && !element.matches('.g-settings-back, .g-settings-page-link, .g-settings-local-advanced > summary') && !element.closest('.g-settings-page-select'))
         .map((element) => element.getAttribute('aria-label') || element.textContent?.trim().slice(0, 40) || element.tagName),
       rows: [...pane.querySelectorAll<HTMLElement>('[data-setting-id]')].map((row) => {
         const info = row.querySelector<HTMLElement>(':scope > .g-setting-head .g-info-button');
@@ -39,7 +37,7 @@ test('every rendered Settings control belongs to a registry row with ⓘ text', 
     }
   }
   expect(problems).toEqual([]);
-  expect(seen.size).toBe(ROWS);
+  expect([...seen].sort()).toEqual(SETTINGS_PAGES.flatMap((destination) => destination.rows).sort());
 });
 
 test('every member-page control belongs to a members.* row with ⓘ text (member access)', async ({ page }) => {

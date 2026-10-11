@@ -171,6 +171,9 @@
 .g-kbd { display: inline-block; min-width: 24px; padding: 2px 6px; border: var(--g-rule); border-radius: var(--g-radius); color: var(--g-ink-2); font: var(--g-type-small); text-align: center; }
 
 .g-tabs { display: flex; gap: 24px; overflow-x: auto; border-bottom: var(--g-rule); }
+.g-tab-scroller { display: flex; align-items: start; }
+.g-tab-scroller > .g-tabs { min-width: 0; flex: 1; }
+.g-tab-scroller-controls { display: flex; min-height: 45px; align-items: center; }
 .g-tabs [role='tab'] { min-width: var(--g-control); min-height: var(--g-control); padding: 0; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--g-ink-2); cursor: pointer; font: var(--g-type-ui); }
 .g-tabs [role='tab'][aria-selected='true'] { border-bottom-color: var(--g-gold); color: var(--g-ink); font-weight: 700; }
 .g-table { width: 100%; border-collapse: collapse; font: var(--g-type-ui); font-variant-numeric: tabular-nums; }

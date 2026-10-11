@@ -4,6 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { mockGalleryWall, mockLibrarySections } from './gallery-mock';
 import { type LibraryItemsMock, mockLibraryItems, mockTitleDetails } from './library-mock';
 import { mockApi, signIn } from './lumina-mock';
+import { librarySections } from '../src/test/galleryFixtures';
 
 /** The Library shell over the mocked API. */
 
@@ -53,6 +54,15 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(landing.map((url) => `${url.pathname}${url.search}`), 'sections, spotlight and two chapter slices (criterion 2)').toHaveLength(viewport === PHONE ? 5 : 4);
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
       await page.screenshot({ path: `../output/playwright/library/all-${scheme}-${viewport.width}.png` });
+      const left = page.getByRole('button', { name: 'Scroll Library tabs left' });
+      const right = page.getByRole('button', { name: 'Scroll Library tabs right' });
+      if (viewport === PHONE) {
+        await expect(left).toBeDisabled();
+        await expect(right).toBeEnabled();
+      } else {
+        await expect(left).toHaveCount(0);
+        await expect(right).toHaveCount(0);
+      }
       expect(errors).toEqual([]);
     });
   }
@@ -143,6 +153,67 @@ test('phone: the active tab starts in view without scrolling the page', async ({
   const tab = tabs(page).getByRole('link', { name: 'Recordings' });
   await expect.poll(async () => { const box = (await tab.boundingBox())!; return box.x >= 0 && box.x + box.width <= PHONE.width; }).toBe(true);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test('the active Library tab stays visible when desktop shrinks to phone without moving the page', async ({ page }) => {
+  await openLibrary(page, '/library/recordings', DESKTOP);
+  await page.evaluate(() => {
+    document.documentElement.style.overflowAnchor = 'none';
+    document.body.style.overflowAnchor = 'none';
+    window.scrollTo(0, 400);
+  });
+  await page.setViewportSize(PHONE);
+  const pageTop = await page.evaluate(() => window.scrollY);
+  const row = tabs(page);
+  const active = row.getByRole('link', { name: 'Recordings' });
+  await expect.poll(async () => {
+    const [rowBox, activeBox] = await Promise.all([row.boundingBox(), active.boundingBox()]);
+    return activeBox!.x >= rowBox!.x && activeBox!.x + activeBox!.width <= rowBox!.x + rowBox!.width;
+  }).toBe(true);
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageTop);
+});
+
+test('server tabs inserted before a cached active Library tab reveal it again', async ({ page }) => {
+  const cached = librarySections({ movies: 0, shows: 0, anime: 0, albums: 0, artists: 0, saved_audio: 0, youtube: 0, recordings: 12 });
+  await page.addInitScript((sections) => localStorage.setItem('lumina.sections.member-1', JSON.stringify(sections)), cached);
+  await page.setViewportSize(PHONE);
+  await mockApi(page, { sidebar_collapsed: true });
+  await mockGalleryWall(page);
+  await mockLibraryItems(page);
+  await page.route((url) => url.pathname === '/api/library/sections', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(librarySections()) });
+  });
+  await page.goto('/library/recordings');
+  await signIn(page);
+  const row = tabs(page);
+  const active = row.getByRole('link', { name: 'Recordings' });
+  await expect(active).toBeVisible();
+  await expect(row.getByRole('link', { name: 'Movies' })).toBeVisible();
+  await expect.poll(async () => {
+    const [rowBox, activeBox] = await Promise.all([row.boundingBox(), active.boundingBox()]);
+    return activeBox!.x >= rowBox!.x && activeBox!.x + activeBox!.width <= rowBox!.x + rowBox!.width;
+  }).toBe(true);
+});
+
+test('phone: Library tab overflow controls expose both ends without clipping labels', async ({ page }) => {
+  await openLibrary(page, '/library', PHONE);
+  const row = tabs(page);
+  const left = page.getByRole('button', { name: 'Scroll Library tabs left' });
+  const right = page.getByRole('button', { name: 'Scroll Library tabs right' });
+  await expect(left).toBeDisabled();
+  await expect(right).toBeEnabled();
+  expect((await left.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect((await right.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await right.click();
+  await expect.poll(() => row.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+  await expect(left).toBeEnabled();
+  await row.evaluate((element) => { element.scrollLeft = element.scrollWidth; element.dispatchEvent(new Event('scroll')); });
+  await expect(right).toBeDisabled();
+  await expect(left).toBeEnabled();
+  await left.click();
+  await expect.poll(() => row.evaluate((element) => element.scrollLeft)).toBeLessThan(await row.evaluate((element) => element.scrollWidth - element.clientWidth));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
 });
 
 test('arrow keys walk the YouTube wall', async ({ page }) => {

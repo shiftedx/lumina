@@ -174,6 +174,77 @@
     "hardware-decoder failures, native-HLS behavior, real subtitle tracks, and browser fullscreen variations",
     "Uncaptured loading and error combinations are unreviewed"
   ],
+  "verified_follow_up": {
+    "status": "verified",
+    "assessment": "Nonnumeric implementation follow-up after the last formal assessment. All Nielsen scores, totals, before fields, and formal assessment counts remain unchanged.",
+    "groups": [
+      {
+        "id": "tab-scroller-overflow",
+        "status": "P2 resolved; P3 preserve",
+        "affected_rows": [
+          "media/library-lens-all",
+          "media/library-lens-movies",
+          "media/library-lens-shows",
+          "media/library-lens-anime",
+          "media/library-lens-recordings",
+          "media/library-lens-saved-audio",
+          "media/library-lens-youtube-channels",
+          "media/channel-videos-tab",
+          "media/channel-live-tab",
+          "media/channel-shorts-tab",
+          "media/channel-playlists-tab",
+          "media/channel-in-your-library-tab"
+        ],
+        "resolution": "Library and Channel rows use shared truthful end controls; active tabs are revealed after viewport resize and cached section insertion; keyboard arrow behavior and all sections remain available.",
+        "evidence": [
+          "docs/design/evidence/p2-library-phone-after.png",
+          "output/app-quality/nav-overflow-after/library-390-light.png",
+          "frontend/src/ui/TabScroller.tsx:19-85",
+          "frontend/src/ui/TabScroller.test.tsx:17-50",
+          "frontend/e2e/library-gallery.spec.ts:151-217",
+          "output/app-quality/nav-overflow-after/channel-390-light.png",
+          "frontend/src/ui/TabScroller.tsx:19-85",
+          "frontend/src/ui/TabScroller.test.tsx:17-50",
+          "frontend/src/features/channels/ChannelPage.tsx:214-216",
+          "frontend/e2e/channel-page.spec.ts:68-114"
+        ]
+      },
+      {
+        "id": "artwork-save-boundary",
+        "status": "P2 resolved; P3 preserve",
+        "affected_rows": [
+          "media/metadata-editor-artwork"
+        ],
+        "resolution": "Artwork retains immediate saves and History undo, removes the unrelated global draft footer on that tab, exposes retained cross-tab drafts through Review changes, and wraps dense card captions inside their cards.",
+        "evidence": [
+          "docs/design/evidence/p2-artwork-desktop-after.png",
+          "output/app-quality/artwork-footer-wrapped/artwork-autosave-1536-light.png",
+          "frontend/src/features/titles/editor/artwork/ArtworkTab.tsx:83",
+          "frontend/src/features/titles/editor/EditorPage.tsx:149-163",
+          "frontend/src/features/titles/editor/artwork/artwork.css:10",
+          "frontend/src/features/titles/editor/EditorPage.test.tsx:66-85",
+          "frontend/e2e/metadata-editor.spec.ts:70-84",
+          "frontend/e2e/metadata-editor.spec.ts:134-145"
+        ]
+      },
+      {
+        "id": "title-action-hierarchy",
+        "status": "P2 resolved; P3 preserve",
+        "affected_rows": [
+          "media/title-series-detail"
+        ],
+        "resolution": "Play or Resume is the sole primary action; watchlist and Trailer remain supporting controls; watched, Favorite, edit, and admin match actions remain present with quiet emphasis.",
+        "evidence": [
+          "docs/design/evidence/p2-title-phone-after.png",
+          "output/app-quality/title-actions-after/title-actions-phone-light.png",
+          "frontend/src/features/gallery/TitleActions.tsx:89-105",
+          "frontend/src/features/gallery/TitleActions.test.tsx:35-57",
+          "frontend/src/features/gallery/TitleActions.test.tsx:70-113",
+          "frontend/e2e/title_actions_quality.spec.ts:34-67"
+        ]
+      }
+    ]
+  },
   "rows": [
     {
       "id": "root/shell-header",
@@ -7641,9 +7712,14 @@
         "output/app-quality/baseline-b48/library-all-phone-dark.png",
         "frontend/src/features/gallery/AllLanding.tsx",
         "frontend/src/features/gallery/LibraryTabs.tsx:93-132",
-        "frontend/src/features/gallery/gallery.css:130-149"
+        "frontend/src/features/gallery/gallery.css:130-149",
+        "docs/design/evidence/p2-library-phone-after.png",
+        "output/app-quality/nav-overflow-after/library-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/e2e/library-gallery.spec.ts:151-217"
       ],
-      "priority_finding": "P2: add trailing inset and an edge fade to the phone tab row.",
+      "priority_finding": "P2 resolved; P3 preserve: shared tab controls truthfully expose both overflow ends, keep the active section visible through resize and cached-section expansion, and retain arrow-key navigation.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -7714,9 +7790,14 @@
         "output/app-quality/baseline-b48/library-poster-menu-phone-dark.png",
         "frontend/src/features/gallery/GalleryWall.tsx:53",
         "frontend/src/features/gallery/LibraryTabs.tsx:93-132",
-        "frontend/src/features/gallery/gallery.css:130-149"
+        "frontend/src/features/gallery/gallery.css:130-149",
+        "docs/design/evidence/p2-library-phone-after.png",
+        "output/app-quality/nav-overflow-after/library-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/e2e/library-gallery.spec.ts:151-217"
       ],
-      "priority_finding": "P2: inherit the Library tab overflow affordance.",
+      "priority_finding": "P2 resolved; P3 preserve: shared tab controls truthfully expose both overflow ends, keep the active section visible through resize and cached-section expansion, and retain arrow-key navigation.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -7786,9 +7867,14 @@
         "output/app-quality/media/library-channel/library-shows-phone-dark.png",
         "frontend/src/features/gallery/GalleryWall.tsx",
         "frontend/src/features/gallery/LibraryTabs.tsx",
-        "frontend/src/features/gallery/gallery.css"
+        "frontend/src/features/gallery/gallery.css",
+        "docs/design/evidence/p2-library-phone-after.png",
+        "output/app-quality/nav-overflow-after/library-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/e2e/library-gallery.spec.ts:151-217"
       ],
-      "priority_finding": "P2: inherit the Library tab edge fade and trailing inset.",
+      "priority_finding": "P2 resolved; P3 preserve: shared tab controls truthfully expose both overflow ends, keep the active section visible through resize and cached-section expansion, and retain arrow-key navigation.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -7858,9 +7944,14 @@
         "output/app-quality/media/library-channel/library-anime-phone-dark.png",
         "frontend/src/features/gallery/GalleryWall.tsx",
         "frontend/src/features/gallery/LibraryTabs.tsx",
-        "frontend/src/features/gallery/gallery.css"
+        "frontend/src/features/gallery/gallery.css",
+        "docs/design/evidence/p2-library-phone-after.png",
+        "output/app-quality/nav-overflow-after/library-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/e2e/library-gallery.spec.ts:151-217"
       ],
-      "priority_finding": "P2: inherit the shared Library tab overflow affordance.",
+      "priority_finding": "P2 resolved; P3 preserve: shared tab controls truthfully expose both overflow ends, keep the active section visible through resize and cached-section expansion, and retain arrow-key navigation.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -8077,9 +8168,14 @@
         "frontend/src/features/gallery/MusicTab.tsx",
         "frontend/src/features/gallery/GalleryWall.tsx",
         "frontend/src/features/gallery/StillWall.tsx",
-        "frontend/src/features/gallery/LibraryTabs.tsx"
+        "frontend/src/features/gallery/LibraryTabs.tsx",
+        "docs/design/evidence/p2-library-phone-after.png",
+        "output/app-quality/nav-overflow-after/library-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/e2e/library-gallery.spec.ts:151-217"
       ],
-      "priority_finding": "P3: no confirmed blocker; inherit the shared Library tab overflow fix.",
+      "priority_finding": "P3 preserve: the shared tab controls now expose overflow and keep the active section visible through resize and cached-section expansion; retain this lens and its keyboard behavior.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -8221,9 +8317,14 @@
         "output/app-quality/baseline-b48/library-channels-phone-light.png",
         "output/app-quality/baseline-b48/library-channels-empty-phone-dark.png",
         "frontend/src/features/library/ChannelsView.tsx",
-        "frontend/src/features/gallery/LibraryTabs.tsx:93-132"
+        "frontend/src/features/gallery/LibraryTabs.tsx:93-132",
+        "docs/design/evidence/p2-library-phone-after.png",
+        "output/app-quality/nav-overflow-after/library-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/e2e/library-gallery.spec.ts:151-217"
       ],
-      "priority_finding": "P3: preserve; inherit tab overflow fix.",
+      "priority_finding": "P3 preserve: the shared tab controls now expose overflow and keep the active section visible through resize and cached-section expansion; retain this lens and its keyboard behavior.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -8292,9 +8393,14 @@
         "output/app-quality/media/library-channel/library-recordings-desktop-light.png",
         "output/app-quality/media/library-channel/library-recordings-phone-dark.png",
         "frontend/src/features/gallery/StillWall.tsx",
-        "frontend/src/features/gallery/LibraryTabs.tsx"
+        "frontend/src/features/gallery/LibraryTabs.tsx",
+        "docs/design/evidence/p2-library-phone-after.png",
+        "output/app-quality/nav-overflow-after/library-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/e2e/library-gallery.spec.ts:151-217"
       ],
-      "priority_finding": "P2: inherit the shared Library tab overflow affordance.",
+      "priority_finding": "P2 resolved; P3 preserve: shared tab controls truthfully expose both overflow ends, keep the active section visible through resize and cached-section expansion, and retain arrow-key navigation.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -8650,9 +8756,15 @@
         "output/app-quality/baseline-b48/title-series-desktop-light.png",
         "output/app-quality/baseline-b48/title-series-phone-dark.png",
         "frontend/src/features/gallery/GalleryTitlePage.tsx:268-291",
-        "frontend/src/features/gallery/TitleActions.tsx:32"
+        "frontend/src/features/gallery/TitleActions.tsx:32",
+        "docs/design/evidence/p2-title-phone-after.png",
+        "output/app-quality/title-actions-after/title-actions-phone-light.png",
+        "frontend/src/features/gallery/TitleActions.tsx:89-105",
+        "frontend/src/features/gallery/TitleActions.test.tsx:35-57",
+        "frontend/src/features/gallery/TitleActions.test.tsx:70-113",
+        "frontend/e2e/title_actions_quality.spec.ts:34-67"
       ],
-      "priority_finding": "P2: group the maintenance action while keeping Resume primary.",
+      "priority_finding": "P2 resolved; P3 preserve: Play or Resume is the sole primary action; watchlist and Trailer remain supporting actions, while watched, Favorite, editor, and admin actions remain quiet and available.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -8889,9 +9001,16 @@
         "output/app-quality/media/metadata/metadata-artwork-desktop-light.png",
         "output/app-quality/media/metadata/metadata-artwork-phone-light.png",
         "frontend/src/features/titles/editor/artwork/ArtworkTab.tsx:83",
-        "frontend/src/features/titles/editor/EditorPage.tsx:160"
+        "frontend/src/features/titles/editor/EditorPage.tsx:160",
+        "docs/design/evidence/p2-artwork-desktop-after.png",
+        "output/app-quality/artwork-footer-wrapped/artwork-autosave-1536-light.png",
+        "frontend/src/features/titles/editor/EditorPage.tsx:149-163",
+        "frontend/src/features/titles/editor/artwork/artwork.css:10",
+        "frontend/src/features/titles/editor/EditorPage.test.tsx:66-85",
+        "frontend/e2e/metadata-editor.spec.ts:70-84",
+        "frontend/e2e/metadata-editor.spec.ts:134-145"
       ],
-      "priority_finding": "P2: suppress or relabel the draft footer on the auto-saving Artwork tab.",
+      "priority_finding": "P2 resolved; P3 preserve: Artwork saves immediately without the global draft footer; retained metadata drafts stay visible through the Review changes notice, and card captions wrap without losing controls.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -9526,9 +9645,14 @@
       "current_evidence": [
         "output/app-quality/baseline-b48/channel-videos-desktop-light.png",
         "output/app-quality/baseline-b48/channel-videos-phone-dark.png",
-        "frontend/src/features/channels/ChannelPage.tsx"
+        "frontend/src/features/channels/ChannelPage.tsx",
+        "output/app-quality/nav-overflow-after/channel-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/src/features/channels/ChannelPage.tsx:214-216",
+        "frontend/e2e/channel-page.spec.ts:68-114"
       ],
-      "priority_finding": "P2: add the same edge fade/trailing inset used for other horizontal tab rows.",
+      "priority_finding": "P2 resolved; P3 preserve: shared tab controls truthfully expose both overflow ends, reveal the selected tab after resize, and retain the distinct tab content and arrow-key navigation.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -9597,9 +9721,14 @@
         "output/app-quality/media/library-channel/channel-live-desktop-light.png",
         "output/app-quality/media/library-channel/channel-live-phone-dark.png",
         "frontend/src/features/channels/ChannelPage.tsx",
-        "frontend/src/features/channels/channels.css"
+        "frontend/src/features/channels/channels.css",
+        "output/app-quality/nav-overflow-after/channel-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/src/features/channels/ChannelPage.tsx:214-216",
+        "frontend/e2e/channel-page.spec.ts:68-114"
       ],
-      "priority_finding": "P2: add a persistent trailing overflow cue to the channel tabs.",
+      "priority_finding": "P2 resolved; P3 preserve: shared tab controls truthfully expose both overflow ends, reveal the selected tab after resize, and retain the distinct tab content and arrow-key navigation.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -9668,9 +9797,14 @@
         "output/app-quality/media/library-channel/channel-shorts-desktop-light.png",
         "output/app-quality/media/library-channel/channel-shorts-phone-dark.png",
         "frontend/src/features/channels/ChannelPage.tsx",
-        "frontend/src/features/channels/channels.css"
+        "frontend/src/features/channels/channels.css",
+        "output/app-quality/nav-overflow-after/channel-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/src/features/channels/ChannelPage.tsx:214-216",
+        "frontend/e2e/channel-page.spec.ts:68-114"
       ],
-      "priority_finding": "P2: use the shared channel-tab overflow cue; preserve the distinct portrait wall.",
+      "priority_finding": "P2 resolved; P3 preserve: shared tab controls truthfully expose both overflow ends, reveal the selected tab after resize, and retain the distinct tab content and arrow-key navigation.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -9739,9 +9873,14 @@
         "output/app-quality/media/library-channel/channel-playlists-desktop-light.png",
         "output/app-quality/media/library-channel/channel-playlists-phone-dark.png",
         "frontend/src/features/channels/ChannelPage.tsx",
-        "frontend/src/features/channels/channels.css"
+        "frontend/src/features/channels/channels.css",
+        "output/app-quality/nav-overflow-after/channel-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/src/features/channels/ChannelPage.tsx:214-216",
+        "frontend/e2e/channel-page.spec.ts:68-114"
       ],
-      "priority_finding": "P2: use the shared channel-tab overflow cue.",
+      "priority_finding": "P2 resolved; P3 preserve: shared tab controls truthfully expose both overflow ends, reveal the selected tab after resize, and retain the distinct tab content and arrow-key navigation.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],
@@ -9810,9 +9949,14 @@
         "output/app-quality/media/library-channel/channel-library-desktop-light.png",
         "output/app-quality/media/library-channel/channel-library-phone-dark.png",
         "frontend/src/features/channels/ChannelPage.tsx",
-        "frontend/src/features/channels/channels.css"
+        "frontend/src/features/channels/channels.css",
+        "output/app-quality/nav-overflow-after/channel-390-light.png",
+        "frontend/src/ui/TabScroller.tsx:19-85",
+        "frontend/src/ui/TabScroller.test.tsx:17-50",
+        "frontend/src/features/channels/ChannelPage.tsx:214-216",
+        "frontend/e2e/channel-page.spec.ts:68-114"
       ],
-      "priority_finding": "P2: keep the selected-tab reveal and add a stable overflow cue.",
+      "priority_finding": "P2 resolved; P3 preserve: shared tab controls truthfully expose both overflow ends, reveal the selected tab after resize, and retain the distinct tab content and arrow-key navigation.",
       "limitations": [
         "Synthetic captures; specialized player, channel, editor, loading, empty, and failure variants listed in the report remain unreviewed."
       ],

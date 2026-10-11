@@ -126,13 +126,13 @@
 /* -- tab row -- */
 /* One row of links above every Library masthead; the height is reserved before the tabs arrive. */
 .gallery .g-tabs { min-height: 45px; align-items: center; margin-bottom: 24px; }
-.gallery .g-tab, .gallery .g-tabs-deleted { display: inline-flex; min-width: var(--g-control); min-height: var(--g-control); flex: none; align-items: center; text-decoration: none; }
-.gallery .g-tab { font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; color: var(--g-ink-2); text-underline-offset: 6px; }
+.gallery .g-tab, .gallery .g-tabs-deleted { display: inline-flex; min-width: var(--g-control); min-height: var(--g-control); align-items: center; text-decoration: none; text-underline-offset: 6px; }
+.gallery .g-tab, .gallery .g-tabs-deleted, .gallery .t-tabs [role='tab'] { flex: none; font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; }
+.gallery .g-tab { color: var(--g-ink-2); }
 .gallery .g-tab[aria-current='page'] { color: var(--g-ink); font-weight: 700; text-decoration: underline 2px var(--g-gold); }
-.gallery .g-tabs-deleted { margin-left: auto; font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; color: var(--g-ink-3); text-underline-offset: 6px; }
+.gallery .g-tabs-deleted { margin-left: auto; color: var(--g-ink-3); }
 .gallery .g-tabs-deleted + .g-tabs-deleted { margin-left: 0; }
 /* Season and channel tabs (role=tab) read like the Library row. */
-.gallery .t-tabs [role='tab'] { flex: none; font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; }
 .gallery .t-tabs [aria-selected='true'] { font-weight: 700; }
 .gallery .g-tabs-deleted[aria-current='page'], .gallery .g-tabs-deleted:focus-visible { color: var(--g-ink); }
 .gallery .g-tabs-deleted:focus-visible { text-decoration: underline; }
@@ -141,9 +141,7 @@
   .gallery .g-tabs-deleted:hover { text-decoration: underline; }
 }
 @media (max-width: 599px) {
-  .gallery .g-tabs { overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none; }
-  .gallery .g-tabs::-webkit-scrollbar { display: none; }
-  .gallery .g-tab, .gallery .g-tabs-deleted { scroll-snap-align: start; }
+  .gallery .g-tabs { overscroll-behavior-x: contain; }
 }
 
 /* -- still cards -- */

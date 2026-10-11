@@ -165,7 +165,7 @@ test('keyboard only: the headline takes focus, arrows walk the actions, tabs and
   await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('button', { name: 'Resume S2 · E2', exact: true })).toBeFocused();
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('button', { name: 'Mark watched' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Add to watchlist' })).toBeFocused();
   await page.keyboard.press('ArrowDown');
   // The mocked member is an admin: Fix match can wrap the actions onto a second line, which Down visits first.
   if (await page.locator('.t-actions :focus').count()) await page.keyboard.press('ArrowDown');

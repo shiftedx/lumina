@@ -7,6 +7,7 @@ export { Field, fieldProps, Input, PasswordInput, Select, Textarea, type FieldId
 export { Checkbox, Radio, type ChoiceProps } from './Choice';
 export { Switch, type SwitchProps } from './Switch';
 export { SegmentedControl, type SegmentedControlProps, type SegmentedOption } from './SegmentedControl';
+export { TabScroller, type TabScrollerProps } from './TabScroller';
 export { ConfirmDialog, Dialog, type ConfirmDialogProps, type DialogProps, type DialogSize } from './Dialog';
 export { Menu, type MenuEntry, type MenuProps, type MenuTriggerProps } from './Menu';
 export { Popover, type PopoverProps } from './Popover';

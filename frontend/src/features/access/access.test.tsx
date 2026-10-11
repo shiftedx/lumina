@@ -2,7 +2,7 @@ import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-libr
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getMyAccess } from '../../api';
-import { NavigationDialog } from '../../app/Navigation';
+import { NavigationPopover } from '../../app/Navigation';
 import { liveSnapshot } from '../../test/remoteFixtures';
 import { SubscriptionControls } from '../../SubscriptionControls';
 import type { SourceAutomation } from '../../types';
@@ -104,7 +104,7 @@ describe('watch gate and states', () => {
 });
 
 describe('hiding rules', () => {
-  const nav = (access: AccessValue) => render(<AccessProvider value={access}><NavigationDialog activeDownloads={0} onClose={vi.fn()} onNavigate={vi.fn()} open surface="home" /></AccessProvider>);
+  const nav = (access: AccessValue) => render(<AccessProvider value={access}><NavigationPopover activeDownloads={0} onClose={vi.fn()} onNavigate={vi.fn()} open surface="home" /></AccessProvider>);
 
   it('Streaming leaves the nav only when YouTube, Twitch and Kick are all blocked', () => {
     nav(value({ blocked_streaming: ['youtube', 'twitch'] }));

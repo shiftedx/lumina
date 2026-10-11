@@ -1,8 +1,8 @@
-import { forwardRef, type ReactNode, type RefObject } from 'react';
+import { forwardRef, type ReactNode, type RefObject, useRef } from 'react';
 import type { ThemePreference } from '../theme';
 import type { UserProfile } from '../types';
 import type { CollectionLoadState } from '../workspace';
-import { MobileTabs, NavigationDialog } from './Navigation';
+import { MobileTabs, NavigationPopover } from './Navigation';
 import type { Surface } from './routes';
 import { TopBar } from './TopBar';
 import './shell.css';
@@ -44,18 +44,21 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
   onSignOut: () => void;
   moreItems: ReactNode;
 }) {
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  if (!navigationOpen) anchorRef.current = menuButtonRef.current;
   const current = (activity.state === 'ready' || activity.state === 'empty') && !activity.retrying;
   const trustedActive = current ? activity.active : 0;
   return (
     <div className="lumina-app">
-      <SkipLink unavailable={navigationOpen} />
+      <SkipLink />
       {extraSkipLinks}
-      <NavigationDialog onManageServer={onManageServer} managingServer={managingServer} activeDownloads={trustedActive} pendingRequests={pendingRequests} extra={mobile ? moreItems : null} onClose={onCloseNavigation} onNavigate={onNavigate} open={navigationOpen} surface={surface} />
+      <NavigationPopover anchorRef={anchorRef} onManageServer={onManageServer} managingServer={managingServer} activeDownloads={trustedActive} pendingRequests={pendingRequests} extra={mobile ? moreItems : null} onClose={onCloseNavigation} onNavigate={onNavigate} open={navigationOpen} surface={surface} />
       <div className="app-background">
         {announcer}
-        <TopBar activity={activity} compact={compact} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel="Open navigation" mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={onMenu} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />
+        <TopBar activity={activity} compact={compact} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel="Open navigation" mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={() => { anchorRef.current = menuButtonRef.current; onMenu(); }} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />
         <MainLandmark ref={mainRef}>{children}</MainLandmark>
-        <MobileTabs activeDownloads={trustedActive} moreOpen={navigationOpen} onMore={onMenu} onNavigate={onNavigate} onSearch={onSearch} surface={surface} />
+        <MobileTabs activeDownloads={trustedActive} moreOpen={navigationOpen} moreButtonRef={moreButtonRef} onMore={() => { anchorRef.current = moreButtonRef.current; onMenu(); }} onNavigate={onNavigate} onSearch={onSearch} surface={surface} />
       </div>
     </div>
   );

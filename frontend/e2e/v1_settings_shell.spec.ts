@@ -99,7 +99,7 @@ test('invitations open the public address on its new Connections page', async ({
   await expect(page.getByRole('textbox', { name: 'Public address', exact: true })).toBeFocused();
 });
 
-test('navigation overlays the full-width page, dismisses by backdrop, and opens both settings spaces', async ({ page }) => {
+test('navigation overlays the full-width page, stays beside its trigger, dismisses outside, and opens both settings spaces', async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 960 });
   await mockApi(page, { sidebar_collapsed: false }); await mockAdminFixtures(page);
   await page.goto('/settings/playback'); await signIn(page);
@@ -110,15 +110,40 @@ test('navigation overlays the full-width page, dismisses by backdrop, and opens 
   await trigger.click();
   expect((await auditA11y(page)).violations).toEqual([]);
   const bounds = await modal.boundingBox();
-  expect(Math.abs(bounds!.x + bounds!.width / 2 - 768)).toBeLessThan(2);
-  // Native showModal makes the background inert without changing its layout.
+  const anchor = await trigger.boundingBox();
+  expect(bounds!.x).toBeCloseTo(anchor!.x, 0);
+  expect(bounds!.y).toBeCloseTo(anchor!.y + anchor!.height + 4, 0);
+  expect(bounds!.width).toBeLessThanOrEqual(280);
+  await expect(modal).not.toHaveAttribute('aria-modal', 'true');
+  // The anchored panel preserves the full content width.
   expect(await page.locator('#main-content').boundingBox()).toEqual(before);
   await page.mouse.click(12, 120);
   await expect(modal).toHaveCount(0);
+  await trigger.click();
+  await page.keyboard.press('Escape');
   await expect(trigger).toBeFocused();
   await navigateApp(page, 'Manage Server');
   await expect(page.getByRole('heading', { level: 1, name: 'Manage Server' })).toBeFocused();
   await navigateApp(page, 'My Settings');
   await expect(page.getByRole('heading', { level: 1, name: 'My Settings' })).toBeFocused();
   await expect(main).toHaveCSS('margin-left', '0px');
+});
+
+
+test('settings search keeps placeholder and entered text comfortably inside its field', async ({ page }) => {
+  await mockApi(page, {}); await mockAdminFixtures(page);
+  await page.goto('/settings'); await signIn(page);
+  for (const width of [1536, 975, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const search = page.getByRole('searchbox', { name: 'Search settings' });
+    await expect(search).toBeVisible();
+    await expect(search).toHaveCSS('padding-left', '12px');
+    await expect(search).toHaveCSS('padding-right', '12px');
+    const bounds = await search.boundingBox();
+    expect(bounds!.height).toBeGreaterThanOrEqual(44);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    await search.fill('quality');
+    await expect(page.getByRole('region', { name: 'Search results' })).toBeVisible();
+    await search.fill('');
+  }
 });

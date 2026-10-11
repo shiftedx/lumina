@@ -2,15 +2,15 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { MobileTabs, navGroups, NavigationDialog } from './Navigation';
+import { MobileTabs, navGroups, NavigationPopover } from './Navigation';
 
-describe('NavigationDialog', () => {
+describe('NavigationPopover', () => {
   it('groups Watch and Vault, without Music or the profile', () => {
     expect(navGroups.map((group) => [group.label, group.items.map((item) => item.label)])).toEqual([
       ['Watch', ['Home', 'Library', 'Streaming', 'Requests']],
       ['Vault', ['Downloads', 'My Settings']],
     ]);
-    render(<NavigationDialog activeDownloads={2} onClose={vi.fn()} onNavigate={vi.fn()} open surface="library" />);
+    render(<NavigationPopover activeDownloads={2} onClose={vi.fn()} onNavigate={vi.fn()} open surface="library" />);
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     expect(within(nav).queryByRole('button', { name: /Music/ })).toBeNull();
     expect(within(nav).getByRole('button', { name: 'Library' }).getAttribute('aria-current')).toBe('page');
@@ -18,21 +18,21 @@ describe('NavigationDialog', () => {
     expect(screen.queryByRole('button', { name: /settings$/ })).toBeNull();
   });
 
-  it('keeps navigation out of the page until its modal opens, focuses Home and closes on cancel', () => {
+  it('keeps navigation out of the page until its menu opens, focuses Home and closes on cancel', () => {
     const onClose = vi.fn();
     const props = { activeDownloads: 0, onClose, onNavigate: vi.fn(), surface: 'home' as const };
-    const { rerender } = render(<NavigationDialog {...props} open={false} />);
+    const { rerender } = render(<NavigationPopover {...props} open={false} />);
     expect(screen.queryByRole('navigation', { name: 'Primary' })).toBeNull();
-    rerender(<NavigationDialog {...props} open />);
+    rerender(<NavigationPopover {...props} open />);
     const dialog = screen.getByRole('dialog', { name: 'Navigation' });
     expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Home' }));
-    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('closes before opening a destination, preserving all the existing badges and destinations', async () => {
     const onClose = vi.fn(); const onNavigate = vi.fn();
-    render(<NavigationDialog activeDownloads={0} onClose={onClose} onNavigate={onNavigate} open surface="home" />);
+    render(<NavigationPopover activeDownloads={0} onClose={onClose} onNavigate={onNavigate} open surface="home" />);
     await userEvent.click(screen.getByRole('button', { name: 'Library' }));
     expect(onClose).toHaveBeenCalledOnce();
     expect(onNavigate).toHaveBeenCalledWith('library');
@@ -43,16 +43,16 @@ describe('NavigationDialog', () => {
 describe('Requests badge', () => {
   it('shows an admin how many requests are waiting, and nothing at zero', () => {
     const props = { activeDownloads: 0, onClose: vi.fn(), onNavigate: vi.fn(), open: true, surface: 'home' as const };
-    const { rerender } = render(<NavigationDialog {...props} pendingRequests={3} />);
+    const { rerender } = render(<NavigationPopover {...props} pendingRequests={3} />);
     expect(screen.getByRole('button', { name: 'Requests, 3 waiting' })).toBeTruthy();
-    rerender(<NavigationDialog {...props} pendingRequests={0} />);
+    rerender(<NavigationPopover {...props} pendingRequests={0} />);
     expect(screen.getByRole('button', { name: 'Requests' })).toBeTruthy();
   });
 });
 
 describe('Streaming is active on every Streaming page', () => {
   it.each(['streaming', 'subscriptions'] as const)('highlights Streaming (and no other item) for %s', (surface) => {
-    render(<NavigationDialog activeDownloads={0} onClose={vi.fn()} onNavigate={vi.fn()} open surface={surface} />);
+    render(<NavigationPopover activeDownloads={0} onClose={vi.fn()} onNavigate={vi.fn()} open surface={surface} />);
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     expect(within(nav).getAllByRole('button').filter((button) => button.getAttribute('aria-current') === 'page').map((button) => button.textContent)).toEqual(['Streaming']);
   });
@@ -64,7 +64,7 @@ describe('Streaming is active on every Streaming page', () => {
 });
 
 describe('MobileTabs', () => {
-  it('has Home, Library, Streaming, Search and More; Search opens the palette, More opens the modal', async () => {
+  it('has Home, Library, Streaming, Search and More; Search opens the palette, More opens the menu', async () => {
     const onSearch = vi.fn(); const onMore = vi.fn();
     render(<MobileTabs activeDownloads={3} moreOpen={false} onMore={onMore} onNavigate={vi.fn()} onSearch={onSearch} surface="home" />);
     const tabs = screen.getByRole('navigation', { name: 'Mobile primary navigation' });

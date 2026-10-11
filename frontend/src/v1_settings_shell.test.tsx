@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const api = vi.hoisted(() => ({ listUsers: vi.fn(), listInvitations: vi.fn(), listConnectedApps: vi.fn(), listBackups: vi.fn(), listAdminTasks: vi.fn() }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
 const { SettingsSurface } = await import('./features/settings/SettingsSurface');
-const { NavigationDialog } = await import('./app/Navigation');
+const { NavigationPopover } = await import('./app/Navigation');
 const { useUnsavedChanges } = await import('./features/settings/unsavedChanges');
 import type { SettingsLocation } from './features/settings/SettingsSurface';
 
@@ -121,7 +121,7 @@ describe('separate settings spaces', () => {
 
   it('puts owner-only Manage Server navigation beside Settings', async () => {
     const onManageServer = vi.fn();
-    render(<NavigationDialog activeDownloads={0} onClose={vi.fn()} onNavigate={vi.fn()} onManageServer={onManageServer} open surface="settings" managingServer />);
+    render(<NavigationPopover activeDownloads={0} onClose={vi.fn()} onNavigate={vi.fn()} onManageServer={onManageServer} open surface="settings" managingServer />);
     const serverButton = screen.getByRole('button', { name: 'Manage Server' });
     expect(serverButton.getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('button', { name: 'My Settings' }).hasAttribute('aria-current')).toBe(false);

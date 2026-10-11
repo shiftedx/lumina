@@ -600,7 +600,7 @@ describe('browser routes', () => {
 });
 
 describe('keyboard navigation in the authenticated shell', () => {
-  it('opens phone navigation as a modal, restores its trigger, and focuses the selected destination', async () => {
+  it('opens phone anchored navigation, restores its trigger, and focuses the selected destination', async () => {
     mobile = true;
     const keyboard = userEvent.setup();
     const { container } = render(<LuminaApp />);
@@ -608,7 +608,7 @@ describe('keyboard navigation in the authenticated shell', () => {
     await keyboard.click(trigger);
     const dialog = screen.getByRole('dialog', { name: 'Navigation' });
     expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Home' }));
-    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => expect(document.activeElement).toBe(trigger));
     expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
     await keyboard.click(trigger);
@@ -1582,7 +1582,7 @@ describe('palette openers', () => {
 });
 
 describe('drawer breakpoint', () => {
-  it('the header menu opens modal navigation on tablet widths', async () => {
+  it('the header menu opens anchored navigation on tablet widths', async () => {
     drawerOnly = true;
     render(<LuminaApp />);
     await userEvent.click(await screen.findByRole('button', { name: 'Open navigation' }));

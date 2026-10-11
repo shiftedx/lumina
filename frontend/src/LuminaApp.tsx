@@ -282,12 +282,30 @@ export default function LuminaApp() {
     setNavigationOpen(false);
   }, []);
 
+  const pendingHeadingFocusRef = useRef<MutationObserver | null>(null);
+  useEffect(() => () => pendingHeadingFocusRef.current?.disconnect(), []);
   const focusSurfaceHeading = useCallback(() => {
+    pendingHeadingFocusRef.current?.disconnect();
     requestAnimationFrame(() => {
-      const heading = appMainRef.current?.querySelector<HTMLElement>('.surface h1, .g-settings h1');
-      if (!heading) return void appMainRef.current?.focus();
-      heading.tabIndex = -1;
-      heading.focus();
+      const main = appMainRef.current;
+      if (!main) return;
+      const focusHeading = () => {
+        const heading = main.querySelector<HTMLElement>('.surface h1, .g-settings h1');
+        if (!heading) return false;
+        heading.tabIndex = -1;
+        heading.focus();
+        return true;
+      };
+      if (focusHeading()) return;
+      main.focus();
+      // Lazy settings pages can briefly replace the masthead with the route skeleton.
+      // Finish the focus transfer when it resolves, unless the user has moved elsewhere.
+      if (!main.querySelector('.g-route-loading')) return;
+      const observer = new MutationObserver(() => {
+        if ((document.activeElement !== main && document.activeElement !== document.body) || focusHeading()) observer.disconnect();
+      });
+      pendingHeadingFocusRef.current = observer;
+      observer.observe(main, { childList: true, subtree: true });
     });
   }, []);
 
@@ -1288,7 +1306,7 @@ export default function LuminaApp() {
   }
 
   const collectionAnnouncer = <CollectionAnnouncer jobsRetrying={state.jobsRetrying} jobsState={state.jobsState} libraryRetrying={state.libraryRetrying} libraryState={state.libraryState} />;
-  // Memoised above the signed-out return (hooks stay unconditional) so memo(NavigationDialog) sees stable account shortcuts.
+  // Memoised above the signed-out return (hooks stay unconditional) so memo(NavigationPopover) sees stable account shortcuts.
   const moreName = state.currentUser ? state.currentUser.display_name || state.currentUser.username : '';
   const setStreamingProviders = useCallback((streamingProviders: OptionalProvider[]) => workspace.dispatch({ type: 'preferences/patch', patch: { streamingProviders } }), [workspace]);
   const moreSwitch = useStableCallback(() => { closeNavigation(); openMemberPicker(); });
@@ -1420,7 +1438,7 @@ export default function LuminaApp() {
       onMenu={() => {
         closePalette();
         setDownloadMenuOpen(false);
-        setNavigationOpen(true);
+        setNavigationOpen((open) => !open);
       }}
       onNavigate={(next) => { if (next === 'settings') openRoute({ surface: 'settings' }); else navigateStable(next); }}
       pendingRequests={state.currentUser.role === 'admin' ? pendingRequests : 0}

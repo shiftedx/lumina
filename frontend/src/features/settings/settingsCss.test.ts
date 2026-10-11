@@ -33,6 +33,9 @@ describe('settings.css', () => {
 const rule = (selector: string) => settings.match(new RegExp(`(?:^|\\})\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`, 'm'))?.[1] ?? '';
 
 describe('full-width Settings (owner 2026-10-01)', () => {
+  it('insets search text from both borders', () => {
+    expect(rule('.g-settings-search .g-input')).toContain('padding: 0 12px');
+  });
   it('lets the shell use the whole width beside a token-width sidebar', () => {
     const shell = rule('.g-settings');
     expect(shell).not.toContain('max-width');

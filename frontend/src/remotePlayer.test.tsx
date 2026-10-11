@@ -10,6 +10,7 @@ const dashCalls = vi.hoisted(() => ({
   initialized: [] as Array<{ autoPlay: boolean; startTime: number | string; url: string }>,
   resets: 0,
   settings: [] as unknown[],
+  extensions: [] as string[],
   streamInitialized: [] as Array<() => void>,
   videoTracks: [{}] as unknown[],
 }));
@@ -18,8 +19,6 @@ const dashCalls = vi.hoisted(() => ({
 vi.mock('./features/watch/WatchQueue', async (importOriginal) => ({ ...(await importOriginal<object>()), WatchQueuePanel: () => null }));
 
 vi.mock('hls.js', () => import('./test/fakeHls'));
-const climbs = vi.hoisted(() => ({ started: 0, stopped: 0 }));
-vi.mock('./dashClimb', () => ({ startDashClimb: () => { climbs.started += 1; return () => { climbs.stopped += 1; }; } }));
 
 vi.mock('dashjs', () => {
   const MediaPlayer = Object.assign(() => ({
@@ -35,6 +34,7 @@ vi.mock('dashjs', () => {
       reset: () => { dashCalls.resets += 1; },
       setXHRWithCredentialsForType: (requestType: string, value: boolean) => { dashCalls.credentials.push({ requestType, value }); },
       updateSettings: (value: unknown) => { dashCalls.settings.push(value); },
+      extend: (name: string) => { dashCalls.extensions.push(name); },
     }),
   }), { events: { ERROR: 'error', STREAM_INITIALIZED: 'streamInitialized' } });
   return { MediaPlayer };
@@ -53,14 +53,13 @@ afterEach(async () => {
 
 describe('RemotePlayer', () => {
   beforeEach(() => {
-    climbs.started = 0;
-    climbs.stopped = 0;
     resetHlsCalls();
     dashCalls.handlers = [];
     dashCalls.initialized = [];
     dashCalls.resets = 0;
     dashCalls.credentials = [];
     dashCalls.settings = [];
+    dashCalls.extensions = [];
     dashCalls.streamInitialized = [];
     dashCalls.videoTracks = [{}];
     vi.restoreAllMocks();
@@ -79,8 +78,8 @@ describe('RemotePlayer', () => {
   it('plays Auto through dash.js ABR from the top rung, stepping down only on measured trouble, and reports the active resolution', async () => {
     const view = render(<RemotePlayer playback={adaptive('auto-abr', 'auto')} poster={null} title="Auto" />);
     await waitFor(() => expect(dashCalls.initialized).toHaveLength(1));
-    expect(climbs.started).toBe(1); // and climbs back once the trouble passes
-    expect(dashCalls.settings).toEqual([{ streaming: { abr: { initialBitrate: { video: DASH_TOP_RUNG_KBPS }, rules: { throughputRule: { active: false }, bolaRule: { active: false }, droppedFramesRule: { active: true } } } } }]);
+    expect(dashCalls.extensions).toEqual(['ThroughputModel']);
+    expect(dashCalls.settings).toEqual([{ streaming: { abr: { initialBitrate: { video: DASH_TOP_RUNG_KBPS }, rules: { throughputRule: { active: true }, bolaRule: { active: false }, droppedFramesRule: { active: true } } } } }]);
     const select = screen.getByLabelText('Remote playback quality') as HTMLSelectElement;
     expect(select.value).toBe('auto');
     expect([...select.options].map((option) => option.text)).toEqual(['Auto', '720p', '4K']);
@@ -90,7 +89,6 @@ describe('RemotePlayer', () => {
     fireEvent(video, new Event('resize'));
     expect(select.options[0].text).toBe('Auto (720p)');
     view.unmount();
-    expect(climbs.stopped).toBe(1);
   });
 
   it('switches from a pinned quality back to Auto without losing time or play state', async () => {
@@ -98,7 +96,6 @@ describe('RemotePlayer', () => {
     render(<RemotePlayer playback={adaptive('auto-return', 'r2160', 2)} poster={null} title="Auto return" />);
     await waitFor(() => expect(dashCalls.initialized).toHaveLength(1));
     expect(dashCalls.settings).toEqual([]);
-    expect(climbs.started).toBe(0); // a pinned quality never changes by itself
     const video = screen.getByTitle('DASH remote stream') as HTMLVideoElement;
     video.currentTime = 42;
     Object.defineProperty(video, 'paused', { configurable: true, value: false });
@@ -417,6 +414,47 @@ describe('RemotePlayer', () => {
     fireEvent.change(quality, { target: { value: 'auto' } });
     expect(player.nextLevel).toBe(-1);
     unmount();
+  });
+
+  it('retains a pinned HLS height across local recovery when the new ladder changes level indexes', async () => {
+    render(<RemotePlayer playback={{
+      status: 'ready', stream_id: 'pinned-live', transport: 'hls', media_kind: 'video',
+      playback_url: '/api/remote-streams/pinned-live/relay/1/master.m3u8', content_type: 'application/vnd.apple.mpegurl',
+      has_video: true, has_audio: true, seekable: false, live: true,
+    }} poster={null} title="Live" />);
+    await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(1));
+    act(() => hlsCalls.onManifestParsed[0]('hlsManifestParsed', { levels: [{ height: 240 }, { height: 720 }, { height: 1080 }] }));
+    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: '1' } });
+    act(() => hlsCalls.handlers[0]('error', { fatal: true, type: 'networkError' }));
+    await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(2));
+    act(() => hlsCalls.onManifestParsed[1]('hlsManifestParsed', { levels: [{ height: 720 }, { height: 1080 }] }));
+    expect((screen.getByLabelText('Remote playback quality') as HTMLSelectElement).value).toBe('0');
+    expect(hlsCalls.instances.at(-1)).toMatchObject({ startLevel: 0, currentLevel: 0 });
+    // Returning to Auto clears the pin, including for a later manifest.
+    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: 'auto' } });
+    act(() => hlsCalls.onManifestParsed[1]('hlsManifestParsed', { levels: [{ height: 720 }, { height: 1080 }] }));
+    expect((screen.getByLabelText('Remote playback quality') as HTMLSelectElement).value).toBe('auto');
+  });
+
+  it('does not silently replace an HLS pin that disappears during recovery', async () => {
+    render(<RemotePlayer playback={{
+      status: 'ready', stream_id: 'missing-hls-pin', transport: 'hls', media_kind: 'video',
+      playback_url: '/api/remote-streams/missing-hls-pin/relay/1/master.m3u8', content_type: 'application/vnd.apple.mpegurl',
+      has_video: true, has_audio: true, seekable: false, live: true,
+    }} poster={null} title="Live" />);
+    await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(1));
+    act(() => hlsCalls.onManifestParsed[0]('hlsManifestParsed', { levels: [{ height: 720 }, { height: 1080 }] }));
+    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: '1' } });
+    act(() => hlsCalls.handlers[0]('error', { fatal: true, type: 'networkError' }));
+    await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(2));
+    act(() => hlsCalls.onManifestParsed[1]('hlsManifestParsed', { levels: [{ height: 720 }] }));
+    expect(screen.getByText('The selected quality is no longer available. Refresh the stream to try again.')).toBeTruthy();
+    expect(hlsCalls.destroyed).toBe(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to Auto' }));
+    await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(3));
+    act(() => hlsCalls.onManifestParsed[2]('hlsManifestParsed', { levels: [{ height: 240 }, { height: 720 }] }));
+    expect((screen.getByLabelText('Remote playback quality') as HTMLSelectElement).value).toBe('auto');
+    expect(screen.queryByText('The selected quality is no longer available. Refresh the stream to try again.')).toBeNull();
   });
 
   it('loads split MP4 audio and video through dash.js without assigning the MPD to video.src', async () => {

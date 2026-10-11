@@ -78,3 +78,14 @@ describe('admin backups', () => {
     expect(api.updateBackupSchedule).toHaveBeenCalledWith({ daily: false, keep: 3 });
   });
 });
+
+
+it('keeps restore instructions available behind a clearly named disclosure', async () => {
+  render(<AdminBackups />);
+  const summary = screen.getByText('Restore a backup');
+  const details = summary.closest('details');
+  expect(details).toHaveProperty('open', false);
+  await userEvent.click(summary);
+  expect(details).toHaveProperty('open', true);
+  expect(details?.textContent).toContain('python -m app.restore');
+});

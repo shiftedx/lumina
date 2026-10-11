@@ -20,10 +20,10 @@ describe('Connected apps', () => {
     api.listConnectedApps.mockResolvedValue([infuse]);
     api.createAgentToken.mockResolvedValue({ app: { ...infuse, id: 'd2', kind: 'agent', scope: 'read', device_name: 'Home Assistant', client: null, client_version: null, last_seen_at: null }, token: TOKEN });
     const view = render(<ConnectedApps user={member} />);
-    const table = await screen.findByRole('table');
+    const table = await screen.findByRole('list', { name: 'Connected apps' });
     expect(within(table).getByText('Living room Apple TV')).toBeTruthy();
     expect(within(table).getByText('Jellyfin app')).toBeTruthy();
-    expect(within(table).queryByRole('columnheader', { name: 'Owner' })).toBeNull();
+    expect(within(table).queryByText('Owner')).toBeNull();
     await userEvent.type(screen.getByLabelText('Token name'), 'Home Assistant');
     await userEvent.click(screen.getByRole('button', { name: 'Create agent token' }));
     expect(api.createAgentToken).toHaveBeenCalledWith({ name: 'Home Assistant', scope: 'read' });
@@ -35,7 +35,7 @@ describe('Connected apps', () => {
     view.unmount();
     api.listConnectedApps.mockResolvedValue([infuse]);
     render(<ConnectedApps user={member} />);
-    await screen.findByRole('table');
+    await screen.findByRole('list', { name: 'Connected apps' });
     expect(screen.queryByDisplayValue(TOKEN)).toBeNull();
   });
 
@@ -53,15 +53,19 @@ describe('Connected apps', () => {
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Revoke' }));
     await waitFor(() => expect(api.revokeConnectedApp).toHaveBeenCalledWith('d1'));
     expect(await screen.findByText('Living room Apple TV was revoked. It has to sign in again.')).toBeTruthy();
-    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Connected apps' })).toBeNull();
   });
 
-  it('shows admins every member’s apps with an owner column', async () => {
+  it('shows admins every member’s apps with labelled owner metadata', async () => {
     api.listConnectedApps.mockResolvedValue([infuse]);
     render(<ConnectedApps user={admin} />);
-    const table = await screen.findByRole('table');
-    expect(within(table).getByRole('columnheader', { name: 'Owner' })).toBeTruthy();
+    const table = await screen.findByRole('list', { name: 'Connected apps' });
+    expect(within(table).getByText('Owner')).toBeTruthy();
     expect(within(table).getByText('One')).toBeTruthy();
+    expect(within(table).getByText('Read and write')).toBeTruthy();
+    expect(within(table).getByText('Infuse-Direct 8.1')).toBeTruthy();
+    expect(within(table).getByText('Last seen')).toBeTruthy();
+    expect(within(table).getAllByRole('listitem')).toHaveLength(1);
   });
 
   it('keeps the revoke dialog, its title and a busy confirm until the revoke settles', async () => {

@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
+import { type KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Info } from 'lucide-react';
 
 /** Closes whichever explanation is open, so only one shows at a time. */
@@ -16,6 +16,20 @@ export function InfoButton({ label, text, id }: { label: string; text: string; i
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const wrapRef = useRef<HTMLSpanElement>(null);
+  const noteRef = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const position = () => {
+      const anchor = wrapRef.current;
+      const note = noteRef.current;
+      if (!anchor || !note) return;
+      note.style.left = `${Math.min(0, window.innerWidth - 16 - anchor.getBoundingClientRect().left - note.getBoundingClientRect().width)}px`;
+    };
+    position();
+    window.addEventListener('resize', position);
+    return () => window.removeEventListener('resize', position);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -49,7 +63,7 @@ export function InfoButton({ label, text, id }: { label: string; text: string; i
       <button aria-controls={popoverId} aria-describedby={open ? popoverId : undefined} aria-expanded={open} aria-label={`About ${label}`} className="g-icon-button is-plain g-info-button" data-focus-item onClick={toggle} ref={buttonRef} type="button">
         <Info aria-hidden="true" />
       </button>
-      <span className="g-popover g-info-note" hidden={!open} id={popoverId} role="note">{text}</span>
+      <span className="g-popover g-info-note" hidden={!open} id={popoverId} ref={noteRef} role="note">{text}</span>
     </span>
   );
 }

@@ -257,8 +257,8 @@ export function AdminImports() {
       ) : null}
 
       {runs.length > 1 ? (
-        <section aria-labelledby="admin-import-history-title" className="admin-panel">
-          <h2 id="admin-import-history-title">Recent imports</h2>
+        <details className="admin-panel admin-import-history">
+          <summary>Recent imports ({runs.length})</summary>
           <ul className="admin-counts">
             {runs.map((entry) => (
               <li key={entry.id}>
@@ -267,7 +267,7 @@ export function AdminImports() {
               </li>
             ))}
           </ul>
-        </section>
+        </details>
       ) : null}
       <ConfirmDialog
         body="They come back if a later scan finds them again."

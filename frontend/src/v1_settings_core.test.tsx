@@ -4,6 +4,7 @@ import { createContext, type ReactNode, useContext, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { searchSettings, visibleSections } from './features/settings/registry';
+import { SettingsHostContext } from './features/settings/settingsHost';
 import { SectionForm } from './features/settings/SectionForm';
 import { SectionRows, SettingRow } from './features/settings/SettingRow';
 import type { SettingsSectionDef } from './features/settings/settingsTypes';
@@ -101,4 +102,16 @@ describe('Save forms and the unsaved-changes guard', () => {
     expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull();
     expect(confirmLeaveSettings()).toBe(true);
   });
+});
+
+
+it('omits unrelated Save controls on read-only pages and preserves them for editable pages or pending changes', () => {
+  const form = (rows: string[], dirty = false) => <SettingsHostContext.Provider value={{ user: { role: 'admin' } as never, visibleSettingIds: rows }}><SectionForm dirty={dirty} label="Overview" onDiscard={() => undefined} onSave={() => undefined} saveLabel="Save download limits" saveSettings={['overview.concurrency']} saving={false} status={null}>Status panel</SectionForm></SettingsHostContext.Provider>;
+  const view = render(form(['overview.status']));
+  expect(screen.queryByRole('button', { name: 'Save download limits' })).toBeNull();
+  view.rerender(form(['overview.concurrency']));
+  expect(screen.getByRole('button', { name: 'Save download limits' })).toBeTruthy();
+  view.rerender(form(['overview.status'], true));
+  expect(screen.getByRole('button', { name: 'Save download limits' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Discard' })).toBeTruthy();
 });

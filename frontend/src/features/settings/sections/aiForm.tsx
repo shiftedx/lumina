@@ -153,7 +153,7 @@ export function AiSettingsForm({ children }: { children: ReactNode }) {
 
   return (
     <AiFormContext.Provider value={{ config, draft, set, models, modelsError: modelsResource.error, replaceModel, reloadModels, reloadConfig }}>
-      <SectionForm dirty={Object.keys(update).length > 0} label="AI & models" onDiscard={() => { setStatus(null); setDraft(draftOf(config)); }} onSave={() => { void save(); }} saveLabel="Save AI settings" saving={saving} status={status}>{children}</SectionForm>
+      <SectionForm saveSettings={['ai.semantic-search', 'ai.subtitles-from-speech', 'ai.sync', 'ai.translate', 'ai.recap', 'ai.episode-summaries', 'ai.key-scenes', 'ai.smart-collection-builder', 'ai.match-tie-breaker', 'ai.mute-strong-language', 'ai.personal-recommendations', 'ai.search-model', 'ai.speech-model', 'ai.model-threads', 'ai.assistant-address', 'ai.assistant-model', 'ai.api-key', 'ai.max-concurrency', 'ai.context-window', 'ai.embedding-model', 'ai.speech-address', 'ai.speech-server-model']} dirty={Object.keys(update).length > 0} label="AI & models" onDiscard={() => { setStatus(null); setDraft(draftOf(config)); }} onSave={() => { void save(); }} saveLabel="Save AI settings" saving={saving} status={status}>{children}</SectionForm>
       <ConfirmDialog
         body="They finish with the settings they started with. Turn this off anyway?"
         confirmLabel="Turn off"

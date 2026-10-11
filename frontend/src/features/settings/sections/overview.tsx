@@ -61,7 +61,7 @@ function DownloadLimitsForm({ children }: { children: ReactNode }) {
 
   return (
     <LimitsContext.Provider value={{ values, set, savedAt }}>
-      <SectionForm advanced dirty={dirty} label="Overview" onDiscard={() => { setStatus(null); if (settings.data) setValues(toLimits(settings.data)); }} onSave={() => { void save(); }} saveLabel="Save download limits" saving={saving} status={status ?? (settings.error ? { tone: 'error', text: settings.error } : null)}>{children}</SectionForm>
+      <SectionForm advanced saveSettings={['overview.concurrency', 'overview.per-member', 'overview.min-free', 'overview.source-ports']} dirty={dirty} label="Overview" onDiscard={() => { setStatus(null); if (settings.data) setValues(toLimits(settings.data)); }} onSave={() => { void save(); }} saveLabel="Save download limits" saving={saving} status={status ?? (settings.error ? { tone: 'error', text: settings.error } : null)}>{children}</SectionForm>
     </LimitsContext.Provider>
   );
 }

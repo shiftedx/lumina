@@ -391,7 +391,7 @@
         "binding_set_sha256": "e07bff6830ebdfc2a3b6bf5bca6944ca5ee7a807d96f31c76f24941ef52b554c",
         "movie_version_pairs_considered": 98,
         "owner_jellyfin_token_rows": 1,
-        "rotation_pairs_used": 10,
+        "rotation_pairs_used": 98,
         "valid_visible_movie_version_pairs": 98
       },
       "summaries": {
@@ -608,7 +608,8 @@
         "token_digest",
         "wanted"
       ],
-      "decision": "Reject: removing11unusedUsercolumns yielded no native query/ORM gain. Median resolver0.149ms candidate vs0.148ms control;singleSQLstatement andallresults equivalent. No app auth/query change."
+      "decision": "Reject: removing11unusedUsercolumns yielded no native query/ORM gain. Median resolver0.149ms candidate vs0.148ms control;singleSQLstatement andallresults equivalent. No app auth/query change.",
+      "metadata_amendment": "Raw report says rotation_pairs_used10, but runtime rotates all98valid pairs and both raw timing phases contain98distinct pair_slot values. Originalreport/harness/timingsretainedunchanged;publiccounts correctedtoreflectexecutedprotocol."
     }
   }
 }

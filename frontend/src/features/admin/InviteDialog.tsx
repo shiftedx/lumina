@@ -104,10 +104,10 @@ function InviteForm({ onClose, onIssued }: { onClose: () => void; onIssued: () =
         <fieldset className="g-fieldset">
           <legend>Libraries</legend>
           <Checkbox checked={all} hint="Includes libraries added later." label="All libraries" onChange={(event) => setAll(event.currentTarget.checked)} />
-          {all ? null : (sections ?? []).map((section) => (
+          {all ? null : <div className="g-setting-options">{(sections ?? []).map((section) => (
             <Checkbox checked={chosen.has(section.id)} hint={`${section.count.toLocaleString()} titles`} key={section.id} label={section.label}
               onChange={(event) => { const on = event.currentTarget.checked; setChosen((set) => { const next = new Set(set); if (on) next.add(section.id); else next.delete(section.id); return next; }); }} />
-          ))}
+          ))}</div>}
           {problem?.field === 'libraries' ? <p className="auth-error" role="alert">{problem.text}</p> : null}
         </fieldset>
         <Field hint="Fine-tune ratings, hours and streaming on their member page later." label="Limits">

@@ -1,6 +1,7 @@
 """Admin-only local AI endpoint configuration. The endpoint secret is write-only."""
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI
@@ -12,7 +13,7 @@ from app.models import AppSettings
 from app.persistence import write_transaction
 from app.security import get_admin_user
 from app.services import embeddings, model_endpoints, model_supervisor
-from app.services.local_ai import check_connection, effective_config, validate_endpoint_url
+from app.services.local_ai import LocalAiError, check_connection, effective_config, list_models, validate_endpoint_url
 from app.services.yt_dlp_service import YtDlpService
 
 URL = "/api/admin/ai"
@@ -77,6 +78,35 @@ class AiTestResponse(BaseModel):
     error: str | None
 
 
+class AiModelsRequest(BaseModel):
+    """Discover a draft endpoint without saving it or forwarding another endpoint's secret."""
+
+    base_url: str = Field(max_length=2048)
+    api_key: str | None = Field(default=None, max_length=4096)
+
+    @field_validator("base_url")
+    @classmethod
+    def _url(cls, value: str) -> str:
+        return validate_endpoint_url(value)
+
+
+class AiModelsResponse(BaseModel):
+    models: list[str]
+    error: str | None = None
+
+
+def discover_ai_models(payload: AiModelsRequest, db: Session = Depends(get_db, scope="function")) -> AiModelsResponse:
+    saved = effective_config(YtDlpService(db).get_app_settings())
+    key = payload.api_key if payload.api_key is not None else saved.ai_api_key if payload.base_url == saved.ai_base_url.rstrip("/") else None
+    # Catalog requests need only an address; no model is selected or generated here.
+    draft = replace(saved, ai_base_url=payload.base_url, ai_api_key=key, ai_model=saved.ai_model or "catalog")
+    try:
+        models = list(dict.fromkeys(model for model in list_models(draft) if model and len(model) <= 200))
+        return AiModelsResponse(models=models)
+    except LocalAiError as exc:
+        return AiModelsResponse(models=[], error=str(exc))
+
+
 def _serialize(record: AppSettings) -> AiConfigResponse:
     config = effective_config(record)
     return AiConfigResponse(
@@ -132,4 +162,5 @@ def register(app: FastAPI) -> None:
     admin = [Depends(get_admin_user)]
     app.get(URL + "/config", response_model=AiConfigResponse, dependencies=admin)(get_ai_config)
     app.put(URL + "/config", response_model=AiConfigResponse, dependencies=admin)(update_ai_config)
+    app.post(URL + "/models", response_model=AiModelsResponse, dependencies=admin)(discover_ai_models)
     app.post(URL + "/test", response_model=AiTestResponse, dependencies=admin)(probe_ai_connection)

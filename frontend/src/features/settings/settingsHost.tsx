@@ -40,6 +40,8 @@ export interface SettingsHost {
   onAdvancedChange?: (on: boolean) => void;
   /** Set by the Settings shell: true while advanced rows (and advanced parts of a row) are on screen. Absent means show everything. */
   showAdvanced?: boolean;
+  /** Registry rows on the current page, including its local disclosures. */
+  visibleSettingIds?: readonly string[];
   /** Opens and focuses a registry row on its page; false when unsaved edits prevent leaving. */
   onOpenSetting?: (id: string) => boolean;
   onOpenSection?: (section: SettingsSectionId) => boolean;

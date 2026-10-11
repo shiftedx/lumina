@@ -152,3 +152,37 @@ def test_inference_slot_caps_concurrency() -> None:
     for thread in threads:
         thread.join()
     assert peak[0] == 2
+
+
+def test_model_discovery_draft_does_not_save_or_forward_a_saved_secret(fake_ai, client):
+    http, current = client
+    saved_url = "http://saved-server.test/v1"
+    assert http.put("/api/admin/ai/config", json={"base_url": saved_url, "model": MODEL, "api_key": "saved-test-key"}).status_code == 200
+    response = http.post("/api/admin/ai/models", json={"base_url": fake_ai.url})
+    assert response.json() == {"models": [MODEL], "error": None}
+    assert "Authorization" not in fake_ai.requests[-1][2]
+    assert http.get("/api/admin/ai/config").json()["base_url"] == saved_url
+    assert http.get("/api/admin/ai/config").json()["model"] == MODEL
+    response = http.post("/api/admin/ai/models", json={"base_url": fake_ai.url, "api_key": "draft-test-key"})
+    assert response.status_code == 200
+    assert fake_ai.requests[-1][2]["Authorization"] == "Bearer draft-test-key"
+    assert "draft-test-key" not in response.text
+    current["user"].role = "viewer"
+    assert http.post("/api/admin/ai/models", json={"base_url": fake_ai.url}).status_code == 403
+
+
+def test_model_discovery_uses_saved_key_only_for_same_endpoint_and_validates_models(fake_ai, client):
+    http, _ = client
+    http.put("/api/admin/ai/config", json={"base_url": fake_ai.url, "model": "", "api_key": "saved-test-key"})
+    fake_ai.handler = lambda *args: (200, {"data": [{"id": MODEL}, {"id": MODEL}, {"id": ""}, {"id": "x" * 201}, {"id": 12}]}, {})
+    response = http.post("/api/admin/ai/models", json={"base_url": fake_ai.url + "/"})
+    assert response.json() == {"models": [MODEL], "error": None}
+    assert fake_ai.requests[-1][2]["Authorization"] == "Bearer saved-test-key"
+    http.post("/api/admin/ai/models", json={"base_url": fake_ai.url, "api_key": ""})
+    assert "Authorization" not in fake_ai.requests[-1][2]
+    for bad in ["file:///etc/passwd", "http://user:pass@host/v1", "http://host/v1?secret=x"]:
+        assert http.post("/api/admin/ai/models", json={"base_url": bad}).status_code == 422
+    fake_ai.handler = lambda *args: (302, {}, {"location": "http://different-server.test/v1/models"})
+    response = http.post("/api/admin/ai/models", json={"base_url": fake_ai.url})
+    assert response.json()["models"] == []
+    assert response.json()["error"]

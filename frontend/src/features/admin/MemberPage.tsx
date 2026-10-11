@@ -185,7 +185,7 @@ function LibraryChecklist() {
   const chosen = new Set(access.sections);
   const toggle = (id: string, on: boolean) => set({ sections: (sections ?? []).map((section) => section.id).filter((entry) => (entry === id ? on : chosen.has(entry))) });
   return (
-    <div className="g-subrows">
+    <div className="g-setting-options">
       {(sections ?? []).map((section) => (
         <Checkbox checked={chosen.has(section.id)} hint={`${section.count.toLocaleString()} titles`} key={section.id} label={section.label} onChange={(event) => toggle(section.id, event.currentTarget.checked)} />
       ))}
@@ -543,7 +543,7 @@ export function MemberPage({ memberId, onBack }: { memberId: string; onBack: () 
       </div>
       <MemberContext.Provider value={ctx}>
         <ActivityContext.Provider value={activity}>
-          <SectionForm dirty={dirty} label={`${name}’s settings`} onDiscard={() => { setDraft({ name: member.display_name, access: withDefaults(saved) }); setStatus(null); }} onSave={() => { void save(); }} saveLabel="Save" saving={saving} status={status}>
+          <SectionForm readOnly={shownTab.id === 'activity'} dirty={dirty} label={`${name}’s settings`} onDiscard={() => { setDraft({ name: member.display_name, access: withDefaults(saved) }); setStatus(null); }} onSave={() => { void save(); }} saveLabel="Save" saving={saving} status={status}>
             <div aria-labelledby={`member-tab-${shownTab.id}`} id="member-panel" role="tabpanel">
               {entries.map(({ id, label, info, description, layout, Control }) => <SettingRow description={description} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>)}
             </div>

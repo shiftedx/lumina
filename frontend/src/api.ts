@@ -811,6 +811,7 @@ export const downloadLocalModel = (id: string): Promise<LocalModel> => post(`${M
 export const cancelLocalModelDownload = (id: string): Promise<LocalModel> => post(`${MODELS}/${enc(id)}/cancel`);
 export const activateLocalModel = (id: string): Promise<LocalModel> => post(`${MODELS}/${enc(id)}/activate`);
 export const removeLocalModel = (id: string): Promise<LocalModelRemoval> => del(`${MODELS}/${enc(id)}`);
+export const discoverAiModels = (draft: { base_url: string; api_key?: string }): Promise<{ models: string[]; error: string | null }> => post('/api/admin/ai/models', draft);
 export const testAiConnection = (): Promise<{ ok: boolean; models: string[]; model_available: boolean; error: string | null }> => post('/api/admin/ai/test', {});
 
 export type TaskKind = 'download' | 'asr' | 'summary' | 'import';

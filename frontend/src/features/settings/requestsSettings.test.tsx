@@ -81,7 +81,7 @@ describe('Requests settings', () => {
 
   it('edits household policies into the right PUT payload', async () => {
     renderSection();
-    const table = (await screen.findAllByRole('table', { name: 'Household defaults' }))[0];
+    const table = (await screen.findAllByRole('group', { name: 'Household defaults' }))[0];
     await userEvent.click(within(table).getByRole('checkbox', { name: 'Anime: Auto-approve' }));
     await userEvent.click(within(table).getAllByRole('checkbox', { name: 'Unlimited' })[0]);
     await userEvent.click(screen.getByRole('button', { name: 'Save household defaults' }));

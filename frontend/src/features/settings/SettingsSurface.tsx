@@ -133,7 +133,7 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
   }
 
   return (
-    <SettingsHostContext.Provider value={{ ...host, showAdvanced: true, onOpenSection: (id) => openPage(resolveSettingsPage(id)), onOpenSetting: (id) => { const next = pageForRow(id); return next ? openPage(next, id) : false; }, onOpenMember: (id) => { if (!confirmLeaveSettings()) return; onMember(id); } }}>
+    <SettingsHostContext.Provider value={{ ...host, showAdvanced: true, visibleSettingIds: current.rows, onOpenSection: (id) => openPage(resolveSettingsPage(id)), onOpenSetting: (id) => { const next = pageForRow(id); return next ? openPage(next, id) : false; }, onOpenMember: (id) => { if (!confirmLeaveSettings()) return; onMember(id); } }}>
       <div className="g-settings" data-view={effectiveSection || searching ? 'detail' : 'list'} data-space={activeSpace}>
         <header className="g-settings-header">
           <Masthead title={activeSpace === 'server' ? 'Manage Server' : 'My Settings'} />

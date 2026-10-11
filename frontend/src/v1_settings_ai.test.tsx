@@ -6,7 +6,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AiConfig, AiRequirement, LocalModel } from './api';
 
 const api = vi.hoisted(() => ({
-  getAiConfig: vi.fn(), updateAiConfig: vi.fn(), testAiConnection: vi.fn(), listAdminTasks: vi.fn(),
+  discoverAiModels: vi.fn(), getAiConfig: vi.fn(), updateAiConfig: vi.fn(), testAiConnection: vi.fn(), listAdminTasks: vi.fn(),
   listLocalModels: vi.fn(), downloadLocalModel: vi.fn(), cancelLocalModelDownload: vi.fn(), activateLocalModel: vi.fn(), removeLocalModel: vi.fn(),
 }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
@@ -45,6 +45,7 @@ const whisper = model({ id: 'faster-whisper-small-int8', role: 'speech', name: '
 const admin = { id: 'u1', username: 'dana', role: 'admin', is_active: true } as never;
 
 function setup({ config: patch = {}, models = [granite, nomic, whisper] }: { config?: Partial<AiConfig>; models?: LocalModel[] } = {}) {
+  api.discoverAiModels.mockResolvedValue({ models: ['qwen3', 'other-model'], error: null });
   api.getAiConfig.mockResolvedValue({ ...config, ...patch });
   api.listLocalModels.mockResolvedValue({ models });
   api.listAdminTasks.mockResolvedValue({ items: [], next_cursor: null, counts: { download: {}, asr: { active: 1 }, summary: { succeeded: 4 } } });
@@ -99,7 +100,8 @@ describe('AI & models form', () => {
     fireEvent.click(sync);
     expect((sync as HTMLInputElement).checked).toBe(false);
     expect(api.updateAiConfig).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByRole('textbox', { name: /^Model/ }), { target: { value: 'qwen3' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Enter model manually' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Custom model name' }), { target: { value: 'qwen3' } });
     expect(saveButton().disabled).toBe(false);
     fireEvent.click(saveButton());
     await waitFor(() => expect(api.updateAiConfig).toHaveBeenCalledWith({ model: 'qwen3', ai_features_disabled: ['sync'] }));
@@ -141,7 +143,9 @@ describe('AI & models form', () => {
     setup();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     renderAi();
-    fireEvent.change(await screen.findByRole('textbox', { name: /^Model/ }), { target: { value: 'other-model' } });
+    await screen.findByRole('combobox', { name: 'Model' });
+    await userEvent.click(screen.getByRole('button', { name: 'Enter model manually' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Custom model name' }), { target: { value: 'other-model' } });
     expect(confirmLeaveSettings()).toBe(false);
     expect(confirm).toHaveBeenCalledWith('You have unsaved changes in AI & models. Leave without saving?');
   });
@@ -197,7 +201,8 @@ describe('on-device model rows', () => {
   it('deleting a model asks first, names it, and a delete that turns features off leaves no phantom unsaved change', async () => {
     const installed = { ...granite, state: 'ready' as const };
     setup({ models: [installed, nomic, whisper] });
-    api.getAiConfig.mockResolvedValueOnce({ ...config, features: { ...config.features, semantic_search: ready('search_model') } })
+    api.discoverAiModels.mockResolvedValue({ models: ['qwen3', 'other-model'], error: null });
+  api.getAiConfig.mockResolvedValueOnce({ ...config, features: { ...config.features, semantic_search: ready('search_model') } })
       .mockResolvedValue({ ...config, ai_features_disabled: ['semantic_search'] });
     api.removeLocalModel.mockResolvedValue({ model: granite, disabled_features: ['semantic_search'] });
     const onMessage = vi.fn();
@@ -261,7 +266,8 @@ describe('on-device model rows', () => {
     setup();
     const downloading = { ...granite, state: 'downloading' as const, bytes_done: 1, bytes_total: granite.size_bytes };
     api.listLocalModels.mockResolvedValueOnce({ models: [downloading, nomic, whisper] }).mockResolvedValue({ models: [{ ...granite, state: 'failed' }, nomic, whisper] });
-    api.getAiConfig.mockResolvedValueOnce(config).mockResolvedValue({ ...config, ai_features_disabled: ['semantic_search'] });
+    api.discoverAiModels.mockResolvedValue({ models: ['qwen3', 'other-model'], error: null });
+  api.getAiConfig.mockResolvedValueOnce(config).mockResolvedValue({ ...config, ai_features_disabled: ['semantic_search'] });
     renderAi();
     await screen.findByRole('switch', { name: 'Semantic search' });
     await waitFor(() => expect(api.getAiConfig).toHaveBeenCalledTimes(2), { timeout: 4000 });
@@ -314,7 +320,8 @@ describe('enabling a feature that needs something missing', () => {
 
   it('Download and turn on starts the download now, keeps the switch on, and Save turns the feature on (success criterion 1)', async () => {
     setup({ config: off('semantic_search') });
-    api.getAiConfig.mockResolvedValueOnce({ ...config, ai_features_disabled: ['semantic_search'] })
+    api.discoverAiModels.mockResolvedValue({ models: ['qwen3', 'other-model'], error: null });
+  api.getAiConfig.mockResolvedValueOnce({ ...config, ai_features_disabled: ['semantic_search'] })
       .mockResolvedValue({ ...config, ai_features_disabled: ['semantic_search'], features: { ...config.features, semantic_search: { requires: 'search_model', ready: false, reason: 'Waiting for the search model' } } });
     api.downloadLocalModel.mockResolvedValue({ ...granite, state: 'downloading', bytes_done: 0, bytes_total: granite.size_bytes });
     api.updateAiConfig.mockImplementation(async (update) => ({ ...config, ...update }));
@@ -476,7 +483,8 @@ describe('Go to Server address inside Settings', () => {
   it('never steals focus from where the admin moved while AI & models was loading', async () => {
     setup({ config: noServer });
     const reload = deferred<AiConfig>();
-    api.getAiConfig.mockResolvedValueOnce({ ...config, ...noServer }).mockReturnValueOnce(reload.promise);
+    api.discoverAiModels.mockResolvedValue({ models: ['qwen3', 'other-model'], error: null });
+  api.getAiConfig.mockResolvedValueOnce({ ...config, ...noServer }).mockReturnValueOnce(reload.promise);
     render(<Shell onSection={vi.fn()} start="account" />);
     await goFromSearch();
     await screen.findByRole('heading', { name: 'AI features' });
@@ -485,5 +493,34 @@ describe('Go to Server address inside Settings', () => {
     await act(async () => { reload.resolve({ ...config, ...noServer }); });
     await screen.findByRole('textbox', { name: /^Server address/ });
     expect(document.activeElement).toBe(searchbox);
+  });
+});
+
+
+describe('automatic assistant model discovery', () => {
+  it('loads endpoint models, preserves a missing saved model, and saves only the chosen model', async () => {
+    setup();
+    api.updateAiConfig.mockImplementation(async (update) => ({ ...config, ...update }));
+    renderAi();
+    const select = await screen.findByRole('combobox', { name: 'Model' });
+    await screen.findByRole('option', { name: 'qwen3' });
+    expect(api.discoverAiModels).toHaveBeenCalledWith({ base_url: config.base_url });
+    expect(select).toHaveProperty('value', config.model);
+    expect(api.updateAiConfig).not.toHaveBeenCalled();
+    await userEvent.selectOptions(select, 'qwen3');
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(api.updateAiConfig).toHaveBeenCalledWith({ model: 'qwen3' }));
+  });
+
+  it('requeries a draft address without saving and keeps manual entry when the endpoint fails', async () => {
+    setup();
+    api.discoverAiModels.mockResolvedValue({ models: [], error: 'Local AI endpoint is unavailable' });
+    renderAi();
+    await screen.findByText('Local AI endpoint is unavailable');
+    fireEvent.change(screen.getByLabelText('Server address'), { target: { value: 'http://other-server.test/v1' } });
+    await waitFor(() => expect(api.discoverAiModels).toHaveBeenCalledWith({ base_url: 'http://other-server.test/v1' }));
+    expect(api.updateAiConfig).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Enter model manually' }));
+    expect(screen.getByLabelText('Custom model name')).toHaveProperty('value', config.model);
   });
 });

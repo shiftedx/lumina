@@ -85,6 +85,12 @@ local models, assistant setup and speech setup each have their own page. Server 
 are under Connections → Addresses; backups, tasks, diagnostics and video conversion are
 under Maintenance. Advanced tuning expands within the relevant page, without a global switch.
 
+Assistant setup loads available models automatically from the endpoint’s `/models` catalog
+when you open the page or edit its address or key. Choose a model from the dropdown, then
+save. Model discovery does not save configuration. Refresh models retries the lookup;
+manual entry remains available when the catalog is unavailable. A saved key is used only
+for its saved endpoint, never forwarded to a different draft address.
+
 Search covers every setting you can access and opens its page, including advanced options.
 Existing `/settings/<section>` and `/admin/<section>` bookmarks still work; owner sections
 open in Manage Server. Subpage bookmarks use `?page=`, for example `/manage/requests?page=email`.

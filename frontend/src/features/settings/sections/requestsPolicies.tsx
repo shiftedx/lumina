@@ -18,37 +18,29 @@ export const completePolicies = (rows: Policy[], fallback: Policy[] = []): Polic
 export function PolicyTable({ policies, onChange, caption }: { policies: Policy[]; onChange: (next: Policy[]) => void; caption: string }) {
   const set = (kind: RequestKind, patch: Partial<Policy>) => onChange(policies.map((row) => (row.kind === kind ? { ...row, ...patch } : row)));
   return (
-    <div className="g-req-scroll">
-      <table className="g-table">
-        <caption className="sr-only">{caption}</caption>
-        <thead><tr><th scope="col">Kind</th><th scope="col">May request</th><th scope="col">Auto-approve</th><th scope="col">Limit</th></tr></thead>
-        <tbody>
-          {KINDS.map(({ kind, label }) => {
-            const row = policies.find((entry) => entry.kind === kind) ?? { ...FALLBACK, kind };
-            const unlimited = row.quota_count === null;
-            return (
-              <tr key={kind}>
-                <th scope="row">{label}</th>
-                <td><Checkbox checked={row.can_request} label={<VisuallyHidden>{label}: May request</VisuallyHidden>} onChange={(event) => set(kind, { can_request: event.currentTarget.checked })} /></td>
-                <td><Checkbox checked={row.auto_approve} label={<VisuallyHidden>{label}: Auto-approve</VisuallyHidden>} onChange={(event) => set(kind, { auto_approve: event.currentTarget.checked })} /></td>
-                <td>
-                  <div className="g-req-quota">
-                    <Checkbox checked={unlimited} label="Unlimited" onChange={(event) => set(kind, event.currentTarget.checked ? { quota_count: null, quota_days: null } : { quota_count: 10, quota_days: 7 })} />
-                    {unlimited ? null : (
-                      <>
-                        <Input aria-label={`${label}: requests per period`} inputMode="numeric" min={1} onChange={(event) => set(kind, { quota_count: Math.max(1, Number(event.currentTarget.value) || 1) })} type="number" value={row.quota_count ?? ''} />
-                        <span>per</span>
-                        <Input aria-label={`${label}: period in days`} inputMode="numeric" min={1} onChange={(event) => set(kind, { quota_days: Math.max(1, Number(event.currentTarget.value) || 1) })} type="number" value={row.quota_days ?? ''} />
-                        <span>days</span>
-                      </>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div aria-label={caption} className="g-req-policies" role="group">
+      {KINDS.map(({ kind, label }) => {
+        const row = policies.find((entry) => entry.kind === kind) ?? { ...FALLBACK, kind };
+        const unlimited = row.quota_count === null;
+        return (
+          <fieldset className="g-fieldset g-req-policy" key={kind}>
+            <legend>{label}</legend>
+            <Checkbox checked={row.can_request} label={<><VisuallyHidden>{label}:</VisuallyHidden>{' '}May request</>} onChange={(event) => set(kind, { can_request: event.currentTarget.checked })} />
+            <Checkbox checked={row.auto_approve} label={<><VisuallyHidden>{label}:</VisuallyHidden>{' '}Auto-approve</>} onChange={(event) => set(kind, { auto_approve: event.currentTarget.checked })} />
+            <div className="g-req-quota">
+              <Checkbox checked={unlimited} label="Unlimited" onChange={(event) => set(kind, event.currentTarget.checked ? { quota_count: null, quota_days: null } : { quota_count: 10, quota_days: 7 })} />
+              {unlimited ? null : (
+                <>
+                  <Input aria-label={`${label}: requests per period`} inputMode="numeric" min={1} onChange={(event) => set(kind, { quota_count: Math.max(1, Number(event.currentTarget.value) || 1) })} type="number" value={row.quota_count ?? ''} />
+                  <span>per</span>
+                  <Input aria-label={`${label}: period in days`} inputMode="numeric" min={1} onChange={(event) => set(kind, { quota_days: Math.max(1, Number(event.currentTarget.value) || 1) })} type="number" value={row.quota_days ?? ''} />
+                  <span>days</span>
+                </>
+              )}
+            </div>
+          </fieldset>
+        );
+      })}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { PlugZap } from 'lucide-react';
 
-import { listAdminTasks, testAiConnection } from '../../../api';
-import { Button, Checkbox, clampServerText, Field, fieldProps, Input, PasswordInput, StatusText } from '../../../ui';
+import { discoverAiModels, listAdminTasks, testAiConnection } from '../../../api';
+import { Button, Checkbox, clampServerText, Field, fieldProps, Input, PasswordInput, Select, StatusText } from '../../../ui';
 import { errorMessage } from '../../../utils';
 import '../settings.css';
 import type { SettingEntry, SettingsSectionDef } from '../settingsTypes';
@@ -46,6 +46,49 @@ function textField(key: TextKey, name: string, hint: string, url = false) {
       </Field>
     );
   };
+}
+
+function AssistantModel() {
+  const { draft, set } = useAiForm();
+  const [models, setModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [manual, setManual] = useState(false);
+  const address = draft.base_url.trim().replace(/\/+$/, '');
+  const key = draft.clear_key ? '' : draft.api_key.trim() || undefined;
+  useEffect(() => {
+    let active = true;
+    setModels([]);
+    setError(null);
+    if (!address) { setLoading(false); return; }
+    setLoading(true);
+    const timer = window.setTimeout(() => {
+      void discoverAiModels({ base_url: address, ...(key === undefined ? {} : { api_key: key }) }).then((result) => {
+        if (!active) return;
+        setModels(result.models);
+        setError(result.error ?? (result.models.length ? null : 'This server did not list any models.'));
+      }).catch((failure) => { if (active) setError(errorMessage(failure, 'Could not load models from this server.')); })
+        .finally(() => { if (active) setLoading(false); });
+    }, 500);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [address, key, retry]);
+  const options = [...new Set([draft.model, ...models].filter(Boolean))];
+  return (
+    <div className="g-control-stack">
+      <Field hideLabel hint={loading ? 'Loading available models…' : error ?? 'Models available from your assistant server.'} label="Model">
+        {(ids) => <Select {...fieldProps(ids)} onChange={(event) => set('model', event.target.value)} value={draft.model}>
+          <option value="">Choose a model</option>
+          {options.map((model) => <option key={model} value={model}>{model}{!models.includes(model) ? ' (current)' : ''}</option>)}
+        </Select>}
+      </Field>
+      <div className="g-actions">
+        <Button disabled={!address || loading} onClick={() => setRetry((value) => value + 1)} variant="quiet">Refresh models</Button>
+        <Button aria-expanded={manual} onClick={() => setManual((value) => !value)} variant="quiet">Enter model manually</Button>
+      </div>
+      {manual ? <Field label="Custom model name">{(ids) => <Input {...fieldProps(ids)} maxLength={200} onChange={(event) => set('model', event.target.value)} spellCheck={false} value={draft.model} />}</Field> : null}
+    </div>
+  );
 }
 
 function numberField(key: 'max_concurrency' | 'context_tokens', name: string, hint: string, min: number, max: number) {
@@ -158,8 +201,8 @@ const ASSISTANT_ENTRIES: SettingEntry[] = [
   },
   {
     id: 'ai.assistant-model', advanced: true, label: 'Assistant model', keywords: ['model', 'model name'],
-    info: 'The model name exactly as your assistant server lists it. Test connection shows the names it offers. Affects every summary, recap and translation.',
-    Control: textField('model', 'Model', 'Exactly as the server lists it.'),
+    info: 'Choose a model available from your assistant server. The list loads automatically when its address or key changes. Affects every summary, recap and translation.',
+    Control: AssistantModel,
   },
   {
     id: 'ai.api-key', advanced: true, label: 'Assistant key', keywords: ['api key', 'token', 'secret', 'remove key'],

@@ -98,30 +98,26 @@ export function ConnectedApps({ user }: { user: UserProfile }) {
   }
 
   return (
-    <div className="connected-apps">
+    <div className="connected-apps g-source-settings">
       {apps.error ?<p className="auth-error" role="alert">{apps.error}</p> : !apps.data ? <p className="g-setting-note" role="status">Loading connected apps…</p> : apps.data.length ? (
-        <div aria-label="Connected apps" className="admin-table-scroll" role="region" tabIndex={0}>
-          <table className="g-table">
-            <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Access</th><th scope="col">App</th><th scope="col">Last seen</th>{admin ? <th scope="col">Owner</th> : null}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
-            <tbody>
-              {apps.data.map((app) => (
-                <tr key={app.id}>
-                  <th scope="row">{app.device_name}</th>
-                  <td>{KIND_LABELS[app.kind]}</td>
-                  <td>{SCOPE_LABELS[app.scope]}</td>
-                  <td>{[app.client, app.client_version].filter(Boolean).join(' ') || '—'}</td>
-                  <td>{formatDateTime(app.last_seen_at, 'Not yet')}</td>
-                  {admin ? <td>{app.owner_display_name || '—'}</td> : null}
-                  <td><Button aria-label={`Revoke ${app.device_name}`} disabled={busy !== null} onClick={() => setRevoking(app)} variant="danger">Revoke</Button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ul aria-label="Connected apps" className="g-list">
+          {apps.data.map((app) => (
+            <li className="connected-app" key={app.id}>
+              <header><strong>{app.device_name}</strong><Button aria-label={`Revoke ${app.device_name}`} disabled={busy !== null} onClick={() => setRevoking(app)} variant="danger">Revoke</Button></header>
+              <dl className="admin-root-facts">
+                <div><dt>Kind</dt><dd>{KIND_LABELS[app.kind]}</dd></div>
+                <div><dt>Access</dt><dd>{SCOPE_LABELS[app.scope]}</dd></div>
+                <div><dt>App</dt><dd>{[app.client, app.client_version].filter(Boolean).join(' ') || '—'}</dd></div>
+                <div><dt>Last seen</dt><dd>{formatDateTime(app.last_seen_at, 'Not yet')}</dd></div>
+                {admin ? <div><dt>Owner</dt><dd>{app.owner_display_name || '—'}</dd></div> : null}
+              </dl>
+            </li>
+          ))}
+        </ul>
       ) : <p className="g-setting-note">No apps yet. Apps appear here after their first sign-in.</p>}
       {apps.data?.length ? <div className="g-actions"><Button disabled={busy !== null} onClick={() => setSigningOutAll(true)} variant="secondary">Sign out all apps</Button></div> : null}
       {appPassword ? (
-        <div className="connected-app-token">
+        <div className="connected-app-token g-source-settings">
           <strong>Type these into {appPassword.app.device_name}. Lumina shows the app password only once.</strong>
           <ol className="g-setting-note">
             <li>In Infuse: Add Files, then Jellyfin. In Swiftfin or another app, add a server.</li>
@@ -137,14 +133,14 @@ export function ConnectedApps({ user }: { user: UserProfile }) {
           <div className="g-actions"><Button onClick={() => setAppPassword(null)} variant="primary">Done</Button></div>
         </div>
       ) : null}
-      <form className="connected-app-create" onSubmit={(event) => void createApp(event)}>
-        <h3>Add an app (Infuse, Swiftfin, …)</h3>
+      <form className="connected-app-create g-source-settings" onSubmit={(event) => void createApp(event)}>
+        <h3 className="g-setting-label">Add an app (Infuse, Swiftfin, …)</h3>
         <p className="g-setting-note">Apps like Infuse can't ask for your two-step code, so they use an app password instead. Revoke it here any time.</p>
         <Field label="App name">{(ids) => <Input {...fieldProps(ids)} maxLength={120} onChange={(event) => setAppName(event.target.value)} placeholder="Infuse on the living-room Apple TV" required value={appName} />}</Field>
         <Button busy={busy === 'app'} disabled={!appName.trim() || busy !== null} type="submit" variant="primary">{busy === 'app' ? 'Creating…' : 'Create app password'}</Button>
       </form>
       {created ? (
-        <div className="connected-app-token">
+        <div className="connected-app-token g-source-settings">
           <strong>Copy this token now. Lumina shows it only once.</strong>
           <Field label={`Token for ${created.app.device_name}`}>{(ids) => <Input {...fieldProps(ids)} onFocus={(event) => event.currentTarget.select()} readOnly ref={tokenRef} spellCheck={false} value={created.token} />}</Field>
           <div className="g-actions">
@@ -153,8 +149,8 @@ export function ConnectedApps({ user }: { user: UserProfile }) {
           </div>
         </div>
       ) : null}
-      <form className="connected-app-create" onSubmit={(event) => void create(event)}>
-        <h3>Agent token</h3>
+      <form className="connected-app-create g-source-settings" onSubmit={(event) => void create(event)}>
+        <h3 className="g-setting-label">Agent token</h3>
         <p className="g-setting-note">For a script or home automation that reads this vault as you. It sees only what you can see.</p>
         <Field label="Token name">{(ids) => <Input {...fieldProps(ids)} maxLength={120} onChange={(event) => setName(event.target.value)} placeholder="Home Assistant" required value={name} />}</Field>
         <fieldset className="g-fieldset"><legend>Access</legend>

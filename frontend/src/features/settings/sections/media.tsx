@@ -83,7 +83,7 @@ function mediaServerForm(label: string, saveLabel: string) {
 
     return (
       <MediaFormContext.Provider value={{ settings, draft, set }}>
-        <SectionForm dirty={Object.keys(update).length > 0} label={label} onDiscard={() => { setStatus(null); setDraft(draftOf(settings)); }} onSave={() => { void save(); }} saveLabel={saveLabel} saving={saving} status={status}>{children}</SectionForm>
+        <SectionForm saveSettings={['media.tmdb-key', 'media.language', 'media.introdb', 'media.jellyfin', 'media.jellyfin-import', 'transcoding.hwaccel', 'transcoding.max-sessions', 'transcoding.cache']} dirty={Object.keys(update).length > 0} label={label} onDiscard={() => { setStatus(null); setDraft(draftOf(settings)); }} onSave={() => { void save(); }} saveLabel={saveLabel} saving={saving} status={status}>{children}</SectionForm>
       </MediaFormContext.Provider>
     );
   };

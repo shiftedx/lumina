@@ -116,3 +116,18 @@ describe('admin import UI', () => {
     await waitFor(() => expect(api.startImport).toHaveBeenCalledWith({ root_id: 'rips', visibility: 'private' }));
   });
 });
+
+
+it('keeps recent imports in a disclosure while every run remains selectable', async () => {
+  const browser = setup([run(), run({ id: 'run-2', created_at: '2026-09-23T10:00:00Z' })]);
+  const summary = await screen.findByText('Recent imports (2)');
+  const history = summary.closest('details');
+  expect(history).toHaveProperty('open', false);
+  await browser.click(summary);
+  expect(history).toHaveProperty('open', true);
+  const buttons = within(history!).getAllByRole('button');
+  expect(buttons).toHaveLength(2);
+  api.getImport.mockResolvedValue(run({ id: 'run-2' }));
+  await browser.click(buttons[1]);
+  expect(buttons[1].getAttribute('aria-current')).toBe('true');
+});

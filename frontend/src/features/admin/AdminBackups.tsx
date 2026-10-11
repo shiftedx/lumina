@@ -72,8 +72,7 @@ export function AdminBackups() {
       </div>
       {error ? <p className="auth-error" role="alert">{error}</p> : null}
 
-      <section aria-labelledby="admin-backups-title" className="admin-panel">
-        <h2 id="admin-backups-title">Database backups</h2>
+      <section aria-label="Database backups" className="admin-panel">
         <p className="admin-note">A consistent copy of accounts, library records, notes, history and settings, taken while Lumina keeps running. <strong>Media files are not included</strong> — back up your storage roots separately; a restore expects them at the same paths.</p>
         {backups?.length ? (
           <ul aria-label="Backups" className="admin-backups">{backups.map((backup) => {
@@ -107,12 +106,12 @@ export function AdminBackups() {
         ) : backups ? <p className="admin-note">No backups yet. Create one now, or let the daily automatic backup run.</p> : null}
       </section>
 
-      <section aria-labelledby="admin-restore-title" className="admin-panel">
-        <h2 id="admin-restore-title">Restoring</h2>
+      <details className="admin-panel">
+        <summary>Restore a backup</summary>
         <p className="admin-note">Restore runs offline so no one is signed in while the database changes. Stop Lumina, download or locate the backup (it sits in <code>backups/</code> in the data directory with its <code>.json</code> manifest), then run:</p>
         <pre className="g-log"><code>python -m app.restore backups/&lt;name&gt;.db</code></pre>
-        <p className="admin-note">The backup is verified first and the current database is kept beside it. Everyone signs in again afterwards, unused invitation and reset links stop working, and the AI API key must be re-entered under AI & models (backups never contain it).</p>
-      </section>
+        <p className="admin-note">The backup is verified first and the current database is kept beside it. Everyone signs in again afterwards, unused invitation and reset links stop working, and the AI API key must be re-entered under AI features → Assistant server (backups never contain it).</p>
+      </details>
     </div>
   );
 }

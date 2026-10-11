@@ -97,7 +97,7 @@ export function InterestSettingsCard({ interests, onSave }: { interests: MemberI
   };
   return (
     <div className="interest-settings-card">
-      <fieldset className="g-fieldset"><legend>Choose interests</legend>{interests.categories.map((category) => <Checkbox checked={selected.includes(category.key)} key={category.key} label={category.label} onChange={() => toggle(category.key)} />)}</fieldset>
+      <fieldset className="g-fieldset"><legend>Choose interests</legend><div className="g-setting-options">{interests.categories.map((category) => <Checkbox checked={selected.includes(category.key)} key={category.key} label={category.label} onChange={() => toggle(category.key)} />)}</div></fieldset>
       <div className="g-actions">
         <Button busy={saving} onClick={() => void save()} variant="secondary">{saving ? 'Saving interests…' : 'Save interests'}</Button>
         <span aria-live="polite">{saveError ? <StatusText tone="danger">Could not save interests. Try again.</StatusText> : ''}</span>

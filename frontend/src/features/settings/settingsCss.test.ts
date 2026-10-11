@@ -36,6 +36,12 @@ describe('full-width Settings (owner 2026-10-01)', () => {
   it('insets search text from both borders', () => {
     expect(rule('.g-settings-search .g-input')).toContain('padding: 0 12px');
   });
+  it('gives block headings and caption previews the full pane width', () => {
+    expect(rule('.g-setting-row.is-block > .g-setting-head')).toContain('grid-column: 1 / -1');
+    expect(rule('.g-subrows .caption-preview')).toContain('width: 100%');
+    expect(rule('.g-subrows .caption-preview')).not.toContain('48%');
+    expect(rule('.g-setting-options')).toContain('repeat(auto-fit');
+  });
   it('lets the shell use the whole width beside a token-width sidebar', () => {
     const shell = rule('.g-settings');
     expect(shell).not.toContain('max-width');

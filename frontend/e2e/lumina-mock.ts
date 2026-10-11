@@ -199,6 +199,7 @@ export async function mockAdminFixtures(page: Page) {
     'members/m2/follows': [{ id: 'f1', label: 'Bluey Official', source_url: 'https://www.youtube.com/@BlueyOfficial' }],
     'members/m2/activity': { screen_time_today_seconds: 3900, recent: [{ id: 'h1', source: 'library', user: { id: 'm2', name: 'Eleanor' }, title: 'Bluey', subtitle: 'Season 1 · Episode 3', item_id: null, client: { name: 'Lumina web', device: 'Living-room TV' }, method: 'direct', hardware: null, video: null, started_at: at, ended_at: at, watched_seconds: 420, stopped_by_admin: false }] },
   };
+  await page.route('**/api/admin/ai/models', (route) => route.fulfill({ json: { models: ['local-model', 'alternate-model'], error: null } }));
   await page.route(/\/api\/admin\/(overview|diagnostics|ai\/config|models|tasks|users|invitations|storage\/roots|storage\/rules|library\/automation|backups|imports|media-server|metadata\/unmatched|artwork|settings|recording-retention|sections|invites|public-address|local-address|members\/m2\/access|members\/m2\/follows|members\/m2\/activity)(\?|$)/, (route) => {
     const key = new URL(route.request().url()).pathname.replace('/api/admin/', '');
     return route.request().method() === 'GET' ? route.fulfill({ contentType: 'application/json', body: JSON.stringify(ADMIN[key]) }) : route.fallback();

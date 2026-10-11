@@ -80,7 +80,7 @@ describe('Connected apps: app passwords', () => {
     expect((screen.getByLabelText('Server address') as HTMLInputElement).value).toBe(window.location.origin);
     expect((screen.getByLabelText('Username') as HTMLInputElement).value).toBe('one');
     expect(screen.getByRole('button', { name: 'Copy app password' })).toBeTruthy();
-    expect(screen.getByRole('table').textContent).toContain('App password');
+    expect(screen.getByRole('list', { name: 'Connected apps' }).textContent).toContain('App password');
   });
 
   it('shows the server detail when creating is refused', async () => {

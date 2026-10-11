@@ -329,6 +329,7 @@ test.describe('Accessibility', () => {
 
   test('Explore, the watch page and a title page with a menu open have no serious axe findings', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await mockApi(page, { sidebar_collapsed: false });
     await mockHome(page, { newest: [homeMovie(1)] });
     await mockPopular(page);

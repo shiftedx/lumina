@@ -96,14 +96,15 @@ def make_clip(path: Path, seconds: int = 60, keyframes: str | None = None, vcode
 
 
 @needs_ffmpeg
-def test_copy_runs_write_exactly_the_planned_segments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("audio", ["copy", "encode"])
+def test_copy_runs_write_exactly_the_planned_segments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, audio: str) -> None:
     """Every chunk's run, seeked on a B-frame stream, reproduces the plan's cuts and lands on its keyframe (no segment missing, extra or early)."""
     monkeypatch.setattr(jh, "CHUNK_SEGMENTS", 4)
     source = make_clip(tmp_path / "irregular.mkv", 60, "1.5,3.9,4.1,6.2,7,13.9,14.1,20,21,25.5,29.9,30,41,45.2,49,52,59.5")
     duration = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(source)], capture_output=True, text=True).stdout)
     plan = copy_plan(jh._scan("ffprobe", source, 0), duration, pin=30)
     assert len(plan.anchors) > 3
-    decision = Decision(mode="remux", video="copy", audio="copy", video_index=0, audio_index=1)
+    decision = Decision(mode="remux", video="copy", audio=audio, video_index=0, audio_index=1)
     out = tmp_path / "out"
     out.mkdir()
     for anchor in plan.anchors:

@@ -31,8 +31,8 @@ describe('player.css', () => {
   it('draws overlay focus with the overlay ring and a black halo', () => {
     expect(flat).toMatch(/\.lumina-player:focus-visible, \.lumina-player :focus-visible \{ outline: var\(--g-focus-width\) solid var\(--g-overlay-focus\); outline-offset: 2px; box-shadow: 0 0 0 1px var\(--g-overlay-halo\); \}/);
   });
-  it('keeps every player button a 44px hit area', () => {
-    expect(flat).toMatch(/\.player-controls button \{[^}]*min-width: var\(--g-control\)[^}]*height: var\(--g-control\)/);
+  it('sizes toolbar icon buttons without constraining menu actions', () => {
+    expect(flat).toMatch(/\.player-controls button:not\(\.player-panel \*\) \{[^}]*min-width: var\(--g-control\)[^}]*height: var\(--g-control\)/);
   });
   it('reveals volume on hover and keyboard focus without animating layout width', () => {
     expect(flat).toMatch(/\.player-volume-control:hover label, \.player-volume-control:focus-within label \{ width: 72px; \}/);

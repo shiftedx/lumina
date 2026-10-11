@@ -2,7 +2,7 @@
 
 This report consolidates the formal app-wide design review completed on 2026-10-11. Lumina’s identity is confirmed and should be preserved: paper, ink, and gold; serif media hierarchy; restrained standard controls; and flows that keep household capabilities available. The work focused on verified geometry, clarity, accessibility, status, and recovery defects.
 
-Every score is a **subjective design judgment**, not an objective certification, telemetry result, or measured task-completion rate. The machine-readable [JSON](app-quality-audit.json) and [CSV](app-quality-audit.csv) contain all 139 reviewed rows, all ten Nielsen dimensions, before scores where evidenced, current or after scores, evidence references, findings, and row limitations.
+Every score is a **subjective design judgment**, not an objective certification, telemetry result, or measured task-completion rate. The machine-readable [JSON](app-quality-audit.json) and [CSV](app-quality-audit.csv) contain all 140 reviewed rows, all ten Nielsen dimensions, before scores where evidenced, current or after scores, evidence references, findings, and row limitations.
 
 ## Holistic assessment
 
@@ -28,9 +28,9 @@ The whole-app manual judgment moved from **28/40 to 31/40**. This is one holisti
 | Root | 31 | 31.9/40 | 24–35 |
 | Settings | 53 | 33.5/40 | 30–36 |
 | Requests | 13 | 31.1/40 | 28–36 |
-| Media | 42 | 33.0/40 | 29–36 |
+| Media | 43 | 32.9/40 | 29–36 |
 
-The register contains **139** deduplicated reviewed rows. **49** have an evidenced per-view before score and **15** have paired before/after arrays. Settings also has an aggregate 28/40 pre-fix baseline, but its 53 per-view before scores were never recorded and remain null.
+The register contains **140** deduplicated reviewed rows. **50** have an evidenced per-view before score and **16** have paired before/after arrays. Settings also has an aggregate 28/40 pre-fix baseline, but its 53 per-view before scores were never recorded and remain null.
 
 Three overlapping Collections rows from the Root critique were removed from the register. The richer Media entries for Collections list, Collection detail, and Smart collection builder are canonical. The Root-only empty collection detail remains.
 
@@ -41,6 +41,7 @@ Only rows with an independently recorded before and after score appear here. Unc
 | Surface | View | Before | After | Δ |
 | --- | --- | ---: | ---: | ---: |
 | Media | Metadata editor — People | 24 | 31 | +7 |
+| Media | Watch — fully populated Playback menu | 24 | 30 | +6 |
 | Media | Watch — matched episode with Up next failure | 18 | 36 | +18 |
 | Media | Watch — matched episode with empty season | 23 | 35 | +12 |
 | Media | Watch — matched episode with populated Up next | 27 | 34 | +7 |
@@ -65,8 +66,9 @@ The app-wide detector produced **10 signals**. **Nine were false positives**: gu
 
 - The Requests phone location and status-filter problems were resolved without removing any status or media controls. My Requests moved 30→31; Manage moved 26→29.
 - The People editor phone row was the clearest presentation failure. Full names and roles now stack above type and actions, moving 24→31 while retaining every action and keyboard reordering.
-- Matched-episode Watch states now establish identity before playback, reclaim space for an empty season, and expose retry without replacing the player. The calibrated raw ratings are 27→34, 23→35, and 18→36. All five phone tool labels now wrap fully at 390px; the generic Watch rating moved 32→33 through minimalism only.
+- Matched-episode Watch states now establish identity before playback, reclaim space for an empty season, and expose retry without replacing the player. The calibrated raw ratings are 27→34, 23→35, and 18→36. All five phone tool labels now wrap fully at 390px; the generic Watch rating moved 32→33 through minimalism only. That generic 33/40 score excludes the fully populated multi-track Playback menu scored separately below.
 - Settings is strong across its current 53-view capture set. Long diagnostics and schedule workflows remain scan-heavy on phones; per-view pre-fix scores do not exist.
+- A user-reported fully populated Playback menu exposed a distinct P1 state missed by the earlier generic Watch fixture. Its paired Assessment A moved 24→30 after every Quality, Version, Audio, Subtitles, Generate, Sync, Translate, Caption style, and Sound control was retained in readable groups with 44px targets. Before/after full-menu, action, track, Caption style, and Sound slices were inspected at 1280px and 390px in light and dark themes; isolated baseline 5ae failed 4/4 and current passed 4/4. The small phone player still requires scrolling, and the later inset follow-up receives no score increase.
 - Remaining cross-surface P2 work centers on stable overflow cues for Library and Channel tab rows, the Artwork auto-save/footer contradiction, and the weak hierarchy among title actions.
 
 ## Watch completion
@@ -111,3 +113,7 @@ These committed screenshots use synthetic media and show the same fixture before
 | --- | --- | --- |
 | Empty season, desktop | [Before](evidence/watch-empty-1440-before.png) | [After](evidence/watch-empty-1440-after.png) |
 | Following episodes, phone | [Before](evidence/watch-populated-390-before.png) | [After](evidence/watch-populated-390-after.png) |
+
+Caption Style option text now uses overlay ink in both page themes. The dense-menu regression also checks each option reaches 4.5:1 contrast.
+
+Retained synthetic menu examples: [before](evidence/player-menu-dense-before.png), [after sound/actions](evidence/player-menu-dense-after.png), and [phone caption controls](evidence/player-menu-caption-phone-after.png).

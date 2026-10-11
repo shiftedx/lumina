@@ -50,6 +50,18 @@
     "source_projection": {
       "relative_path": "source-projection-diagnostic-b074cee/report.json",
       "sha256": "555d554a3357d0861f708f25566b7cf993a3662bdf1c1a60e45f2640d591bdab"
+    },
+    "pbkdf2_provider": {
+      "relative_path": "pbkdf2-provider-diagnostic-b074cee/report.json",
+      "sha256": "f043d1486b5bc553b5279a47aa8e5e12e1b2f686917f8d76ae20f2d1bc7b8284"
+    },
+    "credential_projection": {
+      "relative_path": "selected-credential-projection-b074cee/report.json",
+      "sha256": "e6708666ecb29385725b63116a68e9d64a69b3400aea9500e8aba3d0104e246a"
+    },
+    "credential_projection_manifest": {
+      "relative_path": "selected-credential-projection-b074cee/manifest.json",
+      "sha256": "450a40062091682d4678ae8c3837736c789b5c5b6cb085af6d8cd95ecfd7f94a"
     }
   },
   "observations": {
@@ -318,6 +330,285 @@
       },
       "canonical_body_sha256": "4760ac024052d182acd512fdd01a4175465b601676ac1153cddfc08f645b4cc2",
       "decision": "Reject: no median gain and worse observed p95. Diagnostic hook overhead limits extrapolation; no application loader change."
+    },
+    "pbkdf2_provider": {
+      "scope": "Native PBKDF2 provider diagnostic; no application,policy,credentials,DB,HTTP or frame changes",
+      "parameters": {
+        "algorithm": "PBKDF2-HMAC-SHA256",
+        "iterations": 600000,
+        "output_bytes": 32,
+        "salt_bytes": 32
+      },
+      "samples_per_method": 20,
+      "warmups_per_method": 3,
+      "runtime": {
+        "python": "3.12.14",
+        "machine": "aarch64",
+        "openssl": "OpenSSL 3.5.7 9 Jun 2026",
+        "pycryptodomex": "3.23.0"
+      },
+      "summary": {
+        "hashlib": {
+          "wall_ms": {
+            "p50": 66.25147899999999,
+            "p95": 69.148
+          },
+          "cpu_ms": {
+            "p50": 66.23477,
+            "p95": 69.141499
+          }
+        },
+        "pycryptodomex": {
+          "wall_ms": {
+            "p50": 239.35177099999999,
+            "p95": 245.280333
+          },
+          "cpu_ms": {
+            "p50": 239.3089575,
+            "p95": 245.223456
+          }
+        }
+      },
+      "all_digests_equivalent": true,
+      "decision": "Reject alternate installed provider: PyCryptodome is about3.6xslower. Preserve hashlib implementation and600000iterations. Fixed derivation dominates current sign-in time; no application auth change."
+    },
+    "credential_projection": {
+      "scope": "selected-stream User projection native SQL/ORM microprobe",
+      "design": {
+        "candidate": "control statement plus load_only(User.id, User.username, User.display_name, User.role, User.is_active, raiseload=True)",
+        "control": "app.services.jellyfin._selected_stream_with_credential_statement() exactly",
+        "fresh_session_per_call": true,
+        "identity_map_reused_across_trials": false,
+        "live_auth_or_path_cache": false,
+        "order": "alternating control/candidate first position per trial",
+        "pair_rotation": "trial modulo valid internal title/version pairs",
+        "same_engine_for_all_calls": true,
+        "timed_calls_per_arm_per_phase": 1000,
+        "warmup_calls_per_arm_per_phase": 3
+      },
+      "fixture_counts": {
+        "at_least_ten_valid_pairs_available": true,
+        "binding_set_sha256": "e07bff6830ebdfc2a3b6bf5bca6944ca5ee7a807d96f31c76f24941ef52b554c",
+        "movie_version_pairs_considered": 98,
+        "owner_jellyfin_token_rows": 1,
+        "rotation_pairs_used": 10,
+        "valid_visible_movie_version_pairs": 98
+      },
+      "summaries": {
+        "resolver_end_to_end": {
+          "candidate": {
+            "process_cpu_ms": {
+              "p50": 0.149041,
+              "p95": 0.170125
+            },
+            "process_cpu_ns": {
+              "max": 488959,
+              "min": 136542,
+              "p50": 149041.5,
+              "p95": 170125
+            },
+            "sql_statement_count": {
+              "max": 1,
+              "min": 1,
+              "p50": 1.0,
+              "p95": 1
+            },
+            "sql_wall_ms": {
+              "p50": 0.0185,
+              "p95": 0.022083
+            },
+            "sql_wall_ns": {
+              "max": 122417,
+              "min": 15500,
+              "p50": 18500.0,
+              "p95": 22083
+            },
+            "timed_call_count": 1000,
+            "wall_ms": {
+              "p50": 0.148854,
+              "p95": 0.169792
+            },
+            "wall_ns": {
+              "max": 486791,
+              "min": 136375,
+              "p50": 148854.0,
+              "p95": 169792
+            }
+          },
+          "candidate_vs_control": {
+            "process_cpu_ms": {
+              "candidate_minus_control_p50": 0.000521,
+              "candidate_percent_vs_control_p50": 0.350795
+            },
+            "sql_wall_ms": {
+              "candidate_minus_control_p50": 0.000105,
+              "candidate_percent_vs_control_p50": 0.570807
+            },
+            "wall_ms": {
+              "candidate_minus_control_p50": 0.00052,
+              "candidate_percent_vs_control_p50": 0.35056
+            }
+          },
+          "control": {
+            "process_cpu_ms": {
+              "p50": 0.14852,
+              "p95": 0.167375
+            },
+            "process_cpu_ns": {
+              "max": 889834,
+              "min": 138083,
+              "p50": 148520.5,
+              "p95": 167375
+            },
+            "sql_statement_count": {
+              "max": 1,
+              "min": 1,
+              "p50": 1.0,
+              "p95": 1
+            },
+            "sql_wall_ms": {
+              "p50": 0.018395,
+              "p95": 0.021375
+            },
+            "sql_wall_ns": {
+              "max": 59833,
+              "min": 15916,
+              "p50": 18395.5,
+              "p95": 21375
+            },
+            "timed_call_count": 1000,
+            "wall_ms": {
+              "p50": 0.148334,
+              "p95": 0.1675
+            },
+            "wall_ns": {
+              "max": 887958,
+              "min": 137916,
+              "p50": 148334.0,
+              "p95": 167500
+            }
+          }
+        },
+        "statement_level": {
+          "candidate": {
+            "process_cpu_ms": {
+              "p50": 0.143417,
+              "p95": 0.166375
+            },
+            "process_cpu_ns": {
+              "max": 970417,
+              "min": 134125,
+              "p50": 143417.0,
+              "p95": 166375
+            },
+            "sql_statement_count": {
+              "max": 1,
+              "min": 1,
+              "p50": 1.0,
+              "p95": 1
+            },
+            "sql_wall_ms": {
+              "p50": 0.018291,
+              "p95": 0.022291
+            },
+            "sql_wall_ns": {
+              "max": 87125,
+              "min": 15750,
+              "p50": 18291.0,
+              "p95": 22291
+            },
+            "timed_call_count": 1000,
+            "wall_ms": {
+              "p50": 0.14325,
+              "p95": 0.166084
+            },
+            "wall_ns": {
+              "max": 969125,
+              "min": 133917,
+              "p50": 143250.0,
+              "p95": 166084
+            }
+          },
+          "candidate_vs_control": {
+            "process_cpu_ms": {
+              "candidate_minus_control_p50": 0.000417,
+              "candidate_percent_vs_control_p50": 0.291608
+            },
+            "sql_wall_ms": {
+              "candidate_minus_control_p50": 4.1e-05,
+              "candidate_percent_vs_control_p50": 0.224658
+            },
+            "wall_ms": {
+              "candidate_minus_control_p50": 0.000417,
+              "candidate_percent_vs_control_p50": 0.291949
+            }
+          },
+          "control": {
+            "process_cpu_ms": {
+              "p50": 0.143,
+              "p95": 0.1655
+            },
+            "process_cpu_ns": {
+              "max": 2275875,
+              "min": 133125,
+              "p50": 143000.0,
+              "p95": 165500
+            },
+            "sql_statement_count": {
+              "max": 1,
+              "min": 1,
+              "p50": 1.0,
+              "p95": 1
+            },
+            "sql_wall_ms": {
+              "p50": 0.01825,
+              "p95": 0.022958
+            },
+            "sql_wall_ns": {
+              "max": 188208,
+              "min": 16125,
+              "p50": 18250.0,
+              "p95": 22958
+            },
+            "timed_call_count": 1000,
+            "wall_ms": {
+              "p50": 0.142833,
+              "p95": 0.164708
+            },
+            "wall_ns": {
+              "max": 2273125,
+              "min": 133000,
+              "p50": 142833.0,
+              "p95": 164708
+            }
+          }
+        }
+      },
+      "equivalence": {
+        "resolver_end_to_end": {
+          "aggregate_hashes_equal": true,
+          "all_results_equivalent": true,
+          "candidate_aggregate_signature_sha256": "bd6a5a7d2f11805521500340e9ced922620b1e0b7c439f47244ce31b58eaba24",
+          "control_aggregate_signature_sha256": "bd6a5a7d2f11805521500340e9ced922620b1e0b7c439f47244ce31b58eaba24",
+          "mismatch_count": 0
+        },
+        "statement_level": {
+          "aggregate_hashes_equal": true,
+          "all_results_equivalent": true,
+          "candidate_aggregate_signature_sha256": "bd6a5a7d2f11805521500340e9ced922620b1e0b7c439f47244ce31b58eaba24",
+          "control_aggregate_signature_sha256": "bd6a5a7d2f11805521500340e9ced922620b1e0b7c439f47244ce31b58eaba24",
+          "mismatch_count": 0
+        }
+      },
+      "control_column_count": 47,
+      "candidate_column_count": 36,
+      "parameter_names": [
+        "cutoff",
+        "entity_id",
+        "token_digest",
+        "wanted"
+      ],
+      "decision": "Reject: removing11unusedUsercolumns yielded no native query/ORM gain. Median resolver0.149ms candidate vs0.148ms control;singleSQLstatement andallresults equivalent. No app auth/query change."
     }
   }
 }

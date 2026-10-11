@@ -162,6 +162,17 @@ A native gzip microprobe retains 120 timed samples per level and 15 warmups, wit
 
 The original local timing images became unavailable before this follow-up. Jellyfin was restored from its recorded registry digest with the exact original image ID. The new Lumina image overlays five application files from committed `b074cee` on immutable public 2.13.0 image `sha256:7de88c1203031d181ab0d6d40b6eadc01c76e5d2ec3c21fe2f0d1132aa05110b`; all 205 base backend files matched release `090542d` before overlay. Its new ID is `sha256:dbb1e924dee15cbe07977f263ba53bae6a83e70373ae9cc155bcc01f74eca733`. These diagnostics remain separate from earlier-image qualification. [The diagnosis ledger](measurements/direct-presentation-diagnosis-2026-10-10.json) binds source recovery, raw results and phase summaries by hash.
 
+## Recovered production-image qualification
+
+The recovered public-release-base image was qualified separately with the unchanged prepared-source protocol: four balanced control/candidate/candidate/control blocks per workload, 240 fresh-context trials per server in each block, reversing target order. All 3,840 frames succeeded with no incomplete pairs. The source manifest binds the five application overlays to `b074cee`; inherited OCI labels still identify release `090542d`. No samples are pooled with the unavailable earlier images.
+
+| Candidate pool | Lumina p50 / p95 / p99 ms | Paired Jellyfin p50 / p95 / p99 ms | Public-release control p95 ms |
+| --- | ---: | ---: | ---: |
+| Idle original | 30.4 / 46.4 / 72.4 | 32.8 / 47.0 / 106.1 | 36.7 |
+| Varied media | 27.1 / 39.5 / 52.7 | 27.2 / 40.8 / 46.7 | 41.6 |
+
+Idle candidate repeat p95 pairs are 46.7/49.5 and 46.1/44.8 ms, so its pooled 0.6 ms lead does not reproduce in both blocks. Varied pairs are 39.1/40.3 and 39.5/41.9 ms; both lead. Idle control and candidate timings drift substantially, and idle candidate p95 is 26.4% higher than the unpaired control pool. Varied improves 5.0% versus control. Neither workload meets the retained 15% reduction target. These results qualify successful playback and the current paired distributions; they do not establish a causal warm-playback improvement or universal dominance. All p99 values, maxima and cold outliers remain in [the recovered-image ledger](measurements/direct-release-base-2026-10-10.json).
+
 ## Reproduction and artifacts
 
 The local `search-direct/final-qualification` bundle contains per-request API rows, all browser samples, phase manifests, initialized-database hashes, frozen application/test hashes, complete harness source and SHA-256 maps. Target credential JSON stays in private working roots. The checked-in summary lists every raw artifact hash; it contains no credentials or private media. Original image IDs, request counts and canonical equivalence are bound in `balanced-manifest.json` and `final-summary.json`; loaded qualification is bound independently in `loaded-qualified-manifest.json`.

@@ -66,7 +66,10 @@ def test_spa_segments_match_the_frontend_routes() -> None:
     parse = source[source.index("export function parseRoute"):source.index("export function routePath")]
     plain = re.search(r"PLAIN_SURFACES = \[([^\]]*)\]", source).group(1)
     found = set(re.findall(r"'/([a-z]+)'|\^\\/([a-z]+)", parse)) | {(name, "") for name in re.findall(r"'([a-z]+)'", plain)}
-    assert {name for pair in found for name in pair if name} == SPA_SEGMENTS
+    grouped = re.findall(r"\^\\/\(([a-z|]+)\)", parse)
+    segments = {name for pair in found for name in pair if name}
+    segments.update(name for group in grouped for name in group.split("|"))
+    assert segments == SPA_SEGMENTS
 
 
 def spa_with_jellyfin(tmp_path: Path) -> TestClient:
@@ -78,7 +81,7 @@ def spa_with_jellyfin(tmp_path: Path) -> TestClient:
     mini = FastAPI()
     mini.get("/jellyfin/{rest:path}")(lambda rest: {"jellyfin": rest})
     mini.mount("/", SpaStaticFiles(directory=tmp_path, html=True), name="frontend")
-    mini.add_middleware(JellyfinPathMiddleware, root_segments=frozenset({"library", "items"}))
+    mini.add_middleware(JellyfinPathMiddleware, root_segments=frozenset({"library", "items", "manage"}))
     return TestClient(mini)
 
 
@@ -105,6 +108,8 @@ def test_spa_collisions_go_to_jellyfin_only_for_api_clients(tmp_path: Path) -> N
     assert client.get("/Genres", headers=BROWSER).text == shell
     assert client.get("/settings", headers={"Sec-Fetch-Mode": "navigate", **mediabrowser("t")}).text == shell
     assert client.get("/watch/library/abc", headers=BROWSER).text == shell
+    assert client.get("/manage/ai?page=assistant", headers=BROWSER).text == shell
+    assert client.get("/manage/ai", headers=mediabrowser("t")).json() == {"jellyfin": "manage/ai"}
 
 
 def test_query_keys_are_lowercased_and_values_kept() -> None:

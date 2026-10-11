@@ -22,6 +22,7 @@ test('music imports into albums and artists, an album plays on, and the anime fo
     await expect(page.getByRole('row', { name: /^Music External/ })).toContainText('Available');
     await expect(root.getByRole('radio', { name: /Household/ })).toBeChecked();
     await root.getByRole('button', { name: 'Import now' }).click();
+    await page.getByRole('link', { name: 'Imports', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Music Complete' })).toBeVisible({ timeout: 90_000 });
   });
 
@@ -68,9 +69,7 @@ test('music imports into albums and artists, an album plays on, and the anime fo
   });
 
   await test.step('with no anime folders, Show A is back in Shows; then the default returns', async () => {
-    await page.goto('/settings/library');
-    // Anime folders are an advanced setting (2.7.0): reveal them first.
-    await page.locator('.g-settings-advanced').getByLabel('Show advanced settings').check();
+    await page.goto('/settings/library?page=organization');
     const row = page.locator('[data-setting-id="library.anime"]');
     await row.getByRole('button', { name: 'Remove Anime' }).click();
     await row.getByRole('button', { name: 'Save' }).click();
@@ -80,7 +79,7 @@ test('music imports into albums and artists, an album plays on, and the anime fo
       await expect(page.getByRole('button', { name: /^Realstack Show,/ }).first()).toBeVisible(); // the wall has drawn
       return page.getByRole('button', { name: /^Show A,/ }).count();
     }, { timeout: 60_000 }).toBeGreaterThan(0);
-    await page.goto('/settings/library');
+    await page.goto('/settings/library?page=organization');
     await row.getByLabel('Folder name').fill('Anime');
     await row.getByRole('button', { name: 'Add' }).click();
     await row.getByRole('button', { name: 'Save' }).click();

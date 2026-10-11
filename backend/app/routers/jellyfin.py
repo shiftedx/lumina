@@ -74,7 +74,7 @@ _ITEM_LIST_PATH = re.compile(r"^/jellyfin/(?:items|users/[^/]+/items)$")
 _ITEM_READ_SLOTS = 2
 _item_read_limiter: RunVar[anyio.CapacityLimiter] = RunVar("jellyfin_item_read_limiter")
 # Top-level paths the SPA answers (frontend/src/app/routes.ts parseRoute); test_jellyfin_api keeps them in sync.
-SPA_SEGMENTS = frozenset({"admin", "channel", "downloads", "explore", "library", "live", "music", "settings", "streaming", "subscriptions", "title", "watch"})
+SPA_SEGMENTS = frozenset({"admin", "channel", "downloads", "explore", "library", "live", "manage", "music", "settings", "streaming", "subscriptions", "title", "watch"})
 _CREDENTIAL_HEADERS = ("x-emby-authorization", "x-emby-token", "x-mediabrowser-token")
 _ALL_METHODS = ["GET", "HEAD", "POST", "PUT", "DELETE"]
 SUBTITLE_MEDIA_TYPES = {"srt": "application/x-subrip", "vtt": "text/vtt", "ass": "text/x-ssa", "ssa": "text/x-ssa"}

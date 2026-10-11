@@ -1,3 +1,4 @@
+import { resolveSettingsPage, type SettingsSpace } from '../features/settings/navigation';
 import { LIBRARY_LENSES, type LibraryLens, titleLens } from '../features/gallery/libraryLens';
 import type { LibraryPlace } from '../features/gallery/LibraryTabs';
 import type { TitleCategory, TitleType } from '../types';
@@ -48,9 +49,9 @@ export type AppRoute =
   | { surface: 'streaming'; view: StreamingView; provider?: StreamingProvider; query?: string; rail?: string }
   | { surface: 'subscriptions'; youtubeChannelId: string; tab?: ChannelPageTab }
   | { surface: 'subscriptions'; channelUrl: string }
-  | { surface: 'settings'; section?: SettingsSectionId }
+  | { surface: 'settings'; section?: SettingsSectionId; page?: string; space?: SettingsSpace }
   /** A member page under Settings → Members: /settings/members/<user id>. */
-  | { surface: 'settings'; section: 'members'; memberId: string }
+  | { surface: 'settings'; section: 'members'; memberId: string; space?: SettingsSpace }
   | { surface: 'subscriptions'; channelId: string }
   | { surface: 'library'; view: LibraryLens; wall?: string }
   | { surface: 'library'; collections: 'list'; create?: 'collection' | 'smart' }
@@ -161,17 +162,21 @@ export function parseRoute(pathname: string, search: string): AppRoute {
   const admin = /^\/admin(?:\/([a-z]+))?$/i.exec(path);
   const tab = admin?.[1]?.toLowerCase();
   // Own keys only: `/admin/constructor` must not resolve to an Object.prototype member.
-  if (admin) return { surface: 'settings', section: tab && ownKey(ADMIN_REDIRECTS, tab) ? ADMIN_REDIRECTS[tab] : 'overview' };
-  const member = /^\/settings\/members\/([^/]+)$/.exec(path);
+  if (admin) return { surface: 'settings', section: tab && ownKey(ADMIN_REDIRECTS, tab) ? ADMIN_REDIRECTS[tab] : 'overview', ...(tab === 'imports' ? { page: 'imports' } : {}) };
+  const member = /^\/(settings|manage)\/members\/([^/]+)$/.exec(path);
   if (member) {
     let id = '';
-    try { id = decodeURIComponent(member[1]); } catch { /* malformed escape */ }
-    return LIBRARY_ID.test(id) ? { surface: 'settings', section: 'members', memberId: id } : { surface: 'settings', section: 'members' };
+    try { id = decodeURIComponent(member[2]); } catch { /* malformed escape */ }
+    const scope = member[1] === 'manage' ? { space: 'server' as const } : {};
+    return LIBRARY_ID.test(id) ? { surface: 'settings', section: 'members', memberId: id, ...scope } : { surface: 'settings', section: 'members', ...scope };
   }
-  const settings = /^\/settings(?:\/([A-Za-z]+))?$/.exec(path);
+  const settings = /^\/(settings|manage)(?:\/([A-Za-z]+))?$/.exec(path);
   if (settings) {
-    const section = SETTINGS_SECTION_IDS.find((id) => id === settings[1]);
-    return section ? { surface: 'settings', section } : { surface: 'settings' };
+    const section = SETTINGS_SECTION_IDS.find((id) => id === settings[2]);
+    const scope = settings[1] === 'manage' ? { space: 'server' as const } : {};
+    const page = section && params.get('page');
+    const validPage = section && page && resolveSettingsPage(section, page).id === page ? { page } : {};
+    return section ? { surface: 'settings', section, ...validPage, ...scope } : { surface: 'settings', ...scope };
   }
   // Music moved into the Library: the app's first address sync replaces /music with /library/music.
   if (path === '/music') return { surface: 'library', view: 'music' };
@@ -245,7 +250,10 @@ export function routePath(route: AppRoute): string {
   }
   if ('youtubeChannelId' in route) return `/channel/youtube/${route.youtubeChannelId}${route.tab && route.tab !== 'videos' ? `?tab=${route.tab}` : ''}`;
   if ('channelUrl' in route) return `/channel?url=${encodeURIComponent(route.channelUrl)}`;
-  if (route.surface === 'settings') return 'memberId' in route ? `/settings/members/${encodeURIComponent(route.memberId)}` : route.section ? `/settings/${route.section}` : '/settings';
+  if (route.surface === 'settings') {
+    const root = route.space === 'server' ? '/manage' : '/settings';
+    return 'memberId' in route ? `${root}/members/${encodeURIComponent(route.memberId)}` : route.section ? `${root}/${route.section}${route.page ? `?page=${encodeURIComponent(route.page)}` : ''}` : root;
+  }
   if (route.surface === 'watch') {
     if ('libraryId' in route) return `/watch/library/${encodeURIComponent(route.libraryId)}${route.startSeconds !== undefined ? `?t=${route.startSeconds}` : ''}`;
     return `/watch?url=${encodeURIComponent(route.url)}`;

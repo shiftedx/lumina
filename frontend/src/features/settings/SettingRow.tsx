@@ -52,9 +52,16 @@ export function SettingSwitch({ label, hint, checked, onChange, busy = false, di
 }
 
 /** A section's rows (all, or a search's subset) inside the section Provider when it has one. */
-export function SectionRows({ section, entries = section.entries }: { section: SettingsSectionDef; entries?: readonly SettingEntry[] }) {
-  const rows = entries.map(({ id, label, info, description, advanced, layout, Control, Detail }) => (
-    <SettingRow advanced={advanced} description={description} detail={Detail ? <Detail /> : undefined} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>
+export function SectionRows({ section, entries = section.entries, discloseAdvanced = false, essential = [], groups = [] }: { section: SettingsSectionDef; entries?: readonly SettingEntry[]; discloseAdvanced?: boolean; essential?: readonly string[]; groups?: ReadonlyArray<{ label: string; rows: readonly string[] }> }) {
+  const renderRows = (list: readonly SettingEntry[]) => list.map(({ id, label, info, description, advanced, layout, Control, Detail }) => (
+    <SettingRow advanced={advanced && !essential.includes(id)} description={description ?? (discloseAdvanced ? info.split(/(?<=[.!?])\s/)[0] : undefined)} detail={Detail ? <Detail /> : undefined} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>
   ));
+  const advancedRows = entries.filter((entry) => entry.advanced && !essential.includes(entry.id));
+  const groupedIds = groups.flatMap((group) => group.rows);
+  const rows = discloseAdvanced ? <>
+    <div className="g-settings-rows">{renderRows(entries.filter((entry) => !advancedRows.includes(entry) && !groupedIds.includes(entry.id)))}</div>
+    {groups.map((group) => <details className="g-settings-local-advanced" key={group.label}><summary>{group.label}</summary>{renderRows(entries.filter((entry) => group.rows.includes(entry.id)))}</details>)}
+    {advancedRows.length ? <details className="g-settings-local-advanced"><summary>Advanced options</summary>{renderRows(advancedRows)}</details> : null}
+  </> : renderRows(entries);
   return section.Provider ? <section.Provider>{rows}</section.Provider> : <>{rows}</>;
 }

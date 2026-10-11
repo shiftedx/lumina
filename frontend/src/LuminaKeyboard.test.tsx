@@ -164,6 +164,14 @@ function upNextSnapshot(items: YouTubeSearchResult[]) {
 }
 
 let mobile = false;
+async function openNavigationMenu(browser = userEvent.setup()) {
+  if (!screen.queryByRole('dialog', { name: 'Navigation' })) await browser.click(screen.getByRole('button', { name: 'Open navigation' }));
+}
+async function navigateWithMenu(browser: ReturnType<typeof userEvent.setup>, name: string) {
+  await openNavigationMenu(browser);
+  await browser.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: name === 'Settings' ? 'My Settings' : name }));
+}
+
 let drawerOnly = false;
 let workspaceState: ReturnType<typeof createInitialWorkspaceState>;
 
@@ -279,7 +287,7 @@ describe('browser routes', () => {
     expect(mocks.getLibraryItem).toHaveBeenCalledWith('library-1');
     expect(window.location.pathname).toBe('/watch/library/library-1');
 
-    await browser.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Library' }));
+    await navigateWithMenu(browser, 'Library');
     await screen.findByRole('heading', { level: 1, name: 'Library' });
     expect(window.location.pathname).toBe('/library');
 
@@ -336,7 +344,7 @@ describe('browser routes', () => {
     let position = 50;
     Object.defineProperty(player, 'currentTime', { configurable: true, get: () => position, set: (value: number) => { position = value; } });
 
-    await browser.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Library' }));
+    await navigateWithMenu(browser, 'Library');
     await screen.findByRole('heading', { level: 1, name: 'Library' });
     window.history.back();
     await waitFor(() => expect(window.location.pathname).toBe('/watch/library/library-1'));
@@ -357,7 +365,7 @@ describe('browser routes', () => {
     window.history.replaceState(null, '', '/watch/library/library-1?t=42');
     render(<LuminaApp />);
     await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
-    await browser.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Home' }));
+    await navigateWithMenu(browser, 'Home');
     await browser.click(await screen.findByRole('button', { name: 'Close player' }));
     await waitFor(() => expect(document.querySelector('video')).toBeNull());
 
@@ -522,14 +530,14 @@ describe('browser routes', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     window.history.replaceState(null, '', '/settings/account');
     render(<><LuminaApp /><DirtyAiForm /></>);
-    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+    await screen.findByRole('heading', { level: 1, name: 'My Settings' });
 
     const search = await openPalette(browser);
     await browser.type(search, 'mars');
     await browser.keyboard('{Meta>}{Enter}{/Meta}'); // search everything in Explore
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(mocks.youtubeSearch).not.toHaveBeenCalledWith(expect.objectContaining({ query: 'mars', limit: 30 }));
-    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'My Settings' })).toBeTruthy();
 
     mocks.searchLibrary.mockResolvedValue({ items: [libraryItem], matches: [{ kind: 'library', id: 'library-1', title: 'Film in the vault', subtitle: 'Archive Channel', score: 1, lexical_score: 1, semantic_score: 0, match_mode: 'lexical', item: libraryItem }] });
     await browser.type(await openPalette(browser), 'vault');
@@ -555,7 +563,8 @@ describe('browser routes', () => {
     await screen.findByRole('heading', { level: 1, name: 'Music' });
     expect(window.location.pathname).toBe('/library/music');
     expect(window.history.length).toBe(length);
-    // Music is not a sidebar destination any more: Library is the current page.
+    await openNavigationMenu();
+    // Music is a Library lens, so Library remains the active destination.
     expect(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Library' }).getAttribute('aria-current')).toBe('page');
   });
 
@@ -591,42 +600,22 @@ describe('browser routes', () => {
 });
 
 describe('keyboard navigation in the authenticated shell', () => {
-  it('supports skip navigation, traps the mobile drawer, restores focus, and focuses its destination', async () => {
+  it('opens phone navigation as a modal, restores its trigger, and focuses the selected destination', async () => {
     mobile = true;
     const keyboard = userEvent.setup();
     const { container } = render(<LuminaApp />);
-
-    document.body.focus();
-    await keyboard.tab();
-    expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Skip to main content' }));
-    await keyboard.keyboard('{Enter}');
-    expect(document.activeElement).toBe(screen.getByRole('main'));
-
-    const menuTrigger = screen.getByRole('button', { name: 'Open navigation' });
-    menuTrigger.focus();
-    await keyboard.keyboard('{Enter}');
-    const drawer = await screen.findByRole('dialog', { name: 'Mobile navigation' });
-    const home = within(drawer).getByRole('button', { name: 'Home' });
-    await waitFor(() => expect(document.activeElement).toBe(home));
-    expect(container.querySelector('.app-background')?.hasAttribute('inert')).toBe(true);
-
-    await keyboard.tab({ shift: true });
-    expect(document.activeElement).toBe(within(drawer).getByRole('button', { name: 'Sign out' }));
-    await keyboard.tab();
-    expect(document.activeElement).toBe(home);
-    await keyboard.keyboard('{Escape}');
-    await waitFor(() => expect(document.activeElement).toBe(menuTrigger));
-    expect(screen.queryByRole('dialog', { name: 'Mobile navigation' })).toBeNull();
-    expect(container.querySelector('.app-background')?.hasAttribute('inert')).toBe(false);
-
-    await keyboard.keyboard('{Enter}');
-    const reopenedDrawer = await screen.findByRole('dialog', { name: 'Mobile navigation' });
-    const library = within(reopenedDrawer).getByRole('button', { name: 'Library' });
-    library.focus();
-    await keyboard.keyboard('{Enter}');
+    const trigger = screen.getByRole('button', { name: 'Open navigation' });
+    await keyboard.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: 'Navigation' });
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Home' }));
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
+    await keyboard.click(trigger);
+    await keyboard.click(within(screen.getByRole('dialog', { name: 'Navigation' })).getByRole('button', { name: 'Library' }));
     const heading = await screen.findByRole('heading', { level: 1, name: 'Library' });
     await waitFor(() => expect(document.activeElement).toBe(heading));
-    expect(screen.queryByRole('dialog', { name: 'Mobile navigation' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
     expect(container.querySelector('.g-mobile-tabs button:nth-child(2)')?.getAttribute('aria-current')).toBe('page');
   });
 
@@ -634,24 +623,25 @@ describe('keyboard navigation in the authenticated shell', () => {
     const keyboard = userEvent.setup();
     render(<LuminaApp />);
 
-    const primary = screen.getByRole('navigation', { name: 'Primary' });
-    const explore = within(primary).getByRole('button', { name: 'Streaming' });
+    await openNavigationMenu(keyboard);
+    const explore = within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Streaming' });
     explore.focus();
     await keyboard.keyboard('{Enter}');
 
     const heading = await screen.findByRole('heading', { level: 1, name: 'Streaming' });
     await waitFor(() => expect(document.activeElement).toBe(heading));
-    expect(explore.getAttribute('aria-current')).toBe('page');
+    await openNavigationMenu(keyboard);
+    expect(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Streaming' }).getAttribute('aria-current')).toBe('page');
     expect(document.querySelectorAll('main')).toHaveLength(1);
   });
 
-  it('moves forward from the expanded desktop menu trigger into primary navigation', async () => {
+  it('opens desktop navigation on Enter and focuses its first destination', async () => {
     const keyboard = userEvent.setup();
     render(<LuminaApp />);
 
     const trigger = document.querySelector('.g-topbar-start button') as HTMLButtonElement;
     trigger.focus();
-    await keyboard.tab();
+    await keyboard.keyboard('{Enter}');
     expect(document.activeElement).toBe(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Home' }));
   });
 });
@@ -660,7 +650,7 @@ describe('household and Library curation integration', () => {
   const openNotes = async (browser: ReturnType<typeof userEvent.setup>) => browser.click(await screen.findByRole('tab', { name: 'Sharing & tags' }));
   // Library items open from their own tab now that All is the chaptered landing.
   const openYouTube = async (browser: ReturnType<typeof userEvent.setup>) => {
-    await browser.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Library' }));
+    await navigateWithMenu(browser, 'Library');
     await browser.click(await within(screen.getByRole('navigation', { name: 'Library' })).findByRole('link', { name: 'YouTube' }));
   };
 
@@ -674,7 +664,6 @@ describe('household and Library curation integration', () => {
     mocks.createLibraryTag.mockResolvedValue({ id: 'tag-2', item_id: ownedItem.id, user_id: user.id, tag: 'favorite' });
 
     render(<LuminaApp />);
-    const primary = screen.getByRole('navigation', { name: 'Primary' });
     await openYouTube(browser);
     await browser.click(await screen.findByRole('button', { name: /^Film in the vault, / }));
     await openNotes(browser);
@@ -702,7 +691,6 @@ describe('household and Library curation integration', () => {
     mocks.createLibraryTag.mockImplementation(() => new Promise((resolve) => { finishB = resolve; }));
 
     render(<LuminaApp />);
-    const primary = screen.getByRole('navigation', { name: 'Primary' });
     await openYouTube(browser);
     await browser.click(await screen.findByRole('button', { name: /^Item A, / }));
     await openNotes(browser);
@@ -740,7 +728,6 @@ describe('household and Library curation integration', () => {
       : new Promise((resolve) => { finishBTags = resolve; }));
 
     render(<LuminaApp />);
-    const primary = screen.getByRole('navigation', { name: 'Primary' });
     await openYouTube(browser);
     await browser.click(await screen.findByRole('button', { name: /^Deferred A, / }));
     await openNotes(browser);
@@ -768,7 +755,6 @@ describe('household and Library curation integration', () => {
       : Promise.reject(new Error('Item B notes are unavailable.')));
 
     render(<LuminaApp />);
-    const primary = screen.getByRole('navigation', { name: 'Primary' });
     await openYouTube(browser);
     await browser.click(await screen.findByRole('button', { name: /^Failed A, / }));
     await openNotes(browser);
@@ -856,7 +842,7 @@ describe('Media acquisition shell integration', () => {
     }));
 
     render(<LuminaApp />);
-    await chooseFromAccountMenu(browser, 'Settings');
+    await chooseFromAccountMenu(browser, 'My Settings');
     await browser.click(within(await screen.findByRole('navigation', { name: 'Settings sections' })).getByRole('link', { name: 'Downloads' }));
     await browser.selectOptions(await screen.findByRole('combobox', { name: 'Default quality' }), 'best_1080p');
     // Nothing hides behind a disclosure: Container is one row away.
@@ -900,8 +886,7 @@ describe('Media acquisition shell integration', () => {
     await browser.click(screen.getByRole('button', { name: 'Save to library' }));
     await vi.waitFor(() => expect(finishQueue).toBeTypeOf('function'));
 
-    const primary = screen.getByRole('navigation', { name: 'Primary' });
-    await browser.click(within(primary).getByRole('button', { name: 'Streaming' }));
+    await navigateWithMenu(browser, 'Streaming');
     await browser.type(await openPalette(browser), `${sourceUrl}{Enter}`);
     await screen.findByRole('heading', { level: 1, name: 'Navigation film' });
 
@@ -1124,7 +1109,6 @@ describe('followed-channel recovery', () => {
     const { container } = render(<LuminaApp />);
     await screen.findByRole('button', { name: 'Open film, Maker' });
 
-    const primary = screen.getByRole('navigation', { name: 'Primary' });
     act(() => { openAppPath('/streaming/channels'); });
     expect(await screen.findByRole('button', { name: 'Open film, Maker' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: 'Channels needing attention' })).not.toBeNull();
@@ -1480,7 +1464,7 @@ describe('recommendation wiring', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     window.history.replaceState(null, '', '/settings/account');
     render(<><LuminaApp /><DirtyForm /></>);
-    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+    await screen.findByRole('heading', { level: 1, name: 'My Settings' });
     await waitFor(() => expect(mocks.getDeviceMembers).toHaveBeenCalled());
     const workspace = mocks.useAuthenticatedWorkspace.mock.results[0].value;
     act(() => openMemberPicker());
@@ -1488,7 +1472,7 @@ describe('recommendation wiring', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(mocks.switchMember).not.toHaveBeenCalled();
     expect(workspace.holdEvents).not.toHaveBeenCalled();
-    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'My Settings' })).toBeTruthy();
     confirm.mockRestore();
   });
 
@@ -1598,11 +1582,11 @@ describe('palette openers', () => {
 });
 
 describe('drawer breakpoint', () => {
-  it('between 681px and 960px the menu opens the drawer', async () => {
+  it('the header menu opens modal navigation on tablet widths', async () => {
     drawerOnly = true;
     render(<LuminaApp />);
     await userEvent.click(await screen.findByRole('button', { name: 'Open navigation' }));
-    expect(await screen.findByRole('dialog', { name: 'Mobile navigation' })).toBeTruthy();
+    expect(await screen.findByRole('dialog', { name: 'Navigation' })).toBeTruthy();
   });
 });
 
@@ -1664,6 +1648,6 @@ describe('account links (hooks stay unconditional)', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Back to sign in' }));
     expect(screen.queryByRole('button', { name: 'Back to sign in' })).toBeNull();
     expect(document.body.textContent).not.toBe('');
-    expect(screen.getByRole('navigation', { name: 'Primary' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Open navigation' })).not.toBeNull();
   });
 });

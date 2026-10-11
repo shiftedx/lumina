@@ -1,17 +1,17 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ listUsers: vi.fn(), listInvitations: vi.fn(), listConnectedApps: vi.fn(), listBackups: vi.fn(), listAdminTasks: vi.fn() }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
-import type { SettingsSectionId } from './app/routes';
 const { SettingsSurface } = await import('./features/settings/SettingsSurface');
-const { Sidebar } = await import('./app/Navigation');
+const { NavigationDialog } = await import('./app/Navigation');
 const { useUnsavedChanges } = await import('./features/settings/unsavedChanges');
-const ORDER = ['account', 'appearance', 'discovery', 'streaming', 'playback', 'downloads', 'apps', 'privacy', 'about', 'overview', 'activity', 'members', 'library', 'media', 'requests', 'transcoding', 'ai', 'tasks', 'backups', 'diagnostics'];
+import type { SettingsLocation } from './features/settings/SettingsSurface';
 
-afterEach(() => { vi.resetAllMocks(); vi.restoreAllMocks(); });
+beforeEach(() => vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false })));
+afterEach(() => { vi.resetAllMocks(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const base = { id: 'u1', username: 'dana', display_name: 'Dana', is_active: true, bio: '', created_at: '', updated_at: '', onboarding_status: 'completed' } as const;
 const admin = { ...base, role: 'admin' as const };
 const viewer = { ...base, role: 'viewer' as const };
@@ -19,93 +19,71 @@ function shell(props: Partial<Parameters<typeof SettingsSurface>[0]> = {}) {
   api.listConnectedApps.mockResolvedValue([]);
   return render(<SettingsSurface formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} user={viewer} {...props} />);
 }
+const nav = () => screen.getByRole('navigation', { name: 'Settings sections' });
+const personal = ['Profile & security', 'Playback', 'Display', 'Discovery & streaming', 'Downloads', 'Privacy & connected apps', 'About Lumina'];
+const server = ['Overview & activity', 'Household', 'Library & storage', 'Connections', 'AI features', 'Maintenance', 'About Lumina'];
 
-describe('Settings shell', () => {
-  it('shows a member the You group and a Settings home when no section is chosen', () => {
+describe('separate settings spaces', () => {
+  it('shows only six personal categories, with About in the footer and no repeated card grid', () => {
     shell();
-    const nav = screen.getByRole('navigation', { name: 'Settings sections' });
-    expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual(['Profile', 'Display', 'Home & discovery', 'Streaming', 'Playback', 'Downloads', 'Connected apps', 'Privacy & data', 'About']);
-    expect(within(nav).queryByText('Server')).toBeNull();
-    expect(within(nav).getAllByRole('link').some((link) => link.hasAttribute('aria-current'))).toBe(false);
-    const home = screen.getByRole('region', { name: 'All settings' });
-    expect(within(home).getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual(['You']);
-    const card = within(home).getByRole('link', { name: 'Profile' });
-    expect(card.getAttribute('href')).toBe('/settings/account');
-    expect(document.getElementById(card.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Your name, sign-in and password.');
-    expect(document.querySelector('.g-settings')?.getAttribute('data-view')).toBe('list');
+    expect(within(nav()).getAllByRole('link').map((link) => link.textContent)).toEqual(personal);
+    expect(screen.getByRole('heading', { level: 1, name: 'My Settings' })).toBeTruthy();
+    expect(screen.queryByRole('navigation', { name: 'Settings spaces' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'All settings' })).toBeNull();
   });
 
-  it('gives a vault owner a Settings home of You, Server and Advanced cards that open their section', async () => {
-    const onSection = vi.fn();
-    shell({ user: admin, onSection });
-    const home = screen.getByRole('region', { name: 'All settings' });
-    expect(within(home).getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual(['You', 'Server', 'Advanced']);
-    // Transcoding, Tasks and Diagnostics are all advanced rows: they wait for Show advanced settings.
-    expect(within(home).getAllByRole('link')).toHaveLength(17);
-    expect(within(home).queryByRole('link', { name: 'Transcoding' })).toBeNull();
-    await userEvent.click(screen.getByRole('switch', { name: 'Show advanced settings' }));
-    expect(within(home).getAllByRole('link')).toHaveLength(20);
-    await userEvent.click(within(home).getByRole('link', { name: 'Dashboard' }));
-    expect(onSection).toHaveBeenCalledWith('overview');
+  it('keeps owners’ personal preferences separate from their six server categories', async () => {
+    api.listUsers.mockResolvedValue([admin]);
+    shell({ user: admin });
+    expect(within(nav()).getAllByRole('link').map((link) => link.textContent)).toEqual(personal);
+    await userEvent.click(screen.getByRole('link', { name: 'Manage Server' }));
+    expect(within(nav()).getAllByRole('link').map((link) => link.textContent)).toEqual(server);
+    expect(screen.getByRole('heading', { level: 1, name: 'Manage Server' })).toBeTruthy();
+    expect(screen.getByText('Entire household')).toBeTruthy();
   });
 
-  it('moves focus to the opened section heading when a home card unmounts', async () => {
+  it('opens focused pages and restores focus to the category heading', async () => {
     function Host() {
-      const [section, setSection] = useState<SettingsSectionId | null>(null);
-      return <SettingsSurface formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} onSection={setSection} section={section} user={viewer} />;
+      const [location, setLocation] = useState<SettingsLocation>({ section: 'playback', page: 'watching', space: 'personal' });
+      return <SettingsSurface {...location} formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} onLocation={setLocation} user={viewer} />;
     }
-    api.listConnectedApps.mockResolvedValue([]);
     render(<Host />);
-    const card = within(screen.getByRole('region', { name: 'All settings' })).getByRole('link', { name: 'Profile' });
-    card.focus();
-    await userEvent.keyboard('{Enter}');
-    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'Profile' }));
+    await userEvent.click(within(nav()).getByRole('link', { name: 'Profile & security' }));
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'Profile & security' }));
+    expect(screen.queryByLabelText('Current password')).toBeNull();
+    await userEvent.click(screen.getByRole('link', { name: 'Security' }));
+    expect(screen.getByLabelText('Current password')).toBeTruthy();
   });
 
-  it('heads a section with its title alone, no kicker (impeccable craft floor)', () => {
-    api.listBackups.mockResolvedValue({ backups: [], schedule: { daily: true, keep: 7 } });
-    shell({ user: admin, section: 'backups' });
-    const region = screen.getByRole('region', { name: 'Backups' });
-    expect(region.querySelector('.g-kicker')).toBeNull();
-    expect(within(region).getByRole('heading', { level: 2, name: 'Backups' })).toBeTruthy();
-  });
-
-  it('opens an all-advanced section by link with a note and a switch, and tags advanced rows', async () => {
+  it('opens legacy server links in Manage Server without hiding tasks behind a global advanced toggle', async () => {
     api.listAdminTasks.mockResolvedValue({ items: [], counts: {}, next_cursor: null });
     shell({ user: admin, section: 'tasks' });
-    expect(screen.getByRole('note').textContent).toContain('advanced setting');
-    expect(document.querySelector('[data-setting-id="tasks.list"] .g-setting-tag')?.textContent).toBe('Advanced');
-    const nav = screen.getByRole('navigation', { name: 'Settings sections' });
-    expect(within(nav).getByRole('link', { name: 'Tasks' }).getAttribute('aria-current')).toBe('page');
-    expect(within(nav).queryByRole('link', { name: 'Diagnostics' })).toBeNull();
-    await userEvent.click(within(screen.getByRole('note')).getByRole('switch', { name: 'Show advanced settings' }));
-    expect(screen.queryByRole('note')).toBeNull();
-    expect(within(nav).getByRole('link', { name: 'Diagnostics' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Manage Server' })).toBeTruthy();
+    expect(within(nav()).getByRole('link', { name: 'Maintenance' }).getAttribute('aria-current')).toBe('page');
+    expect(await screen.findByRole('heading', { name: 'Background tasks' })).toBeTruthy();
+    expect(screen.queryByRole('switch', { name: 'Show advanced settings' })).toBeNull();
   });
 
-  it('refuses a Server deep link for a member, with no admin request', () => {
+  it('refuses owner-only links for a member without fetching admin data', () => {
     shell({ section: 'members' });
     expect(screen.getByRole('status').textContent).toContain('for vault owners');
     expect(api.listUsers).not.toHaveBeenCalled();
+    expect(within(nav()).getAllByRole('link').map((link) => link.textContent)).toEqual(personal);
   });
 
-  it('gives vault owners both groups, and section links route in-app', async () => {
+  it('keeps Members, Invitations and server addresses on distinct pages', async () => {
     api.listUsers.mockResolvedValue([admin]);
     api.listInvitations.mockResolvedValue([]);
-    const onSection = vi.fn();
-    shell({ user: admin, section: 'members', onSection, advanced: true });
-    const nav = screen.getByRole('navigation', { name: 'Settings sections' });
-    expect(within(nav).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(ORDER.map((id) => `/settings/${id}`));
-    expect(within(nav).getByRole('link', { name: 'Members' }).getAttribute('aria-current')).toBe('page');
-    expect(document.querySelector('.g-settings')?.getAttribute('data-view')).toBe('detail');
+    const onLocation = vi.fn();
+    shell({ user: admin, section: 'members', onLocation });
     expect(await screen.findByRole('list', { name: 'Household members' })).toBeTruthy();
-    await userEvent.click(within(nav).getByRole('link', { name: 'Backups' }));
-    expect(onSection).toHaveBeenCalledWith('backups');
-    await userEvent.click(screen.getByRole('button', { name: 'All settings' }));
-    expect(onSection).toHaveBeenLastCalledWith(null);
+    expect(api.listInvitations).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox', { name: 'Public address' })).toBeNull();
+    await userEvent.click(screen.getByRole('link', { name: 'Invitations' }));
+    expect(onLocation).toHaveBeenCalledWith({ section: 'members', page: 'invitations', space: 'server' });
   });
 
-  it('opens a member page from the Members list, and the Members link returns to the list', async () => {
+  it('opens a member and returns to the members list through its category', async () => {
     api.listUsers.mockResolvedValue([admin]);
     const onMember = vi.fn();
     const view = shell({ user: admin, section: 'members', onMember });
@@ -114,58 +92,45 @@ describe('Settings shell', () => {
     view.unmount();
     shell({ user: admin, section: 'members', member: 'u1', onMember });
     expect(await screen.findByRole('heading', { level: 2, name: 'Dana' })).toBeTruthy();
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Profile', 'Activity']);
-    await userEvent.click(within(screen.getByRole('navigation', { name: 'Settings sections' })).getByRole('link', { name: 'Members' }));
+    await userEvent.click(within(nav()).getByRole('link', { name: 'Household' }));
     expect(onMember).toHaveBeenLastCalledWith(null);
   });
 
-  it('asks before leaving a section with unsaved edits, and stays when declined', async () => {
-    const onSection = vi.fn();
-    function Dirty() { useUnsavedChanges(true, 'Media server'); return null; }
-    api.listConnectedApps.mockResolvedValue([]);
-    render(<><Dirty /><SettingsSurface formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} onSection={onSection} section="account" user={viewer} /></>);
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
-    await userEvent.click(screen.getByRole('link', { name: 'Playback' }));
-    expect(onSection).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole('link', { name: 'Playback' }));
-    expect(onSection).toHaveBeenCalledWith('playback');
-    expect(confirm).toHaveBeenCalledTimes(2);
+  it('guards category, subpage, space and search changes before discarding drafts', async () => {
+    const onLocation = vi.fn();
+    function Dirty() { useUnsavedChanges(true, 'Playback'); return null; }
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<><Dirty /><SettingsSurface formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} onLocation={onLocation} section="playback" user={admin} /></>);
+    await userEvent.click(within(nav()).getByRole('link', { name: 'Display' }));
+    await userEvent.click(screen.getByRole('link', { name: 'Subtitles' }));
+    await userEvent.click(screen.getByRole('link', { name: 'Manage Server' }));
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search settings' }), 'x');
+    expect(confirm).toHaveBeenCalledTimes(4);
+    expect(onLocation).not.toHaveBeenCalled();
+    expect(screen.queryByRole('region', { name: 'Search results' })).toBeNull();
   });
 
-  it('puts a Settings entry in the primary sidebar for everyone', () => {
-    const props = { activeDownloads: 0, mobile: false, onClose: vi.fn(), onNavigate: vi.fn(), open: false, surface: 'home' as const };
-    render(<Sidebar {...props} />);
-    expect(screen.queryByRole('button', { name: 'Administration' })).toBeNull();
-    screen.getByRole('button', { name: 'Settings' }).click();
-    expect(props.onNavigate).toHaveBeenCalledWith('settings');
-  });
-});
-
-describe('editorial Settings shell', () => {
-  it('has a Settings masthead, labelled groups, and a gold-ruled current link', () => {
-    shell({ section: 'playback' });
-    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
-    const nav = screen.getByRole('navigation', { name: 'Settings sections' });
-    expect(within(nav).getByText('You', { selector: '.g-label' })).toBeTruthy();
-    const current = within(nav).getByRole('link', { name: 'Playback' });
-    expect(current.getAttribute('aria-current')).toBe('page');
-    expect(current.classList.contains('g-settings-link')).toBe(true);
+  it('keeps advanced playback tuning locally disclosed', async () => {
+    shell({ section: 'playback', remotePlaybackCache: { enabled: true, recent_video_limit: 5, storage_limit_mb: 2048 } });
+    const row = document.getElementById('setting-playback-stream-cache')!;
+    expect(row.closest('details')?.open).toBe(false);
+    await userEvent.click(screen.getByText('Advanced options', { selector: 'summary' }));
+    expect(row.closest('details')?.open).toBe(true);
+    expect(screen.queryByRole('heading', { name: 'Captions' })).toBeNull();
   });
 
-  it('searches through a labelled field and heads each section editorially', () => {
-    shell({ section: 'playback' });
-    expect(screen.getByRole('searchbox', { name: 'Search settings' })).toBeTruthy();
-    const section = screen.getByRole('region', { name: 'Playback' });
-    expect(within(section).getByRole('heading', { level: 2, name: 'Playback' })).toBeTruthy();
-  });
-
-  it('keeps the member note for Server sections', () => {
-    shell({ section: 'members' });
-    expect(screen.getByRole('status').textContent).toContain('This part of Settings is for vault owners.');
+  it('puts owner-only Manage Server navigation beside Settings', async () => {
+    const onManageServer = vi.fn();
+    render(<NavigationDialog activeDownloads={0} onClose={vi.fn()} onNavigate={vi.fn()} onManageServer={onManageServer} open surface="settings" managingServer />);
+    const serverButton = screen.getByRole('button', { name: 'Manage Server' });
+    expect(serverButton.getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('button', { name: 'My Settings' }).hasAttribute('aria-current')).toBe(false);
+    await userEvent.click(serverButton);
+    expect(onManageServer).toHaveBeenCalled();
   });
 });
 
-describe('Settings controls keep their keyboard behaviour', () => {
+describe('Settings keyboard controls', () => {
   it('Enter toggles a Switch in the pane', async () => {
     const onAutoplayUpNextChange = vi.fn();
     shell({ section: 'playback', autoplayUpNext: false, onAutoplayUpNextChange });
@@ -173,8 +138,7 @@ describe('Settings controls keep their keyboard behaviour', () => {
     await userEvent.keyboard('{Enter}');
     expect(onAutoplayUpNextChange).toHaveBeenCalledWith(true);
   });
-
-  it('segmented controls keep their Left and Right', async () => {
+  it('segmented controls retain their Left and Right behavior', async () => {
     const onThemeChange = vi.fn();
     shell({ section: 'appearance', theme: 'system', onThemeChange });
     screen.getByRole('radio', { name: 'System' }).focus();

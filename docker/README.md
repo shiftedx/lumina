@@ -48,7 +48,7 @@ All settings are `LUMINA_*` environment variables (full list: `backend/app/confi
 | `LUMINA_STORAGE_MOUNT_PARENTS` | `/media` | Comma-separated container paths under which admins may register storage roots. |
 | `LUMINA_AI_BASE_URL` / `_AI_MODEL` | empty (off) | OpenAI-compatible chat endpoint for summaries, moments and idea graphs, e.g. `http://192.0.2.10:8080/v1`. |
 | `LUMINA_ASR_BASE_URL` / `_ASR_MODEL` | empty (off) | OpenAI-compatible speech-to-text endpoint for transcripts. |
-| `LUMINA_TMDB_API_KEY` | empty (off) | TMDB v3 API key or v4 read token for movie and TV metadata and artwork. An admin can change or clear it under **Settings → Media server** (write-only). |
+| `LUMINA_TMDB_API_KEY` | empty (off) | TMDB v3 API key or v4 read token for movie and TV metadata and artwork. An admin can change or clear it under **Manage Server → Connections → Metadata** (write-only). |
 | `LUMINA_ARTWORK_PASS` | `on` | `off` stops the background pass that prepares small copies of artwork; they are then made only when first requested. |
 | `LUMINA_PEOPLE_DIR` | unset | Container path of a read-only folder of cast photos in the `metadata/People` layout, such as a copy of Jellyfin's. Cast photos for titles whose NFO files name them. `LUMINA_JELLYFIN_PEOPLE_DIR`, the name before 2.11, is still read. |
 | `LUMINA_JELLYFIN_TRACE` | `0` | `1` logs each Jellyfin request's method, route template and query parameter names (never values or headers). Use it only while capturing client traffic. |
@@ -56,7 +56,7 @@ All settings are `LUMINA_*` environment variables (full list: `backend/app/confi
 | `TZ` | `UTC` | Server time zone, e.g. `America/Chicago`. Library scans set to **Nightly at** use it. See "Automatic scans and folder watching". |
 | `LUMINA_DOCKER_IMAGE` | `ghcr.io/shiftedx/lumina:2.13.1` | Pinned published image. Set `lumina:local` only when intentionally building the checked-out source. |
 
-AI and ASR values are only defaults: an admin can change or clear them under **Settings → AI & models** (the API key is write-only there). Tunables such as `LUMINA_QUARANTINE_RETENTION_HOURS`, `LUMINA_REMOTE_STREAM_*`, `LUMINA_RELAY_*` and `LUMINA_LIVE_RECORDING_*` keep safe defaults; add them to the `environment:` block only when you need to.
+AI and ASR values are only defaults: an admin can change or clear them under **Manage Server → AI features** (the API key is write-only there). Tunables such as `LUMINA_QUARANTINE_RETENTION_HOURS`, `LUMINA_REMOTE_STREAM_*`, `LUMINA_RELAY_*` and `LUMINA_LIVE_RECORDING_*` keep safe defaults; add them to the `environment:` block only when you need to.
 
 ## First owner and members
 
@@ -66,7 +66,29 @@ Add people under **Settings → Members**: issue an invitation link (shown once;
 
 Lumina stores no provider credentials. yt-dlp runs with a closed allowlist of public options (no cookies, credentials, browser auth or exec), so sources that need sign-in are unavailable. Acquisition accepts public HTTP(S) destinations only; private and LAN addresses are refused.
 
-From 1.9.0 the recommender also runs background yt-dlp searches and channel listings for each member who has watched or followed something. The whole household stays within 40 calls an hour and 300 a day, one at a time, and no search text is stored or logged. An admin can turn it off under **Settings → AI & models → Personalised recommendations**, and a member can erase their recommendation history under **Settings → You**.
+From 1.9.0 the recommender also runs background yt-dlp searches and channel listings for each member who has watched or followed something. The whole household stays within 40 calls an hour and 300 a day, one at a time, and no search text is stored or logged. An admin can turn it off under **Manage Server → AI features → Personalised recommendations**, and a member can erase their recommendation history under **Settings → You**.
+
+## Settings navigation
+
+Open the header navigation button to choose **My Settings** or **Manage Server**.
+Navigation opens in a modal and closes after choosing a destination, leaving the full
+page width available for media. On phones, **More** opens the same menu.
+
+**My Settings** (`/settings`) contains six categories for your profile: Profile & security,
+Playback, Display, Discovery & streaming, Downloads, and Privacy & connected apps.
+**Manage Server** (`/manage`) is available to vault owners and contains Overview & activity,
+Household, Library & storage, Connections, AI features, and Maintenance.
+
+Each category has focused subpages. Request approval and limits are under Household →
+Request rules; Sonarr, Radarr and Email are separate pages under Connections. AI features,
+local models, assistant setup and speech setup each have their own page. Server addresses
+are under Connections → Addresses; backups, tasks, diagnostics and video conversion are
+under Maintenance. Advanced tuning expands within the relevant page, without a global switch.
+
+Search covers every setting you can access and opens its page, including advanced options.
+Existing `/settings/<section>` and `/admin/<section>` bookmarks still work; owner sections
+open in Manage Server. Subpage bookmarks use `?page=`, for example `/manage/requests?page=email`.
+Forms with Save buttons retain their save/discard behavior and warn before leaving unsaved edits.
 
 ## Storage
 
@@ -93,7 +115,7 @@ From 1.9.0 the recommender also runs background yt-dlp searches and channel list
 
 ## Backups and restore
 
-**Settings → Backups → Back up now** writes a consistent SQLite copy plus a manifest to `app-data/backups/` while Lumina runs; a daily automatic backup keeps the newest 7, and the daily pass also keeps only the newest 3 `pre-upgrade` backups. **Verify** re-checks the checksum, integrity and schema version. Backups contain password/session hashes (never the saved AI API key; re-enter it in Settings → AI & models after a restore): they are admin-only and `0600`, and **Download** asks for your password again. Copy `app-data/backups/` off the host, together with `app-data/totp-key`: backups hold the database only, and without that key file every two-step verification authenticator in them is unreadable (see Two-step verification below).
+**Settings → Backups → Back up now** writes a consistent SQLite copy plus a manifest to `app-data/backups/` while Lumina runs; a daily automatic backup keeps the newest 7, and the daily pass also keeps only the newest 3 `pre-upgrade` backups. **Verify** re-checks the checksum, integrity and schema version. Backups contain password/session hashes (never the saved AI API key; re-enter it in Manage Server → AI features after a restore): they are admin-only and `0600`, and **Download** asks for your password again. Copy `app-data/backups/` off the host, together with `app-data/totp-key`: backups hold the database only, and without that key file every two-step verification authenticator in them is unreadable (see Two-step verification below).
 
 Media is not in these backups. Neither are on-device models (`app-data/models/`); they re-download from Settings if lost. Back up `app-data/library/` and managed roots with your usual file tooling, and mount every root at the same container path before restoring.
 
@@ -212,7 +234,7 @@ NAS notes:
 
 Open a movie, show, season or episode and choose **Edit details** (or use the command palette) to correct titles, overviews, ratings, genres, cast and artwork in the Lumina web app. Edits are saved in Lumina's database only: nothing is written to NFO files, and Jellyfin apps (Infuse, Swiftfin) show the edits read-only; they cannot edit.
 
-- **Who can edit:** vault owners. **Settings → Media server → Let household members edit details** (off by default) lets members edit too. Only an owner can change a title's TMDB id (re-match).
+- **Who can edit:** vault owners. **Manage Server → Connections → Metadata → Let household members edit details** (off by default) lets members edit too. Only an owner can change a title's TMDB id (re-match).
 - **Locks:** saving a field locks it, so refreshes, scans and Identify no longer change it, and Lumina keeps the original source value. **Revert to source** returns a field to that kept value. A field can also be locked without changing it, and **Lock this item** stops all automatic changes to the title.
 - **History and undo:** every save, bulk edit, revert and lock is a batch in the title's history. Undo restores each field that has not changed since and names the ones that have. Anyone who can edit can undo, except a member cannot undo an owner's TMDB id change. Each title keeps its newest 200 history rows, and rows older than 365 days are dropped.
 - **Bulk edit:** up to 500 titles and 40 changes per title in one request.
@@ -221,7 +243,7 @@ Open a movie, show, season or episode and choose **Edit details** (or use the co
 
 ## On-device models
 
-Semantic search and subtitles from speech can run on this server's own CPU. In **Settings → AI & models**, an admin turns a feature on and accepts **Download and turn on**. Lumina downloads the model in the background, verifies it, and starts the model only while a feature uses it. After 5 minutes without use it stops again.
+Semantic search and subtitles from speech can run on this server's own CPU. In **Manage Server → AI features**, an admin turns a feature on and accepts **Download and turn on**. Lumina downloads the model in the background, verifies it, and starts the model only while a feature uses it. After 5 minutes without use it stops again.
 
 - **What is in the image:** `llama-server` (llama.cpp, built from a pinned commit for amd64 and arm64 in a portable CPU configuration) for search. A small Lumina speech server using faster-whisper in its own Python environment (`/opt/lumina-asr`) for speech. There is no sidecar and no Docker socket. Both listen only on `127.0.0.1` inside the container, behind a secret that changes on every start.
 - **Where models live:** `app-data/models/<model>/`. Downloads resume after a restart, and every file is checked against the checksum in Lumina's catalog before use. Models come only from that catalog (pinned Hugging Face revisions). Backups never include `app-data/models/` (a backup is the database only). After a restore, installed models stay as they are. Deleting the folder is safe; the model shows as not installed.
@@ -244,7 +266,7 @@ docker compose exec asr curl -sX POST http://localhost:8000/v1/models/Systran%2F
 ```
 
 Then set `LUMINA_ASR_BASE_URL=http://asr:8000/v1` and `LUMINA_ASR_MODEL=Systran/faster-whisper-small` in `.env`
-(or the same fields under **Settings → AI & models**) and restart `lumina`. The `asr` service has no host port; it is reachable
+(or the same fields under **Manage Server → AI features**) and restart `lumina`. The `asr` service has no host port; it is reachable
 only from other containers on the compose project's network, and its model cache (a few hundred MB, downloaded once)
 lives in `./app-data/asr-models`. Transcribing is CPU-only and roughly real-time on a modern core with the `small`
 model; a multi-hour video takes about as long to transcribe.
@@ -353,7 +375,7 @@ docker compose exec lumina python -m app.services.two_factor reset <username>
 
 Lumina answers the Jellyfin API well enough for Infuse (tvOS, iOS, macOS) and Swiftfin to browse the vault, play files and sync watch state with Lumina's web UI. It is off by default and needs the Remote HTTPS setup or LAN HTTP mode above. With Remote HTTPS, apps connect through Caddy on the LAN and remotely alike, never to port 8765. In LAN HTTP mode the address is `http://<lan-ip>:8765` and works on the LAN only.
 
-1. **Settings → Media server → Apps like Infuse**: turn it on and copy the server address it shows: the same address you open Lumina at, `https://<host>` (or `http://<lan-ip>:8765` in LAN HTTP mode), with nothing added. The API is served at the server root only; `/jellyfin` and `/emby` addresses do not work.
+1. **Manage Server → Connections → Metadata → Apps like Infuse**: turn it on and copy the server address it shows: the same address you open Lumina at, `https://<host>` (or `http://<lan-ip>:8765` in LAN HTTP mode), with nothing added. The API is served at the server root only; `/jellyfin` and `/emby` addresses do not work.
 2. In Infuse: **Settings → Shares → Add Share → Jellyfin** (labels vary slightly by version). Enter the address with HTTPS on port 443 (LAN HTTP mode: HTTP on port 8765), plus the member's own Lumina username and password. Save, then keep **Library Mode** on so Movies, Shows and Channels fill in with artwork.
 3. In Swiftfin: **Connect to Server** → the same address → sign in as the member.
 
@@ -386,7 +408,7 @@ To diagnose a client, set `LUMINA_JELLYFIN_TRACE=1` in `.env`, restart, reproduc
 
 Members can bring their Jellyfin watch history into Lumina: what they watched, where they stopped, and their favorites.
 
-1. In **Settings → Media server → Jellyfin server to import from**, enter the address Lumina's container can reach, such as `http://192.168.1.20:8096`.
+1. In **Manage Server → Connections → Metadata → Jellyfin server to import from**, enter the address Lumina's container can reach, such as `http://192.168.1.20:8096`.
    - The address must be reachable from inside the Lumina container. `localhost` there is the container, not the host: if Jellyfin runs on the same machine, use that machine's LAN IP.
    - Put no username or password in it.
    - Lumina refuses an address that redirects, so enter the final one.
@@ -411,11 +433,11 @@ Lumina reads only files inside that folder, never through a symlink, and only JP
 
 ## TV and movie metadata (TMDB)
 
-Local NFO files and folder names are always read. For titles without an NFO, Lumina can fetch posters, overviews, cast and ratings from [TMDB](https://www.themoviedb.org/). Create a free TMDB account, request an API key under **Settings → API**, and paste either the v3 key or the v4 read access token into **Settings → Media server → TMDB** (write-only; **Test** checks it), or set `LUMINA_TMDB_API_KEY`. **Metadata language** sets one language for the whole library. TMDB never overwrites NFO values or your own edits. Titles it cannot match confidently are listed under **Unmatched** for **Fix match**. Like the AI key, the TMDB key is left out of backups; enter it again after a restore. Lumina uses the TMDB API but is not endorsed or certified by TMDB (attribution is shown in About).
+Local NFO files and folder names are always read. For titles without an NFO, Lumina can fetch posters, overviews, cast and ratings from [TMDB](https://www.themoviedb.org/). Create a free TMDB account, request an API key under **Settings → API**, and paste either the v3 key or the v4 read access token into **Manage Server → Connections → Metadata** (write-only; **Test** checks it), or set `LUMINA_TMDB_API_KEY`. **Metadata language** sets one language for the whole library. TMDB never overwrites NFO values or your own edits. Titles it cannot match confidently are listed under **Unmatched** for **Fix match**. Like the AI key, the TMDB key is left out of backups; enter it again after a restore. Lumina uses the TMDB API but is not endorsed or certified by TMDB (attribution is shown in About).
 
 ## AI features
 
-AI features use only the OpenAI-compatible endpoints configured under **Settings → AI & models** (`LUMINA_AI_*`, `LUMINA_ASR_*`). **Settings → AI & models** lists each feature as On, Off, "Needs an AI endpoint" or "Needs a speech server". Without them every feature hides or falls back:
+AI features use only the OpenAI-compatible endpoints configured under **Manage Server → AI features** (`LUMINA_AI_*`, `LUMINA_ASR_*`). **Manage Server → AI features** lists each feature as On, Off, "Needs an AI endpoint" or "Needs a speech server". Without them every feature hides or falls back:
 
 | Feature | Needs | Without it |
 | --- | --- | --- |
@@ -424,10 +446,10 @@ AI features use only the OpenAI-compatible endpoints configured under **Settings
 | Translate subtitles | AI endpoint | Hidden |
 | "Previously on" recaps | AI endpoint and episode summaries | Previous episodes' overviews |
 | Smart-collection builder | AI endpoint | Manual rule builder |
-| Semantic search | optional embedding model (Settings → AI & models) | Built-in local ranking |
+| Semantic search | optional embedding model (Manage Server → AI features) | Built-in local ranking |
 | Match tie-breaker | AI endpoint | Low-confidence titles go to Unmatched |
 | Intro/credits detection | nothing | Always local |
 
-**TheIntroDB** lookups (Settings → Media server) are off by default. Each lookup tells a third party which episodes the household owns.
+**TheIntroDB** lookups (Manage Server → Connections → Metadata) are off by default. Each lookup tells a third party which episodes the household owns.
 
 On the first v3 boot after an upgrade, restart recovery re-queues any `queued` or `running` speech-to-text (ASR) rows left over from before the restart, so a transcription in progress at shutdown resumes instead of being lost.

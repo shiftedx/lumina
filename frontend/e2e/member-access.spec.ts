@@ -16,7 +16,9 @@ async function visit(page: Page, path: string, access: Record<string, unknown>, 
 test('all streaming blocked: no Streaming nav, and /streaming is a calm explanation', async ({ page }) => {
   await visit(page, '/streaming', { blocked_streaming: ['youtube', 'twitch', 'kick'] });
   await expect(page.getByRole('status').filter({ hasText: "Streaming isn't available right now" })).toBeVisible();
+  await page.getByRole('button', { name: 'Open navigation' }).click();
   await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Streaming' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await expect(page.getByText(/admin|parent/i)).toHaveCount(0);
 });
 

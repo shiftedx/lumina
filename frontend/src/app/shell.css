@@ -8,28 +8,17 @@
 @media (max-width: 680px) {
   .lumina-main:has(> .watch-mini) { padding-bottom: calc(148px + env(safe-area-inset-bottom)); }
 }
-/* ---- navigation: sidebar 232px, groups Watch/Vault, mobile tabs < 680px ---- */
-.g-sidebar { position: fixed; top: calc(var(--g-topbar) + env(safe-area-inset-top)); bottom: 0; left: 0; z-index: var(--g-z-sidebar); display: flex; width: var(--g-sidebar); flex-direction: column; gap: 24px; overflow-y: auto; padding: 6px 12px 24px; border-right: 1px solid var(--g-rule-soft); background: var(--g-paper); }
-.g-sidebar.is-hidden { display: none; } /* display, not visibility: nothing for a transition to hold hidden */
-.g-nav-group { display: grid; gap: 2px; }
-.g-nav-group-label { margin: 18px 0 6px 14px; color: var(--g-ink-3); }
+/* ---- navigation modal; pages retain the full width below the header ---- */
+.g-navigation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.g-nav-group { display: grid; align-content: start; gap: 4px; }
+.g-nav-group-label { margin: 0 12px 8px; color: var(--g-ink-3); font: var(--g-type-ui-strong); }
 .g-nav-item { display: flex; min-height: var(--g-control); align-items: center; gap: 12px; padding: 0 12px; border: 0; border-inline-start: 2px solid transparent; border-radius: 0 var(--g-radius) var(--g-radius) 0; background: none; color: var(--g-ink-2); cursor: pointer; font: var(--g-type-ui); text-align: start; }
 .g-nav-item svg { width: 18px; height: 18px; flex: none; stroke-width: 1.6; }
 .g-nav-item.is-active { border-inline-start-color: var(--g-gold); background: var(--g-selected); color: var(--g-ink); font: var(--g-type-ui-strong); }
 @media (hover: hover) { .g-nav-item:not(.is-active):hover { background: var(--g-wash); } }
 .g-nav-count { min-width: 20px; height: 20px; margin-inline-start: auto; padding: 0 6px; border-radius: var(--g-radius-round); background: var(--g-gold); color: var(--g-on-gold); font: 600 11px / 20px var(--g-sans); font-variant-numeric: tabular-nums; text-align: center; }
-.g-scrim { display: none; }
-/* Layout vars the main column reads. The JS breakpoints are `(max-width: 960px)` (drawer) and `(max-width: 680px)` (tabs); CSS uses the same inclusive numbers so the two never disagree at 680 or 960. */
-.lumina-main { margin-left: var(--shell-offset, var(--g-sidebar)); }
-.lumina-app.sidebar-collapsed { --shell-offset: 0px; }
-@media (max-width: 960px) {
-  .lumina-main { margin-left: 0; }
-  .g-sidebar { top: 0; z-index: var(--g-z-toast); width: min(320px, 86vw); overflow-x: hidden; padding-top: calc(24px + env(safe-area-inset-top)); background: var(--g-paper-3); box-shadow: var(--g-elev-2); visibility: hidden; transform: translateX(-100%); transition: transform var(--g-drawer), visibility 0s linear var(--g-drawer); }
-  .g-sidebar.is-open { visibility: visible; transform: none; transition-delay: 0s; }
-  .g-scrim.is-visible { position: fixed; inset: 0; z-index: var(--g-z-toast); display: block; border: 0; background: var(--g-scrim-modal); }
-}
-/* An open drawer is visible in the same frame the class lands: under reduced motion nothing transitions, so `visibility` cannot hold `hidden` for a frame. */
-@media (prefers-reduced-motion: reduce) { .g-sidebar { transition: none !important; } }
+.lumina-main { margin-left: 0; }
+@media (max-width: 680px) { .g-navigation-grid { grid-template-columns: minmax(0, 1fr); } }
 .g-mobile-tabs { display: none; }
 @media (max-width: 680px) {
   .lumina-main { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }

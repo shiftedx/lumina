@@ -27,7 +27,7 @@ export const test = base.extend<{ guard: void }>({
 
 /** Owner creates an invite link; a fresh browser context redeems it and lands signed in. */
 export async function inviteMember(owner: Page, browser: Browser, username: string, password: string) {
-  await owner.goto('/admin/members');
+  await owner.goto('/manage/members?page=invitations');
   await owner.getByRole('button', { name: 'Invite someone' }).click();
   const form = owner.getByRole('dialog', { name: 'Invite someone' });
   await form.getByLabel('Email').fill(`${username}@example.com`);

@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -333,10 +334,10 @@ async function navigateWithMobileTabs(page: Page, label: string, heading: RegExp
   await expectEffectiveTargets(page);
 }
 
-// Subscriptions has no tab on a phone: it is reached through the More drawer.
+// Destinations outside the phone tabs are reached through the More modal.
 async function navigateWithMore(page: Page, label: string, heading: RegExp) {
   await page.getByRole('button', { name: /^More(,|$)/ }).click();
-  await page.getByRole('dialog', { name: 'Mobile navigation' }).getByRole('button', { name: label }).click();
+  await page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: label }).click();
   await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectEffectiveTargets(page);
@@ -374,13 +375,13 @@ async function coverEverySurface(page: Page) {
   await expectNoHorizontalOverflow(page);
   await expectEffectiveTargets(page);
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('dialog', { name: 'Mobile navigation' }).getByRole('button', { name: 'Downloads' }).click();
+  await page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: 'Downloads' }).click();
   await expect(page.getByRole('heading', { level: 1, name: /^Downloads$/ })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectEffectiveTargets(page);
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('dialog', { name: 'Mobile navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
-  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
+  await page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: 'My Settings', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: /^(My Settings|Manage Server)$/ })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectEffectiveTargets(page);
 }
@@ -397,32 +398,22 @@ test('all primary surfaces reflow at a standards-realistic 200% equivalent viewp
   await coverEverySurface(page);
 });
 
-test('closed drawer clips every descendant and the open drawer remains scrollable', async ({ page }) => {
+test('navigation modal fits a narrow viewport and scrolls to every action', async ({ page }) => {
   await openApp(page, 320, 480);
-  const drawer = page.locator('.g-sidebar');
-  await expect(drawer).toHaveCSS('visibility', 'hidden');
-  const closed = await drawer.evaluate((element) => ({
-    right: element.getBoundingClientRect().right,
-    overflowX: getComputedStyle(element).overflowX,
-  }));
-  expect(closed.right).toBeLessThanOrEqual(0);
-  expect(closed.overflowX).toMatch(/clip|hidden/);
-
+  const dialog = page.getByRole('dialog', { name: 'Navigation' });
+  await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await expect(drawer).toHaveCSS('visibility', 'visible');
-  const open = await drawer.evaluate((element) => ({
-    clientHeight: element.clientHeight,
-    scrollHeight: element.scrollHeight,
-    overflowY: getComputedStyle(element).overflowY,
-  }));
-  expect(open.overflowY).toBe('auto');
-  expect(open.scrollHeight).toBeGreaterThan(open.clientHeight);
-  await drawer.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-  await expect.poll(() => drawer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-  // The More drawer ends with the member's name and its actions; the role and bio live in the top bar's account menu.
-  await drawer.getByRole('button', { name: 'Sign out' }).scrollIntoViewIfNeeded();
-  await expect(drawer.getByText(/Alexandria With A Deliberately Long/)).toBeAttached();
-  await expect(drawer.getByText('Vault owner')).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  const body = dialog.locator('.g-dialog-body');
+  await expect(body).toHaveCSS('overflow-y', 'auto');
+  await dialog.getByRole('button', { name: 'Sign out' }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  await expect(dialog.getByText(/Alexandria With A Deliberately Long/)).toBeAttached();
+  await expect(dialog.getByText('Vault owner')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused();
 });
 
 test('Watch keeps long localized title and metadata readable at 200% equivalent', async ({ page }) => {
@@ -474,7 +465,7 @@ test('rendered controls retain 44px targets and shelves work by pointer and keyb
 test('a member can choose interests in Settings and receive a personalized Home shelf', async ({ page }) => {
   await openApp(page, 1280, 900);
   await page.getByRole('button', { name: 'Choose interests' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^(My Settings|Manage Server)$/ })).toBeVisible();
 
   const music = page.getByRole('checkbox', { name: 'Music' });
   await music.check();
@@ -484,7 +475,7 @@ test('a member can choose interests in Settings and receive a personalized Home 
   await expect(page.getByText('Your Home interests were saved.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Home' }).click();
+  await navigateApp(page, 'Home');
   await expect(page.getByRole('region', { name: 'Picked for you' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^A personalized music pick/ })).toBeVisible();
 });
@@ -492,16 +483,14 @@ test('a member can choose interests in Settings and receive a personalized Home 
 test('a member suppresses a recommended item and channel, then restores them from Settings', async ({ page }) => {
   await openApp(page, 1280, 900);
   await page.getByRole('button', { name: 'Choose interests' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^(My Settings|Manage Server)$/ })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Music' }).check();
   await page.getByRole('button', { name: 'Save interests' }).click();
   await expect(page.getByText('Your Home interests were saved.')).toBeVisible();
 
-  // The collapsed navigation must be opened before reaching Home; the desktop
-  // sidebar then stays expanded for the rest of the journey.
+  // The navigation modal closes after choosing Home.
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  const primaryNav = page.getByRole('navigation', { name: 'Primary' });
-  await primaryNav.getByRole('button', { name: 'Home' }).click();
+  await navigateApp(page, 'Home');
   const pick = page.getByRole('button', { name: /^A personalized music pick/ });
   const replacement = page.getByRole('button', { name: /^Another music pick/ });
   await expect(pick).toBeVisible();
@@ -520,14 +509,16 @@ test('a member suppresses a recommended item and channel, then restores them fro
 
   // Settings lists both suppressions with safe metadata and restores each.
   await page.getByRole('button', { name: /, account menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await page.getByRole('menuitem', { name: 'My Settings' }).click();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Discovery & streaming' }).click();
+  await page.getByRole('link', { name: 'Hidden recommendations', exact: true }).click();
   await expect(page.getByRole('heading', { level: 3, name: 'Hidden recommendations' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restore recommendations of A personalized music pick' })).toBeVisible();
   await page.getByRole('button', { name: 'Restore recommendations of Second Fixture' }).click();
   await page.getByRole('button', { name: 'Restore recommendations of A personalized music pick' }).click();
 
   // Restoring makes both eligible again: Home shows them on its next fetch.
-  await primaryNav.getByRole('button', { name: 'Home' }).click();
+  await navigateApp(page, 'Home');
   await expect(page.getByRole('button', { name: /^A personalized music pick/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Another music pick/ })).toBeVisible();
 });
@@ -618,7 +609,7 @@ test('a failed Up Next recommendation never breaks the Watch surface or blocks n
   await page.getByRole('button', { name: 'Save interests' }).click();
   await expect(page.getByText('Your Home interests were saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Home' }).click();
+  await navigateApp(page, 'Home');
   await page.getByRole('button', { name: /^A personalized music pick/ }).click();
 
   // The Watch surface renders and stays usable despite the failed recommendation.
@@ -666,47 +657,33 @@ test('a new member discovers, searches, and follows channels during onboarding w
 
 test('new Lumina discovery, hidden navigation, chapter, and theater controls hold their browser contracts', async ({ page }) => {
   await openApp(page, 1280, 900);
-  const sidebar = page.locator('.g-sidebar');
+  const dialog = page.getByRole('dialog', { name: 'Navigation' });
   const navigationToggle = page.getByRole('button', { name: 'Open navigation' });
-  await expect(navigationToggle).toBeVisible();
-  await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
-  await expect.poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(0);
-  await expect.poll(() => page.locator('.lumina-main').evaluate((element) => getComputedStyle(element).marginLeft)).toBe('0px');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.lumina-main')).toHaveCSS('margin-left', '0px');
   await navigationToggle.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: 'Close navigation' })).toBeFocused();
-  await expect(sidebar).not.toHaveAttribute('aria-hidden', 'true');
-  await page.keyboard.press('Tab');
-  await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Home' })).toBeFocused();
-  await page.getByRole('button', { name: 'Close navigation' }).focus();
-  const downloads = page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Downloads' });
-  await expect(downloads.locator('b')).toHaveText('1');
+  await expect(dialog.getByRole('button', { name: 'Home' })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Downloads' }).locator('b')).toHaveText('1');
+  await page.keyboard.press('Escape');
+  await expect(navigationToggle).toBeFocused();
+  await expect(dialog).toHaveCount(0);
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused();
-  await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
-  await expect(sidebar.locator('nav[aria-label="Primary"]')).toBeHidden();
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: 'Close navigation' })).toBeFocused();
-
+  await expect(dialog.getByRole('button', { name: 'Home' })).toBeFocused();
   await page.setViewportSize({ width: 920, height: 420 });
-  await expect.poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(320); // 920px is below the 960px drawer breakpoint: a 320px drawer
-  const shortMenu = await sidebar.evaluate((element) => ({
-    clientHeight: element.clientHeight,
-    overflowY: getComputedStyle(element).overflowY,
-    scrollHeight: element.scrollHeight,
-  }));
-  expect(shortMenu.overflowY).toBe('auto');
-  expect(shortMenu.scrollHeight).toBeGreaterThan(shortMenu.clientHeight);
-  await sidebar.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-  await expect(page.getByRole('button', { name: /, account menu$/ })).toBeVisible();
+  const bounds = await dialog.boundingBox();
+  expect(bounds!.width).toBeLessThan(920);
+  expect(bounds!.height).toBeLessThanOrEqual(420);
+  await expect(page.locator('.lumina-main')).toHaveCSS('margin-left', '0px');
+  await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1280, height: 900 });
 
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Streaming' }).click();
+  await navigateApp(page, 'Streaming');
   await expect(page.getByRole('navigation', { name: 'Browse by category' }).getByRole('button')).toHaveCount(25);
   await expect(page.getByText('Showing a partial feed while more categories warm up.')).toBeVisible();
   await expect(page.getByRole('button', { name: /^A gradually discovered favorite/ })).toBeVisible();
 
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Library' }).click();
+  await navigateApp(page, 'Library');
   await page.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'YouTube' }).click();
   await page.getByRole('button', { name: new RegExp(`^${LONG_TITLE}, `) }).click();
   const theater = page.getByRole('button', { name: 'Enter theater mode' });
@@ -762,7 +739,7 @@ test('replay chat loads as a deliberate synchronized rail and never blocks playb
   });
 
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Streaming' }).click();
+  await navigateApp(page, 'Streaming');
   await page.getByRole('button', { name: /^A gradually discovered favorite/ }).click();
 
   // The chat rail appears with a deliberate Load action; chat is not auto-loaded.
@@ -857,7 +834,7 @@ for (const source of [
   }));
 
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Streaming' }).click();
+  await navigateApp(page, 'Streaming');
   await page.getByRole('button', { name: /^A gradually discovered favorite/ }).click();
 
   // The player renders a clear Live state at the current edge (reveal controls
@@ -977,7 +954,7 @@ for (const source of [
   });
 
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Streaming' }).click();
+  await navigateApp(page, 'Streaming');
   await page.getByRole('button', { name: /^A gradually discovered favorite/ }).click();
 
   // "Record from now" is offered for the live source, distinct from live viewing.
@@ -1058,7 +1035,7 @@ test('schedule an upcoming broadcast from the beginning and render an honest par
   });
 
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Streaming' }).click();
+  await navigateApp(page, 'Streaming');
   await page.getByRole('button', { name: /^A gradually discovered favorite/ }).click();
 
   // The upcoming source offers scheduling + a from-start intent choice (product
@@ -1136,7 +1113,7 @@ test('the record-from-now live-recording start surface passes the tagged Axe gat
   });
 
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Streaming' }).click();
+  await navigateApp(page, 'Streaming');
   await page.getByRole('button', { name: /^A gradually discovered favorite/ }).click();
 
   const recording = page.getByRole('region', { name: 'Live recording' });
@@ -1192,7 +1169,7 @@ test('a terminal failed live-recording surface passes the tagged Axe gate', asyn
   });
 
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Streaming' }).click();
+  await navigateApp(page, 'Streaming');
   await page.getByRole('button', { name: /^A gradually discovered favorite/ }).click();
 
   const recording = page.getByRole('region', { name: 'Live recording' });
@@ -1204,18 +1181,24 @@ test('a terminal failed live-recording surface passes the tagged Axe gate', asyn
   expect((await auditA11y(page)).violations).toEqual([]);
 });
 
-test('Tab pressed the instant the sidebar opens lands in it, every time', async ({ page }) => {
+test('navigation focuses Home, traps keyboard focus, and restores its trigger every time', async ({ page }) => {
   await openApp(page, 1280, 900);
-  const sidebar = page.locator('#primary-navigation');
-  await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
+  const dialog = page.getByRole('dialog', { name: 'Navigation' });
+  const trigger = page.getByRole('button', { name: 'Open navigation' });
   for (let round = 0; round < 5; round += 1) {
-    await page.getByRole('button', { name: 'Open navigation' }).focus();
-    await page.keyboard.press('Enter'); // opens
-    await page.keyboard.press('Tab');   // no wait between the two
-    await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Home' })).toBeFocused();
-    await page.getByRole('button', { name: 'Close navigation', expanded: true }).focus();
-    await page.keyboard.press('Enter'); // closes
-    await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    await expect(dialog.getByRole('button', { name: 'Home' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Library' })).toBeFocused();
+    await dialog.getByRole('button', { name: 'My Settings' }).focus();
+    await page.keyboard.press('Tab');
+    // Native dialogs may visit browser chrome before cycling back; the page stays inert.
+    if (!await dialog.getByRole('button', { name: 'Close', exact: true }).evaluate((element) => element === document.activeElement)) await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
   }
 });
 

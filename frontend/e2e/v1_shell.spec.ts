@@ -1,9 +1,9 @@
+import { navigateApp } from './lumina-mock';
 import { expect, test, type Page } from '@playwright/test';
 import { item, mockApi, signIn } from './lumina-mock';
 
 /** Real browser routes and the extracted responsive shell. */
 
-const primary = (page: Page) => page.getByRole('navigation', { name: 'Primary' });
 
 test('test_route_reload_back_forward', async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 960 });
@@ -16,9 +16,9 @@ test('test_route_reload_back_forward', async ({ page }) => {
   await page.reload();
   await expect(page.locator('video').first()).toBeVisible();
 
-  await primary(page).getByRole('button', { name: 'Library' }).click();
+  await navigateApp(page, 'Library');
   await expect(page).toHaveURL(/\/library$/);
-  await primary(page).getByRole('button', { name: 'Streaming' }).click();
+  await navigateApp(page, 'Streaming');
   await expect(page).toHaveURL(/\/streaming$/);
 
   await page.goBack();

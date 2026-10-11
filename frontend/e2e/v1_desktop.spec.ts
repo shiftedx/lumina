@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 import { expect, test } from '@playwright/test';
 
 // The desktop product and host-launch surface are absent from the web UI.
@@ -119,7 +120,7 @@ test('web UI has no host-launch affordances after desktop removal', async ({ pag
   await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
 
   // Library surface: the item renders without any open/reveal OS-launch affordance.
-  await page.getByRole('button', { name: 'Library', exact: true }).first().click();
+  await navigateApp(page, 'Library');
   await page.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'YouTube' }).click();
   await expect(page.getByRole('button', { name: new RegExp(`^${fixtureItem.title},`) })).toBeVisible();
   const main = page.locator('main[aria-label="Main content"]');

@@ -10,7 +10,7 @@ import { CollectionAnnouncer, collectionLoadAnnouncement, preloadLikelySurfaces,
 import { DownloadsSurface } from './features/downloads/DownloadsSurface';
 import { HomeSurface } from './features/home/HomeSurface';
 import type { LiveShelfProps } from './features/home/LiveShelf';
-import { MobileTabs, Sidebar } from './app/Navigation';
+import { MobileTabs, NavigationDialog } from './app/Navigation';
 import { OnboardingSurface } from './features/onboarding/Onboarding';
 import { SettingsSurface } from './features/settings/SettingsSurface';
 import { CollectionRecovery, StaleCollectionNotice } from './features/media/MediaCards';
@@ -101,20 +101,14 @@ describe('collection recovery presentation', () => {
 describe('authenticated navigation accessibility', () => {
   const user = { id: 'user-1', username: 'one', display_name: 'One', role: 'viewer', is_active: true } as const;
 
-  it('marks the current desktop destination and exposes an open mobile drawer as modal', () => {
-    const desktop = renderToStaticMarkup(<Sidebar activeDownloads={0} mobile={false} onClose={noop} onNavigate={noop} open={false} surface="library" />);
-    const mobile = renderToStaticMarkup(<Sidebar activeDownloads={0} mobile onClose={noop} onNavigate={noop} open surface="downloads" />);
-    expect(desktop).toMatch(/aria-current="page" aria-label="Library"/);
-    expect(mobile).toContain('role="dialog"');
-    expect(mobile).toContain('aria-modal="true"');
-    expect(mobile).toMatch(/aria-current="page" aria-label="Downloads"/);
+  it('marks the current destination inside the navigation dialog', () => {
+    const html = renderToStaticMarkup(<NavigationDialog activeDownloads={0} onClose={noop} onNavigate={noop} open surface="library" />);
+    expect(html).toContain('<dialog');
+    expect(html).toMatch(/aria-current="page" aria-label="Library"/);
   });
 
-  it('removes collapsed desktop navigation from interaction and the accessibility tree', () => {
-    const html = renderToStaticMarkup(<Sidebar activeDownloads={0} collapsed mobile={false} onClose={noop} onNavigate={noop} open={false} surface="home" />);
-    expect(html).toContain('class="g-sidebar is-hidden ');
-    expect(html).toContain('aria-hidden="true"');
-    expect(html).toContain('inert=""');
+  it('does not render navigation until its dialog opens', () => {
+    expect(renderToStaticMarkup(<NavigationDialog activeDownloads={0} onClose={noop} onNavigate={noop} open={false} surface="home" />)).toBe('');
   });
 
   it('marks the active mobile tab, and Watch does not pretend to be Home', () => {

@@ -46,18 +46,23 @@ test('TMDB key, Jellyfin toggle and Infuse instructions', async ({ page }) => {
   const puts = await mockMediaServer(page);
   await page.goto('/admin/media');
   await signIn(page);
-  await expect(page.getByRole('heading', { level: 2, name: 'Media server' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Connections' })).toBeVisible();
   await page.getByLabel('TMDB API key').fill('tmdb-e2e-key');
+  await page.getByRole('button', { name: 'Save media server settings' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
+  expect(puts).toEqual([{ tmdb_api_key: 'tmdb-e2e-key' }]);
+  await expect(page.getByLabel('TMDB API key')).toHaveValue('');
+  await expect(page.getByLabel('TMDB API key')).toHaveAttribute('placeholder', /Saved key hidden/);
+  await page.getByRole('button', { name: 'Test key' }).click();
+  await expect(page.getByText('The key works.')).toBeVisible();
+  await page.getByRole('link', { name: 'Media apps', exact: true }).click();
   await page.getByRole('switch', { name: 'Let apps like Infuse connect' }).check();
   await page.getByRole('button', { name: 'Save media server settings' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
-  expect(puts).toEqual([{ tmdb_api_key: 'tmdb-e2e-key', jellyfin_enabled: true }]);
-  await expect(page.getByLabel('TMDB API key')).toHaveValue('');
-  await expect(page.getByLabel('TMDB API key')).toHaveAttribute('placeholder', /Saved key hidden/);
+  expect(puts).toEqual([{ tmdb_api_key: 'tmdb-e2e-key' }, { jellyfin_enabled: true }]);
   await expect(page.getByRole('textbox', { name: 'Server address for apps' })).toHaveValue('https://vault.example');
   await expect(page.getByRole('list', { name: 'Connect Infuse' }).getByRole('listitem')).toHaveCount(4);
-  await page.getByRole('button', { name: 'Test key' }).click();
-  await expect(page.getByText('The key works.')).toBeVisible();
+
 });
 
 test('an agent token is shown once, then revoked', async ({ page }) => {

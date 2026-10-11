@@ -83,14 +83,14 @@ test('turning on Semantic search with no model downloads it, and it works after 
   await dialog.getByRole('button', { name: 'Download and turn on' }).click();
   await expect(toggle).toBeChecked();
   expect(fake.downloads).toEqual(['granite-embedding-97m-multilingual-r2-q8']);
-  await expect(page.getByRole('progressbar', { name: 'Granite Embedding 97M multilingual download' })).toBeVisible();
   const feature = page.locator('[data-setting-id="ai.semantic-search"]');
   await expect(feature).toContainText('Waiting for the search model');
 
   await page.getByRole('button', { name: 'Save AI settings' }).click();
   await expect.poll(() => fake.saved).toEqual([{ ai_features_disabled: [] }]);
+  await expect(feature).not.toContainText('Waiting for the search model', { timeout: 10_000 });
+  await page.getByRole('link', { name: 'Local models', exact: true }).click();
   await expect(page.getByRole('list', { name: 'Search models' }).getByRole('listitem').first()).toContainText('Ready', { timeout: 10_000 });
-  await expect(feature).not.toContainText('Waiting for the search model');
   await expect(page.getByRole('button', { name: 'Save AI settings' })).toBeDisabled();
   expect(errors).toEqual([]);
 });
@@ -104,13 +104,11 @@ test('a corrupted download is never used: the row says why and Retry downloads a
   await page.goto('/settings/ai');
   const feature = page.locator('[data-setting-id="ai.subtitles-from-speech"]');
   await expect(feature).toContainText('The download was corrupted; Retry');
-  const speech = page.getByRole('list', { name: 'Speech models' });
-  await expect(speech.getByRole('listitem').first()).toContainText('Failed');
-  await expect(speech.getByRole('listitem').first()).not.toContainText('Ready');
   await feature.getByRole('button', { name: 'Retry for Subtitles from speech' }).click();
   await expect.poll(() => fake.downloads).toEqual(['faster-whisper-small-int8']);
-  await expect(page.getByRole('progressbar', { name: 'Whisper small download' })).toBeVisible();
   await expect(feature).toContainText('Waiting for the speech model');
+  await page.getByRole('link', { name: 'Local models', exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Speech models' }).getByRole('listitem').first()).toContainText(/Downloading|Ready/);
 });
 
 // The 10-foot step is for touch screens and TV remotes; a mouse gets the 36px desktop control (tokens.css).

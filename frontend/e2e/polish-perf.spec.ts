@@ -1,3 +1,4 @@
+import { navigateApp } from './lumina-mock';
 import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
@@ -60,10 +61,10 @@ test('opening the palette, a dialog, a menu, a toast, the reco menu and the mini
   const opens: Array<[string, string, () => Promise<void>]> = [
     ['palette', '/settings/members', async () => { await page.keyboard.press('ControlOrMeta+k'); await expect(page.locator('dialog.g-palette').getByRole('combobox')).toBeFocused(); await page.keyboard.press('Escape'); }],
     ['menu', '/settings/members', async () => { await page.getByRole('button', { name: /, account menu$/ }).click(); await page.keyboard.press('Escape'); }],
-    ['dialog', '/settings/members', async () => { await page.getByRole('button', { name: 'Invite someone' }).click(); await page.keyboard.press('Escape'); }],
+    ['dialog', '/manage/members?page=invitations', async () => { await page.getByRole('button', { name: 'Invite someone' }).click(); await page.keyboard.press('Escape'); }],
     ['toast', '/settings/playback', async () => { await page.getByRole('switch').first().click(); await page.waitForTimeout(300); }],
     ['reco menu', '/', async () => { await page.locator('[data-shelf-section="picked_for_you"]').getByRole('button', { name: /^More options for / }).first().click(); await page.keyboard.press('Escape'); }],
-    ['mini player', `/watch/library/${item.id}`, async () => { await page.getByRole('button', { name: 'Home', exact: true }).and(page.locator('#primary-navigation button')).click(); await page.waitForTimeout(300); }],
+    ['mini player', `/watch/library/${item.id}`, async () => { await navigateApp(page, 'Home'); await page.waitForTimeout(300); }],
   ];
   for (const [name, where, open] of opens) {
     await page.goto(where);

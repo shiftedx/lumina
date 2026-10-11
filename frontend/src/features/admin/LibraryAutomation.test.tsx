@@ -6,6 +6,7 @@ import { getLibraryAutomation, scanLibraries, setNightHour, updateRootAutomation
 import { ToastProvider } from '../../ui';
 import type { AutomationRoot, AutomationState, LibraryAutomation as Snapshot } from '../../types';
 import { LibraryRefreshContext } from './AdminStorage';
+import { SettingsHostContext } from '../settings/settingsHost';
 import { LibraryAutomation } from './LibraryAutomation';
 
 vi.mock('../../api', async (importOriginal) => ({
@@ -169,4 +170,13 @@ describe('LibraryAutomation', () => {
     const results = await axe.run(container, { runOnly: ['aria-allowed-attr', 'aria-required-attr', 'button-name', 'label', 'list', 'heading-order'] });
     expect(results.violations).toEqual([]);
   });
+});
+
+
+it('opens the Imports subpage from a root awaiting its first import', async () => {
+  vi.mocked(getLibraryAutomation).mockResolvedValue(snapshot([root({ state: 'needs_first_import' })]));
+  const onOpenSetting = vi.fn(() => true);
+  render(<SettingsHostContext.Provider value={{ user: { role: 'admin' } as never, onOpenSetting }}><ToastProvider><LibraryAutomation /></ToastProvider></SettingsHostContext.Provider>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Go to Imports' }));
+  expect(onOpenSetting).toHaveBeenCalledWith('library.imports');
 });

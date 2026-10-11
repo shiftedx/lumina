@@ -1,9 +1,10 @@
-import { Ellipsis, Search } from 'lucide-react';
-import { type KeyboardEvent, memo, type ReactNode, useEffect, useRef } from 'react';
+import { Ellipsis, Search, Server } from 'lucide-react';
+import { memo, type ReactNode, useRef } from 'react';
 
 import { allStreamingBlocked, useAccess } from '../features/access/access';
 import { LuminaRouteIcon, type LuminaRouteIconName } from '../LuminaRouteIcons';
-import { BrandMark } from '../ui';
+import { Dialog } from '../ui';
+import { moveFocus } from '../features/media/focusNav';
 import { type Surface } from './routes';
 
 type NavItem = { surface: Surface; label: string; icon: LuminaRouteIconName };
@@ -17,7 +18,7 @@ export const navGroups: ReadonlyArray<{ label: string; items: readonly NavItem[]
   ] },
   { label: 'Vault', items: [
     { surface: 'downloads', label: 'Downloads', icon: 'downloads' },
-    { surface: 'settings', label: 'Settings', icon: 'settings' },
+    { surface: 'settings', label: 'My Settings', icon: 'settings' },
   ] },
 ];
 
@@ -48,73 +49,37 @@ export const MobileTabs = memo(function MobileTabs({ surface, activeDownloads, m
   );
 });
 
-export const Sidebar = memo(function Sidebar({ surface, activeDownloads, pendingRequests = 0, open, mobile, onNavigate, onClose, collapsed = false, extra }: {
-  surface: Surface; activeDownloads: number; open: boolean; mobile: boolean; onNavigate: (surface: Surface) => void; onClose: () => void; collapsed?: boolean;
-  /** Requests waiting for an admin's decision (admins only; 0 hides the badge). */
+/** Primary destinations live in a modal; the page keeps the entire width beneath the header. */
+export const NavigationDialog = memo(function NavigationDialog({ surface, activeDownloads, pendingRequests = 0, open, onNavigate, onClose, extra, onManageServer, managingServer = false }: {
+  surface: Surface; activeDownloads: number; open: boolean; onNavigate: (surface: Surface) => void; onClose: () => void;
   pendingRequests?: number;
-  /** The More drawer's profile items (phone only). */
+  onManageServer?: () => void;
+  managingServer?: boolean;
+  /** Account shortcuts shown with navigation on phones. */
   extra?: ReactNode;
 }) {
-  const drawerRef = useRef<HTMLElement>(null);
   const firstNavigationRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (mobile && open) requestAnimationFrame(() => firstNavigationRef.current?.focus());
-  }, [mobile, open]);
-
-  function onDrawerKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (!mobile || !open) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      onClose();
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    const focusable = Array.from(drawerRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') || []);
-    if (!focusable.length) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-  }
-
-  const navigationHidden = mobile ? !open : collapsed;
   const noStreaming = allStreamingBlocked(useAccess().access);
-
+  const choose = (action: () => void) => { onClose(); action(); };
   return (
-    <>
-      <button aria-label="Close navigation" className={`g-scrim ${open ? 'is-visible' : ''}`} onClick={onClose} type="button" />
-      <aside
-        aria-hidden={navigationHidden ? true : undefined}
-        aria-label={mobile ? 'Mobile navigation' : undefined}
-        aria-modal={mobile && open ? true : undefined}
-        className={`g-sidebar ${navigationHidden && !mobile ? 'is-hidden' : ''} ${open ? 'is-open' : ''}`}
-        id="primary-navigation"
-        inert={navigationHidden ? true : undefined}
-        onKeyDown={onDrawerKeyDown}
-        ref={drawerRef}
-        role={mobile && open ? 'dialog' : undefined}
-      >
-        {mobile ? <BrandMark size="bar" /> : null}
-        <nav aria-label="Primary">
-          {navGroups.map((group) => (
-            <div className="g-nav-group" key={group.label}>
-              <p aria-hidden="true" className="g-label g-nav-group-label">{group.label}</p>
-              {group.items.filter((item) => !(noStreaming && item.surface === 'streaming')).map(({ surface: target, label, icon }) => {
-                const active = surfaceIsActive(surface, target);
-                const count = target === 'downloads' ? activeDownloads : target === 'requests' ? pendingRequests : 0;
-                const countLabel = target === 'requests' ? 'waiting' : 'active';
-                return (
-                  <button aria-current={active ? 'page' : undefined} aria-label={count ? `${label}, ${count} ${countLabel}` : label} className={`g-nav-item ${active ? 'is-active' : ''}`} key={target} onClick={() => onNavigate(target)} ref={target === 'home' ? firstNavigationRef : undefined} type="button">
-                    <LuminaRouteIcon route={icon} /><span>{label}</span>{count ? <b aria-hidden="true" className="g-nav-count">{count}</b> : null}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-        {mobile ? extra : null}
-      </aside>
-    </>
+    <Dialog className="g-navigation-modal" initialFocus={firstNavigationRef} onClose={onClose} open={open} title="Navigation">
+      <nav aria-label="Primary" className="g-navigation-grid" id="primary-navigation" onKeyDown={(event) => moveFocus(event, { targets: '.g-nav-item' })}>
+        {navGroups.map(({ label: group, items }) => (
+          <div className="g-nav-group" key={group}>
+            <h3 className="g-nav-group-label">{group}</h3>
+            {items.filter(({ surface: target }) => target !== 'streaming' || !noStreaming).map(({ surface: target, label, icon }) => {
+              const active = surfaceIsActive(surface, target) && !(target === 'settings' && managingServer);
+              const count = target === 'downloads' ? activeDownloads : target === 'requests' ? pendingRequests : 0;
+              const countLabel = target === 'requests' ? 'waiting' : 'active';
+              return <button aria-current={active ? 'page' : undefined} aria-label={count ? `${label}, ${count} ${countLabel}` : label} className={`g-nav-item ${active ? 'is-active' : ''}`} key={target} onClick={() => choose(() => onNavigate(target))} ref={target === 'home' ? firstNavigationRef : undefined} type="button">
+                <LuminaRouteIcon route={icon} /><span>{label}</span>{count ? <b aria-hidden="true" className="g-nav-count">{count}</b> : null}
+              </button>;
+            })}
+            {group === 'Vault' && onManageServer ? <button aria-current={managingServer ? 'page' : undefined} className={`g-nav-item ${managingServer ? 'is-active' : ''}`} onClick={() => choose(onManageServer)} type="button"><Server aria-hidden="true" /><span>Manage Server</span></button> : null}
+          </div>
+        ))}
+      </nav>
+      {extra}
+    </Dialog>
   );
 });

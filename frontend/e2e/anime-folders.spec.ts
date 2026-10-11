@@ -28,7 +28,7 @@ test('adds, validates and saves anime folders, then follows the re-sort', async 
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(current) });
   });
-  await page.goto('/settings/library');
+  await page.goto('/settings/library?page=organization');
   await signIn(page);
   const row = page.locator('[data-setting-id="library.anime"]');
   const field = row.getByRole('textbox', { name: 'Folder name' });

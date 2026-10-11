@@ -89,7 +89,7 @@ test('test_recording_retention_admin', async ({ page }) => {
     if (put) saved.push(route.request().postDataJSON());
     return route.fulfill(json(put ? route.request().postDataJSON() : { keep_days: 30, max_gb: 0 }));
   });
-  await page.goto('/admin/storage');
+  await page.goto('/manage/library?page=automation');
   await signIn(page);
   const form = page.getByRole('form', { name: 'Live recording cleanup' });
   await expect(form.getByLabel('Keep recordings for (days)')).toHaveValue('30');

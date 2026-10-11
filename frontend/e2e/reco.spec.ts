@@ -79,14 +79,14 @@ test.describe('Show fewer and Settings', () => {
     await page.getByRole('menuitem', { name: /^Show fewer from / }).click();
     await expect(picked(page).getByText(/^Showing fewer from /)).toBeVisible();
     expect(log.suppressed[0]).toMatchObject({ scope: 'fewer' });
-    await page.goto('/settings/discovery');
+    await page.goto('/settings/discovery?page=hidden');
     await expect(page.getByRole('heading', { level: 3, name: 'Showing fewer: channel' })).toBeVisible();
     await expect(page.getByText(/^Back to normal on /)).toBeVisible();
   });
 
   test('Clear recommendation history asks first, then clears', async ({ page }) => {
     const { log } = await openHome(page);
-    await page.goto('/settings/discovery');
+    await page.goto('/settings/discovery?page=recommendation-history');
     await page.getByRole('button', { name: 'Clear recommendation history' }).click();
     await expect(page.getByText('Lumina forgets what it showed you and what you opened. Your watch history and hidden lists stay.')).toBeVisible();
     expect(log.cleared).toBe(0);
@@ -101,7 +101,7 @@ test.describe('Show fewer and Settings', () => {
       fewer: [{ id: 'f1', scope: 'fewer', target_key: 'k3', title: null, channel_name: 'Quiet Channel', source: 'youtube', created_at: '2026-09-20T10:00:00Z', recovers_at: '2027-02-07T10:00:00Z' }],
       channels: [{ id: 'c1', scope: 'channel', target_key: 'k4', title: null, channel_name: 'Muted Channel', source: 'youtube', created_at: '2026-09-20T10:00:00Z' }],
     }) });
-    await page.goto('/settings/discovery');
+    await page.goto('/settings/discovery?page=hidden');
     for (const heading of ['Not interested: videos', 'Not interested: titles', 'Showing fewer: channel', 'Hidden channels']) {
       await expect(page.getByRole('heading', { level: 3, name: heading })).toBeVisible();
     }

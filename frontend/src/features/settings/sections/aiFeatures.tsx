@@ -34,14 +34,15 @@ const addressField = () => document.getElementById(settingDomId('ai.assistant-ad
  * Focuses the Server address field. In a search result, where that row is not on screen, Settings opens
  * AI & models (clearing the search) and the field is focused once the section has loaded.
  */
-function goToServerAddress(openSection: SettingsHost['onOpenSection'], reveal: SettingsHost['onAdvancedChange']) {
-  // The address is an advanced row: show advanced settings so it is there to focus.
+function goToServerAddress(openSection: SettingsHost['onOpenSection'], reveal: SettingsHost['onAdvancedChange'], openSetting?: SettingsHost['onOpenSetting']) {
+  if (openSetting) { openSetting('ai.assistant-address'); return; }
+  // Older section hosts still reveal the address through their advanced preference.
   reveal?.(true);
   const field = addressField();
   if (field) { field.focus(); return; }
   if (!openSection) {
     // Outside the Settings shell: navigate, and the app opens AI & models.
-    window.history.pushState(null, '', routePath({ surface: 'settings', section: 'ai' }));
+    window.history.pushState(null, '', routePath({ surface: 'settings', section: 'ai', space: 'server', page: 'assistant' }));
     window.dispatchEvent(new PopStateEvent('popstate'));
     return;
   }
@@ -108,7 +109,7 @@ function EnableDialog({ feature, ask, onCancel, onDownloaded, onGoToAddress }: {
 /** A feature's on/off switch. It edits the section draft; Save AI settings sends it. */
 export function FeatureSwitch({ feature }: { feature: AiFeatureKey }) {
   const { config, draft, set, models, replaceModel } = useAiForm();
-  const { onOpenSection, onAdvancedChange } = useSettingsHost();
+  const { onOpenSection, onAdvancedChange, onOpenSetting } = useSettingsHost();
   const [ask, setAsk] = useState<Ask | null>(null);
   const switchRef = useRef<HTMLInputElement>(null);
   const on = !draft.disabled.includes(feature);
@@ -136,7 +137,7 @@ export function FeatureSwitch({ feature }: { feature: AiFeatureKey }) {
           feature={feature}
           onCancel={() => close(() => switchRef.current?.focus())}
           onDownloaded={(model) => { replaceModel(model); turn(true); close(() => switchRef.current?.focus()); }}
-          onGoToAddress={() => close(() => goToServerAddress(onOpenSection, onAdvancedChange))}
+          onGoToAddress={() => close(() => goToServerAddress(onOpenSection, onAdvancedChange, onOpenSetting))}
         />
       ) : null}
     </div>

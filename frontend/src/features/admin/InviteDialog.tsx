@@ -1,8 +1,9 @@
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useContext, useState } from 'react';
 
 import { Button, Checkbox, Dialog, Field, fieldProps, Input, Select, StatusText, TextButton } from '../../ui';
 import { errorMessage } from '../../utils';
 import { settingDomId } from '../settings/SettingRow';
+import { SettingsHostContext } from '../settings/settingsHost';
 import { CopyableLink } from './AdminMembers';
 import { createInvite, getPublicAddress, type InviteAccess, type IssuedInvite, listSections, NO_LIMITS, PRESETS, type PresetId } from './memberAccess';
 import { useAdminResource } from './useAdminResource';
@@ -25,6 +26,7 @@ export function InviteDialog({ open, onClose, onIssued }: { open: boolean; onClo
 }
 
 function InviteForm({ onClose, onIssued }: { onClose: () => void; onIssued: () => void }) {
+  const settingsHost = useContext(SettingsHostContext);
   const { data: sections } = useAdminResource(listSections, 'Unable to load libraries.');
   const { data: address } = useAdminResource(getPublicAddress, '');
   const [email, setEmail] = useState('');
@@ -57,8 +59,11 @@ function InviteForm({ onClose, onIssued }: { onClose: () => void; onIssued: () =
 
   function goToAddress() {
     onClose();
-    // The row sits in this same section; focus lands after the dialog has given focus back.
-    window.setTimeout(() => document.getElementById(settingDomId('members.public-address'))?.querySelector('input')?.focus(), 0);
+    // Open the address page after the dialog has given focus back.
+    window.setTimeout(() => {
+      if (settingsHost?.onOpenSetting) settingsHost.onOpenSetting('members.public-address');
+      else document.getElementById(settingDomId('members.public-address'))?.querySelector('input')?.focus();
+    }, 0);
   }
 
   if (issued) {

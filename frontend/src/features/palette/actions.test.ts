@@ -11,8 +11,8 @@ const paletteBase: PaletteInput = { query: '', mode: 'search', user: owner, hist
 
 const ctx = (patch: Partial<PaletteContext> = {}): PaletteContext => ({
   user: { id: 'u1', username: 'a', display_name: 'A', role: 'viewer', is_active: true } as UserProfile,
-  mobile: false, sidebarCollapsed: false, theme: 'system',
-  navigate: vi.fn(), setTheme: vi.fn(), toggleSidebar: vi.fn(), signOut: vi.fn(), openLinkMode: vi.fn(),
+  theme: 'system',
+  navigate: vi.fn(), setTheme: vi.fn(), openNavigation: vi.fn(), signOut: vi.fn(), openLinkMode: vi.fn(),
   ...patch,
 });
 
@@ -38,7 +38,7 @@ describe('palette actions', () => {
   });
 
   it('has the spec 4.4 ids, labels and pinned five', () => {
-    expect(PALETTE_ACTIONS.map((action) => action.id)).toEqual(['add-link', 'go-downloads', 'switch-member', 'theme-system', 'theme-light', 'theme-dark', 'edit-home', 'new-collection', 'new-smart-collection', 'toggle-sidebar', 'settings-playback', 'go-streaming', 'go-live', 'go-subscriptions', 'go-channels', 'settings-discovery', 'edit-title', 'edit-title-artwork', 'scan-libraries', 'settings-library', 'sign-out']);
+    expect(PALETTE_ACTIONS.map((action) => action.id)).toEqual(['add-link', 'go-downloads', 'switch-member', 'theme-system', 'theme-light', 'theme-dark', 'edit-home', 'new-collection', 'new-smart-collection', 'open-navigation', 'settings-playback', 'go-streaming', 'go-live', 'go-subscriptions', 'go-channels', 'settings-discovery', 'edit-title', 'edit-title-artwork', 'scan-libraries', 'settings-library', 'sign-out']);
     expect(filterActions('', ctx()).map((action) => action.id)).toEqual([...PINNED_ACTION_IDS]);
   });
 
@@ -82,7 +82,7 @@ describe('palette actions', () => {
   it('one row per destination: the actions are the only rows for their pages', () => {
     const paths = PALETTE_ACTIONS.flatMap((action) => (action.path ? [action.path] : []));
     expect([...ACTION_DESTINATIONS].sort()).toEqual([...paths].sort());
-    const context = { user: owner, mobile: false, sidebarCollapsed: false, theme: 'system', navigate: () => undefined, setTheme: () => undefined, toggleSidebar: () => undefined, signOut: () => undefined, openLinkMode: () => undefined } as PaletteContext;
+    const context = { user: owner, theme: 'system', navigate: () => undefined, setTheme: () => undefined, openNavigation: () => undefined, signOut: () => undefined, openLinkMode: () => undefined } as PaletteContext;
     const queries = ['live', 'explore', 'subscriptions', 'channels', 'saved', 'discovery', 'home', 'downloads', 'playback', 'library', 'settings', 'open', ...PALETTE_ACTIONS.flatMap((action) => action.keywords)];
     for (const user of [owner, viewer]) {
       for (const query of queries) {
@@ -118,10 +118,12 @@ describe('palette actions', () => {
     }
   });
 
-  it('toggles the sidebar label and hides it on phones', () => {
-    expect(filterActions('sidebar', ctx()).map((action) => action.label)).toEqual(['Collapse sidebar']);
-    expect(filterActions('sidebar', ctx({ sidebarCollapsed: true })).map((action) => action.label)).toEqual(['Expand sidebar']);
-    expect(filterActions('sidebar', ctx({ mobile: true }))).toEqual([]);
+  it('opens navigation from the palette, including the old sidebar search term', () => {
+    const context = ctx();
+    const [action] = filterActions('sidebar', context);
+    expect(action.label).toBe('Open navigation');
+    action.run(context);
+    expect(context.openNavigation).toHaveBeenCalledOnce();
   });
 
   it('marks the current theme and runs each action through the context', () => {

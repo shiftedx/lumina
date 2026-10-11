@@ -1,38 +1,36 @@
-import { Button } from '../../ui';
-import { searchSettings } from './registry';
-import { SectionRows } from './SettingRow';
-import type { SettingsSectionDef } from './settingsTypes';
-import { useDirtyLabels } from './unsavedChanges';
+import { type MouseEvent } from 'react';
+import { ChevronRight } from 'lucide-react';
 
-/**
- * Search results: grouped by section; each row is the real control inside its section's Provider,
- * so it can be changed here. A section with unsaved edits shows all its rows, and stays (pinned) until saved or
- * discarded, so typing never unmounts its Provider or a row that owns a draft. Advanced rows are always found, tagged,
- * with an offer to keep them on screen.
- */
-export function SettingsSearchResults({ query, sections, advanced = true, onReveal }: { query: string; sections: readonly SettingsSectionDef[]; advanced?: boolean; onReveal?: () => void }) {
-  const dirty = useDirtyLabels();
+import { routePath } from '../../app/routes';
+import { categoryForPage, pageForRow, type SettingsPage } from './navigation';
+import { searchSettings } from './registry';
+import type { SettingsSectionDef } from './settingsTypes';
+
+/** Search locates settings without mounting unrelated forms or starting owner-only requests. */
+export function SettingsSearchResults({ query, sections, onOpen }: { query: string; sections: readonly SettingsSectionDef[]; onOpen: (page: SettingsPage, row: string) => boolean }) {
   const matches = searchSettings(query, sections);
   const count = matches.reduce((total, match) => total + match.entries.length, 0);
-  const groups = sections.flatMap((section) => {
-    const match = matches.find((entry) => entry.section === section);
-    // A dirty section keeps all its rows: some rows own their draft (storage rules), so narrowing must not unmount them.
-    if (dirty.includes(section.label)) return [{ section, entries: section.entries, pinned: !match }];
-    return match ? [{ section, entries: match.entries, pinned: false }] : [];
-  });
+  function follow(event: MouseEvent<HTMLAnchorElement>, page: SettingsPage, row: string) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+    event.preventDefault();
+    onOpen(page, row);
+  }
   return (
     <section aria-label="Search results" className="settings-results">
       <p className="settings-section-summary" role="status">{count ? `${count} ${count === 1 ? 'setting matches' : 'settings match'}` : 'No settings match'}</p>
-      {!advanced && onReveal && matches.some((match) => match.entries.some((entry) => entry.advanced)) ? (
-        <p className="g-settings-advanced-note" role="note">Some of these are advanced settings, hidden outside search. <Button onClick={onReveal} variant="quiet">Show advanced settings</Button></p>
-      ) : null}
-      {groups.map(({ section, entries, pinned }) => (
-        <section aria-labelledby={`settings-results-${section.id}`} className="settings-result-group" key={section.id}>
-          <h2 id={`settings-results-${section.id}`}>{section.label}</h2>
-          {pinned ? <p className="settings-pinned-note" role="note">Unsaved changes. This section stays here until you save or discard.</p> : null}
-          <SectionRows entries={entries} section={section} />
-        </section>
-      ))}
+      <p className="g-setting-note">Open a setting to change it on its own page.</p>
+      <ul className="g-settings-results-list">
+        {matches.flatMap(({ entries }) => entries.map((entry) => {
+          const page = pageForRow(entry.id)!;
+          const category = categoryForPage(page);
+          return <li key={entry.id}>
+            <a className="g-settings-result-link" href={`${routePath({ surface: 'settings', section: page.section, page: page.id, space: category.space })}#setting-${entry.id.replace(/[^A-Za-z0-9-]/g, '-')}`} onClick={(event) => follow(event, page, entry.id)}>
+              <span><strong>{entry.label}</strong><small>{category.space === 'personal' ? 'My Settings' : 'Manage Server'} · {category.label} · {page.label}</small><span>{entry.description ?? entry.info.split(/(?<=[.!?])\s/)[0]}</span></span>
+              <ChevronRight aria-hidden="true" />
+            </a>
+          </li>;
+        }))}
+      </ul>
     </section>
   );
 }

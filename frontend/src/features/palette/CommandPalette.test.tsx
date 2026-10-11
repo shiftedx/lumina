@@ -14,7 +14,7 @@ function props(patch: Partial<CommandPaletteProps> = {}): CommandPaletteProps {
     open: true, mode: 'search', onClose: vi.fn(), user,
     history: [{ id: 'h1', query: 'alpine', searched_at: '' }, { id: 'h2', query: 'baking', searched_at: '' }] as never,
     channels: [], sessionKey: 'u1', captureSessionToken: () => token, isSessionTokenCurrent: (value) => value === token,
-    context: { user, mobile: false, sidebarCollapsed: false, theme: 'system', navigate: vi.fn(), setTheme: vi.fn(), toggleSidebar: vi.fn(), signOut: vi.fn(), openLinkMode: vi.fn() },
+    context: { user, theme: 'system', navigate: vi.fn(), setTheme: vi.fn(), openNavigation: vi.fn(), signOut: vi.fn(), openLinkMode: vi.fn() },
     onRemoveHistory: vi.fn(), onClearHistory: vi.fn(), onOpenTitle: vi.fn(), onOpenMoment: vi.fn(), onOpenLibraryItem: vi.fn(), onOpenChannel: vi.fn(), onOpenRemote: vi.fn(), onOpenUrl: vi.fn(), onSearchEverything: vi.fn(),
     ...patch,
   };

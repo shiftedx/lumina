@@ -38,6 +38,18 @@
     "signin_source_payload": {
       "relative_path": "signin-source-payload-release-base/diagnostics.json",
       "sha256": "5f4d6470fcb5d361b864dd5dfc906b2271486fcd599818d60291242514dda22b"
+    },
+    "gzip_payload": {
+      "relative_path": "gzip-source-payload-b074cee/report.json",
+      "sha256": "0c0e6f6c5db0b82ea6a883777c55f3dfbf71a2e6402916cf364ff4675ea27d03"
+    },
+    "gzip_manifest": {
+      "relative_path": "gzip-source-payload-b074cee/manifest.json",
+      "sha256": "1aec8b97a033c542cb6c18492cf6e4c8d28669b9aebeb84e4fddecd9450e5215"
+    },
+    "source_projection": {
+      "relative_path": "source-projection-diagnostic-b074cee/report.json",
+      "sha256": "555d554a3357d0861f708f25566b7cf993a3662bdf1c1a60e45f2640d591bdab"
     }
   },
   "observations": {
@@ -147,6 +159,165 @@
       "lumina_decoded_bytes": 383477,
       "jellyfin_decoded_bytes": 2811,
       "production_gzip_level": 3
+    },
+    "gzip_payload": {
+      "scope": "Native CPU/size microprobe, no HTTP/frame qualification",
+      "samples_per_level": 120,
+      "warmups": 15,
+      "body_bytes": 383477,
+      "body_sha256": "96826cc0de3e87012f4eb00f98427d0cf2e3099ebd3883f81ac00b2e53ce4f82",
+      "summaries_by_level": {
+        "1": {
+          "compressed_percent_of_body": 6.151608,
+          "compressed_ratio": 0.06151608,
+          "compressed_size_bytes": {
+            "max": 23590,
+            "min": 23590,
+            "p50": 23590.0,
+            "p95": 23590
+          },
+          "decompression_exact_count": 120,
+          "level": 1,
+          "process_cpu_ms": {
+            "p50": 0.473708,
+            "p95": 0.508458
+          },
+          "timed_sample_count": 120,
+          "wall_ms": {
+            "p50": 0.474355,
+            "p95": 0.509292
+          }
+        },
+        "3": {
+          "compressed_percent_of_body": 5.722899,
+          "compressed_ratio": 0.05722899,
+          "compressed_size_bytes": {
+            "max": 21946,
+            "min": 21946,
+            "p50": 21946.0,
+            "p95": 21946
+          },
+          "decompression_exact_count": 120,
+          "level": 3,
+          "process_cpu_ms": {
+            "p50": 0.485916,
+            "p95": 0.538875
+          },
+          "timed_sample_count": 120,
+          "wall_ms": {
+            "p50": 0.48648,
+            "p95": 0.542834
+          }
+        },
+        "5": {
+          "compressed_percent_of_body": 3.960342,
+          "compressed_ratio": 0.03960342,
+          "compressed_size_bytes": {
+            "max": 15187,
+            "min": 15187,
+            "p50": 15187.0,
+            "p95": 15187
+          },
+          "decompression_exact_count": 120,
+          "level": 5,
+          "process_cpu_ms": {
+            "p50": 0.847604,
+            "p95": 0.922167
+          },
+          "timed_sample_count": 120,
+          "wall_ms": {
+            "p50": 0.848145,
+            "p95": 0.924917
+          }
+        },
+        "6": {
+          "compressed_percent_of_body": 3.778062,
+          "compressed_ratio": 0.03778062,
+          "compressed_size_bytes": {
+            "max": 14488,
+            "min": 14488,
+            "p50": 14488.0,
+            "p95": 14488
+          },
+          "decompression_exact_count": 120,
+          "level": 6,
+          "process_cpu_ms": {
+            "p50": 0.979541,
+            "p95": 1.093417
+          },
+          "timed_sample_count": 120,
+          "wall_ms": {
+            "p50": 0.980541,
+            "p95": 1.097042
+          }
+        },
+        "9": {
+          "compressed_percent_of_body": 3.611951,
+          "compressed_ratio": 0.03611951,
+          "compressed_size_bytes": {
+            "max": 13851,
+            "min": 13851,
+            "p50": 13851.0,
+            "p95": 13851
+          },
+          "decompression_exact_count": 120,
+          "level": 9,
+          "process_cpu_ms": {
+            "p50": 1.39627,
+            "p95": 1.503208
+          },
+          "timed_sample_count": 120,
+          "wall_ms": {
+            "p50": 1.396875,
+            "p95": 1.504334
+          }
+        }
+      },
+      "decision": "Retain production level3: level1 saves about0.012ms median and adds1644bytes. Initial read-only SQLite failure collected no samples; retained in private worker log."
+    },
+    "source_projection": {
+      "scope": "Native service/projection diagnostic; no HTTP or frame qualification",
+      "candidate": "Defer LibraryItem.metadata_summary and MediaArtifact.analysis with raiseload on ORM entity projections only",
+      "summary": {
+        "control": {
+          "wall_ms": {
+            "p50": 9.978083,
+            "p95": 10.814333
+          },
+          "cpu_ms": {
+            "p50": 9.975792,
+            "p95": 10.811917
+          },
+          "statements": {
+            "p50": 9.0,
+            "p95": 9
+          },
+          "projected": {
+            "p50": 0.0,
+            "p95": 0
+          }
+        },
+        "candidate": {
+          "wall_ms": {
+            "p50": 10.103500499999999,
+            "p95": 35.760708
+          },
+          "cpu_ms": {
+            "p50": 10.1008955,
+            "p95": 35.758541
+          },
+          "statements": {
+            "p50": 9.0,
+            "p95": 9
+          },
+          "projected": {
+            "p50": 1.0,
+            "p95": 1
+          }
+        }
+      },
+      "canonical_body_sha256": "4760ac024052d182acd512fdd01a4175465b601676ac1153cddfc08f645b4cc2",
+      "decision": "Reject: no median gain and worse observed p95. Diagnostic hook overhead limits extrapolation; no application loader change."
     }
   }
 }

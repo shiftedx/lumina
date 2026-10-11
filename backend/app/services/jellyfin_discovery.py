@@ -26,6 +26,9 @@ _SEARCH_CACHE = "jellyfin_ranked_refs"
 _SEARCH_PAGE_CACHE = "jellyfin_movie_pages"
 SEARCH_PAGE_CACHE_ENTRIES = 4
 SEARCH_PAGE_CACHE_BYTES = 128 * 1024
+_SEARCH_CARD_CACHE = "jellyfin_movie_cards"
+SEARCH_CARD_CACHE_ENTRIES = 256
+SEARCH_CARD_CACHE_BYTES = 512 * 1024
 # FROM_JF_TYPES already covers series/season/episode/movie/boxset; the only
 # hand-off addition is Video -> library (untitled Channels items have no title type).
 _VIDEO_TYPE = "library"
@@ -106,14 +109,60 @@ def search_refs(db: Session, user: User, term: str, types: set[str] | None, limi
     return refs
 
 
+def _movie_search_cache(db: Session, user: User, query: jf.ItemsQuery):  # noqa: ANN202
+    types = item_types(",".join(query.csv("includeitemtypes")))
+    if types != {"movie"} or query.csv("fields") or query.csv("sortby"):
+        return None
+    return _search_cache(db, user, query.searchterm or "", types, SEARCH_LIMIT)
+
+
+def cached_search_cards(db: Session, user: User, query: jf.ItemsQuery, mapper: jf.JellyfinMapper, refs: list[str]) -> list[dict]:
+    """Reuse default cards across queries without retaining ORM objects or mutable responses."""
+    cached = _movie_search_cache(db, user, query)
+    if cached is None:
+        return mapper.by_ids(refs)
+    connection, raw, version, _refs, ref_key = cached
+    previous, cards = connection.info.get(_SEARCH_CARD_CACHE, (None, OrderedDict()))
+    if previous != version:
+        cards = OrderedDict()
+        connection.info[_SEARCH_CARD_CACHE] = (version, cards)
+    scope = (*ref_key[:3], mapper.server_id, mapper.scope)
+    keys = [(scope, jf.jid(ref)) for ref in refs]
+    found = {}
+    missing = []
+    for ref, key in zip(refs, keys, strict=True):
+        if key in cards:
+            cards.move_to_end(key)
+            found[key] = json.loads(cards[key])
+        else:
+            missing.append(ref)
+    if not missing:
+        return [found[key] for key in keys]
+    rendered = mapper.by_ids(missing)
+    current = (connection.exec_driver_sql("PRAGMA data_version").scalar_one(), raw.total_changes)
+    publish = current == version and not raw.in_transaction and not (db.new or db.dirty or db.deleted)
+    for dto in rendered:
+        key = (scope, dto["Id"])
+        found[key] = dto
+        if publish:
+            try:
+                encoded = json.dumps(dto, ensure_ascii=False, separators=(",", ":")).encode()
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if len(encoded) <= SEARCH_CARD_CACHE_BYTES:
+                cards[key] = encoded
+                cards.move_to_end(key)
+    size = sum(len(value) for value in cards.values())
+    while len(cards) > SEARCH_CARD_CACHE_ENTRIES or size > SEARCH_CARD_CACHE_BYTES:
+        size -= len(cards.popitem(last=False)[1])
+    return [found[key] for key in keys if key in found]
+
+
 def cached_search_page(
     db: Session, user: User, query: jf.ItemsQuery, mapper: jf.JellyfinMapper, render: Callable[[], dict],
 ) -> dict:
     """Copy unchanged default movie cards; other projections keep their ordinary rendering path."""
-    types = item_types(",".join(query.csv("includeitemtypes")))
-    if types != {"movie"} or query.csv("fields") or query.csv("sortby"):
-        return render()
-    cached = _search_cache(db, user, query.searchterm or "", types, SEARCH_LIMIT)
+    cached = _movie_search_cache(db, user, query)
     if cached is None:
         return render()
     connection, raw, version, _refs, ref_key = cached

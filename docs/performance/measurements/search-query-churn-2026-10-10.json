@@ -1,0 +1,1076 @@
+{
+  "schema": 1,
+  "scope": "32-query rotating synthetic Movie search; 10 warmups and 300 timed requests per server at concurrency 1, 8, 32 in each block; two-server sequential batches reverse server order between blocks; warm filesystem and server caches; not a unique-query or universal search claim",
+  "block_order": [
+    "control",
+    "candidate",
+    "candidate",
+    "control"
+  ],
+  "source": {
+    "base_image_id": "sha256:4a97ffc38ba5ad0fe079ee9a2e579bdc7b05b786829a0accff92130fbd540eae",
+    "changed_application_sha256": {
+      "backend/app/services/jellyfin_discovery.py": "fec14074cbb61992f3c3aed33bdb2d064c87082b1e2d05d40417a66e5f80dac1",
+      "backend/app/routers/jellyfin_integration.py": "3fc49ed58f2b8f1d9bd06562a4327717877a67e6967c0159ff25569424cbd212"
+    },
+    "source_head": "945fea54596763a3a8c4fe923394c492e0cf97da",
+    "scope": "Frozen 16ffb1b application image with exactly two application files overlaid; source worktree version bump is not included."
+  },
+  "blocks": [
+    {
+      "block": 1,
+      "label": "control",
+      "raw_sha256": "e3ace8527b1c9bfcbc66582b00618bdf172a2d323075b5e8a55ba88bc32a473e",
+      "manifest_sha256": "3ac9556475edd119b9a716a5890666e6f8b84a23f7d168ea1266b24b3421e31e",
+      "images": {
+        "jellyfin": {
+          "id": "sha256:48cd39885e47f52367f11456a57e9450fee197f706aa0781588bb1d01aa528c5",
+          "architecture": "arm64",
+          "os": "linux"
+        },
+        "lumina": {
+          "id": "sha256:4a97ffc38ba5ad0fe079ee9a2e579bdc7b05b786829a0accff92130fbd540eae",
+          "architecture": "arm64",
+          "os": "linux"
+        }
+      },
+      "results": {
+        "lumina": {
+          "1": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 4.819,
+              "p50_ms": 6.903,
+              "p95_ms": 10.239,
+              "p99_ms": 11.25,
+              "max_ms": 12.808,
+              "mean_ms": 7.242
+            },
+            "requests_per_second": 136.2366421392562,
+            "container": {
+              "samples": 2,
+              "cpu_percent_mean": 45.04,
+              "cpu_percent_max": 77.07,
+              "cgroup_memory_usage_bytes_mean": 137835315,
+              "cgroup_memory_usage_bytes_max": 138097459,
+              "process_rss_bytes_mean": 155000832,
+              "process_rss_bytes_max": 155262976,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 3.1022,
+                "cpu_seconds": 1.68275,
+                "cpu_percent_over_measurement": 54.24,
+                "cgroup_memory_before_bytes": 141668352,
+                "cgroup_memory_after_bytes": 145248256
+              }
+            }
+          },
+          "8": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 12.816,
+              "p50_ms": 58.76,
+              "p95_ms": 106.852,
+              "p99_ms": 120.776,
+              "max_ms": 121.532,
+              "mean_ms": 62.054
+            },
+            "requests_per_second": 127.34376869539057,
+            "container": {
+              "samples": 2,
+              "cpu_percent_mean": 53.29,
+              "cpu_percent_max": 106.38,
+              "cgroup_memory_usage_bytes_mean": 139827610,
+              "cgroup_memory_usage_bytes_max": 140089754,
+              "process_rss_bytes_mean": 157509632,
+              "process_rss_bytes_max": 157552640,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 3.8984,
+                "cpu_seconds": 2.521841,
+                "cpu_percent_over_measurement": 64.69,
+                "cgroup_memory_before_bytes": 143798272,
+                "cgroup_memory_after_bytes": 147431424
+              }
+            }
+          },
+          "32": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 19.231,
+              "p50_ms": 242.926,
+              "p95_ms": 304.397,
+              "p99_ms": 322.369,
+              "max_ms": 331.752,
+              "mean_ms": 243.496
+            },
+            "requests_per_second": 125.11657998040873,
+            "container": {
+              "samples": 2,
+              "cpu_percent_mean": 53.93,
+              "cpu_percent_max": 107.71,
+              "cgroup_memory_usage_bytes_mean": 143707341,
+              "cgroup_memory_usage_bytes_max": 144179200,
+              "process_rss_bytes_mean": 160524288,
+              "process_rss_bytes_max": 160788480,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 3.907,
+                "cpu_seconds": 2.70797,
+                "cpu_percent_over_measurement": 69.31,
+                "cgroup_memory_before_bytes": 148000768,
+                "cgroup_memory_after_bytes": 149495808
+              }
+            }
+          }
+        },
+        "jellyfin": {
+          "1": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 10.878,
+              "p50_ms": 13.3,
+              "p95_ms": 17.306,
+              "p99_ms": 18.433,
+              "max_ms": 35.218,
+              "mean_ms": 13.909
+            },
+            "requests_per_second": 71.65139089386346,
+            "container": {
+              "samples": 3,
+              "cpu_percent_mean": 97.04,
+              "cpu_percent_max": 153.46,
+              "cgroup_memory_usage_bytes_mean": 283954381,
+              "cgroup_memory_usage_bytes_max": 297166438,
+              "process_rss_bytes_mean": 412920491,
+              "process_rss_bytes_max": 426176512,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 5.6659,
+                "cpu_seconds": 5.910787,
+                "cpu_percent_over_measurement": 104.32,
+                "cgroup_memory_before_bytes": 263016448,
+                "cgroup_memory_after_bytes": 306536448
+              }
+            }
+          },
+          "8": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 18.714,
+              "p50_ms": 30.848,
+              "p95_ms": 47.668,
+              "p99_ms": 52.748,
+              "max_ms": 59.333,
+              "mean_ms": 33.036
+            },
+            "requests_per_second": 240.24810421573682,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 226.82,
+              "cpu_percent_max": 226.82,
+              "cgroup_memory_usage_bytes_mean": 308491059,
+              "cgroup_memory_usage_bytes_max": 308491059,
+              "process_rss_bytes_mean": 436699136,
+              "process_rss_bytes_max": 436699136,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.8315,
+                "cpu_seconds": 5.926207,
+                "cpu_percent_over_measurement": 323.57,
+                "cgroup_memory_before_bytes": 306171904,
+                "cgroup_memory_after_bytes": 314585088
+              }
+            }
+          },
+          "32": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 105.959,
+              "p50_ms": 238.775,
+              "p95_ms": 464.78,
+              "p99_ms": 577.636,
+              "max_ms": 587.733,
+              "mean_ms": 261.276
+            },
+            "requests_per_second": 120.25071870804689,
+            "container": {
+              "samples": 2,
+              "cpu_percent_mean": 676.26,
+              "cpu_percent_max": 1352.48,
+              "cgroup_memory_usage_bytes_mean": 352688538,
+              "cgroup_memory_usage_bytes_max": 352740966,
+              "process_rss_bytes_mean": 473438208,
+              "process_rss_bytes_max": 473980928,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 3.9106,
+                "cpu_seconds": 27.843711,
+                "cpu_percent_over_measurement": 712.01,
+                "cgroup_memory_before_bytes": 314748928,
+                "cgroup_memory_after_bytes": 358719488
+              }
+            }
+          }
+        }
+      },
+      "corrected_manifest_sha256": "3a5407be8235c46e787c09bb47e0e89b56d40eb60f93697a14adf06e3dc14562",
+      "manifest_amendment_sha256": "10940d7435fd06e0af66c6f4484b17314086354ae8f81deb0e4d0ac14865a757",
+      "harness_sha256": {
+        "run_query_churn_cards_1.py": "ed52bbb3df50b74e505a35f27a08ba245d7a0409905b91cbc189199be47e83b3",
+        "query_churn_ordered.py": "0d24130e3514dcfd12ef54522946d736b429f7ef7dab229c36d4811fa09b62c7",
+        "idle_varied_qualification.py": "618017da94a1e1ea16d6b4110d0a707f25003f3bf7577d8a9082191102c51641",
+        "compare_stack.py": "6f22a31a6f820b82b9be36bdfa54cd55b2b2f4e86dbe65776d6198045896be6a",
+        "compare_servers.py": "2536f13e3422f9468098869332afb671cba33c68efcbc787e60545942be10e7b"
+      }
+    },
+    {
+      "block": 2,
+      "label": "candidate",
+      "raw_sha256": "2164b5c527f999bf94efe4d53fc0b9ada356d5d56db6aaa99e2bd8cd369d5930",
+      "manifest_sha256": "34058a4a042813a56bb9feb59ee701aec32da181caaaa1e9a010118e733150e1",
+      "images": {
+        "jellyfin": {
+          "id": "sha256:48cd39885e47f52367f11456a57e9450fee197f706aa0781588bb1d01aa528c5",
+          "architecture": "arm64",
+          "os": "linux"
+        },
+        "lumina": {
+          "id": "sha256:2577b305f7b7f58f15e981afd6e3d0055ce60b9e51a491b63e00ab263e36f12c",
+          "architecture": "arm64",
+          "os": "linux"
+        }
+      },
+      "results": {
+        "jellyfin": {
+          "1": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 13.321,
+              "p50_ms": 16.951,
+              "p95_ms": 22.434,
+              "p99_ms": 23.552,
+              "max_ms": 38.31,
+              "mean_ms": 17.54
+            },
+            "requests_per_second": 56.83564873719565,
+            "container": {
+              "samples": 3,
+              "cpu_percent_mean": 107.75,
+              "cpu_percent_max": 118.31,
+              "cgroup_memory_usage_bytes_mean": 261340092,
+              "cgroup_memory_usage_bytes_max": 277872640,
+              "process_rss_bytes_mean": 377761792,
+              "process_rss_bytes_max": 394715136,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 5.8966,
+                "cpu_seconds": 6.518722,
+                "cpu_percent_over_measurement": 110.55,
+                "cgroup_memory_before_bytes": 271745024,
+                "cgroup_memory_after_bytes": 290545664
+              }
+            }
+          },
+          "8": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 21.798,
+              "p50_ms": 34.252,
+              "p95_ms": 47.974,
+              "p99_ms": 53.512,
+              "max_ms": 55.704,
+              "mean_ms": 35.754
+            },
+            "requests_per_second": 221.8862494594583,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 317.45,
+              "cpu_percent_max": 317.45,
+              "cgroup_memory_usage_bytes_mean": 301675315,
+              "cgroup_memory_usage_bytes_max": 301675315,
+              "process_rss_bytes_mean": 418193408,
+              "process_rss_bytes_max": 418193408,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.8527,
+                "cpu_seconds": 7.210131,
+                "cpu_percent_over_measurement": 389.16,
+                "cgroup_memory_before_bytes": 289816576,
+                "cgroup_memory_after_bytes": 322400256
+              }
+            }
+          },
+          "32": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 69.993,
+              "p50_ms": 192.289,
+              "p95_ms": 271.467,
+              "p99_ms": 301.188,
+              "max_ms": 304.103,
+              "mean_ms": 191.195
+            },
+            "requests_per_second": 163.35713799212238,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 1054.09,
+              "cpu_percent_max": 1054.09,
+              "cgroup_memory_usage_bytes_mean": 387134259,
+              "cgroup_memory_usage_bytes_max": 387134259,
+              "process_rss_bytes_mean": 502194176,
+              "process_rss_bytes_max": 502194176,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.8702,
+                "cpu_seconds": 18.386237,
+                "cpu_percent_over_measurement": 983.12,
+                "cgroup_memory_before_bytes": 320180224,
+                "cgroup_memory_after_bytes": 401006592
+              }
+            }
+          }
+        },
+        "lumina": {
+          "1": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 2.906,
+              "p50_ms": 3.788,
+              "p95_ms": 8.293,
+              "p99_ms": 10.603,
+              "max_ms": 53.898,
+              "mean_ms": 4.37
+            },
+            "requests_per_second": 224.61655146866846,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 35.71,
+              "cpu_percent_max": 35.71,
+              "cgroup_memory_usage_bytes_mean": 150051226,
+              "cgroup_memory_usage_bytes_max": 150051226,
+              "process_rss_bytes_mean": 154980352,
+              "process_rss_bytes_max": 154980352,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.8091,
+                "cpu_seconds": 0.850786,
+                "cpu_percent_over_measurement": 47.03,
+                "cgroup_memory_before_bytes": 166273024,
+                "cgroup_memory_after_bytes": 167358464
+              }
+            }
+          },
+          "8": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 9.03,
+              "p50_ms": 21.338,
+              "p95_ms": 46.671,
+              "p99_ms": 50.784,
+              "max_ms": 52.658,
+              "mean_ms": 24.133
+            },
+            "requests_per_second": 326.52688050759883,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 8.57,
+              "cpu_percent_max": 8.57,
+              "cgroup_memory_usage_bytes_mean": 152148378,
+              "cgroup_memory_usage_bytes_max": 152148378,
+              "process_rss_bytes_mean": 157204480,
+              "process_rss_bytes_max": 157204480,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.9365,
+                "cpu_seconds": 0.979777,
+                "cpu_percent_over_measurement": 50.6,
+                "cgroup_memory_before_bytes": 168927232,
+                "cgroup_memory_after_bytes": 169754624
+              }
+            }
+          },
+          "32": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 15.103,
+              "p50_ms": 92.327,
+              "p95_ms": 122.296,
+              "p99_ms": 128.36,
+              "max_ms": 135.084,
+              "mean_ms": 95.099
+            },
+            "requests_per_second": 317.2751003101031,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 13.26,
+              "cpu_percent_max": 13.26,
+              "cgroup_memory_usage_bytes_mean": 156342682,
+              "cgroup_memory_usage_bytes_max": 156342682,
+              "process_rss_bytes_mean": 160595968,
+              "process_rss_bytes_max": 160595968,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.9224,
+                "cpu_seconds": 1.014738,
+                "cpu_percent_over_measurement": 52.78,
+                "cgroup_memory_before_bytes": 167694336,
+                "cgroup_memory_after_bytes": 171122688
+              }
+            }
+          }
+        }
+      },
+      "corrected_manifest_sha256": "b91235bd8ba72928746e8044cb08415ba81126c22d7a8b04eb742e62f89d06da",
+      "manifest_amendment_sha256": "84d29012f9a17f02c547f07e9ddd54e4e73ea17c63a1ddb5e9d89d0c05bf7d2b",
+      "harness_sha256": {
+        "run_query_churn_cards_2.py": "d731cb7ec0a74b72c10af0d59337b4675bbceaf25f5d79f90856181b58527d95",
+        "query_churn_ordered.py": "0d24130e3514dcfd12ef54522946d736b429f7ef7dab229c36d4811fa09b62c7",
+        "idle_varied_qualification.py": "618017da94a1e1ea16d6b4110d0a707f25003f3bf7577d8a9082191102c51641",
+        "compare_stack.py": "6f22a31a6f820b82b9be36bdfa54cd55b2b2f4e86dbe65776d6198045896be6a",
+        "compare_servers.py": "2536f13e3422f9468098869332afb671cba33c68efcbc787e60545942be10e7b"
+      }
+    },
+    {
+      "block": 3,
+      "label": "candidate",
+      "raw_sha256": "8ec83e9b0a8633774bf65655b21bb155796fd2cee60349ec7d6231edd62ba18f",
+      "manifest_sha256": "e5591ea06db75ad1203cdd2cdd800e4ee0dcf93093187b72a438797d893232bb",
+      "images": {
+        "jellyfin": {
+          "id": "sha256:48cd39885e47f52367f11456a57e9450fee197f706aa0781588bb1d01aa528c5",
+          "architecture": "arm64",
+          "os": "linux"
+        },
+        "lumina": {
+          "id": "sha256:2577b305f7b7f58f15e981afd6e3d0055ce60b9e51a491b63e00ab263e36f12c",
+          "architecture": "arm64",
+          "os": "linux"
+        }
+      },
+      "results": {
+        "lumina": {
+          "1": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 2.744,
+              "p50_ms": 3.976,
+              "p95_ms": 7.551,
+              "p99_ms": 9.598,
+              "max_ms": 48.7,
+              "mean_ms": 4.418
+            },
+            "requests_per_second": 222.01853386684277,
+            "container": {
+              "samples": 2,
+              "cpu_percent_mean": 30.12,
+              "cpu_percent_max": 60.02,
+              "cgroup_memory_usage_bytes_mean": 138464460,
+              "cgroup_memory_usage_bytes_max": 138621747,
+              "process_rss_bytes_mean": 154820608,
+              "process_rss_bytes_max": 154824704,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 3.1219,
+                "cpu_seconds": 0.833879,
+                "cpu_percent_over_measurement": 26.71,
+                "cgroup_memory_before_bytes": 150966272,
+                "cgroup_memory_after_bytes": 151736320
+              }
+            }
+          },
+          "8": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 10.695,
+              "p50_ms": 21.843,
+              "p95_ms": 40.819,
+              "p99_ms": 47.529,
+              "max_ms": 52.254,
+              "mean_ms": 24.567
+            },
+            "requests_per_second": 320.6137261501309,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 11.66,
+              "cpu_percent_max": 11.66,
+              "cgroup_memory_usage_bytes_mean": 140614042,
+              "cgroup_memory_usage_bytes_max": 140614042,
+              "process_rss_bytes_mean": 156893184,
+              "process_rss_bytes_max": 156893184,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.9274,
+                "cpu_seconds": 0.998947,
+                "cpu_percent_over_measurement": 51.83,
+                "cgroup_memory_before_bytes": 151408640,
+                "cgroup_memory_after_bytes": 153575424
+              }
+            }
+          },
+          "32": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 16.078,
+              "p50_ms": 89.293,
+              "p95_ms": 94.305,
+              "p99_ms": 96.684,
+              "max_ms": 106.212,
+              "mean_ms": 86.463
+            },
+            "requests_per_second": 350.5230146816853,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 3.33,
+              "cpu_percent_max": 3.33,
+              "cgroup_memory_usage_bytes_mean": 141243187,
+              "cgroup_memory_usage_bytes_max": 141243187,
+              "process_rss_bytes_mean": 157097984,
+              "process_rss_bytes_max": 157097984,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.9231,
+                "cpu_seconds": 0.898703,
+                "cpu_percent_over_measurement": 46.73,
+                "cgroup_memory_before_bytes": 153759744,
+                "cgroup_memory_after_bytes": 153915392
+              }
+            }
+          }
+        },
+        "jellyfin": {
+          "1": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 11.53,
+              "p50_ms": 13.658,
+              "p95_ms": 18.153,
+              "p99_ms": 18.675,
+              "max_ms": 35.468,
+              "mean_ms": 14.306
+            },
+            "requests_per_second": 69.61538351998753,
+            "container": {
+              "samples": 3,
+              "cpu_percent_mean": 97.44,
+              "cpu_percent_max": 153.73,
+              "cgroup_memory_usage_bytes_mean": 297900442,
+              "cgroup_memory_usage_bytes_max": 308910490,
+              "process_rss_bytes_mean": 429039616,
+              "process_rss_bytes_max": 439517184,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 5.6498,
+                "cpu_seconds": 5.807644,
+                "cpu_percent_over_measurement": 102.79,
+                "cgroup_memory_before_bytes": 282787840,
+                "cgroup_memory_after_bytes": 317239296
+              }
+            }
+          },
+          "8": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 17.787,
+              "p50_ms": 32.157,
+              "p95_ms": 46.045,
+              "p99_ms": 49.693,
+              "max_ms": 50.673,
+              "mean_ms": 33.924
+            },
+            "requests_per_second": 233.84059969615066,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 280.26,
+              "cpu_percent_max": 280.26,
+              "cgroup_memory_usage_bytes_mean": 326107136,
+              "cgroup_memory_usage_bytes_max": 326107136,
+              "process_rss_bytes_mean": 456110080,
+              "process_rss_bytes_max": 456110080,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.833,
+                "cpu_seconds": 6.660093,
+                "cpu_percent_over_measurement": 363.34,
+                "cgroup_memory_before_bytes": 316010496,
+                "cgroup_memory_after_bytes": 331956224
+              }
+            }
+          },
+          "32": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 86.382,
+              "p50_ms": 178.897,
+              "p95_ms": 285.927,
+              "p99_ms": 359.79,
+              "max_ms": 377.941,
+              "mean_ms": 190.991
+            },
+            "requests_per_second": 163.57939333679045,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 963.22,
+              "cpu_percent_max": 963.22,
+              "cgroup_memory_usage_bytes_mean": 375914496,
+              "cgroup_memory_usage_bytes_max": 375914496,
+              "process_rss_bytes_mean": 503037952,
+              "process_rss_bytes_max": 503037952,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.8694,
+                "cpu_seconds": 17.298497,
+                "cpu_percent_over_measurement": 925.33,
+                "cgroup_memory_before_bytes": 332398592,
+                "cgroup_memory_after_bytes": 385015808
+              }
+            }
+          }
+        }
+      },
+      "corrected_manifest_sha256": "2d3d9c98515f389f0fe7042c246123c5edaf1894ab8296626b2f78866c5553a0",
+      "manifest_amendment_sha256": "f99e2475a65d37a5f12c4a505ccb56945432b45a82bfca3043552973ee555239",
+      "harness_sha256": {
+        "run_query_churn_cards_3.py": "9da31b5bf17e0728cefc9cbb4bf182266f3cd25ac24bee827aae557862b6fe72",
+        "query_churn_ordered.py": "0d24130e3514dcfd12ef54522946d736b429f7ef7dab229c36d4811fa09b62c7",
+        "idle_varied_qualification.py": "618017da94a1e1ea16d6b4110d0a707f25003f3bf7577d8a9082191102c51641",
+        "compare_stack.py": "6f22a31a6f820b82b9be36bdfa54cd55b2b2f4e86dbe65776d6198045896be6a",
+        "compare_servers.py": "2536f13e3422f9468098869332afb671cba33c68efcbc787e60545942be10e7b"
+      }
+    },
+    {
+      "block": 4,
+      "label": "control",
+      "raw_sha256": "5366ad3d199ff42657c2546bb385f5bd965a27f35e08516e8787e806bdaca96c",
+      "manifest_sha256": "5c1ec773c7bde86015273ef73254fe360d00393d600006874221dcdd37a75c06",
+      "images": {
+        "jellyfin": {
+          "id": "sha256:48cd39885e47f52367f11456a57e9450fee197f706aa0781588bb1d01aa528c5",
+          "architecture": "arm64",
+          "os": "linux"
+        },
+        "lumina": {
+          "id": "sha256:4a97ffc38ba5ad0fe079ee9a2e579bdc7b05b786829a0accff92130fbd540eae",
+          "architecture": "arm64",
+          "os": "linux"
+        }
+      },
+      "results": {
+        "jellyfin": {
+          "1": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 10.881,
+              "p50_ms": 17.983,
+              "p95_ms": 24.103,
+              "p99_ms": 26.121,
+              "max_ms": 35.94,
+              "mean_ms": 17.847
+            },
+            "requests_per_second": 55.881277005254375,
+            "container": {
+              "samples": 4,
+              "cpu_percent_mean": 98.69,
+              "cpu_percent_max": 131.15,
+              "cgroup_memory_usage_bytes_mean": 277636710,
+              "cgroup_memory_usage_bytes_max": 295593574,
+              "process_rss_bytes_mean": 410650624,
+              "process_rss_bytes_max": 429469696,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 7.1207,
+                "cpu_seconds": 7.193855,
+                "cpu_percent_over_measurement": 101.03,
+                "cgroup_memory_before_bytes": 276017152,
+                "cgroup_memory_after_bytes": 309895168
+              }
+            }
+          },
+          "8": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 16.662,
+              "p50_ms": 33.641,
+              "p95_ms": 49.244,
+              "p99_ms": 51.478,
+              "max_ms": 51.873,
+              "mean_ms": 35.442
+            },
+            "requests_per_second": 224.24970265352937,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 278.38,
+              "cpu_percent_max": 278.38,
+              "cgroup_memory_usage_bytes_mean": 314258227,
+              "cgroup_memory_usage_bytes_max": 314258227,
+              "process_rss_bytes_mean": 446337024,
+              "process_rss_bytes_max": 446337024,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.8693,
+                "cpu_seconds": 6.723716,
+                "cpu_percent_over_measurement": 359.7,
+                "cgroup_memory_before_bytes": 309563392,
+                "cgroup_memory_after_bytes": 325423104
+              }
+            }
+          },
+          "32": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 49.515,
+              "p50_ms": 195.537,
+              "p95_ms": 287.18,
+              "p99_ms": 335.94,
+              "max_ms": 366.921,
+              "mean_ms": 195.294
+            },
+            "requests_per_second": 161.18339421121658,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 1030.38,
+              "cpu_percent_max": 1030.38,
+              "cgroup_memory_usage_bytes_mean": 365533594,
+              "cgroup_memory_usage_bytes_max": 365533594,
+              "process_rss_bytes_mean": 494813184,
+              "process_rss_bytes_max": 494813184,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.9017,
+                "cpu_seconds": 18.448627,
+                "cpu_percent_over_measurement": 970.11,
+                "cgroup_memory_before_bytes": 323268608,
+                "cgroup_memory_after_bytes": 368103424
+              }
+            }
+          }
+        },
+        "lumina": {
+          "1": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 4.721,
+              "p50_ms": 7.089,
+              "p95_ms": 10.012,
+              "p99_ms": 10.974,
+              "max_ms": 12.986,
+              "mean_ms": 7.386
+            },
+            "requests_per_second": 133.75504318854536,
+            "container": {
+              "samples": 2,
+              "cpu_percent_mean": 36.98,
+              "cpu_percent_max": 72.69,
+              "cgroup_memory_usage_bytes_mean": 143497626,
+              "cgroup_memory_usage_bytes_max": 143654912,
+              "process_rss_bytes_mean": 156090368,
+              "process_rss_bytes_max": 156434432,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 3.6725,
+                "cpu_seconds": 1.741276,
+                "cpu_percent_over_measurement": 47.41,
+                "cgroup_memory_before_bytes": 148951040,
+                "cgroup_memory_after_bytes": 150016000
+              }
+            }
+          },
+          "8": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 16.097,
+              "p50_ms": 48.177,
+              "p95_ms": 69.749,
+              "p99_ms": 108.956,
+              "max_ms": 110.386,
+              "mean_ms": 50.751
+            },
+            "requests_per_second": 155.40380137252916,
+            "container": {
+              "samples": 1,
+              "cpu_percent_mean": 108.8,
+              "cpu_percent_max": 108.8,
+              "cgroup_memory_usage_bytes_mean": 146381210,
+              "cgroup_memory_usage_bytes_max": 146381210,
+              "process_rss_bytes_mean": 158240768,
+              "process_rss_bytes_max": 158240768,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 1.9657,
+                "cpu_seconds": 2.127515,
+                "cpu_percent_over_measurement": 108.23,
+                "cgroup_memory_before_bytes": 150421504,
+                "cgroup_memory_after_bytes": 152338432
+              }
+            }
+          },
+          "32": {
+            "attempted": 300,
+            "statuses": {
+              "200": 300
+            },
+            "latency": {
+              "count": 300,
+              "min_ms": 20.112,
+              "p50_ms": 218.525,
+              "p95_ms": 258.288,
+              "p99_ms": 264.783,
+              "max_ms": 267.648,
+              "mean_ms": 211.246
+            },
+            "requests_per_second": 144.10423919605472,
+            "container": {
+              "samples": 2,
+              "cpu_percent_mean": 60.26,
+              "cpu_percent_max": 120.31,
+              "cgroup_memory_usage_bytes_mean": 147324928,
+              "cgroup_memory_usage_bytes_max": 147534643,
+              "process_rss_bytes_mean": 159297536,
+              "process_rss_bytes_max": 159297536,
+              "cgroup_counter_delta": {
+                "measurement_seconds": 3.7886,
+                "cpu_seconds": 2.403147,
+                "cpu_percent_over_measurement": 63.43,
+                "cgroup_memory_before_bytes": 152666112,
+                "cgroup_memory_after_bytes": 156405760
+              }
+            }
+          }
+        }
+      },
+      "corrected_manifest_sha256": "109a122f11590c86c7360c1b4cdc58bda7a584852d1a335205a36f56b9133fe5",
+      "manifest_amendment_sha256": "ac9a4e2144d7bd7857e8a326ad2311e92b34a388ecb68c7166e8f16f47dbdcae",
+      "harness_sha256": {
+        "run_query_churn_cards_4.py": "d7dff8451a1626b024324b3d763f265bac2d7430e52b5e31625beac9edde895e",
+        "query_churn_ordered.py": "0d24130e3514dcfd12ef54522946d736b429f7ef7dab229c36d4811fa09b62c7",
+        "idle_varied_qualification.py": "618017da94a1e1ea16d6b4110d0a707f25003f3bf7577d8a9082191102c51641",
+        "compare_stack.py": "6f22a31a6f820b82b9be36bdfa54cd55b2b2f4e86dbe65776d6198045896be6a",
+        "compare_servers.py": "2536f13e3422f9468098869332afb671cba33c68efcbc787e60545942be10e7b"
+      }
+    }
+  ],
+  "correctness": {
+    "timed_requests": 7200,
+    "non_200": 0,
+    "stable_decoded_bodies_across_all_lumina_queries_and_blocks": true,
+    "distinct_queries": 32
+  },
+  "pooled": {
+    "control": {
+      "lumina": {
+        "1": {
+          "count": 600,
+          "min_ms": 4.721083998447284,
+          "p50_ms": 7.022167003015056,
+          "p95_ms": 10.235333000309765,
+          "p99_ms": 11.24979101587087,
+          "max_ms": 12.986165995243937
+        },
+        "8": {
+          "count": 600,
+          "min_ms": 12.815875001251698,
+          "p50_ms": 51.924458995927125,
+          "p95_ms": 100.04754198598675,
+          "p99_ms": 114.04408302041702,
+          "max_ms": 121.53195799328387
+        },
+        "32": {
+          "count": 600,
+          "min_ms": 19.231334008509293,
+          "p50_ms": 233.3992079948075,
+          "p95_ms": 289.33487500762567,
+          "p99_ms": 316.59799997578375,
+          "max_ms": 331.75233300426044
+        }
+      },
+      "jellyfin": {
+        "1": {
+          "count": 600,
+          "min_ms": 10.878083994612098,
+          "p50_ms": 14.735625009052455,
+          "p95_ms": 22.37095800228417,
+          "p99_ms": 25.398208992555737,
+          "max_ms": 35.93979202560149
+        },
+        "8": {
+          "count": 600,
+          "min_ms": 16.661583009408787,
+          "p50_ms": 32.651749992510304,
+          "p95_ms": 48.69066699757241,
+          "p99_ms": 52.33991699060425,
+          "max_ms": 59.33341701165773
+        },
+        "32": {
+          "count": 600,
+          "min_ms": 49.514667014591396,
+          "p50_ms": 213.04054200300016,
+          "p95_ms": 426.29058301099576,
+          "p99_ms": 526.5190410136711,
+          "max_ms": 587.7329159993678
+        }
+      }
+    },
+    "candidate": {
+      "lumina": {
+        "1": {
+          "count": 600,
+          "min_ms": 2.7436669915914536,
+          "p50_ms": 3.89279198134318,
+          "p95_ms": 7.983832998434082,
+          "p99_ms": 9.858916979283094,
+          "max_ms": 53.89829201158136
+        },
+        "8": {
+          "count": 600,
+          "min_ms": 9.030416986206546,
+          "p50_ms": 21.620541985612363,
+          "p95_ms": 44.23070899792947,
+          "p99_ms": 50.30108301434666,
+          "max_ms": 52.65808300464414
+        },
+        "32": {
+          "count": 600,
+          "min_ms": 15.103249985259026,
+          "p50_ms": 90.56075001717545,
+          "p95_ms": 117.14554199716076,
+          "p99_ms": 126.80266701499932,
+          "max_ms": 135.08387497859076
+        }
+      },
+      "jellyfin": {
+        "1": {
+          "count": 600,
+          "min_ms": 11.52995799202472,
+          "p50_ms": 15.505999996094033,
+          "p95_ms": 21.58158298698254,
+          "p99_ms": 23.37858299142681,
+          "max_ms": 38.30999997444451
+        },
+        "8": {
+          "count": 600,
+          "min_ms": 17.786625016015023,
+          "p50_ms": 33.2183749997057,
+          "p95_ms": 47.01733399997465,
+          "p99_ms": 51.609542017104104,
+          "max_ms": 55.703749996609986
+        },
+        "32": {
+          "count": 600,
+          "min_ms": 69.99254200491123,
+          "p50_ms": 185.5462079984136,
+          "p95_ms": 281.5908749762457,
+          "p99_ms": 353.6874169949442,
+          "max_ms": 377.941374987131
+        }
+      }
+    }
+  },
+  "candidate_image_id": "sha256:2577b305f7b7f58f15e981afd6e3d0055ce60b9e51a491b63e00ab263e36f12c",
+  "assessment": "Candidate p95 leads paired Jellyfin at all three tested concurrencies in both repeats. Concurrency-8 margins are small and not a universal search claim. All response hashes and failures retained.",
+  "validation": {
+    "full_gate": {
+      "backend_passed": 4512,
+      "backend_skipped": 11,
+      "backend_failures": [
+        "test_copy_runs_write_exactly_the_planned_segments",
+        "test_a_resumed_copy_lists_the_whole_file_and_serves_any_segment_of_it"
+      ],
+      "assessment": "Same host HLS failures as the release handoff; full make check is not clean.",
+      "bootstrap_passed": 13,
+      "frontend_types": "passed",
+      "frontend_build": "passed"
+    },
+    "linux_production_focused": {
+      "passed": 355,
+      "includes_both_host_hls_failures": true
+    },
+    "frontend_unit": {
+      "passed": 2256,
+      "files": 272
+    },
+    "realstack_gate": {
+      "passed": 46,
+      "skipped": 4
+    },
+    "mocked_browser_gate": {
+      "passed": 485,
+      "skipped": 1
+    },
+    "log_sha256": {
+      "full_gate": "db32809ca7f9e0bf76590ee46d9c861753f9dd070450e9145a2e4811ffc9cd65",
+      "linux_focused": "62a3a263acd8436466c9d7db7330911babda96d5f9c95d57263362acb9ed462c",
+      "remaining_gates": "e879f9d52bbdf6a0f82ca451270f946765d71906ad8885c0a037ed3d4be6d7c3",
+      "regression_red": "98bfd3a59a6fcb5e8f1cda727ec691e3523d59e22944828c2d5fa19fa6a82ad4",
+      "expanded_focused": "d53922f000ba6db4108288ac7585cfaf81146f003133174f1ef71d387db897cc"
+    }
+  }
+}

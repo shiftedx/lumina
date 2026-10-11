@@ -26,7 +26,7 @@ from app.services import jellyfin as jf
 from app.services import playlists as pl
 from app.services import screen_time
 from app.services.connected_apps import jellyfin_user, parse_client_auth
-from app.services.jellyfin_discovery import SEARCH_LIMIT, cached_search_page, item_types, search_hint, search_refs, similar_refs, suggestion_refs
+from app.services.jellyfin_discovery import SEARCH_LIMIT, cached_search_cards, cached_search_page, item_types, search_hint, search_refs, similar_refs, suggestion_refs
 from app.services.jellyfin_playback import PLAY_SESSION_ID, pending_transcodes, subtitle_format, transcript_base
 from app.services.library import LibraryService
 from app.services.local_playback_sessions import master_playlist, sessions, with_api_key
@@ -226,7 +226,7 @@ def search_items(db: Session, user: User, query: jf.ItemsQuery) -> dict:
         # its own refs. Rendering every ranked result first made a 60-item Jellyfin
         # search pay TitleService's batches and serialization work for up to 200.
         page = refs if query.csv("sortby") else refs[start:start + limit]
-        dtos = mapper.by_ids(page)
+        dtos = cached_search_cards(db, user, query, mapper, page)
         total = len(refs)  # search_refs emits only visibility-checked Jellyfin title/item refs
         if query.csv("sortby"):
             total = len(dtos)  # preserve the old defensive count if by_ids drops a concurrently removed ref

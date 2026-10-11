@@ -554,6 +554,40 @@ def test_selected_stream_template_binds_only_live_request_values() -> None:
     assert set(compiled.params) == {"token_digest", "cutoff", "entity_id", "wanted"}
 
 
+def test_startup_warms_stream_compilation_without_caching_credentials(jf: TestClient) -> None:
+    from sqlalchemy import event
+    from app.services.jellyfin import _selected_stream_with_credential_statement, warm_selected_stream_statement
+
+    db_module.engine.clear_compiled_cache()
+    _selected_stream_with_credential_statement.cache_clear()
+    executions = []
+
+    def capture(_connection, _cursor, statement, _parameters, context, _many):  # noqa: ANN001
+        if "stream_credential AS" in statement:
+            executions.append((context.cache_hit.name, set(context.compiled.params)))
+
+    event.listen(db_module.engine, "before_cursor_execute", capture)
+    try:
+        with db_module.SessionLocal() as db:
+            warm_selected_stream_statement(db)
+        response = jf.get(
+            f"/Videos/{HEX(MOVIE)}/stream", params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN},
+            headers={"Range": "bytes=0-9"},
+        )
+        assert (response.status_code, response.content) == (206, b"\0" * 10)
+        with db_module.SessionLocal() as db:
+            db.get(User, ALICE).is_active = False
+            db.commit()
+        assert jf.get(
+            f"/Videos/{HEX(MOVIE)}/stream", params={"MediaSourceId": HEX(MOVIE_4K), "api_key": ALICE_TOKEN},
+            headers={"Range": "bytes=0-9"},
+        ).status_code == 401
+    finally:
+        event.remove(db_module.engine, "before_cursor_execute", capture)
+    assert [hit for hit, _keys in executions] == ["CACHE_MISS", "CACHE_HIT", "CACHE_HIT"]
+    assert all(keys == {"token_digest", "cutoff", "entity_id", "wanted"} for _hit, keys in executions)
+
+
 @pytest.mark.parametrize("required", [True, False])
 def test_static_stream_template_keeps_defaulted_binds_live(required: bool) -> None:
     """A future named policy bind must not be frozen at its construction default."""

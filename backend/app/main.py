@@ -277,6 +277,7 @@ from app.services.remote_streaming import (
 )
 from app.services import activity
 from app.services.hwaccel import hwaccel
+from app.services.jellyfin import warm_selected_stream_statement
 from app.services.media_probe import media_tool
 from app.services.hls_relay import HlsRelayService
 from app.services.hls_relay_support import supports_hls_relay, supports_live_hls_relay
@@ -846,6 +847,8 @@ async def lifespan(app: FastAPI):
         public_address.set_local_origin(app_settings.local_address)
         network_policy.set_extra_ports((app_settings.ui_prefs or {}).get("extra_source_ports"))
         hwaccel.warm(media_tool(db, "ffmpeg"), app_settings.hwaccel or "auto")
+        if app_settings.jellyfin_enabled:
+            warm_selected_stream_statement(db)
         UserSettingsService(db).ensure_for_all_users()
         cache_owner_ids = [owner_id for owner_id, in db.query(User.id).all()]
     # Reconcile durable member policies before the global ceiling. This also

@@ -193,10 +193,13 @@ def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: 
     # A run of a Jellyfin whole-file playlist starts at its segment's first timestamp (``run.seek``). ffmpeg seeks a stream
     # with B-frames 3/23 s before the time asked (it matches keyframes by DTS), so copied video asks that much past the
     # keyframe to land on it rather than the one before, and the output offset is that same time so a timestamp stays itself.
+    # Planned copy cuts are absolute packet times. Do not add the container start time to -ss: audio encoder delay can
+    # make it negative and move the seek just before the keyframe, sending the run back an entire segment.
     start = run.seek if run else start
     seek_at = start + 3 / 23 + 0.002 if run and decision.video == "copy" else start
     places = ".6f" if run else ".3f"
-    seek = [*(["-noaccurate_seek"] if decision.video == "copy" else []), "-ss", f"{seek_at:{places}}"] if start else []
+    copy_seek = ["-noaccurate_seek", *(["-seek_timestamp", "1"] if run else [])] if decision.video == "copy" else []
+    seek = [*copy_seek, "-ss", f"{seek_at:{places}}"] if start else []
     offset = ["-output_ts_offset", f"{seek_at if run else start:{places}}"] if start else []
     length = ["-t", f"{run.length:.6f}"] if run and run.length else []
     codec = next((s.get("codec") for s in facts.get("streams") or [] if s.get("index") == decision.video_index), None)

@@ -1290,6 +1290,15 @@ def _selected_stream_with_credential_statement():  # noqa: ANN202
     return _inline_static_stream_values(_fixed_stream_type_lists(statement))
 
 
+def warm_selected_stream_statement(db: Session) -> None:
+    """Compile the selected-stream shape before the first playback request."""
+    # NULL comparisons match no credential or file. Only SQL compilation is
+    # reused, never the result or request values.
+    db.execute(_selected_stream_with_credential_statement(), {
+        "token_digest": None, "cutoff": datetime.min, "entity_id": None, "wanted": None,
+    }).all()
+
+
 def selected_stream_with_credential(
     db: Session, raw_id: str, media_source_id: str, *, token_digest: str, cutoff: datetime,
 ) -> CredentialStreamFile | None:

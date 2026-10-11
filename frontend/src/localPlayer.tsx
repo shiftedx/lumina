@@ -1,6 +1,6 @@
 import { type ComponentProps, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import { apiBaseUrl, getLocalPlaybackOptions, libraryMediaUrl, markHevcFailed, startLocalPlaybackSession, stopLocalPlaybackSession } from './api';
+import { apiBaseUrl, ApiRequestError, getLocalPlaybackOptions, libraryMediaUrl, markHevcFailed, startLocalPlaybackSession, stopLocalPlaybackSession } from './api';
 import { accessStopCode, reportAccessStop } from './features/access/accessEvents';
 import { LuminaPlayer, type LuminaPlayerSource, type LuminaPlayerTrack } from './LuminaPlayer';
 import { releaseBackground } from './backgroundGate';
@@ -28,8 +28,11 @@ type LocalPlayerProps = Omit<ComponentProps<typeof LuminaPlayer>, 'source' | 're
 };
 
 export const STOPPED_BY_ADMIN_MESSAGE = 'Playback was stopped by the server owner.';
+const MISSING_SOURCE_MESSAGE = 'This file is no longer available. Refresh the stream to check the current library item.';
 /** True when a 403 body carries the detail code `stopped_by_admin` (Activity page). */
 export const isStoppedByAdmin = (status: number | undefined, body: string | undefined) => status === 403 && /"?code"?\s*:\s*"stopped_by_admin"/.test(body ?? '');
+const isMissingSourceProbe = (error: unknown) => error instanceof ApiRequestError && error.status === 404
+  && (error.message === 'Media file is not available.' || error.message === 'Library item not found');
 
 const ENCODE_MAX_HEIGHT = 1080; // mirrors playback_decision.MAX_ENCODE_HEIGHT
 const codecLabel = (codec: string) => (codec === 'h264' ? 'H.264' : codec.toUpperCase());
@@ -99,6 +102,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   const key = requestKey(request);
   const [options, setOptions] = useState<LocalPlaybackOptions | null>(null);
   const [probeFailed, setProbeFailed] = useState(false);
+  const [sourceMissing, setSourceMissing] = useState(false);
   const [session, setSession] = useState<LocalPlaybackSession | null>(null);
   const [conversionProblem, setConversionProblem] = useState<string | null>(null);
   const [stoppedByAdmin, setStoppedByAdmin] = useState(false);
@@ -159,11 +163,13 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
     let active = true;
     setOptions(null);
     setProbeFailed(false);
+    setSourceMissing(false);
     setSession(null);
     ((decisionAttempt ? null : takePrefetchedOptions(playId)) ?? getLocalPlaybackOptions(playId)).then(
       (next) => { if (active) { setOptions(next); onOptionsRef.current?.(next); } },
-      // An unreachable probe should not block a file the browser may still play.
-      () => { if (active) { setProbeFailed(true); onOptionsRef.current?.(null); } },
+      // An unreachable probe should not block a file the browser may still play. A definitive 404 must
+      // not be hidden by that fallback: direct media would only repeat the same missing-source failure.
+      (error: unknown) => { if (active) { if (isMissingSourceProbe(error)) setSourceMissing(true); else setProbeFailed(true); onOptionsRef.current?.(null); } },
     );
     return () => { active = false; };
   }, [playId, decisionAttempt]);
@@ -212,7 +218,10 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
       },
       (error: unknown) => {
         release();
-        if (active) setConversionProblem(error instanceof Error ? error.message : 'This file could not be converted for playback.');
+        if (active) {
+          if (error instanceof ApiRequestError && error.status === 404) setSourceMissing(true);
+          else setConversionProblem(error instanceof Error ? error.message : 'This file could not be converted for playback.');
+        }
       },
     );
     return () => {
@@ -242,6 +251,8 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
       // whole file, so every seek path (bar, chapters, resume) can target any position.
       const player = new Hls({
         autoStartLoad: false, timelineOffset: session.start, xhrSetup: (xhr) => { xhr.withCredentials = true; },
+        // Lumina owns these sidecar tracks and their Off/language choice.
+        renderTextTracksNatively: false,
         // Fetch the first fragment at once and keep the first buffer short.
         startFragPrefetch: true, maxBufferLength: START_BUFFER_SECONDS,
       });
@@ -325,7 +336,16 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   // (a stale position, a moment in the credits) plays from the beginning instead of ending at once.
   const directFrom = probeFailed ? 0 : startPoint(directStart, duration);
   const fragment = directFrom ? `#t=${directFrom}` : '';
+  const refreshMissingSource = () => {
+    restartedRef.current = true;
+    setSourceMissing(false);
+    setConversionProblem(null);
+    setOptions(null);
+    setSession(null);
+    setDecisionAttempt((attempt) => attempt + 1);
+  };
   if (stoppedByAdmin) source = { ...base, id: `${playId}:stopped`, src: null, state: 'failed', message: STOPPED_BY_ADMIN_MESSAGE };
+  else if (sourceMissing) source = { ...base, id: `${playId}:missing`, src: null, state: 'failed', message: MISSING_SOURCE_MESSAGE, onRefresh: refreshMissingSource };
   else if (probeFailed || (options?.mode === 'direct' && !converts)) source = { ...base, src: `${libraryMediaUrl(playId)}${fragment}`, state: 'loading' };
   else if (options?.mode === 'unavailable') source = { ...base, src: null, state: 'unsupported', message: 'This file has no playable audio or video.' };
   else if (conversionProblem) source = { ...base, id: `${playId}:failed`, src: null, state: 'failed', message: conversionProblem };

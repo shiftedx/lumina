@@ -8,6 +8,7 @@ const prefetch = vi.hoisted(() => ({ adoptSpeculativeStart: vi.fn(), holdConvers
 vi.mock('./playbackPrefetch', () => prefetch);
 
 const { LocalLibraryPlayer } = await import('./localPlayer');
+const { ApiRequestError } = await import('./api');
 const { MiniPlayer } = await import('./features/watch/MiniPlayer');
 const { hlsCalls, resetHlsCalls } = await import('./test/fakeHls');
 
@@ -29,6 +30,7 @@ describe('LocalLibraryPlayer tracks and probe', () => {
     rerender(<LocalLibraryPlayer {...props} request={{ max_height: 720 }} />);
     await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
     expect(hlsCalls.attached[0]).toMatchObject({ media: screen.getByLabelText('Film video') });
+    expect(hlsCalls.configs[0]).toMatchObject({ renderTextTracksNatively: false });
     expect(screen.getByLabelText('Film video').querySelector('track')?.id).toBe('s:0');
   });
 
@@ -138,6 +140,67 @@ describe('LocalLibraryPlayer tracks and probe', () => {
     render(<LocalLibraryPlayer itemId="i2" kind="video" onOptions={onOptions} poster={null} title="Clip" />);
     await waitFor(() => expect(onOptions).toHaveBeenCalledWith(null));
     expect((screen.getByLabelText('Clip video') as HTMLVideoElement).getAttribute('src')).toBe('/api/library/i2/media');
+  });
+
+  it('still tries direct play when an older server has no playback-options endpoint', async () => {
+    api.getLocalPlaybackOptions.mockRejectedValue(new ApiRequestError('Not Found', 404));
+
+    render(<LocalLibraryPlayer itemId="legacy" kind="video" poster={null} title="Clip" />);
+
+    await waitFor(() => expect((screen.getByLabelText('Clip video') as HTMLVideoElement).getAttribute('src')).toBe('/api/library/legacy/media'));
+    expect(screen.queryByRole('button', { name: 'Refresh stream' })).toBeNull();
+  });
+
+  it('reports a missing file instead of trying direct play, then re-probes the same start and choices', async () => {
+    api.getLocalPlaybackOptions
+      .mockRejectedValueOnce(new ApiRequestError('Media file is not available.', 404))
+      .mockResolvedValueOnce({ ...direct, mode: 'transcode' });
+    api.startLocalPlaybackSession.mockResolvedValue({ session_id: 'recovered', mode: 'transcode', playback_url: '/api/playback-sessions/recovered/index.m3u8', start: 42 });
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+
+    render(<LocalLibraryPlayer itemId="missing" kind="video" poster={null} request={{ max_height: 720 }} startAt={42} title="Clip" />);
+
+    expect(await screen.findByText('This file is no longer available. Refresh the stream to check the current library item.')).toBeTruthy();
+    expect(screen.queryByText('Media file is not available.')).toBeNull();
+    expect(screen.queryByLabelText('Clip video')).toBeNull();
+    expect(document.body.innerHTML).not.toContain('/api/library/missing/media');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh stream' }));
+
+    await waitFor(() => expect(api.getLocalPlaybackOptions).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.startLocalPlaybackSession).toHaveBeenCalledWith('missing', 42, { max_height: 720 }));
+    await waitFor(() => expect(hlsCalls.sources).toEqual([expect.stringContaining('/recovered/index.m3u8')]));
+  });
+
+  it('recovers a disappeared converted source at the retained seek and choice without resuming paused playback', async () => {
+    api.getLocalPlaybackOptions.mockResolvedValue({ ...direct, mode: 'transcode' });
+    api.startLocalPlaybackSession
+      .mockResolvedValueOnce({ session_id: 'first', mode: 'transcode', playback_url: '/api/playback-sessions/first/index.m3u8', start: 0 })
+      .mockRejectedValueOnce(new ApiRequestError('private server detail', 404))
+      .mockResolvedValueOnce({ session_id: 'recovered', mode: 'transcode', playback_url: '/api/playback-sessions/recovered/index.m3u8', start: 90 });
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+
+    render(<LocalLibraryPlayer itemId="changed" kind="video" poster={null} request={{ max_height: 720 }} title="Film" />);
+    const media = await waitFor(() => {
+      expect(hlsCalls.sources).toEqual([expect.stringContaining('/first/index.m3u8')]);
+      return screen.getByLabelText('Film video') as HTMLVideoElement;
+    });
+    Object.defineProperties(media, {
+      currentTime: { configurable: true, value: 90, writable: true },
+      paused: { configurable: true, value: true },
+    });
+
+    fireEvent.seeking(media);
+    expect(await screen.findByText('This file is no longer available. Refresh the stream to check the current library item.')).toBeTruthy();
+    expect(screen.queryByText('private server detail')).toBeNull();
+    expect(api.startLocalPlaybackSession).toHaveBeenNthCalledWith(2, 'changed', 90, { max_height: 720 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh stream' }));
+
+    await waitFor(() => expect(api.getLocalPlaybackOptions).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.startLocalPlaybackSession).toHaveBeenNthCalledWith(3, 'changed', 90, { max_height: 720 }));
+    await waitFor(() => expect(hlsCalls.sources.at(-1)).toContain('/recovered/index.m3u8'));
+    expect((screen.getByLabelText('Film video') as HTMLVideoElement).autoplay).toBe(false);
   });
 
   it('takes the prefetched decision, adopts the early session, and holds the conversion while it plays', async () => {

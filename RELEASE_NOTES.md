@@ -1,5 +1,13 @@
 # Release notes
 
+## Lumina 2.13.1
+
+- **Responsive remote quality recovery.** DASH now measures each actual media-range transfer instead of reusing the earlier index request at the same URL. Normal throughput adaptation returns to higher quality when bandwidth recovers, while buffering, frame-drop and abandonment protections remain active.
+- **Reliable HLS quality selections.** An explicit quality pin survives a player retry even when the refreshed playlist orders its levels differently. A missing pinned height produces an error instead of silently changing quality.
+- **Playback fixes included.** This release also includes the absolute-timestamp correction for local HLS seeks and the bounded Jellyfin search/cold-playback improvements merged after 2.13.0.
+
+There is no schema change. Controlled Chrome replay recovered from 240p to 1080p roughly 1.3 seconds after bandwidth restoration, without stalls; the old player remained at 240p through the 45-second observation. Native macOS Zen confirmed recovery. Public-provider startup remains sensitive to upstream transfer time; these results do not establish a universal startup or 4K guarantee. See the [qualification report](docs/performance/remote-streaming-2026-10-11.md).
+
 ## Lumina 2.13.0
 
 Lumina 2.13.0 uses `ghcr.io/shiftedx/lumina:2.13.0` for amd64 and arm64. Install or upgrade with the pinned image in the [operator guide](docker/README.md); 2.13.0 has no schema change.

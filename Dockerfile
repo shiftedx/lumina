@@ -68,7 +68,7 @@ ARG LUMINA_SOURCE_REVISION=unrecorded
 LABEL org.opencontainers.image.title="Lumina" \
       org.opencontainers.image.source="https://github.com/shiftedx/lumina" \
       org.opencontainers.image.revision="$LUMINA_SOURCE_REVISION" \
-      org.opencontainers.image.version="2.13.0" \
+      org.opencontainers.image.version="2.13.1" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

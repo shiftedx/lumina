@@ -1,7 +1,7 @@
 import { LoaderCircle, Settings } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
-import { startDashClimb } from './dashClimb';
+import { configureDashThroughput } from './dashThroughput';
 import { ApiRequestError, apiBaseUrl, refreshRemoteStream, releaseRemoteStream, selectRemoteRendition } from './api';
 import type { RemotePlayback } from './types';
 import { LuminaPlayer, type LuminaPlayerExtensions, type LuminaPlayerSource } from './LuminaPlayer';
@@ -26,6 +26,7 @@ const streamRetainers = new Map<string, number>();
 const pendingReleases = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
 const playbackFailureMessage = 'The stream could not be played. You can still download it to the vault.';
 const AUTO = 'auto';
+const hlsPinUnavailableMessage = 'The selected quality is no longer available. Refresh the stream to try again.';
 /** A start estimate above any rung, so dash.js begins at the highest one (kb/s). */
 export const DASH_TOP_RUNG_KBPS = 1_000_000;
 // Streams whose Switch to Auto suggestion was already offered: at most once per video session.
@@ -113,6 +114,7 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
   const [hlsLadder, setHlsLadder] = useState<Array<{ index: number; height: number }>>([]);
   const [hlsChoice, setHlsChoice] = useState(AUTO);
   const hlsPickRef = useRef<number | null>(null);
+  const hlsPinRef = useRef<{ streamId: string | null | undefined; height: number } | null>(null);
   const [suggestAuto, setSuggestAuto] = useState(false);
 
   descriptorRef.current = descriptor;
@@ -357,11 +359,28 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
       // Owner rule: start at the highest fidelity and only step down on real bandwidth or buffering trouble (ABR).
       player.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
         globalThis.performance?.mark?.('lumina:manifest-parsed');
-        if (data.levels.length > 1) player.startLevel = data.levels.length - 1;
         // Levels come ordered by bitrate: the last one of each height is its best.
         const best = new Map(data.levels.map((level, index) => [level.height, index]));
         setHlsLadder([...best].filter(([height]) => height > 0).sort((a, b) => b[0] - a[0]).map(([height, index]) => ({ height, index })));
-        setHlsChoice(AUTO);
+        const pin = hlsPinRef.current;
+        if (pin && pin.streamId === descriptor.stream_id) {
+          const level = best.get(pin.height);
+          if (level === undefined) {
+            destroy();
+            setPreparing(false);
+            setPlaybackProblem(hlsPinUnavailableMessage);
+            return;
+          }
+          player.startLevel = level;
+          player.currentLevel = level;
+          hlsPickRef.current = level;
+          setHlsChoice(String(level));
+        } else {
+          hlsPinRef.current = null;
+          hlsPickRef.current = null;
+          if (data.levels.length > 1) player.startLevel = data.levels.length - 1;
+          setHlsChoice(AUTO);
+        }
       });
       // A pinned height flushes the other height, but when the pick lands at a segment start Chrome keeps decoding the
       // old one until the next keyframe (a whole 5 s YouTube segment). Once the pick's segment under the playhead is
@@ -396,7 +415,6 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
 
     let cancelled = false;
     let player: import('dashjs').MediaPlayerClass | null = null;
-    let stopClimb = () => {};
     const streamId = descriptor.stream_id;
     const start = async () => {
       setPreparing(true);
@@ -404,6 +422,7 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
         const dashjs = await import('dashjs');
         if (cancelled || descriptorRef.current?.stream_id !== streamId) return;
         player = dashjs.MediaPlayer().create();
+        configureDashThroughput(player);
         for (const requestType of ['MPD', 'InitializationSegment', 'IndexSegment', 'MediaSegment']) {
           player.setXHRWithCredentialsForType(requestType, true);
         }
@@ -422,14 +441,10 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
           setPreparing(false);
           setPlaybackProblem('This browser cannot decode the selected quality. Choose another quality to continue.');
         });
-        // Owner rule: Auto starts at the top rung, steps down only on evidence (a segment download measurably too slow,
-        // the buffer running dry, dropped frames) and climbs back once the trouble passes. dash.js's own throughput
-        // estimate is off through the relay (it read 3-9 Mb/s while segments arrived at 80-950 Mb/s: Chrome caps Network
-        // Information at 10 Mb/s and tiny init/index ranges dominate the mean), so its throughput and BOLA rules, which
-        // began YouTube 4K at 360p, are off; startDashClimb measures whole segments and climbs instead.
+        // Start at the top, then use measured segment throughput to recover without buffer-driven overshoots.
+        // The corrected model excludes index probes and stale Resource Timing; the other safety rules stay active.
         if (autoMode) {
-          player.updateSettings({ streaming: { abr: { initialBitrate: { video: DASH_TOP_RUNG_KBPS }, rules: { throughputRule: { active: false }, bolaRule: { active: false }, droppedFramesRule: { active: true } } } } });
-          stopClimb = startDashClimb(player);
+          player.updateSettings({ streaming: { abr: { initialBitrate: { video: DASH_TOP_RUNG_KBPS }, rules: { throughputRule: { active: true }, bolaRule: { active: false }, droppedFramesRule: { active: true } } } } });
         }
         const resume = resumeAfterSelectionRef.current;
         player.initialize(
@@ -445,7 +460,6 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
     void start();
     return () => {
       cancelled = true;
-      stopClimb();
       player?.reset();
       player = null;
     };
@@ -466,11 +480,17 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
   const chooseHlsLevel = useCallback((value: string) => {
     const player = hlsRef.current;
     if (!player) return;
+    const height = hlsLadder.find((level) => level.index === Number(value))?.height;
+    if (value === AUTO) hlsPinRef.current = null;
+    else {
+      if (height === undefined) return;
+      hlsPinRef.current = { streamId: descriptorRef.current?.stream_id, height };
+    }
     setHlsChoice(value);
     hlsPickRef.current = value === AUTO ? null : Number(value);
     if (value === AUTO) player.nextLevel = -1;
     else player.currentLevel = Number(value);
-  }, []);
+  }, [hlsLadder]);
 
   // A pinned quality that keeps buffering earns one dismissible Switch to Auto offer; it never changes by itself.
   useEffect(() => {
@@ -528,6 +548,8 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
     onRefresh: descriptor && !liveEnded ? async () => { await refreshOnce(true); } : undefined,
   };
 
+  const hlsPinUnavailable = descriptor?.transport === 'hls' && playbackProblem === hlsPinUnavailableMessage;
+
   const hasOneRendition = descriptor?.renditions?.length === 1 && !descriptor.auto_available;
   const pinnedLabel = descriptor?.renditions?.find((rendition) => rendition.rendition_id === descriptor.selected_rendition_id)?.display_label || 'this quality';
   const activeLabel = activeHeight ? descriptor?.renditions?.find((rendition) => rendition.height === activeHeight)?.display_label || `${activeHeight}p` : null;
@@ -540,6 +562,13 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
         {descriptor.renditions.map((rendition) => <option key={rendition.rendition_id} value={rendition.rendition_id}>{rendition.display_label}</option>)}
       </select>
     </label>{hasOneRendition ? <span className="sr-only" id={qualityAvailabilityId}>{recoveryChoiceRequired ? `${descriptor.renditions[0].display_label} is available. Choose it to resume.` : `Only ${descriptor.renditions[0].display_label} is available from this source.`}</span> : null}{qualityProblem ? <span aria-live="polite" className="quality-problem">{qualityProblem}</span> : null}</div>
+  ) : hlsPinUnavailable ? (
+    <button onClick={() => {
+      snapshotResume();
+      hlsPinRef.current = null;
+      setPlaybackProblem(null);
+      setAttempt((value) => value + 1);
+    }} type="button">Switch to Auto</button>
   ) : hlsLadder.length > 1 ? (
     <div className="quality-control"><Settings aria-hidden="true" /><label><span className="sr-only">Quality</span>
       <select aria-label="Remote playback quality" onChange={(event) => chooseHlsLevel(event.currentTarget.value)} value={hlsChoice}>

@@ -34,6 +34,10 @@ describe('player.css', () => {
   it('keeps every player button a 44px hit area', () => {
     expect(flat).toMatch(/\.player-controls button \{[^}]*min-width: var\(--g-control\)[^}]*height: var\(--g-control\)/);
   });
+  it('reveals volume on hover and keyboard focus without animating layout width', () => {
+    expect(flat).toMatch(/\.player-volume-control:hover label, \.player-volume-control:focus-within label \{ width: 72px; \}/);
+    expect(flat).not.toMatch(/\.player-volume-control label \{[^}]*transition:[^;}]*width/);
+  });
   it('overlays the loading and unavailable status so removing it never reflows the grid under the video and controls', () => {
     expect(flat).toMatch(/\.lumina-player > \[role='status'\], \.lumina-player > \[role='alert'\] \{[^}]*position: absolute; inset: 0;[^}]*margin: auto;/);
   });

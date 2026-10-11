@@ -62,7 +62,6 @@
 .gallery.home .h-hero:hover .h-hero-step, .gallery.home .h-hero:focus-within .h-hero-step { opacity: 1; }
 @media (hover: none), (max-width: 599px) { .gallery.home .h-hero-step { display: none; } }
 .gallery.home .h-pip[aria-selected='true']::before { background: var(--g-on-art); }
-@media (prefers-reduced-motion: reduce) { .gallery.home .h-hero * { animation: none !important; } }
 @media (max-width: 1023px) { .gallery.home .h-hero { --h-art: min(50vh, 480px); } .gallery.home .h-hero-text { max-width: 480px; } }
 @media (min-width: 1600px) { .gallery.home .h-hero { --h-art: min(62vh, 680px); } .gallery.home .h-hero-text { max-width: 720px; } }
 /* Phone: the art on top (pips over it), the text below on paper, ink-filled primary, no overview. */
@@ -91,7 +90,7 @@
 .gallery.home .h-shelf.is-poster .h-card { width: var(--h-poster); }
 .gallery.home .h-shelf.is-square .h-card, .gallery.home .h-card:has(.g-art-square) { width: var(--h-square); }
 .gallery.home .h-row.is-frames { overflow: hidden; }
-.gallery.home .h-frame { flex: none; width: var(--h-still); aspect-ratio: 16 / 9; border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius); }
+.gallery.home .h-frame { flex: none; width: var(--h-still); aspect-ratio: 16 / 9; border: var(--g-rule); border-radius: var(--g-radius); }
 .gallery.home .h-shelf.is-poster .h-frame { width: var(--h-poster); aspect-ratio: 2 / 3; }
 .gallery.home .h-shelf.is-square .h-frame { width: var(--h-square); aspect-ratio: 1; }
 .gallery.home .h-shelf-error { margin: 0; font: var(--g-type-body); color: var(--g-ink-2); }

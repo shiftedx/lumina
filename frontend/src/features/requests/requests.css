@@ -115,10 +115,9 @@
 .rq-title-body { position: relative; display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: var(--g-space-6); margin-top: -200px; }
 .rq-title:has(.rq-trailer) .rq-title-body { margin-top: var(--g-space-5); }
 .rq-title-poster { align-self: start; box-shadow: var(--g-elev-2); }
-.rq-back { min-height: var(--g-control); }
 .rq-back svg { width: 16px; height: 16px; }
 .rq-tagline { margin: 8px 0; font: var(--g-type-quote); color: var(--g-ink-2); }
-.rq-overview { max-width: 70ch; margin: 12px 0; font: var(--g-type-lede); }
+.rq-overview { display: -webkit-box; max-width: 70ch; margin: 12px 0; overflow: hidden; font: var(--g-type-lede); -webkit-box-orient: vertical; -webkit-line-clamp: 5; }
 .rq-facts { display: flex; flex-wrap: wrap; gap: 16px 32px; margin: var(--g-space-5) 0 0; }
 .rq-facts dd { margin: 4px 0 0; font: var(--g-type-ui); }
 .rq-season { width: var(--rq-poster); }
@@ -148,6 +147,7 @@
 /* My requests and Manage */
 .rq-manage { margin-top: var(--g-space-6); }
 .rq-manage > h2 { margin-bottom: var(--g-space-4); }
+.rq-status-select { display: none; }
 .rq-requests { display: grid; gap: var(--g-space-5); margin: var(--g-space-4) 0 0; padding: 0; list-style: none; }
 .rq-request { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--g-space-5); padding-bottom: var(--g-space-5); border-bottom: var(--g-rule); }
 .rq-request-poster { width: 96px; padding: 0; border: 0; cursor: pointer; }
@@ -160,7 +160,12 @@
 .rq-timeline .is-done { color: var(--g-ink); }
 .rq-timeline .is-current { color: var(--g-gold-ink); font-weight: 600; }
 .rq-timeline .is-stopped { color: var(--g-danger); }
-@media (max-width: 599px) { .rq-request { grid-template-columns: 72px minmax(0, 1fr); gap: var(--g-space-4); } .rq-request-poster { width: 72px; } }
+@media (max-width: 599px) {
+  .rq-request { grid-template-columns: 72px minmax(0, 1fr); gap: var(--g-space-4); }
+  .rq-request-poster { width: 72px; }
+  .rq-status-chips { display: none; }
+  .rq-status-select { display: block; max-width: 320px; margin-bottom: var(--g-space-4); }
+}
 
 /* The request sheet (inside the shared Dialog) */
 .rq-sheet-head { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--g-space-4); margin-bottom: var(--g-space-5); }
@@ -181,13 +186,8 @@
 .rq-sheet-note.is-problem { color: var(--g-danger); }
 @media (max-width: 599px) { .rq-language { grid-template-columns: 1fr; } .rq-language-option { min-height: 88px; } }
 
-@media (prefers-reduced-motion: reduce) {
-  .rq-hero-art .rq-img, .rq-pip-fill, .rq-pip.is-current .rq-pip-fill, .rq-hero-slide { animation: none; }
-  .rq-img, .rq-card-open .rq-frame { transition: none; }
-}
-
 /* Review fixes: skeletons, schedule cap, overview clamp, phone title page */
-.rq-bar { display: block; width: 180px; height: 14px; border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius); }
+.rq-bar { display: block; width: 180px; height: 14px; border: var(--g-rule); border-radius: var(--g-radius); }
 .rq-rail-skeleton .g-skeleton.is-poster { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: var(--rq-poster); overflow: hidden; gap: var(--rq-gap); }
 .rq-hero-skeleton { display: flex; flex-direction: column; justify-content: flex-end; gap: 14px; padding: 0 var(--g-gutter) var(--g-space-8); background: var(--g-paper-2); }
 .rq-hero-skeleton .rq-bar { width: min(520px, 70%); border-color: var(--g-rule-soft); }
@@ -195,9 +195,7 @@
 .rq-hero-skeleton .rq-bar.is-title { width: min(420px, 60%); height: 56px; }
 .rq-schedule-more { min-height: var(--g-control); margin-top: 6px; }
 .rq-surface .rq-grid-title { margin-top: var(--g-space-7); }
-.rq-overview { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 5; }
 .rq-overview.is-open { display: block; }
-.rq-more-text { min-height: var(--g-control); }
 @media (max-width: 599px) {
   .rq-title-hero { height: 220px; min-height: 0; }
   .rq-title-body { grid-template-columns: 110px minmax(0, 1fr); gap: var(--g-space-3) var(--g-space-4); margin-top: -72px; }

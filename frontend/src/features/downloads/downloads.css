@@ -1,5 +1,5 @@
 /* Split from lumina.css. Owner: */
-.household-collections { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--g-rule-soft); }
+.household-collections { margin-top: 32px; padding-top: 24px; border-top: var(--g-rule); }
 .household-collections > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .household-collections h2 { margin: 0; color: var(--g-ink); font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
 .household-collections header p { max-width: 68ch; margin: 5px 0 0; color: var(--g-ink-3); font-size: 11px; line-height: 1.5; }
@@ -50,14 +50,14 @@
 /* Playlist acquisition and batch saves */
 .g-playlist { margin-top: 32px; }
 .g-playlist-list { max-height: 430px; overflow-y: auto; border-block: var(--g-rule); }
-.g-playlist-row { display: grid; grid-template-columns: auto 96px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 66px; border-bottom: 1px solid var(--g-rule-soft); }
+.g-playlist-row { display: grid; grid-template-columns: auto 96px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 66px; border-bottom: var(--g-rule); }
 .g-playlist-row[aria-disabled='true'] { color: var(--g-ink-3); }
 .g-playlist-thumb { width: 96px; aspect-ratio: 16 / 9; overflow: hidden; }
 .g-playlist-copy { display: grid; min-width: 0; gap: 4px; }
-.g-playlist-footer { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 0; border-top: 1px solid var(--g-rule-soft); background: var(--g-paper-3); }
+.g-playlist-footer { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 0; border-top: var(--g-rule); background: var(--g-paper-3); }
 .g-batch { grid-template-columns: minmax(0, 1fr); align-items: start; }
 .g-batch-entries { display: grid; gap: 4px; margin-top: 8px; }
-.g-batch-entries > li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: var(--g-control); border-top: 1px solid var(--g-rule-soft); }
+.g-batch-entries > li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: var(--g-control); border-top: var(--g-rule); }
 .g-batch-entries svg { width: 15px; height: 15px; }
 @media (max-width: 599px) {
   .g-playlist-row { grid-template-columns: auto 64px minmax(0, 1fr); }

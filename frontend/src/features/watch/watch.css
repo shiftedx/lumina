@@ -3,6 +3,8 @@
 .watch-surface:not(.watch-mini) { width: 100%; max-width: none; padding-top: 14px; padding-inline: max(24px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right)); }
 .watch-back { margin-bottom: 8px; }
 .watch-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; align-items: start; gap: 24px; }
+.watch-layout:has(> .watch-rail:empty) { grid-template-columns: minmax(0, 1fr); }
+.watch-rail:empty { display: none; }
 .watch-rail { display: grid; min-width: 0; align-content: start; gap: 16px; }
 .watch-rail .chat-rail { margin-top: 0; }
 .watch-main, .watch-info, .watch-byline, .watch-actions, .description-card { min-width: 0; max-width: 100%; }
@@ -13,7 +15,9 @@
 .watch-layout.theater .watch-tools { grid-column: 1; grid-row: 3; }
 .watch-layout.theater .watch-rail { grid-column: 2; grid-row: 2 / span 2; }
 .watch-info { padding: 18px 4px 0; }
-.watch-info h1 { color: var(--g-ink); font-size: clamp(24px, 2.2vw, 32px); line-height: 1.12; }
+.watch-info h1 { margin: 0 0 8px; color: var(--g-ink); font: 400 clamp(24px, 2.2vw, 32px) / 1.12 var(--g-serif); overflow-wrap: anywhere; hyphens: auto; letter-spacing: -.02em; }
+.watch-title { padding: 0 4px 16px; }
+@media (min-width: 961px) { .watch-layout.has-title.theater .watch-info:not(.watch-title) { grid-row: 3; } .watch-layout.has-title.theater .watch-tools { grid-row: 4; } .watch-layout.has-title.theater .watch-rail { grid-row: 2 / span 3; } }
 .watch-byline { display: flex; align-items: center; gap: 10px; margin-top: 17px; }
 .watch-byline > div { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .watch-byline strong { color: var(--g-ink); font-size: 12px; }
@@ -21,16 +25,16 @@
 .watch-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 17px; }
 .split-button { width: var(--g-control); padding: 0; border-left-color: color-mix(in srgb, var(--g-ink) 14%, transparent); border-radius: 0 7px 7px 0; }
 .clear-playback { align-self: center; }
-.description-card { margin-top: 16px; padding: 15px; border: 1px solid var(--g-rule-soft); border-radius: 8px; background: var(--g-wash); }
+.description-card { margin-top: 16px; padding: 15px; border: var(--g-rule); border-radius: 8px; background: var(--g-wash); }
 .description-meta { display: flex; flex-wrap: wrap; gap: 12px; color: var(--g-ink-2); font-size: 11px; }
 .description-meta strong { color: var(--g-ink-2); font-weight: 500; }
-.description-card > p { max-width: 900px; margin: 11px 0 13px; overflow-wrap: anywhere; color: var(--g-ink-2); font-size: 11px; line-height: 1.65; white-space: pre-line; }
-.description-card details { border-top: 1px solid var(--g-rule-soft); }
-.description-card summary { display: flex; min-height: var(--g-control); align-items: center; justify-content: space-between; color: var(--g-ink-2); cursor: pointer; font-size: 11px; list-style: none; }
+.description-card > p { max-width: 900px; margin: 11px 0 13px; overflow-wrap: anywhere; color: var(--g-ink-2); font: var(--g-type-body); white-space: pre-line; }
+.description-card details { border-top: var(--g-rule); }
+.description-card summary { display: flex; min-height: var(--g-control); align-items: center; justify-content: space-between; color: var(--g-ink-2); cursor: pointer; font: var(--g-type-ui); list-style: none; }
 .description-card summary svg { width: 14px; transition: transform .2s; }
 .description-card details[open] summary svg { transform: rotate(180deg); }
 .description-card dl { margin: 12px 0 0; }
-.description-card dl div { display: grid; grid-template-columns: minmax(80px, 110px) minmax(0, 1fr); gap: 12px; padding: 5px 0; font-size: 11px; }
+.description-card dl div { display: grid; grid-template-columns: minmax(80px, 110px) minmax(0, 1fr); gap: 12px; padding: 5px 0; font: var(--g-type-small); }
 .description-card dt { color: var(--g-ink-3); }
 .description-card dd { margin: 0; overflow-wrap: anywhere; color: var(--g-ink-2); }
 .share-feedback { display: grid; gap: 8px; margin-top: 10px; color: var(--g-ink-2); font-size: 11px; }
@@ -114,5 +118,4 @@
 .gallery .g-chat-rail { border: 0; background: none; padding: 0; }
 .gallery .g-chat-rail h2, .gallery .g-chat-rail h3 { font: var(--g-type-label); letter-spacing: var(--g-track-label); text-transform: uppercase; color: var(--g-ink-3); }
 
-.watch-info h1 { margin: 0; overflow-wrap: anywhere; font-family: 'Newsreader', Georgia, serif; font-weight: 400; hyphens: auto; letter-spacing: -.02em; }
 .g-live-chat-events { max-height: min(60vh, 560px); }

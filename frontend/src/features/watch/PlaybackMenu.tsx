@@ -3,6 +3,7 @@ import { Settings2 } from 'lucide-react';
 
 import { apiBaseUrl, ApiRequestError, type EnrichmentCapabilities, getEnrichmentJob, listSubtitleTracks, requestSubtitleJob, type SubtitleJobRequest } from '../../api';
 import type { LuminaPlayerTrack } from '../../LuminaPlayer';
+import { playbackFactsLabel } from '../../localPlayer';
 import type { EnrichmentJob, LocalPlaybackOptions, PlaybackSessionRequest, SubtitleOrigin, SubtitleTrack, TitleVersion } from '../../types';
 import { errorMessage } from '../../utils';
 import type { PlaybackPrefs } from '../../workspace';
@@ -84,6 +85,7 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
   const quality = [{ value: null as number | null, label: options?.mode === 'direct' ? 'Original' : 'Auto' }, ...(options?.quality_heights ?? []).map((height) => ({ value: height as number | null, label: `${height}p` }))];
   const audio = options?.audio_tracks ?? [];
   const defaultAudio = audio.find((entry) => entry.default)?.index ?? audio[0]?.index ?? null;
+  const playbackFacts = playbackFactsLabel(options);
 
   async function start(request: SubtitleJobRequest) {
     setJobError(null);
@@ -123,6 +125,7 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
               <TextButton onClick={() => setStyling(false)}>Back</TextButton>
             </>
           ) : <>
+          {playbackFacts ? <div className="playback-menu-actions"><p className="playback-menu-status">Playing: {playbackFacts}</p></div> : null}
           {quality.length > 1 ? (
             <fieldset><legend className="g-label">Quality</legend>
               {quality.map((entry) => <label key={entry.label}><input checked={(request.max_height ?? null) === entry.value} name={`${id}-quality`} onChange={() => onRequestChange({ ...request, max_height: entry.value })} type="radio" /> {entry.label}</label>)}

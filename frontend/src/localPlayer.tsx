@@ -361,7 +361,13 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   }, [hevcVideo, source.id, session]);
 
   const label = playbackFactsLabel(options);
-  const quality = label ? <span className="quality-control" data-playback-mode={options?.mode}>{label}</span> : extensions?.quality;
+  const compactLabel = options?.facts?.height ? `${options.facts.height}p` : label?.split(' · ').at(-1);
+  const quality = label ? (
+    <span className="quality-control quality-control-facts" data-playback-mode={options?.mode} title={label}>
+      <span className="sr-only">Playback details: {label}</span>
+      <span aria-hidden="true" className="quality-control-copy" data-compact-label={compactLabel}>{label}</span>
+    </span>
+  ) : extensions?.quality;
   // A restart reloads metadata; the caller's resume must not re-apply over the member's seek or choice.
   // A direct file reloaded by a new version resumes where the member was.
   const loaded = (media: HTMLMediaElement) => {

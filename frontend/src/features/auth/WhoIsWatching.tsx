@@ -146,7 +146,7 @@ function PasswordTile({ member, busy, onCancel, onSubmit }: { member: DeviceMemb
       <Avatar decorative name={member.display_name} size={48} />
       <span className="g-picker-name">{member.display_name}</span>
       <input aria-hidden="true" autoComplete="username" className="sr-only" readOnly tabIndex={-1} value={member.username} />
-      <label className="sr-only" htmlFor={`${id}pw`}>{`Password for ${member.display_name}`}</label>
+      <label className="g-field-label" htmlFor={`${id}pw`}>{`Password for ${member.display_name}`}</label>
       <PasswordInput aria-describedby={error ? `${id}err` : undefined} aria-invalid={error ? true : undefined} autoComplete="current-password" autoFocus id={`${id}pw`} onChange={(event) => setPassword(event.target.value)} value={password} />
       {error ? <p className="g-field-error" id={`${id}err`} role="alert">{error}</p> : null}
       <Button busy={busy} disabled={!password} type="submit" variant="primary" wide>Continue</Button>

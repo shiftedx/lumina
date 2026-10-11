@@ -25,6 +25,12 @@ test('a password tile expands in place, keyboard only', async ({ page }) => {
   await page.keyboard.press('Enter');
   const password = page.getByLabel('Password for Alexandria');
   await expect(password).toBeFocused();
+  const label = page.getByText('Password for Alexandria', { exact: true });
+  const labelBox = await label.boundingBox();
+  const passwordBox = await password.boundingBox();
+  expect(labelBox!.height).toBeGreaterThan(12);
+  expect(labelBox!.width).toBeGreaterThan(40);
+  expect(labelBox!.y + labelBox!.height).toBeLessThanOrEqual(passwordBox!.y);
   await page.keyboard.type('synthetic-passphrase');
   const login = page.waitForRequest('**/api/session/login');
   await page.keyboard.press('Enter');

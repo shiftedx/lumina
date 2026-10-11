@@ -1,11 +1,10 @@
 /* Tokens live in styles/tokens.css at :root; .gallery only sets its surface. */
-.gallery { background: var(--g-paper); color: var(--g-ink); }
+.gallery { background: var(--g-paper); color: var(--g-ink); font: var(--g-type-body); }
 
 
 /* ---- components ---- */
 
 /* -- base -- */
-.gallery { font: var(--g-type-body); }
 .gallery .g-rail-text { font: var(--g-type-rail); letter-spacing: var(--g-track-rail); }
 .gallery :focus-visible { outline: 2px solid var(--g-focus); outline-offset: 3px; }
 
@@ -25,15 +24,15 @@
 .gallery .g-card-name { display: -webkit-box; overflow: hidden; font: italic 700 18px / 1.15 var(--g-serif); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
 .gallery .g-art-still .g-card-name { font-size: 16px; }
 .gallery .g-card-year { margin-top: 6px; font: var(--g-type-label); text-transform: uppercase; letter-spacing: var(--g-track-label); font-variant-numeric: tabular-nums; }
-.gallery .g-poster { display: block; width: 100%; padding: 0; border: 0; border-radius: var(--g-radius); background: none; color: var(--g-ink); text-align: left; cursor: pointer; }
-.gallery .g-poster:focus-visible { outline-offset: 4px; }
+.gallery .g-poster, .gallery .g-still { display: block; width: 100%; padding: 0; border: 0; border-radius: var(--g-radius); background: none; color: var(--g-ink); text-align: left; cursor: pointer; }
+.gallery .g-poster:focus-visible, .gallery .g-feature:focus-visible, .gallery .g-still:focus-visible { outline-offset: 4px; }
 .gallery .g-poster-frame { position: relative; display: block; container-type: inline-size; }
 .gallery .g-caption { display: flex; height: var(--g-caption-height); flex-direction: column; justify-content: center; overflow: hidden; }
 .gallery .g-caption-title { overflow: hidden; font: var(--g-type-caption); white-space: nowrap; text-overflow: ellipsis; text-underline-offset: 3px; transition: color var(--g-hover); }
 .gallery .g-caption-year { font: var(--g-type-label); text-transform: uppercase; letter-spacing: var(--g-track-label); color: var(--g-ink-3); font-variant-numeric: tabular-nums; }
-.gallery .g-poster:focus-visible .g-caption-title { text-decoration: underline; }
+.gallery .g-poster:focus-visible .g-caption-title, .gallery .g-still:focus-visible .g-still-title { text-decoration: underline; }
 /* Hover only where there is a pointer: a tap on a touch screen leaves :hover stuck. */
-@media (hover: hover) { .gallery .g-poster:hover .g-caption-title { text-decoration: underline; } }
+@media (hover: hover) { .gallery .g-poster:hover .g-caption-title, .gallery .g-still:hover .g-still-title { text-decoration: underline; } }
 .gallery .g-marker-triangle { position: absolute; top: 0; right: 0; width: 0; height: 0; border-top: 22px solid var(--g-gold); border-left: 22px solid transparent; filter: drop-shadow(0 1px 1px color-mix(in srgb, var(--g-overlay-halo) 35%, transparent)); }
 .gallery .g-marker-triangle.is-small { border-top-width: 16px; border-left-width: 16px; }
 @container (max-width: 149px) { .gallery .g-marker-triangle { border-top-width: 16px; border-left-width: 16px; } }
@@ -50,9 +49,8 @@
 .gallery .g-grid { position: relative; }
 .gallery .g-row { position: absolute; right: 0; left: 0; display: grid; align-items: start; }
 .gallery .g-row .g-poster { height: 100%; }
-.gallery .g-slot { display: block; height: calc(100% - var(--g-caption-height)); border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius); }
+.gallery .g-slot { display: block; height: calc(100% - var(--g-caption-height)); border: var(--g-rule); border-radius: var(--g-radius); }
 .gallery .g-feature { position: relative; height: calc(100% - var(--g-caption-height)); padding: 0; overflow: hidden; border: 0; border-radius: var(--g-radius); background: none; color: var(--g-on-art); text-align: left; cursor: pointer; }
-.gallery .g-feature:focus-visible { outline-offset: 4px; }
 .gallery .g-feature .g-art { position: absolute; inset: 0; aspect-ratio: auto; }
 /* A poster standing in for a missing backdrop crops from near the top, where faces usually sit. */
 .gallery .g-feature .g-art-poster .g-art-image, .gallery .g-feature .g-art-poster .g-art-preview { object-position: 50% 20%; }
@@ -66,7 +64,7 @@
 .gallery .g-years input { font-variant-numeric: tabular-nums; }
 
 /* -- wall: masthead, toolbar, rail, results, states -- */
-.gallery.g-wall { width: 100%; max-width: none; padding: 32px var(--g-gutter) 96px; }
+.gallery.g-wall, .gallery.g-still-wall, .gallery.g-all, .gallery.g-deleted { width: 100%; max-width: none; padding: 32px var(--g-gutter) 96px; }
 .gallery.g-wall.has-rail { padding-right: calc(var(--g-gutter) + 28px); }
 /* The toolbar's rule and paper run on under the rail instead of stopping short of it. */
 .gallery.g-wall.has-rail .g-toolbar { margin-right: calc(-1 * (var(--g-gutter) + 28px)); padding-right: calc(var(--g-gutter) + 28px); }
@@ -127,7 +125,7 @@
 
 /* -- tab row -- */
 /* One row of links above every Library masthead; the height is reserved before the tabs arrive. */
-.gallery .g-tabs { display: flex; min-height: 45px; align-items: center; gap: 24px; margin-bottom: 24px; border-bottom: var(--g-rule); }
+.gallery .g-tabs { min-height: 45px; align-items: center; margin-bottom: 24px; }
 .gallery .g-tab, .gallery .g-tabs-deleted { display: inline-flex; min-width: var(--g-control); min-height: var(--g-control); flex: none; align-items: center; text-decoration: none; }
 .gallery .g-tab { font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; color: var(--g-ink-2); text-underline-offset: 6px; }
 .gallery .g-tab[aria-current='page'] { color: var(--g-ink); font-weight: 700; text-decoration: underline 2px var(--g-gold); }
@@ -143,32 +141,26 @@
   .gallery .g-tabs-deleted:hover { text-decoration: underline; }
 }
 @media (max-width: 599px) {
-  .gallery .g-tabs { overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none; }
+  .gallery .g-tabs { overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none; }
   .gallery .g-tabs::-webkit-scrollbar { display: none; }
   .gallery .g-tab, .gallery .g-tabs-deleted { scroll-snap-align: start; }
 }
 
 /* -- still cards -- */
 .gallery .g-still-card { position: relative; min-width: 0; }
-.gallery .g-still { display: block; width: 100%; padding: 0; border: 0; border-radius: var(--g-radius); background: none; color: var(--g-ink); text-align: left; cursor: pointer; }
-.gallery .g-still:focus-visible { outline-offset: 4px; }
 .gallery .g-still-frame { position: relative; display: block; }
 .gallery .g-still-caption { display: grid; gap: 4px; padding: 10px 0 0; }
 .gallery .g-still-title { display: -webkit-box; overflow: hidden; font: 500 15px / 1.3 var(--g-serif); overflow-wrap: anywhere; text-underline-offset: 3px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.gallery .g-still:focus-visible .g-still-title { text-decoration: underline; }
-@media (hover: hover) { .gallery .g-still:hover .g-still-title { text-decoration: underline; } }
 
 /* -- still wall -- */
-.gallery.g-still-wall { width: 100%; max-width: none; padding: 32px var(--g-gutter) 96px; }
 .gallery .g-still-grid { display: grid; align-items: start; gap: var(--g-grid-gap); }
 .gallery .g-still-grid > .g-still-card { content-visibility: auto; contain-intrinsic-size: auto 280px; }
-.gallery .g-still-slot { display: block; aspect-ratio: 16 / 9; border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius); }
+.gallery .g-still-slot { display: block; aspect-ratio: 16 / 9; border: var(--g-rule); border-radius: var(--g-radius); }
 .gallery.is-square .g-still-slot { aspect-ratio: 1 / 1; }
 .gallery .g-sentinel { height: 1px; }
 @media (max-width: 599px) { .gallery.g-still-wall { padding-top: 20px; } }
 
 /* -- All landing -- */
-.gallery.g-all { width: 100%; max-width: none; padding: 32px var(--g-gutter) 96px; }
 .gallery .g-spotlight-title { margin: 32px 0 12px; }
 /* A 16:9 lead over two rows and two side tiles; the band is as tall as the lead. */
 .gallery .g-spotlight { display: grid; grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; gap: 24px; }
@@ -178,7 +170,7 @@
 .gallery .g-spotlight .g-feature { height: auto; min-height: 0; }
 .gallery .g-spotlight .g-feature-name { font-size: 28px; }
 .gallery .g-spotlight .is-lead .g-feature-name { font-size: 44px; }
-.gallery .g-frame { display: block; min-height: 0; border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius); }
+.gallery .g-frame { display: block; min-height: 0; border: var(--g-rule); border-radius: var(--g-radius); }
 /* A soft rule, 48px, the heading row on one baseline, then two rows in the chapter's shape. */
 .gallery.g-all .g-chapter { display: block; margin: 48px 0 0; padding-top: 48px; border-top: var(--g-rule); font: inherit; letter-spacing: normal; }
 .gallery.g-all .g-chapter.is-first { margin-top: 72px; }
@@ -187,7 +179,7 @@
 .gallery .g-see-all { margin-left: auto; }
 .gallery .g-chapter-row { display: grid; align-items: start; gap: var(--g-grid-gap); }
 .gallery .g-chapter-row + .g-chapter-row { margin-top: var(--g-grid-gap); }
-.gallery .g-chapter-frame { display: block; aspect-ratio: 2 / 3; border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius); }
+.gallery .g-chapter-frame { display: block; aspect-ratio: 2 / 3; border: var(--g-rule); border-radius: var(--g-radius); }
 .gallery .g-chapter-row.is-square .g-chapter-frame { aspect-ratio: 1 / 1; }
 .gallery .g-chapter-row.is-still .g-chapter-frame { aspect-ratio: 16 / 9; }
 .gallery .g-chapter-frame.has-caption { margin-bottom: var(--g-caption-height); }
@@ -207,7 +199,6 @@
 }
 
 /* -- Deleted -- */
-.gallery.g-deleted { width: 100%; max-width: none; padding: 32px var(--g-gutter) 96px; }
 .gallery .g-deleted-rows { margin: 24px 0; padding: 0; border-top: var(--g-rule); list-style: none; }
 .gallery .g-deleted-rows li { display: flex; min-height: 72px; align-items: center; gap: 16px; padding: 8px 0; border-bottom: var(--g-rule); }
 .gallery .g-deleted-thumb { width: 112px; flex: none; }
@@ -229,7 +220,6 @@
 .gallery .g-remote-card.is-compact .g-still { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px; align-items: start; }
 .gallery .g-remote-card.is-compact .g-still-caption { padding: 0; }
 .gallery .g-remote-card.is-compact .g-still-title { font-size: 15px; }
-.gallery .g-remote-card .g-still:focus-visible { outline-offset: 4px; }
 
 /* -- C2 still rails -- */
 .gallery section.g-rail { margin-top: 40px; padding-top: 24px; border-top: var(--g-rule); }
@@ -289,7 +279,7 @@
 .gallery .g-live-loading { display: grid; gap: 40px; }
 .gallery .g-live-hero-slot { display: block; height: min(62vh, 600px); min-height: 360px; margin: 0 calc(-1 * var(--g-gutter)); background: var(--g-paper-2); }
 .gallery .g-rail-slots { display: flex; gap: 24px; overflow: hidden; padding-bottom: 41px; } /* the card caption under each still, so a loading rail is as tall as the loaded one (CLS) */
-.gallery .g-rail-slots .g-still-slot { flex: 0 0 320px; aspect-ratio: 16 / 9; border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius); }
+.gallery .g-rail-slots .g-still-slot { flex: 0 0 320px; aspect-ratio: 16 / 9; border: var(--g-rule); border-radius: var(--g-radius); }
 @media (max-width: 1023px) { .gallery .g-live-hero, .gallery .g-live-hero-slot { height: min(52vh, 480px); } }
 @media (max-width: 599px) {
   .gallery .g-live-hero { height: auto; min-height: 0; }
@@ -305,7 +295,6 @@
   .gallery .g-schedule-open { grid-template-columns: minmax(0, 1fr); }
   .gallery .g-schedule-still { display: none; }
 }
-@media (min-width: 1280px) { .gallery.g-live-surface .g-still:focus-visible { outline-offset: 4px; } }
 .gallery .g-select-box { position: absolute; top: 6px; left: 6px; display: grid; place-items: center; width: 28px; height: 28px; border: 2px solid var(--g-ink); border-radius: var(--g-radius); background: var(--g-paper); color: var(--g-ink); }
 .gallery .g-select-box.is-on { border-color: var(--g-gold); background: var(--g-gold); color: var(--g-on-gold); }
 .gallery .g-select-bar { position: fixed; right: 0; bottom: 0; left: 0; z-index: 7; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px var(--g-gutter) calc(12px + env(safe-area-inset-bottom)); border-top: var(--g-rule); background: var(--g-paper); }

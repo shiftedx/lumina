@@ -16,6 +16,9 @@ describe('ui.css', () => {
   it('.g-icon-button sizes from --g-control', () => {
     expect(rule('.g-icon-button')).toMatch(/(height|min-height): var\(--g-control\)/);
   });
+  it('aligns the horizontal brand sun horizon with the word baseline', () => {
+    expect(rule('.g-brand.is-bar')).toMatch(/align-items: baseline/);
+  });
   it('draws a text field as a value on one hairline rule, never a box, and keeps a 44px hit height', () => {
     const field = rule('.g-input, .g-select select');
     expect(field).toMatch(/min-height: max\(var\(--g-control\), 44px\)/);

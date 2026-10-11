@@ -4,7 +4,7 @@ import { ArrowDownToLine, Check, ChevronDown, ChevronLeft, Download, ExternalLin
 import { clearRemotePlaybackProgress, getLibraryUpNext, getMediaSegments, getMuteRanges, getRecap, getRemotePlaybackProgress, getTitle, type Summary, updateRemotePlaybackProgress } from '../../api';
 import { type AlbumTrack, type DownloadJob, type LibraryItem, type LibraryNote, type LocalPlaybackOptions, type MediaSegment, type MuteRange, type PlaybackProgress, type PlaybackSessionRequest, type SubtitleTrack, type TitleSummary, type PreviewResponse, type RemotePlaybackProgress, type SourceAutomation, type WatchQueueEntry, type YouTubeSearchResult } from '../../types';
 import { EXTERNAL_LIBRARY, isAudioItem, jobProgress, libraryThumbnail, readNumber, readString, remoteItemIsSaved } from '../../luminaModel';
-import { Avatar } from '../../ui';
+import { Avatar, ErrorState, Skeleton, TextButton } from '../../ui';
 import { RemotePlayer, RemotePlayerLoading } from '../../remotePlayer';
 import { ChatReplayRail, LibraryCapturedChatRail, SourceChatUnavailableNote } from '../../chatReplayRail';
 import { LiveRecordingControls } from '../../liveRecordingControls';
@@ -194,14 +194,14 @@ export function WatchSurface({
   const acquireUnavailableCopy = inspectionProblem ? null : capabilityActionMessage(capabilities?.acquire_reason, 'acquire');
   const raw = preview?.raw || local?.metadata_json || {};
   // A pasted link that never resolved keeps no "Loading video…" placeholder title.
-  const title = preview?.title || (inspectionProblem ? remote?.title?.replace(/^Loading video…$/, 'Unavailable video') : remote?.title) || local?.title || 'Untitled video';
+  const sourceTitle = preview?.title || (inspectionProblem ? remote?.title?.replace(/^Loading video…$/, 'Unavailable video') : remote?.title) || local?.title || 'Untitled video';
   // Imported files have no provider channel to follow: credit the series (or the import) instead.
   const imported = local?.extractor === EXTERNAL_LIBRARY;
   const uploader = imported ? local.uploader || local.playlist_name || 'Imported media' : readString(raw, 'uploader') || readString(raw, 'channel') || remote?.uploader || local?.uploader || siteName(preview?.webpage_url || remote?.webpage_url) || 'Unknown channel';
   const thumbnail = preview?.artwork_url || remote?.artwork_url || (local ? libraryThumbnail(local) : null);
   const duration = readNumber(raw, 'duration') || remote?.duration || local?.duration || mediaDuration;
   const views = readNumber(raw, 'view_count') || remote?.view_count || null;
-  const description = readString(raw, 'description');
+  const sourceDescription = readString(raw, 'description');
   const published = readString(raw, 'upload_date') || remote?.published_at;
   const sourceHeight = readNumber(raw, 'height');
   const knownResolution = readString(raw, 'resolution') || (sourceHeight ? `${sourceHeight}p` : null);
@@ -273,8 +273,13 @@ export function WatchSurface({
   const prefs = playbackPrefs ?? DEFAULT_PLAYBACK_PREFS;
   const watchTitle = useFetched(local?.title_id ?? null, () => getTitle(local?.title_id as string));
   const episode = watchTitle.data?.type === 'episode' ? watchTitle.data : null;
+  const mediaTitle = !local?.extra_type && (watchTitle.data?.type === 'episode' || watchTitle.data?.type === 'movie') ? watchTitle.data : null;
+  const title = mediaTitle?.name || sourceTitle;
+  const description = mediaTitle?.overview || sourceDescription;
   // Up next for a titled item (an episode's following episodes, a movie's collection); untitled items keep related videos.
-  const libraryUpNext = useFetched(local?.title_id && !isAudioItem(local) ? local.id : null, () => getLibraryUpNext(local?.id as string)).data;
+  const [upNextRevision, setUpNextRevision] = useState(0);
+  const libraryNext = useFetched(local?.title_id && !isAudioItem(local) ? local.id : null, () => getLibraryUpNext(local?.id as string), upNextRevision);
+  const libraryUpNext = libraryNext.data;
   const nextTitle = useMemo(() => nextInUpNext(libraryUpNext), [libraryUpNext]);
   const previousTitle = useMemo(() => previousInUpNext(libraryUpNext), [libraryUpNext]);
   // Never advance on its own once the member's watching time or hours are over (the stop state takes over).
@@ -352,7 +357,7 @@ export function WatchSurface({
     () => moments.filter((moment) => showSuggested || moment.origin !== 'suggested').map((moment) => ({ start_time: moment.seconds, title: moment.title, origin: moment.origin })),
     [moments, showSuggested],
   );
-  const descriptionTimestamps = preview?.description_timestamps || local?.description_timestamps || [];
+  const descriptionTimestamps = mediaTitle?.overview ? [] : preview?.description_timestamps || local?.description_timestamps || [];
   const playerExtensions = {
     chapters: duration && markers.length ? <ChapterSeekMarkers chapters={markers} currentTime={currentTime} duration={duration} interactive={false} onSeek={seekPlayback} /> : undefined,
     theater: <TheaterModeControl onTheaterModeChange={onTheaterModeChange} shortcutEnabled={!mini} theaterMode={theaterMode} />,
@@ -696,7 +701,8 @@ export function WatchSurface({
         <>
         <div className="description-card">
           <div className="description-meta">{views ? <strong>{formatCompactNumber(views)} views</strong> : null}{published ? <strong>{formatPublished(published)}</strong> : null}{duration ? <span>{formatDuration(duration)}</span> : null}</div>
-          {description ? <DescriptionWithTimestamps description={`${description.slice(0, 900)}${description.length > 900 ? '…' : ''}`} onSeek={seekPlayback} timestamps={descriptionTimestamps.filter((token) => token.end <= 900)} /> : <p>Stream now, or keep this video in your household vault for later.</p>}
+          {description ? <DescriptionWithTimestamps description={`${description.slice(0, 900)}${description.length > 900 ? '…' : ''}`} onSeek={seekPlayback} timestamps={descriptionTimestamps.filter((token) => token.end <= 900)} /> : <p>{mediaTitle ? 'No synopsis available.' : 'Stream now, or keep this video in your household vault for later.'}</p>}
+          {local && mediaTitle ? <details><summary>File details <ChevronDown /></summary><dl><div><dt>File name</dt><dd>{local.title}</dd></div><div><dt>Source</dt><dd>{imported ? 'Imported · read-only' : uploader}</dd></div>{mediaTitle.overview && sourceDescription ? <div><dt>Source description</dt><dd><DescriptionWithTimestamps description={sourceDescription} onSeek={seekPlayback} timestamps={local.description_timestamps || []} /></dd></div> : null}</dl></details> : null}
           {local ? null : <details><summary>Details &amp; provenance <ChevronDown /></summary><dl><div><dt>Original source</dt><dd>{readString(raw, 'extractor_key') || readString(raw, 'extractor') || 'Web video'}</dd></div>{knownResolution ? <div><dt>Known resolution</dt><dd>{knownResolution}</dd></div> : null}{sourceUrl ? <div><dt>Source address</dt><dd>{sourceUrl}</dd></div> : null}<div><dt>Availability</dt><dd>Streaming from source</dd></div></dl></details>}
         </div>
         {local ? <ProvenancePanel itemId={local.id} key={local.id} onOpenItem={onOpenLibraryItem} /> : null}
@@ -723,8 +729,13 @@ export function WatchSurface({
       tabIndex={mini ? -1 : undefined}
     >
       <button className="watch-back g-text-button" onClick={onBack} type="button"><ChevronLeft /> Back</button>
-      <div className={`watch-layout ${theaterMode ? 'theater' : 'standard'}${webVideo ? ' is-editorial' : ''}`} data-theater-mode={theaterMode ? 'theater' : 'standard'}>
-        <div className="watch-main">
+      <div className={`watch-layout ${theaterMode ? 'theater' : 'standard'}${webVideo ? ' is-editorial' : ''}${mediaTitle ? ' has-title' : ''}`} data-theater-mode={theaterMode ? 'theater' : 'standard'}>
+        <div className="watch-main" onKeyDown={(event) => { if ((event.target as HTMLElement).closest('.watch-info')) moveFocus(event); }}>
+          {mediaTitle ? <header className="watch-info watch-title">
+            {episode?.series_id ? <p className="watch-episode-byline"><button className="g-text-button" data-focus-item onClick={() => onOpenTitle?.(episode)} type="button">{episode.series_name || 'Show'}</button></p> : null}
+            <h1>{title}</h1>
+            <p className="watch-episode-byline">{[episode ? episodeCode(episode) : mediaTitle.year, duration ? formatDuration(duration) : null].filter(Boolean).join(' · ')}</p>
+          </header> : null}
           <div className={`player-frame${audio ? ' has-audio-stage' : ''}`}>
             {audio ? <AudioStage album={album} item={audio} next={nextTrack} onPlayItem={(itemId) => onOpenLibraryItem?.(itemId)} onSeek={seekPlayback} previous={previousTrack} /> : null}
             <PlayerPreferencesContext.Provider value={playerPreferences}>
@@ -767,17 +778,17 @@ export function WatchSurface({
           ) : (
             <>
               {/* Byline, Follow and the actions row are one arrow-key grid. */}
-              <section className="watch-info" onKeyDown={moveFocus}>
-                {episode?.series_id ? <p className="watch-episode-byline"><button className="g-text-button" data-focus-item onClick={() => onOpenTitle?.(episode)} type="button">{episode.series_name || 'Show'}</button> · {[episodeCode(episode), episode.name].filter(Boolean).join(' · ')}</p> : null}
-                <h1>{title}</h1>
-                <div className="watch-byline">
+              <section className="watch-info">
+                {mediaTitle ? null : <h1>{title}</h1>}
+                {imported && mediaTitle ? null : <div className="watch-byline">
                   <Avatar decorative name={uploader} size={34} />
                   <div><strong>{uploader}</strong><small>{imported ? 'Imported · read-only' : readNumber(raw, 'channel_follower_count') ? `${formatCompactNumber(readNumber(raw, 'channel_follower_count') || 0)} followers` : 'Channel'}</small></div>
                   {imported ? null : <button className={`g-button${following ? ' is-quiet' : ''}`} data-focus-item onClick={onFollow} type="button">{following ? <Check /> : <Plus />}{following ? 'Following' : 'Follow channel'}</button>}
-                </div>
+                </div>}
                 <div className="watch-actions" data-focus-row>{actionButtons}</div>
                 {shareNote}
                 {recordingControls}
+                {libraryNext.error ? <ErrorState onRetry={() => setUpNextRevision((revision) => revision + 1)} retrying={libraryNext.loading} title="Up next couldn't load." /> : episode && libraryUpNext && !libraryUpNext.items.length ? <p>No next episode in your library. <TextButton data-focus-item onClick={() => onOpenTitle?.(episode)}>See all episodes</TextButton></p> : null}
               </section>
               <WatchTools tools={toolList} />
             </>
@@ -810,6 +821,7 @@ export function WatchSurface({
             ) : null}
             {remote && !liveEnded && capabilities?.chat?.live_reason === 'authentication_required' ? <SourceChatUnavailableNote provider={capabilities.provider} /> : null}
             <WatchQueuePanel autoplay={autoplayUpNext} onPlay={playQueued} />
+            {libraryNext.loading && !libraryNext.error ? <Skeleton count={3} label="Loading up next…" shape="row" /> : null}
             {libraryUpNext ? <LibraryUpNextRail autoplay={autoplayUpNext} onAutoplayChange={onAutoplayUpNextChange} onOpenAll={episode ? () => onOpenTitle?.(episode) : undefined} onPlay={(itemId) => onOpenLibraryItem?.(itemId)} upNext={libraryUpNext} /> : null}
           </aside>
         )}

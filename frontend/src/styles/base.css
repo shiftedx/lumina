@@ -31,9 +31,7 @@ img { display: block; max-width: 100%; }
 img[data-artwork-loading='true'] { opacity: .58; background: var(--g-paper-3); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; margin: -1px; padding: 0; border: 0; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(.98); } }
 .spin { animation: spin .8s linear infinite; }
-@keyframes onboarding-in { from { opacity: 0; transform: translateY(10px); } }
 @keyframes shimmer { to { background-position-x: -200%; } }
 
 /* Metric-matched serif fallback: the Newsreader swap moves no line box by more than 1px. */

@@ -48,7 +48,7 @@ test('link mode rejects text and opens a pasted link', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: 'Add a link' })).toBeVisible();
   await page.getByRole('combobox').fill('not a link');
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('alert')).toHaveText("That doesn't look like a link.");
+  await expect(page.getByRole('alert')).toHaveText('Paste a public link starting with http:// or https://.');
   await page.getByRole('combobox').fill('https://www.youtube.com/watch?v=yt-1');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/watch\?url=/);

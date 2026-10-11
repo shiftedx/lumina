@@ -88,6 +88,24 @@ test('keyboard member deactivation focuses Cancel and Escape restores the trigge
   await page.keyboard.press('Escape'); await expect(deactivate).toBeFocused();
 });
 
+test('phone confirmation actions follow their visual order when tabbing', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockApi(page, {}); await mockAdminFixtures(page);
+  await page.route('**/api/admin/users', (route) => route.fulfill({ json: [user, { ...user, id: 'm2', username: 'sam', display_name: 'Sam', role: 'viewer' }] }));
+  await page.goto('/settings/members'); await signIn(page);
+  await page.getByRole('list', { name: 'Household members' }).getByRole('link', { name: /Sam/ }).click();
+  await page.getByRole('button', { name: 'Deactivate', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Deactivate Sam?' });
+  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
+  const confirm = dialog.getByRole('button', { name: 'Deactivate Sam', exact: true });
+  await expect(cancel).toBeFocused();
+  const [first, second] = await Promise.all([cancel.boundingBox(), confirm.boundingBox()]);
+  expect(first!.y + first!.height).toBeLessThanOrEqual(second!.y);
+  await page.keyboard.press('Tab');
+  await expect(confirm).toBeFocused();
+  await page.keyboard.press('Escape');
+});
+
 
 test('invitations open the public address on its new Connections page', async ({ page }) => {
   await mockApi(page, { sidebar_collapsed: false }); await mockAdminFixtures(page);

@@ -72,6 +72,16 @@ const signInAs = async (page: Page, status: number, detail: string, shown: strin
   await page.goto('/'); await page.getByLabel('Username').fill('alexandria'); await page.getByLabel('Password', { exact: true }).fill('synthetic-pw');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click(); await expect(page.getByText(shown)).toBeVisible();
 };
+const twoStep = async (page: Page, recovery = false) => {
+  await signedOut(page);
+  await over(page, '**/api/session/login', { two_factor_required: true, challenge: 'synthetic-challenge' });
+  await page.goto('/');
+  await page.getByLabel('Username').fill('alexandria');
+  await page.getByLabel('Password', { exact: true }).fill('synthetic-passphrase');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Two-step verification' })).toBeVisible();
+  if (recovery) await page.getByRole('button', { name: 'Use a recovery code instead' }).click();
+};
 const PLAYLIST = { kind: 'playlist', title: 'Weekend cooking playlist', webpage_url: 'https://www.youtube.com/playlist?list=PLsynthetic', extractor: 'youtube:tab', extractor_key: 'YoutubeTab', media_kind: 'video',
   entries: ['Sourdough basics', 'Knife skills', 'Weeknight pasta', 'Quick pickles'].map((title, n) => ({ id: `pl${n}`, title, uploader: 'Harbor Films', duration: 300 + n * 60, webpage_url: `https://www.youtube.com/watch?v=pl${n}`, capabilities: caps('youtube', 'vod') })), raw: {} };
 const BATCH = {
@@ -143,6 +153,8 @@ const SCREENS: Shot[] = [
   // Signed-out sub-states: they run before the first sign-in and each forces its own 401.
   { area: 'auth', state: 'login-error', open: (page) => signInAs(page, 401, 'Incorrect username or password.') },
   { area: 'auth', state: 'rate-limited', open: (page) => signInAs(page, 429, 'Too many sign-in attempts. Try again in a few minutes.', 'Too many attempts. Try again in a minute.') },
+  { area: 'auth', state: 'two-step', open: (page) => twoStep(page) },
+  { area: 'auth', state: 'recovery-code', open: (page) => twoStep(page, true) },
   { area: 'auth', state: 'setup', open: async (page) => { await signedOut(page); await over(page, '**/api/bootstrap/status', { needs_setup: true }); await page.goto('/'); await expect(page.getByRole('button', { name: 'Create household vault' })).toBeVisible(); } },
   { area: 'auth', state: 'invite', open: async (page) => { await signedOut(page); await page.goto('about:blank'); await page.goto('/#invite=synthetictoken'); await expect(page.getByRole('button', { name: 'Join household' })).toBeVisible(); } },
   { area: 'auth', state: 'reset', open: async (page) => { await signedOut(page); await page.goto('about:blank'); await page.goto('/#reset=synthetictoken'); await expect(page.getByRole('button', { name: 'Set new password' })).toBeVisible(); } },
@@ -283,6 +295,7 @@ const REQUIRED = [
   'subscriptions-empty', 'subscriptions-error', 'subscriptions-follow-settings', 'live-empty', 'live-error', 'live-record',
   'downloads-empty', 'downloads-error', 'collections-empty', 'collections-detail', 'collections-builder', 'deleted-empty', 'library-channels-empty',
   'auth-login-error', 'auth-rate-limited', 'auth-setup', 'auth-invite', 'auth-reset', 'auth-picker-tiles', 'auth-picker-password',
+  'auth-two-step', 'auth-recovery-code',
   'palette-error', 'shell-toast-error-action', 'auth-loading', 'downloads-playlist-batch', 'collections-detail-empty', 'playlist-selection',
   'subscriptions-list', 'downloads-active', 'collections-list', 'deleted-list', 'collections-detail',
   'player-panel', 'player-captions', 'player-theater', 'player-skip', 'player-up-next', 'player-live-remote', 'player-error', 'home-undo-row',

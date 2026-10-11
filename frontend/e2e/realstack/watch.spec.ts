@@ -55,7 +55,8 @@ test('watch queue adds, reorders across reload, and autoplays the next entry', a
 
   // The 4 s Direct fixture ends on its own; the queue head then starts without a click.
   await page.locator('video').evaluate((video: HTMLVideoElement) => { video.currentTime = 3.6; return video.play(); });
-  await expect(page.getByRole('heading', { name: 'Realstack Show S01E02', level: 1 })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('heading', { name: 'Episode 2', level: 1 })).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.watch-title')).toContainText('S1 · E2');
   await expect.poll(() => videoTime(page)).toBeGreaterThan(0.3);
 });
 

@@ -536,10 +536,15 @@ export function MemberPage({ memberId, onBack }: { memberId: string; onBack: () 
         </div>
         {owner ? null : <div className="g-member-nav"><Menu align="end" items={presets} label="Presets" trigger={(props) => <Button {...props}>Apply a preset</Button>} /></div>}
       </header>
-      <div aria-label={`${name} settings`} className="g-tabs g-member-nav" onKeyDown={onTabsKeyDown} role="tablist">
+      <div aria-label={`${name} settings`} className="g-tabs g-member-nav g-member-tabs" onKeyDown={onTabsKeyDown} role="tablist">
         {tabs.map((entry) => (
           <button aria-controls="member-panel" aria-selected={entry === shownTab} id={`member-tab-${entry.id}`} key={entry.id} onClick={() => setTab(entry.id)} role="tab" tabIndex={entry === shownTab ? 0 : -1} type="button">{entry.label}</button>
         ))}
+      </div>
+      <div className="g-member-page-select">
+        <Field label="Member settings page">
+          {(ids) => <Select {...fieldProps(ids)} onChange={(event) => setTab(event.target.value)} value={shownTab.id}>{tabs.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}</Select>}
+        </Field>
       </div>
       <MemberContext.Provider value={ctx}>
         <ActivityContext.Provider value={activity}>

@@ -32,7 +32,8 @@ test('Next up → series → Season 2 → play', async ({ page }) => {
   await expect(page).toHaveURL(/season=2$/);
   await page.getByRole('button', { name: 'Resume S2 · E2', exact: true }).click();
   await expect(page).toHaveURL(/\/watch\/library\/item-ep-2-2$/);
-  await expect(page.locator('.watch-episode-byline')).toContainText('S2 · E2 · The Ferry');
+  await expect(page.locator('.watch-title')).toContainText('S2 · E2');
+  await expect(page.getByRole('heading', { level: 1, name: 'The Ferry' })).toBeVisible();
   await page.getByRole('button', { name: 'Harbor Lights', exact: true }).click();
   await expect(page).toHaveURL(/\/title\/series-1\?season=2$/);
   expect(errors).toEqual([]);

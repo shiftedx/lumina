@@ -8,13 +8,13 @@
 .g-palette-field.g-input { min-height: 54px; font: var(--g-type-lede); }
 .g-palette > .g-dialog-frame > .g-dialog-body > .g-status { padding: 8px 20px 0; }
 .g-palette-list { overflow-y: auto; padding: 8px 0; }
-.g-palette-group + .g-palette-group { border-top: 1px solid var(--g-rule-soft); }
+.g-palette-group + .g-palette-group { border-top: var(--g-rule); }
 .g-palette-group-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 20px 4px; color: var(--g-ink-3); }
 .g-palette-option { display: flex; min-height: 52px; align-items: center; gap: 12px; padding: 4px 16px 4px 18px; border-inline-start: 2px solid transparent; cursor: pointer; }
 .g-palette-option[aria-selected='true'] { border-inline-start-color: var(--g-gold); background: var(--g-selected); }
 .g-palette-thumb { display: inline-grid; width: 64px; flex: none; place-items: center; color: var(--g-ink-2); }
 .g-palette-thumb svg { width: 20px; height: 20px; }
-.g-palette-art { display: block; overflow: hidden; border: 1px solid var(--g-rule-soft); border-radius: var(--g-radius); }
+.g-palette-art { display: block; overflow: hidden; border: var(--g-rule); border-radius: var(--g-radius); }
 /* gallery.css scopes .g-art under .gallery; the palette is a dialog outside it, so the slot rules are repeated here. */
 .g-palette-art .g-art { position: relative; display: block; width: 100%; height: 100%; overflow: hidden; isolation: isolate; }
 .g-palette-art .g-art-preview, .g-palette-art .g-art-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -27,7 +27,7 @@
 .g-palette-title { overflow: hidden; font: var(--g-type-ui-strong); text-overflow: ellipsis; white-space: nowrap; }
 .g-palette-meta { overflow: hidden; color: var(--g-ink-2); font: var(--g-type-small); text-overflow: ellipsis; white-space: nowrap; }
 .g-palette .g-empty, .g-palette .g-error-state { margin: 16px 20px; }
-.g-palette-footer { margin: 0; padding: 10px 20px; border-top: 1px solid var(--g-rule-soft); color: var(--g-ink-3); font: var(--g-type-small); }
+.g-palette-footer { margin: 0; padding: 10px 20px; border-top: var(--g-rule); color: var(--g-ink-3); font: var(--g-type-small); }
 @media (max-width: 599px) {
   .g-dialog.g-palette { inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; border: 0; border-radius: 0; }
   .g-palette-footer { display: none; }

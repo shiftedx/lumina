@@ -1,7 +1,6 @@
 /* Split from lumina.css. Owner: */
 .lumina-app { min-height: 100vh; background: var(--g-paper); }
-.app-background { min-height: 100vh; }
-.lumina-main { min-height: 100vh; }
+.app-background, .lumina-main { min-height: 100vh; }
 .lumina-main:has(> .watch-mini) { padding-bottom: 280px; }
 .queue-notice { margin: 18px 4px 0; }
 .queue-notice b { color: var(--g-gold-ink); }
@@ -22,7 +21,7 @@
 .g-mobile-tabs { display: none; }
 @media (max-width: 680px) {
   .lumina-main { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
-  .g-mobile-tabs { position: fixed; right: 0; bottom: 0; left: 0; z-index: var(--g-z-topbar); display: grid; grid-template-columns: repeat(5, 1fr); min-height: calc(56px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--g-rule-soft); background: var(--g-paper); }
+  .g-mobile-tabs { position: fixed; right: 0; bottom: 0; left: 0; z-index: var(--g-z-topbar); display: grid; grid-template-columns: repeat(5, 1fr); min-height: calc(56px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); border-top: var(--g-rule); background: var(--g-paper); }
   .g-mobile-tabs button { position: relative; display: grid; min-height: 56px; place-items: center; align-content: center; gap: 2px; border: 0; border-top: 2px solid transparent; background: none; color: var(--g-ink-3); font: 600 11px / 1.2 var(--g-sans); }
   .g-mobile-tabs button svg { width: 20px; height: 20px; }
   .g-mobile-tabs button.is-active { border-top-color: var(--g-gold); color: var(--g-ink); }
@@ -30,10 +29,10 @@
 }
 @media (forced-colors: active) { .g-nav-item.is-active, .g-mobile-tabs button.is-active { border-color: Highlight; } }
 /* ---- top bar: solid paper, hairline below, 64px + safe area ---- */
-.g-topbar { position: sticky; top: 0; z-index: var(--g-z-topbar); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; min-height: calc(var(--g-topbar) + env(safe-area-inset-top)); padding: env(safe-area-inset-top) var(--g-gutter) 0 16px; border-bottom: 1px solid var(--g-rule-soft); background: var(--g-paper); }
+.g-topbar { position: sticky; top: 0; z-index: var(--g-z-topbar); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; min-height: calc(var(--g-topbar) + env(safe-area-inset-top)); padding: env(safe-area-inset-top) var(--g-gutter) 0 16px; border-bottom: var(--g-rule); background: var(--g-paper); }
 .g-topbar-start, .g-topbar-end { display: flex; align-items: center; gap: 8px; }
 .g-topbar-brand { display: inline-flex; min-width: var(--g-control); min-height: var(--g-control); align-items: center; color: var(--g-ink); text-decoration: none; }
-.g-search-trigger { display: flex; width: min(100%, 560px); min-height: var(--g-control); align-items: center; gap: 10px; justify-self: center; padding: 0; border: 0; border-bottom: 1px solid var(--g-field-rule); background: transparent; color: var(--g-ink-3); cursor: pointer; font: var(--g-type-ui); text-align: start; }
+.g-search-trigger { display: flex; width: min(100%, 560px); min-height: var(--g-control); align-items: center; gap: 10px; justify-self: center; padding: 1px 0 0; border: 0; border-bottom: 1px solid var(--g-field-rule); background: transparent; color: var(--g-ink-3); cursor: pointer; font: var(--g-type-ui); text-align: start; }
 .g-search-trigger svg { width: 18px; height: 18px; flex: none; }
 .g-search-trigger-text { flex: 1; }
 .g-search-trigger:focus-visible { border-bottom-color: var(--g-gold-ink); outline-color: transparent; box-shadow: 0 1px 0 var(--g-gold-ink); }
@@ -51,6 +50,6 @@
 @media (forced-colors: active) { .g-activity-ring { forced-color-adjust: none; background: conic-gradient(Highlight var(--progress, 0deg), CanvasText 0); } }
 /* ---- shell states ---- */
 .g-route-loading { max-width: var(--g-reading-width); padding: 32px var(--g-gutter); }
-.g-route-loading-masthead { height: 72px; margin-bottom: 24px; border-bottom: 1px solid var(--g-rule-soft); }
+.g-route-loading-masthead { height: 72px; margin-bottom: 24px; border-bottom: var(--g-rule); }
 .g-skip-link { position: fixed; top: 8px; left: 8px; z-index: 200; display: inline-flex; min-height: var(--g-control); align-items: center; padding: 0 16px; border-radius: var(--g-radius); background: var(--g-ink); color: var(--g-paper); font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; transform: translateY(-200%); }
 .g-skip-link:focus { transform: none; }

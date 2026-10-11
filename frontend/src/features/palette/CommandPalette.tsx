@@ -1,4 +1,4 @@
-import { Search, X } from 'lucide-react';
+import { Link2, Search, X } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { providerBlocked, useAccess } from '../access/access';
 import { getLibraryAutomation, scanLibraries, searchLibrary, youtubeSearch } from '../../api';
@@ -156,7 +156,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); if (typed && mode === 'search') { onClose(); props.onSearchEverything(typed); } }
     else if (event.key === 'Enter') {
       event.preventDefault();
-      if (mode === 'link' && typed && !options.length) { setLinkError("That doesn't look like a link."); return; }
+      if (mode === 'link' && typed && !options.length) { setLinkError('Paste a public link starting with http:// or https://.'); return; }
       activate(options.find((option) => option.id === current));
     } else if (event.key === 'Delete') {
       const option = options.find((candidate) => candidate.id === current);
@@ -168,7 +168,7 @@ export function CommandPalette(props: CommandPaletteProps) {
   return (
     <Dialog className="g-palette" hideTitle initialFocus={inputRef} onClose={onClose} open={open} size="md" title={title}>
       <div className="g-palette-input">
-        <Search aria-hidden="true" className="g-palette-search-icon" />
+        {mode === 'link' ? <Link2 aria-hidden="true" className="g-palette-search-icon" /> : <Search aria-hidden="true" className="g-palette-search-icon" />}
         <Field error={linkError} hideLabel label={title}>
           {(ids) => (
             <Input

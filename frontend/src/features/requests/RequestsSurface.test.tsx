@@ -178,6 +178,26 @@ describe('My requests', () => {
     expect(screen.getByText('This page is for admins')).toBeTruthy();
     expect(api.listRequests).not.toHaveBeenCalled();
   });
+
+  it('keeps the selected request tab fully inside its horizontal row without moving the document', async () => {
+    api.listRequests.mockResolvedValue({ items: [], page: 1, total_pages: 1, counts: {} });
+    const onRoute = vi.fn();
+    const onOpenRoute = vi.fn();
+    const view = render(<RequestsSurface onOpenRoute={onOpenRoute} onRoute={onRoute} route={{ surface: 'requests', view: 'discover' }} session={session} user={admin} />);
+    const row = screen.getByRole('navigation', { name: 'Requests pages' });
+    const manage = within(row).getByRole('button', { name: 'Manage' });
+    Object.defineProperties(row, { clientWidth: { configurable: true, value: 180 }, offsetLeft: { configurable: true, value: 0 } });
+    Object.defineProperties(manage, { offsetLeft: { configurable: true, value: 300 }, offsetWidth: { configurable: true, value: 80 } });
+    row.scrollLeft = 0;
+
+    view.rerender(<RequestsSurface onOpenRoute={onOpenRoute} onRoute={onRoute} route={{ surface: 'requests', view: 'manage' }} session={session} user={admin} />);
+    expect(row.scrollLeft).toBe(200);
+
+    const discover = within(row).getByRole('button', { name: 'Discover' });
+    Object.defineProperties(discover, { offsetLeft: { configurable: true, value: 0 }, offsetWidth: { configurable: true, value: 80 } });
+    view.rerender(<RequestsSurface onOpenRoute={onOpenRoute} onRoute={onRoute} route={{ surface: 'requests', view: 'discover' }} session={session} user={admin} />);
+    expect(row.scrollLeft).toBe(0);
+  });
 });
 
 describe('Manage', () => {
@@ -193,6 +213,17 @@ describe('Manage', () => {
     await userEvent.type(within(dialog).getByRole('textbox'), 'Already on the shelf');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Decline' }));
     expect(api.declineRequest).toHaveBeenCalledWith('r-1', 'Already on the shelf');
+  });
+
+  it('retains every status in the labelled phone selector and filters with the selected value', async () => {
+    api.listRequests.mockResolvedValue({ items: [], page: 1, total_pages: 1, counts: { approved: 2, failed: 1 } });
+    renderSurface({ surface: 'requests', view: 'manage' }, admin);
+    const status = await screen.findByRole('combobox', { name: 'Status' });
+    expect(within(status).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'All requests', 'Approved · 2', 'Downloading', 'Partly in', 'In your vault', 'Declined', 'Needs attention · 1',
+    ]);
+    await userEvent.selectOptions(status, 'failed');
+    await waitFor(() => expect(api.listRequests).toHaveBeenCalledWith({ scope: 'all', status: 'failed' }));
   });
 });
 

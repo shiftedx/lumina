@@ -1,7 +1,7 @@
 /* Sign-in, setup, invite, reset: two editorial columns on desktop, one on phone. Tokens only. The panel
    is first in the DOM (focus order) and placed right by the grid. */
 .g-auth { position: relative; isolation: isolate; display: grid; min-height: 100dvh; grid-template-columns: 40% minmax(0, 1fr); background: var(--g-paper); color: var(--g-ink); }
-.g-auth-side { grid-area: 1 / 1; display: grid; grid-template-rows: auto 1fr auto; padding: 48px; border-right: 1px solid var(--g-rule-soft); background: var(--g-paper-2); }
+.g-auth-side { grid-area: 1 / 1; display: grid; grid-template-rows: auto 1fr auto; padding: 48px; border-right: var(--g-rule); background: var(--g-paper-2); }
 .g-auth-quote { align-self: center; max-width: 18ch; margin: 0; font: var(--g-type-quote); }
 .g-auth-host { margin: 0; color: var(--g-ink-3); }
 .g-auth-bar { display: none; }
@@ -34,9 +34,6 @@
 .g-show-pip i { background: var(--g-gold); transform-origin: left; animation: g-show-pace 8s linear both; }
 .g-show-pips.is-held i { animation-play-state: paused; }
 @keyframes g-show-pace { from { transform: scaleX(0); } }
-@media (prefers-reduced-motion: reduce) {
-  .g-show-art img, .g-show-art img.is-in, .g-show-now { animation: none; }
-}
 @media (max-width: 767px) {
   .g-auth { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .g-auth-side { display: none; }

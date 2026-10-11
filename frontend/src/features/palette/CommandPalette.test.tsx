@@ -162,7 +162,7 @@ describe('CommandPalette', () => {
     expect(screen.getByRole('dialog', { name: 'Add a link' })).toBeTruthy();
     expect(input().getAttribute('inputmode')).toBe('url');
     await userEvent.type(input(), 'hello{Enter}');
-    expect(screen.getByRole('alert').textContent).toContain("That doesn't look like a link.");
+    expect(screen.getByRole('alert').textContent).toContain('Paste a public link starting with http:// or https://.');
     expect(p.onOpenUrl).not.toHaveBeenCalled();
   });
 

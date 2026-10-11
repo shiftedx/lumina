@@ -15,7 +15,4 @@
   .g-live.on-art { height: 18px; font-size: 11px; }
   .g-live.is-corner { top: 6px; left: 6px; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .g-live.is-live .g-live-dot { animation: none; }
-}
 .g-live.g-live-inline { margin-left: 8px; vertical-align: middle; }

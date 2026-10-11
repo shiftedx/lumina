@@ -50,13 +50,25 @@ describe('Watch for a title', () => {
     render(watchSurface({ selection: { kind: 'library', item }, onOpenLibraryItem, onOpenTitle }));
     await userEvent.click(await screen.findByRole('button', { name: 'Harbor Lights' }));
     expect(onOpenTitle).toHaveBeenCalledWith(detail);
-    expect(screen.getByText(/S1 · E1 · Episode 1/)).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Episode 1' })).toBeTruthy();
+    expect(screen.getByText(/S1 · E1/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Playback settings' })).toBeTruthy();
     await waitFor(() => expect(document.querySelector('video track')?.id).toBe('s:0'));
     await waitFor(() => expect(api.getLibraryUpNext).toHaveBeenCalledWith('i-e1'));
     await screen.findByRole('heading', { name: 'Up next' });
     fireEvent.ended(document.querySelector('video') as HTMLVideoElement);
     await waitFor(() => expect(onOpenLibraryItem).toHaveBeenCalledWith('i-e2'));
+  });
+
+  it('does not apply source seek timestamps to a matched synopsis', async () => {
+    available();
+    api.getTitle.mockResolvedValue({ ...detail, overview: '00:10 is part of the story synopsis.' });
+    render(watchSurface({ selection: { kind: 'library', item: { ...item, metadata_json: { description: '00:10 Source chapter' }, description_timestamps: [{ start: 0, end: 5, seconds: 10, label: '00:10' }] } } }));
+    const synopsis = await screen.findByText('00:10 is part of the story synopsis.');
+    expect(synopsis.querySelector('button')).toBeNull();
+    const sourceSeek = screen.getByRole('button', { name: 'Seek to 00:10' });
+    expect(sourceSeek.closest('details')?.hasAttribute('open')).toBe(false);
+    expect(sourceSeek.closest('dd')?.textContent).toContain('Source chapter');
   });
 
   it('marks the chosen text subtitle as the default track so a restart keeps it', async () => {
@@ -223,7 +235,7 @@ describe('Media Session (picture-in-picture window and system media controls)', 
     const onOpenLibraryItem = vi.fn();
     const { unmount } = render(watchSurface({ selection: { kind: 'library', item }, onOpenLibraryItem }));
     await waitFor(() => expect(handlers.get('nexttrack')).toBeTypeOf('function'));
-    expect(session.metadata).toMatchObject({ title: 'Harbor Lights S01E01', artist: 'Harbor Lights' });
+    expect(session.metadata).toMatchObject({ title: 'Episode 1', artist: 'Harbor Lights' });
     expect(handlers.get('previoustrack')).toBeNull(); // an episode list holds only the following episodes
     handlers.get('nexttrack')?.();
     expect(onOpenLibraryItem).toHaveBeenCalledWith('i-e2');

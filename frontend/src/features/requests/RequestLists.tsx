@@ -2,7 +2,7 @@
 import { type ReactNode, useState } from 'react';
 
 import { usePolledSnapshot } from '../../app/usePolledSnapshot';
-import { Button, Dialog, EmptyState, ErrorState, Field, fieldProps, Skeleton, Textarea, useToast } from '../../ui';
+import { Button, Dialog, EmptyState, ErrorState, Field, fieldProps, Select, Skeleton, Textarea, useToast } from '../../ui';
 import {
   type Amend, approveRequest, cancelRequest, declineRequest, errorCode, getCatalogTitle, type Language, listRequests, type MediaRequest,
   type RequestsPage, type RequestState, retryRequest,
@@ -161,7 +161,19 @@ export function Manage() {
       </section>
       <section aria-labelledby="rq-all" className="rq-manage">
         <h2 id="rq-all">All requests</h2>
-        <Chips label="Status" onChange={setFilter} options={FILTERS.map(([state, label]) => [state, counts[state] ? `${label} · ${counts[state]}` : label] as const)} value={filter} />
+        <div className="rq-status-chips">
+          <Chips label="Status" onChange={setFilter} options={FILTERS.map(([state, label]) => [state, counts[state] ? `${label} · ${counts[state]}` : label] as const)} value={filter} />
+        </div>
+        <div className="rq-status-select">
+          <Field label="Status">
+            {(ids) => (
+              <Select {...fieldProps(ids)} onChange={(event) => setFilter((event.currentTarget.value || undefined) as RequestState | undefined)} value={filter ?? ''}>
+                <option value="">All requests</option>
+                {FILTERS.map(([state, label]) => <option key={state} value={state}>{counts[state] ? `${label} · ${counts[state]}` : label}</option>)}
+              </Select>
+            )}
+          </Field>
+        </div>
         {all.error && !all.page ? <ErrorState onRetry={all.reload} title="Lumina couldn't load requests." /> : !all.page ? <Skeleton count={3} label="Loading requests" shape="row" />
           : !all.page.items.length ? <EmptyState title="No requests here." /> : (
             <ul className="rq-requests">

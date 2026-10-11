@@ -21,7 +21,7 @@ export function ErrorState({ title, body, onRetry, retrying = false, retryLabel 
       <div className="g-error-copy">
         <p className="g-error-title">{title}</p>
         {body ? <p className="g-error-body">{clampServerText(body)}</p> : null}
-        {onRetry ? <Button busy={retrying} onClick={onRetry}>{retryLabel}</Button> : null}
+        {onRetry ? <Button busy={retrying} data-focus-item onClick={onRetry}>{retryLabel}</Button> : null}
       </div>
     </div>
   );

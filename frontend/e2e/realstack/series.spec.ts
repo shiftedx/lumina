@@ -19,7 +19,7 @@ test('a show starts, resumes from Home and moves on to the next episode', async 
     await openShow(page);
     await page.getByRole('button', { name: 'Start S1 · E1', exact: true }).click();
     await expect(page).toHaveURL(/\/watch\/library\//);
-    await expect(page.locator('.watch-episode-byline')).toContainText('S1 · E1');
+    await expect(page.locator('.watch-title')).toContainText('S1 · E1');
     await expect.poll(() => videoTime(page)).toBeGreaterThan(0.5);
     const saved = page.waitForResponse(playbackSave(false));
     await page.locator('video').evaluate((video: HTMLVideoElement) => { video.currentTime = 30; });
@@ -46,7 +46,7 @@ test('a show starts, resumes from Home and moves on to the next episode', async 
     await expect(upNext).toContainText('S1 · E2');
     await upNext.getByRole('button', { name: 'Cancel' }).click();
     await completed;
-    await expect(page.locator('.watch-episode-byline')).toContainText('S1 · E1');
+    await expect(page.locator('.watch-title')).toContainText('S1 · E1');
   });
 
   await test.step('the show page now plays the second episode', async () => {

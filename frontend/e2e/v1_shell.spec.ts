@@ -40,6 +40,20 @@ test('the old Live, Explore and Subscriptions addresses land on Streaming', asyn
   }
 });
 
+test('the desktop menu and search glyphs share a vertical center', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await mockApi(page, { sidebar_collapsed: false });
+  await page.goto('/');
+  await signIn(page);
+  const [menu, search] = await Promise.all([
+    page.getByRole('button', { name: 'Open navigation' }).locator('svg').boundingBox(),
+    page.getByRole('button', { name: /^Search Lumina, / }).locator('svg').boundingBox(),
+  ]);
+  expect(menu).not.toBeNull();
+  expect(search).not.toBeNull();
+  expect(search!.y + search!.height / 2).toBe(menu!.y + menu!.height / 2);
+});
+
 const surfaces = [
   { name: 'home', path: '/' },
   { name: 'explore', path: '/streaming' },

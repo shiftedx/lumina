@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { LiveBadge, liveBadgeState, upcomingLabel } from './LiveBadge';
 
 const css = readFileSync(join(__dirname, 'liveBadge.css'), 'utf8');
+const baseCss = readFileSync(join(__dirname, '../../styles/base.css'), 'utf8');
 const time = (at: Date) => at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toUpperCase();
 
 describe('LiveBadge', () => {
@@ -46,7 +47,7 @@ describe('LiveBadge', () => {
   it('pulses only the live dot, and never under reduced motion', () => {
     const animated = [...css.matchAll(/([^{}]+)\{[^{}]*\banimation:(?!\s*none)[^;}]+/g)].map(([, selector]) => selector.trim());
     expect(animated).toEqual(['.g-live.is-live .g-live-dot']);
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.g-live\.is-live \.g-live-dot \{ animation: none; \}/);
+    expect(baseCss).toContain('@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after, ::backdrop { animation: none !important; transition: none !important; scroll-behavior: auto !important; }\n}');
     expect(css).toContain('@keyframes g-live { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }');
   });
 

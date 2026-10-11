@@ -95,24 +95,26 @@ function RootRow({ root, busy, offerImport = false, onProbe, onEnabled, onRemove
   return (
     <>
       <tr aria-busy={busy}>
-        <th scope="row">
+        <th className="g-root-name" scope="row">
           {root.label}
           <small>{root.mode === 'managed' ? 'Managed' : 'External · read-only'}</small>
           {root.enabled ? null : <small><StatusText tone="muted">Disabled</StatusText></small>}
         </th>
-        <td><span className="g-mono">{root.path}</span></td>
-        <td>
+        <td className="g-root-path"><span className="g-root-label">Path</span><span className="g-mono">{root.path}</span></td>
+        <td className="g-root-state">
+          <span className="g-root-label">State</span>
           <StatusText tone={rootTone(state)}>{known?.label ?? 'Not checked'}</StatusText>
           <small>{reason}</small>
           <small>Checked {formatDateTime(root.observation.checked_at, 'Never')}</small>
         </td>
-        <td>
+        <td className="g-root-space">
+          <span className="g-root-label">Free space</span>
           {hasSpace ? <ProgressBar label={`${root.label} space used`} value={((total - free) / total) * 100} /> : null}
           <span className="g-tabular">{free == null ? 'Unavailable' : `${formatBytes(free)} of ${formatBytes(total)}`}</span>
           {root.mode === 'managed' ? <small>Keeps {root.minimum_free_bytes ? formatBytes(root.minimum_free_bytes) : 'none'} free</small> : null}
         </td>
-        <td className="g-tabular">{root.artifact_count}</td>
-        <td>
+        <td className="g-root-files g-tabular"><span className="g-root-label">Files</span>{root.artifact_count}</td>
+        <td className="g-root-actions">
           <Menu
             align="end"
             items={[

@@ -27,4 +27,3 @@
   .gallery .h-edit-name { font-size: 17px; }
 }
 @media (min-width: 1600px) { .gallery .h-editor { --h-edit-row: 72px; } }
-@media (prefers-reduced-motion: reduce) { .gallery .h-edit-row { transition: none; } }

@@ -190,7 +190,8 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
         audio=None if audio is None else "copy" if copy_audio else "encode",
         burn_subtitle=burn, height=height, bitrate=bitrate, audio_channels=channels, tonemap=tonemap,
         reasons=tuple(reasons), **indexes,
-        hls_container=client.hls_container if not copy_video or video.get("codec") in {"h264", "hevc"} else "mp4",
+        hls_container=(client.hls_container if (not copy_video or video.get("codec") in {"h264", "hevc"})
+                       and (not copy_audio or audio.get("codec") in {"aac", "mp3", "ac3", "eac3"}) else "mp4"),
     )
 
 

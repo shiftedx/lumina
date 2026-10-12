@@ -198,3 +198,12 @@ def test_av1_copy_retains_mp4_even_when_ts_is_preferred():
     ]})
     decision = decide(caps, facts(MKV, v("av1"), a()))
     assert decision.video == "copy" and decision.hls_container == "mp4"
+
+
+@pytest.mark.parametrize("codec", ["flac", "opus"])
+def test_audio_copy_retains_mp4_for_codecs_outside_the_ts_delivery_set(codec):
+    caps = caps_from_device_profile({"TranscodingProfiles": [
+        {"Type": "Video", "Protocol": "hls", "Container": "ts", "VideoCodec": "h264", "AudioCodec": "aac,flac,opus"},
+    ]})
+    decision = decide(caps, facts(MKV, v(), a(codec)))
+    assert decision.audio == "copy" and decision.hls_container == "mp4"

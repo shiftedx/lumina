@@ -31,16 +31,17 @@ SUBJECTS = {
 KIND_LABEL = {"movie": "Film", "show": "Series", "anime": "Anime"}  # requestsModel.ts
 COPY = {  # event: (eyebrow, preheader, paragraph); the reason and the requester are added where they apply
     "pending": ("New request", "{who} asked for {title}. It's waiting for your approval.",
-                "{who} would like this in the vault. It's waiting for an admin's approval in Requests → Manage."),
+                "{who} would like this in the vault. Approve or decline the request."),
     "approved": ("Approved", "{title} is approved and on its way to the vault.",
-                 "Good news: it's approved and on its way to the vault. We'll write again the moment it's ready to watch."),
+                 "Approved for the vault. We'll notify you when it's ready to watch."),
     "declined": ("Declined", "{title} was declined.",
-                 "This request was declined, so it won't be added to the vault for now."),
+                 "This request won't be added to the vault for now."),
     "available": ("Ready to watch", "{title} is in the vault and ready to watch.",
-                  "It's in the vault and ready when you are. Dim the lights."),
+                  "In the vault. Ready when you are."),
     "failed": ("Needs attention", "Lumina couldn't send {title} to the download server.",
-               "Lumina couldn't send this to the download server. An admin can retry it from Requests → Manage."),
+               "The download server couldn't accept this request. An admin can retry it."),
 }
+ACTION_LABELS = {"pending": "Review request", "approved": "Track request", "declined": "View request", "available": "Watch now", "failed": "View request"}
 
 
 @dataclass(frozen=True)
@@ -115,10 +116,12 @@ def request_email(req: MediaRequest, event: str, who: str) -> tuple[str, str, st
     why = ("You're getting this because you're an admin of Lumina." if event == "pending"
            else "You're getting this because you asked for this title, or follow its request.")
     subject = SUBJECTS[event].format(title=title)
+    action = ACTION_LABELS[event] if event != "available" or req.library_title_id else "View request"
     text, html = email_layout.compose(
         subject=subject, preheader=preheader, eyebrow=eyebrow, heading=name, meta=meta, poster=req.poster_url,
+        status=event, progress={"pending": 0, "approved": 1, "available": 2}.get(event),
         paragraphs=(paragraph,), note=("Reason", req.decline_reason) if event == "declined" and req.decline_reason else None,
-        button=("Open in Lumina", _open_link(req, event)), why=why,
+        button=(action, _open_link(req, event)), why=why,
         unsubscribe="To stop request emails, turn them off in Settings → Requests.")
     return subject, text, html
 
@@ -127,12 +130,10 @@ def smtp_test_email() -> tuple[str, str, str]:
     """(subject, text, html): the SMTP check, dressed like every email Lumina sends."""
     subject = "Lumina test email"
     text, html = email_layout.compose(
-        subject=subject, preheader="Your mail server is set up. Lumina's emails will look like this.",
-        eyebrow="Test email", heading="Your mail is on its way.",
-        paragraphs=("Lumina reached your mail server and this message made it through. Every email Lumina sends will "
-                    "arrive looking like this one.",),
-        listing=("What Lumina will send", ["Invitations to join the household", "Request updates, from asked for to ready to watch",
-                                           "Security notices for the owners"]),
+        subject=subject, preheader="Connection verified. Your vault's updates, delivered beautifully.",
+        eyebrow="Connection verified", heading="Your vault. Your inbox.", status="connected",
+        paragraphs=("Lumina reached your mail server and this message made it through.",),
+        listing=("Stay in the loop", ["Invitations · access to a shared vault", "Requests · from approval to ready to watch", "Security · important account alerts"]),
         button=("Open Lumina", public_address.link_base()),
         why="You're getting this because an admin sent a test from Settings → Requests.")
     return subject, text, html

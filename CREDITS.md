@@ -39,3 +39,7 @@ Lumina is an independent project, not affiliated with or endorsed by any project
 ## Social preview artwork
 
 The social-card artwork is original imagery generated for Lumina. Its fictional scenes contain no household media or member details. The cards reuse the project’s Newsreader fonts and horizon mark; regenerate them with `mise exec -- npm --prefix frontend run social:render`.
+
+## Email artwork
+
+Email banners reuse the original media-vault illustration and the app’s horizon mark. Their versioned public assets contain no member details or tracking identifiers. Regenerate them with `mise exec -- npm --prefix frontend run email:render`; render all message variants with `mise exec -- backend/.venv/bin/python scripts/email_preview.py /tmp/lumina-email-preview.html`.

@@ -34,3 +34,18 @@ describe('social preview images', () => {
     expect(bytes.length).toBeLessThan(400_000);
   });
 });
+
+describe('email artwork', () => {
+  it('ships a compact retina vault banner and an unboxed horizon mark', () => {
+    const banner = readFileSync('public/email/vault-v1.jpg');
+    const frame = banner.indexOf(Buffer.from([0xff, 0xc0]));
+    expect(banner.readUInt16BE(frame + 5)).toBe(480);
+    expect(banner.readUInt16BE(frame + 7)).toBe(1280);
+    expect(banner.length).toBeLessThan(250_000);
+    const mark = readFileSync('public/email/mark-v1.png');
+    expect(mark.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+    expect(mark.readUInt32BE(16)).toBe(144);
+    expect(mark.readUInt32BE(20)).toBe(112);
+    expect(mark[25]).toBe(6); // RGBA: the horizon sits on transparency, without the old icon box.
+  });
+});

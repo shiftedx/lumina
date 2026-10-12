@@ -53,7 +53,7 @@ def test_poster_is_https_only_with_alt_text() -> None:
 
 def test_logo_and_links_use_the_public_address() -> None:
     _, text, html = every_email(title="Arrival", year=2016, poster_url=None, library_title_id="t-9")[4]
-    assert '<img src="https://lumina.example.com/email-mark.png" width="36" height="36" alt="Lumina"' in html
+    assert '<img src="https://lumina.example.com/email/mark-v1.png" width="36" height="28" alt="Lumina"' in html
     assert "https://lumina.example.com/title/t-9" in text and "https://lumina.example.com/title/t-9" in html
     assert "lumina.example.com" in text and "Settings → Requests" in html
 
@@ -63,3 +63,51 @@ def test_compose_text_part_mirrors_the_blocks() -> None:
                                       note=("Reason", "R"), button=("Go", "https://x.test/a?b=1&c=2"))
     assert text.startswith("H\n\nBody\n\nReason: R\n\nGo:\nhttps://x.test/a?b=1&c=2") and "W" in text
     assert 'href="https://x.test/a?b=1&amp;c=2"' in html and ">P" in html  # the preheader
+
+
+def test_facts_are_escaped_and_available_without_images() -> None:
+    text, html = email_layout.compose(subject="S", preheader="P", eyebrow="Security notice", heading="Codes paused", why="W",
+                                      facts=((EVIL, EVIL), ("Pause", "15 minutes")), status="security", button=("Review member", "https://x.test/member"))
+    assert f"{EVIL}: {EVIL}" in text and "Pause: 15 minutes" in text
+    assert "<script>" not in html and html.count("&lt;script&gt;") == 2
+    assert "15 minutes" in html and ">Review member" in html
+
+
+def test_media_vault_art_is_public_and_request_progress_is_live_text() -> None:
+    emails = every_email(title="Arrival", year=2016, poster_url="https://image.tmdb.org/poster.jpg")
+    for index in (0, 6, 7):
+        assert "https://lumina.example.com/email/vault-v1.jpg" in emails[index][2]
+    for index in (1, 2, 4):
+        assert all(label in emails[index][2] for label in ("Requested", "Approved", "Ready"))
+    assert "Watch now" not in emails[3][2] and "Watch now" not in emails[5][2]
+    assert all("border:1px solid" not in html and "border-left:" not in html for _, _, html in emails)
+
+
+def test_invitation_copy_includes_friends_and_keeps_the_link_out_of_visible_html_copy() -> None:
+    link = "https://lumina.example.com/invite#invite=private-link"
+    _, text, html = invite_email.render(inviter="Maya", server="Lumina", libraries=["Films"], link=link, expires=datetime(2026, 10, 12))
+    assert "Maya invited you to Lumina" in text and "October 12, 2026" in text and link in text
+    assert "household" not in text and "Accept invitation" in html
+    assert f'Paste this into your browser: {link}' not in html
+    assert "Single use" in text and "Single use" in html
+
+
+def test_only_an_available_library_title_gets_a_watch_action() -> None:
+    request = MediaRequest(id="r", kind="movie", media_type="movie", tmdb_id=603, requested_by="u", title="Arrival")
+    _, text, html = notify.request_email(request, "available", "Maya")
+    assert "View request" in text and "Watch now" not in html
+    request.library_title_id = "title-9"
+    _, text, html = notify.request_email(request, "available", "Maya")
+    assert "Watch now" in text and "https://lumina.example.com/title/title-9" in html
+
+
+def test_subject_names_cannot_carry_header_line_breaks() -> None:
+    subject, _, _ = invite_email.render(inviter="Maya\r\nBcc: Other", server="Lumina", libraries=[], link="https://lumina.example.com/invite", expires=datetime(2026, 10, 12))
+    assert "\n" not in subject and "\r" not in subject
+    subject, _, _ = two_factor.lock_email(User(id="u", username="sam", display_name="Sam\nOther"))
+    assert "\n" not in subject
+
+
+def test_empty_library_names_do_not_promise_unrestricted_access() -> None:
+    _, text, html = invite_email.render(inviter="Maya", server="Lumina", libraries=[], link="https://lumina.example.com/invite", expires=datetime(2026, 10, 12))
+    assert "Everything" not in text and "Shared with you" not in html

@@ -4,8 +4,8 @@
     backend/.venv/bin/python scripts/email_preview.py /tmp/email-preview.html
 
 Each email sits in an iframe at desktop width and at 375 px; the invite also shows the forced-light palette, and one
-request shows how it reads with images blocked. The logo is inlined as a data: URI so the page renders offline; posters
-are the public TMDB images the request flow stores.
+request shows how it reads with images blocked. Brand artwork and fonts are inlined for review; request posters use public TMDB sample images.
+This browser preview does not send email or substitute for a native mail-client check.
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def emails() -> list[tuple[str, tuple[str, str, str]]]:
     public_address.set_origin(BASE)
     return [
         ("Invite", invite_email.render(inviter="Maya", server=email_layout.SERVER_NAME, libraries=["Films", "Series", "Anime"],
-                                       link=f"{BASE}/#invite=Qm9vdHN0cmFwLXNhbXBsZS10b2tlbg", expires=datetime(2026, 10, 12))),
+                                       link=f"{BASE}/invite#invite=Qm9vdHN0cmFwLXNhbXBsZS10b2tlbg", expires=datetime(2026, 10, 12))),
         ("Request: pending (admins)", notify.request_email(
             request("pending", "The Matrix", 1999, "movie", "f89U3ADr1oiB1s9GkdPOEpXUk5H", tmdb_id=603), "pending", "Jordan")),
         ("Request: approved", notify.request_email(
@@ -57,8 +57,11 @@ def emails() -> list[tuple[str, tuple[str, str, str]]]:
 
 
 def frame(html: str, width: int, *, light: bool = False, blocked: bool = False) -> str:
-    logo = "data:image/png;base64," + base64.b64encode((REPOSITORY / "frontend/public/email-mark.png").read_bytes()).decode()
-    html = html.replace(f"{BASE}{email_layout.LOGO_PATH}", logo).replace(LIGHT, "@media all" if light else "@media not all")
+    for asset, mime in ((email_layout.LOGO_PATH, "image/png"), (email_layout.HERO_PATH, "image/jpeg"),
+                        ("/fonts/Newsreader-variable.woff2", "font/woff2"), ("/fonts/Newsreader-Italic-variable.woff2", "font/woff2")):
+        data = f"data:{mime};base64," + base64.b64encode((REPOSITORY / "frontend/public" / asset.lstrip("/")).read_bytes()).decode()
+        html = html.replace(f"{BASE}{asset}", data)
+    html = html.replace(LIGHT, "@media all" if light else "@media not all")
     if blocked:
         html = html.replace(' src="', ' data-src="')
     return (f'<iframe title="preview" width="{width}" style="width:{width}px" srcdoc="{escape(html, quote=True)}" '
@@ -97,7 +100,7 @@ figcaption {{ color:#9d968a; font-size:12px; margin-bottom:8px; }}
 iframe {{ border:1px solid #2a2722; display:block; height:900px; background:#0f0e0c; }}
 </style></head><body><main>
 <h1>Lumina Email Templates</h1>
-<p class="lede">Every email Lumina sends, rendered with sample data. Fonts fall back to Georgia, as in Gmail.</p>
+<p class="lede">Every email Lumina sends, rendered with sample data. Desktop, phone, light palette, and image-blocked previews. Brand fonts are embedded here; mail clients without web fonts use Georgia.</p>
 {"".join(sections)}
 </main></body></html>"""
 

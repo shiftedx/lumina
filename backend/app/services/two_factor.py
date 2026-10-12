@@ -318,14 +318,13 @@ def lock_email(record: User) -> tuple[str, str, str]:
     """(subject, text, html) telling the owners a member's authenticator codes are paused."""
     name = record.display_name or record.username
     minutes = TOTP_LOCK_SECONDS // 60
-    subject = f"Two-step verification paused for {name}"
+    subject = f"Two-step verification paused for {' '.join(name.split())}"
     text, html = email_layout.compose(
         subject=subject, preheader=f"{TOTP_LOCK_AFTER} wrong codes in a row. Codes are paused for {minutes} minutes.",
-        eyebrow="Security notice", heading=subject,
-        paragraphs=(f"{name} ({record.username}) entered {TOTP_LOCK_AFTER} wrong two-step verification codes in a row, so "
-                    f"Lumina paused authenticator codes for that account for {minutes} minutes.",
-                    "If it wasn't them, someone may know their password. Change it, or reset their two-step verification, "
-                    "under Settings → Members."),
+        eyebrow="Security notice", heading="Codes temporarily paused.", status="security",
+        facts=(("Account", f"{name} ({record.username})"), ("Pause", f"{minutes} minutes"), ("Trigger", f"{TOTP_LOCK_AFTER} incorrect codes")),
+        paragraphs=("Authenticator codes are paused after repeated incorrect attempts. Recovery codes still work.",),
+        note=("If these attempts weren't expected", "Change the member's password or reset their two-step verification."),
         button=("Review member", f"{public_address.link_base()}/settings/members/{quote(record.id, safe='')}"),
         why="You're getting this because you're an owner of Lumina and security notices go to your notification address.")
     return subject, text, html

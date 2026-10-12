@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { UserProfile } from '../types';
+import type { LibraryActivity, UserProfile } from '../types';
 import { EDIT_HOME_EVENT, MEMBER_PICKER_EVENT, onCommand } from './commands';
 import { TopBar, type TopBarProps } from './TopBar';
 
@@ -10,9 +10,13 @@ import { TopBar, type TopBarProps } from './TopBar';
 vi.mock('../features/auth/memberPicker', () => ({ useDeviceRingSize: () => 1 }));
 
 const user = { id: 'u1', username: 'dana', display_name: 'Dana Lee', role: 'admin', is_active: true } as UserProfile;
+const library = (patch: Partial<LibraryActivity> = {}): LibraryActivity => ({
+  scanning_roots: 0, discovering_roots: 0, indexing_roots: 0, preparing_roots: 0, waiting_files: 0,
+  discovered_files: 0, completed_files: 0, total_files: null, progress: null, inspected_files: 0, directories_listed: 0, directories_total: null, ...patch,
+});
 const props = (patch: Partial<TopBarProps> = {}): TopBarProps => ({
   user, mobile: false, compact: false, menuLabel: 'Open navigation', menuExpanded: true, menuButtonRef: createRef(),
-  activity: { state: 'ready', retrying: false, active: 2 }, theme: 'system',
+  activity: { state: 'ready', retrying: false, active: 2 }, libraryActivity: { state: 'ready', activity: library() }, theme: 'system',
   onMenu: vi.fn(), onHome: vi.fn(), onSearch: vi.fn(), onAddLink: vi.fn(), onActivity: vi.fn(), onSettings: vi.fn(), onTheme: vi.fn(), onSignOut: vi.fn(),
   ...patch,
 });
@@ -30,7 +34,13 @@ describe('TopBar', () => {
   it('keeps the activity labels and opens Downloads', async () => {
     const p = props();
     render(<TopBar {...p} />);
-    await userEvent.click(screen.getByRole('button', { name: '2 active downloads' }));
+    await userEvent.click(screen.getByRole('button', { name: '2 downloads' }));
+    const panel = screen.getByRole('dialog', { hidden: true });
+    expect(panel.getAttribute('aria-label')).toBe('Activity');
+    expect(panel.textContent).toContain('No library scan running');
+    expect(panel.textContent).not.toContain('up to date');
+    expect(within(panel).getByText('No library scan running').closest('.g-status')?.classList.contains('is-muted')).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Open Downloads', hidden: true }));
     expect(p.onActivity).toHaveBeenCalledOnce();
   });
 
@@ -40,10 +50,57 @@ describe('TopBar', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Download activity may be out of date' }));
     // jsdom treats the popover as hidden, which empties its computed name: assert the label attribute instead.
     const panel = screen.getByRole('dialog', { hidden: true });
-    expect(panel.getAttribute('aria-label')).toBe('Download activity');
+    expect(panel.getAttribute('aria-label')).toBe('Activity');
     expect(panel.textContent).toContain('Download activity may be out of date');
     await userEvent.click(screen.getByRole('button', { name: 'Open Downloads', hidden: true })); // the way out of a stale state stays reachable
     expect(onActivity).toHaveBeenCalledOnce();
+  });
+
+  it('combines download and library work without exposing location details', async () => {
+    render(<TopBar {...props({ libraryActivity: { state: 'ready', activity: library({ scanning_roots: 2, waiting_files: 3, inspected_files: 37 }) } })} />);
+    const trigger = screen.getByRole('button', { name: '2 downloads · Library scanning, 37 files checked' });
+    expect(trigger.querySelector('.g-activity-ring')?.classList.contains('is-indeterminate')).toBe(true);
+    await userEvent.click(trigger);
+    const panel = screen.getByRole('dialog', { hidden: true });
+    expect(panel.textContent).toContain('Scanning library');
+    expect(panel.textContent).toContain('3 files are still copying or stabilizing');
+    expect(panel.textContent).toContain('New files appear in the library after indexing.');
+    expect(panel.textContent).not.toMatch(/\/Volumes\/|root-|title-/);
+  });
+
+  it('shows reliable indexing progress and keeps discovery indeterminate', () => {
+    const { rerender } = render(<TopBar {...props({ activity: { state: 'ready', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: library({ scanning_roots: 1, indexing_roots: 1, completed_files: 4, total_files: 10, progress: 40 }) } })} />);
+    const determinate = screen.getByRole('button', { name: 'Indexing library, 4 of 10 checked' });
+    expect(determinate.querySelector('.g-activity-ring')?.classList.contains('is-indeterminate')).toBe(false);
+    expect(determinate.querySelector('.g-activity-ring')?.getAttribute('style')).toContain('144deg');
+
+    rerender(<TopBar {...props({ activity: { state: 'ready', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: library({ scanning_roots: 1, discovering_roots: 1, discovered_files: 4 }) } })} />);
+    expect(screen.getByRole('button', { name: 'Discovering files, 4 found' }).querySelector('.g-activity-ring')?.classList.contains('is-indeterminate')).toBe(true);
+  });
+
+  it('opens phase details with true indexing progress and discovery counts only', async () => {
+    const { rerender } = render(<TopBar {...props({ activity: { state: 'empty', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: library({ scanning_roots: 1, discovering_roots: 1, discovered_files: 18 }) } })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Discovering files, 18 found' }));
+    const discovery = screen.getByRole('dialog', { hidden: true });
+    expect(discovery.textContent).toContain('18 files found. Counting candidates before indexing begins.');
+    expect(within(discovery).queryByRole('progressbar', { hidden: true })).toBeNull();
+
+    rerender(<TopBar {...props({ activity: { state: 'empty', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: library({ scanning_roots: 1, indexing_roots: 1, completed_files: 18, total_files: 24, progress: 75 }) } })} />);
+    const indexing = screen.getByRole('dialog', { hidden: true });
+    const progress = within(indexing).getByRole('progressbar', { name: 'Library indexing progress', hidden: true });
+    expect(progress.getAttribute('value')).toBe('75');
+    expect(indexing.textContent).toContain('18 of 24 checked · 75%');
+  });
+
+  it('keeps Downloads reachable when library activity is loading or unavailable', async () => {
+    const p = props({ activity: { state: 'empty', retrying: false, active: 0 }, libraryActivity: { state: 'loading', activity: null } });
+    const { rerender } = render(<TopBar {...p} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Checking library activity' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Open Downloads', hidden: true }));
+    expect(p.onActivity).toHaveBeenCalledOnce();
+
+    rerender(<TopBar {...props({ activity: { state: 'empty', retrying: false, active: 0 }, libraryActivity: { state: 'failed', activity: null } })} />);
+    expect(screen.getByRole('button', { name: 'Library activity unavailable' })).toBeTruthy();
   });
 
   it('offers the profile menu: switch member, settings, theme and sign out', async () => {

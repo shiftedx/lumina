@@ -34,7 +34,7 @@
     <td width="50%"><b>Live</b><br>YouTube and Twitch live streams with chat, and chat replay for finished broadcasts.</td>
   </tr>
   <tr>
-    <td><b>Your library</b><br>Movies, TV, music and downloads with TMDB artwork and a full metadata editor. Read-only folder imports, optional scheduled scans and folder watching, and a visible Refresh action.</td>
+    <td><b>Your library</b><br>Movies, TV, music and downloads with TMDB artwork and a full metadata editor. Read-only folder imports, optional scheduled scans and folder watching, and a visible Refresh action. Library-wide discovery and indexing progress appear in the header activity indicator.</td>
     <td><b>Any screen</b><br>Infuse and other Jellyfin apps connect directly. Direct play, remux or transcode, with Intel QSV/VAAPI.</td>
   </tr>
   <tr>

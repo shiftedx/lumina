@@ -5,9 +5,10 @@ import { providerBlocked, useAccess } from '../features/access/access';
 import { openMemberPicker, requestHomeEdit } from './commands';
 import { useDeviceRingSize } from '../features/auth/memberPicker';
 import type { ThemePreference } from '../theme';
-import type { UserProfile } from '../types';
+import type { LibraryActivity, UserProfile } from '../types';
 import { Avatar, BrandMark, Button, IconButton, Kbd, Menu, modKeyLabel, Popover, StatusText } from '../ui';
 import type { CollectionLoadState } from '../workspace';
+import type { LibraryActivitySnapshot } from './useLibraryActivity';
 
 export interface TopBarProps {
   user: UserProfile;
@@ -17,6 +18,7 @@ export interface TopBarProps {
   menuExpanded: boolean;
   menuButtonRef: RefObject<HTMLButtonElement | null>;
   activity: { state: CollectionLoadState; retrying: boolean; active: number };
+  libraryActivity: LibraryActivitySnapshot;
   theme: ThemePreference;
   onMenu: () => void;
   onHome: () => void;
@@ -29,27 +31,54 @@ export interface TopBarProps {
   onSignOut: () => void;
 }
 
-/** The existing activity wording. */
-export function activityLabel({ state, retrying, active }: TopBarProps['activity']): string {
+/** Download status remains distinct inside the combined household activity summary. */
+export function downloadActivityLabel({ state, retrying, active }: TopBarProps['activity']): string {
   if (retrying) return 'Refreshing download activity';
   if (state === 'loading') return 'Checking download activity';
   if (state === 'stale') return 'Download activity may be out of date';
   if (state === 'offline' || state === 'failed') return 'Download activity unavailable';
-  return active ? `${active} active downloads` : 'No active downloads';
+  return active ? `${active} ${active === 1 ? 'download' : 'downloads'} in progress` : 'No active downloads';
+}
+
+export function libraryIsActive(activity: LibraryActivity | null): boolean {
+  return Boolean(activity && (activity.scanning_roots || activity.discovering_roots || activity.indexing_roots || activity.preparing_roots || activity.waiting_files));
+}
+
+function libraryButtonLabel(snapshot: LibraryActivitySnapshot): string | null {
+  if (snapshot.state === 'loading') return 'Checking library activity';
+  if (snapshot.state === 'failed') return 'Library activity unavailable';
+  if (!libraryIsActive(snapshot.activity)) return null;
+  const activity = snapshot.activity!;
+  if (activity.discovering_roots) return `Discovering files${activity.discovered_files ? `, ${activity.discovered_files} found` : ''}`;
+  if (activity.indexing_roots && activity.total_files !== null) return `Indexing library, ${activity.completed_files} of ${activity.total_files} checked`;
+  if (activity.preparing_roots) return 'Preparing library scan';
+  if (activity.waiting_files && !activity.scanning_roots) return `${activity.waiting_files} ${activity.waiting_files === 1 ? 'file' : 'files'} waiting to index`;
+  return `Library scanning${activity.inspected_files ? `, ${activity.inspected_files} files checked` : ''}`;
+}
+
+export function activityLabel(downloads: TopBarProps['activity'], library: LibraryActivitySnapshot): string {
+  const current = (downloads.state === 'ready' || downloads.state === 'empty') && !downloads.retrying;
+  const parts = [current && downloads.active ? `${downloads.active} ${downloads.active === 1 ? 'download' : 'downloads'}` : current ? null : downloadActivityLabel(downloads), libraryButtonLabel(library)].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'No active downloads';
 }
 
 export function TopBar(props: TopBarProps) {
-  const { user, mobile, compact, activity, theme } = props;
+  const { user, mobile, compact, activity, libraryActivity, theme } = props;
   const ringSize = useDeviceRingSize();
   const canAddLink = !providerBlocked(useAccess().access, 'open_search');
   const name = user.display_name || user.username;
   const current = (activity.state === 'ready' || activity.state === 'empty') && !activity.retrying;
   const active = current ? activity.active : 0;
-  const label = activityLabel(activity);
+  const label = activityLabel(activity, libraryActivity);
+  const library = libraryActivity.state === 'ready' ? libraryActivity.activity : null;
+  const scanning = libraryIsActive(library);
+  const indexingProgress = library?.indexing_roots && library.total_files !== null && library.progress !== null ? Math.max(0, Math.min(100, library.progress)) : null;
+  const indeterminate = scanning && indexingProgress === null;
+  const ringProgress = indexingProgress === null ? (active ? 360 : 0) : Math.round(indexingProgress * 3.6);
   const shortcut = modKeyLabel();
   const activityButton = (triggerProps: Record<string, unknown> = {}) => (
-    <button onClick={props.onActivity} {...triggerProps} aria-label={label} className="g-activity" type="button">
-      <span aria-hidden="true" className="g-activity-ring" style={{ '--progress': active ? '288deg' : '0deg' } as CSSProperties} />
+    <button {...triggerProps} aria-label={label} className="g-activity" type="button">
+      <span aria-hidden="true" className={`g-activity-ring${indeterminate ? ' is-indeterminate' : ''}`} style={{ '--progress': `${ringProgress}deg` } as CSSProperties} />
       {active ? <span aria-hidden="true" className="g-activity-count">{active}</span> : null}
     </button>
   );
@@ -68,12 +97,31 @@ export function TopBar(props: TopBarProps) {
       </button>
       <div className="g-topbar-end">
         {!canAddLink ? null : mobile ? <IconButton icon={<Plus />} label="Add a link" onClick={props.onAddLink} /> : <Button aria-label="Add a link" icon={<Plus />} onClick={props.onAddLink} variant="quiet">Add link</Button>}
-        {current ? activityButton() : (
-          <Popover label="Download activity" openOnHover trigger={(triggerProps) => activityButton(triggerProps)}>
-            <StatusText tone="attention">{label}</StatusText>
-            <Button onClick={props.onActivity} variant="quiet">Open Downloads</Button>
-          </Popover>
-        )}
+        <Popover label="Activity" openOnHover trigger={(triggerProps) => activityButton(triggerProps)}>
+          <div className="g-activity-popover">
+            <section>
+              <h2>Downloads</h2>
+              <StatusText tone={current ? active ? 'attention' : 'muted' : 'attention'}>{downloadActivityLabel(activity)}</StatusText>
+              <Button onClick={props.onActivity} variant="quiet">Open Downloads</Button>
+            </section>
+            <section>
+              <h2>Library</h2>
+              {libraryActivity.state === 'loading' ? <StatusText tone="muted">Checking library activity</StatusText> : null}
+              {libraryActivity.state === 'failed' ? <StatusText tone="attention">Library activity is unavailable</StatusText> : null}
+              {libraryActivity.state === 'ready' && !scanning ? <StatusText tone="muted">No library scan running</StatusText> : null}
+              {libraryActivity.state === 'ready' && scanning ? (
+                <div className="g-library-activity">
+                  {library!.discovering_roots ? <><StatusText tone="attention">Discovering files</StatusText><p>{library!.discovered_files ? `${library!.discovered_files} ${library!.discovered_files === 1 ? 'file' : 'files'} found. ` : ''}Counting candidates before indexing begins.</p></> : null}
+                  {!library!.discovering_roots && library!.indexing_roots ? <><StatusText tone="attention">Indexing library</StatusText>{indexingProgress === null || library!.total_files === null ? <p>Checking files</p> : <><progress aria-label="Library indexing progress" max={100} value={indexingProgress} /><p>{library!.completed_files} of {library!.total_files} checked · {Math.round(indexingProgress)}%</p></>}</> : null}
+                  {!library!.discovering_roots && !library!.indexing_roots && library!.preparing_roots ? <StatusText tone="attention">Preparing library scan</StatusText> : null}
+                  {!library!.discovering_roots && !library!.indexing_roots && !library!.preparing_roots && library!.scanning_roots ? <><StatusText tone="attention">Scanning library</StatusText>{library!.inspected_files ? <p>{library!.inspected_files} files checked</p> : null}</> : null}
+                  {library!.waiting_files ? <p>{library!.waiting_files} {library!.waiting_files === 1 ? 'file is' : 'files are'} still copying or stabilizing. {library!.waiting_files === 1 ? 'It' : 'They'} will be indexed when ready.</p> : null}
+                  <p>New files appear in the library after indexing.</p>
+                </div>
+              ) : null}
+            </section>
+          </div>
+        </Popover>
         <Menu
           align="end"
           items={[

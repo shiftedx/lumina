@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { retryAdminDownload, retryAdminTask, scanLibraries, setNightHour, updateRootAutomation } from './api';
+import { getLibraryActivity, retryAdminDownload, retryAdminTask, scanLibraries, setNightHour, updateRootAutomation } from './api';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -12,6 +12,14 @@ function stubFetch() {
 const call = (m: ReturnType<typeof stubFetch>) => ({ url: m.mock.calls[0][0], method: m.mock.calls[0][1]?.method, body: m.mock.calls[0][1]?.body });
 
 describe('library automation client', () => {
+  it('gets the member-safe activity summary with caller cancellation', async () => {
+    const m = stubFetch();
+    const controller = new AbortController();
+    await getLibraryActivity(controller.signal);
+    expect(call(m)).toEqual({ url: '/api/library/activity', method: undefined, body: undefined });
+    expect(m.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('scanLibraries posts an empty body or one root id', async () => {
     let m = stubFetch();
     await scanLibraries();

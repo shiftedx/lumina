@@ -103,7 +103,7 @@ import type {
 } from './types';
 import { accessStopCode, reportAccessStop } from './features/access/accessEvents';
 import { backgroundReady } from './backgroundGate';
-import type { AutomationRoot, AutomationRootPatch, BackdropOrder, BulkRequest, BulkResult, EditableImageType, EditEntry, EditRequest, EditResult, EpisodeGroup, EpisodeTable, HistoryPage, ImageCandidate, ImagePutTmdb, LibraryAutomation, LibraryAutomationDiagnostics, PersonDoc, PersonEditResult, PersonNameEdit, PersonSuggestion, RefreshPreview, RevertRequest, RevertResult, ScanLibrariesResult, TitleImageEntry, TitleMetadataDoc, UndoResult, VocabularyEntry, VocabularyField } from './types';
+import type { AutomationRoot, AutomationRootPatch, BackdropOrder, BulkRequest, BulkResult, EditableImageType, EditEntry, EditRequest, EditResult, EpisodeGroup, EpisodeTable, HistoryPage, ImageCandidate, ImagePutTmdb, LibraryActivity, LibraryAutomation, LibraryAutomationDiagnostics, PersonDoc, PersonEditResult, PersonNameEdit, PersonSuggestion, RefreshPreview, RevertRequest, RevertResult, ScanLibrariesResult, TitleImageEntry, TitleMetadataDoc, UndoResult, VocabularyEntry, VocabularyField } from './types';
 import type { ActivityHistoryPage, AdminActivity, ArtworkProgress, ClientMetricSample, ClientMetricsBatch, EpisodeSummaries, KeyScenes, LibrarySections, LibraryUpNext, MediaLoading, RecoDiagnostics, RecoEventBatch, RecoEventIn, SearchScope, TitleCategory, TitleFacets, TitleResolution } from './types';
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
@@ -974,6 +974,7 @@ export const bulkEditMetadata = (request: BulkRequest): Promise<BulkResult> => p
 
 // ── 2.1.0 library automation ──
 const AUTOMATION = '/api/admin/library/automation';
+export const getLibraryActivity = (signal?: AbortSignal): Promise<LibraryActivity> => requestJson('/api/library/activity', undefined, { signal, background: true });
 export const getLibraryAutomation = (): Promise<LibraryAutomation> => requestJson(AUTOMATION);
 export const updateRootAutomation = (rootId: string, payload: AutomationRootPatch): Promise<AutomationRoot> => patch(`${AUTOMATION}/roots/${enc(rootId)}`, payload);
 export const setNightHour = (night_hour: number): Promise<LibraryAutomation> => patch(AUTOMATION, { night_hour });

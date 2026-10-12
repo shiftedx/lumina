@@ -40,6 +40,7 @@ FIRST_TICK_DELAY_S = 20  # the lifespan's poller waits this long before its firs
 TOUCH_EVERY_S = 3600  # a watched root's rows have updated_at refreshed at most this often (7-day restore rule)
 
 _INTERVALS = {"15m": timedelta(minutes=15), "1h": timedelta(hours=1), "6h": timedelta(hours=6)}
+_DISCOVERY_COUNTERS = {"scan_phase": "discovering", "candidate_discovered": 0, "candidate_completed": 0}
 
 
 @dataclass(frozen=True)
@@ -225,6 +226,12 @@ class RootState:
     baselining: bool = False  # the watch started from no rows: write them all once the baseline completes
 
 
+@dataclass
+class _ActivityRun:
+    state: str
+    counters: dict
+
+
 def _run_view(run: ImportRun | None) -> RunView | None:
     if run is None:
         return None
@@ -268,6 +275,12 @@ class LibraryAutomation:
         self._poller: threading.Thread | None = None
         self._last_prune: float | None = None
         self._adopt_blocked_until: dict[str, float] = {}
+        # One bounded record per overlapping run. Finished roots stay in the cohort until its last active or queued
+        # root settles, so a two-root scan cannot jump backwards when the faster root finishes first.
+        self._activity_lock = threading.Lock()
+        self._activity_runs: dict[str, _ActivityRun] = {}
+        self._activity_pending: set[str] = set()
+        self._activity_batch_open = 0
         self._born = self._clock.now()  # runs created before this are a previous process's orphans
 
     def start(self, first_tick_delay_s: float = 0) -> None:
@@ -308,6 +321,7 @@ class LibraryAutomation:
         self._heartbeat_at = now
         roots, night, active = self._load()
         self._views, self._night = {r.id: r for r in roots}, night
+        self._refresh_activity(roots)
         for root in roots:
             # A scanning root is probed too, so a scan stuck on a dead share can show unresponsive.
             if root.mode == "external" and root.enabled and (root.schedule != "off" or root.watch or root.active_run):
@@ -413,6 +427,7 @@ class LibraryAutomation:
             watch.failed(plan, self._clock.monotonic())
             return False
         rs.pending, rs.last_dispatch = (run_id, plan), self._clock.now()
+        self._track_activity_run(run_id, counters=_DISCOVERY_COUNTERS)
         self._auto_lane(root.id).submit(run_id, lambda: self._drive_tracked(run_id))
         return True
 
@@ -545,6 +560,7 @@ class LibraryAutomation:
                 logger.info("Library automation: scheduled scan of %s not started: %s", root.label, exc)
                 return
             rs.last_dispatch = now
+            self._track_activity_run(run_id, counters=_DISCOVERY_COUNTERS)
             self._auto_lane(root.id).submit(run_id, lambda: self._drive_tracked(run_id))
             return
 
@@ -560,6 +576,7 @@ class LibraryAutomation:
             logger.warning("Library automation: driving an import failed: %.300s", repr(exc))
         finally:
             self._driving.discard(run_id)
+            self.activity_finished(run_id)
 
     def _batch_stalled(self, root_id: str) -> bool:
         rs = self._roots.get(root_id)
@@ -632,6 +649,82 @@ class LibraryAutomation:
                 "poller": {"heartbeat_at": self._heartbeat_at, "stalled": self._stalled()},
                 "roots": [self._entry(r) for r in self._external()]}
 
+    def _track_activity_run(self, run_id: str, pending_root: str | None = None, counters: dict | None = None) -> None:
+        with self._activity_lock:
+            if pending_root is not None:
+                self._activity_pending.discard(pending_root)
+            self._activity_runs.setdefault(run_id, _ActivityRun("running", dict(counters or {})))
+
+    def _finish_activity_pending(self, root_id: str) -> None:
+        with self._activity_lock:
+            self._activity_pending.discard(root_id)
+
+    def _refresh_activity(self, roots: Iterable[RootView]) -> tuple[list[_ActivityRun], int]:
+        """Refresh the bounded cohort from the cached read model and return an identity-free copy."""
+        roots = list(roots)
+        with self._activity_lock:
+            for root in roots:
+                active = root.active_run
+                if active is not None and (active.id in self._activity_runs or self._state(root) == "scanning"):
+                    self._activity_runs[active.id] = _ActivityRun(active.state, dict(active.counters))
+                newest = root.newest_run
+                if newest is not None and newest.id in self._activity_runs:
+                    self._activity_runs[newest.id] = _ActivityRun(newest.state, dict(newest.counters))
+            if (
+                self._activity_batch_open == 0
+                and not self._activity_pending
+                and not any(run.state in ACTIVE_STATES for run in self._activity_runs.values())
+            ):
+                self._activity_runs.clear()
+            return ([_ActivityRun(run.state, dict(run.counters)) for run in self._activity_runs.values()],
+                    len(self._activity_pending))
+
+    def public_activity(self) -> dict[str, int | float | None]:
+        """Bounded global work counts for signed-in members; memory only, with no root or media identity."""
+        limit = 2_147_483_647
+
+        def count(value: object) -> int:
+            return min(value, limit) if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+        external = self._external()
+        roots = [(root, self._state(root)) for root in external]
+        cohort, pending = self._refresh_activity(external)
+        active = [run for run in cohort if run.state in ACTIVE_STATES]
+        discovering = [run for run in active if run.counters.get("scan_phase") == "discovering"]
+        indexing = [run for run in active if run not in discovering]
+        preparing = [self._watches.get(root.id) for root, state in roots if state == "preparing"]
+        preparing = [watch for watch in preparing if watch is not None]
+        listed = sum(count(watch.stats.dirs_listed) for watch in preparing)
+        directory_totals = [watch.stats.dirs_total for watch in preparing]
+        directory_total = (
+            sum(count(value) for value in directory_totals)
+            if directory_totals and all(isinstance(value, int) and not isinstance(value, bool) and value > 0 for value in directory_totals)
+            else None
+        )
+        run_totals = [run.counters.get("candidate_total") for run in cohort]
+        total = (
+            min(sum(count(value) for value in run_totals), limit)
+            if cohort and not pending and not any(run.counters.get("scan_phase") == "discovering" for run in cohort)
+            and all(isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in run_totals)
+            else None
+        )
+        completed = min(sum(count(run.counters.get("candidate_completed")) for run in cohort), limit)
+        progress = round(min(completed, total) / total * 100, 1) if total else None
+        return {
+            "scanning_roots": min(len(active) + pending, limit),
+            "discovering_roots": min(len(discovering) + pending, limit),
+            "indexing_roots": min(len(indexing), limit),
+            "preparing_roots": min(len(preparing), limit),
+            "waiting_files": min(sum(count(watch.stats.pending_files) for watch in self._watches.values()), limit),
+            "discovered_files": min(sum(count(run.counters.get("candidate_discovered")) for run in cohort), limit),
+            "completed_files": completed,
+            "total_files": min(total, limit) if total is not None else None,
+            "progress": progress,
+            "inspected_files": min(sum(count(run.counters.get("inspected")) for run in cohort), limit),
+            "directories_listed": min(listed, limit),
+            "directories_total": min(directory_total, limit) if directory_total is not None and directory_total >= listed else None,
+        }
+
     def root_entry(self, root_id: str) -> dict[str, Any] | None:
         """One media_schemas.AutomationRoot as a dict; None for an unknown root."""
         root = self._views.get(root_id)
@@ -703,22 +796,31 @@ class LibraryAutomation:
                 raise LookupError(root_id)
         result: dict[str, list] = {"started": [], "queued": [], "skipped": []}
         first = True
-        for root in targets:
-            reason = self._probed_online(root)
-            if reason is not None:
-                result["skipped"].append({"root_id": root.id, "reason": reason})
-            elif first:
-                try:
-                    run_id = self._start_run(root.id, admin_id, root.newest_run.visibility, trigger="manual", scope=None)
-                except ImportRunError:
-                    result["skipped"].append({"root_id": root.id, "reason": "scanning"})
-                    continue
-                first = False
-                result["started"].append({"root_id": root.id, "run_id": run_id})
-                self._manual.submit(run_id, lambda run_id=run_id: self._drive_tracked(run_id))
-            else:
-                result["queued"].append(root.id)
-                self._manual.submit(f"scan:{root.id}", lambda root=root: self._run_queued(admin_id, root.id))
+        with self._activity_lock:
+            self._activity_batch_open += 1
+        try:
+            for root in targets:
+                reason = self._probed_online(root)
+                if reason is not None:
+                    result["skipped"].append({"root_id": root.id, "reason": reason})
+                elif first:
+                    try:
+                        run_id = self._start_run(root.id, admin_id, root.newest_run.visibility, trigger="manual", scope=None)
+                    except ImportRunError:
+                        result["skipped"].append({"root_id": root.id, "reason": "scanning"})
+                        continue
+                    first = False
+                    result["started"].append({"root_id": root.id, "run_id": run_id})
+                    self._track_activity_run(run_id, counters=_DISCOVERY_COUNTERS)
+                    self._manual.submit(run_id, lambda run_id=run_id: self._drive_tracked(run_id))
+                else:
+                    result["queued"].append(root.id)
+                    with self._activity_lock:
+                        self._activity_pending.add(root.id)
+                    self._manual.submit(f"scan:{root.id}", lambda root=root: self._run_queued(admin_id, root.id))
+        finally:
+            with self._activity_lock:
+                self._activity_batch_open -= 1
         return result
 
     def _run_queued(self, admin_id: str, root_id: str) -> None:
@@ -730,16 +832,42 @@ class LibraryAutomation:
         if root is None or reason is not None:
             if root is not None:
                 self._roots.setdefault(root_id, RootState()).last_skip = {"at": self._clock.now(), "reason": reason}
+            self._finish_activity_pending(root_id)
             return
         try:
             run_id = self._start_run(root_id, admin_id, root.newest_run.visibility, trigger="manual", scope=None)
         except ImportRunError:
+            self._finish_activity_pending(root_id)
             return
+        self._track_activity_run(run_id, root_id, _DISCOVERY_COUNTERS)
         self._drive_tracked(run_id)  # already on the manual lane
 
     def submit(self, run_id: str) -> None:
         """Queue drive(run_id) on the manual lane (a resumed import)."""
+        self._track_activity_run(run_id)
         self._manual.submit(run_id, lambda: self._drive_tracked(run_id))
+
+    def activity_started(self, run_id: str, counters: dict | None = None) -> None:
+        """Register a run driven outside this facade so the memory-only public summary sees it immediately."""
+        self._track_activity_run(run_id, counters=counters)
+
+    def activity_finished(self, run_id: str) -> None:
+        """Refresh one terminal run once its driver returns; the header poll remains database-free."""
+        with SessionLocal() as db:
+            run = db.get(ImportRun, run_id)
+            view = _run_view(run)
+        if view is None:
+            return
+        with self._activity_lock:
+            if run_id not in self._activity_runs:
+                return
+            self._activity_runs[run_id] = _ActivityRun(view.state, dict(view.counters))
+            if (
+                self._activity_batch_open == 0
+                and not self._activity_pending
+                and not any(item.state in ACTIVE_STATES for item in self._activity_runs.values())
+            ):
+                self._activity_runs.clear()
 
     def _root_error(self) -> str | None:
         return next((f"{r.label}: {rs.error}" for r in self._external() if (rs := self._roots.get(r.id)) and rs.error), None)

@@ -5,6 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { UserProfile } from '../types';
 import { AppShell } from './AppShell';
 
+const libraryActivity = vi.hoisted(() => ({ useLibraryActivity: vi.fn(() => ({ state: 'ready', activity: null })) }));
+vi.mock('./useLibraryActivity', () => libraryActivity);
+
 const user = { id: 'u1', username: 'a', display_name: 'A', role: 'admin', is_active: true } as UserProfile;
 function Host({ onNavigate = vi.fn(), onManageServer = vi.fn() } = {}) {
   const [open, setOpen] = useState(false);
@@ -14,6 +17,11 @@ function Host({ onNavigate = vi.fn(), onManageServer = vi.fn() } = {}) {
 }
 
 describe('anchored navigation', () => {
+  it('scopes library activity polling to the signed-in member', () => {
+    render(<Host />);
+    expect(libraryActivity.useLibraryActivity).toHaveBeenCalledWith('u1');
+  });
+
   it('opens from the header, focuses Home, and restores the trigger after cancel', async () => {
     render(<Host />);
     const trigger = screen.getByRole('button', { name: 'Open navigation' });

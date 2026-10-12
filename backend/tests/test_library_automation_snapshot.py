@@ -5,6 +5,7 @@ import inspect
 import threading
 import time
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from library_automation_support import Env
@@ -247,6 +248,132 @@ def test_root_entry_matches_snapshot_roots_item_and_is_none_for_unknown(env):
     assert env.automation.root_entry("nope") is None
 
 
+def test_public_activity_is_a_bounded_identity_free_aggregate(env, monkeypatch):
+    run = lambda run_id, **counters: SimpleNamespace(id=run_id, state="running", counters=counters)  # noqa: E731
+    roots = [
+        SimpleNamespace(id="secret-a", label="Private TV", path="/mnt/private", active_run=run(
+            "run-a", scan_phase="indexing", candidate_discovered=20, candidate_completed=10, candidate_total=20, inspected=9)),
+        SimpleNamespace(id="secret-b", active_run=run(
+            "run-b", scan_phase="indexing", candidate_discovered=30, candidate_completed=20, candidate_total=30, inspected=10)),
+        SimpleNamespace(id="prepare-a", active_run=None, newest_run=None),
+        SimpleNamespace(id="prepare-b", active_run=None, newest_run=None),
+        SimpleNamespace(id="waiting", active_run=None, newest_run=None),
+        SimpleNamespace(id="stuck", active_run=run("run-stuck", candidate_completed=999, inspected=999), newest_run=None),
+    ]
+    for root in roots:
+        if not hasattr(root, "newest_run"):
+            root.newest_run = root.active_run
+    states = {"secret-a": "scanning", "secret-b": "scanning", "prepare-a": "preparing", "prepare-b": "preparing",
+              "waiting": "waiting_files", "stuck": "unresponsive"}
+    env.automation._watches = {
+        "secret-a": SimpleNamespace(stats=SimpleNamespace(pending_files=2)),
+        "prepare-a": SimpleNamespace(stats=SimpleNamespace(pending_files=4, dirs_listed=3, dirs_total=10)),
+        "prepare-b": SimpleNamespace(stats=SimpleNamespace(pending_files=0, dirs_listed=2, dirs_total=6)),
+        "waiting": SimpleNamespace(stats=SimpleNamespace(pending_files=5)),
+    }
+    monkeypatch.setattr(env.automation, "_external", lambda: roots)
+    monkeypatch.setattr(env.automation, "_state", lambda root: states[root.id])
+    assert env.automation.public_activity() == {
+        "scanning_roots": 2,
+        "discovering_roots": 0,
+        "indexing_roots": 2,
+        "preparing_roots": 2,
+        "waiting_files": 11,
+        "discovered_files": 50,
+        "completed_files": 30,
+        "total_files": 50,
+        "progress": 60.0,
+        "inspected_files": 19,
+        "directories_listed": 5,
+        "directories_total": 16,
+    }
+    assert set(env.automation.public_activity()) == {
+        "scanning_roots", "discovering_roots", "indexing_roots", "preparing_roots", "waiting_files", "discovered_files",
+        "completed_files", "total_files", "progress", "inspected_files", "directories_listed", "directories_total",
+    }
+
+
+def test_public_activity_omits_unreliable_totals_and_clamps_malformed_counters(env, monkeypatch):
+    limit = 2_147_483_647
+    roots = [
+        SimpleNamespace(id="scan", active_run=SimpleNamespace(id="run", state="running", counters={
+            "scan_phase": "discovering", "candidate_discovered": limit + 8, "candidate_completed": True, "inspected": limit + 8,
+        }), newest_run=None),
+        SimpleNamespace(id="prepare", active_run=None, newest_run=None),
+        SimpleNamespace(id="waiting", active_run=None, newest_run=None),
+    ]
+    states = {"scan": "scanning", "prepare": "preparing", "waiting": "waiting_files"}
+    env.automation._watches = {
+        "scan": SimpleNamespace(stats=SimpleNamespace(pending_files=limit + 5)),
+        "prepare": SimpleNamespace(stats=SimpleNamespace(pending_files=-2, dirs_listed=7, dirs_total=None)),
+        "waiting": SimpleNamespace(stats=SimpleNamespace(pending_files="12")),
+    }
+    monkeypatch.setattr(env.automation, "_external", lambda: roots)
+    monkeypatch.setattr(env.automation, "_state", lambda root: states[root.id])
+    assert env.automation.public_activity() == {
+        "scanning_roots": 1,
+        "discovering_roots": 1,
+        "indexing_roots": 0,
+        "preparing_roots": 1,
+        "waiting_files": limit,
+        "discovered_files": limit,
+        "completed_files": 0,
+        "total_files": None,
+        "progress": None,
+        "inspected_files": limit,
+        "directories_listed": 7,
+        "directories_total": None,
+    }
+
+    roots[0].active_run.counters = {"inspected": 12}  # an in-flight run written before discovery totals existed
+    env.automation._activity_runs.clear()
+    activity = env.automation.public_activity()
+    assert (activity["indexing_roots"], activity["inspected_files"], activity["total_files"], activity["progress"]) == (1, 12, None, None)
+
+
+def test_public_activity_never_probes_a_root(env):
+    root_id = imported(env, "TV", watch=True)
+    env.tick()
+    calls = env.probe.calls.copy()
+    activity = env.automation.public_activity()
+    assert activity["scanning_roots"] == 0 and activity["preparing_roots"] >= 0 and root_id
+    assert env.probe.calls == calls
+
+
+def test_public_activity_retains_a_completed_root_until_the_concurrent_cohort_finishes(env, monkeypatch):
+    def run(run_id, state, completed):  # noqa: ANN001, ANN202
+        return SimpleNamespace(id=run_id, state=state, counters={
+            "scan_phase": "indexing", "candidate_discovered": 100,
+            "candidate_completed": completed, "candidate_total": 100, "inspected": completed,
+        })
+
+    a = run("run-a", "running", 90)
+    b = run("run-b", "running", 10)
+    roots = [
+        SimpleNamespace(id="a", active_run=a, newest_run=a),
+        SimpleNamespace(id="b", active_run=b, newest_run=b),
+    ]
+    monkeypatch.setattr(env.automation, "_external", lambda: roots)
+    monkeypatch.setattr(env.automation, "_state", lambda root: "scanning" if root.active_run else "idle")
+    assert env.automation.public_activity()["progress"] == 50.0
+
+    a = run("run-a", "succeeded", 100)
+    b = run("run-b", "running", 20)
+    roots[:] = [
+        SimpleNamespace(id="a", active_run=None, newest_run=a),
+        SimpleNamespace(id="b", active_run=b, newest_run=b),
+    ]
+    activity = env.automation.public_activity()
+    assert (activity["scanning_roots"], activity["completed_files"], activity["total_files"], activity["progress"]) == (1, 120, 200, 60.0)
+
+    b = run("run-b", "succeeded", 100)
+    roots[:] = [
+        SimpleNamespace(id="a", active_run=None, newest_run=a),
+        SimpleNamespace(id="b", active_run=None, newest_run=b),
+    ]
+    assert env.automation.public_activity()["scanning_roots"] == 0
+
+
 def test_roots_changed_starts_a_baseline_when_watch_turns_on_and_off_keeps_rows(env):
     root_id = imported(env, "TV")
     env.tick()
@@ -287,8 +414,8 @@ def test_submit_runs_drive_on_the_manual_lane_tracked(env):
 
 
 def test_facade_method_names_and_signatures_match_s3():
-    expected = {"snapshot": [], "root_entry": ["root_id"], "roots_changed": [], "scan_now": ["admin_id", "root_id"],
-                "submit": ["run_id"], "diagnostics": []}
+    expected = {"snapshot": [], "public_activity": [], "root_entry": ["root_id"], "roots_changed": [], "scan_now": ["admin_id", "root_id"],
+                "submit": ["run_id"], "activity_started": ["run_id", "counters"], "activity_finished": ["run_id"], "diagnostics": []}
     for name, params in expected.items():
         assert list(inspect.signature(getattr(LibraryAutomation, name)).parameters)[1:] == params
     assert inspect.signature(LibraryAutomation.scan_now).parameters["root_id"].default is None

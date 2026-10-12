@@ -279,7 +279,7 @@ def media_source(item: LibraryItem, artifact: MediaArtifact | None, probe: dict 
     subtitles = [s for s in streams if s["Type"] == "Subtitle"]
     fingerprint = str(probe.get("fingerprint") or (f"{artifact.size}:{artifact.mtime_ns}" if artifact else item.id))
     return compact({
-        "Id": jid(item.id), "Name": version_label(item) or item.title, "Protocol": "File", "Type": "Default",
+        "Id": jid(item.id), "Name": version_label(item) or item.title, "Protocol": "File", "Type": "Default", "VideoType": "VideoFile",
         "Container": (Path(artifact.relative_path).suffix.lstrip(".").lower() or None) if artifact else None,
         # Library-relative, never the server's mount path: Infuse decodes items by file name.
         "Path": f"/{artifact.relative_path.lstrip('/')}" if artifact else None,
@@ -287,7 +287,7 @@ def media_source(item: LibraryItem, artifact: MediaArtifact | None, probe: dict 
         "RunTimeTicks": to_ticks(duration) if duration else None,
         "ETag": hashlib.sha256(fingerprint.encode()).hexdigest()[:32],
         "IsRemote": False, "UseMostCompatibleTranscodingProfile": False, "ReadAtNativeFramerate": False, "IgnoreDts": False, "IgnoreIndex": False, "GenPtsInput": False,
-        "SupportsDirectPlay": True, "SupportsDirectStream": True,
+        "SupportsDirectPlay": True, "SupportsDirectStream": False,
         "SupportsTranscoding": False,  # 09 integration sets this and TranscodingUrl from decide()
         "TranscodingSubProtocol": "http", "HasSegments": False,  # Jellyfin's defaults; required by SDK 1.7
         "IsInfiniteStream": False, "RequiresOpening": False, "RequiresClosing": False, "RequiresLooping": False,
@@ -593,6 +593,11 @@ class JellyfinMapper:
         if sources and not folder:
             versions = sorted(batch.versions.get(title.id, []), key=lambda item: preferred is None or item.id != preferred.id)
             dto["MediaSources"] = [media_source(item, batch.artifacts.get(item.id)) for item in versions]
+            dto["MediaSourceCount"] = len(dto["MediaSources"])
+            if dto["MediaSources"]:
+                # Android TV's external player requires an item-ID primary source.
+                # pick_version already resolves this alias to the preferred visible file.
+                dto["MediaSources"][0]["Id"] = dto["Id"]
             dto["MediaStreams"] = dto["MediaSources"][0]["MediaStreams"] if dto["MediaSources"] else []
             if dto["MediaSources"] and dto["MediaSources"][0].get("Path"):
                 dto["Path"] = dto["MediaSources"][0]["Path"]
@@ -626,6 +631,7 @@ class JellyfinMapper:
             if sources:
                 dto |= {"People": [], "Taglines": [], "Tags": [], "Chapters": []}
                 dto["MediaSources"] = [media_source(item, artifact)]
+                dto["MediaSourceCount"] = 1
                 dto["MediaStreams"] = dto["MediaSources"][0]["MediaStreams"]
                 if dto["MediaSources"][0].get("Path"):
                     dto["Path"] = dto["MediaSources"][0]["Path"]

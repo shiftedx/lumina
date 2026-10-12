@@ -11,7 +11,7 @@ import re
 import threading
 from collections import OrderedDict
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 from urllib.parse import urlencode
 
@@ -39,6 +39,7 @@ class PlaybackRequest:
     audio_index: int | None
     subtitle_index: int | None
     media_source_id: str | None  # dashed library item id
+    enable_direct_play: bool = True
 
 
 def _count(value: object) -> int | None:
@@ -61,6 +62,7 @@ def playback_request(body: Mapping[str, Any] | None, query: Mapping[str, str]) -
         return value if value is not None else query.get(name.lower())
 
     profile = body.get("deviceprofile")
+    direct = pick("EnableDirectPlay")
     return PlaybackRequest(
         profile=profile if isinstance(profile, dict) else None,
         max_bitrate=_count(pick("MaxStreamingBitrate")),
@@ -68,6 +70,7 @@ def playback_request(body: Mapping[str, Any] | None, query: Mapping[str, str]) -
         audio_index=_count(pick("AudioStreamIndex")),
         subtitle_index=_count(pick("SubtitleStreamIndex")),
         media_source_id=parse_item_id(pick("MediaSourceId")),
+        enable_direct_play=not (direct is False or isinstance(direct, str) and direct.lower() == "false"),
     )
 
 
@@ -77,7 +80,8 @@ def transcoding_fields(
 ) -> dict[str, Any]:
     """MediaSourceInfo fields for one decision. ``item_id`` is the Jellyfin hex of the version item."""
     if decision.mode == "direct":
-        return {"SupportsDirectPlay": True, "SupportsDirectStream": True, "SupportsTranscoding": False}
+        # Android TV requires TranscodingUrl when SupportsDirectStream is true.
+        return {"SupportsDirectPlay": True, "SupportsDirectStream": False, "SupportsTranscoding": False}
     if decision.mode == "unavailable":  # the decision's reasons aren't Jellyfin TranscodeReasons; offer nothing new
         return {"SupportsTranscoding": False}
     params: dict[str, Any] = {"MediaSourceId": item_id, "PlaySessionId": play_session_id}
@@ -163,13 +167,19 @@ def annotate_media_sources(
     request: PlaybackRequest, play_session_id: str,
 ) -> None:
     """Fill each MediaSource's direct/transcode fields from ``decide()`` and remember the transcodes."""
-    if request.profile is None:
+    if request.profile is None and request.enable_direct_play:
         return  # GET PlaybackInfo or no DeviceProfile: direct-play defaults stand
-    external_subtitle_urls(sources, request.profile)
+    external_subtitle_urls(sources, request.profile or {})
     caps = caps_from_device_profile(request.profile)  # D: never raises; unknown conditions are ignored
+    if not request.enable_direct_play:
+        # Keep decoder capabilities for the least-work HLS fallback; retain these
+        # caps in PendingTranscode so opening the playlist makes the same decision.
+        caps = replace(caps, direct=())
     start_seconds = from_ticks(request.start_ticks) or 0.0
     library, probe = LibraryService(db), MediaProbeService(db)
     for source in sources:
+        if not request.enable_direct_play:
+            source.update(SupportsDirectPlay=False, SupportsDirectStream=False)
         item_id = parse_item_id(source.get("Id"))
         item = library.get_item(item_id, user) if item_id else None
         if item is None:

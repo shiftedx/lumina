@@ -8,6 +8,9 @@ describe('base.css', () => {
   it('draws one focus ring from the tokens on every interactive element', () => {
     expect(css).toContain(':where(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: var(--g-focus-width) solid var(--g-focus); outline-offset: 3px; }');
   });
+  it('does not frame passive headings or the main landmark when routing focuses them', () => {
+    expect(css).toContain(":is(h1, h2, h3, h4, h5, h6, main)[tabindex='-1']:focus { outline: none; }");
+  });
   it('keeps focus targets clear of the sticky top bar (WCAG 2.4.11)', () => {
     expect(css).toMatch(/\.lumina-main :focus-visible, #main-content \{ scroll-margin-top: calc\(var\(--g-topbar\) \+ 16px/);
   });

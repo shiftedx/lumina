@@ -40,8 +40,8 @@
 .gallery.home .h-hero-overview { display: -webkit-box; margin: var(--g-space-3) 0 0; overflow: hidden; font: var(--g-type-body); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .gallery.home .h-hero-why { margin: var(--g-space-2) 0 0; font: var(--g-type-body); font-style: italic; }
 .gallery.home .h-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--g-space-3); margin-top: var(--g-space-5); }
-.gallery.home .h-hero .g-button, .gallery.home .h-hero-step { border-color: currentColor; color: inherit; }
-.gallery.home .h-hero .is-primary { border-color: transparent; background: var(--g-art-paper); color: var(--g-badge-ink); }
+.gallery.home .h-hero .g-button, .gallery.home .h-hero-step { color: inherit; }
+.gallery.home .h-hero .is-primary { background: var(--g-art-paper); color: var(--g-badge-ink); }
 .gallery.home .h-hero :focus-visible { outline-color: currentColor; }
 /* The move: the arriving slide glides in from its side, the leaving one is pushed out, the copy settles a beat later. */
 .gallery.home .h-slide.is-in { animation: h-in 720ms cubic-bezier(.16, 1, .3, 1) both; }
@@ -90,7 +90,7 @@
 .gallery.home .h-shelf.is-poster .h-card { width: var(--h-poster); }
 .gallery.home .h-shelf.is-square .h-card, .gallery.home .h-card:has(.g-art-square) { width: var(--h-square); }
 .gallery.home .h-row.is-frames { overflow: hidden; }
-.gallery.home .h-frame { flex: none; width: var(--h-still); aspect-ratio: 16 / 9; border: var(--g-rule); border-radius: var(--g-radius); }
+.gallery.home .h-frame { flex: none; width: var(--h-still); aspect-ratio: 16 / 9; border-radius: var(--g-radius); background: var(--g-paper-2); }
 .gallery.home .h-shelf.is-poster .h-frame { width: var(--h-poster); aspect-ratio: 2 / 3; }
 .gallery.home .h-shelf.is-square .h-frame { width: var(--h-square); aspect-ratio: 1; }
 .gallery.home .h-shelf-error { margin: 0; font: var(--g-type-body); color: var(--g-ink-2); }
@@ -98,7 +98,7 @@
 .gallery.home .h-notes { margin-bottom: var(--g-space-3); }
 /* The × on Continue and Next up cards. */
 /* Hidden with visibility (not opacity) until the card is hovered or holds focus: focusing the card reveals it, so arrows and Tab reach it. */
-.gallery.home .h-remove { position: absolute; top: 6px; right: 6px; z-index: 3; display: grid; width: 32px; height: 32px; place-items: center; padding: 0; border: 1px solid currentColor; border-radius: var(--g-radius); background: var(--g-art-chip); color: var(--g-art-paper); visibility: hidden; cursor: pointer; }
+.gallery.home .h-remove { position: absolute; top: 6px; right: 6px; z-index: 3; display: grid; width: 32px; height: 32px; place-items: center; padding: 0; border: 0; border-radius: var(--g-radius); background: var(--g-art-chip); color: var(--g-art-paper); visibility: hidden; cursor: pointer; }
 .gallery.home .h-remove svg { width: 16px; height: 16px; }
 .gallery.home .h-card:hover .h-remove, .gallery.home .h-card:focus-within .h-remove { visibility: visible; }
 @media (hover: none), (max-width: 599px) { .gallery.home .h-remove { width: 44px; height: 44px; visibility: visible; } }

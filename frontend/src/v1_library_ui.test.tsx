@@ -30,6 +30,67 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Library lenses', () => {
+  it('refreshes the current lens and counts without scanning for a member', async () => {
+    const refresh = vi.spyOn(api, 'refreshLibrary').mockResolvedValue({ items: [], next_cursor: null });
+    const scan = vi.spyOn(api, 'scanLibraries');
+    browser({ view: 'shows', wall: 'sort=name' });
+    await waitFor(() => expect(api.listTitles).toHaveBeenCalled());
+    const before = vi.mocked(api.listTitles).mock.calls.length;
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(scan).not.toHaveBeenCalled();
+    expect(await screen.findByText('Library refreshed.')).toBeTruthy();
+    await waitFor(() => expect(vi.mocked(api.listTitles).mock.calls.length).toBeGreaterThan(before));
+    expect(api.listTitles).toHaveBeenLastCalledWith(expect.objectContaining({ category: 'shows', sort: 'name' }), expect.anything());
+    expect(api.getLibrarySections).toHaveBeenCalledTimes(2);
+  });
+
+  it('starts a full rescan for an owner and blocks repeated clicks while busy', async () => {
+    let finish: (result: Awaited<ReturnType<typeof api.scanLibraries>>) => void = () => {};
+    const scan = vi.spyOn(api, 'scanLibraries').mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    vi.spyOn(api, 'refreshLibrary').mockResolvedValue({ items: [], next_cursor: null });
+    browser({ currentUser: { id: 'owner-1', role: 'admin' } });
+    const button = screen.getByRole('button', { name: 'Refresh' });
+    await userEvent.click(button);
+    await userEvent.click(button);
+    expect(scan).toHaveBeenCalledExactlyOnceWith();
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    finish({ started: [{ root_id: 'r1', run_id: 'run-1' }], queued: ['r2'], skipped: [{ root_id: 'r3', reason: 'offline' }] });
+    expect(await screen.findByText('Library refreshed. Scanning 2 libraries · 1 unavailable')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Refresh' }).getAttribute('aria-busy')).toBeNull();
+  });
+
+  it('reports when an owner has no eligible folders to scan', async () => {
+    vi.spyOn(api, 'scanLibraries').mockResolvedValue({ started: [], queued: [], skipped: [] });
+    vi.spyOn(api, 'refreshLibrary').mockResolvedValue({ items: [], next_cursor: null });
+    browser({ currentUser: { id: 'owner-1', role: 'admin' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(await screen.findByText('Library refreshed. No libraries to scan. Import a folder first.')).toBeTruthy();
+  });
+
+  it('reports a scan failure and makes Refresh available for a retry', async () => {
+    const scan = vi.spyOn(api, 'scanLibraries').mockRejectedValueOnce(new Error('Folder unavailable')).mockResolvedValue({ started: [], queued: [], skipped: [] });
+    vi.spyOn(api, 'refreshLibrary').mockResolvedValue({ items: [], next_cursor: null });
+    browser({ currentUser: { id: 'owner-1', role: 'admin' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Refresh failed: Folder unavailable');
+    expect(api.refreshLibrary).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(scan).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText('Library refreshed. No libraries to scan. Import a folder first.')).toBeTruthy();
+  });
+
+  it('keeps the current view when refreshing fails and allows a retry', async () => {
+    const refresh = vi.spyOn(api, 'refreshLibrary').mockRejectedValueOnce(new Error('Server unavailable')).mockResolvedValue({ items: [], next_cursor: null });
+    browser({ view: 'youtube' });
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Refresh failed: Server unavailable');
+    expect(screen.getByRole('link', { name: 'YouTube' }).getAttribute('aria-current')).toBe('page');
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText('Library refreshed.')).toBeTruthy();
+  });
+
   it('opens on the All landing under the tab row, and hands tab clicks to the shell', async () => {
     const { props } = browser();
     expect(screen.getByRole('heading', { level: 1, name: 'Library' })).toBeTruthy();

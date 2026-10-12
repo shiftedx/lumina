@@ -39,6 +39,8 @@ img[data-artwork-loading='true'] { opacity: .58; background: var(--g-paper-3); }
 
 /* Focus: one ring from the tokens; overlays restate it with --g-overlay-focus. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: var(--g-focus-width) solid var(--g-focus); outline-offset: 3px; }
+/* Route headings and the main landmark receive focus for announcements and remote navigation. */
+:is(h1, h2, h3, h4, h5, h6, main)[tabindex='-1']:focus { outline: none; }
 .lumina-main :focus-visible, #main-content { scroll-margin-top: calc(var(--g-topbar) + 16px + env(safe-area-inset-top)); }
 
 /* Motion: the app's only reduced-motion rule. */

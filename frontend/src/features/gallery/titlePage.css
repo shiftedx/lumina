@@ -5,7 +5,6 @@
 
 .t-page { position: relative; min-height: calc(100vh - var(--g-topbar)); padding-bottom: calc(var(--g-space-8) + env(safe-area-inset-bottom)); font: var(--g-type-body); }
 .t-page h1:focus { outline: none; }
-.t-page h1:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 4px; }
 @keyframes t-page-in { from { opacity: 0; } }
 /* The story arrives after the page; it fades in the same way rather than popping into the column. */
 @media (prefers-reduced-motion: no-preference) { .t-page, .t-story { animation: t-page-in var(--g-page); } }
@@ -43,15 +42,15 @@
 /* Versions, actions and notices. */
 .t-versions { display: flex; flex-wrap: wrap; gap: var(--g-space-2); margin: 0 0 var(--g-space-4); padding: 0; border: 0; }
 .gallery.t-page .t-versions legend { margin-bottom: var(--g-space-2); color: var(--g-ink-3); }
-.t-versions label { display: inline-flex; min-height: var(--g-control); align-items: center; gap: var(--g-space-2); padding: 0 var(--g-space-4); border: var(--g-rule); border-radius: var(--g-radius); cursor: pointer; font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; }
-.t-versions label:has(input:checked) { border: var(--g-hairline); font-weight: 700; }
+.t-versions label { display: inline-flex; min-height: var(--g-control); align-items: center; gap: var(--g-space-2); padding: 0 var(--g-space-2); cursor: pointer; font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; text-underline-offset: 6px; }
+.t-versions label:has(input:checked) { font-weight: 700; text-decoration: underline 2px var(--g-gold); }
 .t-versions label:has(input:focus-visible) { outline: 2px solid var(--g-focus); outline-offset: 3px; }
 .t-actions { display: flex; flex-wrap: wrap; gap: var(--g-space-3); margin: var(--g-space-5) 0 var(--g-space-3); }
 
 @media (hover: hover) {
   .t-episode:hover .t-episode-title { text-decoration: underline; text-underline-offset: 3px; }
 }
-.t-actions .g-button:disabled { border-style: dashed; cursor: not-allowed; }
+.t-actions .g-button:disabled { cursor: not-allowed; }
 .t-note { margin: var(--g-space-2) 0 0; color: var(--g-ink-2); }
 
 /* Side column: hairline rule, 24px in, 74px down. */

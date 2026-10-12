@@ -49,11 +49,11 @@
 
 ## Run
 
-Needs Docker with Compose, on amd64 or arm64. Lumina 2.13.1 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:2.13.1`.
+Needs Docker with Compose, on amd64 or arm64. Lumina 0.3.0 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.0`.
 
 ```bash
 mkdir lumina && cd lumina
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v2.13.1/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.0/docker-compose.yml
 printf 'LUMINA_RUNTIME_UID=%s\nLUMINA_RUNTIME_GID=%s\n' "$(id -u)" "$(id -g)" > .env
 docker compose pull lumina
 docker compose up -d --no-build lumina

@@ -47,17 +47,17 @@
   .g-show-logo { max-height: 72px; }
 }
 
-/* "Who's watching?": 160 × 200 tiles, hairline frame on hover and focus; no per-member colour. */
+/* "Who's watching?": 160 × 200 open tiles; no per-member colour. */
 .g-picker { display: grid; justify-items: center; gap: 32px; }
 .g-picker-note { margin: 0; color: var(--g-ink-2); font: var(--g-type-ui); }
 .g-picker-tiles { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
 .g-picker-tile-wrap { position: relative; }
 .g-picker-tile-wrap .g-icon-button { position: absolute; top: 4px; right: 4px; }
-.g-picker-tile { display: grid; width: 160px; min-height: 200px; place-items: center; align-content: center; gap: 10px; padding: 16px 12px; border: 1px solid transparent; border-radius: var(--g-radius); background: none; color: var(--g-ink); cursor: pointer; text-align: center; }
-.g-picker-tile:focus-visible, .g-picker-tile:hover { border-color: var(--g-ink); }
+.g-picker-tile { display: grid; width: 160px; min-height: 200px; place-items: center; align-content: center; gap: 10px; padding: 16px 12px; border-radius: var(--g-radius); background: none; color: var(--g-ink); cursor: pointer; text-align: center; }
+.g-picker-tile:hover { background: var(--g-wash); }
 .g-picker-tile[aria-disabled='true'] { cursor: default; }
-.g-picker-tile.is-asking { width: 260px; cursor: default; border-color: var(--g-rule-soft); }
+.g-picker-tile.is-asking { width: 260px; cursor: default; }
 .g-picker-name { font: var(--g-type-h3); }
 .g-picker-label { min-height: 1em; color: var(--g-ink-3); }
-.g-picker-plus { display: grid; width: 96px; height: 96px; place-items: center; border: 1px dashed var(--g-ink-3); border-radius: var(--g-radius-round); }
+.g-picker-plus { display: grid; width: 96px; height: 96px; place-items: center; border-radius: var(--g-radius-round); }
 .g-picker-problem { margin: 0; color: var(--g-danger); font: var(--g-type-ui); }

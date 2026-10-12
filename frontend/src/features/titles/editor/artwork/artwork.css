@@ -1,6 +1,6 @@
 .ed-art-grid { display: grid; gap: var(--g-space-3); grid-template-columns: 1fr; }
 @media (min-width: 600px) { .ed-art-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); } }
-.ed-art-card { border: var(--g-hairline); border-radius: var(--g-radius); padding: var(--g-space-2); }
+.ed-art-card { display: grid; gap: var(--g-space-2); min-width: 0; }
 .ed-art-frame { aspect-ratio: 16 / 9; overflow: hidden; display: grid; place-items: center; }
 .ed-art-frame[data-type="Primary"] { aspect-ratio: 2 / 3; }
 .ed-art-frame[data-type="Logo"] { aspect-ratio: 3 / 1; }

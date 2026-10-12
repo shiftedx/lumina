@@ -8,6 +8,10 @@ const rule = (selector: string) => {
   // every declaration block for the selector: the promoted base rules and later additions both count
   return [...css.matchAll(new RegExp(`(?:^|[}\\s])${escaped} \\{([^}]*)\\}`, 'g'))].map((m) => m[1]).join(' ');
 };
+const baseRule = (selector: string) => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[}\\s])${escaped} \\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+};
 
 describe('ui.css', () => {
   it.each(['.g-button', '.g-choice', '.g-switch', '.g-segment', '.g-text-button'])('%s is at least one control tall', (selector) => {
@@ -40,6 +44,15 @@ describe('ui.css', () => {
     expect(rule(".g-chip[aria-pressed='true']")).toMatch(/text-decoration: underline 2px var\(--g-gold-ink\)/);
     expect(rule(".g-chip[aria-pressed='true']")).not.toMatch(/background/);
   });
+  it('keeps ordinary actions and elevated surfaces free of resting outline boxes', () => {
+    for (const selector of ['.g-chip, .g-button', '.g-icon-button', '.g-skeleton-item', '.g-dialog', '.g-menu, .g-popover', '.g-toast-region .g-toast']) {
+      expect(baseRule(selector), selector).toMatch(/border: 0/);
+    }
+    expect(baseRule(".g-button.is-primary, .g-button[aria-pressed='true']")).not.toMatch(/border/);
+    expect(baseRule('.g-button.is-danger')).not.toMatch(/border/);
+    expect(baseRule('.g-toast-region .g-toast.is-error')).toMatch(/background: color-mix\([^)]*var\(--g-danger\)[^)]*var\(--g-paper-3\)\)/);
+    expect(baseRule('.g-toast-region .g-toast.is-success')).toMatch(/background: color-mix\([^)]*var\(--g-success\)[^)]*var\(--g-paper-3\)\)/);
+  });
   it('never lifts or scales on hover', () => {
     for (const match of css.matchAll(/[^{}]*:hover[^{}]*\{([^}]*)\}/g)) expect(match[1]).not.toMatch(/transform/);
   });
@@ -56,7 +69,10 @@ describe('ui.css', () => {
     expect(css).not.toMatch(/\.gallery[^{}]*\.g-(?:menu|popover|toast|notice|dialog)/); // primitives mount wherever their trigger is: never scoped to .gallery
   });
   it('keeps a primary button readable in forced colours', () => {
+    expect(css).toMatch(/@media \(forced-colors: active\) \{[^@]*\.g-button, \.g-icon-button \{ border: 1px solid ButtonText; \}/);
     expect(css).toMatch(/@media \(forced-colors: active\) \{[^@]*\.g-button\.is-primary \{ border: 2px solid ButtonText; background: ButtonFace; color: ButtonText; \}/);
+    expect(css).toMatch(/@media \(forced-colors: active\) \{ \.g-dialog \{ border: 2px solid CanvasText; \} \}/);
+    expect(css).toMatch(/@media \(forced-colors: active\) \{ \.g-menu, \.g-popover, \.g-toast-region \.g-toast \{ border: 1px solid CanvasText; \} \}/);
   });
   it('styles the menu and popover with global rules that need nothing from an ancestor', () => {
     expect(css).toMatch(/\.g-menu, \.g-popover \{[^}]*position: fixed[^}]*background: var\(--g-paper-3\)[^}]*box-shadow: var\(--g-elev-1\)/);

@@ -28,6 +28,44 @@ async function openLibrary(page: Page, path = '/library', viewport: Viewport = D
 const tabs = (page: Page) => page.getByRole('navigation', { name: 'Library' });
 const focusedIn = (page: Page, selector: string) => page.evaluate((within) => Boolean(document.activeElement?.closest(within)), selector);
 
+for (const viewport of [DESKTOP, PHONE]) {
+  test(`Library Refresh is visible and starts a rescan at ${viewport.width}px`, async ({ page }) => {
+    const { titles, sections } = await openLibrary(page, '/library/shows?sort=name', viewport);
+    let scans = 0;
+    let refreshes = 0;
+    await page.route('**/api/admin/library/automation/scan', async (route) => {
+      scans += 1;
+      expect(route.request().method()).toBe('POST');
+      expect(route.request().postDataJSON()).toEqual({});
+      await route.fulfill({ status: 202, json: { started: [{ root_id: 'r1', run_id: 'run-1' }], queued: [], skipped: [] } });
+    });
+    await page.route('**/api/library/refresh', async (route) => {
+      refreshes += 1;
+      await route.fulfill({ json: { items: [], next_cursor: null } });
+    });
+    const refresh = page.getByRole('button', { name: 'Refresh', exact: true });
+    await expect(refresh).toBeVisible();
+    const buttonBox = (await refresh.boundingBox())!;
+    const tabsBox = (await tabs(page).boundingBox())!;
+    expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(viewport.width);
+    expect(buttonBox.height).toBeGreaterThanOrEqual(44);
+    if (viewport === DESKTOP) expect(buttonBox.x).toBeGreaterThanOrEqual(tabsBox.x + tabsBox.width);
+    else expect(buttonBox.y).toBeGreaterThanOrEqual(tabsBox.y + tabsBox.height);
+    const before = titles.length;
+    const countsBefore = sections.length;
+    await refresh.click();
+    await expect(page.getByText('Library refreshed. Scanning 1 library', { exact: true })).toBeVisible();
+    expect(scans).toBe(1);
+    expect(refreshes).toBe(1);
+    await expect.poll(() => titles.length).toBeGreaterThan(before);
+    await expect.poll(() => sections.length).toBeGreaterThan(countsBefore);
+    await expect(page).toHaveURL(/\/library\/shows\?sort=name$/);
+    await expect(refresh).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+    await page.screenshot({ path: `../output/playwright/library/refresh-${viewport.width}.png` });
+  });
+}
+
 for (const scheme of ['light', 'dark'] as const) {
   for (const viewport of [DESKTOP, PHONE, TEN_FOOT]) {
     test(`All landing in ${scheme} at ${viewport.width}px: masthead, spotlight, chapters, four requests, no sideways scroll`, async ({ page }) => {
@@ -235,7 +273,11 @@ test('keyboard and D-pad walk through All', async ({ page }) => {
   await page.keyboard.press('ArrowLeft');
   await expect(all).toBeFocused();
   await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
   const tiles = page.locator('.g-spotlight .g-feature');
+  await expect(tiles.nth(1)).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
   await expect(tiles.nth(0)).toBeFocused();
   await page.keyboard.press('ArrowRight');
   await expect(tiles.nth(1)).toBeFocused();

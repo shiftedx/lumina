@@ -6,7 +6,7 @@
 .activity-title { margin: 0; font: var(--g-type-ui-strong); overflow-wrap: anywhere; }
 .activity-sub { margin: 0; color: var(--g-ink-2); font: var(--g-type-small); overflow-wrap: anywhere; }
 .activity-badges { display: flex; flex-wrap: wrap; gap: 6px; }
-.activity-badge { padding: 1px 8px; border: var(--g-rule); border-radius: var(--g-radius); font: var(--g-type-label); }
+.activity-badge { padding: 1px 8px; border-radius: var(--g-radius); font: var(--g-type-label); }
 .activity-na { font-size: 13px; }
 .activity-filters { display: flex; flex-wrap: wrap; gap: 12px 16px; margin-bottom: 16px; }
 .activity-filter { min-width: 0; display: grid; gap: 4px; flex: 1 1 200px; max-inline-size: 320px; }

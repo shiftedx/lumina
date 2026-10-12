@@ -14,7 +14,7 @@ Lumina is a self-hosted household streaming service. It combines a local media l
 
 ## Brand Personality
 
-The established interface uses a gold horizon mark, a serif wordmark and media headings, restrained dark and light surfaces, and sans-serif controls. Preserve this existing identity during the quality pass. The confirmed quality brief is precise alignment, clear controls, less crowding, and rich media layouts. No external reference app or new brand personality has been selected.
+The established interface uses a gold horizon mark, a serif wordmark and media headings, restrained dark and light surfaces, and sans-serif controls. Preserve this existing identity during the quality pass. The confirmed quality brief is precise alignment, clear controls, less crowding, and rich media layouts. Actions and content groups use spacing, typography, and restrained surfaces instead of decorative outlined boxes. No external reference app or new brand personality has been selected.
 
 ## Anti-references
 
@@ -23,6 +23,7 @@ The established interface uses a gold horizon mark, a serif wordmark and media h
 - Text that sits incorrectly inside fields or appears misaligned with adjacent controls.
 - A polished appearance that conceals or removes existing features.
 - Treating passing automated checks as proof of finished visual design.
+- Outlined rectangles around ordinary actions, cards, panels, and notices throughout the app.
 
 ## Design Principles
 
@@ -31,6 +32,7 @@ The established interface uses a gold horizon mark, a serif wordmark and media h
 3. Reduce unnecessary complexity through grouping and progressive disclosure while retaining every feature.
 4. Give equivalent actions consistent, familiar controls and readable labels.
 5. Evaluate each view with actual visual and interaction evidence; verify improvements at desktop and phone sizes.
+6. Keep ordinary actions and content groups free of decorative outline frames. Preserve visible keyboard focus, useful dividers, input affordances, and clear selected states.
 
 ## Accessibility & Inclusion
 

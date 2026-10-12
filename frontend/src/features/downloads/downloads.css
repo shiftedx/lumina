@@ -33,7 +33,7 @@
 .download-control { position: relative; display: flex; }
 .download-control > .g-button.is-primary:first-child { border-radius: 7px 0 0 7px; }
 .download-control > .g-button.is-primary:only-child { border-radius: 7px; }
-.download-menu { position: absolute; top: calc(100% + 7px); left: 0; z-index: 20; width: min(270px, calc(100vw - 30px)); padding: 8px; border: 1px solid var(--g-ink-3); border-radius: 8px; background: var(--g-paper-2); box-shadow: var(--g-elev-2); }
+.download-menu { position: absolute; top: calc(100% + 7px); left: 0; z-index: 20; width: min(270px, calc(100vw - 30px)); padding: 8px; border-radius: 8px; background: var(--g-paper-2); box-shadow: var(--g-elev-2); }
 .download-menu > p { margin: 5px 8px 7px; color: var(--g-ink-3); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
 .download-menu button { display: flex; width: 100%; min-height: var(--g-control); align-items: center; justify-content: space-between; gap: 10px; padding: 9px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; text-align: left; }
 .download-menu button:hover, .download-menu button.selected { background: var(--g-selected); }

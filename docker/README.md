@@ -4,12 +4,12 @@ Lumina ships as one container: the FastAPI backend serves the built React app on
 
 ## Install
 
-The release Compose file defaults to the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.0` for amd64 and arm64. It pulls the published image; it does not build on the host.
+The release Compose file defaults to the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.1` for amd64 and arm64. It pulls the published image; it does not build on the host.
 
 ```bash
 mkdir lumina && cd lumina
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.0/docker-compose.yml
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.0/SHA256SUMS
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.1/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.1/SHA256SUMS
 grep 'docker-compose.yml$' SHA256SUMS | shasum -a 256 -c -
 cat > .env <<EOF
 LUMINA_RUNTIME_UID=$(id -u)
@@ -22,7 +22,7 @@ docker compose ps          # lumina must report "healthy"
 
 Open <http://127.0.0.1:8765>. Stop with `docker compose down`; logs with `docker compose logs --tail=100 lumina`.
 
-To keep a release-tag checkout for Compose overrides, clone the same release instead: `git clone --branch v0.3.0 --depth 1 https://github.com/shiftedx/lumina lumina`. Create the same `.env`, then run the same `pull` and `up -d --no-build` commands. The optional hardware and HTTPS sections below download their companion release files.
+To keep a release-tag checkout for Compose overrides, clone the same release instead: `git clone --branch v0.3.1 --depth 1 https://github.com/shiftedx/lumina lumina`. Create the same `.env`, then run the same `pull` and `up -d --no-build` commands. The optional hardware and HTTPS sections below download their companion release files.
 
 ### Build from source
 
@@ -54,7 +54,7 @@ All settings are `LUMINA_*` environment variables (full list: `backend/app/confi
 | `LUMINA_JELLYFIN_TRACE` | `0` | `1` logs each Jellyfin request's method, route template and query parameter names (never values or headers). Use it only while capturing client traffic. |
 | `LUMINA_LAN_HTTP` | `false` | `true` serves plain http on a private LAN IP without a proxy. Set it only through the override in "LAN HTTP mode". |
 | `TZ` | `UTC` | Server time zone, e.g. `America/Chicago`. Library scans set to **Nightly at** use it. See "Automatic scans and folder watching". |
-| `LUMINA_DOCKER_IMAGE` | `ghcr.io/shiftedx/lumina:0.3.0` | Pinned published image. Set `lumina:local` only when intentionally building the checked-out source. |
+| `LUMINA_DOCKER_IMAGE` | `ghcr.io/shiftedx/lumina:0.3.1` | Pinned published image. Set `lumina:local` only when intentionally building the checked-out source. |
 
 AI and ASR values are only defaults: an admin can change or clear them under **Manage Server → AI features** (the API key is write-only there). Tunables such as `LUMINA_QUARANTINE_RETENTION_HOURS`, `LUMINA_REMOTE_STREAM_*`, `LUMINA_RELAY_*` and `LUMINA_LIVE_RECORDING_*` keep safe defaults; add them to the `environment:` block only when you need to.
 
@@ -156,7 +156,7 @@ To update, set or replace the image line in `.env` with the exact release you wa
 Set this line in `.env` (replace an existing `LUMINA_DOCKER_IMAGE` line):
 
 ```dotenv
-LUMINA_DOCKER_IMAGE=ghcr.io/shiftedx/lumina:0.3.0
+LUMINA_DOCKER_IMAGE=ghcr.io/shiftedx/lumina:0.3.1
 ```
 
 ```bash
@@ -164,7 +164,7 @@ docker compose pull lumina
 docker compose up -d --no-build lumina
 ```
 
-For a checkout-based install, first update the Compose file with `git fetch origin tag v0.3.0 && git checkout --detach v0.3.0`. When a release raises the schema version, Lumina first writes an automatic `pre-upgrade` backup (listed under Settings → Backups), then applies its additive upgrade steps in one transaction. It refuses to open a database from a newer release; to roll back, see "Rollback after a schema upgrade" below (the pre-upgrade backup is the last resort).
+For a checkout-based install, first update the Compose file with `git fetch origin tag v0.3.1 && git checkout --detach v0.3.1`. When a release raises the schema version, Lumina first writes an automatic `pre-upgrade` backup (listed under Settings → Backups), then applies its additive upgrade steps in one transaction. It refuses to open a database from a newer release; to roll back, see "Rollback after a schema upgrade" below (the pre-upgrade backup is the last resort).
 
 ### Rollback after a schema upgrade
 
@@ -304,7 +304,7 @@ at it instead of running the `asr` service.
 On a Linux host with an Intel GPU, add the override so the container gets `/dev/dri` and the host's render group:
 
 ```bash
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.0/docker-compose.qsv.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.1/docker-compose.qsv.yml
 echo "LUMINA_RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
 docker compose -f docker-compose.yml -f docker-compose.qsv.yml up -d --no-build
 ```
@@ -320,9 +320,9 @@ Direct LAN HTTP responses compress text assets and JSON when the client accepts 
 Keep port 8765 on loopback. The only supported remote topology is one TLS-terminating Caddy proxy in front of Lumina (`docker-compose.https.example.yml` + `docker/Caddyfile.example`). Create the first administrator over loopback first: remote mode refuses to start on an empty database.
 
 ```bash
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.0/docker-compose.https.example.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.1/docker-compose.https.example.yml
 mkdir -p docker
-curl -fsSL https://github.com/shiftedx/lumina/releases/download/v0.3.0/Caddyfile.example -o docker/Caddyfile.example
+curl -fsSL https://github.com/shiftedx/lumina/releases/download/v0.3.1/Caddyfile.example -o docker/Caddyfile.example
 echo LUMINA_HOSTNAME=vault.example.com >> .env
 docker compose -f docker-compose.yml -f docker-compose.https.example.yml pull
 docker compose -f docker-compose.yml -f docker-compose.https.example.yml up -d --no-build

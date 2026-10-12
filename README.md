@@ -47,31 +47,28 @@
   <img src="docs/assets/library.jpg" alt="Lumina movie library grid">
 </p>
 
-## In 0.3.1
+## In 0.3.2
 
-- **See what the server is doing.** Header Activity combines downloads with library-wide scan phases, checked-file totals, and indexing percentages. Files still copying are shown separately.
-- **Films and TV take the stage.** The player comes first, with title, synopsis, playback actions, episode continuation, and movie collection context beneath it.
-- **A visual welcome.** New members explore interests and creators with bespoke illustrations, or go straight into their Home without setup.
-- **Consistent surfaces and communications.** Rounded menus and cards, a quieter Home greeting, aligned theme selections, illustrated link previews, and concise visual emails follow Lumina’s media-vault styling.
-- **More stable playback recovery.** DASH retries preserve the current position before tearing down the previous player.
+- **Roku playback reliability.** Fix video launch failures, silent playback, and Dolby-audio errors. HLS uses separate video and stereo AAC; compatible direct playback keeps its original audio.
+- **Android TV compatibility.** Correct primary media-source selection and HLS fallback when direct playback is disabled.
 
-Version 0.3.0 established the new repository and release baseline. Version 0.3.1 includes the new onboarding, playback layouts, scan activity, and visual communications. See the [release notes](RELEASE_NOTES.md) for what is included.
+See the [release notes](RELEASE_NOTES.md) for changes and upgrade details.
 
 ## Run
 
-Needs Docker with Compose, on amd64 or arm64. Lumina 0.3.1 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.1`.
+Needs Docker with Compose, on amd64 or arm64. Lumina 0.3.2 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.2`.
 
 ```bash
 mkdir lumina && cd lumina
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.1/docker-compose.yml
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.1/SHA256SUMS
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.2/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.2/SHA256SUMS
 grep 'docker-compose.yml$' SHA256SUMS | shasum -a 256 -c -
 printf 'LUMINA_RUNTIME_UID=%s\nLUMINA_RUNTIME_GID=%s\n' "$(id -u)" "$(id -g)" > .env
 docker compose pull lumina
 docker compose up -d --no-build lumina
 ```
 
-Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.3.1/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
+Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.3.2/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
 
 | To | See |
 | --- | --- |

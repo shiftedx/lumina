@@ -1,5 +1,14 @@
 # Release notes
 
+## Lumina 0.3.2
+
+TV playback compatibility and audio reliability fixes.
+
+- **Roku:** Fix launch failures that return to the app home screen, silent playback, and Dolby-audio errors. HLS uses separate video and stereo AAC; compatible direct playback retains its original audio.
+- **Android TV:** Fix primary media-source selection and HLS fallback when direct playback is disabled.
+
+**Upgrade:** Pull `ghcr.io/shiftedx/lumina:0.3.2` (Linux amd64/arm64), then restart Lumina. Close and reopen the TV app to refresh playback details. No database schema changes. See the [operator guide](docker/README.md).
+
 ## Lumina 0.3.1
 
 Lumina 0.3.1 brings the media vault into focus, from a new member’s first invitation to everyday playback and library activity.

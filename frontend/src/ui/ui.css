@@ -230,8 +230,7 @@ html.g-modal-open { scrollbar-gutter: stable; }
 .g-menu-item:has(.g-menu-detail) { flex-wrap: wrap; align-content: center; padding-block: 8px; }
 .g-menu-detail { flex: 1 0 100%; color: var(--g-ink-3); font: var(--g-type-label); }
 .g-menu.is-overlay .g-menu-detail { color: var(--g-overlay-ink-2); }
-.g-menu-icon svg, .g-menu-check svg { width: 16px; height: 16px; }
-.g-menu-check { display: inline-flex; width: 16px; }
+.g-menu-icon svg { width: 16px; height: 16px; }
 .g-menu-hint { margin-inline-start: auto; color: var(--g-ink-3); font: var(--g-type-small); }
 .g-menu-separator { height: 1px; margin: 6px 0; background: var(--g-rule-soft); }
 .g-menu.is-overlay { background: var(--g-overlay-panel); color: var(--g-overlay-ink); }
@@ -239,9 +238,11 @@ html.g-modal-open { scrollbar-gutter: stable; }
 .g-menu.is-overlay .g-menu-item { color: var(--g-overlay-ink); }
 .g-menu.is-overlay .g-menu-item:focus { background: var(--g-overlay-hover); }
 @media (hover: hover) { .g-menu-item:not([aria-disabled='true']):hover { background: var(--g-wash); } .g-menu.is-overlay .g-menu-item:hover { background: var(--g-overlay-hover); } }
+.g-menu-item[aria-checked='true'] .g-menu-hint { color: var(--g-ink-2); }
+.g-menu-item[aria-checked='true'], .g-menu-item[aria-checked='true']:hover { border-inline-start-color: var(--g-gold); background: var(--g-selected); }
 @keyframes g-pop-in { from { opacity: 0; transform: translateY(-4px); } }
 @keyframes g-pop-in-up { from { opacity: 0; transform: translateY(4px); } }
-@media (forced-colors: active) { .g-menu-item:focus { border-inline-start-color: Highlight; } }
+@media (forced-colors: active) { .g-menu-item:focus, .g-menu-item[aria-checked='true'] { border-inline-start-color: Highlight; } }
 
 /* Scoped to .g-toast-region: the gallery's .gallery .g-toast shares the name. Bottom-right on desktop, above tabs on phone, above the mini player (--g-toast-offset). */
 .g-toast-region { position: fixed; right: 24px; bottom: calc(24px + var(--g-toast-offset, 0px) + env(safe-area-inset-bottom)); z-index: var(--g-z-toast); display: grid; width: min(400px, calc(100vw - 32px)); gap: 8px; pointer-events: none; }

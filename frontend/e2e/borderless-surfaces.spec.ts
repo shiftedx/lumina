@@ -32,6 +32,25 @@ for (const scheme of ['light', 'dark'] as const) {
         expect(await profile.evaluate((element, property) => getComputedStyle(element)[property], corner)).toBe(radius);
       }
       expect(await profile.evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe('0px');
+      const activeTheme = profile.locator('[role="menuitemradio"][aria-checked="true"]');
+      await expect(activeTheme).toHaveCount(1);
+      const focusedRow = profile.locator('.g-menu-item:focus');
+      const activeStyle = await activeTheme.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const text = [...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim());
+        const range = document.createRange();
+        range.selectNode(text!);
+        return { background: style.backgroundColor, accent: style.borderInlineStartColor, textOffset: range.getBoundingClientRect().left - element.getBoundingClientRect().left };
+      });
+      expect(activeStyle.background).toBe(await focusedRow.evaluate((element) => getComputedStyle(element).backgroundColor));
+      expect(activeStyle.accent).toBe(await focusedRow.evaluate((element) => getComputedStyle(element).borderInlineStartColor));
+      const regularOffset = await focusedRow.evaluate((element) => {
+        const range = document.createRange();
+        range.selectNode([...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim())!);
+        return range.getBoundingClientRect().left - element.getBoundingClientRect().left;
+      });
+      expect(activeStyle.textOffset).toBe(regularOffset);
+      await expect(activeTheme.locator('svg')).toHaveCount(0);
       await page.screenshot({ path: `../output/playwright/borderless/profile-${scheme}-${width}.png` });
       await page.keyboard.press('Escape');
       await expect(page.getByRole('button', { name: /account menu$/ })).toBeFocused();

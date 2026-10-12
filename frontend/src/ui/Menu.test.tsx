@@ -90,6 +90,7 @@ describe('Menu', () => {
     setup();
     await userEvent.click(trigger());
     expect(screen.getByRole('menuitemradio', { name: 'System' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('menuitemradio', { name: 'System' }).querySelector('svg, .g-menu-check')).toBeNull();
     expect(screen.getByRole('group', { name: 'Theme' })).not.toBeNull();
     await userEvent.click(screen.getByRole('menuitem', { name: 'Disabled thing' }));
     expect(screen.getByRole('menu')).not.toBeNull();

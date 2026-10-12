@@ -161,7 +161,6 @@ function HomeSurfaceView({
   // shelves once /api/titles resolves.
   const [newest, setNewest] = useState<TitleSummary[] | null | undefined>(() => cachedShelf<TitleSummary[]>(user.id, 'newest'));
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const editRef = useRef<HTMLButtonElement>(null);
   const focusEditRef = useRef(false);
   const recoveryButtonRef = useRef<HTMLButtonElement>(null);
   const wasRetryingRef = useRef(false);
@@ -221,7 +220,7 @@ function HomeSurfaceView({
   useLayoutEffect(() => {
     if (editing || !focusEditRef.current) return;
     focusEditRef.current = false;
-    editRef.current?.focus();
+    (document.querySelector<HTMLButtonElement>('.g-profile-trigger') ?? headingRef.current)?.focus();
   }, [editing]);
 
   async function hide(entry: PlaybackProgress) {
@@ -250,10 +249,6 @@ function HomeSurfaceView({
     focusEditRef.current = true;
     setEditing(false);
     setAnnouncement('Home layout saved.');
-  }
-  function toggleEditing() {
-    if (editing) leaveEditing();
-    else { setAnnouncement(''); setEditing(true); }
   }
 
   const actions = useMemo<ShelfActions>(() => ({ onOpenTitle, onOpenLibrary, onOpenRoute }), [onOpenTitle, onOpenLibrary, onOpenRoute]);
@@ -287,14 +282,14 @@ function HomeSurfaceView({
   const fresh = !editing && noHiddenShelves && !continueWatching.length && !queued.length && !queueFailed && queueKnown
     && !pickedSignal && !channels.length && !recent.length && !subscriptionVideos.length && !followFailures.length && !followsLoading && titlesEmpty && (libraryState === 'empty' || libraryState === 'ready');
 
-  // Palette "Edit Home": enter edit mode as the masthead button does; a no-op while the start card shows or already editing.
-  useEffect(() => onCommand(EDIT_HOME_EVENT, () => { if (!fresh && !editing) { setAnnouncement(''); setEditing(true); } }), [fresh, editing]);
+  // Account menu and palette share the command; the editor can also customize a fresh Home.
+  useEffect(() => onCommand(EDIT_HOME_EVENT, () => { if (!editing) { setAnnouncement(''); setEditing(true); } }), [editing]);
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    // From the greeting, Down reaches the first control below the masthead (the hero's Resume) and Up reaches Edit home,
+    // From the greeting, Down reaches the first control below the masthead and Up reaches the account menu,
     // rather than whichever target is nearest the middle of a wide heading.
     if (event.target === headingRef.current && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-      const target = event.key === 'ArrowUp' ? editRef.current : event.currentTarget.querySelector('.h-body')?.querySelector<HTMLElement>(FOCUS_TARGETS);
+      const target = event.key === 'ArrowUp' ? document.querySelector<HTMLButtonElement>('.g-profile-trigger') : event.currentTarget.querySelector('.h-body')?.querySelector<HTMLElement>(FOCUS_TARGETS);
       if (target) {
         event.preventDefault();
         target.focus();
@@ -390,12 +385,8 @@ function HomeSurfaceView({
   return (
     <div className="surface gallery home" onKeyDown={onKeyDown}>
       <header className="h-masthead">
-        <div className="h-kicker-line">
-          <p className="g-label g-kicker">{mastheadDate()}</p>
-          {/* Nothing to arrange for a fresh member. */}
-          {fresh ? null : <button aria-pressed={editing} className="g-button g-button-text is-quiet" data-focus-item onClick={toggleEditing} ref={editRef} type="button">{editing ? 'Done' : 'Edit home'}</button>}
-        </div>
         <h1 ref={headingRef} tabIndex={-1}>{greeting()}, {firstName(user)}</h1>
+        <p className="g-label g-kicker h-date">{mastheadDate()}</p>
       </header>
       {/* Until the hero is decided (or HERO_WAIT_MS passes) the body is laid out but not painted: a hero that arrives later would push the shelves already on screen down (CLS). Hidden, not unmounted, so the shelves still fetch. */}
       <div className="h-body" style={heroDecided || waited ? undefined : { visibility: 'hidden' }}>

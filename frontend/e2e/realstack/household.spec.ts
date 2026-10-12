@@ -1,3 +1,4 @@
+import { openHomeEditor } from '../home-edit-helper';
 import { expect, inviteMember, libraryItemId, OWNER, test } from './realstack';
 
 test('invited member is isolated from private items, keeps own search history, and is signed out on deactivation', async ({ page, browser }) => {
@@ -47,7 +48,7 @@ test('Home layout: the owner reorders and hides shelves, the layout holds in a n
   await page.goto('/');
   const saved = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/settings/me' && response.request().method() === 'PUT'
     && JSON.stringify(response.request().postDataJSON()).includes('"home_shelves":[{'));
-  await page.getByRole('button', { name: 'Edit home' }).click();
+  await openHomeEditor(page);
   await page.getByRole('button', { name: 'Move Recently added music up' }).click();
   await page.getByRole('switch', { name: 'Show Next up' }).click();
   await page.locator('.h-editor').getByRole('button', { name: 'Done' }).click();
@@ -59,7 +60,7 @@ test('Home layout: the owner reorders and hides shelves, the layout holds in a n
   await again.getByLabel('Username').fill(OWNER.username);
   await again.getByLabel('Password', { exact: true }).fill(OWNER.password);
   await again.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await again.getByRole('button', { name: 'Edit home' }).click();
+  await openHomeEditor(again);
   const rows = again.locator('.h-edit-row');
   await expect(rows.nth(11)).toHaveAttribute('data-shelf-row', 'recent_music');
   await expect(again.getByRole('switch', { name: 'Show Next up' })).toHaveAttribute('aria-checked', 'false');
@@ -67,14 +68,14 @@ test('Home layout: the owner reorders and hides shelves, the layout holds in a n
 
   const { context, member } = await inviteMember(page, browser, 'juniper', 'Quiet-harbour-2026');
   await member.goto('/');
-  await member.getByRole('button', { name: 'Edit home' }).click();
+  await openHomeEditor(member);
   await expect(member.locator('.h-edit-row').last()).toHaveAttribute('data-shelf-row', 'recent_music');
   await expect(member.getByRole('switch', { name: 'Show Next up' })).toHaveAttribute('aria-checked', 'true');
   await context.close();
 
   // Leave the shared realstack owner on the default layout for the journeys after this one.
   await page.goto('/');
-  await page.getByRole('button', { name: 'Edit home' }).click();
+  await openHomeEditor(page);
   await page.getByRole('button', { name: 'Reset to default' }).click();
   await page.locator('.h-editor').getByRole('button', { name: 'Done' }).click();
 });

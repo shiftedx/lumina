@@ -10,7 +10,7 @@
 
 /* -- art, cards, posters and markers -- */
 .gallery [data-artwork-loading] { opacity: 1; background: none; } /* never dim or grey inside the gallery */
-.gallery .g-art { position: relative; display: block; overflow: hidden; border-radius: var(--g-radius); isolation: isolate; }
+.gallery .g-art { position: relative; display: block; overflow: hidden; border-radius: var(--g-radius-sheet); isolation: isolate; }
 .gallery .g-art-poster { aspect-ratio: 2 / 3; }
 .gallery .g-art-still, .gallery .g-art-backdrop { aspect-ratio: 16 / 9; }
 .gallery .g-art-preview, .gallery .g-art-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -23,7 +23,7 @@
 .gallery .g-card-name { display: -webkit-box; overflow: hidden; font: italic 700 18px / 1.15 var(--g-serif); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
 .gallery .g-art-still .g-card-name { font-size: 16px; }
 .gallery .g-card-year { margin-top: 6px; font: var(--g-type-label); text-transform: uppercase; letter-spacing: var(--g-track-label); font-variant-numeric: tabular-nums; }
-.gallery .g-poster, .gallery .g-still { display: block; width: 100%; padding: 0; border: 0; border-radius: var(--g-radius); background: none; color: var(--g-ink); text-align: left; cursor: pointer; }
+.gallery .g-poster, .gallery .g-still { display: block; width: 100%; padding: 0; border: 0; border-radius: var(--g-radius-sheet); background: none; color: var(--g-ink); text-align: left; cursor: pointer; }
 .gallery .g-poster:focus-visible, .gallery .g-feature:focus-visible, .gallery .g-still:focus-visible { outline-offset: 4px; }
 .gallery .g-poster-frame { position: relative; display: block; container-type: inline-size; }
 .gallery .g-caption { display: flex; height: var(--g-caption-height); flex-direction: column; justify-content: center; overflow: hidden; }
@@ -48,8 +48,8 @@
 .gallery .g-grid { position: relative; }
 .gallery .g-row { position: absolute; right: 0; left: 0; display: grid; align-items: start; }
 .gallery .g-row .g-poster { height: 100%; }
-.gallery .g-slot { display: block; height: calc(100% - var(--g-caption-height)); border-radius: var(--g-radius); background: var(--g-paper-2); }
-.gallery .g-feature { position: relative; height: calc(100% - var(--g-caption-height)); padding: 0; overflow: hidden; border: 0; border-radius: var(--g-radius); background: none; color: var(--g-on-art); text-align: left; cursor: pointer; }
+.gallery .g-slot { display: block; height: calc(100% - var(--g-caption-height)); border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
+.gallery .g-feature { position: relative; height: calc(100% - var(--g-caption-height)); padding: 0; overflow: hidden; border: 0; border-radius: var(--g-radius-sheet); background: none; color: var(--g-on-art); text-align: left; cursor: pointer; }
 .gallery .g-feature .g-art { position: absolute; inset: 0; aspect-ratio: auto; }
 /* A poster standing in for a missing backdrop crops from near the top, where faces usually sit. */
 .gallery .g-feature .g-art-poster .g-art-image, .gallery .g-feature .g-art-poster .g-art-preview { object-position: 50% 20%; }
@@ -91,7 +91,7 @@
 .gallery .g-results-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
 .gallery .g-results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--g-poster-min), 1fr)); gap: var(--g-grid-gap); margin-bottom: 48px; }
 .gallery .g-scenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--g-grid-gap); }
-.gallery .g-scene { display: grid; gap: 10px; padding: 0; border: 0; background: none; color: var(--g-ink); text-align: left; cursor: pointer; }
+.gallery .g-scene { display: grid; gap: 10px; padding: 0; border: 0; border-radius: var(--g-radius-sheet); background: none; color: var(--g-ink); text-align: left; cursor: pointer; }
 .gallery .g-scene-quote { display: -webkit-box; overflow: hidden; font: var(--g-type-quote); -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .gallery .empty-shelf strong, .gallery .empty-shelf p { font-family: var(--g-serif); }
 /* Desktop and tablet: Sort reads as a button label beside the chips. */
@@ -152,7 +152,7 @@
 /* -- still wall -- */
 .gallery .g-still-grid { display: grid; align-items: start; gap: var(--g-grid-gap); }
 .gallery .g-still-grid > .g-still-card { content-visibility: auto; contain-intrinsic-size: auto 280px; }
-.gallery .g-still-slot { display: block; aspect-ratio: 16 / 9; border-radius: var(--g-radius); background: var(--g-paper-2); }
+.gallery .g-still-slot { display: block; aspect-ratio: 16 / 9; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
 .gallery.is-square .g-still-slot { aspect-ratio: 1 / 1; }
 .gallery .g-sentinel { height: 1px; }
 @media (max-width: 599px) { .gallery.g-still-wall { padding-top: 20px; } }
@@ -167,7 +167,7 @@
 .gallery .g-spotlight .g-feature { height: auto; min-height: 0; }
 .gallery .g-spotlight .g-feature-name { font-size: 28px; }
 .gallery .g-spotlight .is-lead .g-feature-name { font-size: 44px; }
-.gallery .g-frame { display: block; min-height: 0; border-radius: var(--g-radius); background: var(--g-paper-2); }
+.gallery .g-frame { display: block; min-height: 0; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
 /* A soft rule, 48px, the heading row on one baseline, then two rows in the chapter's shape. */
 .gallery.g-all .g-chapter { display: block; margin: 48px 0 0; padding-top: 48px; border-top: var(--g-rule); font: inherit; letter-spacing: normal; }
 .gallery.g-all .g-chapter.is-first { margin-top: 72px; }
@@ -176,7 +176,7 @@
 .gallery .g-see-all { margin-left: auto; }
 .gallery .g-chapter-row { display: grid; align-items: start; gap: var(--g-grid-gap); }
 .gallery .g-chapter-row + .g-chapter-row { margin-top: var(--g-grid-gap); }
-.gallery .g-chapter-frame { display: block; aspect-ratio: 2 / 3; border-radius: var(--g-radius); background: var(--g-paper-2); }
+.gallery .g-chapter-frame { display: block; aspect-ratio: 2 / 3; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
 .gallery .g-chapter-row.is-square .g-chapter-frame { aspect-ratio: 1 / 1; }
 .gallery .g-chapter-row.is-still .g-chapter-frame { aspect-ratio: 16 / 9; }
 .gallery .g-chapter-frame.has-caption { margin-bottom: var(--g-caption-height); }
@@ -209,7 +209,7 @@
 /* ---- remote cards, still rails, Live. C3 and C4 style in their own files. ---- */
 
 /* -- C2 remote cards -- */
-.gallery .g-remote-card .g-still-frame { overflow: hidden; border-radius: var(--g-radius); }
+.gallery .g-remote-card .g-still-frame { overflow: hidden; border-radius: var(--g-radius-sheet); }
 .gallery .g-remote-card.is-short .g-art-still { aspect-ratio: 9 / 16; }
 .gallery .g-remote-scrim { position: absolute; inset: auto 0 0 0; display: flex; justify-content: space-between; gap: 8px; padding: 28px 10px 8px; background: var(--g-scrim); pointer-events: none; }
 .gallery .g-remote-scrim .g-label { color: var(--g-on-art); }
@@ -248,7 +248,7 @@
 .gallery .g-notices svg { width: 14px; height: 14px; color: var(--g-ink-3); }
 .gallery .g-live-error { margin: 0 0 16px; color: var(--g-ink); font-weight: 600; }
 .gallery .g-live-hero { position: relative; display: grid; height: min(62vh, 600px); min-height: 360px; margin: 0 calc(-1 * var(--g-gutter)) 8px; overflow: hidden; }
-.gallery .g-live-hero-art, .gallery .g-live-hero-art .g-art { position: absolute; inset: 0; height: 100%; aspect-ratio: auto; }
+.gallery .g-live-hero-art, .gallery .g-live-hero-art .g-art { position: absolute; inset: 0; height: 100%; aspect-ratio: auto; border-radius: 0; }
 .gallery .g-live-hero-art .g-art-image { object-fit: cover; }
 .gallery .g-live-hero::after { position: absolute; inset: 45% 0 0; background: linear-gradient(transparent, var(--g-paper)); content: ''; pointer-events: none; }
 /* The copy over the art is white; light paper is near white, so under light the art fades to the dark scrim instead. */
@@ -275,7 +275,7 @@
 .gallery .g-live-loading { display: grid; gap: 40px; }
 .gallery .g-live-hero-slot { display: block; height: min(62vh, 600px); min-height: 360px; margin: 0 calc(-1 * var(--g-gutter)); background: var(--g-paper-2); }
 .gallery .g-rail-slots { display: flex; gap: 24px; overflow: hidden; padding-bottom: 41px; } /* the card caption under each still, so a loading rail is as tall as the loaded one (CLS) */
-.gallery .g-rail-slots .g-still-slot { flex: 0 0 320px; aspect-ratio: 16 / 9; border-radius: var(--g-radius); background: var(--g-paper-2); }
+.gallery .g-rail-slots .g-still-slot { flex: 0 0 320px; aspect-ratio: 16 / 9; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
 @media (max-width: 1023px) { .gallery .g-live-hero, .gallery .g-live-hero-slot { height: min(52vh, 480px); } }
 @media (max-width: 599px) {
   .gallery .g-live-hero { height: auto; min-height: 0; }

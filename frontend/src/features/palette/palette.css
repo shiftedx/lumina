@@ -14,7 +14,7 @@
 .g-palette-option[aria-selected='true'] { border-inline-start-color: var(--g-gold); background: var(--g-selected); }
 .g-palette-thumb { display: inline-grid; width: 64px; flex: none; place-items: center; color: var(--g-ink-2); }
 .g-palette-thumb svg { width: 20px; height: 20px; }
-.g-palette-art { display: block; overflow: hidden; border-radius: var(--g-radius); }
+.g-palette-art { display: block; overflow: hidden; border-radius: var(--g-radius-sheet); }
 /* gallery.css scopes .g-art under .gallery; the palette is a dialog outside it, so the slot rules are repeated here. */
 .g-palette-art .g-art { position: relative; display: block; width: 100%; height: 100%; overflow: hidden; isolation: isolate; }
 .g-palette-art .g-art-preview, .g-palette-art .g-art-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }

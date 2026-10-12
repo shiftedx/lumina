@@ -19,7 +19,7 @@
 .g-onboarding-note, .g-onboarding-error { margin: 8px 0 0; color: var(--g-ink-2); font: var(--g-type-small); }
 .g-onboarding-error { color: var(--g-danger); }
 .g-onboarding-channels { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
-.g-onboarding-channel { display: grid; width: 100%; min-height: 64px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 12px; border: 0; border-radius: var(--g-radius); background: none; color: var(--g-ink); cursor: pointer; text-align: start; }
+.g-onboarding-channel { display: grid; width: 100%; min-height: 64px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 12px; border: 0; border-radius: var(--g-radius-sheet); background: none; color: var(--g-ink); cursor: pointer; text-align: start; }
 .g-onboarding-channel:disabled { cursor: default; }
 .g-onboarding-channel[aria-pressed='true'] { background: var(--g-selected); }
 .g-onboarding-channel:focus-visible { outline: var(--g-focus-width) solid var(--g-focus); outline-offset: 2px; }

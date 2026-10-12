@@ -1,7 +1,8 @@
+import { flushSync } from 'react-dom';
 import { Menu as MenuIcon, Plus, Search } from 'lucide-react';
 import { type CSSProperties, type RefObject } from 'react';
 import { providerBlocked, useAccess } from '../features/access/access';
-import { openMemberPicker } from './commands';
+import { openMemberPicker, requestHomeEdit } from './commands';
 import { useDeviceRingSize } from '../features/auth/memberPicker';
 import type { ThemePreference } from '../theme';
 import type { UserProfile } from '../types';
@@ -78,6 +79,7 @@ export function TopBar(props: TopBarProps) {
           items={[
             { kind: 'group', label: `${name} · ${user.role === 'admin' ? 'Vault owner' : 'Household member'}` },
             { kind: 'item', label: ringSize === 0 ? 'Sign in as someone else…' : 'Switch member…', onSelect: openMemberPicker },
+            { kind: 'item', label: 'Edit home', onSelect: () => { flushSync(props.onHome); requestAnimationFrame(() => requestHomeEdit()); } },
             { kind: 'item', label: 'My Settings', onSelect: props.onSettings },
             ...(props.onManageServer ? [{ kind: 'item' as const, label: 'Manage Server', onSelect: props.onManageServer }] : []),
             { kind: 'group', label: 'Theme' },

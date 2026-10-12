@@ -1,3 +1,4 @@
+import { openHomeEditor } from './home-edit-helper';
 import { navigateApp } from './lumina-mock';
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -212,7 +213,7 @@ const SCREENS: Shot[] = [
   { area: 'shell', state: 'activity-popover', open: async (page) => { await at('/')(page); await page.locator('.g-activity').first().hover(); await page.waitForTimeout(400); } },
   { area: 'shell', state: 'navigation-modal', open: async (page) => { await at('/')(page); await page.getByRole('button', { name: 'Open navigation' }).click(); await expect(page.getByRole('dialog', { name: 'Navigation' })).toBeVisible(); } },
   { area: 'shell', state: 'toast-error-action', open: async (page) => { await over(page, /\/api\/jobs(\?|$)/, (route: Route) => route.abort()); await at('/')(page); await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible(); } },
-  { area: 'shell', state: 'toast', open: async (page) => { await at('/')(page); await press(page, 'Edit home'); await press(page, /reset/i); await expect(page.getByRole('button', { name: 'Undo' }).first()).toBeVisible(); } },
+  { area: 'shell', state: 'toast', open: async (page) => { await at('/')(page); await openHomeEditor(page); await press(page, /reset/i); await expect(page.getByRole('button', { name: 'Undo' }).first()).toBeVisible(); } },
   { area: 'palette', state: 'empty', open: async (page) => { await at('/')(page); await page.keyboard.press('ControlOrMeta+k'); await expect(page.getByRole('combobox')).toBeFocused(); } },
   { area: 'palette', state: 'no-results', open: async (page) => { await at('/')(page); await page.keyboard.press('ControlOrMeta+k'); await page.getByRole('combobox').fill('zzzz'); await page.waitForTimeout(500); } },
   { area: 'palette', state: 'link-invalid', open: async (page) => { await at('/')(page); await press(page, 'Add a link'); await expect(page.getByRole('dialog', { name: 'Add a link' })).toBeVisible(); await page.getByRole('combobox').fill('zzzz'); await page.keyboard.press('Enter'); await expect(page.getByRole('alert')).toBeVisible(); } },

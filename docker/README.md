@@ -96,6 +96,10 @@ Existing `/settings/<section>` and `/admin/<section>` bookmarks still work; owne
 open in Manage Server. Subpage bookmarks use `?page=`, for example `/manage/requests?page=email`.
 Forms with Save buttons retain their save/discard behavior and warn before leaving unsaved edits.
 
+## Film and episode playback
+
+Local films and episodes have a dedicated playback layout: the player comes first, followed by title, synopsis, playback actions, and continuation. Episodes show their series and episode order with autoplay controls; films show their poster and collection context. Playback quality, subtitles, resume, theater mode, fullscreen, and picture-in-picture retain their existing controls.
+
 ## Outgoing email
 
 Configure SMTP under **Manage Server → Connections → Email**, then use **Send test email** to check delivery. Invitations, request updates, security notices, and the test message share the app’s media-vault styling. Invitations show their expiry and shared libraries; request messages show the title, status, and the relevant action; security notices show the affected account and pause duration.

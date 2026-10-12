@@ -26,13 +26,36 @@ async function openEpisode(page: Page, width: number, next: 'populated' | 'empty
 }
 
 for (const width of [390, 1440]) {
-  test(`matched episode owns the heading and filename stays in file details at ${width}px`, async ({ page }) => {
+  test(`matched episode follows the player and filename stays in file details at ${width}px`, async ({ page }) => {
     await openEpisode(page, width);
     await expect(page.getByRole('button', { name: 'Harbor Lights', exact: true })).toBeVisible();
     await expect(page.getByText(/S2 · E1/, { exact: false }).first()).toBeVisible();
-    const heading = await page.getByRole('heading', { level: 1 }).boundingBox();
+    const layout = page.locator('.watch-layout.is-library-title');
+    await expect(layout).toBeVisible();
+    await expect(page.locator('.watch-main > .player-frame, .watch-main > .watch-local-body, .watch-main > .watch-local-tools')).toHaveCount(3);
+    expect(await page.locator('.watch-main > .player-frame, .watch-main > .watch-local-body, .watch-main > .watch-local-tools').evaluateAll((nodes) => nodes.map((node) => node.className))).toEqual([
+      expect.stringContaining('player-frame'),
+      expect.stringContaining('watch-local-body'),
+      expect.stringContaining('watch-local-tools'),
+    ]);
+    const heading = await page.locator('.watch-local-title').boundingBox();
     const frame = await page.locator('.player-frame').boundingBox();
-    expect(heading!.y + heading!.height).toBeLessThanOrEqual(frame!.y);
+    const story = await page.locator('.watch-local-story').boundingBox();
+    const continuation = await page.locator('.watch-local-continuation').boundingBox();
+    const tools = await page.locator('.watch-local-tools').boundingBox();
+    expect(heading!.y).toBeGreaterThanOrEqual(frame!.y + frame!.height);
+    expect(story!.y).toBeGreaterThanOrEqual(frame!.y + frame!.height);
+    expect(continuation!.y).toBeGreaterThanOrEqual(frame!.y + frame!.height);
+    expect(tools!.y).toBeGreaterThanOrEqual(Math.max(story!.y + story!.height, continuation!.y + continuation!.height));
+    if (width === 1440) {
+      expect(continuation!.x).toBeGreaterThanOrEqual(story!.x + story!.width);
+      expect(continuation!.y).toBeLessThan(story!.y + story!.height);
+    } else {
+      expect(continuation!.y).toBeGreaterThanOrEqual(story!.y + story!.height);
+    }
+    await expect(page.locator('.watch-local-meta')).toContainText('S2 · E1');
+    await expect(page.locator('.watch-local-synopsis')).toContainText('The keepers argue about the lamp');
+    await expect(page.locator('.watch-local-story .watch-byline')).toHaveCount(0);
     await expect(page.getByText(filename, { exact: true })).toBeHidden();
     await page.getByText('File details', { exact: true }).click();
     await expect(page.getByText(filename, { exact: true })).toBeVisible();
@@ -53,23 +76,26 @@ for (const width of [390, 1440]) {
       }
       await expect(page.getByRole('tab', { name: 'Sharing & tags', exact: true })).toBeInViewport();
     }
-    expect(await page.locator('.description-card p').first().evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(14);
+    expect(await page.locator('.watch-local-synopsis').evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(14);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
   });
 }
 
-test('an empty season reclaims the rail and explains where to find all episodes', async ({ page }) => {
+test('an empty season keeps the full-width stage and explains where to find all episodes beneath it', async ({ page }) => {
   await openEpisode(page, 1440, 'empty');
   await expect(page.getByText('No next episode in your library.', { exact: false })).toBeVisible();
   const allEpisodes = page.getByRole('button', { name: 'See all episodes' });
   await expect(allEpisodes).toBeVisible();
   await page.getByRole('button', { name: 'Share', exact: true }).focus();
-  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowRight');
   await expect(allEpisodes).toBeFocused();
-  await expect(page.locator('.watch-rail')).toBeHidden();
-  const layout = await page.locator('.watch-layout').boundingBox();
+  await expect(page.locator('.watch-rail')).toHaveCount(0);
+  await expect(page.locator('.watch-local-continuation')).toContainText('No next episode in your library.');
+  const layout = await page.locator('.watch-layout.is-library-title').boundingBox();
   const player = await page.locator('.player-frame').boundingBox();
+  const continuation = await page.locator('.watch-local-continuation').boundingBox();
   expect(player!.width).toBeGreaterThan(layout!.width * .98);
+  expect(continuation!.y).toBeGreaterThanOrEqual(player!.y + player!.height);
 });
 
 test('up next failure offers retry while preserving the playing media element', async ({ page }) => {
@@ -88,7 +114,7 @@ test('up next failure offers retry while preserving the playing media element', 
   });
   const retry = page.getByRole('button', { name: 'Try again', exact: true });
   await page.getByRole('button', { name: 'Share', exact: true }).focus();
-  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowRight');
   await expect(retry).toBeFocused();
   await retry.click();
   try {
@@ -105,14 +131,19 @@ test('up next failure offers retry while preserving the playing media element', 
 test('theater keeps episode heading and actions below the stage without overlap', async ({ page }) => {
   await openEpisode(page, 1440);
   await page.locator('body').press('t');
-  await expect(page.locator('.watch-layout.theater')).toBeVisible();
+  await expect(page.locator('.watch-layout.theater.is-library-title')).toBeVisible();
   const frame = await page.locator('.player-frame').boundingBox();
-  const heading = await page.locator('.watch-title').boundingBox();
-  const actions = await page.locator('.watch-actions').boundingBox();
-  const tools = await page.locator('.watch-tools').boundingBox();
+  const body = await page.locator('.watch-local-body').boundingBox();
+  const heading = await page.locator('.watch-local-title').boundingBox();
+  const actions = await page.locator('.watch-local-actions').boundingBox();
+  const tools = await page.locator('.watch-local-tools').boundingBox();
   expect(heading!.y).toBeGreaterThanOrEqual(frame!.y + frame!.height);
   expect(actions!.y).toBeGreaterThanOrEqual(heading!.y + heading!.height);
-  expect(tools!.y).toBeGreaterThanOrEqual(actions!.y + actions!.height);
+  expect(tools!.y).toBeGreaterThanOrEqual(body!.y + body!.height);
+  if (OUT) {
+    mkdirSync(OUT, { recursive: true });
+    await page.screenshot({ fullPage: true, path: join(OUT, 'episode-theater-1440-dark.png') });
+  }
 });
 
 if (OUT) {

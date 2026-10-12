@@ -81,31 +81,30 @@ describe('Watch for a title', () => {
     await waitFor(() => expect(document.querySelector('video track')?.hasAttribute('default')).toBe(true));
   });
 
-  it('opens the series from the episode byline with arrow keys, never Tab', async () => {
+  it('lays out player, episode identity, continuation and tools in order, with TV arrows through the useful actions', async () => {
     available();
     const onOpenTitle = vi.fn();
-    // jsdom has no layout: the byline sits above the actions row.
-    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-      const top = this.closest('.watch-episode-byline') ? 0 : this.closest('.watch-actions') ? 100 : 50;
-      return { left: 0, top, width: 100, height: 40, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
-    });
-    render(watchSurface({ selection: { kind: 'library', item }, onOpenTitle }));
-    await screen.findByRole('button', { name: 'Harbor Lights' });
+    const { container } = render(watchSurface({ selection: { kind: 'library', item }, onOpenTitle }));
+    const series = await screen.findByRole('button', { name: 'Harbor Lights' });
+    const frame = container.querySelector('.player-frame') as HTMLElement;
+    const story = container.querySelector('.watch-local-story') as HTMLElement;
+    const continuation = container.querySelector('.watch-local-continuation') as HTMLElement;
+    const tools = container.querySelector('.watch-local-tools') as HTMLElement;
+    expect(frame.compareDocumentPosition(story) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(story.compareDocumentPosition(continuation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(continuation.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector('.watch-byline')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Follow channel/ })).toBeNull();
     const share = screen.getByRole('button', { name: /Share/ });
-    share.focus();
-    // Nothing below the actions: the key keeps its native page scroll instead of jumping to the byline.
-    expect(fireEvent.keyDown(share, { key: 'ArrowDown' })).toBe(true);
+    series.focus();
+    await userEvent.keyboard('{ArrowRight}');
     expect(document.activeElement).toBe(share);
-    const follow = screen.getByRole('button', { name: /Follow channel/ });
-    await userEvent.keyboard('{ArrowUp}');
-    expect(document.activeElement).toBe(follow);
-    await userEvent.keyboard('{ArrowUp}');
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Harbor Lights' }));
-    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+    await userEvent.keyboard('{ArrowRight}');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /S1 · E2 · Episode 2/ }));
+    await userEvent.keyboard('{ArrowLeft}');
     expect(document.activeElement).toBe(share);
-    await userEvent.keyboard('{ArrowUp}{ArrowUp}{Enter}');
+    await userEvent.keyboard('{ArrowLeft}{Enter}');
     expect(onOpenTitle).toHaveBeenCalledWith(detail);
-    rect.mockRestore();
   });
 
   it('degrades to plain playback when the title, subtitle, segment and recap endpoints are missing', async () => {
@@ -190,11 +189,19 @@ describe('Up next for library media', () => {
 
   it('shows a movie’s collection in order with this film marked, and never starts the next film by itself', async () => {
     available();
-    api.getTitle.mockResolvedValue(filmDetail);
+    api.getTitle.mockResolvedValue({ ...filmDetail, overview: 'A winter crossing tests everyone aboard.', official_rating: 'PG', community_rating: 8.2, genres: ['Drama'], poster_url: '/api/art/titles/m1/poster' });
     api.getLibraryUpNext.mockResolvedValue(collection);
     const onOpenLibraryItem = vi.fn();
-    render(watchSurface({ selection: { kind: 'library', item: film }, onOpenLibraryItem }));
+    const { container } = render(watchSurface({ selection: { kind: 'library', item: film }, onOpenLibraryItem }));
     const rail = await screen.findByRole('region', { name: 'Saga' });
+    const frame = container.querySelector('.player-frame') as HTMLElement;
+    const story = container.querySelector('.watch-local-story.is-film') as HTMLElement;
+    expect(frame.compareDocumentPosition(story) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector('.watch-local-poster')).not.toBeNull();
+    expect(screen.getByText('A winter crossing tests everyone aboard.')).toBeTruthy();
+    expect(container.querySelector('.watch-local-meta')?.textContent).toContain('2020 · PG · 8.2 / 10 · Drama');
+    expect(container.querySelector('.watch-byline')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'In your vault' })).toBeNull();
     expect([...rail.querySelectorAll('strong')].map((node) => node.textContent)).toEqual(['Prequel', 'Movie', 'Sequel']);
     const current = rail.querySelector('[aria-current="true"]') as HTMLButtonElement;
     expect(current.textContent).toContain('Now playing');

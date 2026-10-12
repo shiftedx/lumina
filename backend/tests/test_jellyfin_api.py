@@ -257,7 +257,7 @@ def test_single_item_projects_versions_and_streams_without_paths(jf: TestClient,
     movie = response.json()
     assert str(tmp_path.resolve()) not in response.text  # Path is library-relative (Infuse needs it), never the mount path
     assert [s["Name"] for s in movie["MediaSources"]] == ["1080p", "4K"]
-    assert [s["Id"] for s in movie["MediaSources"]] == [HEX(MOVIE_1080), HEX(MOVIE_4K)]
+    assert [s["Id"] for s in movie["MediaSources"]] == [HEX(MOVIE), HEX(MOVIE_4K)]
     four_k = movie["MediaSources"][1]
     kinds = [(s["Index"], s["Type"], s.get("IsExternal")) for s in four_k["MediaStreams"]]
     assert kinds == [(0, "Video", False), (1, "Audio", False), (2, "Subtitle", False), (3, "Subtitle", True)]
@@ -776,7 +776,7 @@ def test_infuse_style_session_replay(jf: TestClient, no_ffprobe: None) -> None:
     episodes = call("GET", f"/Shows/{show}/Episodes", params={"seasonId": season1, "userId": me, "Fields": "MediaSources"}).json()["Items"]
     pilot = episodes[0]
     source = pilot["MediaSources"][0]["Id"]
-    assert (pilot["Name"], source) == ("Pilot", HEX(FILE[S1E1]))
+    assert (pilot["Name"], source) == ("Pilot", HEX(S1E1))
     call("GET", f"/Users/{me}/Items/{pilot['Id']}")
     call("GET", f"/Items/{show}/Images/Primary", params={"tag": series[0]["ImageTags"]["Primary"], "maxWidth": 400})
     info = call("POST", f"/Items/{pilot['Id']}/PlaybackInfo",

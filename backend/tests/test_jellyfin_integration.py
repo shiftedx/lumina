@@ -128,7 +128,7 @@ def test_playback_request_reads_body_then_query_and_drops_garbage() -> None:
 def test_transcoding_fields_direct_and_hls() -> None:
     item, psid = "ab" * 16, "c" * 32
     direct = transcoding_fields(SimpleNamespace(mode="direct", height=None, reasons=()), item_id=item, play_session_id=psid, api_key="tok", audio_index=None, subtitle_index=None)
-    assert direct == {"SupportsDirectPlay": True, "SupportsDirectStream": True, "SupportsTranscoding": False}
+    assert direct == {"SupportsDirectPlay": True, "SupportsDirectStream": False, "SupportsTranscoding": False}
     hls = transcoding_fields(
         SimpleNamespace(mode="transcode", height=720, reasons=("AudioCodecNotSupported", "ContainerNotSupported")),
         item_id=item, play_session_id=psid, api_key="t/k", audio_index=1, subtitle_index=None,
@@ -183,6 +183,36 @@ printf 'seg0' > "$dir/seg0.m4s"
 printf '#EXTM3U\\n#EXT-X-MAP:URI="init.mp4"\\n#EXTINF:4.0,\\nseg0.m4s\\n#EXT-X-ENDLIST\\n' > "$last"
 exec sleep 60
 """
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("query", [False, True])
+def test_tv_direct_play_retry_opens_its_advertised_hls_fallback(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, query: bool,
+) -> None:
+    fake = tmp_path / "ffmpeg"
+    fake.write_text(FAKE_FFMPEG)
+    fake.chmod(0o755)
+    monkeypatch.setattr(local_playback, "media_tool", lambda db, name: str(fake) if name == "ffmpeg" else None)
+    make_media(vault.media / SEASON / "Vault Show - S01E01.mkv")
+    scan(vault.admin, vault.media)
+    tv = login(vault)
+    url = f"/Items/{jellyfin_id(episodes(vault)[0]['id'])}/PlaybackInfo"
+    direct = vault.jf.post(url, headers=tv.headers, json={"DeviceProfile": INFUSE_PROFILE}).json()["MediaSources"][0]
+    assert direct["SupportsDirectPlay"] is True
+    assert direct["SupportsDirectStream"] is False and "TranscodingUrl" not in direct
+    body = {"DeviceProfile": INFUSE_PROFILE}
+    params = {"EnableDirectPlay": "false"} if query else {}
+    if not query:
+        body["EnableDirectPlay"] = False
+    response = vault.jf.post(url, headers=tv.headers, json=body, params=params)
+    assert response.status_code == 200
+    fallback = response.json()["MediaSources"][0]
+    assert fallback["SupportsDirectPlay"] is False and fallback["SupportsTranscoding"] is True
+    master = vault.jf.get(fallback["TranscodingUrl"])
+    assert master.status_code == 200, master.text
+    assert "index.m3u8?ApiKey=" in master.text
+    lps.sessions.close_all()
 
 
 @needs_ffmpeg

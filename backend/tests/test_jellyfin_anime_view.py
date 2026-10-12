@@ -260,7 +260,7 @@ def test_infuse_style_session_replay_through_anime(jf: TestClient, no_ffprobe: N
     [season] = call("GET", f"/Shows/{show}/Seasons", params={"userId": me, "Fields": "ItemCounts"}).json()["Items"]
     [episode] = call("GET", f"/Shows/{show}/Episodes", params={"seasonId": season["Id"], "userId": me, "Fields": "MediaSources"}).json()["Items"]
     source = episode["MediaSources"][0]["Id"]
-    assert (episode["Name"], episode["SeriesId"], source) == ("Arrival", show, HEX(ANIME_FILE))
+    assert (episode["Name"], episode["SeriesId"], source) == ("Arrival", show, episode["Id"])
     info = call("POST", f"/Items/{episode['Id']}/PlaybackInfo", params={"UserId": me, "MediaSourceId": source, "IsPlayback": "true"},
                 json={"DeviceProfile": {"MaxStreamingBitrate": 120_000_000}}).json()
     report = {"ItemId": episode["Id"], "MediaSourceId": source, "PlaySessionId": info["PlaySessionId"], "CanSeek": True}

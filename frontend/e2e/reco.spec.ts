@@ -195,14 +195,14 @@ test.describe('The menu list in a horizontal rail', () => {
     await expectMenuFullyVisible(page);
   });
 
-  test('is a styled top-layer panel, with a paper background and a hairline, in a Home row', async ({ page }) => {
+  test('is a borderless top-layer panel with a paper background in a Home row', async ({ page }) => {
     await openHome(page);
     await picked(page).getByRole('button', { name: /^More options for / }).first().click();
     const style = await page.getByRole('menu').evaluate((list) => {
       const css = getComputedStyle(list);
-      return { position: css.position, filled: css.backgroundColor !== 'rgba(0, 0, 0, 0)', hairline: css.borderTopWidth !== '0px', isMenuClass: list.classList.contains('g-menu') };
+      return { position: css.position, filled: css.backgroundColor !== 'rgba(0, 0, 0, 0)', border: css.borderTopWidth, isMenuClass: list.classList.contains('g-menu') };
     });
-    expect(style).toEqual({ position: 'fixed', filled: true, hairline: true, isMenuClass: true });
+    expect(style).toEqual({ position: 'fixed', filled: true, border: '0px', isMenuClass: true });
   });
 });
 

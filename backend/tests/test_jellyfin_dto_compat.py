@@ -1,6 +1,7 @@
 """Jellyfin DTO fields that spec-strict and unguarded clients rely on being present."""
 from __future__ import annotations
 
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -8,12 +9,13 @@ from fastapi.testclient import TestClient
 
 from app import db as db_module
 from app.main import app
-from app.models import LibraryItem, MediaTitle
+from app.models import DeviceToken, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle
 from app.services import jellyfin_playback
 from app.services.media_artifacts import MediaArtifactService
 from app.services.jellyfin_playback import transcoding_fields
 from app.services.media_titles import jellyfin_id
-from title_support import ALICE_TOKEN, BOB, BOXSET, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SERIES, jellyfin_household, mediabrowser
+from app.services.playback_decision import decide
+from title_support import ALICE, ALICE_TOKEN, BOB, BOXSET, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SERIES, jellyfin_household, mediabrowser
 
 HEADERS = mediabrowser(ALICE_TOKEN)
 HEX = jellyfin_id
@@ -86,6 +88,44 @@ def test_android_tv_direct_play_retry_gets_a_stream_url(jf: TestClient, monkeypa
     # Android TV requires a URL for every advertised direct-stream/transcode path.
     assert source["SupportsDirectStream"] or source["SupportsTranscoding"]
     assert source["TranscodingUrl"].startswith("/videos/")
+
+
+@pytest.mark.parametrize("client", ["Jellyfin Roku", "Infuse-Direct"])
+@pytest.mark.parametrize("audio_codec", ["ac3", "eac3"])
+@pytest.mark.parametrize("direct", [True, False])
+def test_roku_dolby_hls_fallback_keeps_direct_play_and_other_clients(
+    jf: TestClient, monkeypatch: pytest.MonkeyPatch, client: str, audio_codec: str, direct: bool,
+) -> None:
+    from sqlalchemy import select
+    monkeypatch.setattr(jellyfin_playback, "media_tool", lambda *_args: None)
+    with db_module.SessionLocal() as db:
+        token = db.scalar(select(DeviceToken).where(DeviceToken.user_id == ALICE))
+        token.client = client
+        device = token.id
+        artifact = db.get(MediaArtifact, db.get(LibraryItemArtifact, MOVIE_4K).artifact_id)
+        facts = deepcopy(artifact.probe)
+        facts.update(video_codec="h264", audio_codec=audio_codec, width=1280, height=720)
+        facts["streams"][0].update(codec="h264", width=1280, height=720, pix_fmt="yuv420p", color_transfer="bt709")
+        facts["streams"][1].update(codec=audio_codec, channels=6)
+        artifact.probe = facts
+        db.commit()
+    profile = {"DirectPlayProfiles": [{"Type": "Video", "Container": "mkv", "VideoCodec": "h264", "AudioCodec": "ac3,eac3"}],
+               "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "ts", "VideoCodec": "h264", "AudioCodec": "ac3,eac3"}]}
+    response = jf.post(f"/Items/{HEX(MOVIE)}/PlaybackInfo", headers={k: v.replace("Infuse-Direct", client) for k, v in HEADERS.items()},
+                       json={"MediaSourceId": HEX(MOVIE_4K), "DeviceProfile": profile, "EnableDirectPlay": direct})
+    assert response.status_code == 200
+    info = response.json()
+    source = next(s for s in info["MediaSources"] if s["Id"] == HEX(MOVIE_4K))
+    assert source["SupportsDirectPlay"] is direct
+    pending = jellyfin_playback.pending_transcodes.get(info["PlaySessionId"], MOVIE_4K, ALICE, device)
+    if direct:
+        assert pending is None and not source["SupportsTranscoding"]
+    else:
+        assert pending is not None and source["SupportsTranscoding"]
+        decision = decide(pending.caps, facts)
+        assert decision.video == "copy"
+        assert decision.audio == ("encode" if client == "Jellyfin Roku" else "copy")
+        assert decision.audio_channels == (2 if client == "Jellyfin Roku" else None)
 
 
 @pytest.mark.parametrize("preferred", [MOVIE_1080, MOVIE_4K])

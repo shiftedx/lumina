@@ -85,11 +85,11 @@ def segment_start(directory: Path, name: str, init: Path | None = None) -> float
     return min(float(line.split(",")[1]) for line in out.split() if line.startswith("video"))
 
 
-def make_clip(path: Path, seconds: int = 60, keyframes: str | None = None, vcodec: str = "libx264", audio_channels: int = 1) -> Path:
+def make_clip(path: Path, seconds: int = 60, keyframes: str | None = None, vcodec: str = "libx264", audio_channels: int = 1, audio_codec: str = "ac3") -> Path:
     """H.264 with B-frames (the veryfast default: ffmpeg seeks such a stream earlier than asked) and AC-3 in Matroska."""
     path.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate=24:duration={seconds}", "-f", "lavfi", "-i", f"sine=duration={seconds}",
-           "-c:v", vcodec, "-preset", "veryfast", "-pix_fmt", "yuv420p", "-g", "1000", "-c:a", "ac3", "-ac", str(audio_channels), "-shortest"]
+           "-c:v", vcodec, "-preset", "veryfast", "-pix_fmt", "yuv420p", "-g", "1000", "-c:a", audio_codec, "-ac", str(audio_channels), "-shortest"]
     if keyframes:
         cmd += ["-force_key_frames", keyframes]
     subprocess.run([*cmd, str(path)], check=True, timeout=120)
@@ -132,9 +132,9 @@ def test_runs_of_one_file_share_an_init_segment_and_absolute_times(tmp_path: Pat
     assert inits[0] == inits[1]
 
 
-def clip_session(vault: Vault, vcodec: str = "libx264", surround: bool = False) -> tuple:  # noqa: F811
+def clip_session(vault: Vault, vcodec: str = "libx264", surround: bool = False, audio_codec: str = "ac3") -> tuple:  # noqa: F811
     """A 60 s Matroska with irregular keyframes and AC-3 as the show's first episode, plus a PlaybackInfo-then-master helper."""
-    make_clip(vault.media / SEASON / "Vault Show - S01E01.mkv", 60, "1.5,3.9,4.1,6.2,7,13.9,14.1,20,21,25.5,29.9,30,41,45.2,49,52,59.5", vcodec, audio_channels=6 if surround else 1)
+    make_clip(vault.media / SEASON / "Vault Show - S01E01.mkv", 60, "1.5,3.9,4.1,6.2,7,13.9,14.1,20,21,25.5,29.9,30,41,45.2,49,52,59.5", vcodec, audio_channels=6 if surround else 1, audio_codec=audio_codec)
     scan(vault.admin, vault.media)
     who = login(vault)
     item = jellyfin_id(episodes(vault)[0]["id"])
@@ -332,13 +332,17 @@ def test_keyframes_are_scanned_once_per_file_version(tmp_path: Path, monkeypatch
 
 @needs_ffmpeg
 @pytest.mark.parametrize("video", ["copy", "encode"])
+@pytest.mark.parametrize("audio_codec", ["ac3", "eac3"])
 def test_roku_hls_exposes_separate_audible_audio_through_resume_and_seek(
-    vault: Vault, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, video: str,
+    vault: Vault, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, video: str, audio_codec: str,
 ) -> None:  # noqa: F811
     import tests.test_jellyfin_integration as integration
     monkeypatch.setattr(integration, "AUTH", integration.AUTH.replace("Infuse-Direct", "Jellyfin Roku"))
-    who, open_master = clip_session(vault, "libx265" if video == "encode" else "libx264", surround=True)
-    profile = {**HLS_ENCODE, "CodecProfiles": [{"Type": "VideoAudio", "Codec": "aac", "Conditions": [
+    who, open_master = clip_session(vault, "libx265" if video == "encode" else "libx264", surround=True, audio_codec=audio_codec)
+    # Roku advertises Dolby passthrough as well as AAC. Its fMP4 fallback must still deliver stereo AAC.
+    profile = {"DirectPlayProfiles": [{"Type": "Video", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "aac,ac3,eac3"}],
+               "TranscodingProfiles": [{"Type": "Video", "Container": "ts", "Protocol": "hls", "VideoCodec": "h264", "AudioCodec": "aac,ac3,eac3"}],
+               "CodecProfiles": [{"Type": "VideoAudio", "Codec": "aac", "Conditions": [
         {"Condition": "LessThanEqual", "Property": "AudioChannels", "Value": "2"},
     ]}]}
     source, base, play_session = open_master(profile, resume=33)

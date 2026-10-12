@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 
 from sqlalchemy.orm import Session
 
-from app.models import LibraryItem, User
+from app.models import DeviceToken, LibraryItem, User
 from app.routers.local_playback import playback_limits
 from app.services import jellyfin as jf
 from app.services.jellyfin_hls import keyframes
@@ -175,6 +175,12 @@ def annotate_media_sources(
         # Keep decoder capabilities for the least-work HLS fallback; retain these
         # caps in PendingTranscode so opening the playlist makes the same decision.
         caps = replace(caps, direct=())
+    token = db.get(DeviceToken, device)
+    # Roku's Dolby passthrough support does not make it safe in our split fMP4 fallback:
+    # copied EAC3 can write an unreadable init header, and AC3 can fail in the player.
+    # Preserve compatible direct playback; only the HLS path uses stereo AAC.
+    hls_caps = replace(caps, direct=(), audio=frozenset({"aac"}), max_channels=2,
+                       encode_channels=2, channel_limits={"aac": 2}) if token is not None and "roku" in (token.client or "").lower() else caps
     start_seconds = from_ticks(request.start_ticks) or 0.0
     library, probe = LibraryService(db), MediaProbeService(db)
     for source in sources:
@@ -195,7 +201,10 @@ def annotate_media_sources(
         audio = request.audio_index if chosen else None
         # External subtitles (sidecars, transcripts) index from sidecar_base up and are always delivered as sidecars.
         subtitle = request.subtitle_index if chosen and request.subtitle_index is not None and request.subtitle_index < jf.sidecar_base(facts) else None
-        decision = decide(caps, facts, playback_limits(db, user.id, facts, max_bitrate=request.max_bitrate), audio, subtitle)
+        limits = playback_limits(db, user.id, facts, max_bitrate=request.max_bitrate)
+        decision = decide(caps, facts, limits, audio, subtitle)
+        if decision.mode in ("remux", "transcode") and hls_caps is not caps:
+            decision = decide(hls_caps, facts, limits, audio, subtitle)
         source.update(transcoding_fields(
             decision, item_id=jellyfin_id(item.id), play_session_id=play_session_id, api_key=api_key,
             audio_index=audio, subtitle_index=subtitle,
@@ -205,7 +214,7 @@ def annotate_media_sources(
                 with contextlib.suppress(FileNotFoundError, ValueError):
                     keyframes(ffprobe, library.resolve_media_path(item), decision.video_index)
             pending_transcodes.put(play_session_id, PendingTranscode(
-                user.id, device, item.id, caps, audio, subtitle, request.max_bitrate, start_seconds,
+                user.id, device, item.id, hls_caps, audio, subtitle, request.max_bitrate, start_seconds,
             ))
 
 

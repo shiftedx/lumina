@@ -22,3 +22,5 @@ The web player and Jellyfin clients need direct play when possible, and a hardwa
 ## Roku audio rendition compatibility
 
 Roku HLS playback exposes separate fMP4 video and audio renditions because some Roku decoders play combined fMP4 video without audio. The existing decision and encoder stay shared; completed segments are remuxed once into cached video-only and audio-only segments without re-encoding. Both playlists use the same whole-file plan and packet timestamps. Cached renditions count against the existing playback cache cap and disappear with the session. Other clients retain combined fMP4 delivery.
+
+Roku's HLS fallback uses stereo AAC even when its profile advertises Dolby passthrough. Copied EAC3 can leave an unreadable fMP4 initialization header, and the separate Dolby rendition can fail in the player. Compatible direct playback retains the client's original audio capabilities; the fallback still copies video whenever possible. PlaybackInfo and the session use the same fallback capabilities.

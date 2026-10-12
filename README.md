@@ -7,7 +7,7 @@
 <p align="center">
   <b>Your household's own streaming service.</b><br>
   Stream and save from YouTube and Twitch, then watch it next to your movies, TV and music,<br>
-  in the browser or any Jellyfin app.
+  in the browser or compatible Jellyfin apps.
 </p>
 
 <p align="center">
@@ -34,7 +34,7 @@
     <td width="50%"><b>Live</b><br>YouTube and Twitch live streams with chat, and chat replay for finished broadcasts.</td>
   </tr>
   <tr>
-    <td><b>Your library</b><br>Movies, TV, music and downloads with TMDB artwork and a full metadata editor. Folders import read-only and stay watched.</td>
+    <td><b>Your library</b><br>Movies, TV, music and downloads with TMDB artwork and a full metadata editor. Read-only folder imports, optional scheduled scans and folder watching, and a visible Refresh action.</td>
     <td><b>Any screen</b><br>Infuse and other Jellyfin apps connect directly. Direct play, remux or transcode, with Intel QSV/VAAPI.</td>
   </tr>
   <tr>
@@ -47,6 +47,13 @@
   <img src="docs/assets/library.jpg" alt="Lumina movie library grid">
 </p>
 
+## In 0.3.0
+
+- **Refresh without leaving the Library.** Use **Refresh** beside the library tabs to reload the current view. For vault owners, it also starts a full background rescan of eligible imported folders. Notifications report scans started or queued, unavailable folders, and errors. To scan one folder or review missing-file confirmation, open **Manage Server → Library & storage → Imports**.
+- **A cleaner interface throughout the app.** Actions, cards, panels, notices, and dialogs use spacing and restrained surfaces instead of decorative outlined boxes. Settings fields use underlines, and automatically focused headings no longer show a rectangular frame. Keyboard focus remains visible on interactive controls.
+
+Version 0.3.0 is the new repository and release baseline. Earlier release tags and downloads have been removed. See the [release notes](RELEASE_NOTES.md) for what is included.
+
 ## Run
 
 Needs Docker with Compose, on amd64 or arm64. Lumina 0.3.0 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.0`.
@@ -54,12 +61,14 @@ Needs Docker with Compose, on amd64 or arm64. Lumina 0.3.0 uses the pinned multi
 ```bash
 mkdir lumina && cd lumina
 curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.0/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.0/SHA256SUMS
+grep 'docker-compose.yml$' SHA256SUMS | shasum -a 256 -c -
 printf 'LUMINA_RUNTIME_UID=%s\nLUMINA_RUNTIME_GID=%s\n' "$(id -u)" "$(id -g)" > .env
 docker compose pull lumina
 docker compose up -d --no-build lumina
 ```
 
-Open <http://127.0.0.1:8765> and create the first admin. The commands pull the published image; they do not build Lumina locally. The [operator guide](docker/README.md) covers checksum verification, upgrades, release-tag checkouts and source builds.
+Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.3.0/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
 
 | To | See |
 | --- | --- |
@@ -72,6 +81,8 @@ Open <http://127.0.0.1:8765> and create the first admin. The commands pull the p
 ## Develop
 
 Toolchain versions are pinned in `.tool-versions` (install them with [mise](https://mise.jdx.dev)).
+
+The Git history restarts at 0.3.0. Use a fresh clone when moving from a checkout of the previous history.
 
 ```bash
 mise install

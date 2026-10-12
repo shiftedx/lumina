@@ -238,6 +238,7 @@ html.g-modal-open { scrollbar-gutter: stable; }
 .g-menu.is-overlay .g-menu-item { color: var(--g-overlay-ink); }
 .g-menu.is-overlay .g-menu-item:focus { background: var(--g-overlay-hover); }
 @media (hover: hover) { .g-menu-item:not([aria-disabled='true']):hover { background: var(--g-wash); } .g-menu.is-overlay .g-menu-item:hover { background: var(--g-overlay-hover); } }
+.g-menu-item[aria-checked='true'] .g-menu-hint { color: var(--g-ink-2); }
 .g-menu-item[aria-checked='true'], .g-menu-item[aria-checked='true']:hover { border-inline-start-color: var(--g-gold); background: var(--g-selected); }
 @keyframes g-pop-in { from { opacity: 0; transform: translateY(-4px); } }
 @keyframes g-pop-in-up { from { opacity: 0; transform: translateY(4px); } }

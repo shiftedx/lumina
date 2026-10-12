@@ -1642,9 +1642,11 @@ describe('shell toasts and openers', () => {
 });
 
 describe('account links (hooks stay unconditional)', () => {
-  it.each(['#invite=abc123', '#reset=abc123'])('cancelling a %s link returns to the app instead of crashing', async (hash) => {
-    window.history.replaceState(null, '', `/${hash}`);
+  it.each(['/#invite=abc123', '/invite#invite=abc123', '/#reset=abc123'])('cancelling a %s link returns to the app instead of crashing', async (path) => {
+    window.history.replaceState(null, '', path);
     render(<LuminaApp />);
+    expect(window.location.hash).toBe('');
+    if (path.includes('invite')) expect(screen.getByRole('button', { name: 'Join household' })).toBeTruthy();
     await userEvent.click(await screen.findByRole('button', { name: 'Back to sign in' }));
     expect(screen.queryByRole('button', { name: 'Back to sign in' })).toBeNull();
     expect(document.body.textContent).not.toBe('');

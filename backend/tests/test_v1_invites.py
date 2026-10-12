@@ -11,6 +11,7 @@ from app.config import settings
 from app.main import app
 from app.models import AccountToken, User
 from app.security import CSRF_HEADER, utcnow
+from app.services import public_address
 from test_v1_sessions import PASSWORD, client, factory, login  # noqa: F401  (fixtures)
 
 INVITEE_PASSWORD = "Invitee-passphrase-9"
@@ -26,7 +27,8 @@ def issue(client: TestClient, **body) -> dict:
 
 def token_of(invitation: dict) -> str:
     url = invitation["invitation_url"]
-    assert url.startswith(settings.resolved_frontend_public_url + "/#invite=")
+    assert url.startswith(settings.resolved_frontend_public_url + "/invite#invite=")
+    assert "invite=" not in url.split("#", 1)[0]
     return url.split("#invite=", 1)[1]
 
 
@@ -94,3 +96,8 @@ def test_invite_issue_requires_admin(client: TestClient, factory) -> None:
         "/api/admin/invitations", json={}, headers={"Origin": settings.allowed_origins_list[0], CSRF_HEADER: csrf}
     )
     assert response.status_code == 403
+
+
+def test_invite_link_uses_the_configured_public_address(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr(public_address, "link_base", lambda: "https://lumina.example.test")
+    assert issue(client)["invitation_url"].startswith("https://lumina.example.test/invite#invite=")

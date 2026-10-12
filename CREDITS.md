@@ -35,3 +35,7 @@ On-device models are downloaded only when an admin chooses one, and each model's
 Lumina implements part of the [Jellyfin](https://jellyfin.org) API so Jellyfin apps such as Infuse can connect, and can hand requests to [Sonarr](https://sonarr.tv) and [Radarr](https://radarr.video).
 
 Lumina is an independent project, not affiliated with or endorsed by any project or service named here. All trademarks belong to their owners.
+
+## Social preview artwork
+
+The social-card artwork is original imagery generated for Lumina. Its fictional scenes contain no household media or member details. The cards reuse the project’s Newsreader fonts and horizon mark; regenerate them with `mise exec -- npm --prefix frontend run social:render`.

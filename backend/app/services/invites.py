@@ -67,8 +67,9 @@ def serialize(db: Session, record: AccountToken) -> dict:
     }
 
 
-def _link(token: str) -> str:
-    return f"{public_address.link_base()}/#invite={token}"
+def link(token: str) -> str:
+    """An invite-specific page for crawlers; the secret remains in the browser-only fragment."""
+    return f"{public_address.link_base()}/invite#invite={token}"
 
 
 def _deliver(db: Session, inviter: User, record: AccountToken, link: str) -> bool:
@@ -96,9 +97,9 @@ def create(db: Session, inviter: User, body: InviteCreate) -> dict:
     with write_transaction(db, name="invite_details"):
         record.email = body.email.strip().lower()
         record.access = {**body.access.model_dump(), "display_name": (body.display_name or "").strip() or None}
-    link = _link(token)
-    sent = _deliver(db, inviter, record, link) if body.send else False
-    return {**serialize(db, record), "invitation_url": link, "email_sent": sent}
+    invitation_url = link(token)
+    sent = _deliver(db, inviter, record, invitation_url) if body.send else False
+    return {**serialize(db, record), "invitation_url": invitation_url, "email_sent": sent}
 
 
 def resend(db: Session, inviter: User, invite_id: str) -> dict:
@@ -111,8 +112,8 @@ def resend(db: Session, inviter: User, invite_id: str) -> dict:
             raise ValueError("This invitation was already used or revoked; send a new one.")
         token = secrets.token_urlsafe(32)
         record.token_digest, record.expires_at = session_digest(token), utcnow() + timedelta(days=INVITE_DAYS)
-    link = _link(token)
-    return {**serialize(db, record), "invitation_url": link, "email_sent": _deliver(db, inviter, record, link)}
+    invitation_url = link(token)
+    return {**serialize(db, record), "invitation_url": invitation_url, "email_sent": _deliver(db, inviter, record, invitation_url)}
 
 
 def apply_access(db: Session, user: User, record: AccountToken) -> None:

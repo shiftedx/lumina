@@ -10,19 +10,19 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Callable, Literal
 
 import yt_dlp
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.http_compression import ResponseCompressionMiddleware
-from app.services import network_policy, public_address, two_factor
+from app.services import invites as invite_service, network_policy, public_address, social_preview, two_factor
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
@@ -667,6 +667,11 @@ class SpaStaticFiles(StaticFiles):
     asset references and API typos are not masked by the app shell.
     """
 
+    def __init__(self, *, public_origin: Callable[[], str] | None = None, **kwargs) -> None:  # noqa: ANN003
+        super().__init__(**kwargs)
+        self.public_origin = public_origin or public_address.link_base
+        self.index_html = (Path(self.directory) / "index.html").read_text(encoding="utf-8")
+
     async def __call__(self, scope, receive, send) -> None:  # type: ignore[override]
         if scope["type"] == "websocket":  # e.g. a Jellyfin client's /socket; StaticFiles asserts an http scope
             await send({"type": "websocket.close", "code": 1008})
@@ -674,13 +679,26 @@ class SpaStaticFiles(StaticFiles):
         await super().__call__(scope, receive, send)
 
     async def get_response(self, path: str, scope):  # type: ignore[override]
+        if scope["method"] in {"GET", "HEAD"} and path in {".", "index.html"}:
+            return self._shell_response(scope)
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             leaf = path.rsplit("/", 1)[-1]
-            if exc.status_code != 404 or path == "api" or path.startswith("api/") or "." in leaf:
+            if exc.status_code != 404 or scope["method"] not in {"GET", "HEAD"} or path == "api" or path.startswith("api/") or "." in leaf:
                 raise
-            return await super().get_response("index.html", scope)
+            return self._shell_response(scope)
+        if path in social_preview.IMAGE_PATHS:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+    def _shell_response(self, scope) -> HTMLResponse:  # noqa: ANN001
+        invite = scope["path"] in {"/invite", "/invite/"}
+        body = social_preview.render(self.index_html, origin=self.public_origin(), invite=invite)
+        response = HTMLResponse(body, headers={"Cache-Control": "public, max-age=300"})
+        if scope["method"] == "HEAD":
+            response.body = b""  # retain GET's Content-Length while sending no representation body
+        return response
 
 
 def run_library_maintenance_cycle() -> None:
@@ -4007,7 +4025,7 @@ def create_invitation(
         id=record.id,
         role=payload.role,
         expires_at=record.expires_at,
-        invitation_url=f"{settings.resolved_frontend_public_url}/#invite={token}",
+        invitation_url=invite_service.link(token),
     )
 
 

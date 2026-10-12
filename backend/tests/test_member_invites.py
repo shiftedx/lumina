@@ -49,7 +49,8 @@ def test_create_sends_email_with_link(client, factory, outbox):
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["email_sent"] is True and body["libraries"] == ["Anime", "Movies"]  # sorted like a member access save
-    assert body["invitation_url"].startswith("https://lumina.example.com/#invite=")
+    assert body["invitation_url"].startswith("https://lumina.example.com/invite#invite=")
+    assert "invite=" not in body["invitation_url"].split("#", 1)[0]
     to, subject, text, html = outbox[0]
     assert to == "pal@example.com" and body["invitation_url"] in text and body["invitation_url"] in html and "Movies" in html
     assert (body["expires_at"] and (utcnow() + timedelta(days=6, hours=23)) < __import__("datetime").datetime.fromisoformat(body["expires_at"]))

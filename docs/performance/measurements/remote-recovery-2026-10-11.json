@@ -1,0 +1,197 @@
+{
+  "baseline_revision": "5c41688ce2b8e6dae27ba3ef093291b495f5d517",
+  "browser": "Google Chrome 154",
+  "protocol": "SegmentBase DASH, H.264 + AAC, synthetic 120-second fixture; fresh process and synthetic account each run; real backend and dash.js; same bytes and 75ms index-response delay in both arms; upstream 3Mbps then 100Mbps at 15seconds; C/A/A/C; 45-second observation",
+  "rows": [
+    {
+      "success": true,
+      "firstFrame": {
+        "ms": 2207.0999999940395,
+        "mediaTime": 0,
+        "width": 426,
+        "height": 240,
+        "presentedFrames": 1
+      },
+      "height": 240,
+      "stalls": 0,
+      "stalledMs": 0,
+      "dimensionChanges": [
+        {
+          "ms": 2207.0999999940395,
+          "height": 240,
+          "mediaTime": 0
+        }
+      ],
+      "case": "control1",
+      "raw_sha256": "526e27b8da868755caad10b5cc5bec3c426eabe4dd9e2468139d65763f0a3867"
+    },
+    {
+      "success": true,
+      "firstFrame": {
+        "ms": 2216.4999999940396,
+        "mediaTime": 0,
+        "width": 426,
+        "height": 240,
+        "presentedFrames": 1
+      },
+      "height": 1080,
+      "stalls": 0,
+      "stalledMs": 0,
+      "dimensionChanges": [
+        {
+          "ms": 2216.4999999940396,
+          "height": 240,
+          "mediaTime": 0
+        },
+        {
+          "ms": 16249.199999994038,
+          "height": 1080,
+          "mediaTime": 14
+        }
+      ],
+      "case": "candidate3",
+      "raw_sha256": "ca9c29be9c10e0f90f6bdc48d61185d80bcfdb0ab9e7344cf2a60c81b07f09c7"
+    },
+    {
+      "success": true,
+      "firstFrame": {
+        "ms": 2246.1,
+        "mediaTime": 0,
+        "width": 426,
+        "height": 240,
+        "presentedFrames": 1
+      },
+      "height": 1080,
+      "stalls": 0,
+      "stalledMs": 0,
+      "dimensionChanges": [
+        {
+          "ms": 2246.1,
+          "height": 240,
+          "mediaTime": 0
+        },
+        {
+          "ms": 16312.2,
+          "height": 1080,
+          "mediaTime": 14
+        }
+      ],
+      "case": "candidate4",
+      "raw_sha256": "e3d2462cb48e7cf185ce62eec5836c3d8eaf6c98eca9fc596a4a80b85f9e10b8"
+    },
+    {
+      "success": true,
+      "firstFrame": {
+        "ms": 2317.4999999821184,
+        "mediaTime": 0,
+        "width": 426,
+        "height": 240,
+        "presentedFrames": 1
+      },
+      "height": 240,
+      "stalls": 0,
+      "stalledMs": 0,
+      "dimensionChanges": [
+        {
+          "ms": 2317.4999999821184,
+          "height": 240,
+          "mediaTime": 0
+        }
+      ],
+      "case": "control2",
+      "raw_sha256": "30da43577d70d2b9d95b089631d10097e79d88d5e9340a7069af50e26dcdfa01"
+    }
+  ],
+  "provider_qualification": {
+    "observation_seconds": 60,
+    "network": "unshaped household route; isolated native amd64 backend; fresh synthetic account and browser contexts; real provider sources",
+    "rows": [
+      {
+        "source": "youtube-vod-1",
+        "success": true,
+        "firstFrame": {
+          "ms": 2287.8000000476836,
+          "mediaTime": 0,
+          "width": 3840,
+          "height": 2160,
+          "presentedFrames": 1
+        },
+        "height": 2160,
+        "stalls": 0,
+        "stalledMs": 0,
+        "quality": {
+          "dropped": 4,
+          "total": 3600
+        },
+        "behindEdge": 574.678926
+      },
+      {
+        "source": "twitch-live-1",
+        "success": true,
+        "firstFrame": {
+          "ms": 1571.399999988079,
+          "mediaTime": 24,
+          "width": 1920,
+          "height": 1080,
+          "presentedFrames": 1
+        },
+        "height": 1080,
+        "stalls": 0,
+        "stalledMs": 0,
+        "quality": {
+          "dropped": 49,
+          "total": 3601
+        },
+        "behindEdge": 5.197879
+      },
+      {
+        "source": "kick-live-1",
+        "success": true,
+        "firstFrame": {
+          "ms": 812.7999999761582,
+          "mediaTime": 22.016,
+          "width": 1920,
+          "height": 1080,
+          "presentedFrames": 1
+        },
+        "height": 1080,
+        "stalls": 0,
+        "stalledMs": 0,
+        "quality": {
+          "dropped": 0,
+          "total": 3602
+        },
+        "behindEdge": 6.060237666666666
+      }
+    ],
+    "raw_sha256": "4c2941384c29a6c972cb341be7079d1edcb098b9643c5882e793fb71d592aa36"
+  },
+  "fixtures": [
+    {
+      "name": "audio.m4a",
+      "bytes": 1954023,
+      "sha256": "ffa1ac84bc42248329f24bfa381dd68888dbb6fdda3233be66c8710004221844"
+    },
+    {
+      "name": "v1080.mp4",
+      "bytes": 120692412,
+      "sha256": "2cac351de74a3e2240995ff7260778f6a9a4e6a15604f10ff25734359602d06c"
+    },
+    {
+      "name": "v240.mp4",
+      "bytes": 6054171,
+      "sha256": "c07ded72d53bf555a0a110ecb9d3ef6e2d7d2fe1c91c5f6656b5b6a8d2ddc6fc"
+    },
+    {
+      "name": "v720.mp4",
+      "bytes": 45244066,
+      "sha256": "de76c2d225372bbe54a5b4eb3feef9119fa7f04945f3e6cfdacd2079fa3ab543"
+    }
+  ],
+  "dependencies": {
+    "dashjs": "5.2.0",
+    "yt_dlp": "2026.8.19",
+    "server_architecture": "amd64"
+  },
+  "application_cache_state": "authenticated application shell warmed by sign-in; player libraries and source transfers cold"
+}

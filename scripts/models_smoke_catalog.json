@@ -1,0 +1,35 @@
+{
+  "hosts": ["huggingface.co"],
+  "cdn_host_suffixes": [".hf.co"],
+  "models": [
+    {
+      "id": "smoke-minilm-l6-q4",
+      "role": "search",
+      "default": true,
+      "name": "all-MiniLM-L6-v2 (smoke test)",
+      "description": "Tiny embedding model for the real-stack smoke test only.",
+      "licence": "Apache-2.0",
+      "ram_bytes": 268435456,
+      "engine": {"dimensions": 384, "pooling": "mean", "query_prefix": "", "document_prefix": ""},
+      "files": [
+        {"name": "all-MiniLM-L6-v2-Q4_0.gguf", "url": "https://huggingface.co/second-state/All-MiniLM-L6-v2-Embedding-GGUF/resolve/544f204f2eaa2d71361ffc74d6df7170285b286a/all-MiniLM-L6-v2-Q4_0.gguf", "sha256": "8cb01a79a55e00a936ca17a07886302bbb005680afd4255d570787ba4b8c8c1d", "size": 19699648}
+      ]
+    },
+    {
+      "id": "smoke-whisper-tiny-en",
+      "role": "speech",
+      "default": true,
+      "name": "Whisper tiny.en (smoke test)",
+      "description": "Tiny English speech model for the real-stack smoke test only.",
+      "licence": "MIT",
+      "ram_bytes": 402653184,
+      "engine": {"language": "en"},
+      "files": [
+        {"name": "config.json", "url": "https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/config.json", "sha256": "14b1b421a90349bc551b881461426b561a874049cb9e4c4864f2ca384f6a7cc5", "size": 2317},
+        {"name": "model.bin", "url": "https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/model.bin", "sha256": "1a5afae06a4db91c975c9a9d78be5cc110ee4ea022ad57d55492e4550e936b2a", "size": 75537502},
+        {"name": "tokenizer.json", "url": "https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/tokenizer.json", "sha256": "929c5252409436dce1b38a75d1abbcb5e132d170d8e324e4e04ed915fa2d22df", "size": 2128466},
+        {"name": "vocabulary.txt", "url": "https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/vocabulary.txt", "sha256": "ff77588746d3a2595d32ab5b69ffd7b95ce2441ac57533cb66fc3eb575a115cf", "size": 422309}
+      ]
+    }
+  ]
+}

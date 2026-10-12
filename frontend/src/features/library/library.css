@@ -1,0 +1,10 @@
+
+.gallery .g-library-toolbar { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 24px; }
+.gallery .g-library-toolbar > .g-tab-scroller { flex: 1; min-width: 0; }
+.gallery .g-library-toolbar .g-tabs { margin-bottom: 0; }
+.gallery .g-library-toolbar > .g-button { flex: none; min-height: max(44px, var(--g-control)); }
+@media (max-width: 599px) {
+  .gallery .g-library-toolbar { flex-wrap: wrap; gap: 8px; }
+  .gallery .g-library-toolbar > .g-tab-scroller { flex-basis: 100%; }
+  .gallery .g-library-toolbar > .g-button { margin-left: auto; }
+}

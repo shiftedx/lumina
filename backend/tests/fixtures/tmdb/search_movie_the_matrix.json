@@ -1,0 +1,10 @@
+{
+  "page": 1,
+  "results": [
+    {"id": 603, "title": "The Matrix", "original_title": "The Matrix", "release_date": "1999-03-31", "overview": "Set in the 22nd century, The Matrix tells the story of a computer hacker...", "poster_path": "/p96dm7sCMn4VYAStA6siNz30G1r.jpg"},
+    {"id": 604, "title": "The Matrix Reloaded", "original_title": "The Matrix Reloaded", "release_date": "2003-05-15", "overview": "Six months after the events depicted in The Matrix...", "poster_path": "/9TGHDvWrqKBzwDxDodHYXEmOE6J.jpg"},
+    {"id": 605, "title": "The Matrix Revolutions", "original_title": "The Matrix Revolutions", "release_date": "2003-11-05", "overview": "The human city of Zion defends itself against the massive invasion of the machines...", "poster_path": "/t1wm4PgOQ8e4z1C6tk1yDYrb2GL.jpg"}
+  ],
+  "total_pages": 1,
+  "total_results": 3
+}

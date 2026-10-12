@@ -1,0 +1,5 @@
+{"data":{"Page":{"pageInfo":{"hasNextPage":false},"airingSchedules":[
+ {"episode":3,"airingAt":__AT__,"media":{"id":154587,"title":{"romaji":"Sousou no Frieren","english":"Frieren: Beyond Journey's End","native":"x"},"format":"TV","episodes":28,"season":"FALL","seasonYear":2026,"startDate":{"year":2026,"month":10,"day":2},"coverImage":{"extraLarge":"https://s4.anilist.co/frieren.jpg"},"genres":[],"studios":{"nodes":[]},"isAdult":false}},
+ {"episode":5,"airingAt":__AT__,"media":{"id":888,"title":{"romaji":"Popular Show","english":null,"native":"x"},"format":"TV","popularity":900,"coverImage":{},"genres":[],"studios":{"nodes":[]},"isAdult":false}},
+ {"episode":1,"airingAt":__AT__,"media":{"id":777,"title":{"romaji":"Adult","english":null,"native":"x"},"format":"TV","coverImage":{},"genres":[],"studios":{"nodes":[]},"isAdult":true}}
+]}}}

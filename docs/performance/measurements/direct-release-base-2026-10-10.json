@@ -1,0 +1,867 @@
+{
+  "schema": 1,
+  "scope": "Balanced qualification of recovered public-release-base runtime, distinct from historical missing images. All frames and first-trial outliers retained. No pooling across image identities.",
+  "source_commit": "b074ceeb6dbe91aaf26a179b53f3d4201c02b989",
+  "source_manifest_sha256": "50b49b5e5bd8cec97526fb3f030cc97c914ff7782c79658504f86ddb63ab1bb4",
+  "raw_directory": "final-idle-varied-release-base-b074cee",
+  "raw_manifest_sha256": "564bfc1ba5adffca34385771d20c9462d1e241b47d8c5bfb792fd502bc92c67f",
+  "raw_summary_sha256": "0d9463c56ae0213a8a6a6bbf287e81d38430e97002d7f7048933075ff69cc276",
+  "summary_manifest_binding": "Verified the manifest snapshot immediately before summary phase completion by reconstructing only its final-phase bookkeeping; raw manifest and summary remain unchanged.",
+  "frame_count_verified": 3840,
+  "failures": 0,
+  "incomplete_pairs": 0,
+  "assessment": "Pooled p95 leads paired Jellyfin for both workloads. Varied candidate repeats both lead; idle repeats split. Candidate does not meet 15% reduction versus control for either workload; idle drift prevents causal warm-start improvement claim. No universal dominance established.",
+  "qualification": {
+    "candidate": {
+      "architecture": "arm64",
+      "id": "sha256:dbb1e924dee15cbe07977f263ba53bae6a83e70373ae9cc155bcc01f74eca733",
+      "labels": {
+        "org.opencontainers.image.licenses": "AGPL-3.0-or-later",
+        "org.opencontainers.image.revision": "090542d4069ce0f284280f8abfab9949e02c0118",
+        "org.opencontainers.image.source": "https://github.com/shiftedx/lumina",
+        "org.opencontainers.image.title": "Lumina",
+        "org.opencontainers.image.version": "2.13.0"
+      },
+      "os": "linux",
+      "reference": "sha256:dbb1e924dee15cbe07977f263ba53bae6a83e70373ae9cc155bcc01f74eca733",
+      "repo_digests": [],
+      "size_bytes": 883679529
+    },
+    "control": {
+      "architecture": "arm64",
+      "id": "sha256:7de88c1203031d181ab0d6d40b6eadc01c76e5d2ec3c21fe2f0d1132aa05110b",
+      "labels": {
+        "org.opencontainers.image.licenses": "AGPL-3.0-or-later",
+        "org.opencontainers.image.revision": "090542d4069ce0f284280f8abfab9949e02c0118",
+        "org.opencontainers.image.source": "https://github.com/shiftedx/lumina",
+        "org.opencontainers.image.title": "Lumina",
+        "org.opencontainers.image.version": "2.13.0"
+      },
+      "os": "linux",
+      "reference": "sha256:7de88c1203031d181ab0d6d40b6eadc01c76e5d2ec3c21fe2f0d1132aa05110b",
+      "repo_digests": [
+        "ghcr.io/shiftedx/lumina@sha256:5eb88553a8d28b1262a9211fb776f91d5868d1d96beaf0897391eed48a430ddf"
+      ],
+      "size_bytes": 883332504
+    },
+    "jellyfin": {
+      "architecture": "arm64",
+      "id": "sha256:48cd39885e47f52367f11456a57e9450fee197f706aa0781588bb1d01aa528c5",
+      "labels": {
+        "org.opencontainers.image.description": "The Free Software Media System",
+        "org.opencontainers.image.documentation": "https://jellyfin.org/docs/",
+        "org.opencontainers.image.source": "https://github.com/jellyfin/jellyfin-packaging",
+        "org.opencontainers.image.title": "Jellyfin",
+        "org.opencontainers.image.url": "https://jellyfin.org",
+        "org.opencontainers.image.version": "12.0"
+      },
+      "os": "linux",
+      "reference": "sha256:48cd39885e47f52367f11456a57e9450fee197f706aa0781588bb1d01aa528c5",
+      "repo_digests": [
+        "jellyfin/jellyfin@sha256:baba630419915985442f315f08b0cf46d9f4c8a0cc4bd38e94a6d35751dd5ef5"
+      ],
+      "size_bytes": 867376808
+    },
+    "qualification_target": {
+      "candidate_must_beat_paired_jellyfin": true,
+      "candidate_p95_reduction_vs_control": ">= 15 percent for each workload",
+      "outlier_policy": "No GPU or latency outlier trimming; all successful decoded-frame samples included."
+    },
+    "schema": 1,
+    "source_manifest_sha256": "117aa85dfeb5d04816b805cfece77b775dfd1958acf044d8a07ff6fdcb63db97",
+    "workloads": {
+      "idle-original": {
+        "blocks": [
+          {
+            "artifact": "idle-original-1-direct.json",
+            "block": 1,
+            "failures": [],
+            "incomplete_pairs": [],
+            "label": "control",
+            "paired_lumina_minus_jellyfin_ms": {
+              "count": 240,
+              "max_ms": 164.39999997615814,
+              "mean_ms": -0.0733333345502615,
+              "min_ms": -16.19999998807907,
+              "p50_ms": -0.800000011920929,
+              "p95_ms": 11.400000005960464,
+              "p99_ms": 16.69999998807907
+            },
+            "raw_artifact_sha256": "98e495d4c2bf11d00ade84cdbf75024145711551cf859ed5ca8c3c17335dbebb",
+            "runs_per_target": 240,
+            "targets": {
+              "jellyfin": {
+                "count": 240,
+                "max_ms": 63.80000001192093,
+                "mean_ms": 25.391250000397363,
+                "min_ms": 12.400000005960464,
+                "p50_ms": 25.5,
+                "p95_ms": 33.5,
+                "p99_ms": 37.89999997615814
+              },
+              "lumina": {
+                "count": 240,
+                "max_ms": 228.19999998807907,
+                "mean_ms": 25.317916665847104,
+                "min_ms": 12.900000005960464,
+                "p50_ms": 25,
+                "p95_ms": 32,
+                "p99_ms": 38.5
+              }
+            }
+          },
+          {
+            "artifact": "idle-original-2-direct.json",
+            "block": 2,
+            "failures": [],
+            "incomplete_pairs": [],
+            "label": "candidate",
+            "paired_lumina_minus_jellyfin_ms": {
+              "count": 240,
+              "max_ms": 52.19999998807907,
+              "mean_ms": -2.6862500004470347,
+              "min_ms": -180.19999998807907,
+              "p50_ms": -1.699999988079071,
+              "p95_ms": 18.30000001192093,
+              "p99_ms": 36.400000005960464
+            },
+            "raw_artifact_sha256": "b3db936c4c1f4b7fef94218c8b2223feb23ed71b3bd04eadb4d136ae768e5932",
+            "runs_per_target": 240,
+            "targets": {
+              "jellyfin": {
+                "count": 240,
+                "max_ms": 201.5,
+                "mean_ms": 33.962083333730696,
+                "min_ms": 14.5,
+                "p50_ms": 32,
+                "p95_ms": 49.5,
+                "p99_ms": 108.5
+              },
+              "lumina": {
+                "count": 240,
+                "max_ms": 98.19999998807907,
+                "mean_ms": 31.275833333283664,
+                "min_ms": 13.599999994039536,
+                "p50_ms": 29.900000005960464,
+                "p95_ms": 46.69999998807907,
+                "p99_ms": 67
+              }
+            }
+          },
+          {
+            "artifact": "idle-original-3-direct.json",
+            "block": 3,
+            "failures": [],
+            "incomplete_pairs": [],
+            "label": "candidate",
+            "paired_lumina_minus_jellyfin_ms": {
+              "count": 240,
+              "max_ms": 133.59999999403954,
+              "mean_ms": -1.5916666680326064,
+              "min_ms": -88.09999999403954,
+              "p50_ms": -1.7000000178813934,
+              "p95_ms": 16.099999994039536,
+              "p99_ms": 28.500000029802322
+            },
+            "raw_artifact_sha256": "71b37e6f04acff571a29e6a80fd55b237ef7d8e9f3b389050a1e1d05f03110a4",
+            "runs_per_target": 240,
+            "targets": {
+              "jellyfin": {
+                "count": 240,
+                "max_ms": 115.59999999403954,
+                "mean_ms": 34.71125000081956,
+                "min_ms": 17.5,
+                "p50_ms": 33.400000005960464,
+                "p95_ms": 44.79999998211861,
+                "p99_ms": 105.2999999821186
+              },
+              "lumina": {
+                "count": 240,
+                "max_ms": 239.69999998807907,
+                "mean_ms": 33.11958333278696,
+                "min_ms": 14.099999994039536,
+                "p50_ms": 31.5,
+                "p95_ms": 46.10000002384186,
+                "p99_ms": 73.5
+              }
+            }
+          },
+          {
+            "artifact": "idle-original-4-direct.json",
+            "block": 4,
+            "failures": [],
+            "incomplete_pairs": [],
+            "label": "control",
+            "paired_lumina_minus_jellyfin_ms": {
+              "count": 240,
+              "max_ms": 18.399999976158142,
+              "mean_ms": -2.152499998981754,
+              "min_ms": -164.90000000596046,
+              "p50_ms": -0.5999999940395355,
+              "p95_ms": 10.699999988079071,
+              "p99_ms": 16.69999998807907
+            },
+            "raw_artifact_sha256": "a26fe35cdee9834d3c4dac924650ca20c8255e271ec4576294cfde6b1b2cfabf",
+            "runs_per_target": 240,
+            "targets": {
+              "jellyfin": {
+                "count": 240,
+                "max_ms": 222,
+                "mean_ms": 29.2441666662693,
+                "min_ms": 14.900000005960464,
+                "p50_ms": 27.599999994039536,
+                "p95_ms": 39.29999998211861,
+                "p99_ms": 48.70000001788139
+              },
+              "lumina": {
+                "count": 240,
+                "max_ms": 57.099999994039536,
+                "mean_ms": 27.091666667287548,
+                "min_ms": 13,
+                "p50_ms": 26.400000005960464,
+                "p95_ms": 38.400000005960464,
+                "p99_ms": 43.69999998807907
+              }
+            }
+          }
+        ],
+        "pools": {
+          "candidate_beats_paired_jellyfin_at_p95": true,
+          "candidate_lumina": {
+            "count": 480,
+            "max_ms": 239.69999998807907,
+            "mean_ms": 32.19770833303531,
+            "min_ms": 13.599999994039536,
+            "p50_ms": 30.400000005960464,
+            "p95_ms": 46.400000005960464,
+            "p99_ms": 72.40000000596046
+          },
+          "candidate_p95_lead_vs_paired_jellyfin_ms": 0.5999999940395355,
+          "candidate_p95_reduction_vs_control_percent": -26.43051776847999,
+          "candidate_paired_jellyfin": {
+            "count": 480,
+            "max_ms": 201.5,
+            "mean_ms": 34.33666666727513,
+            "min_ms": 14.5,
+            "p50_ms": 32.80000001192093,
+            "p95_ms": 47,
+            "p99_ms": 106.09999999403954
+          },
+          "control_beats_paired_jellyfin_at_p95": true,
+          "control_lumina": {
+            "count": 480,
+            "max_ms": 228.19999998807907,
+            "mean_ms": 26.204791666567324,
+            "min_ms": 12.900000005960464,
+            "p50_ms": 25.80000001192093,
+            "p95_ms": 36.69999998807907,
+            "p99_ms": 42.900000005960464
+          },
+          "control_p95_lead_vs_paired_jellyfin_ms": 0.7000000178813934,
+          "control_paired_jellyfin": {
+            "count": 480,
+            "max_ms": 222,
+            "mean_ms": 27.317708333333332,
+            "min_ms": 12.400000005960464,
+            "p50_ms": 26.5,
+            "p95_ms": 37.400000005960464,
+            "p99_ms": 44.599999994039536
+          },
+          "meets_reduction_target": false
+        },
+        "varied_control_fixture_stratification": null,
+        "varied_fixture_stratification": null
+      },
+      "varied": {
+        "blocks": [
+          {
+            "artifact": "varied-1-direct.json",
+            "block": 1,
+            "failures": [],
+            "incomplete_pairs": [],
+            "label": "control",
+            "paired_lumina_minus_jellyfin_ms": {
+              "count": 240,
+              "max_ms": 141.60000002384186,
+              "mean_ms": 0.33416666636864345,
+              "min_ms": -28.100000023841858,
+              "p50_ms": -0.9000000059604645,
+              "p95_ms": 16.799999982118607,
+              "p99_ms": 22.0
+            },
+            "raw_artifact_sha256": "5a53ac8ecd4c2c32e8791756921863314b96a986629dee5e1452154f7c88aa30",
+            "runs_per_target": 240,
+            "targets": {
+              "jellyfin": {
+                "count": 240,
+                "max_ms": 66.69999998807907,
+                "mean_ms": 30.417500000695387,
+                "min_ms": 13.199999988079071,
+                "p50_ms": 28.399999976158142,
+                "p95_ms": 42.20000001788139,
+                "p99_ms": 54
+              },
+              "lumina": {
+                "count": 240,
+                "max_ms": 208.30000001192093,
+                "mean_ms": 30.751666667064033,
+                "min_ms": 13.200000017881393,
+                "p50_ms": 27.69999998807907,
+                "p95_ms": 42.79999998211861,
+                "p99_ms": 51.19999998807907
+              }
+            }
+          },
+          {
+            "artifact": "varied-2-direct.json",
+            "block": 2,
+            "failures": [],
+            "incomplete_pairs": [],
+            "label": "candidate",
+            "paired_lumina_minus_jellyfin_ms": {
+              "count": 240,
+              "max_ms": 58.29999998211861,
+              "mean_ms": -0.39916666684051355,
+              "min_ms": -188.89999997615814,
+              "p50_ms": 0.5999999940395355,
+              "p95_ms": 12.400000005960464,
+              "p99_ms": 19.80000001192093
+            },
+            "raw_artifact_sha256": "693f9ee7cb1e0263f513b0298ad35616f9d59aabba93053d95480501e5b5d4c5",
+            "runs_per_target": 240,
+            "targets": {
+              "jellyfin": {
+                "count": 240,
+                "max_ms": 222.89999997615814,
+                "mean_ms": 28.97458333360652,
+                "min_ms": 13.099999994039536,
+                "p50_ms": 27.30000001192093,
+                "p95_ms": 40.30000001192093,
+                "p99_ms": 42.30000001192093
+              },
+              "lumina": {
+                "count": 240,
+                "max_ms": 92.2999999821186,
+                "mean_ms": 28.575416666766007,
+                "min_ms": 12.400000005960464,
+                "p50_ms": 27.69999998807907,
+                "p95_ms": 39.099999994039536,
+                "p99_ms": 44.29999998211861
+              }
+            }
+          },
+          {
+            "artifact": "varied-3-direct.json",
+            "block": 3,
+            "failures": [],
+            "incomplete_pairs": [],
+            "label": "candidate",
+            "paired_lumina_minus_jellyfin_ms": {
+              "count": 240,
+              "max_ms": 125,
+              "mean_ms": -0.8854166669150193,
+              "min_ms": -28.0,
+              "p50_ms": -0.7999999821186066,
+              "p95_ms": 11.900000035762787,
+              "p99_ms": 18.0
+            },
+            "raw_artifact_sha256": "6cbcf6e58300a97fe107fa29a510d8ce75aa5f2cbfc2429da8c73a300ef86904",
+            "runs_per_target": 240,
+            "targets": {
+              "jellyfin": {
+                "count": 240,
+                "max_ms": 76.7999999821186,
+                "mean_ms": 29.392916665971278,
+                "min_ms": 13.599999994039536,
+                "p50_ms": 27.19999998807907,
+                "p95_ms": 41.900000005960464,
+                "p99_ms": 47.5
+              },
+              "lumina": {
+                "count": 240,
+                "max_ms": 181,
+                "mean_ms": 28.50749999905626,
+                "min_ms": 11.300000011920929,
+                "p50_ms": 26.400000005960464,
+                "p95_ms": 39.5,
+                "p99_ms": 52.69999998807907
+              }
+            }
+          },
+          {
+            "artifact": "varied-4-direct.json",
+            "block": 4,
+            "failures": [],
+            "incomplete_pairs": [],
+            "label": "control",
+            "paired_lumina_minus_jellyfin_ms": {
+              "count": 240,
+              "max_ms": 55.10000002384186,
+              "mean_ms": -0.7125000001241764,
+              "min_ms": -167.2000000178814,
+              "p50_ms": -0.10000002384185791,
+              "p95_ms": 11.800000011920929,
+              "p99_ms": 16.69999998807907
+            },
+            "raw_artifact_sha256": "62392c6740eed75f53f80544a3b928a9aa51bd2751f6b6b8d2bdb3ed43c09f0d",
+            "runs_per_target": 240,
+            "targets": {
+              "jellyfin": {
+                "count": 240,
+                "max_ms": 222.90000000596046,
+                "mean_ms": 28.037500000124176,
+                "min_ms": 11.800000011920929,
+                "p50_ms": 27.099999994039536,
+                "p95_ms": 38.400000005960464,
+                "p99_ms": 42.5
+              },
+              "lumina": {
+                "count": 240,
+                "max_ms": 93.80000001192093,
+                "mean_ms": 27.325,
+                "min_ms": 12.799999982118607,
+                "p50_ms": 27.099999994039536,
+                "p95_ms": 38.400000005960464,
+                "p99_ms": 44.599999994039536
+              }
+            }
+          }
+        ],
+        "pools": {
+          "candidate_beats_paired_jellyfin_at_p95": true,
+          "candidate_lumina": {
+            "count": 480,
+            "max_ms": 181,
+            "mean_ms": 28.541458332911134,
+            "min_ms": 11.300000011920929,
+            "p50_ms": 27.099999994039536,
+            "p95_ms": 39.5,
+            "p99_ms": 52.69999998807907
+          },
+          "candidate_p95_lead_vs_paired_jellyfin_ms": 1.300000011920929,
+          "candidate_p95_reduction_vs_control_percent": 5.048076909472174,
+          "candidate_paired_jellyfin": {
+            "count": 480,
+            "max_ms": 222.89999997615814,
+            "mean_ms": 29.1837499997889,
+            "min_ms": 13.099999994039536,
+            "p50_ms": 27.200000017881393,
+            "p95_ms": 40.80000001192093,
+            "p99_ms": 46.69999998807907
+          },
+          "control_beats_paired_jellyfin_at_p95": false,
+          "control_lumina": {
+            "count": 480,
+            "max_ms": 208.30000001192093,
+            "mean_ms": 29.038333333532016,
+            "min_ms": 12.799999982118607,
+            "p50_ms": 27.30000001192093,
+            "p95_ms": 41.599999994039536,
+            "p99_ms": 51.19999998807907
+          },
+          "control_p95_lead_vs_paired_jellyfin_ms": -0.699999988079071,
+          "control_paired_jellyfin": {
+            "count": 480,
+            "max_ms": 222.90000000596046,
+            "mean_ms": 29.227500000409783,
+            "min_ms": 11.800000011920929,
+            "p50_ms": 27.5,
+            "p95_ms": 40.900000005960464,
+            "p99_ms": 52.400000005960464
+          },
+          "meets_reduction_target": false
+        },
+        "varied_control_fixture_stratification": {
+          "paired_lumina_minus_jellyfin_ms": {
+            "all": {
+              "count": 480,
+              "max_ms": 141.60000002384186,
+              "mean_ms": -0.18916666687776645,
+              "min_ms": -167.2000000178814,
+              "p50_ms": -0.30000001192092896,
+              "p95_ms": 14.399999976158142,
+              "p99_ms": 20.19999998807907
+            },
+            "end-moov": {
+              "count": 240,
+              "max_ms": 62.599999994039536,
+              "mean_ms": 0.4766666656980912,
+              "min_ms": -28.100000023841858,
+              "p50_ms": 0.10000002384185791,
+              "p95_ms": 14.699999988079071,
+              "p99_ms": 20.19999998807907
+            },
+            "faststart": {
+              "count": 240,
+              "max_ms": 141.60000002384186,
+              "mean_ms": -0.854999999453624,
+              "min_ms": -167.2000000178814,
+              "p50_ms": -1.100000023841858,
+              "p95_ms": 12.599999964237213,
+              "p99_ms": 18.5
+            },
+            "resolution:1280x720": {
+              "count": 120,
+              "max_ms": 22.0,
+              "mean_ms": -1.1133333327869575,
+              "min_ms": -23.19999998807907,
+              "p50_ms": -0.9999999701976776,
+              "p95_ms": 13.300000011920929,
+              "p99_ms": 18.5
+            },
+            "resolution:1920x1080": {
+              "count": 120,
+              "max_ms": 17.30000001192093,
+              "mean_ms": -1.2841666673620542,
+              "min_ms": -28.100000023841858,
+              "p50_ms": -0.4000000059604645,
+              "p95_ms": 13.099999994039536,
+              "p99_ms": 14.800000011920929
+            },
+            "resolution:640x360": {
+              "count": 120,
+              "max_ms": 141.60000002384186,
+              "mean_ms": -0.5966666661202907,
+              "min_ms": -167.2000000178814,
+              "p50_ms": -1.4000000059604645,
+              "p95_ms": 11.499999970197678,
+              "p99_ms": 17.500000029802322
+            },
+            "resolution:854x480": {
+              "count": 120,
+              "max_ms": 62.599999994039536,
+              "mean_ms": 2.2374999987582367,
+              "min_ms": -19.299999982118607,
+              "p50_ms": 0.9000000059604645,
+              "p95_ms": 17.30000001192093,
+              "p99_ms": 55.10000002384186
+            }
+          },
+          "target_latency": {
+            "jellyfin:all": {
+              "count": 480,
+              "max_ms": 222.90000000596046,
+              "mean_ms": 29.227500000409783,
+              "min_ms": 11.800000011920929,
+              "p50_ms": 27.5,
+              "p95_ms": 40.900000005960464,
+              "p99_ms": 52.400000005960464
+            },
+            "jellyfin:end-moov": {
+              "count": 240,
+              "max_ms": 55.70000001788139,
+              "mean_ms": 30.833750000968575,
+              "min_ms": 18.899999976158142,
+              "p50_ms": 28.400000005960464,
+              "p95_ms": 41,
+              "p99_ms": 43.69999998807907
+            },
+            "jellyfin:faststart": {
+              "count": 240,
+              "max_ms": 222.90000000596046,
+              "mean_ms": 27.62124999985099,
+              "min_ms": 11.800000011920929,
+              "p50_ms": 26.69999998807907,
+              "p95_ms": 39.599999994039536,
+              "p99_ms": 54
+            },
+            "jellyfin:resolution:1280x720": {
+              "count": 120,
+              "max_ms": 54,
+              "mean_ms": 27.29083333387971,
+              "min_ms": 12.899999976158142,
+              "p50_ms": 27.19999998807907,
+              "p95_ms": 38.5,
+              "p99_ms": 52.400000005960464
+            },
+            "jellyfin:resolution:1920x1080": {
+              "count": 120,
+              "max_ms": 55.70000001788139,
+              "mean_ms": 32.234166667113705,
+              "min_ms": 21.900000005960464,
+              "p50_ms": 30.700000017881393,
+              "p95_ms": 41.80000001192093,
+              "p99_ms": 44.5
+            },
+            "jellyfin:resolution:640x360": {
+              "count": 120,
+              "max_ms": 222.90000000596046,
+              "mean_ms": 27.951666665822266,
+              "min_ms": 11.800000011920929,
+              "p50_ms": 26.099999994039536,
+              "p95_ms": 39.599999994039536,
+              "p99_ms": 66.69999998807907
+            },
+            "jellyfin:resolution:854x480": {
+              "count": 120,
+              "max_ms": 42.5,
+              "mean_ms": 29.43333333482345,
+              "min_ms": 18.899999976158142,
+              "p50_ms": 28,
+              "p95_ms": 40.30000001192093,
+              "p99_ms": 42
+            },
+            "lumina:all": {
+              "count": 480,
+              "max_ms": 208.30000001192093,
+              "mean_ms": 29.038333333532016,
+              "min_ms": 12.799999982118607,
+              "p50_ms": 27.30000001192093,
+              "p95_ms": 41.599999994039536,
+              "p99_ms": 51.19999998807907
+            },
+            "lumina:end-moov": {
+              "count": 240,
+              "max_ms": 93.80000001192093,
+              "mean_ms": 31.310416666666665,
+              "min_ms": 20.200000017881393,
+              "p50_ms": 28.80000001192093,
+              "p95_ms": 43.19999998807907,
+              "p99_ms": 51.19999998807907
+            },
+            "lumina:faststart": {
+              "count": 240,
+              "max_ms": 208.30000001192093,
+              "mean_ms": 26.766250000397363,
+              "min_ms": 12.799999982118607,
+              "p50_ms": 26.30000001192093,
+              "p95_ms": 35.70000001788139,
+              "p99_ms": 44.80000001192093
+            },
+            "lumina:resolution:1280x720": {
+              "count": 120,
+              "max_ms": 44.80000001192093,
+              "mean_ms": 26.177500001092753,
+              "min_ms": 12.799999982118607,
+              "p50_ms": 26.5,
+              "p95_ms": 36.70000001788139,
+              "p99_ms": 43.80000001192093
+            },
+            "lumina:resolution:1920x1080": {
+              "count": 120,
+              "max_ms": 51.19999998807907,
+              "mean_ms": 30.949999999751647,
+              "min_ms": 21.900000005960464,
+              "p50_ms": 28.80000001192093,
+              "p95_ms": 41.19999998807907,
+              "p99_ms": 44.599999994039536
+            },
+            "lumina:resolution:640x360": {
+              "count": 120,
+              "max_ms": 208.30000001192093,
+              "mean_ms": 27.354999999701977,
+              "min_ms": 13.200000017881393,
+              "p50_ms": 26.099999994039536,
+              "p95_ms": 34.900000005960464,
+              "p99_ms": 55.69999998807907
+            },
+            "lumina:resolution:854x480": {
+              "count": 120,
+              "max_ms": 93.80000001192093,
+              "mean_ms": 31.670833333581687,
+              "min_ms": 20.200000017881393,
+              "p50_ms": 28.600000023841858,
+              "p95_ms": 44.69999998807907,
+              "p99_ms": 90.80000001192093
+            }
+          }
+        },
+        "varied_fixture_stratification": {
+          "paired_lumina_minus_jellyfin_ms": {
+            "all": {
+              "count": 480,
+              "max_ms": 125,
+              "mean_ms": -0.6422916668777664,
+              "min_ms": -188.89999997615814,
+              "p50_ms": 0.0,
+              "p95_ms": 12.400000005960464,
+              "p99_ms": 19.80000001192093
+            },
+            "end-moov": {
+              "count": 240,
+              "max_ms": 58.29999998211861,
+              "mean_ms": -0.43708333435157937,
+              "min_ms": -24.099999994039536,
+              "p50_ms": -0.09999999403953552,
+              "p95_ms": 14.599999994039536,
+              "p99_ms": 22.69999998807907
+            },
+            "faststart": {
+              "count": 240,
+              "max_ms": 125,
+              "mean_ms": -0.8474999994039536,
+              "min_ms": -188.89999997615814,
+              "p50_ms": 2.9802322387695312e-08,
+              "p95_ms": 9.399999976158142,
+              "p99_ms": 16.19999995827675
+            },
+            "resolution:1280x720": {
+              "count": 120,
+              "max_ms": 13.5,
+              "mean_ms": -0.7374999985098839,
+              "min_ms": -28.0,
+              "p50_ms": 0.10000002384185791,
+              "p95_ms": 8.299999982118607,
+              "p99_ms": 12.400000005960464
+            },
+            "resolution:1920x1080": {
+              "count": 120,
+              "max_ms": 51.09999996423721,
+              "mean_ms": -0.3083333343267441,
+              "min_ms": -19.400000005960464,
+              "p50_ms": 0.20000001788139343,
+              "p95_ms": 12.900000005960464,
+              "p99_ms": 22.69999998807907
+            },
+            "resolution:640x360": {
+              "count": 120,
+              "max_ms": 125,
+              "mean_ms": -0.9575000002980232,
+              "min_ms": -188.89999997615814,
+              "p50_ms": -0.7999999821186066,
+              "p95_ms": 9.399999976158142,
+              "p99_ms": 19.80000001192093
+            },
+            "resolution:854x480": {
+              "count": 120,
+              "max_ms": 58.29999998211861,
+              "mean_ms": -0.5658333343764146,
+              "min_ms": -24.099999994039536,
+              "p50_ms": -0.30000001192092896,
+              "p95_ms": 14.599999994039536,
+              "p99_ms": 18.0
+            }
+          },
+          "target_latency": {
+            "jellyfin:all": {
+              "count": 480,
+              "max_ms": 222.89999997615814,
+              "mean_ms": 29.1837499997889,
+              "min_ms": 13.099999994039536,
+              "p50_ms": 27.200000017881393,
+              "p95_ms": 40.80000001192093,
+              "p99_ms": 46.69999998807907
+            },
+            "jellyfin:end-moov": {
+              "count": 240,
+              "max_ms": 76.7999999821186,
+              "mean_ms": 31.76416666743656,
+              "min_ms": 21.900000005960464,
+              "p50_ms": 29.80000001192093,
+              "p95_ms": 42.19999998807907,
+              "p99_ms": 44
+            },
+            "jellyfin:faststart": {
+              "count": 240,
+              "max_ms": 222.89999997615814,
+              "mean_ms": 26.60333333214124,
+              "min_ms": 13.099999994039536,
+              "p50_ms": 26,
+              "p95_ms": 34.29999998211861,
+              "p99_ms": 46.69999998807907
+            },
+            "jellyfin:resolution:1280x720": {
+              "count": 120,
+              "max_ms": 46.69999998807907,
+              "mean_ms": 26.32833333189289,
+              "min_ms": 17,
+              "p50_ms": 26,
+              "p95_ms": 34.60000002384186,
+              "p99_ms": 43.69999998807907
+            },
+            "jellyfin:resolution:1920x1080": {
+              "count": 120,
+              "max_ms": 44,
+              "mean_ms": 31.78166666800777,
+              "min_ms": 22.900000005960464,
+              "p50_ms": 29.5,
+              "p95_ms": 41.79999998211861,
+              "p99_ms": 43.599999994039536
+            },
+            "jellyfin:resolution:640x360": {
+              "count": 120,
+              "max_ms": 222.89999997615814,
+              "mean_ms": 26.878333332389595,
+              "min_ms": 13.099999994039536,
+              "p50_ms": 25.30000001192093,
+              "p95_ms": 34.19999998807907,
+              "p99_ms": 56
+            },
+            "jellyfin:resolution:854x480": {
+              "count": 120,
+              "max_ms": 76.7999999821186,
+              "mean_ms": 31.746666666865348,
+              "min_ms": 21.900000005960464,
+              "p50_ms": 30.099999994039536,
+              "p95_ms": 42.30000001192093,
+              "p99_ms": 47.5
+            },
+            "lumina:all": {
+              "count": 480,
+              "max_ms": 181,
+              "mean_ms": 28.541458332911134,
+              "min_ms": 11.300000011920929,
+              "p50_ms": 27.099999994039536,
+              "p95_ms": 39.5,
+              "p99_ms": 52.69999998807907
+            },
+            "lumina:end-moov": {
+              "count": 240,
+              "max_ms": 92.2999999821186,
+              "mean_ms": 31.327083333084982,
+              "min_ms": 19.099999994039536,
+              "p50_ms": 29.599999994039536,
+              "p95_ms": 41.19999998807907,
+              "p99_ms": 59.69999998807907
+            },
+            "lumina:faststart": {
+              "count": 240,
+              "max_ms": 181,
+              "mean_ms": 25.755833332737286,
+              "min_ms": 11.300000011920929,
+              "p50_ms": 26.099999994039536,
+              "p95_ms": 32.900000005960464,
+              "p99_ms": 34.599999994039536
+            },
+            "lumina:resolution:1280x720": {
+              "count": 120,
+              "max_ms": 36.30000001192093,
+              "mean_ms": 25.590833333383003,
+              "min_ms": 13,
+              "p50_ms": 26.299999982118607,
+              "p95_ms": 33,
+              "p99_ms": 34.599999994039536
+            },
+            "lumina:resolution:1920x1080": {
+              "count": 120,
+              "max_ms": 77.89999997615814,
+              "mean_ms": 31.473333333681026,
+              "min_ms": 21.599999994039536,
+              "p50_ms": 30.30000001192093,
+              "p95_ms": 40.5,
+              "p99_ms": 59.69999998807907
+            },
+            "lumina:resolution:640x360": {
+              "count": 120,
+              "max_ms": 181,
+              "mean_ms": 25.92083333209157,
+              "min_ms": 11.300000011920929,
+              "p50_ms": 25.600000023841858,
+              "p95_ms": 32.900000005960464,
+              "p99_ms": 34.39999997615814
+            },
+            "lumina:resolution:854x480": {
+              "count": 120,
+              "max_ms": 92.2999999821186,
+              "mean_ms": 31.180833332488934,
+              "min_ms": 19.099999994039536,
+              "p50_ms": 28.599999994039536,
+              "p95_ms": 42,
+              "p99_ms": 52.69999998807907
+            }
+          }
+        }
+      }
+    }
+  }
+}

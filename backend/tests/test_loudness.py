@@ -1,0 +1,297 @@
+"""Loudness is measured once per file version in the background and becomes a bounded gain."""
+from __future__ import annotations
+
+import shutil
+import subprocess
+import threading
+import time
+from pathlib import Path
+
+import pytest
+from sqlalchemy.exc import OperationalError
+
+from app import db as db_module
+from app.config import settings
+from app.models import MediaArtifact
+from app.services import library_import
+from app.services import probe_warming as pw
+from app.services.media_probe import loudness_gain_db
+from app.services.probe_warming import ProbeWarming, measure_loudness, parse_loudnorm
+from tests.test_v1_artifacts import _client, _download, household  # noqa: F401
+from tests.test_v1_probe import make_media
+
+needs_ffmpeg = pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="ffmpeg/ffprobe not installed")
+MEASURED = {"i": -20.0, "tp": -3.0, "lra": 4.0}
+
+
+@pytest.mark.parametrize(("loudness", "gain"), [
+    ({"i": -18.0, "tp": -1.0, "lra": 5.0}, 0.0),
+    ({"i": -30.0, "tp": -20.0, "lra": 5.0}, 12.0),  # quiet: capped at +12
+    ({"i": -30.0, "tp": -5.0, "lra": 5.0}, 4.0),  # a boost stops where peaks reach -1 dBTP
+    ({"i": -24.0, "tp": 0.5, "lra": 5.0}, 0.0),  # already peaking: no boost at all
+    ({"i": -5.0, "tp": 0.0, "lra": 5.0}, -12.0),  # loud: capped at -12
+    ({"i": -10.0, "tp": -0.1, "lra": 5.0}, -8.0),
+    ({"error": "silent"}, None), (None, None), ({}, None), ({"i": "loud"}, None),
+])
+def test_gain_is_bounded(loudness, gain) -> None:
+    assert loudness_gain_db(loudness) == gain
+
+
+def test_silence_and_garbage_never_store_infinities() -> None:
+    assert parse_loudnorm('[Parsed_loudnorm_0 @ 0x1]\n{\n\t"input_i" : "-inf",\n\t"input_tp" : "-inf",\n\t"input_lra" : "0.00"\n}\n') == {"error": "silent"}
+    assert parse_loudnorm("no json here") == {"error": "measure_failed"}
+    assert parse_loudnorm('{"input_i" : "loud", "input_tp" : "-1", "input_lra" : "1"}') == {"error": "measure_failed"}
+    assert parse_loudnorm('x\n{\n\t"input_i" : "-21.81",\n\t"input_tp" : "-17.69",\n\t"input_lra" : "0.10",\n\t"target_offset" : "1.00"\n}\n') == {"i": -21.81, "tp": -17.69, "lra": 0.1}
+
+
+def _audio(path: Path, seconds: int) -> Path:
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", "-c:a", "aac", str(path)], check=True, timeout=120)
+    return path
+
+
+@needs_ffmpeg
+def test_a_known_sine_measures_within_one_lu(tmp_path: Path) -> None:
+    result = measure_loudness(shutil.which("ffmpeg"), _audio(tmp_path / "sine.m4a", 6), 0, stop=threading.Event(), busy=lambda: False)
+    assert abs(result["i"] - (-21.8)) <= 1  # lavfi sine: amplitude 1/8 at 440 Hz
+
+
+@needs_ffmpeg
+def test_measurement_runs_niced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    niced: list[tuple[int, int, int]] = []
+    monkeypatch.setattr(pw.os, "setpriority", lambda which, who, prio: niced.append((which, who, prio)))
+    measure_loudness(shutil.which("ffmpeg"), _audio(tmp_path / "sine.m4a", 1), 0, stop=threading.Event(), busy=lambda: False)
+    assert niced == [(pw.os.PRIO_PROCESS, niced[0][1], 19)] and niced[0][1] > 0
+
+
+@needs_ffmpeg
+def test_measurement_pauses_while_a_video_encode_runs(tmp_path: Path) -> None:
+    media = _audio(tmp_path / "long.m4a", 240)  # seconds of work unpaused; it must never finish while paused
+    stop = threading.Event()
+    threading.Timer(1.5, stop.set).start()
+    began = time.monotonic()
+    assert measure_loudness(shutil.which("ffmpeg"), media, 0, stop=stop, busy=lambda: True) is None
+    assert time.monotonic() - began >= 1.4
+
+
+@pytest.fixture
+def worker(monkeypatch: pytest.MonkeyPatch) -> ProbeWarming:
+    warming = ProbeWarming()
+    warming.measured = []  # type: ignore[attr-defined]
+
+    def fake_measure(ffmpeg, path, stream_index, *, stop, busy):  # noqa: ANN001
+        warming.measured.append(path.name)  # type: ignore[attr-defined]
+        return MEASURED
+
+    monkeypatch.setattr(pw, "measure_loudness", fake_measure)
+    return warming
+
+
+def _loudness(name: str):
+    with db_module.SessionLocal() as db:
+        return next((a.probe or {}).get("loudness") for a in db.query(MediaArtifact).all() if a.relative_path.endswith(name))
+
+
+def test_background_probes_drain_before_loudness_starts(household: None, worker: ProbeWarming, monkeypatch: pytest.MonkeyPatch) -> None:
+    _download("alice", settings.library_root / "alice" / "older.mp4", remote_id="older")
+    _download("alice", settings.library_root / "alice" / "newer.mp4", remote_id="newer")
+    probed: list[str] = []
+
+    def cached_facts(self, artifact, path):  # noqa: ANN001
+        probed.append(path.name)
+        artifact.probe = {"fingerprint": f"{path.stat().st_size}:{path.stat().st_mtime_ns}", "streams": [
+            {"type": "audio", "index": 0, "default": True},
+        ]}
+        self.db.commit()
+        return {"streams": artifact.probe["streams"]}
+
+    monkeypatch.setattr(pw.MediaProbeService, "cached_facts", cached_facts)
+    monkeypatch.setattr(pw, "media_tool", lambda db, name: "ffmpeg")
+
+    assert worker.run_once() and worker.run_once()
+    assert probed == ["newer.mp4", "older.mp4"]
+    assert worker.measured == []
+    assert worker.run_once() and worker.measured == ["newer.mp4"]
+    assert worker.run_once() and worker.measured == ["newer.mp4", "older.mp4"]
+    assert not worker.run_once()
+
+
+def test_legacy_loudness_only_cache_is_reprobed_then_remeasured(
+    household: None, worker: ProbeWarming, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = settings.library_root / "alice" / "legacy.mp4"
+    _download("alice", path)
+    status = path.stat()
+    with db_module.SessionLocal() as db:
+        artifact = db.query(MediaArtifact).one()
+        artifact.size, artifact.mtime_ns = status.st_size, status.st_mtime_ns
+        artifact.probe = {"fingerprint": f"{status.st_size}:{status.st_mtime_ns}", "loudness": MEASURED}
+        db.commit()
+    probes: list[str] = []
+
+    def probe(self, candidate):  # noqa: ANN001
+        probes.append(candidate.name)
+        return {"streams": [{"type": "audio", "index": 0, "default": True}]}
+
+    monkeypatch.setattr(pw.MediaProbeService, "_probe", probe)
+    monkeypatch.setattr(pw, "media_tool", lambda db, name: "ffmpeg")
+
+    assert worker.run_once() and probes == ["legacy.mp4"]
+    assert _loudness("legacy.mp4") is None  # replacing an incomplete codec cache queues a safe remeasurement
+    assert worker.run_once() and worker.measured == ["legacy.mp4"]
+    assert _loudness("legacy.mp4") == MEASURED
+    assert not worker.run_once()
+
+
+def test_a_stale_fingerprint_is_reprobed_before_its_loudness_is_remeasured(
+    household: None, worker: ProbeWarming, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = settings.library_root / "alice" / "changed.mp4"
+    _download("alice", path)
+    with db_module.SessionLocal() as db:
+        artifact = db.query(MediaArtifact).one()
+        status = path.stat()
+        artifact.size, artifact.mtime_ns = status.st_size, status.st_mtime_ns
+        artifact.probe = {"fingerprint": "1:1", "streams": [], "loudness": MEASURED}
+        db.commit()
+    probes: list[str] = []
+
+    def probe(self, candidate):  # noqa: ANN001
+        probes.append(candidate.name)
+        return {"streams": [{"type": "audio", "index": 0, "default": True}]}
+
+    monkeypatch.setattr(pw.MediaProbeService, "_probe", probe)
+    monkeypatch.setattr(pw, "media_tool", lambda db, name: "ffmpeg")
+
+    assert worker.run_once() and probes == ["changed.mp4"]
+    assert _loudness("changed.mp4") is None
+    assert worker.run_once() and worker.measured == ["changed.mp4"]
+    assert _loudness("changed.mp4") == MEASURED
+
+
+def test_a_prioritized_stale_item_with_old_loudness_still_enters_the_probe_phase(
+    household: None, worker: ProbeWarming, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = settings.library_root / "alice" / "changed.mp4"
+    item_id = _download("alice", path)
+    with db_module.SessionLocal() as db:
+        artifact = db.query(MediaArtifact).one()
+        status = path.stat()
+        artifact.size, artifact.mtime_ns = status.st_size, status.st_mtime_ns
+        artifact.probe = {"fingerprint": "1:1", "streams": [], "loudness": MEASURED}
+        db.commit()
+    probes: list[str] = []
+
+    def probe(self, candidate):  # noqa: ANN001
+        probes.append(candidate.name)
+        return {"streams": [{"type": "audio", "index": 0, "default": True}]}
+
+    monkeypatch.setattr(pw.MediaProbeService, "_probe", probe)
+    monkeypatch.setattr(pw, "media_tool", lambda db, name: "ffmpeg")
+    worker.prioritize(item_id)
+
+    assert worker.run_once() and probes == ["changed.mp4"]
+    assert _loudness("changed.mp4") is None
+    assert worker.run_once() and worker.measured == ["changed.mp4"]
+
+
+@needs_ffmpeg
+def test_newest_first_restart_safe_and_opened_items_jump_the_queue(household: None, worker: ProbeWarming) -> None:
+    older = _download("alice", make_media(settings.library_root / "alice" / "older.mp4"), remote_id="older")
+    _download("alice", make_media(settings.library_root / "alice" / "newer.mp4"), remote_id="newer")
+    newest = _download("alice", make_media(settings.library_root / "alice" / "newest.mp4"), remote_id="newest")
+    worker.prioritize(older)
+    assert all(worker.run_once() for _ in range(5))
+    assert worker.measured == ["older.mp4", "newest.mp4", "newer.mp4"]
+    assert not worker.run_once()  # the selection is the database: a restart finds the same empty queue
+    assert _loudness("newer.mp4") == MEASURED
+    with _client("alice") as client:
+        assert client.get(f"/api/library/{newest}/playback-options").json()["loudness_gain_db"] == 2.0
+
+
+@needs_ffmpeg
+def test_opening_an_unmeasured_item_prioritizes_it(household: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    wanted: list[str] = []
+    monkeypatch.setattr(pw.probe_warming, "prioritize", wanted.append)
+    item_id = _download("alice", make_media(settings.library_root / "alice" / "clip.mp4"))
+    with _client("alice") as client:
+        assert client.get(f"/api/library/{item_id}/playback-options").json()["loudness_gain_db"] is None
+    assert wanted == [item_id]
+
+
+@needs_ffmpeg
+def test_a_file_changed_while_measuring_is_not_stamped(household: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    _download("alice", make_media(settings.library_root / "alice" / "clip.mp4"))
+
+    def racing_measure(ffmpeg, path, stream_index, *, stop, busy):  # noqa: ANN001
+        with db_module.SessionLocal() as db:  # the file changed and was re-probed meanwhile
+            artifact = db.query(MediaArtifact).one()
+            artifact.probe = {**artifact.probe, "fingerprint": "0:0"}
+            db.commit()
+        return MEASURED
+
+    monkeypatch.setattr(pw, "measure_loudness", racing_measure)
+    warming = ProbeWarming()
+    assert warming.run_once()  # probe-ready phase
+    assert warming.run_once()  # loudness phase races a changed fingerprint
+    assert _loudness("clip.mp4") is None
+
+
+def test_a_missing_file_is_marked_not_retried_forever(household: None, worker: ProbeWarming) -> None:
+    path = settings.library_root / "alice" / "gone.mp4"
+    _download("alice", path)  # writes placeholder bytes
+    path.unlink()
+    assert worker.run_once()
+    assert _loudness("gone.mp4") == {"error": "missing"}
+    assert not worker.run_once() and worker.measured == []
+
+
+def test_an_unexpected_failure_is_stamped_so_older_files_are_not_starved(
+    household: None, worker: ProbeWarming, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _download("alice", settings.library_root / "alice" / "older.mp4", remote_id="older")
+    _download("alice", settings.library_root / "alice" / "broken.mp4", remote_id="broken")
+
+    def cached_facts(self, artifact, path):  # noqa: ANN001
+        if path.name == "broken.mp4":
+            raise RuntimeError("unexpected")
+        streams = [{"type": "audio", "index": 0, "default": True}]
+        artifact.probe = {"fingerprint": f"{path.stat().st_size}:{path.stat().st_mtime_ns}", "streams": streams}
+        self.db.commit()
+        return {"streams": streams}
+
+    monkeypatch.setattr(pw.MediaProbeService, "cached_facts", cached_facts)
+    monkeypatch.setattr(pw, "media_tool", lambda db, name: "ffmpeg")
+    assert worker.run_once()
+    assert _loudness("broken.mp4") == {"error": "measure_failed"}
+    with db_module.SessionLocal() as db:
+        assert db.query(MediaArtifact).filter(MediaArtifact.relative_path.endswith("broken.mp4")).one().probe["error"] == "probe_failed"
+    assert worker.run_once() and worker.measured == []
+    assert worker.run_once() and worker.measured == ["older.mp4"]
+    assert not worker.run_once()
+
+
+def test_a_busy_database_is_retried_not_stamped(household: None, worker: ProbeWarming, monkeypatch: pytest.MonkeyPatch) -> None:
+    _download("alice", settings.library_root / "alice" / "clip.mp4")
+
+    def busy(self, artifact, path):  # noqa: ANN001
+        raise OperationalError("acquire SQLite writer slot", {}, TimeoutError("SQLite writer slot is busy"))
+
+    monkeypatch.setattr(pw.MediaProbeService, "cached_facts", busy)
+    with pytest.raises(OperationalError):
+        worker.run_once()
+    assert _loudness("clip.mp4") is None
+
+
+def test_start_registers_the_post_import_hook_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    hooks: list = []
+    monkeypatch.setattr(library_import, "after_import_hooks", hooks)
+    warming = ProbeWarming()
+    monkeypatch.setattr(warming, "_loop", lambda: None)
+    warming.start()
+    warming.stop()
+    warming.start()
+    warming.stop()
+    assert hooks == [warming.after_import]
+    warming._wake.clear()
+    hooks[0]("run-1")
+    assert warming._wake.is_set()

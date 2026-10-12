@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "scope": "HLS planned video-copy runs seek in absolute packet timestamps. Correctness qualification; no new performance claim.",
+  "source": {
+    "backend/app/services/local_playback_sessions.py": "6e69410d34a04595caa955c2827ebf439c3b1d466de84787f07b3f06ccea063b",
+    "backend/tests/test_jellyfin_seekable_hls.py": "01e5273256cd9c7294036cb15f3197e4dd99ec0e19ca8667648e98debcf39d6b",
+    "frontend/e2e/reco.spec.ts": "e243a7c8f6973ea1cd01d8e5592a3809690e452dabb05d5d982fbb548de4d236"
+  },
+  "runtime": {
+    "host_ffmpeg": "8.0.1",
+    "linux_ffmpeg": "8.1.2-Jellyfin",
+    "qualification_image": "sha256:4695ff3b4b426774c58095dbf30e559de23ae8ace2ad61a0e5ce64b30b3bfc13",
+    "base_qualification_tag": "lumina-search-direct:qualify-startup-warm"
+  },
+  "same_fixture_probe": {
+    "video_start_seconds": 0,
+    "audio_and_container_start_seconds": -0.006,
+    "planned_start_seconds": 20,
+    "original_first_video_seconds": 14.131438,
+    "absolute_seek_first_video_seconds": 20.000438
+  },
+  "regression": {
+    "before_fix": "Both copy and encode audio variants fail the unchanged per-segment video timestamp assertion.",
+    "after_fix_host": "13 seekable-HLS tests passed.",
+    "after_fix_linux": "223 playback/HLS/client tests passed, including all 13 seekable-HLS cases."
+  },
+  "evidence_sha256": {
+    "hls-absolute-seek-red.log": "a9e870542d23c7582b305805687194055641a34298551b65c5a672e1991c5e66",
+    "hls-absolute-seek-focused.log": "58da59fa8036d19744777ae7c92cefd94551af022d3f0130394fc105c8bb94bd",
+    "hls-absolute-seek-production-focused.log": "8de25b2431d75c7b9d10c32bfb9726772dd0120b6ac52790c85ba617b05e5437"
+  },
+  "gate_fixture_followup": {
+    "file": "frontend/e2e/reco.spec.ts",
+    "change": "Use reduced-motion media for the existing stable-state Axe audit, matching adjacent menu audits. Assertions unchanged.",
+    "before": "3 focused repeats failed color contrast while Axe sampled menu fade-in.",
+    "after": "3 focused repeats passed.",
+    "evidence_sha256": {
+      "startup-warm-mocked-focused.log": "1e8fd89b820e876bfa744e9e94fc8dd270049bcb34cfd514414aa8db094e5995",
+      "mocked-menu-contrast-diagnostic.log": "3f6d54533679054e5290e22ba7b3bbff8224c9be3dc68270bc2f3372fa95a0a3",
+      "mocked-menu-contrast-focused-green.log": "254248cf51a3769bf17956ac10665a1c5b96853a275087026a415b6134cdfbc3",
+      "hls-absolute-seek-final-typecheck.log": "18d8629f41753183b87f7b574a3b3346a717a1be2a0daf73faab04204b6978d9"
+    },
+    "frontend_typecheck": "passed"
+  },
+  "final_full_gate": {
+    "command": "mise exec -- make check",
+    "exit_code": 0,
+    "bootstrap_passed": 13,
+    "frontend_types_and_build": "passed",
+    "backend": {
+      "passed": 4516,
+      "skipped": 11,
+      "failed": 0
+    },
+    "frontend_unit": {
+      "passed": 2256,
+      "files": 272
+    },
+    "realstack": {
+      "passed": 46,
+      "skipped": 4
+    },
+    "mocked": {
+      "passed": 485,
+      "skipped": 1
+    },
+    "log_sha256": "3a68362b4570a8985d65922a7a46f57e8dd64e3f1f39dc6710db6119ab18f7dc"
+  }
+}

@@ -1,0 +1,8 @@
+{"id":1399,"name":"Game of Thrones","original_name":"Game of Thrones","first_air_date":"2011-04-17","overview":"Noble houses.","episode_run_time":[57],"status":"Ended","poster_path":"/got.jpg","backdrop_path":"/got-bd.jpg","vote_average":8.4,"vote_count":24000,
+ "genres":[{"id":18,"name":"Drama"}],"networks":[{"name":"HBO"}],"created_by":[{"name":"David Benioff"}],
+ "seasons":[{"season_number":0,"name":"Specials","episode_count":4},{"season_number":1,"name":"Season 1","episode_count":10,"air_date":"2011-04-17","poster_path":"/s1.jpg"}],
+ "external_ids":{"tvdb_id":121361},"images":{"logos":[]},
+ "videos":{"results":[{"site":"YouTube","key":"gotteaser11","name":"Teaser","type":"Teaser","official":true}]},
+ "credits":{"cast":[],"crew":[]},
+ "content_ratings":{"results":[{"iso_3166_1":"US","rating":"TV-MA"}]},
+ "recommendations":{"results":[]},"similar":{"results":[]}}

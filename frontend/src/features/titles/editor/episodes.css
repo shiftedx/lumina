@@ -1,0 +1,9 @@
+.ed-table { width: 100%; border-collapse: collapse; }
+.ed-table th { position: sticky; top: 0; background: var(--g-paper); text-align: start; border-bottom: var(--g-rule); }
+.ed-cell { position: relative; vertical-align: top; }
+.ed-cell.is-edited { box-shadow: inset 3px 0 0 var(--g-gold); }
+.ed-cell-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-align: start; min-height: var(--g-control); border: 0; background: none; color: inherit; font: inherit; }
+.ed-cell-lock { position: absolute; top: 2px; inset-inline-end: 2px; }
+.ed-ep-list { list-style: none; margin: 0; padding: 0; }
+.ed-ep-row { display: flex; gap: var(--g-space-3); width: 100%; min-height: var(--g-control); align-items: center; border: 0; border-bottom: var(--g-rule); background: none; color: inherit; font: inherit; text-align: start; }
+.ed-ep-edited { margin-inline-start: auto; color: var(--g-gold-ink); }

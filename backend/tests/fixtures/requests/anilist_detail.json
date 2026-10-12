@@ -1,0 +1,10 @@
+{"data":{"Media":{"id":154587,"title":{"romaji":"Sousou no Frieren","english":"Frieren: Beyond Journey's End","native":"葬送のフリーレン"},"format":"TV","status":"RELEASING","episodes":28,"duration":24,"season":"FALL","seasonYear":2026,"startDate":{"year":2026,"month":10,"day":2},
+  "description":"An elf mage outlives her party.","coverImage":{"extraLarge":"https://s4.anilist.co/frieren.jpg","color":"#aee4f5"},"bannerImage":"https://s4.anilist.co/frieren-banner.jpg","averageScore":91,"popularity":500000,"genres":["Fantasy"],
+  "studios":{"nodes":[{"name":"Madhouse","isAnimationStudio":true}]},"nextAiringEpisode":null,"trailer":{"id":"frierentrailer","site":"youtube"},"isAdult":false,
+  "relations":{"edges":[
+   {"relationType":"PREQUEL","node":{"id":20001,"type":"ANIME","title":{"romaji":"Unmappable Movie","english":null,"native":"x"},"format":"MOVIE","startDate":{"year":2026,"month":null,"day":null},"coverImage":{"extraLarge":"https://s4.anilist.co/m.jpg"},"genres":[],"studios":{"nodes":[]}}},
+   {"relationType":"ADAPTATION","node":{"id":30001,"type":"MANGA","title":{"romaji":"Frieren manga"},"format":"MANGA","coverImage":{},"genres":[],"studios":{"nodes":[]}}}]},
+  "characters":{"edges":[
+   {"node":{"name":{"full":"Frieren"},"image":{"large":"https://s4.anilist.co/c1.jpg"}},"voiceActors":[{"name":{"full":"Atsumi Tanezaki"}}],"voiceActorsEn":[{"name":{"full":"Jennifer Sun Bell"}}]},
+   {"node":{"name":{"full":"Fern"},"image":{"large":"https://s4.anilist.co/c2.jpg"}},"voiceActors":[],"voiceActorsEn":[]}]},
+  "recommendations":{"nodes":[{"mediaRecommendation":{"id":20002,"title":{"romaji":"Another Show","english":"Another Show"},"format":"TV","coverImage":{"extraLarge":"https://s4.anilist.co/a.jpg"},"genres":[],"studios":{"nodes":[]}}}]}}}}

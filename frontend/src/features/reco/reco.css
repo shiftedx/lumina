@@ -1,0 +1,2 @@
+/* A recommendation card's wrapper adds no box; its reason and actions live in the art menu (gallery/artMenu.css). */
+.gallery .reco-card { display: contents; }

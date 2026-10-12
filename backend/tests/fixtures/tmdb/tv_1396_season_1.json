@@ -1,0 +1,30 @@
+{
+  "id": 3572,
+  "season_number": 1,
+  "name": "Season 1",
+  "air_date": "2008-01-20",
+  "overview": "High school chemistry teacher Walter White's life is suddenly transformed by a dire medical diagnosis.",
+  "poster_path": "/1BP4xYv9ZG4ZVHkL7ocOziBbSYH.jpg",
+  "episodes": [
+    {
+      "episode_number": 1, "name": "Pilot", "air_date": "2008-01-20", "runtime": 59,
+      "overview": "When an unassuming high school chemistry teacher discovers he has a rare form of lung cancer, he decides to team up with a former student.",
+      "still_path": "/ydlY3iPfeOAvu8gVqrxPoMvzNCn.jpg", "vote_average": 8.3, "vote_count": 214,
+      "crew": [{"id": 66633, "name": "Vince Gilligan", "job": "Director"}, {"id": 66633, "name": "Vince Gilligan", "job": "Writer"}],
+      "guest_stars": [{"id": 1216132, "name": "Carmen Serano", "character": "Carmen Molina"}]
+    },
+    {
+      "episode_number": 2, "name": "Cat's in the Bag...", "air_date": "2008-01-27", "runtime": 49,
+      "overview": "Walt and Jesse attempt to tie up loose ends.",
+      "still_path": "/tjDNvbokPLtEnpFyFPyXMOd6Zr1.jpg", "vote_average": 8.2, "vote_count": 5,
+      "crew": [{"id": 1280071, "name": "Adam Bernstein", "job": "Director"}],
+      "guest_stars": []
+    },
+    {
+      "episode_number": 3, "name": "...And the Bag's in the River", "air_date": "2008-02-10", "runtime": 48,
+      "overview": "Walter fights with Jesse over his drug use.",
+      "still_path": "/2kBeBlxGqBOdWlKwzAxiwkfU5on.jpg", "vote_average": 8.3, "vote_count": 180,
+      "crew": [], "guest_stars": []
+    }
+  ]
+}

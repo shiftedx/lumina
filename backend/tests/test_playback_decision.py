@@ -8,6 +8,21 @@ from app.services.playback_decision import (
 )
 
 
+@pytest.mark.parametrize("source_codec", ["eac3", "dts", "truehd"])
+@pytest.mark.parametrize("channels", [6, 8])
+def test_roku_audio_conversion_respects_aac_specific_channel_limit(source_codec: str, channels: int) -> None:
+    profile = {
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "aac,ac3"}],
+        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "ac3", "MaxAudioChannels": "8"}],
+        "CodecProfiles": [{"Type": "VideoAudio", "Codec": "aac", "Conditions": [
+            {"Condition": "LessThanEqual", "Property": "AudioChannels", "Value": "2"},
+        ]}],
+    }
+    decision = decide(caps_from_device_profile(profile), facts(MKV, v("hevc", pix_fmt="yuv420p10le"), a(source_codec, channels)))
+    assert decision.mode == "transcode" and decision.audio == "encode"
+    assert decision.audio_channels == 2
+
+
 def v(codec="h264", height=1080, width=1920, pix_fmt="yuv420p", transfer=None, dv=None, compat=None, index=0):
     return {"index": index, "type": "video", "codec": codec, "height": height, "width": width, "pix_fmt": pix_fmt,
             "color_transfer": transfer, "dv_profile": dv, "dv_compat": compat, "default": True}

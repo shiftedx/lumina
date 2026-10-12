@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.media_schemas import PlaybackSessionRequest
-from app.models import HouseholdCollection, LibraryItem, User
+from app.models import DeviceToken, HouseholdCollection, LibraryItem, User
 from app.routers.jellyfin_probes import split_csv
 from app.routers.local_playback import open_session  # the shared start path
 from app.services import jellyfin as jf
@@ -27,11 +27,12 @@ from app.services import playlists as pl
 from app.services import screen_time
 from app.services.connected_apps import jellyfin_user, parse_client_auth
 from app.services.jellyfin_discovery import SEARCH_LIMIT, cached_search_cards, cached_search_page, item_types, search_hint, search_refs, similar_refs, suggestion_refs
+from app.services.jellyfin_audio import SPLIT_FILE, rendition_file, rendition_playlist
 from app.services.jellyfin_playback import PLAY_SESSION_ID, pending_transcodes, subtitle_format, transcript_base
 from app.services.library import LibraryService
-from app.services.local_playback_sessions import master_playlist, sessions, with_api_key
+from app.services.local_playback_sessions import ConversionError, master_playlist, sessions, with_api_key
 from app.services.media_artifacts import MediaArtifactService
-from app.services.media_probe import MediaProbeService, loudness_gain_db
+from app.services.media_probe import MediaProbeService, loudness_gain_db, media_tool
 from app.services.media_response import MediaFileResponse
 from app.services.media_segments import jellyfin_segments, segments_for
 from app.services.media_titles import jellyfin_id, parse_item_id, synthetic_id
@@ -94,6 +95,8 @@ def jellyfin_master_playlist(
     item = LibraryService(db).get_item(source_id, caller.user) if pending else None
     if pending is None or item is None:
         raise HTTPException(status_code=404, detail=NOT_FOUND)
+    token = db.get(DeviceToken, caller.token_id)
+    separate_audio = token is not None and "roku" in (token.client or "").lower()
     session = sessions.find_play_session(caller.user.id, caller.token_id, playsessionid, item.id)
     if session is None:
         try:
@@ -109,8 +112,12 @@ def jellyfin_master_playlist(
             play_session_id=playsessionid, max_bitrate=pending.max_bitrate, seekable=True,
             audio_gain_db=loudness_gain_db(facts.get("loudness")) if normalize_loudness(db, caller.user.id) else None,
         )
-    variant = f"hls/{playsessionid}/index.m3u8?ApiKey={quote(caller.token, safe='')}"
-    return Response(master_playlist(session, variant), media_type=MPEGURL, headers={"Cache-Control": "no-store"})
+    separate_audio = separate_audio and bool(session.info.get("audio") and session.info.get("video"))
+    base = f"hls/{playsessionid}/"
+    key = f"?ApiKey={quote(caller.token, safe='')}"
+    variant = base + ("video.m3u8" if separate_audio else "index.m3u8") + key
+    audio_uri = base + "audio.m3u8" + key if separate_audio else None
+    return Response(master_playlist(session, variant, audio_uri), media_type=MPEGURL, headers={"Cache-Control": "no-store"})
 
 
 def hls_file(
@@ -128,6 +135,29 @@ def hls_file(
         sessions.stop_where(user_id=caller.user.id, device=caller.token_id, play_session_id=play_session_id)
         raise HTTPException(status_code=404, detail=NOT_FOUND)
     screen_time.enforce(db, caller.user)
+    if name in {"video.m3u8", "audio.m3u8"}:
+        if session.plan is not None:
+            playlist = session.plan.playlist(caller.token)
+        else:
+            path = sessions.file(session, "index.m3u8")
+            if path is None:
+                raise HTTPException(status_code=404, detail="Playback segment not found")
+            playlist = with_api_key(path.read_text(encoding="utf-8"), caller.token)
+        return Response(rendition_playlist(playlist, name.split(".")[0]), media_type=MPEGURL, headers={"Cache-Control": "no-store"})
+    if SPLIT_FILE.fullmatch(name):
+        ffmpeg = media_tool(db, "ffmpeg")
+        db.close()
+        if ffmpeg is None:
+            raise HTTPException(status_code=503, detail="ffmpeg is not available on this server.")
+        try:
+            path = rendition_file(session, name, ffmpeg)
+        except ConversionError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        if path is None:
+            raise HTTPException(status_code=404, detail="Playback segment not found")
+        if name.endswith("init.mp4"):
+            return Response(path.read_bytes(), media_type="video/mp4", headers={"Cache-Control": "no-store"})
+        return MediaFileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
     if name == "index.m3u8" and session.plan is not None:  # the whole file's timeline, not ffmpeg's growing list
         return Response(session.plan.playlist(caller.token), media_type=MPEGURL, headers={"Cache-Control": "no-store"})
     path = sessions.segment(session, name)  # D: FILE_NAME allowlist, highest-segment record and throttling; seeks start runs

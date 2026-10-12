@@ -1,6 +1,7 @@
 """Jellyfin apps get the whole file's HLS timeline from 0 and ffmpeg runs wherever they seek (26-pp, jellyfin_hls.py)."""
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import threading
@@ -84,11 +85,11 @@ def segment_start(directory: Path, name: str, init: Path | None = None) -> float
     return min(float(line.split(",")[1]) for line in out.split() if line.startswith("video"))
 
 
-def make_clip(path: Path, seconds: int = 60, keyframes: str | None = None, vcodec: str = "libx264") -> Path:
+def make_clip(path: Path, seconds: int = 60, keyframes: str | None = None, vcodec: str = "libx264", audio_channels: int = 1) -> Path:
     """H.264 with B-frames (the veryfast default: ffmpeg seeks such a stream earlier than asked) and AC-3 in Matroska."""
     path.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate=24:duration={seconds}", "-f", "lavfi", "-i", f"sine=duration={seconds}",
-           "-c:v", vcodec, "-preset", "veryfast", "-pix_fmt", "yuv420p", "-g", "1000", "-c:a", "ac3", "-shortest"]
+           "-c:v", vcodec, "-preset", "veryfast", "-pix_fmt", "yuv420p", "-g", "1000", "-c:a", "ac3", "-ac", str(audio_channels), "-shortest"]
     if keyframes:
         cmd += ["-force_key_frames", keyframes]
     subprocess.run([*cmd, str(path)], check=True, timeout=120)
@@ -131,9 +132,9 @@ def test_runs_of_one_file_share_an_init_segment_and_absolute_times(tmp_path: Pat
     assert inits[0] == inits[1]
 
 
-def clip_session(vault: Vault, vcodec: str = "libx264") -> tuple:  # noqa: F811
+def clip_session(vault: Vault, vcodec: str = "libx264", surround: bool = False) -> tuple:  # noqa: F811
     """A 60 s Matroska with irregular keyframes and AC-3 as the show's first episode, plus a PlaybackInfo-then-master helper."""
-    make_clip(vault.media / SEASON / "Vault Show - S01E01.mkv", 60, "1.5,3.9,4.1,6.2,7,13.9,14.1,20,21,25.5,29.9,30,41,45.2,49,52,59.5", vcodec)
+    make_clip(vault.media / SEASON / "Vault Show - S01E01.mkv", 60, "1.5,3.9,4.1,6.2,7,13.9,14.1,20,21,25.5,29.9,30,41,45.2,49,52,59.5", vcodec, audio_channels=6 if surround else 1)
     scan(vault.admin, vault.media)
     who = login(vault)
     item = jellyfin_id(episodes(vault)[0]["id"])
@@ -158,6 +159,45 @@ def fetch(vault: Vault, who, base: str, name: str, tmp: Path) -> Path:  # noqa: 
     assert response.status_code == 200, (name, response.status_code)
     (tmp / name).write_bytes(response.content)
     return tmp / name
+
+
+@needs_ffmpeg
+def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path: Path) -> None:  # noqa: F811
+    source_path = vault.media / SEASON / "Vault Show - S01E01.mkv"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([
+        "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=4",
+        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=5.1", "-t", "4", "-c:v", "libx264", "-g", "24",
+        "-c:a", "eac3", str(source_path),
+    ], check=True, timeout=30)
+    scan(vault.admin, vault.media)
+    who = login(vault)
+    item_id = jellyfin_id(episodes(vault)[0]["id"])
+    profile = {
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "aac,ac3"}],
+        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "ac3"}],
+        "CodecProfiles": [{"Type": "VideoAudio", "Codec": "aac", "Conditions": [
+            {"Condition": "LessThanEqual", "Property": "AudioChannels", "Value": "2"},
+        ]}],
+    }
+    response = vault.jf.post(f"/Items/{item_id}/PlaybackInfo", headers=who.headers, json={"DeviceProfile": profile})
+    assert response.status_code == 200
+    info = response.json()
+    source = info["MediaSources"][0]
+    original_audio = next(stream for stream in source["MediaStreams"] if stream["Type"] == "Audio")
+    assert (original_audio["Codec"], original_audio["Channels"]) == ("eac3", 6)
+    assert vault.jf.get(source["TranscodingUrl"]).status_code == 200
+    base = f"/videos/{source['Id']}/hls/{info['PlaySessionId']}"
+    fetch(vault, who, base, "init.mp4", tmp_path)
+    fetch(vault, who, base, "seg0.m4s", tmp_path)
+    joined = f"concat:{tmp_path / 'init.mp4'}|{tmp_path / 'seg0.m4s'}"
+    result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,channels",
+                             "-of", "json", joined], text=True, capture_output=True, check=True, timeout=30)
+    audio = next(stream for stream in json.loads(result.stdout)["streams"] if stream["codec_type"] == "audio")
+    assert (audio["codec_name"], audio["channels"]) == ("aac", 2)
+    decoded = subprocess.run(["ffmpeg", "-v", "error", "-i", joined, "-frames:v", "1", "-frames:a", "1", "-f", "null", "-"],
+                             capture_output=True, timeout=30)
+    assert decoded.returncode == 0, decoded.stderr.decode()
 
 
 @needs_ffmpeg
@@ -288,3 +328,49 @@ def test_keyframes_are_scanned_once_per_file_version(tmp_path: Path, monkeypatch
     assert jh.plan_for("copy", "ffprobe", other, {"duration": 60}, 0) is None and jh.plan_for("encode", None, other, {"duration": 60}, 0).starts[:3] == (0, 1, 5)
     assert jh.plan_for("encode", None, other, {"duration": 0.5}, 0) is None and jh.plan_for(None, "ffprobe", other, {"duration": 60}, 0) is None
     jh._keyframes.clear()
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("video", ["copy", "encode"])
+def test_roku_hls_exposes_separate_audible_audio_through_resume_and_seek(
+    vault: Vault, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, video: str,
+) -> None:  # noqa: F811
+    import tests.test_jellyfin_integration as integration
+    monkeypatch.setattr(integration, "AUTH", integration.AUTH.replace("Infuse-Direct", "Jellyfin Roku"))
+    who, open_master = clip_session(vault, "libx265" if video == "encode" else "libx264", surround=True)
+    profile = {**HLS_ENCODE, "CodecProfiles": [{"Type": "VideoAudio", "Codec": "aac", "Conditions": [
+        {"Condition": "LessThanEqual", "Property": "AudioChannels", "Value": "2"},
+    ]}]}
+    source, base, play_session = open_master(profile, resume=33)
+    master = vault.jf.get(source["TranscodingUrl"], headers=who.headers).text
+    assert '#EXT-X-MEDIA:TYPE=AUDIO' in master and 'AUDIO="audio"' in master
+    assert "audio.m3u8" in master and "video.m3u8" in master
+    starts, _ = listed(vault, who, base)
+    for index in (max(i for i, start in enumerate(starts) if start <= 33), 0, len(starts) - 1):
+        for kind in ("video", "audio"):
+            playlist = vault.jf.get(f"{base}/{kind}.m3u8", headers=who.headers)
+            assert playlist.status_code == 200 and f"{kind}-seg{index}.m4s" in playlist.text
+            init = fetch(vault, who, base, f"{kind}-init.mp4", tmp_path)
+            segment = fetch(vault, who, base, f"{kind}-seg{index}.m4s", tmp_path)
+            joined = f"concat:{init}|{segment}"
+            streams = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_streams", "-of", "json", joined]))["streams"]
+            assert len(streams) == 1 and streams[0]["codec_type"] == kind
+            assert float(streams[0]["start_time"]) == pytest.approx(starts[index], abs=0.2)
+            if kind == "audio":
+                assert streams[0]["codec_name"] == "aac" and streams[0]["channels"] == 2
+                pcm = subprocess.check_output(["ffmpeg", "-v", "error", "-i", joined, "-f", "s16le", "-"])
+                assert any(pcm)
+            else:
+                frame = subprocess.check_output(["ffmpeg", "-v", "error", "-i", joined, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+                assert frame
+    assert vault.jf.get(f"{base}/audio-seg0.m4s").status_code == 401
+    other = login(vault, "bob", "other-device")
+    assert vault.jf.get(f"{base}/audio-seg0.m4s", headers=other.headers).status_code == 404
+    # A failed copy reports a server preparation error, without exposing file paths or ffmpeg output.
+    import app.services.jellyfin_audio as audio_delivery
+    from types import SimpleNamespace
+    session = next(s for s in lps.sessions._sessions.values() if s.play_session_id == play_session)
+    (session.directory / "audio-init.mp4").unlink()
+    monkeypatch.setattr(audio_delivery.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=1))
+    error = vault.jf.get(f"{base}/audio-init.mp4", headers=who.headers)
+    assert error.status_code == 502 and not error.content

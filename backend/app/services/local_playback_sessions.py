@@ -323,9 +323,11 @@ def with_api_key(playlist: str, api_key: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def master_playlist(session: PlaybackSession, variant_uri: str) -> str:
+def master_playlist(session: PlaybackSession, variant_uri: str, audio_uri: str | None = None) -> str:
     """A one-rendition master playlist for Jellyfin clients; the variant is the session's index.m3u8."""
-    return f"#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n#EXT-X-STREAM-INF:BANDWIDTH={session.bandwidth}\n{variant_uri}\n"
+    audio = f'#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,URI="{audio_uri}"\n' if audio_uri else ""
+    group = ',AUDIO="audio"' if audio_uri else ""
+    return f"#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n{audio}#EXT-X-STREAM-INF:BANDWIDTH={session.bandwidth}{group}\n{variant_uri}\n"
 
 
 class LocalPlaybackSessions:

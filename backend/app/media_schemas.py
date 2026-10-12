@@ -1177,6 +1177,27 @@ class LibraryAutomation(BaseModel):
     roots: list[AutomationRoot]
 
 
+ActivityCount = Annotated[int, Field(strict=True, ge=0, le=2_147_483_647)]
+ActivityProgress = Annotated[float, Field(strict=True, ge=0, le=100)]
+
+
+class LibraryActivity(BaseModel):
+    """Member-safe aggregate of current indexing work; never identifies a root or media item."""
+
+    scanning_roots: ActivityCount = 0
+    discovering_roots: ActivityCount = 0
+    indexing_roots: ActivityCount = 0
+    preparing_roots: ActivityCount = 0
+    waiting_files: ActivityCount = 0
+    discovered_files: ActivityCount = 0
+    completed_files: ActivityCount = 0
+    total_files: ActivityCount | None = None
+    progress: ActivityProgress | None = None
+    inspected_files: ActivityCount = 0
+    directories_listed: ActivityCount = 0
+    directories_total: ActivityCount | None = None
+
+
 class AutomationRootPatch(_Body):
     schedule: ScanSchedule | None = None
     watch: bool | None = None

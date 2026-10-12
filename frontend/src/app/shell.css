@@ -39,7 +39,19 @@
 @media (hover: hover) { .g-search-trigger:hover { border-bottom-color: var(--g-ink); } }
 .g-activity { display: inline-flex; min-width: var(--g-control); min-height: var(--g-control); align-items: center; justify-content: center; gap: 6px; padding: 0 6px; border: 0; background: none; color: var(--g-ink); cursor: pointer; }
 .g-activity-ring { width: 20px; height: 20px; border-radius: var(--g-radius-round); background: conic-gradient(var(--g-gold) var(--progress, 0deg), var(--g-rule-soft) 0); mask: radial-gradient(circle, transparent 6px, currentColor 6.5px); }
+.g-activity-ring.is-indeterminate { background: conic-gradient(var(--g-gold) 0 72deg, transparent 72deg 150deg, var(--g-gold) 150deg 222deg, var(--g-rule-soft) 222deg); animation: g-activity-spin 1.4s linear infinite; }
 .g-activity-count { font: var(--g-type-small); font-variant-numeric: tabular-nums; }
+.g-activity-popover { display: grid; width: min(320px, calc(100vw - 32px)); gap: 16px; padding: 8px 16px 12px; }
+.g-activity-popover section + section { padding-top: 16px; border-top: var(--g-rule); }
+.g-activity-popover h2 { margin: 0 0 8px; color: var(--g-ink); font: var(--g-type-h3); }
+.g-activity-popover .g-button { margin-top: 8px; }
+.g-library-activity { display: grid; gap: 6px; }
+.g-library-activity p { margin: 0; color: var(--g-ink-2); font: var(--g-type-small); }
+.g-library-activity progress { width: 100%; height: 6px; appearance: none; overflow: hidden; border: 0; border-radius: var(--g-radius-round); background: var(--g-rule-soft); color: var(--g-gold); }
+.g-library-activity progress::-webkit-progress-bar { border-radius: var(--g-radius-round); background: var(--g-rule-soft); }
+.g-library-activity progress::-webkit-progress-value { border-radius: var(--g-radius-round); background: var(--g-gold); }
+.g-library-activity progress::-moz-progress-bar { border-radius: var(--g-radius-round); background: var(--g-gold); }
+@keyframes g-activity-spin { to { transform: rotate(1turn); } }
 .g-profile-trigger { display: inline-grid; width: var(--g-control); height: var(--g-control); place-items: center; padding: 0; border: 0; border-radius: var(--g-radius-round); background: none; cursor: pointer; }
 @media (max-width: 680px) {
   .g-topbar { grid-template-columns: auto 1fr auto; gap: 4px; padding-right: 8px; padding-left: 4px; }
@@ -47,7 +59,15 @@
   .g-search-trigger-text, .g-search-trigger .g-kbd { display: none; }
   .g-search-trigger:focus-visible { outline-color: var(--g-focus); box-shadow: none; }
 }
-@media (forced-colors: active) { .g-activity-ring { forced-color-adjust: none; background: conic-gradient(Highlight var(--progress, 0deg), CanvasText 0); } }
+@media (prefers-reduced-motion: reduce) { .g-activity-ring.is-indeterminate { animation: none; } }
+@media (forced-colors: active) {
+  .g-activity-ring { forced-color-adjust: none; background: conic-gradient(Highlight var(--progress, 0deg), CanvasText 0); }
+  .g-activity-ring.is-indeterminate { background: conic-gradient(Highlight 0 72deg, Canvas 72deg 150deg, Highlight 150deg 222deg, CanvasText 222deg); }
+  .g-library-activity progress { forced-color-adjust: none; background: Canvas; }
+  .g-library-activity progress::-webkit-progress-bar { background: Canvas; }
+  .g-library-activity progress::-webkit-progress-value { background: Highlight; }
+  .g-library-activity progress::-moz-progress-bar { background: Highlight; }
+}
 /* ---- shell states ---- */
 .g-route-loading { max-width: var(--g-reading-width); padding: 32px var(--g-gutter); }
 .g-route-loading-masthead { height: 72px; margin-bottom: 24px; border-bottom: var(--g-rule); }

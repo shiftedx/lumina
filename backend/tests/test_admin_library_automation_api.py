@@ -27,6 +27,17 @@ class FakeAutomation:
     def snapshot(self) -> dict:
         return {"server_timezone": "UTC", "night_hour": 3, "poller": {"heartbeat_at": None, "stalled": False}, "roots": [self._entry("r-ext")]}
 
+    def public_activity(self) -> dict:
+        self.calls.append(("public_activity",))
+        return {
+            "scanning_roots": 1, "discovering_roots": 1, "indexing_roots": 0, "preparing_roots": 2,
+            "waiting_files": 3, "discovered_files": 4, "completed_files": 0, "total_files": None, "progress": None,
+            "inspected_files": 4,
+            "directories_listed": 5, "directories_total": None,
+            # The response model is a second deny-by-default boundary around the service aggregate.
+            "label": "Private TV", "path": "/mnt/private", "error": "private failure",
+        }
+
     def root_entry(self, root_id: str) -> dict | None:
         return self._entry(root_id) if root_id in ("r-ext", "r-managed", "r-new") else None
 
@@ -61,6 +72,7 @@ def seeded(factory) -> None:
 
 
 URL = "/api/admin/library/automation"
+ACTIVITY_URL = "/api/library/activity"
 
 
 def hdr(csrf: str) -> dict[str, str]:
@@ -80,6 +92,35 @@ def test_every_route_is_admin_only(client: TestClient, factory, seeded) -> None:
     csrf = login(client, "member")
     for method, path, body in calls:
         assert send(method, path, body, hdr(csrf)).status_code == 403, (method, path)
+
+
+def test_library_activity_requires_a_session_but_is_available_to_members_without_private_fields(
+    client: TestClient, factory, seeded, fake: FakeAutomation,
+) -> None:
+    assert client.get(ACTIVITY_URL).status_code == 401
+    assert fake.calls == []
+    with factory.begin() as db:
+        db.add(User(id="u2", username="member", display_name="Member", password_hash=hash_password(PASSWORD), role="viewer", is_active=True))
+    login(client, "member")
+    response = client.get(ACTIVITY_URL)
+    assert response.status_code == 200
+    assert response.json() == {
+        "scanning_roots": 1,
+        "discovering_roots": 1,
+        "indexing_roots": 0,
+        "preparing_roots": 2,
+        "waiting_files": 3,
+        "discovered_files": 4,
+        "completed_files": 0,
+        "total_files": None,
+        "progress": None,
+        "inspected_files": 4,
+        "directories_listed": 5,
+        "directories_total": None,
+    }
+    assert all(private not in response.text for private in ("Private TV", "/mnt/private", "private failure"))
+    assert fake.calls == [("public_activity",)]
+    assert client.get(URL).status_code == 403
 
 
 def test_get_returns_the_snapshot_without_paths(client: TestClient, factory, seeded, fake: FakeAutomation) -> None:

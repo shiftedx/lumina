@@ -318,7 +318,7 @@ class LibraryImportService:
             visibility=visibility if visibility in {"private", "shared"} else "private",
             state="running",
             cursor="[]",
-            counters={},
+            counters={"scan_phase": "discovering", "candidate_discovered": 0, "candidate_completed": 0},
             trigger=trigger,
         )
         if normalized is not None:
@@ -415,6 +415,8 @@ class LibraryImportService:
 
         # Filesystem phase: no writer slot held.
         root_path = Path(root.path)
+        if (run.counters or {}).get("scan_phase") == "discovering":
+            return self._discover_step(run, root_path)
         after = tuple(json.loads(run.cursor or "[]"))
         batch: list[Found] = []
         exhausted = True
@@ -468,6 +470,10 @@ class LibraryImportService:
         with write_transaction(self.db, name="import_batch"):
             counters = dict(run.counters or {})
             counters["inspected"] = counters.get("inspected", 0) + len(files)
+            completed = counters.get("candidate_completed", 0) + len(batch)
+            counters["candidate_completed"] = completed
+            if isinstance(counters.get("candidate_total"), int) and completed > counters["candidate_total"]:
+                counters["candidate_total"] = completed
             search = LibrarySearchService(self.db)
             items = self._linked_items([artifact.id for artifact in [*known.values(), *moves.values()]])
             linked: list[tuple[LibraryItem, dict, bool]] = []
@@ -512,6 +518,8 @@ class LibraryImportService:
             if batch:
                 run.cursor = json.dumps(list(batch[-1][0]))
             if exhausted:
+                if "candidate_total" in counters:
+                    counters["candidate_total"] = completed
                 state = "succeeded"
                 if run.coverage == "complete":
                     missing = self._mark_unseen_missing(run, root, counters, scope_gone=scope_gone)
@@ -526,6 +534,30 @@ class LibraryImportService:
         if exhausted:
             _after_import(run_id)
         return exhausted
+
+    def _discover_step(self, run: ImportRun, root_path: Path) -> bool:
+        """Count one bounded candidate batch before metadata work, keeping resume state in the run's JSON counters."""
+        counters = dict(run.counters or {})
+        raw_after = counters.get("_discovery_cursor", [])
+        after = tuple(raw_after) if isinstance(raw_after, list) and all(isinstance(part, str) for part in raw_after) else ()
+        batch: list[Found] = []
+        exhausted = True
+        walking = walk_scope(root_path, after, run.scope) if run.scope else walk(root_path, after)
+        for item in walking:
+            batch.append(item)
+            if len(batch) >= BATCH_SIZE:
+                exhausted = False
+                break
+        with write_transaction(self.db, name="import_discovery_batch"):
+            discovered = counters.get("candidate_discovered", 0) + len(batch)
+            counters["candidate_discovered"] = discovered
+            if exhausted:
+                counters.update({"scan_phase": "indexing", "candidate_total": discovered, "candidate_completed": 0})
+                counters.pop("_discovery_cursor", None)
+            elif batch:
+                counters["_discovery_cursor"] = list(batch[-1][0])
+            run.counters = counters
+        return False
 
     def _online(self, run: ImportRun, root: StorageRoot) -> bool:
         StorageRootService(self.db).probe(root)

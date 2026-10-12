@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import ImportEntry, ImportRun, User
 from app.security import get_admin_user
+from app.services.library_automation import automation
 from app.services.library_import import ImportRunError, LibraryImportService, drive
 
 URL = "/api/admin/imports"
@@ -43,12 +44,13 @@ class ImportEntryResponse(BaseModel):
 
 
 def _serialize(run: ImportRun) -> ImportRunResponse:
+    counters = {key: value for key, value in (run.counters or {}).items() if not key.startswith("_")}
     return ImportRunResponse(
         id=run.id,
         root_id=run.root_id,
         state=run.state,
         visibility=run.visibility,
-        counters=run.counters or {},
+        counters=counters,
         coverage=run.coverage,
         error=run.error,
         root_observation=run.root_observation or {},
@@ -65,6 +67,13 @@ def _get_run(db: Session, run_id: str) -> ImportRun:
     return run
 
 
+def _drive_reported(run_id: str) -> None:
+    try:
+        drive(run_id)
+    finally:
+        automation.activity_finished(run_id)
+
+
 def start_import(
     payload: ImportStartRequest,
     background: BackgroundTasks,
@@ -77,7 +86,8 @@ def start_import(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ImportRunError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    background.add_task(drive, run.id)
+    automation.activity_started(run.id, run.counters)
+    background.add_task(_drive_reported, run.id)
     return _serialize(run)
 
 
@@ -117,7 +127,8 @@ def resume_import(run_id: str, background: BackgroundTasks, db: Session = Depend
         run = LibraryImportService(db).resume(_get_run(db, run_id))
     except ImportRunError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    background.add_task(drive, run.id)
+    automation.activity_started(run.id, run.counters)
+    background.add_task(_drive_reported, run.id)
     return _serialize(run)
 
 

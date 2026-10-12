@@ -12,6 +12,12 @@ export const item = {
 };
 /** GET /api/me/access for an unrestricted member (2.8.0). */
 export const OPEN_ACCESS = { sections: null, blocked_streaming: [], followed_only: false, allowed_now: true, until: null, remaining_minutes: null, can_download: true };
+/** Redacted member-visible library work summary; individual specs can override this route with active counts. */
+export const LIBRARY_ACTIVITY_IDLE = {
+  scanning_roots: 0, discovering_roots: 0, indexing_roots: 0, preparing_roots: 0, waiting_files: 0,
+  discovered_files: 0, completed_files: 0, total_files: null, progress: null,
+  inspected_files: 0, directories_listed: 0, directories_total: null,
+};
 /** GET /api/admin/members/{id}/access for a member with no limits (2.8.0). */
 const NO_LIMITS_ACCESS = { sections: null, movie_rating_max: null, tv_rating_max: null, unrated: 'allow', streaming: { youtube: true, twitch: true, kick: true, live: true, open_search: true, followed_only: false }, schedule: null, daily_limit_minutes: null, can_download: true };
 const formatSelection = { preset: 'best_1080p', custom_format: null, extract_audio: false, audio_format: null, embed_thumbnail: true, embed_metadata: true, subtitles: 'none', output_container: 'mp4' };
@@ -69,6 +75,7 @@ export async function mockApi(page: Page, uiPrefs: Record<string, unknown>) {
     if (path === '/api/bootstrap/status') return json({ needs_setup: false });
     if (path === '/api/health' || path === '/api/runtime-health') return json({ status: 'ok', desktop_dir: null, data_dir: '/tmp/lumina-test' });
     if (path === '/api/library/sections') return json({ movies: 1, shows: 1, anime: 0, albums: 0, artists: 0, saved_audio: 0, youtube: 1, recordings: 0, deleted: 0 });
+    if (path === '/api/library/activity') return json(LIBRARY_ACTIVITY_IDLE);
     if (path === '/api/library') return json({ items: [item], next_cursor: null });
     if (path === '/api/titles') return json({ items: [], next_cursor: null });
     const empty = { items: [], categories: [], state: 'empty', refreshing: false, stale: false, last_success_at: null };

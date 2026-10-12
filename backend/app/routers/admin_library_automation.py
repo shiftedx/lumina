@@ -12,12 +12,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.media_schemas import LibraryActivity
 from app.models import ImportRun, StorageRoot, User
 from app.persistence import write_transaction
-from app.security import get_admin_user
+from app.security import get_admin_user, get_current_user
 from app.services.yt_dlp_service import YtDlpService
 
 URL = "/api/admin/library/automation"
+ACTIVITY_URL = "/api/library/activity"
 
 
 def automation_service():
@@ -50,6 +52,10 @@ class LibraryAutomationResponse(BaseModel):
 
 def get_automation() -> LibraryAutomationResponse:
     return LibraryAutomationResponse(**automation_service().snapshot())
+
+
+def get_library_activity(_current_user: User = Depends(get_current_user)) -> LibraryActivity:
+    return LibraryActivity(**automation_service().public_activity())
 
 
 def patch_night_hour(payload: NightHourPatch, db: Session = Depends(get_db, scope="function")) -> LibraryAutomationResponse:
@@ -91,6 +97,7 @@ def scan_now(payload: ScanRequest | None = None, admin: User = Depends(get_admin
 
 def register(app: FastAPI) -> None:
     admin = [Depends(get_admin_user)]
+    app.get(ACTIVITY_URL, response_model=LibraryActivity)(get_library_activity)
     app.get(URL, response_model=LibraryAutomationResponse, dependencies=admin)(get_automation)
     app.patch(URL, response_model=LibraryAutomationResponse, dependencies=admin)(patch_night_hour)
     app.patch(URL + "/roots/{root_id}", dependencies=admin)(patch_root)

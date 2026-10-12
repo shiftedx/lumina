@@ -13,6 +13,7 @@ from app import db as db_module
 from app.config import settings
 from app.main import app
 from app.models import ImportRun, LibraryItem, MediaArtifact, User
+from app.routers.admin_imports import _serialize
 from app.security import hash_password
 from app.services import library_import
 from app.services.library_import import LibraryImportService
@@ -110,12 +111,15 @@ def test_scan_cancel_resume_deduplicates(library: Path, monkeypatch: pytest.Monk
         service = LibraryImportService(db)
         run = service.start(root_id, "admin")
         db.commit()
-        assert service.step(run.id) is False  # first batch committed with its cursor
+        assert service.step(run.id) is False
+        run = db.get(ImportRun, run.id)
+        assert run.cursor == "[]" and run.counters["candidate_discovered"] == 2 and run.counters["_discovery_cursor"]
+        assert "_discovery_cursor" not in _serialize(run).counters
         service.cancel(db.get(ImportRun, run.id))
         db.commit()
         assert service.step(run.id) is True
         assert db.get(ImportRun, run.id).state == "cancelled"
-        assert db.query(LibraryItem).count() == 2
+        assert db.query(LibraryItem).count() == 0
 
         for _ in range(2):  # resuming twice (second is a fresh rescan) never duplicates
             current = db.get(ImportRun, run.id)
@@ -129,6 +133,45 @@ def test_scan_cancel_resume_deduplicates(library: Path, monkeypatch: pytest.Monk
         assert db.get(ImportRun, run.id).state == "succeeded"
         assert db.query(LibraryItem).count() == 7
         assert db.query(MediaArtifact).count() == 7
+
+
+def test_legacy_run_resumes_its_processing_cursor_without_restarting_discovery(library: Path) -> None:
+    for name in ("a.mp4", "b.mp4", "c.mp4"):
+        write(library / name, name.encode())
+    with client_for("admin") as admin:
+        root_id = register_root(admin, library)
+    with db_module.SessionLocal() as db:
+        service = LibraryImportService(db)
+        run = service.start(root_id, "admin")
+        run.counters = {}  # persisted by a release before discovery counters existed
+        run.cursor = '["a.mp4"]'
+        db.commit()
+        while not service.step(run.id):
+            pass
+        run = db.get(ImportRun, run.id)
+        assert run.state == "succeeded" and run.counters["inspected"] == 2
+        assert {artifact.relative_path for artifact in db.query(MediaArtifact)} == {"b.mp4", "c.mp4"}
+
+
+def test_indexing_total_reconciles_when_files_change_after_discovery(library: Path) -> None:
+    write(library / "a.mp4", b"a")
+    write(library / "b.mp4", b"b")
+    with client_for("admin") as admin:
+        root_id = register_root(admin, library)
+    with db_module.SessionLocal() as db:
+        service = LibraryImportService(db)
+        run = service.start(root_id, "admin")
+        db.commit()
+        assert service.step(run.id) is False
+        run = db.get(ImportRun, run.id)
+        assert (run.counters["scan_phase"], run.counters["candidate_total"]) == ("indexing", 2)
+        (library / "b.mp4").unlink()
+        write(library / "c.mp4", b"c")
+        write(library / "d.mp4", b"d")
+        while not service.step(run.id):
+            pass
+        run = db.get(ImportRun, run.id)
+        assert (run.counters["candidate_completed"], run.counters["candidate_total"]) == (3, 3)
 
 
 def test_rescan_requeues_a_probe_after_a_missing_file_returns(library: Path) -> None:
@@ -171,6 +214,7 @@ def test_symlink_and_permission_errors(library: Path, tmp_path: Path) -> None:
     assert titles == ["good"]
     assert run["state"] == "partial" and run["coverage"] == "incomplete"
     assert run["counters"]["failed"] == 1 and run["counters"]["skipped"] == 2
+    assert run["counters"]["candidate_completed"] == run["counters"]["candidate_total"] == 4
     assert {(entry["relative_path"], entry["error"]) for entry in entries} == {
         ("escape-dir", "symlink"),
         ("escape.mp4", "symlink"),

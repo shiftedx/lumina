@@ -2143,6 +2143,21 @@ export interface LibraryAutomation {
   roots: AutomationRoot[];
 }
 
+export interface LibraryActivity {
+  scanning_roots: number;
+  discovering_roots: number;
+  indexing_roots: number;
+  preparing_roots: number;
+  waiting_files: number;
+  discovered_files: number;
+  completed_files: number;
+  total_files: number | null;
+  progress: number | null;
+  inspected_files: number;
+  directories_listed: number;
+  directories_total: number | null;
+}
+
 export interface AutomationRootPatch {
   schedule?: ScanSchedule | null;
   watch?: boolean | null;

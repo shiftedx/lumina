@@ -60,15 +60,15 @@ class Plan:
         later = [a for a in self.anchors if a > run.index]
         return later[0] if later else len(self.starts)
 
-    def playlist(self, api_key: str, container: str = "mp4") -> str:
+    def playlist(self, api_key: str) -> str:
         token = quote(api_key, safe="")
         lines = [
             "#EXTM3U", "#EXT-X-VERSION:7", f"#EXT-X-TARGETDURATION:{max(1, int(max(self.durations)) + 1)}",
             "#EXT-X-MEDIA-SEQUENCE:0", "#EXT-X-PLAYLIST-TYPE:VOD", "#EXT-X-INDEPENDENT-SEGMENTS",
-            *([f'#EXT-X-MAP:URI="init.mp4?ApiKey={token}"'] if container == "mp4" else []),
+            f'#EXT-X-MAP:URI="init.mp4?ApiKey={token}"',
         ]
         for index, duration in enumerate(self.durations):
-            lines += [f"#EXTINF:{duration:.6f},", f"seg{index}.{'ts' if container == 'ts' else 'm4s'}?ApiKey={token}"]
+            lines += [f"#EXTINF:{duration:.6f},", f"seg{index}.m4s?ApiKey={token}"]
         return "\n".join([*lines, "#EXT-X-ENDLIST", ""])
 
 

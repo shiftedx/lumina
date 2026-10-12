@@ -411,7 +411,7 @@ Roku and Android TV also connect through the Jellyfin API. TV playback compatibi
 
 Audio conversion honors the client's AAC-specific channel limit even when the device supports more channels with other codecs. For Roku profiles that limit AAC to stereo, unsupported surround audio is converted to stereo AAC; directly playable surround tracks are retained.
 
-Jellyfin HLS conversion uses the first supported segment container in the client profile. Roku profiles prefer MPEG-TS, avoiding silent audio on devices that do not decode combined fMP4 audio correctly. TS streams retain the whole-file timeline for resume and seeking.
+Roku HLS playback delivers separate fMP4 video and audio renditions. Copies of each completed segment are cached in the playback session directory, preserving its timestamps and avoiding a second encode. This works around Roku devices that play combined fMP4 video without sound.
 
 Members with two-step verification type an **app password** instead of their account password (see "App passwords" above). Each sign-in appears under **Settings → Connected apps** with its device, client and last-seen time. **Revoke** signs that app out immediately and stops its streams. Changing or resetting a password revokes all of that member's apps. Every member signs in as themselves: apps see only what that member can see in Lumina.
 

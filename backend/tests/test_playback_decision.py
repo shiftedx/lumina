@@ -180,30 +180,3 @@ def test_browser_profiles_only_add_to_the_default() -> None:
     with_ac3 = caps_from_browser_profiles(["mp4-ac3"])
     assert decide(with_ac3, facts(MP4, v(), a("ac3", 6))).mode == "direct"
     assert decide(BROWSER_DEFAULT, facts(MP4, v(), a("ac3", 6))).mode == "transcode"
-
-
-@pytest.mark.parametrize("containers,expected", [(["ts", "mp4"], "ts"), (["mp4", "ts"], "mp4"), (["invalid", "TS"], "ts"), ([], "mp4")])
-def test_hls_uses_first_supported_container_from_the_device_profile(containers, expected):
-    caps = caps_from_device_profile({"TranscodingProfiles": [
-        {"Type": "Video", "Protocol": "hls", "Container": container, "VideoCodec": "h264", "AudioCodec": "aac"}
-        for container in containers
-    ]})
-    assert caps.hls_container == expected
-    assert decide(caps, facts(MKV, v("hevc"), a("eac3", 6))).hls_container == expected
-
-
-def test_av1_copy_retains_mp4_even_when_ts_is_preferred():
-    caps = caps_from_device_profile({"TranscodingProfiles": [
-        {"Type": "Video", "Protocol": "hls", "Container": "ts", "VideoCodec": "h264,av1", "AudioCodec": "aac"},
-    ]})
-    decision = decide(caps, facts(MKV, v("av1"), a()))
-    assert decision.video == "copy" and decision.hls_container == "mp4"
-
-
-@pytest.mark.parametrize("codec", ["flac", "opus"])
-def test_audio_copy_retains_mp4_for_codecs_outside_the_ts_delivery_set(codec):
-    caps = caps_from_device_profile({"TranscodingProfiles": [
-        {"Type": "Video", "Protocol": "hls", "Container": "ts", "VideoCodec": "h264", "AudioCodec": "aac,flac,opus"},
-    ]})
-    decision = decide(caps, facts(MKV, v(), a(codec)))
-    assert decision.audio == "copy" and decision.hls_container == "mp4"

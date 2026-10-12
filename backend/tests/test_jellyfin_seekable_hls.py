@@ -85,11 +85,11 @@ def segment_start(directory: Path, name: str, init: Path | None = None) -> float
     return min(float(line.split(",")[1]) for line in out.split() if line.startswith("video"))
 
 
-def make_clip(path: Path, seconds: int = 60, keyframes: str | None = None, vcodec: str = "libx264") -> Path:
+def make_clip(path: Path, seconds: int = 60, keyframes: str | None = None, vcodec: str = "libx264", audio_channels: int = 1) -> Path:
     """H.264 with B-frames (the veryfast default: ffmpeg seeks such a stream earlier than asked) and AC-3 in Matroska."""
     path.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate=24:duration={seconds}", "-f", "lavfi", "-i", f"sine=duration={seconds}",
-           "-c:v", vcodec, "-preset", "veryfast", "-pix_fmt", "yuv420p", "-g", "1000", "-c:a", "ac3", "-shortest"]
+           "-c:v", vcodec, "-preset", "veryfast", "-pix_fmt", "yuv420p", "-g", "1000", "-c:a", "ac3", "-ac", str(audio_channels), "-shortest"]
     if keyframes:
         cmd += ["-force_key_frames", keyframes]
     subprocess.run([*cmd, str(path)], check=True, timeout=120)
@@ -132,9 +132,9 @@ def test_runs_of_one_file_share_an_init_segment_and_absolute_times(tmp_path: Pat
     assert inits[0] == inits[1]
 
 
-def clip_session(vault: Vault, vcodec: str = "libx264") -> tuple:  # noqa: F811
+def clip_session(vault: Vault, vcodec: str = "libx264", surround: bool = False) -> tuple:  # noqa: F811
     """A 60 s Matroska with irregular keyframes and AC-3 as the show's first episode, plus a PlaybackInfo-then-master helper."""
-    make_clip(vault.media / SEASON / "Vault Show - S01E01.mkv", 60, "1.5,3.9,4.1,6.2,7,13.9,14.1,20,21,25.5,29.9,30,41,45.2,49,52,59.5", vcodec)
+    make_clip(vault.media / SEASON / "Vault Show - S01E01.mkv", 60, "1.5,3.9,4.1,6.2,7,13.9,14.1,20,21,25.5,29.9,30,41,45.2,49,52,59.5", vcodec, audio_channels=6 if surround else 1)
     scan(vault.admin, vault.media)
     who = login(vault)
     item = jellyfin_id(episodes(vault)[0]["id"])
@@ -162,13 +162,12 @@ def fetch(vault: Vault, who, base: str, name: str, tmp: Path) -> Path:  # noqa: 
 
 
 @needs_ffmpeg
-@pytest.mark.parametrize("container", ["mp4", "ts"])
-def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path: Path, container: str) -> None:  # noqa: F811
+def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path: Path) -> None:  # noqa: F811
     source_path = vault.media / SEASON / "Vault Show - S01E01.mkv"
     source_path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([
         "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=4",
-        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-ac", "6", "-t", "4", "-c:v", "libx264", "-g", "24",
+        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=5.1", "-t", "4", "-c:v", "libx264", "-g", "24",
         "-c:a", "eac3", str(source_path),
     ], check=True, timeout=30)
     scan(vault.admin, vault.media)
@@ -176,7 +175,7 @@ def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path
     item_id = jellyfin_id(episodes(vault)[0]["id"])
     profile = {
         "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "aac,ac3"}],
-        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": container, "VideoCodec": "h264", "AudioCodec": "ac3"}],
+        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "ac3"}],
         "CodecProfiles": [{"Type": "VideoAudio", "Codec": "aac", "Conditions": [
             {"Condition": "LessThanEqual", "Property": "AudioChannels", "Value": "2"},
         ]}],
@@ -187,17 +186,11 @@ def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path
     source = info["MediaSources"][0]
     original_audio = next(stream for stream in source["MediaStreams"] if stream["Type"] == "Audio")
     assert (original_audio["Codec"], original_audio["Channels"]) == ("eac3", 6)
-    assert source["TranscodingContainer"] == container
     assert vault.jf.get(source["TranscodingUrl"]).status_code == 200
     base = f"/videos/{source['Id']}/hls/{info['PlaySessionId']}"
-    playlist = vault.jf.get(f"{base}/index.m3u8", headers=who.headers).text
-    if container == "ts":
-        assert "#EXT-X-MAP" not in playlist and "seg0.ts" in playlist
-        joined = str(fetch(vault, who, base, "seg0.ts", tmp_path))
-    else:
-        fetch(vault, who, base, "init.mp4", tmp_path)
-        fetch(vault, who, base, "seg0.m4s", tmp_path)
-        joined = f"concat:{tmp_path / 'init.mp4'}|{tmp_path / 'seg0.m4s'}"
+    fetch(vault, who, base, "init.mp4", tmp_path)
+    fetch(vault, who, base, "seg0.m4s", tmp_path)
+    joined = f"concat:{tmp_path / 'init.mp4'}|{tmp_path / 'seg0.m4s'}"
     result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,channels",
                              "-of", "json", joined], text=True, capture_output=True, check=True, timeout=30)
     audio = next(stream for stream in json.loads(result.stdout)["streams"] if stream["codec_type"] == "audio")
@@ -205,44 +198,6 @@ def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path
     decoded = subprocess.run(["ffmpeg", "-v", "error", "-i", joined, "-frames:v", "1", "-frames:a", "1", "-f", "null", "-"],
                              capture_output=True, timeout=30)
     assert decoded.returncode == 0, decoded.stderr.decode()
-    pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", joined, "-map", "0:a:0", "-f", "s16le", "-"], capture_output=True, check=True, timeout=30).stdout
-    assert any(pcm)  # converting must retain audible samples, not merely create an AAC track
-
-
-@needs_ffmpeg
-@pytest.mark.parametrize("video", ["copy", "encode"])
-def test_ts_conversion_keeps_audio_after_resume_and_backward_seek(vault: Vault, tmp_path: Path, video: str) -> None:  # noqa: F811
-    who, open_master = clip_session(vault)
-    profile = {**HLS_ENCODE, "TranscodingProfiles": [{**HLS_ENCODE["TranscodingProfiles"][0], "Container": "ts"}]}
-    if video == "encode":
-        profile["CodecProfiles"] = [{"Type": "Video", "Codec": "h264", "Conditions": [
-            {"Property": "Height", "Condition": "LessThanEqual", "Value": "144"},
-        ]}]
-    source, base, play_session = open_master(profile, resume=33)
-    assert source["TranscodingContainer"] == "ts"
-    starts, text = listed(vault, who, base)
-    assert "#EXT-X-MAP" not in text and "#EXT-X-ENDLIST" in text
-    session = next(s for s in lps.sessions._sessions.values() if s.play_session_id == play_session)
-    for index in (max(i for i, start in enumerate(starts) if start <= 33), 0, len(starts) - 1):
-        response = vault.jf.get(f"{base}/seg{index}.ts", headers=who.headers)
-        assert response.status_code == 200 and response.headers["content-type"] == "video/mp2t"
-        path = tmp_path / f"seg{index}.ts"
-        path.write_bytes(response.content)
-        streams = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(path)],
-                                            capture_output=True, text=True, check=True).stdout)["streams"]
-        audio = next(s for s in streams if s["codec_type"] == "audio")
-        assert audio["codec_name"] == "aac"
-        # TS muxing must preserve the whole-file timeline, without its default 1.4 second offset.
-        assert float(next(s for s in streams if s["codec_type"] == "video")["start_time"]) == pytest.approx(starts[index], abs=0.2)
-        pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:a:0", "-f", "s16le", "-"],
-                             capture_output=True, check=True, timeout=30).stdout
-        assert any(pcm)
-    assert session.hls_container == "ts"
-    mp4_profile = {**profile, "TranscodingProfiles": [{**profile["TranscodingProfiles"][0], "Container": "mp4"}]}
-    _, mp4_base, mp4_play = open_master(mp4_profile, resume=33)
-    mp4_session = next(s for s in lps.sessions._sessions.values() if s.play_session_id == mp4_play)
-    assert mp4_session.id != session.id and mp4_session.hls_container == "mp4"
-    assert "#EXT-X-MAP" in listed(vault, who, mp4_base)[1]
 
 
 @needs_ffmpeg
@@ -375,14 +330,47 @@ def test_keyframes_are_scanned_once_per_file_version(tmp_path: Path, monkeypatch
     jh._keyframes.clear()
 
 
-@pytest.mark.parametrize("extension", ["m4s", "ts"])
-def test_seek_waits_for_a_run_that_is_within_one_gap(tmp_path: Path, extension: str) -> None:
+@needs_ffmpeg
+@pytest.mark.parametrize("video", ["copy", "encode"])
+def test_roku_hls_exposes_separate_audible_audio_through_resume_and_seek(
+    vault: Vault, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, video: str,
+) -> None:  # noqa: F811
+    import tests.test_jellyfin_integration as integration
+    monkeypatch.setattr(integration, "AUTH", integration.AUTH.replace("Infuse-Direct", "Jellyfin Roku"))
+    who, open_master = clip_session(vault, "libx265" if video == "encode" else "libx264", surround=True)
+    profile = {**HLS_ENCODE, "CodecProfiles": [{"Type": "VideoAudio", "Codec": "aac", "Conditions": [
+        {"Condition": "LessThanEqual", "Property": "AudioChannels", "Value": "2"},
+    ]}]}
+    source, base, play_session = open_master(profile, resume=33)
+    master = vault.jf.get(source["TranscodingUrl"], headers=who.headers).text
+    assert '#EXT-X-MEDIA:TYPE=AUDIO' in master and 'AUDIO="audio"' in master
+    assert "audio.m3u8" in master and "video.m3u8" in master
+    starts, _ = listed(vault, who, base)
+    for index in (max(i for i, start in enumerate(starts) if start <= 33), 0, len(starts) - 1):
+        for kind in ("video", "audio"):
+            playlist = vault.jf.get(f"{base}/{kind}.m3u8", headers=who.headers)
+            assert playlist.status_code == 200 and f"{kind}-seg{index}.m4s" in playlist.text
+            init = fetch(vault, who, base, f"{kind}-init.mp4", tmp_path)
+            segment = fetch(vault, who, base, f"{kind}-seg{index}.m4s", tmp_path)
+            joined = f"concat:{init}|{segment}"
+            streams = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_streams", "-of", "json", joined]))["streams"]
+            assert len(streams) == 1 and streams[0]["codec_type"] == kind
+            assert float(streams[0]["start_time"]) == pytest.approx(starts[index], abs=0.2)
+            if kind == "audio":
+                assert streams[0]["codec_name"] == "aac" and streams[0]["channels"] == 2
+                pcm = subprocess.check_output(["ffmpeg", "-v", "error", "-i", joined, "-f", "s16le", "-"])
+                assert any(pcm)
+            else:
+                frame = subprocess.check_output(["ffmpeg", "-v", "error", "-i", joined, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+                assert frame
+    assert vault.jf.get(f"{base}/audio-seg0.m4s").status_code == 401
+    other = login(vault, "bob", "other-device")
+    assert vault.jf.get(f"{base}/audio-seg0.m4s", headers=other.headers).status_code == 404
+    # A failed copy reports a server preparation error, without exposing file paths or ffmpeg output.
+    import app.services.jellyfin_audio as audio_delivery
     from types import SimpleNamespace
-
-    session = SimpleNamespace(
-        run=HlsRun(0, 0), plan=encode_plan(60), directory=tmp_path, kind="video_sw",
-        process=SimpleNamespace(poll=lambda: None), segment_extension=extension,
-    )
-    (tmp_path / f"seg1.{extension}").touch()
-    assert not lps.LocalPlaybackSessions._needs_run(session, 1 + lps.RUN_GAP_SEGMENTS)
-    assert lps.LocalPlaybackSessions._needs_run(session, 2 + lps.RUN_GAP_SEGMENTS)
+    session = next(s for s in lps.sessions._sessions.values() if s.play_session_id == play_session)
+    (session.directory / "audio-init.mp4").unlink()
+    monkeypatch.setattr(audio_delivery.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=1))
+    error = vault.jf.get(f"{base}/audio-init.mp4", headers=who.headers)
+    assert error.status_code == 502 and not error.content

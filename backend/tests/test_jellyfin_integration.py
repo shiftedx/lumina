@@ -130,7 +130,7 @@ def test_transcoding_fields_direct_and_hls() -> None:
     direct = transcoding_fields(SimpleNamespace(mode="direct", height=None, reasons=()), item_id=item, play_session_id=psid, api_key="tok", audio_index=None, subtitle_index=None)
     assert direct == {"SupportsDirectPlay": True, "SupportsDirectStream": False, "SupportsTranscoding": False}
     hls = transcoding_fields(
-        SimpleNamespace(mode="transcode", height=720, reasons=("AudioCodecNotSupported", "ContainerNotSupported"), hls_container="mp4"),
+        SimpleNamespace(mode="transcode", height=720, reasons=("AudioCodecNotSupported", "ContainerNotSupported")),
         item_id=item, play_session_id=psid, api_key="t/k", audio_index=1, subtitle_index=None,
     )
     assert hls == {

@@ -18,3 +18,7 @@ The web player and Jellyfin clients need direct play when possible, and a hardwa
 - Hosts without a GPU and Docker Desktop on a Mac keep working in software with the same code path.
 - One rendition per session bounds GPU cost. Quality changes restart the session at the current position.
 - Mute and normalization are web-player features. Infuse and other apps play unfiltered, and the settings copy says so.
+
+## Roku audio rendition compatibility
+
+Roku HLS playback exposes separate fMP4 video and audio renditions because some Roku decoders play combined fMP4 video without audio. The existing decision and encoder stay shared; completed segments are remuxed once into cached video-only and audio-only segments without re-encoding. Both playlists use the same whole-file plan and packet timestamps. Cached renditions count against the existing playback cache cap and disappear with the session. Other clients retain combined fMP4 delivery.

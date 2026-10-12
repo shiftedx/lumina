@@ -101,7 +101,7 @@ def transcoding_fields(
         "SupportsDirectStream": False,
         "SupportsTranscoding": True,
         "TranscodingSubProtocol": "hls",
-        "TranscodingContainer": decision.hls_container,
+        "TranscodingContainer": "mp4",
         "TranscodingUrl": f"/videos/{item_id}/master.m3u8?{urlencode(params, safe=',')}",
     }
 

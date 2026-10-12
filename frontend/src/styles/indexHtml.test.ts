@@ -22,3 +22,15 @@ describe('index.html and the brand assets', () => {
     expect(favicon).not.toContain('#f4f1ea');
   });
 });
+
+describe('social preview images', () => {
+  it.each(['share', 'invite'])('ships a compact 1200×630 JPEG for %s links', (kind) => {
+    const bytes = readFileSync(`public/social/lumina-${kind}-v1.jpg`);
+    expect(bytes.subarray(0, 2).toString('hex')).toBe('ffd8');
+    const frame = bytes.indexOf(Buffer.from([0xff, 0xc0]));
+    expect(frame).toBeGreaterThan(0);
+    expect(bytes.readUInt16BE(frame + 5)).toBe(630);
+    expect(bytes.readUInt16BE(frame + 7)).toBe(1200);
+    expect(bytes.length).toBeLessThan(400_000);
+  });
+});

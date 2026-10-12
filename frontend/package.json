@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "social:render": "node scripts/render-social-cards.mjs",
     "build": "tsc --noEmit && vite build && node scripts/licenses.mjs && node scripts/check-styles.mjs",
     "preview": "vite preview",
     "test": "vitest run",

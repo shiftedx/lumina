@@ -21,14 +21,17 @@ test('setup renders when the vault has no owner yet', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Create household vault' })).toBeVisible();
 });
 
-test('an invite link renders the join form', async ({ page }) => {
-  await mockApi(page, {});
-  await page.goto('/#invite=synthetic-token');
-  await expect(page.getByRole('heading', { name: 'Join this household' })).toBeVisible();
-  await expect(page.getByLabel('Username')).toBeVisible();
-  await expect(page.getByLabel('Display name')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Join household' })).toBeVisible();
-});
+for (const path of ['/', '/invite']) {
+  test(`an invite link at ${path} renders the join form and removes its fragment`, async ({ page }) => {
+    await mockApi(page, {});
+    await page.goto(`${path}#invite=synthetic-token`);
+    await expect(page.getByRole('heading', { name: 'Join this household' })).toBeVisible();
+    await expect(page.getByLabel('Username')).toBeVisible();
+    await expect(page.getByLabel('Display name')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Join household' })).toBeVisible();
+    expect(new URL(page.url()).hash).toBe('');
+  });
+}
 
 test('a reset link renders the new-password form', async ({ page }) => {
   await mockApi(page, {});

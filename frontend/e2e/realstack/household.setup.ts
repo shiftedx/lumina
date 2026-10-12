@@ -8,7 +8,7 @@ test('first owner sets up the vault, signs in again, adds an external root and i
     await page.getByLabel('Display name').fill(OWNER.displayName);
     await page.getByLabel('Password', { exact: true }).fill(OWNER.password);
     await page.getByRole('button', { name: 'Create household vault' }).click();
-    await page.getByRole('button', { name: 'Skip for now' }).click();
+    await page.getByRole('button', { name: 'Explore without setup' }).click();
     await expect(page.getByRole('main', { name: 'Main content' })).toBeVisible();
   });
 

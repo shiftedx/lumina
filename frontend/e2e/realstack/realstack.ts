@@ -42,12 +42,12 @@ export async function inviteMember(owner: Page, browser: Browser, username: stri
   const member = await context.newPage();
   const problems = watchPage(member);
   await member.goto(link);
-  await expect(member.getByRole('heading', { name: 'Join this household' })).toBeVisible();
+  await expect(member.getByRole('heading', { name: 'Step inside the vault.' })).toBeVisible();
   await member.getByLabel('Username').fill(username);
   await member.getByLabel('Display name').fill(username[0].toUpperCase() + username.slice(1));
   await member.getByLabel('Password', { exact: true }).fill(password);
-  await member.getByRole('button', { name: 'Join household' }).click();
-  await member.getByRole('button', { name: 'Skip for now' }).click();
+  await member.getByRole('button', { name: 'Create my account' }).click();
+  await member.getByRole('button', { name: 'Explore without setup' }).click();
   await expect(member.getByRole('main', { name: 'Main content' })).toBeVisible();
   return { context, member, problems };
 }

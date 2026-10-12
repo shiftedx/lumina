@@ -70,6 +70,7 @@ const WatchSurface = preloadableSurface(() => import('./features/watch/WatchSurf
 // A watch link opened cold loads its chunk beside the sign-in requests, so the route renders without a Suspense fallback.
 if (typeof window !== 'undefined' && window.location.pathname.startsWith('/watch')) WatchSurface.preload();
 const SettingsSurface = preloadableSurface(() => import('./features/settings/SettingsSurface').then((module) => module.SettingsSurface));
+const WelcomeSurface = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.WelcomeSurface })));
 const OnboardingSurface = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.OnboardingSurface })));
 const ChannelDiscoveryStep = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.ChannelDiscoveryStep })));
 const TitleEditorPage = preloadableSurface(() => import('./features/titles/editor/EditorPage').then((module) => module.EditorPage));
@@ -246,7 +247,7 @@ export default function LuminaApp() {
   const [homeRecommendationsLoading, setHomeRecommendationsLoading] = useState(false);
   const [suppressions, setSuppressions] = useState<SuppressionList>({ items: [], channels: [] });
   const [recoEpoch, setRecoEpoch] = useState(0);
-  const [onboarding, setOnboarding] = useState<{ phase: 'setup' | 'discover' | 'preparing'; keys: string[] } | null>(null);
+  const [onboarding, setOnboarding] = useState<{ phase: 'welcome' | 'setup' | 'discover' | 'preparing'; keys: string[] } | null>(null);
   const [channelSuggestions, setChannelSuggestions] = useState<CategoryChannelSuggestions[]>([]);
   const [channelSuggestionsLoading, setChannelSuggestionsLoading] = useState(false);
   const [channelSuggestionsError, setChannelSuggestionsError] = useState<string | null>(null);
@@ -585,7 +586,7 @@ export default function LuminaApp() {
   // until they complete or skip; the durable status closes the gate for good.
   useEffect(() => {
     if (state.authStage === 'ready' && state.currentUser?.onboarding_status === 'pending') {
-      setOnboarding((current) => current ?? { phase: 'setup', keys: [] });
+      setOnboarding((current) => current ?? { phase: 'welcome', keys: [] });
     }
   }, [state.authStage, state.currentUser?.id, state.currentUser?.onboarding_status]);
 
@@ -1322,6 +1323,8 @@ export default function LuminaApp() {
   ), [moreName, moreSwitch, moreAddLink, moreSignOut, openSearchBlocked]);
   if (accountLink) return <>{collectionAnnouncer}<AuthScreen busy={authBusy} error={error} onCancel={() => { setAccountLink(null); setError(null); }} onLogin={handleLogin} onRetrySession={handleRetrySession} onSetup={handleAccountLink} onSwitched={() => void handleSwitched()} sessionProblem={null} stage={accountLink.kind} /></>;
   if (state.authStage !== 'ready' || !state.currentUser) return <>{collectionAnnouncer}<AuthScreen busy={authBusy} error={error} onLogin={handleLogin} onRetrySession={handleRetrySession} onSetup={handleSetup} onSwitched={() => void handleSwitched()} sessionProblem={state.sessionProblem} stage={state.authStage === 'ready' ? 'loading' : state.authStage} twoFactor={twoFactor} /></>;
+
+  if (onboarding?.phase === 'welcome') return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><WelcomeSurface displayName={state.currentUser.display_name || state.currentUser.username} error={onboardingError} onBegin={() => setOnboarding({ phase: 'setup', keys: onboarding.keys })} onSkip={handleOnboardingSkip} reducedMotion={prefersReducedMotion} /></Suspense></>;
 
   if (onboarding?.phase === 'discover') {
     const followedIdentities = new Set(channelAutomations.map((channel) => normalizeChannelAddress(channel.source_url)).filter((value): value is string => Boolean(value)));

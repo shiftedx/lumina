@@ -75,8 +75,9 @@ def test_facts_are_escaped_and_available_without_images() -> None:
 
 def test_media_vault_art_is_public_and_request_progress_is_live_text() -> None:
     emails = every_email(title="Arrival", year=2016, poster_url="https://image.tmdb.org/poster.jpg")
-    for index in (0, 6, 7):
-        assert "https://lumina.example.com/email/vault-v1.jpg" in emails[index][2]
+    assert "https://lumina.example.com/email/vault-v1.jpg" in emails[0][2]
+    assert "https://lumina.example.com/email/security-keys-v1.jpg" in emails[6][2]
+    assert "https://lumina.example.com/email/film-archive-v1.jpg" in emails[7][2]
     for index in (1, 2, 4):
         assert all(label in emails[index][2] for label in ("Requested", "Approved", "Ready"))
     assert "Watch now" not in emails[3][2] and "Watch now" not in emails[5][2]

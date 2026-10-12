@@ -58,6 +58,7 @@ def emails() -> list[tuple[str, tuple[str, str, str]]]:
 
 def frame(html: str, width: int, *, light: bool = False, blocked: bool = False) -> str:
     for asset, mime in ((email_layout.LOGO_PATH, "image/png"), (email_layout.HERO_PATH, "image/jpeg"),
+                        *((path, "image/jpeg") for path in sorted(set(email_layout.ART_PATHS.values()))),
                         ("/fonts/Newsreader-variable.woff2", "font/woff2"), ("/fonts/Newsreader-Italic-variable.woff2", "font/woff2")):
         data = f"data:{mime};base64," + base64.b64encode((REPOSITORY / "frontend/public" / asset.lstrip("/")).read_bytes()).decode()
         html = html.replace(f"{BASE}{asset}", data)

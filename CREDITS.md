@@ -42,4 +42,8 @@ The social-card artwork is original imagery generated for Lumina. Its fictional 
 
 ## Email artwork
 
-Email banners reuse the original media-vault illustration and the app’s horizon mark. Their versioned public assets contain no member details or tracking identifiers. Regenerate them with `mise exec -- npm --prefix frontend run email:render`; render all message variants with `mise exec -- backend/.venv/bin/python scripts/email_preview.py /tmp/lumina-email-preview.html`.
+Email banners use the vault for invitations, the film archive for delivery messages, and the key illustration for security notices, alongside the app’s horizon mark. Their versioned public assets contain no member details or tracking identifiers. Regenerate them with `mise exec -- npm --prefix frontend run email:render`; render all message variants with `mise exec -- backend/.venv/bin/python scripts/email_preview.py /tmp/lumina-email-preview.html`.
+
+## Onboarding artwork
+
+The onboarding film archive, listening room, creator studio, and security-key illustrations are original imagery generated for Lumina in the media-vault artwork’s engraving style. Their fictional scenes contain no household media, member details, real brands, or tracking identifiers.

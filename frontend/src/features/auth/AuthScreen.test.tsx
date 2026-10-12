@@ -43,7 +43,7 @@ describe('AuthScreen', () => {
     expect(screen.getByRole('button', { name: 'Create household vault' })).toBeTruthy();
     expect(screen.queryByRole('checkbox')).toBeNull();
     rerender(<AuthScreen {...props({ stage: 'invite', onCancel: vi.fn() })} />);
-    expect(screen.getByRole('heading', { name: 'Join this household' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Step inside the vault.' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Back to sign in' })).toBeTruthy();
     rerender(<AuthScreen {...props({ stage: 'reset', onCancel: vi.fn() })} />);
     expect(screen.queryByLabelText('Username')).toBeNull();

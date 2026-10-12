@@ -91,8 +91,8 @@ describe('check-styles after integration', () => {
     const css = '.a { font-size: 9px; }\n.b { font: 600 10px / 1 var(--g-sans); }\n.c { font-size: 11px; }\n:root { --g-type-label: 600 10px / 1.3 var(--g-sans); }';
     expect(smallTextHits(css).map((hit) => hit.line)).toEqual([1, 2]);
   });
-  it('holds CSS to 44 KB', () => {
-    expect(CSS_BUDGET).toBe(44 * 1024);
+  it('holds CSS to 46 KB', () => {
+    expect(CSS_BUDGET).toBe(46 * 1024);
   });
   it('holds tokens + ui to 7 KB', () => {
     expect(CORE_BUDGET).toBe(7 * 1024);

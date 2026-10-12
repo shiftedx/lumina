@@ -10,12 +10,12 @@ describe('household invitations', () => {
     const onSetup = vi.fn();
     render(<AuthScreen busy={false} error={null} onCancel={vi.fn()} onLogin={vi.fn()} onRetrySession={vi.fn()} onSetup={onSetup} onSwitched={vi.fn()} sessionProblem={null} stage="invite" />);
 
-    expect(screen.getByRole('heading', { name: 'Join this household' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: 'Step inside the vault.' })).not.toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
     await browser.type(screen.getByRole('textbox', { name: 'Username' }), 'alex');
     await browser.type(screen.getByRole('textbox', { name: 'Display name' }), 'Alex');
     await browser.type(screen.getByLabelText('Password'), 'Strong pass 42!');
-    await browser.click(screen.getByRole('button', { name: 'Join household' }));
+    await browser.click(screen.getByRole('button', { name: 'Create my account' }));
     expect(onSetup).toHaveBeenCalledWith('alex', 'Alex', 'Strong pass 42!');
   });
 });

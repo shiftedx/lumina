@@ -25,10 +25,10 @@ for (const path of ['/', '/invite']) {
   test(`an invite link at ${path} renders the join form and removes its fragment`, async ({ page }) => {
     await mockApi(page, {});
     await page.goto(`${path}#invite=synthetic-token`);
-    await expect(page.getByRole('heading', { name: 'Join this household' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Step inside the vault.' })).toBeVisible();
     await expect(page.getByLabel('Username')).toBeVisible();
     await expect(page.getByLabel('Display name')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Join household' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Create my account' })).toBeVisible();
     expect(new URL(page.url()).hash).toBe('');
   });
 }

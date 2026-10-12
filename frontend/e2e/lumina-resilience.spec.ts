@@ -178,6 +178,7 @@ async function installApi(page: Page, options: { onboarding?: 'pending'; discove
     const url = new URL(request.url());
     const path = url.pathname;
     const json = (body: unknown) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (path === '/api/library/activity') return json({ scanning_roots: 0, discovering_roots: 0, indexing_roots: 0, preparing_roots: 0, waiting_files: 0, discovered_files: 0, completed_files: 0, total_files: null, progress: null, inspected_files: 0, directories_listed: 0, directories_total: null });
     if (path === '/api/session/me') return json({ user: { ...user, onboarding_status: onboardingStatus } });
     if (path === '/api/onboarding/complete') {
       const body = request.postDataJSON() as { keys?: unknown; follows?: Array<{ source_url?: unknown; display_name?: unknown }> };
@@ -538,6 +539,8 @@ test('a new member is guided through first-run onboarding into a prepared, perso
   await openApp(page, 1280, 900, { onboarding: 'pending' });
 
   // Gated into a focused full-screen surface: no primary navigation is offered.
+  await expect(page.getByRole('button', { name: 'Personalize my Home' })).toBeVisible();
+  await page.getByRole('button', { name: 'Personalize my Home' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0);
   // Reduced motion: the entry choreography does not run.
@@ -565,20 +568,21 @@ test('a new member is guided through first-run onboarding into a prepared, perso
 
 test('a pending member who reloads without acting stays gated in first-run setup', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending' });
+  await page.getByRole('button', { name: 'Personalize my Home' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
 
   await page.reload();
 
-  // The durable pending status resumes setup rather than dropping into Home.
-  await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
+  // The durable pending status resumes the welcome rather than dropping into Home.
+  await expect(page.getByRole('button', { name: 'Personalize my Home' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0);
 });
 
 test('a new member can skip first-run onboarding and still reach a non-blocking Home', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending' });
-  await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Explore without setup' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await page.getByRole('button', { name: 'Explore without setup' }).click();
 
   await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
   // Skipping chose no interests, so Home keeps the optional personalization invite.
@@ -591,6 +595,7 @@ test('a new member can skip first-run onboarding and still reach a non-blocking 
 
 test('onboarding still reaches Home with an honest degraded shelf when discovery warming fails', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending', discoveryHome: 'failing' });
+  await page.getByRole('button', { name: 'Personalize my Home' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
 
   await page.getByRole('checkbox', { name: 'Music' }).check();
@@ -637,6 +642,7 @@ test('a failed Up Next recommendation never breaks the Watch surface or blocks n
 
 test('a new member discovers, searches, and follows channels during onboarding with a curated fallback', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending', channelSuggestions: 'degraded' });
+  await page.getByRole('button', { name: 'Personalize my Home' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Music' }).check();
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -1076,6 +1082,7 @@ test('schedule an upcoming broadcast from the beginning and render an honest par
 
 test('onboarding setup and channel discovery surfaces pass the tagged Axe gate', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending' });
+  await page.getByRole('button', { name: 'Personalize my Home' }).click();
 
   // (a) The first-run onboarding interest-setup surface — deep-a11y-scanned here
   // for the first time (auditA11y previously only covered Home + bootstrap).

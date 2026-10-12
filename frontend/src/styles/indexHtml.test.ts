@@ -24,8 +24,8 @@ describe('index.html and the brand assets', () => {
 });
 
 describe('social preview images', () => {
-  it.each(['share', 'invite'])('ships a compact 1200×630 JPEG for %s links', (kind) => {
-    const bytes = readFileSync(`public/social/lumina-${kind}-v1.jpg`);
+  it.each(['share-v1', 'share-v2', 'invite-v1'])('ships a compact 1200×630 JPEG for %s links', (kind) => {
+    const bytes = readFileSync(`public/social/lumina-${kind}.jpg`);
     expect(bytes.subarray(0, 2).toString('hex')).toBe('ffd8');
     const frame = bytes.indexOf(Buffer.from([0xff, 0xc0]));
     expect(frame).toBeGreaterThan(0);
@@ -36,6 +36,14 @@ describe('social preview images', () => {
 });
 
 describe('email artwork', () => {
+  it.each(['film-archive', 'security-keys'])('ships a compact retina %s banner', (name) => {
+    const banner = readFileSync(`public/email/${name}-v1.jpg`);
+    const frame = banner.indexOf(Buffer.from([0xff, 0xc0]));
+    expect(frame).toBeGreaterThan(0);
+    expect(banner.readUInt16BE(frame + 5)).toBe(480);
+    expect(banner.readUInt16BE(frame + 7)).toBe(1280);
+    expect(banner.length).toBeLessThan(250_000);
+  });
   it('ships a compact retina vault banner and an unboxed horizon mark', () => {
     const banner = readFileSync('public/email/vault-v1.jpg');
     const frame = banner.indexOf(Buffer.from([0xff, 0xc0]));

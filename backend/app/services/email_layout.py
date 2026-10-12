@@ -13,6 +13,11 @@ from app.services import public_address
 SERVER_NAME = "Lumina"
 LOGO_PATH = "/email/mark-v1.png"
 HERO_PATH = "/email/vault-v1.jpg"
+ART_PATHS = {
+    "connected": "/email/film-archive-v1.jpg",
+    "failed": "/email/film-archive-v1.jpg",
+    "security": "/email/security-keys-v1.jpg",
+}
 PAPER, PAPER_2, PAPER_3 = "#0f0e0c", "#1a1814", "#221f1a"
 INK, INK_2, INK_3 = "#efe9dd", "#c9c2b4", "#9d968a"
 GOLD, GOLD_INK, ON_GOLD, RULE = "#e5a00d", "#f0b43a", "#15130f", "#36322b"
@@ -156,8 +161,9 @@ def _html(subject, preheader, eyebrow, heading, why, paragraphs, meta, poster, l
                     f'style="color:{GOLD_INK};text-decoration:underline">Open this link</a>.</td></tr>')
     rows += [f'<tr><td class="lm-ink3" style="padding-top:14px;{small};overflow-wrap:anywhere">{e(text)}</td></tr>' for text in fineprint]
     footer_html = "".join(f'<p class="lm-ink3" style="margin:0 0 6px;{small}">{e(line)}</p>' for line in (why, unsubscribe, footer) if line)
+    art_path = ART_PATHS.get(status, HERO_PATH)
     hero_image = (
-        f'<img src="{e(base, quote=True)}{HERO_PATH}" width="640" alt="An illustrated media vault filled with film reels and records." '
+        f'<img src="{e(base, quote=True)}{art_path}" width="640" alt="" '
         f'style="display:block;width:100%;max-width:640px;height:auto;border:0;border-radius:12px 12px 0 0;color:{INK_2};font-family:{SANS};font-size:13px">')
     # Modern clients collapse blocked artwork to its alt text; classic Outlook retains explicit image dimensions.
     hero = "" if poster else (

@@ -2,9 +2,47 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { OnboardingSurface } from './features/onboarding/Onboarding';
+import { OnboardingSurface, WelcomeSurface } from './features/onboarding/Onboarding';
 
 const categories = [{ key: 'music', label: 'Music' }, { key: 'cooking', label: 'Cooking' }];
+
+describe('new-member welcome', () => {
+  it('introduces factual vault capabilities before personalization', async () => {
+    const browser = userEvent.setup();
+    const onBegin = vi.fn();
+    render(<WelcomeSurface displayName="Dana" onBegin={onBegin} onSkip={vi.fn()} />);
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome to Lumina' })).toBe(document.activeElement);
+    expect(screen.getByText('The vault is open, Dana.')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Your library' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'A Home of your own' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Ready on any screen' })).toBeTruthy();
+
+    await browser.click(screen.getByRole('button', { name: 'Personalize my Home' }));
+    expect(onBegin).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a clear durable skip and disables both decisions while saving', async () => {
+    const browser = userEvent.setup();
+    const onSkip = vi.fn();
+    const view = render(<WelcomeSurface onBegin={vi.fn()} onSkip={onSkip} />);
+    await browser.click(screen.getByRole('button', { name: 'Explore without setup' }));
+    expect(onSkip).toHaveBeenCalledTimes(1);
+
+    view.rerender(<WelcomeSurface busy onBegin={vi.fn()} onSkip={onSkip} />);
+    expect((screen.getByRole('button', { name: 'Personalize my Home' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Explore without setup' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('uses the approved vault artwork decoratively and surfaces failures', () => {
+    const { container } = render(<WelcomeSurface error="Setup is unavailable." onBegin={vi.fn()} onSkip={vi.fn()} reducedMotion />);
+    const artwork = container.querySelector<HTMLImageElement>('img.g-onboarding-vault-art');
+    expect(artwork?.getAttribute('src')).toBe('/onboarding/vault.jpg');
+    expect(artwork?.getAttribute('alt')).toBe('');
+    expect(screen.getByRole('alert').textContent).toContain('Setup is unavailable.');
+    expect(container.querySelector('.reduced-motion')).toBeTruthy();
+  });
+});
 
 describe('first-run onboarding interaction', () => {
   it('continues with the interests a member selects', async () => {
@@ -54,10 +92,11 @@ describe('editorial onboarding', () => {
   const renderInterests = () => render(<OnboardingSurface categories={categories} onContinue={vi.fn()} onSkip={vi.fn()} phase="setup" />);
 
   it('heads step 1 with its kicker and a decorative progress hairline', () => {
-    renderInterests();
+    const { container } = renderInterests();
     expect(screen.getByText('Step 1 of 2')).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeTruthy();
     expect(document.querySelector('.g-onboarding-progress')?.getAttribute('aria-hidden')).toBe('true');
+    expect(container.querySelector<HTMLImageElement>('.g-onboarding-interest-art img')?.getAttribute('src')).toBe('/onboarding/listening-room-v1.jpg');
   });
 
   it('interests are native checkboxes in a fieldset with a visible legend', async () => {
@@ -67,12 +106,14 @@ describe('editorial onboarding', () => {
     expect(chip.checked).toBe(false);
     await userEvent.click(chip);
     expect(chip.checked).toBe(true);
+    expect(screen.getByText('1 selected')).toBeTruthy();
   });
 
   it('preparing is a status with an indeterminate progress bar', () => {
-    render(<OnboardingSurface categories={categories} onContinue={vi.fn()} onSkip={vi.fn()} phase="preparing" />);
+    const { container } = render(<OnboardingSurface categories={categories} onContinue={vi.fn()} onSkip={vi.fn()} phase="preparing" />);
     expect(screen.getByRole('heading', { name: 'Preparing your Home' })).toBeTruthy();
     expect(screen.getByRole('progressbar').hasAttribute('aria-valuenow')).toBe(false);
     expect(screen.getByRole('status')).toBeTruthy();
+    expect(container.querySelector<HTMLImageElement>('img.g-onboarding-vault-art')?.getAttribute('src')).toBe('/onboarding/film-archive-v1.jpg');
   });
 });

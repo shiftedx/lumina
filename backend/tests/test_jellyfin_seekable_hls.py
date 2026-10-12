@@ -373,3 +373,16 @@ def test_keyframes_are_scanned_once_per_file_version(tmp_path: Path, monkeypatch
     assert jh.plan_for("copy", "ffprobe", other, {"duration": 60}, 0) is None and jh.plan_for("encode", None, other, {"duration": 60}, 0).starts[:3] == (0, 1, 5)
     assert jh.plan_for("encode", None, other, {"duration": 0.5}, 0) is None and jh.plan_for(None, "ffprobe", other, {"duration": 60}, 0) is None
     jh._keyframes.clear()
+
+
+@pytest.mark.parametrize("extension", ["m4s", "ts"])
+def test_seek_waits_for_a_run_that_is_within_one_gap(tmp_path: Path, extension: str) -> None:
+    from types import SimpleNamespace
+
+    session = SimpleNamespace(
+        run=HlsRun(0, 0), plan=encode_plan(60), directory=tmp_path, kind="video_sw",
+        process=SimpleNamespace(poll=lambda: None), segment_extension=extension,
+    )
+    (tmp_path / f"seg1.{extension}").touch()
+    assert not lps.LocalPlaybackSessions._needs_run(session, 1 + lps.RUN_GAP_SEGMENTS)
+    assert lps.LocalPlaybackSessions._needs_run(session, 2 + lps.RUN_GAP_SEGMENTS)

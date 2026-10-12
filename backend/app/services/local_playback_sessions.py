@@ -519,7 +519,7 @@ class LocalPlaybackSessions:
         if session.process.poll() is not None or index < run.index or index >= plan.run_end(run):
             return True
         gap = RUN_GAP_SEGMENTS if session.kind.startswith("video") else RUN_GAP_COPY_SEGMENTS
-        return index - gap > run.index and not (session.directory / f"seg{index - gap}.m4s").is_file()
+        return index - gap > run.index and not (session.directory / f"seg{index - gap}.{session.segment_extension}").is_file()
 
     def _restart(self, session: PlaybackSession, run: HlsRun) -> None:
         """Replace the session's ffmpeg with one that writes from ``run``. The caller holds ``seek_lock``."""

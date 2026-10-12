@@ -8,11 +8,12 @@ from fastapi.testclient import TestClient
 
 from app import db as db_module
 from app.main import app
-from app.models import MediaTitle
+from app.models import LibraryItem, MediaTitle
 from app.services import jellyfin_playback
+from app.services.media_artifacts import MediaArtifactService
 from app.services.jellyfin_playback import transcoding_fields
 from app.services.media_titles import jellyfin_id
-from title_support import ALICE_TOKEN, BOXSET, MOVIE, MOVIE_4K, S1E1, SERIES, jellyfin_household, mediabrowser
+from title_support import ALICE_TOKEN, BOB, BOXSET, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SERIES, jellyfin_household, mediabrowser
 
 HEADERS = mediabrowser(ALICE_TOKEN)
 HEX = jellyfin_id
@@ -85,6 +86,35 @@ def test_android_tv_direct_play_retry_gets_a_stream_url(jf: TestClient, monkeypa
     # Android TV requires a URL for every advertised direct-stream/transcode path.
     assert source["SupportsDirectStream"] or source["SupportsTranscoding"]
     assert source["TranscodingUrl"].startswith("/videos/")
+
+
+@pytest.mark.parametrize("preferred", [MOVIE_1080, MOVIE_4K])
+def test_primary_source_alias_keeps_version_resume_and_visibility_scoping(jf: TestClient, preferred: str) -> None:
+    with db_module.SessionLocal() as db:
+        for item_id, marker in ((MOVIE_1080, b"1"), (MOVIE_4K, b"4")):
+            path, _root = MediaArtifactService(db).locate(db.get(LibraryItem, item_id))
+            path.write_bytes(marker * 4096)
+    report = jf.post("/Sessions/Playing/Progress", headers=HEADERS,
+                     json={"ItemId": HEX(MOVIE), "MediaSourceId": HEX(preferred), "PositionTicks": 600 * 10_000_000})
+    assert report.status_code == 204
+    detail = get(jf, f"/Items/{HEX(MOVIE)}")
+    assert detail["MediaSources"][0]["Id"] == detail["Id"]
+    assert detail["UserData"]["PlaybackPositionTicks"] == 600 * 10_000_000
+    url = f"/Videos/{detail['Id']}/stream"
+    response = jf.get(url, headers=HEADERS | {"Range": "bytes=0-9"}, params={"MediaSourceId": detail["Id"]})
+    marker = b"1" if preferred == MOVIE_1080 else b"4"
+    assert response.status_code == 206 and response.content == marker * 10
+    with db_module.SessionLocal() as db:
+        item = db.get(LibraryItem, preferred)
+        item.user_id, item.visibility = BOB, "private"
+        db.commit()
+    # The same alias now resolves to the remaining visible version; an explicit
+    # request for the newly hidden file cannot borrow the alias's authorization.
+    visible = get(jf, f"/Items/{HEX(MOVIE)}")
+    assert visible["MediaSourceCount"] == 1 and visible["MediaSources"][0]["Id"] == detail["Id"]
+    response = jf.get(url, headers=HEADERS | {"Range": "bytes=0-9"}, params={"MediaSourceId": detail["Id"]})
+    assert response.status_code == 206 and response.content == (b"4" if marker == b"1" else b"1") * 10
+    assert jf.get(url, headers=HEADERS, params={"MediaSourceId": HEX(preferred)}).status_code == 404
 
 
 def test_every_stream_and_source_sends_the_non_nullable_fields(jf: TestClient) -> None:

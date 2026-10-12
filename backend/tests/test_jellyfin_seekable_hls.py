@@ -161,6 +161,47 @@ def fetch(vault: Vault, who, base: str, name: str, tmp: Path) -> Path:  # noqa: 
 
 
 @needs_ffmpeg
+@pytest.mark.parametrize("resume", [0, 5])
+def test_tv_retry_serves_decodable_media_from_the_primary_source_alias(
+    vault: Vault, tmp_path: Path, resume: int,
+) -> None:  # noqa: F811
+    make_clip(vault.media / SEASON / "Vault Show - S01E01.mkv", 12, "0,4,8")
+    scan(vault.admin, vault.media)
+    who = login(vault)
+    item_id = jellyfin_id(episodes(vault)[0]["id"])
+    detail = vault.jf.get(f"/Items/{item_id}", headers=who.headers).json()
+    primary = next(source for source in detail["MediaSources"] if source["Id"] == item_id)
+    assert primary["VideoType"] == "VideoFile"
+    profile = {
+        **HLS_COPY,
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mkv", "VideoCodec": "h264", "AudioCodec": "ac3"}],
+    }
+    body = {"DeviceProfile": profile, "MediaSourceId": primary["Id"], "StartTimeTicks": resume * 10_000_000}
+    direct = vault.jf.post(f"/Items/{item_id}/PlaybackInfo", headers=who.headers, json=body).json()["MediaSources"][0]
+    assert direct["SupportsDirectPlay"] is True
+    response = vault.jf.post(f"/Items/{item_id}/PlaybackInfo", headers=who.headers, json=body | {"EnableDirectPlay": False})
+    assert response.status_code == 200
+    info = response.json()
+    source = info["MediaSources"][0]
+    assert source["SupportsDirectPlay"] is False and source["SupportsTranscoding"] is True
+    assert vault.jf.get(source["TranscodingUrl"]).status_code == 200
+    base = f"/videos/{source['Id']}/hls/{info['PlaySessionId']}"
+    starts, text = listed(vault, who, base)
+    assert starts[0] == 0 and "#EXT-X-ENDLIST" in text
+    index = max(i for i, start in enumerate(starts) if start <= resume)
+    fetch(vault, who, base, "init.mp4", tmp_path)
+    segment = fetch(vault, who, base, f"seg{index}.m4s", tmp_path)
+    assert segment_start(tmp_path, segment.name) == pytest.approx(starts[index], abs=0.15)
+    decoded = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", f"concat:{tmp_path / 'init.mp4'}|{segment}",
+         "-map", "0:v:0", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        capture_output=True, timeout=30,
+    )
+    assert decoded.returncode == 0, decoded.stderr.decode()
+    assert len(decoded.stdout) == 320 * 180 * 3
+
+
+@needs_ffmpeg
 def test_a_resumed_copy_lists_the_whole_file_and_serves_any_segment_of_it(vault: Vault, tmp_path: Path) -> None:  # noqa: F811
     who, open_master = clip_session(vault)
     source, base, play_session = open_master(HLS_COPY, resume=47)

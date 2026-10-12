@@ -2,7 +2,7 @@
 .ed { display: grid; gap: var(--g-space-4); max-width: 960px; margin: 0 auto; padding-bottom: var(--g-space-6); scroll-padding-bottom: 96px; }
 .ed-head { display: flex; align-items: flex-start; gap: var(--g-space-4); }
 .ed-head .g-masthead { flex: 1; min-width: 0; }
-.ed-poster { flex: none; object-fit: cover; border-radius: var(--g-radius); }
+.ed-poster { flex: none; object-fit: cover; border-radius: var(--g-radius-sheet); }
 .ed-footer { position: sticky; bottom: 0; display: flex; gap: var(--g-space-3); padding: var(--g-space-3) 0; border-top: var(--g-rule); background: var(--g-paper); }
 .ed-banner { display: grid; gap: var(--g-space-3); padding: var(--g-space-3) 0; border-block: var(--g-rule); }
 .ed-banner-actions { display: flex; flex-wrap: wrap; gap: var(--g-space-3); }

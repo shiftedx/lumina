@@ -1,9 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { UserProfile } from '../types';
-import { MEMBER_PICKER_EVENT, onCommand } from './commands';
+import { EDIT_HOME_EVENT, MEMBER_PICKER_EVENT, onCommand } from './commands';
 import { TopBar, type TopBarProps } from './TopBar';
 
 // The ring size comes from the gallery styles: pinned here so this test does not depend on them.
@@ -62,6 +62,17 @@ describe('TopBar', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Dana Lee, account menu' }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'Sign out', hidden: true }));
     expect(p.onSignOut).toHaveBeenCalledOnce();
+    stop();
+  });
+
+  it('opens Home before requesting its editor from the account menu', async () => {
+    const p = props();
+    const edit = vi.fn(() => expect(p.onHome).toHaveBeenCalledOnce());
+    const stop = onCommand(EDIT_HOME_EVENT, edit);
+    render(<TopBar {...p} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Dana Lee, account menu' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Edit home', hidden: true }));
+    await waitFor(() => expect(edit).toHaveBeenCalledOnce());
     stop();
   });
 

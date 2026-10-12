@@ -12,7 +12,7 @@
 .ed-art-picks { display: grid; gap: var(--g-space-2); grid-template-columns: 1fr 1fr; }
 .ed-art-picks[data-type="Backdrop"] { grid-template-columns: 1fr; }
 @media (min-width: 700px) { .ed-art-picks { grid-template-columns: repeat(3, 1fr); } }
-.ed-art-picks .g-choice { border-radius: var(--g-radius); }
+.ed-art-picks .g-choice { border-radius: var(--g-radius-sheet); }
 .ed-art-picks .g-choice:has(input:checked) { outline: 2px solid var(--g-gold); }
 .ed-art-picks .g-choice:has(input:focus-visible) { outline: 2px solid var(--g-focus); }
 .ed-art-picks img { inline-size: 100%; }

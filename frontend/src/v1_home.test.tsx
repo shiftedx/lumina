@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { requestHomeEdit } from './app/commands';
 import type { HomeEditorProps } from './features/home/HomeEditor';
 import { forgetHomeCache } from './features/home/homeCache';
 import { HomeSurface, type HomeSurfaceProps } from './features/home/HomeSurface';
@@ -126,7 +127,8 @@ describe('Home page', () => {
     renderHome({ libraryState: 'empty', homeShelves: [{ id: 'new_in_library', visible: false }] });
     // Settle: every visible fetched shelf has resolved empty, so without the fix "fresh" would now flip true.
     await waitFor(() => expect(sections()).toEqual([]));
-    expect(screen.getByRole('button', { name: 'Edit home' })).toBeTruthy();
+    act(() => requestHomeEdit());
+    expect(screen.getByRole('list', { name: 'Home shelves' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Make Home yours' })).toBeNull();
   });
 
@@ -210,21 +212,21 @@ describe('Home page', () => {
     renderHome({ continueWatching: [entry(episodeSummary(2, 4))] });
     expect(live.mounted).toHaveBeenCalled();
     live.mounted.mockReset();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit home' }));
+    act(() => requestHomeEdit());
     expect(live.mounted).not.toHaveBeenCalled();
   });
 });
 
 describe('Home edit mode', () => {
-  it('Edit home enters edit mode in place; Done returns focus to it and says the layout is saved', () => {
+  it('the edit command enters edit mode; Done returns focus and announces the saved layout', () => {
     renderHome({ continueWatching: [entry(episodeSummary(2, 4))] });
-    fireEvent.click(screen.getByRole('button', { name: 'Edit home' }));
-    expect(screen.getByRole('button', { name: 'Done', pressed: true })).toBeTruthy();
+    act(() => requestHomeEdit());
+    expect(screen.queryByRole('button', { name: 'Edit home' })).toBeNull();
     expect(document.querySelector('.h-hero')).toBeNull();
     expect(sections()).toEqual([]);
     expect(screen.getByRole('list', { name: 'Home shelves' }).children).toHaveLength(13);
     fireEvent.click(within(document.querySelector('.h-editor') as HTMLElement).getByRole('button', { name: 'Done' }));
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit home' }));
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 }));
     expect(screen.getByText('Home layout saved.')).toBeTruthy();
     expect(document.querySelector('.h-hero')).not.toBeNull();
   });
@@ -233,7 +235,7 @@ describe('Home edit mode', () => {
     const onHomeShelvesChange = vi.fn();
     const layout = [{ id: 'recent_music' as const, visible: true }];
     renderHome({ continueWatching: [entry(episodeSummary(2, 4))], homeShelves: layout, onHomeShelvesChange });
-    fireEvent.click(screen.getByRole('button', { name: 'Edit home' }));
+    act(() => requestHomeEdit());
     fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }));
     expect(onHomeShelvesChange).toHaveBeenLastCalledWith(null);
     expect(screen.getByText('Home reset to the default layout.')).toBeTruthy();
@@ -241,15 +243,19 @@ describe('Home edit mode', () => {
     expect(onHomeShelvesChange).toHaveBeenLastCalledWith(layout);
   });
 
-  it('the greeting\'s arrows: Down reaches the hero\'s Resume, Up reaches Edit home', async () => {
+  it('the greeting\'s arrows reach the hero and account menu', async () => {
     renderHome({ continueWatching: [entry(episodeSummary(2, 4))] });
     const greetingHeading = screen.getByRole('heading', { level: 1 });
     greetingHeading.focus();
     fireEvent.keyDown(greetingHeading, { key: 'ArrowDown' });
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Resume' }));
+    const profile = document.createElement('button');
+    profile.className = 'g-profile-trigger';
+    document.body.append(profile);
     greetingHeading.focus();
     fireEvent.keyDown(greetingHeading, { key: 'ArrowUp' });
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit home' }));
+    expect(document.activeElement).toBe(profile);
+    profile.remove();
     await act(async () => { await Promise.resolve(); });
   });
 });

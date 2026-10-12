@@ -14,7 +14,7 @@ Lumina is a self-hosted household streaming service. It combines a local media l
 
 ## Brand Personality
 
-The established interface uses a gold horizon mark, a serif wordmark and media headings, restrained dark and light surfaces, and sans-serif controls. Preserve this existing identity during the quality pass. The confirmed quality brief is precise alignment, clear controls, less crowding, and rich media layouts. Actions and content groups use spacing, typography, and restrained surfaces instead of decorative outlined boxes. No external reference app or new brand personality has been selected.
+The established interface uses a gold horizon mark, a serif wordmark and media headings, restrained dark and light surfaces, and sans-serif controls. Preserve this existing identity during the quality pass. The confirmed quality brief is precise alignment, clear controls, less crowding, and rich media layouts. Actions and content groups use spacing, typography, and restrained surfaces instead of decorative outlined boxes. Cards, modal panels, and submenu surfaces share the 12px surface radius; compact controls and circular avatars retain their own geometry. Selected navigation items use one underline. No external reference app or new brand personality has been selected.
 
 ## Anti-references
 

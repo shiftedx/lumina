@@ -28,8 +28,9 @@ test('default order with the hero from Continue; Resume opens the player at the 
   await page.route(`**/api/library/${item.id}/playback`, (route) => route.fulfill({ json: { item_id: item.id, position_seconds: 0.9, duration_seconds: 1.5, completed: false } }));
   await expect(page.locator('.h-hero-kicker')).toHaveText('Continue watching');
   await expect(page.locator('.h-hero-title')).toHaveText('Northern Lantern');
-  // The three near shelves are ready; the rest of the catalogue still mounts its placeholder, deferred until scrolled near.
-  await expect.poll(() => sections(page)).toEqual(['continue', 'next_up', 'new_in_library', 'because_you_watched', 'recommended', 'collections', 'recently_saved', 'new_anime', 'recent_music']);
+  // Empty optional rows disappear as they approach the viewport; the populated shelves retain their default order.
+  const populated = ['continue', 'next_up', 'new_in_library', 'recently_saved', 'new_anime', 'recent_music'];
+  await expect.poll(async () => (await sections(page)).filter((id) => id !== null && populated.includes(id))).toEqual(populated);
   await page.getByRole('button', { name: 'Resume' }).click();
   await expect(page).toHaveURL(new RegExp(`/watch/library/${item.id}$`));
   await expect.poll(() => videoTime(page)).toBeGreaterThanOrEqual(0.8);

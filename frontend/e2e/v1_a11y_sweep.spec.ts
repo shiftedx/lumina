@@ -1,3 +1,4 @@
+import { openHomeEditor } from './home-edit-helper';
 import { navigateApp } from './lumina-mock';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
@@ -231,7 +232,7 @@ test('Home and Home in edit mode: no serious axe findings, sideways scroll or sm
       await page.goto('/');
       await settle(page);
       await audit(page, `home ${scheme} ${viewport.width}`, found);
-      await page.getByRole('button', { name: 'Edit home' }).click();
+      await openHomeEditor(page);
       await expect(page.locator('.h-editor')).toBeVisible();
       await audit(page, `home edit ${scheme} ${viewport.width}`, found);
       await page.locator('.h-editor').getByRole('button', { name: 'Done' }).click();
@@ -241,8 +242,7 @@ test('Home and Home in edit mode: no serious axe findings, sideways scroll or sm
   await page.setViewportSize(VIEWPORTS[0]);
   await page.goto('/');
   await settle(page);
-  await page.getByRole('button', { name: 'Edit home' }).focus();
-  await page.keyboard.press('Enter');
+  await openHomeEditor(page, true);
   const stops: string[] = [];
   for (let step = 0; step < 4; step += 1) {
     stops.push(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent ?? ''));

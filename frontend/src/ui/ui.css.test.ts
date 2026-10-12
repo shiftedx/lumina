@@ -53,6 +53,18 @@ describe('ui.css', () => {
     expect(baseRule('.g-toast-region .g-toast.is-error')).toMatch(/background: color-mix\([^)]*var\(--g-danger\)[^)]*var\(--g-paper-3\)\)/);
     expect(baseRule('.g-toast-region .g-toast.is-success')).toMatch(/background: color-mix\([^)]*var\(--g-success\)[^)]*var\(--g-paper-3\)\)/);
   });
+  it('uses the 12px surface radius for dialogs, panels, notifications, and card placeholders', () => {
+    expect(baseRule('.g-drawer')).toMatch(/border-radius: var\(--g-radius-sheet\) 0 0 var\(--g-radius-sheet\)/);
+    for (const selector of ['.g-dialog', '.g-menu, .g-popover', '.g-toast-region .g-toast']) {
+      expect(baseRule(selector), selector).toMatch(/border-radius: var\(--g-radius-sheet\)/);
+    }
+    expect(rule('.g-dialog.is-sheet')).toMatch(/border-radius: var\(--g-radius-sheet\) var\(--g-radius-sheet\) 0 0/);
+    expect(rule('.g-drawer')).toMatch(/border-radius: var\(--g-radius-sheet\) var\(--g-radius-sheet\) 0 0/);
+    expect(baseRule('.g-skeleton:is(.is-row, .is-block, .is-poster, .is-still, .is-square) .g-skeleton-item')).toMatch(/border-radius: var\(--g-radius-sheet\)/);
+    expect(baseRule('.g-skeleton-item')).toMatch(/border-radius: var\(--g-radius\)/);
+    expect(baseRule('.g-input, .g-select select')).toMatch(/border-radius: 0/);
+    expect(baseRule('.g-avatar:is(.is-24, .is-34, .is-48, .is-96)')).toMatch(/border-radius: var\(--g-radius-round\)/);
+  });
   it('never lifts or scales on hover', () => {
     for (const match of css.matchAll(/[^{}]*:hover[^{}]*\{([^}]*)\}/g)) expect(match[1]).not.toMatch(/transform/);
   });

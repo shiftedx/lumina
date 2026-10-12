@@ -14,16 +14,15 @@
 .gallery.home [data-focus-item]:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 4px; }
 
 /* Masthead. */
-.gallery.home .h-masthead { padding: var(--g-space-6) 0 var(--g-space-4); border-bottom: var(--g-hairline); }
-.gallery.home .h-kicker-line { display: flex; min-height: var(--h-control); align-items: center; justify-content: space-between; gap: var(--g-space-4); }
-.gallery.home .h-masthead h1 { width: fit-content; margin: var(--g-space-2) 0 0; font: var(--g-type-masthead); letter-spacing: var(--g-track-display); color: var(--g-ink); }
-@media (max-width: 599px) {
-  .gallery.home .h-masthead { display: flex; flex-direction: column-reverse; }
-  .gallery.home .h-masthead h1 { margin: 0 0 var(--g-space-2); }
-}
+.gallery.home .h-masthead { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--g-space-4); padding: var(--g-space-4) 0; border-bottom: var(--g-hairline); }
+.gallery.home .h-masthead h1 { min-width: 0; margin: 0; font: italic 700 clamp(24px, 2vw, 32px) / 1.2 var(--g-serif); letter-spacing: var(--g-track-display); color: var(--g-ink); }
+.gallery.home .h-date { margin: 0; text-align: right; }
+@media (max-width: 599px) { .gallery.home .h-date { max-width: 14ch; } }
 
 /* Hero carousel: slides move sideways; portrait art is a poster over a blurred copy of itself. */
 .gallery.home .h-hero { --h-art: min(56vh, 560px); position: relative; margin: 0 calc(-1 * var(--g-gutter)); overflow: hidden; background: var(--g-overlay-bg); color: var(--g-on-art); touch-action: pan-y; }
+/* Blend the full-width featured art into the page at the masthead rule's ends. */
+.gallery.home .h-hero::after { position: absolute; z-index: 1; inset: 0; background: linear-gradient(90deg, var(--g-paper), transparent var(--g-gutter), transparent calc(100% - var(--g-gutter)), var(--g-paper)); pointer-events: none; content: ''; }
 .gallery.home .h-hero-stage { display: grid; }
 .gallery.home .h-slide { position: relative; display: flex; grid-area: 1 / 1; height: var(--h-art); min-height: 340px; align-items: flex-end; padding: 0 var(--g-gutter) var(--g-space-6); overflow: hidden; background: var(--h-hero-colour); }
 .gallery.home .h-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
@@ -90,7 +89,7 @@
 .gallery.home .h-shelf.is-poster .h-card { width: var(--h-poster); }
 .gallery.home .h-shelf.is-square .h-card, .gallery.home .h-card:has(.g-art-square) { width: var(--h-square); }
 .gallery.home .h-row.is-frames { overflow: hidden; }
-.gallery.home .h-frame { flex: none; width: var(--h-still); aspect-ratio: 16 / 9; border-radius: var(--g-radius); background: var(--g-paper-2); }
+.gallery.home .h-frame { flex: none; width: var(--h-still); aspect-ratio: 16 / 9; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
 .gallery.home .h-shelf.is-poster .h-frame { width: var(--h-poster); aspect-ratio: 2 / 3; }
 .gallery.home .h-shelf.is-square .h-frame { width: var(--h-square); aspect-ratio: 1; }
 .gallery.home .h-shelf-error { margin: 0; font: var(--g-type-body); color: var(--g-ink-2); }
@@ -111,4 +110,3 @@
 .gallery.home .h-start p:not(.g-label), .gallery.home .h-personalize p:not(.g-label) { max-width: 60ch; margin: 0 0 var(--g-space-4); font: var(--g-type-body); color: var(--g-ink-2); }
 .gallery.home .h-start .g-label, .gallery.home .h-personalize .g-label { margin: 0; }
 .gallery.home .h-start-actions { display: flex; flex-wrap: wrap; gap: var(--g-space-3); }
-@media (pointer: fine) and (min-width: 1024px) { .gallery.home .h-masthead h1 { font-size: 56px; } }

@@ -74,7 +74,7 @@
 .player-frame.has-audio-stage { container-type: size; }
 .player-frame.has-audio-stage .lumina-player { background: none; }
 .gallery.g-audio-stage { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: var(--g-space-2); padding: var(--g-space-5) var(--g-space-5) 96px; color: var(--g-on-art); text-align: center; }
-.gallery.g-audio-stage .g-audio-art { width: min(60vh, 480px, calc(100cqh - 200px)); min-width: var(--g-control); border-radius: var(--g-radius); }
+.gallery.g-audio-stage .g-audio-art { width: min(60vh, 480px, calc(100cqh - 200px)); min-width: var(--g-control); border-radius: var(--g-radius-sheet); }
 .gallery.g-audio-stage > p { max-width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gallery .g-audio-title { margin-top: var(--g-space-3); font: italic 700 28px / 1.2 var(--g-serif); }
 .gallery .g-audio-byline, .gallery .g-audio-next { font: var(--g-type-label); letter-spacing: var(--g-track-label); text-transform: uppercase; opacity: .8; }

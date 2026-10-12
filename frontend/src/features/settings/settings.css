@@ -116,7 +116,7 @@
 .setting-feature-detail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
 
 /* ---- from lumina.css (app polish split) ---- */
-.settings-card { display: flex; min-width: 0; min-height: 220px; flex-direction: column; justify-content: space-between; padding: 24px; border-radius: 10px; background: var(--g-wash); overflow-wrap: anywhere; }
+.settings-card { display: flex; min-width: 0; min-height: 220px; flex-direction: column; justify-content: space-between; padding: 24px; border-radius: var(--g-radius-sheet); background: var(--g-wash); overflow-wrap: anywhere; }
 .settings-card > header { display: flex; align-items: center; gap: 13px; }
 .settings-card h2 { margin: 0; color: var(--g-ink); font-family: 'Newsreader', serif; font-size: 26px; font-weight: 400; }
 .settings-card p { margin: 5px 0 0; color: var(--g-ink-3); font-size: 11px; line-height: 1.6; }
@@ -260,7 +260,7 @@
 .g-root-path { white-space: nowrap; }
 .g-table tbody th { padding: 12px 12px 12px 0; border-bottom: var(--g-rule); color: var(--g-ink); font: var(--g-type-ui-strong); letter-spacing: normal; overflow-wrap: anywhere; text-transform: none; vertical-align: top; }
 .g-table small { display: block; margin-top: 2px; color: var(--g-ink-2); font: var(--g-type-small); font-weight: 400; }
-.g-log { max-height: 50vh; overflow: auto; margin: 8px 0 0; padding: 12px 16px; border-radius: var(--g-radius); background: var(--g-paper-2); color: var(--g-ink); font: var(--g-type-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.g-log { max-height: 50vh; overflow: auto; margin: 8px 0 0; padding: 12px 16px; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); color: var(--g-ink); font: var(--g-type-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .g-task-list { display: grid; margin: 0; padding: 0; list-style: none; }
 .g-list-row.g-task, .g-list-row.setting-model { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 16px 0; }
 .g-task-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -298,7 +298,7 @@
   .g-roots thead { display: none; }
   .g-roots tr:not(.g-root-detail) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 20px; padding: 16px 0; border-bottom: var(--g-rule); }
   .g-roots :is(th, td) { padding: 0; border: 0; }
-  .g-root-label { display: block; color: var(--g-ink-3); font: var(--g-type-label); }
+  .g-root-label { display: block; margin-bottom: 2px; color: var(--g-ink-3); font: var(--g-type-label); }
   .g-root-name { grid-area: 1 / 1; }
   .g-root-actions { grid-area: 1 / 2; }
   .g-root-state, .g-root-path { grid-column: 1 / -1; }

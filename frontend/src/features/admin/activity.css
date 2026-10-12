@@ -1,7 +1,7 @@
 .activity-list { display: grid; margin: 0; padding: 0; list-style: none; }
 .activity-session, .activity-job { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 4px 16px; align-items: start; padding: 16px 0; border-bottom: var(--g-rule); }
 .activity-job { grid-template-columns: minmax(0, 1fr); }
-.activity-art { inline-size: 96px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--g-radius); background: var(--g-wash); }
+.activity-art { inline-size: 96px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--g-radius-sheet); background: var(--g-wash); }
 .activity-main { display: grid; gap: 4px; min-width: 0; }
 .activity-title { margin: 0; font: var(--g-type-ui-strong); overflow-wrap: anywhere; }
 .activity-sub { margin: 0; color: var(--g-ink-2); font: var(--g-type-small); overflow-wrap: anywhere; }

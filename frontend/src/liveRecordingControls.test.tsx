@@ -230,7 +230,7 @@ describe('LiveRecordingControls', () => {
     ]));
     render(<LiveRecordingControls capabilities={upcomingCaps()} sourceUrl={SOURCE} />);
     const panel = await screen.findByRole('region', { name: 'Live recording' });
-    expect(within(panel).getAllByText(/Waiting for the broadcast/i).length).toBeGreaterThan(0);
+    expect((await within(panel).findAllByText(/Waiting for the broadcast/i)).length).toBeGreaterThan(0);
     expect(within(panel).getByText(/Waiting for this broadcast to begin/i)).toBeTruthy();
     // A waiting recording can be cancelled (its schedule), never a false "recording".
     expect(within(panel).getByRole('button', { name: /cancel schedule/i })).toBeTruthy();

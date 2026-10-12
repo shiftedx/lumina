@@ -53,7 +53,7 @@
 .g-picker-tiles { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
 .g-picker-tile-wrap { position: relative; }
 .g-picker-tile-wrap .g-icon-button { position: absolute; top: 4px; right: 4px; }
-.g-picker-tile { display: grid; width: 160px; min-height: 200px; place-items: center; align-content: center; gap: 10px; padding: 16px 12px; border-radius: var(--g-radius); background: none; color: var(--g-ink); cursor: pointer; text-align: center; }
+.g-picker-tile { display: grid; width: 160px; min-height: 200px; place-items: center; align-content: center; gap: 10px; padding: 16px 12px; border-radius: var(--g-radius-sheet); background: none; color: var(--g-ink); cursor: pointer; text-align: center; }
 .g-picker-tile:hover { background: var(--g-wash); }
 .g-picker-tile[aria-disabled='true'] { cursor: default; }
 .g-picker-tile.is-asking { width: 260px; cursor: default; }

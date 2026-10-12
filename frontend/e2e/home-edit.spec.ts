@@ -1,3 +1,4 @@
+import { openHomeEditor } from './home-edit-helper';
 import { expect, test, type Page } from '@playwright/test';
 
 import { episodeSummary } from '../src/test/galleryFixtures';
@@ -19,7 +20,7 @@ async function openHome(page: Page, uiPrefs: Record<string, unknown> = {}, viewp
   });
   await page.goto('/');
   await signIn(page);
-  await expect(page.getByRole('button', { name: 'Edit home' })).toBeVisible();
+  await expect(page.locator('.h-masthead h1')).toBeVisible();
   return { saved, requests };
 }
 const handle = (page: Page, name: string) => page.getByRole('button', { name: `Reorder ${name}` });
@@ -29,9 +30,8 @@ const lastLayout = (saved: Saved) => saved.map((body) => body.ui_prefs?.home_she
 
 test('keyboard reorder: Space on Next up, two ArrowDowns, Space; saved and kept across a reload', async ({ page }) => {
   const { saved } = await openHome(page);
-  await page.getByRole('button', { name: 'Edit home' }).focus();
-  await page.keyboard.press('Enter');
-  await expect(page.locator('.h-masthead').getByRole('button', { name: 'Done' })).toHaveAttribute('aria-pressed', 'true');
+  await openHomeEditor(page, true);
+  await expect(page.locator('.h-masthead button')).toHaveCount(0);
   await expect(said(page)).toHaveText('Editing Home. 13 shelves.');
   await expect(handle(page, 'Continue watching')).toBeFocused();
   await handle(page, 'Next up').focus();
@@ -45,13 +45,13 @@ test('keyboard reorder: Space on Next up, two ArrowDowns, Space; saved and kept 
   await expect(handle(page, 'Next up')).toBeFocused();
   await expect.poll(() => lastLayout(saved)?.slice(0, 5).map((entry) => entry.id)).toEqual(['continue', 'live', 'watchlist', 'new_in_library', 'next_up']);
   await page.reload();
-  await page.getByRole('button', { name: 'Edit home' }).click();
+  await openHomeEditor(page);
   await expect(rows(page).nth(4)).toHaveAttribute('data-shelf-row', 'next_up');
 });
 
 test('pointer drag two rows down drops there and saves; Escape mid-drag puts it back and stays in edit mode', async ({ page }) => {
   const { saved } = await openHome(page);
-  await page.getByRole('button', { name: 'Edit home' }).click();
+  await openHomeEditor(page);
   const pitch = (await rows(page).nth(1).boundingBox())!.y - (await rows(page).nth(0).boundingBox())!.y;
   const grip = (await handle(page, 'Next up').boundingBox())!;
   const x = grip.x + grip.width / 2;
@@ -81,7 +81,7 @@ test.describe('touch', () => {
 
   test('a touch drag on a phone moves a shelf', async ({ page }) => {
     const { saved } = await openHome(page, {}, { width: 390, height: 844 });
-    await page.getByRole('button', { name: 'Edit home' }).click();
+    await openHomeEditor(page);
     const pitch = (await rows(page).nth(1).boundingBox())!.y - (await rows(page).nth(0).boundingBox())!.y;
     const grip = (await handle(page, 'Next up').boundingBox())!;
     const x = Math.round(grip.x + grip.width / 2);
@@ -97,12 +97,12 @@ test.describe('touch', () => {
 
 test('a hidden shelf is gone after Done, and its source is never requested after a reload', async ({ page }) => {
   const { saved, requests } = await openHome(page);
-  await page.getByRole('button', { name: 'Edit home' }).click();
+  await openHomeEditor(page);
   await page.getByRole('switch', { name: 'Show Next up' }).click();
   await expect(page.getByRole('switch', { name: 'Show Next up' })).toHaveAttribute('aria-checked', 'false');
   await expect(said(page)).toHaveText('Next up hidden.');
   await page.locator('.h-editor').getByRole('button', { name: 'Done' }).click();
-  await expect(page.getByRole('button', { name: 'Edit home' })).toBeFocused();
+  await expect(page.getByRole('button', { name: /account menu$/ })).toBeFocused();
   await expect(page.getByText('Home layout saved.')).toBeAttached();
   await expect(page.getByRole('region', { name: 'Next up' })).toHaveCount(0);
   await expect.poll(() => lastLayout(saved)?.find((entry) => entry.id === 'next_up')).toEqual({ id: 'next_up', visible: false });
@@ -115,7 +115,7 @@ test('a hidden shelf is gone after Done, and its source is never requested after
 
 test('Reset writes null, then Undo restores the previous layout', async ({ page }) => {
   const { saved } = await openHome(page, { home_shelves: [{ id: 'recent_music', visible: true }] });
-  await page.getByRole('button', { name: 'Edit home' }).click();
+  await openHomeEditor(page);
   await expect(rows(page).first()).toHaveAttribute('data-shelf-row', 'recent_music');
   await page.getByRole('button', { name: 'Reset to default' }).click();
   await expect(rows(page).first()).toHaveAttribute('data-shelf-row', 'continue');
@@ -136,8 +136,8 @@ test('TV remote at 1920×1080: arrows reach Resume and the shelves; edit with ar
   await expect(page.getByRole('region', { name: 'Continue watching' }).locator('[data-focus-item]').first()).toBeFocused();
   await page.locator('.home h1').focus();
   await page.keyboard.press('ArrowUp');
-  await expect(page.getByRole('button', { name: 'Edit home' })).toBeFocused();
-  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: /account menu$/ })).toBeFocused();
+  await openHomeEditor(page, true);
   await expect(handle(page, 'Continue watching')).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(handle(page, 'Live now')).toBeFocused();
@@ -151,12 +151,12 @@ test('TV remote at 1920×1080: arrows reach Resume and the shelves; edit with ar
   await expect(said(page)).toHaveText('Reorder cancelled. Live now is back at position 2.');
   await page.keyboard.press('Escape');
   await expect(page.locator('.h-editor')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Edit home' })).toBeFocused();
+  await expect(page.getByRole('button', { name: /account menu$/ })).toBeFocused();
 });
 
 test('TV remote reaches Reset to default and Done below the last row (E-I3)', async ({ page }) => {
   await openHome(page, {}, { width: 1920, height: 1080 });
-  await page.getByRole('button', { name: 'Edit home' }).click();
+  await openHomeEditor(page);
   await handle(page, 'Recently added music').focus();
   await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('button', { name: 'Reset to default' })).toBeFocused();
@@ -169,12 +169,44 @@ test('TV remote reaches Reset to default and Done below the last row (E-I3)', as
 
 test('another browser signed in to a member without a saved layout sees the default', async ({ page, browser }) => {
   const { saved } = await openHome(page);
-  await page.getByRole('button', { name: 'Edit home' }).click();
+  await openHomeEditor(page);
   await page.getByRole('button', { name: 'Move Recently added music up' }).click();
   await expect.poll(() => lastLayout(saved)?.at(-2)?.id).toBe('recent_music');
   const other = await browser.newPage();
   await openHome(other);
-  await other.getByRole('button', { name: 'Edit home' }).click();
+  await openHomeEditor(other);
   await expect(other.locator('.h-edit-row').last()).toHaveAttribute('data-shelf-row', 'recent_music');
   await other.close();
 });
+
+for (const scheme of ['light', 'dark'] as const) {
+  for (const width of [1440, 390]) {
+    test(`compact greeting, right date and fading featured edges: ${scheme} ${width}`, async ({ page }) => {
+      await openHome(page, {}, { width, height: width === 390 ? 844 : 900 });
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+      const header = page.locator('.h-masthead');
+      await expect(header.locator(':scope > *')).toHaveCount(2);
+      await expect(header.locator('button')).toHaveCount(0);
+      const heading = header.locator('h1');
+      const date = header.locator('.h-date');
+      expect(await heading.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeLessThanOrEqual(32);
+      expect(await date.evaluate((element) => getComputedStyle(element).fontSize)).toBe(width === 390 ? '10px' : '11px');
+      const greetingBox = (await heading.boundingBox())!;
+      const dateBox = (await date.boundingBox())!;
+      expect(dateBox.x).toBeGreaterThan(greetingBox.x);
+      expect(dateBox.x + dateBox.width).toBeLessThanOrEqual(width);
+      const fade = await page.locator('.h-hero').evaluate((element) => ({
+        background: getComputedStyle(element, '::after').backgroundImage,
+        pointerEvents: getComputedStyle(element, '::after').pointerEvents,
+      }));
+      expect(fade.background).toContain('linear-gradient');
+      expect(fade.pointerEvents).toBe('none');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      await page.screenshot({ path: `../output/playwright/home/masthead-${scheme}-${width}.png` });
+      await page.goto('/downloads');
+      await openHomeEditor(page);
+      await expect(page.locator('.h-editor')).toBeVisible();
+      await expect(page).toHaveURL(/\/$/);
+    });
+  }
+}

@@ -12,6 +12,31 @@ const ROUTES = [
 
 for (const scheme of ['light', 'dark'] as const) {
   for (const width of [1440, 390]) {
+    test(`profile and navigation popups share rounded corners: ${scheme} ${width}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      await mockApi(page, { sidebar_collapsed: true });
+      await mockHome(page);
+      await page.goto('/');
+      await signIn(page);
+      await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+      const navigation = page.getByRole('dialog', { name: 'Navigation', exact: true });
+      await expect(navigation).toBeVisible();
+      const radius = await navigation.evaluate((element) => getComputedStyle(element).borderTopLeftRadius);
+      expect(parseFloat(radius)).toBeGreaterThanOrEqual(12);
+      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: /account menu$/ }).click();
+      const profile = page.getByRole('menu');
+      await expect(profile).toBeVisible();
+      for (const corner of ['borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomLeftRadius', 'borderBottomRightRadius'] as const) {
+        expect(await profile.evaluate((element, property) => getComputedStyle(element)[property], corner)).toBe(radius);
+      }
+      expect(await profile.evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe('0px');
+      await page.screenshot({ path: `../output/playwright/borderless/profile-${scheme}-${width}.png` });
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('button', { name: /account menu$/ })).toBeFocused();
+    });
+
     test(`actions and panels have no decorative outline boxes: ${scheme} ${width}`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });

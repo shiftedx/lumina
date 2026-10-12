@@ -96,6 +96,10 @@ Existing `/settings/<section>` and `/admin/<section>` bookmarks still work; owne
 open in Manage Server. Subpage bookmarks use `?page=`, for example `/manage/requests?page=email`.
 Forms with Save buttons retain their save/discard behavior and warn before leaving unsaved edits.
 
+## New-member setup
+
+An invited member creates their own account, then enters the visual welcome. **Personalize my Home** leads through interests and optional channel follows; **Explore without setup** goes straight to Home. A member can return to interests from channel discovery, search for creators, or paste a channel address. Following a channel does not download its media. Completion and skipping are saved per member; an unfinished account returns to the welcome on its next visit.
+
 ## Film and episode playback
 
 Local films and episodes have a dedicated playback layout: the player comes first, followed by title, synopsis, playback actions, and continuation. Episodes show their series and episode order with autoplay controls; films show their poster and collection context. Playback quality, subtitles, resume, theater mode, fullscreen, and picture-in-picture retain their existing controls.
@@ -104,7 +108,7 @@ Local films and episodes have a dedicated playback layout: the player comes firs
 
 Configure SMTP under **Manage Server → Connections → Email**, then use **Send test email** to check delivery. Invitations, request updates, security notices, and the test message share the app’s media-vault styling. Invitations show their expiry and shared libraries; request messages show the title, status, and the relevant action; security notices show the affected account and pause duration.
 
-Email artwork uses versioned public assets from the configured public address. Keep that address reachable over HTTPS so remote mail clients can load the logo, vault illustration, and fonts. Request posters use their existing HTTPS artwork URLs. Status, account details, links, and actions remain live text when images are blocked, and every message includes a plain-text alternative. Clients without web fonts use system fonts; classic Outlook uses a VML button fallback. Preview the variants without sending mail with `mise exec -- backend/.venv/bin/python scripts/email_preview.py /tmp/lumina-email-preview.html`.
+Email artwork uses versioned public assets from the configured public address. Keep that address reachable over HTTPS so remote mail clients can load the logo, illustrations, and fonts. Request posters use their existing HTTPS artwork URLs. Status, account details, links, and actions remain live text when images are blocked, and every message includes a plain-text alternative. Clients without web fonts use system fonts; classic Outlook uses a VML button fallback. Preview the variants without sending mail with `mise exec -- backend/.venv/bin/python scripts/email_preview.py /tmp/lumina-email-preview.html`.
 
 ## Storage
 

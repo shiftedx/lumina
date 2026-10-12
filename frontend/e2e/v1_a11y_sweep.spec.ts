@@ -254,11 +254,11 @@ test('Home and Home in edit mode: no serious axe findings, sideways scroll or sm
 
 // ---- integration: every state of spec 13.1, one test per area, both themes, desktop and phone ------------------
 
-/** A visible focus ring on the first three tab stops. */
-async function focusRingCheck(page: Page, where: string, found: string[]) {
+/** A visible focus ring on the requested number of tab stops. */
+async function focusRingCheck(page: Page, where: string, found: string[], stopCount = 3) {
   // Start from the top of the document: a bare body.focus() keeps the last click or focus as the starting point.
   await page.evaluate(() => { document.body.setAttribute('tabindex', '-1'); document.body.focus(); document.body.removeAttribute('tabindex'); window.scrollTo(0, 0); });
-  for (let stop = 1; stop <= 3; stop += 1) {
+  for (let stop = 1; stop <= stopCount; stop += 1) {
     await page.keyboard.press('Tab');
     const ring = await page.evaluate(() => {
       const element = document.activeElement as HTMLElement | null;
@@ -271,7 +271,7 @@ async function focusRingCheck(page: Page, where: string, found: string[]) {
 }
 
 const AREA_VIEWPORTS = [{ width: 1536, height: 960 }, { width: 390, height: 844 }];
-type Area = { page: Page; scheme: 'light' | 'dark'; width: number; uiPrefs: Record<string, unknown>; found: string[]; visit: (state: string, ring?: boolean) => Promise<void> };
+type Area = { page: Page; scheme: 'light' | 'dark'; width: number; uiPrefs: Record<string, unknown>; found: string[]; visit: (state: string, ring?: boolean | number) => Promise<void> };
 
 /** One test per theme × viewport; `visit` audits the state on screen, labelled `{area}-{state}-{theme}-{width}`. */
 function areaTest(name: string, run: (area: Area) => Promise<void>) {
@@ -287,11 +287,11 @@ function areaTest(name: string, run: (area: Area) => Promise<void>) {
         const uiPrefs: Record<string, unknown> = { sidebar_collapsed: false };
         await mockApi(page, uiPrefs);
         await mockRemoteArtwork(page);
-        const visit = async (state: string, ring = false) => {
+        const visit = async (state: string, ring: boolean | number = false) => {
           await page.waitForTimeout(250);
           const where = `${name}-${state}-${scheme}-${viewport.width}`;
           await audit(page, where, found);
-          if (ring) await focusRingCheck(page, where, found);
+          if (ring) await focusRingCheck(page, where, found, typeof ring === 'number' ? ring : 3);
         };
         await run({ page, scheme, width: viewport.width, uiPrefs, found, visit });
         expect(found).toEqual([]);
@@ -349,6 +349,9 @@ areaTest('onboarding', async ({ page, visit }) => {
   await page.route('**/api/discovery/channels', (route) => route.fulfill({ json: { categories: [{ key: 'music', label: 'Music', state: 'ranked', channels: [candidate('Popular Music Channel', 'popular')] }] } }));
   await page.route('**/api/discovery/channels/search', (route) => route.fulfill({ json: { query: 'creator', channels: [candidate('Searched Creator', 'searched')] } }));
   await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Personalize my Home' })).toBeVisible();
+  await visit('welcome', 2);
+  await page.getByRole('button', { name: 'Personalize my Home' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
   await visit('interests', true);
   await page.getByRole('checkbox', { name: 'Music' }).check();

@@ -38,7 +38,7 @@
     <td><b>Any screen</b><br>Infuse and other Jellyfin apps connect directly. Direct play, remux or transcode, with Intel QSV/VAAPI.</td>
   </tr>
   <tr>
-    <td><b>The whole household</b><br>Members, invitations, per-member limits, two-step verification, and requests through Sonarr and Radarr.</td>
+    <td><b>The whole household</b><br>Members, invitations, per-member limits, two-step verification, and requests through Sonarr and Radarr. A visual welcome guides new members into interests, creators, and their own Home.</td>
     <td><b>Private by default</b><br>Loopback-only until you open it up. Recommendations run locally; AI transcripts and summaries are optional and can run on-device.</td>
   </tr>
 </table>

@@ -1646,7 +1646,7 @@ describe('account links (hooks stay unconditional)', () => {
     window.history.replaceState(null, '', path);
     render(<LuminaApp />);
     expect(window.location.hash).toBe('');
-    if (path.includes('invite')) expect(screen.getByRole('button', { name: 'Join household' })).toBeTruthy();
+    if (path.includes('invite')) expect(screen.getByRole('button', { name: 'Create my account' })).toBeTruthy();
     await userEvent.click(await screen.findByRole('button', { name: 'Back to sign in' }));
     expect(screen.queryByRole('button', { name: 'Back to sign in' })).toBeNull();
     expect(document.body.textContent).not.toBe('');

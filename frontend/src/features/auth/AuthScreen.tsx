@@ -36,10 +36,10 @@ const COPY = {
   loading: { kicker: undefined, title: 'Opening your vault', lede: undefined },
   login: { kicker: 'Sign in', title: 'Welcome home', lede: 'Sign in with your Lumina account.' },
   setup: { kicker: 'First-run setup', title: 'Make Lumina yours', lede: 'Create the first household account. Technical setup can wait until you are inside.' },
-  invite: { kicker: 'Invitation', title: 'Join this household', lede: 'You were invited to this Lumina vault. Your library activity stays private to you.' },
+  invite: { kicker: 'Your invitation', title: 'Step inside the vault.', lede: 'Create your account, then make your Home yours. Your watch history stays private to you.' },
   reset: { kicker: 'Password reset', title: 'Choose a new password', lede: 'Choose a new password, then sign in with it.' },
 } as const;
-const PRIMARY = { login: 'Sign in', setup: 'Create household vault', invite: 'Join household', reset: 'Set new password' } as const;
+const PRIMARY = { login: 'Sign in', setup: 'Create household vault', invite: 'Create my account', reset: 'Set new password' } as const;
 
 /** Sign-in, first-run setup, invitation and reset. No library artwork before sign-in (Decision 23): the
  *  art behind it is the public release showcase (Showcase.tsx), and without it the page keeps its calm two columns. */
@@ -50,7 +50,9 @@ export function AuthScreen({ stage: requestedStage, busy, error, onLogin, onSetu
   const [signingIn, setSigningIn] = useState(false); // "Someone else" chosen over the picker
   // Only a browser that already holds a ring cookie gets members back; nothing lists them otherwise.
   const ring = useDeviceRing(requestedStage === 'login');
-  const show = useShowcase(requestedStage !== 'loading');
+  const invitation = requestedStage === 'invite';
+  const showcase = useShowcase(requestedStage !== 'loading' && !invitation);
+  const show = invitation ? null : showcase;
   const pickerAvailable = requestedStage === 'login' && Boolean(ring.members?.length);
   // The form waits for the ring's answer (at most 3 s) so a remembered household never sees it flash first.
   const stage = requestedStage === 'login' && ring.members === null ? 'loading' : requestedStage;
@@ -86,7 +88,7 @@ export function AuthScreen({ stage: requestedStage, busy, error, onLogin, onSetu
 
   // The panel comes first in the DOM so Tab reaches the form before the showcase controls; the grid places it right.
   return (
-    <main className={cx('g-auth', show && 'has-art g-dark')}>
+    <main className={cx('g-auth', show && 'has-art g-dark', invitation && 'is-invitation')}>
       {show ? <ShowcaseArt show={show} /> : null}
       <div className="g-auth-bar"><BrandMark size="bar" /></div>
       <section aria-labelledby="auth-title" className="g-auth-main">
@@ -100,7 +102,12 @@ export function AuthScreen({ stage: requestedStage, busy, error, onLogin, onSetu
       </section>
       <aside className="g-auth-side">
         <BrandMark size="hero" />
-        {show ? <ShowcaseCaption show={show} /> : (
+        {invitation ? (
+          <div className="g-invite-preview">
+            <img alt="An illustrated vault filled with film reels, records, and books." className="g-invite-vault" height={911} src="/onboarding/vault.jpg" width={1100} />
+            <div className="g-invite-promise"><p className="g-label">A shared vault. Your own Home.</p><h2>Find your next favorite.</h2><p>Discover what’s shared with you, follow the creators you love, and pick up right where you left off.</p></div>
+          </div>
+        ) : show ? <ShowcaseCaption show={show} /> : (
           <>
             <p className="g-auth-quote">Your films, your shows, your household.</p>
             <p className="g-label g-auth-host">Lumina · {window.location.hostname}</p>

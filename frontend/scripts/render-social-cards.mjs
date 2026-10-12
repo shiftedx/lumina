@@ -5,7 +5,8 @@ import { chromium } from '@playwright/test';
 // Static, original artwork only. These previews never depend on a household's media or members.
 const root = new URL('../', import.meta.url);
 const data = async (path, mime) => `data:${mime};base64,${(await readFile(new URL(path, root))).toString('base64')}`;
-const art = await data('social/share-art.png', 'image/png');
+const vault = await data('social/share-art.png', 'image/png');
+const archive = await data('public/onboarding/film-archive-v1.jpg', 'image/jpeg');
 const roman = await data('public/fonts/Newsreader-variable.woff2', 'font/woff2');
 const italic = await data('public/fonts/Newsreader-Italic-variable.woff2', 'font/woff2');
 const output = new URL('public/social/', root);
@@ -17,11 +18,13 @@ try {
     ['share', 'THE HOUSEHOLD MEDIA VAULT', 'Your media.<br>Your vault.', 'Movies, music, and favorites.<br>One household. One media vault.'],
     ['invite', 'YOUR LUMINA INVITATION', 'Step inside<br>the vault.', 'You’re invited to explore<br>a Lumina media vault.'],
   ]) {
+    const art = kind === 'share' ? archive : vault;
+    const artSize = kind === 'share' ? 'right center / 650px auto' : 'center / cover';
     await page.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>
       @font-face { font-family: Newsreader; src: url('${roman}'); font-style: normal; font-weight: 100 900; }
       @font-face { font-family: Newsreader; src: url('${italic}'); font-style: italic; font-weight: 100 900; }
       * { box-sizing: border-box; } html, body { width: 1200px; height: 630px; margin: 0; overflow: hidden; }
-      body { background: #0f0e0c url('${art}') center / cover no-repeat; color: #f4f1ea; }
+      body { background: #0f0e0c url('${art}') ${artSize} no-repeat; color: #f4f1ea; }
       .brand { position: absolute; left: 64px; top: 59px; display: flex; align-items: center; gap: 17px; }
       .brand svg { width: 59px; height: 43px; color: #edb71b; }
       .brand span { padding-top: 6px; font: 500 34px / 1 Newsreader, serif; letter-spacing: 4px; }
@@ -34,6 +37,6 @@ try {
       <p class="kicker">${kicker}</p><h1>${headline}</h1><p class="copy">${copy}</p><span class="horizon"></span>
     </body></html>`);
     await page.evaluate(() => document.fonts.ready);
-    await page.screenshot({ path: fileURLToPath(new URL(`lumina-${kind}-v1.jpg`, output)), type: 'jpeg', quality: 90 });
+    await page.screenshot({ path: fileURLToPath(new URL(`lumina-${kind}-v${kind === 'share' ? 2 : 1}.jpg`, output)), type: 'jpeg', quality: 90 });
   }
 } finally { await browser.close(); }

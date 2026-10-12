@@ -1,9 +1,7 @@
-"""Every email Lumina sends, in one layout: a plain-text part and an HTML part built from the same blocks.
+"""Lumina's media-led emails: escaped live content, plain-text parity, and email-safe tables.
 
-The HTML is email-client safe: tables, inline styles, a bulletproof button (VML for Outlook), a hidden preheader and a
-560 px column. It is dark first like the app; a ``prefers-color-scheme: light`` block (Apple Mail, iOS Mail) switches to
-the light palette, and backgrounds sit on the table cells too, so a client that drops ``<body>`` styles keeps them.
-Callers pass plain strings: every value is escaped here, so no caller writes HTML.
+Static vault artwork and request posters add atmosphere; status, facts and actions remain readable when images are
+blocked. Inline styles and Outlook's VML button are the baseline; responsive and light-theme CSS enhance it.
 """
 from __future__ import annotations
 
@@ -13,62 +11,65 @@ from urllib.parse import urlparse
 from app.services import public_address
 
 SERVER_NAME = "Lumina"
-LOGO_PATH = "/email-mark.png"  # frontend/public/email-mark.png: favicon.svg rasterized at 128 px, unchanged
-
-# The app's tokens (frontend/src/styles/tokens.css), dark then light.
+LOGO_PATH = "/email/mark-v1.png"
+HERO_PATH = "/email/vault-v1.jpg"
 PAPER, PAPER_2, PAPER_3 = "#0f0e0c", "#1a1814", "#221f1a"
 INK, INK_2, INK_3 = "#efe9dd", "#c9c2b4", "#9d968a"
 GOLD, GOLD_INK, ON_GOLD, RULE = "#e5a00d", "#f0b43a", "#15130f", "#36322b"
 SERIF = "Newsreader,Georgia,'Times New Roman',serif"
 SANS = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+# Functional status colours mirror the app; colour never carries the status by itself.
+STATES = {
+    "pending": ("◷", GOLD_INK, "#8a5a00"),
+    "approved": ("✓", GOLD_INK, "#8a5a00"),
+    "available": ("▶", "#8cc79a", "#2f6b3a"),
+    "declined": ("—", INK_2, "#4a463f"),
+    "failed": ("!", "#e58a74", "#a3321f"),
+    "security": ("!", "#e58a74", "#a3321f"),
+    "connected": ("✓", "#8cc79a", "#2f6b3a"),
+    "invite": ("↗", GOLD_INK, "#8a5a00"),
+}
 
 _LIGHT = """
 @media (prefers-color-scheme: light) {
   .lm-paper { background:#f4f1ea !important; }
-  .lm-card { background:#fbf9f4 !important; border-color:#e2dccf !important; border-top-color:#e5a00d !important; }
+  .lm-card { background:#fbf9f4 !important; }
   .lm-well { background:#ece7dc !important; }
   .lm-ink { color:#15130f !important; }
   .lm-ink2 { color:#4a463f !important; }
   .lm-ink3 { color:#615c53 !important; }
   .lm-gold { color:#8a5a00 !important; }
   .lm-rule { border-color:#e2dccf !important; }
+  .lm-future { background:#e2dccf !important; }
 }"""
 
 
 def https_url(value: str | None) -> str | None:
-    """``value`` when it is an absolute https URL (a remote poster), else None."""
+    """Only absolute HTTPS posters can enter the email; private relative art stays out."""
     parsed = urlparse(value or "")
     return value if parsed.scheme == "https" and parsed.netloc else None
 
 
 def compose(
-    *,
-    subject: str,
-    preheader: str,
-    eyebrow: str,
-    heading: str,
-    why: str,
-    paragraphs: tuple[str, ...] = (),
-    meta: str | None = None,
-    poster: str | None = None,
-    listing: tuple[str, list[str]] | None = None,
-    note: tuple[str, str] | None = None,
-    button: tuple[str, str] | None = None,
-    fineprint: tuple[str, ...] = (),
-    unsubscribe: str | None = None,
+    *, subject: str, preheader: str, eyebrow: str, heading: str, why: str,
+    paragraphs: tuple[str, ...] = (), meta: str | None = None, poster: str | None = None,
+    listing: tuple[str, list[str]] | None = None, note: tuple[str, str] | None = None,
+    button: tuple[str, str] | None = None, fineprint: tuple[str, ...] = (), unsubscribe: str | None = None,
+    facts: tuple[tuple[str, str], ...] = (), status: str | None = None, progress: int | None = None,
 ) -> tuple[str, str]:
-    """(text, html). ``poster`` must be an absolute https URL or it is left out; ``why`` says why the reader got it."""
+    """(text, html). Every caller value is plain text, escaped here; no caller supplies markup."""
     base = public_address.link_base()
-    host = urlparse(base).netloc or base
-    footer = f"Sent by {SERVER_NAME} at {host}."
-    text = _text(heading, meta, paragraphs, listing, note, button, fineprint, [why, unsubscribe, footer])
+    footer = f"Sent by {SERVER_NAME} at {urlparse(base).netloc or base}."
+    text = _text(heading, meta, paragraphs, facts, listing, note, button, fineprint, [why, unsubscribe, footer])
     html = _html(subject, preheader, eyebrow, heading, why, paragraphs, meta, https_url(poster), listing, note, button,
-                 fineprint, unsubscribe, footer, base)
+                 fineprint, unsubscribe, footer, base, facts, status, progress)
     return text, html
 
 
-def _text(heading, meta, paragraphs, listing, note, button, fineprint, footer) -> str:  # noqa: ANN001
+def _text(heading, meta, paragraphs, facts, listing, note, button, fineprint, footer) -> str:  # noqa: ANN001
     parts = [heading + (f"\n{meta}" if meta else ""), *paragraphs]
+    if facts:
+        parts.append("\n".join(f"{label}: {value}" for label, value in facts))
     if listing:
         parts.append(f"{listing[0]}:\n" + "\n".join(f"  - {item}" for item in listing[1]))
     if note:
@@ -80,113 +81,142 @@ def _text(heading, meta, paragraphs, listing, note, button, fineprint, footer) -
     return "\n\n".join(parts) + "\n"
 
 
-def _html(subject, preheader, eyebrow, heading, why, paragraphs, meta, poster, listing, note, button, fineprint,  # noqa: ANN001, PLR0913
-          unsubscribe, footer, base) -> str:
-    e = escape
-    label = f"font-family:{SANS};font-size:11px;line-height:1.3;font-weight:600;letter-spacing:.18em;text-transform:uppercase"
-    body = f"font-family:{SERIF};font-size:17px;line-height:1.6;color:{INK_2}"
-    small = f"font-family:{SANS};font-size:13px;line-height:1.55;color:{INK_3}"
+def _progress(step: int) -> str:
+    cells = []
+    for i, name in enumerate(("Requested", "Approved", "Ready")):
+        active = i <= step
+        colour = GOLD if active else RULE
+        cells.append(
+            f'<td width="33%" style="padding:0 {0 if i == 2 else 8}px 0 0">'
+            f'<div class="{"" if active else "lm-future"}" style="height:3px;background:{colour};font-size:1px;line-height:3px">&nbsp;</div>'
+            f'<p class="{"lm-gold" if active else "lm-ink3"}" style="margin:8px 0 0;font-family:{SANS};font-size:11px;'
+            f'line-height:1.4;color:{GOLD_INK if active else INK_3}">{"✓ " if i < step else ""}{name}</p></td>')
+    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' + "".join(cells) + '</tr></table>'
 
+
+def _html(subject, preheader, eyebrow, heading, why, paragraphs, meta, poster, listing, note, button, fineprint,  # noqa: ANN001, PLR0913
+          unsubscribe, footer, base, facts, status, progress) -> str:
+    e = escape
+    label = f"font-family:{SANS};font-size:11px;line-height:1.4;font-weight:600;letter-spacing:.12em;text-transform:uppercase"
+    body = f"font-family:{SANS};font-size:15px;line-height:1.65;color:{INK_2}"
+    small = f"font-family:{SANS};font-size:12px;line-height:1.6;color:{INK_3}"
+    symbol, status_colour, light_colour = STATES.get(status, ("", GOLD_INK, "#8a5a00"))
+    status_block = (
+        f'<p class="lm-status" style="margin:0 0 14px;{label};color:{status_colour}">'
+        f'<span aria-hidden="true" style="font-size:16px;vertical-align:middle">{symbol}</span> {e(eyebrow)}</p>')
     title_block = (
-        f'<p class="lm-gold" style="margin:0 0 14px;{label};color:{GOLD_INK}">{e(eyebrow)}</p>'
-        f'<h1 class="lm-ink lm-h1" style="margin:0;font-family:{SERIF};font-style:italic;font-weight:600;font-size:34px;'
-        f'line-height:1.12;letter-spacing:-.015em;color:{INK}">{e(heading)}</h1>'
-        + (f'<p class="lm-ink3" style="margin:10px 0 0;{small};letter-spacing:.06em">{e(meta)}</p>' if meta else "")
+        status_block + f'<h1 class="lm-ink lm-h1" style="margin:0;font-family:{SERIF};font-style:italic;font-weight:700;'
+        f'font-size:38px;line-height:1.08;letter-spacing:-.015em;color:{INK};overflow-wrap:anywhere;word-break:break-word">{e(heading)}</h1>'
+        + (f'<p class="lm-ink3" style="margin:12px 0 0;font-family:{SANS};font-size:13px;line-height:1.5;color:{INK_3}">{e(meta)}</p>' if meta else "")
     )
+    if progress is not None:
+        title_block += f'<div style="padding-top:24px">{_progress(progress)}</div>'
     if poster:
         title_block = (
-            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>'
-            f'<td width="104" valign="top" class="lm-well" bgcolor="{PAPER_3}" style="width:104px;background:{PAPER_3}">'
-            f'<img src="{e(poster)}" width="104" height="156" alt="{e(heading)}" style="display:block;width:104px;height:156px;'
-            f'border:0;object-fit:cover;font-family:{SERIF};font-style:italic;font-size:13px;color:{INK_3}"></td>'
-            f'<td valign="bottom" style="padding-left:24px">{title_block}</td></tr></table>'
-        )
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed"><tr>'
+            f'<td valign="middle" class="lm-media-copy" style="padding-right:24px">{title_block}</td>'
+            f'<td width="148" valign="top" class="lm-poster-cell" style="width:148px">'
+            f'<img src="{e(poster, quote=True)}" width="148" height="222" alt="{e(heading, quote=True)}" class="lm-poster" '
+            f'style="display:block;width:148px;height:222px;border:0;border-radius:12px;object-fit:cover;background:{PAPER_3};'
+            f'font-family:{SANS};font-size:13px;line-height:1.5;color:{INK_3}"></td></tr></table>')
 
-    rows = [f'<tr><td style="padding-bottom:28px">{title_block}</td></tr>']
+    rows = [f'<tr><td style="padding-bottom:22px">{title_block}</td></tr>']
     rows += [f'<tr><td class="lm-ink2" style="padding-bottom:18px;{body}">{e(text)}</td></tr>' for text in paragraphs]
+    if facts:
+        cells = []
+        for i, (name, value) in enumerate(facts):
+            cells.append(f'<td width="50%" valign="top" style="padding:0 16px 14px 0"><p class="lm-ink3" style="margin:0 0 5px;{label};color:{INK_3}">{e(name)}</p>'
+                         f'<p class="lm-ink" style="margin:0;font-family:{SANS};font-size:16px;line-height:1.5;font-weight:600;color:{INK};overflow-wrap:anywhere">{e(value)}</p></td>')
+            if i % 2:
+                cells[-1] += '</tr><tr>'
+        rows.append('<tr><td style="padding:4px 0 12px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed"><tr>'
+                    + "".join(cells).removesuffix('</tr><tr>') + '</tr></table></td></tr>')
     if listing:
-        items = "".join(
-            f'<tr><td width="22" valign="top" class="lm-gold" style="{body};color:{GOLD}">&#8212;</td>'
-            f'<td class="lm-ink" style="{body};color:{INK}">{e(item)}</td></tr>' for item in listing[1])
-        rows.append(
-            f'<tr><td style="padding:4px 0 22px"><p class="lm-ink3" style="margin:0 0 8px;{label};color:{INK_3}">{e(listing[0])}</p>'
-            f'<table role="presentation" cellpadding="0" cellspacing="0" border="0">{items}</table></td></tr>')
+        if status == "connected" and len(listing[1]) == 3:
+            items = "".join(
+                f'<td width="33%" valign="top" style="padding-right:12px"><p class="lm-gold" aria-hidden="true" style="margin:0 0 10px;'
+                f'font-family:{SANS};font-size:25px;line-height:1;color:{GOLD_INK}">{symbol}</p>'
+                f'<p class="lm-ink" style="margin:0 0 5px;font-family:{SANS};font-size:13px;font-weight:600;line-height:1.5;color:{INK}">{e(item.partition(" · ")[0])}</p>'
+                f'<p class="lm-ink3" style="margin:0;{small}">{e(item.partition(" · ")[2])}</p></td>'
+                for symbol, item in zip(("↗", "▶", "!"), listing[1], strict=True))
+            items = '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed"><tr>' + items + '</tr></table>'
+        else:
+            items = "".join(f'<span class="lm-well lm-ink" style="display:inline-block;background:{PAPER_3};border-radius:8px;padding:7px 12px;'
+                            f'margin:0 6px 6px 0;font-family:{SANS};font-size:13px;line-height:1.5;color:{INK}">{e(item)}</span>' for item in listing[1])
+        rows.append(f'<tr><td style="padding:2px 0 20px"><p class="lm-ink3" style="margin:0 0 10px;{label};color:{INK_3}">{e(listing[0])}</p>'
+                    f'{items}</td></tr>')
     if note:
-        rows.append(
-            f'<tr><td style="padding:4px 0 24px"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>'
-            f'<td class="lm-well" bgcolor="{PAPER_3}" style="background:{PAPER_3};border-left:2px solid {GOLD};padding:16px 20px">'
-            f'<p class="lm-ink3" style="margin:0 0 6px;{label};color:{INK_3}">{e(note[0])}</p>'
-            f'<p class="lm-ink" style="margin:0;font-family:{SERIF};font-style:italic;font-size:18px;line-height:1.5;color:{INK}">'
-            f'{e(note[1])}</p></td></tr></table></td></tr>')
+        rows.append(f'<tr><td style="padding:2px 0 22px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>'
+                    f'<td class="lm-well" bgcolor="{PAPER_3}" style="background:{PAPER_3};border-radius:12px;padding:16px 20px">'
+                    f'<p class="lm-ink3" style="margin:0 0 6px;{label};color:{INK_3}">{e(note[0])}</p>'
+                    f'<p class="lm-ink" style="margin:0;{body};color:{INK}">{e(note[1])}</p></td></tr></table></td></tr>')
     if button:
-        rows.append(f'<tr><td style="padding:10px 0 {30 if fineprint else 6}px">{_button(*button)}</td></tr>')
-    rows += [f'<tr><td class="lm-ink3 lm-rule" style="{"border-top:1px solid " + RULE + ";padding:22px 0 10px" if not i else "padding-bottom:10px"};'
-             f'{small};word-break:break-word">{e(text)}</td></tr>' for i, text in enumerate(fineprint)]
-
-    foot = [why, unsubscribe, footer]
-    footer_html = "".join(
-        f'<p class="lm-ink3" style="margin:0 0 6px;{small};font-size:12px">{e(line)}</p>' for line in foot if line)
-    font = (f"@font-face {{ font-family:'Newsreader'; font-style:italic; font-weight:200 800; "
-            f"src:url('{e(base)}/fonts/Newsreader-Italic-variable.woff2') format('woff2'); }}")
-    return f"""<!doctype html>
+        rows.append(f'<tr><td style="padding:6px 0 8px">{_button(*button)}</td></tr>')
+        rows.append(f'<tr><td style="padding-top:12px;{small}">Button not working? <a class="lm-gold" href="{e(button[1], quote=True)}" '
+                    f'style="color:{GOLD_INK};text-decoration:underline">Open this link</a>.</td></tr>')
+    rows += [f'<tr><td class="lm-ink3" style="padding-top:14px;{small};overflow-wrap:anywhere">{e(text)}</td></tr>' for text in fineprint]
+    footer_html = "".join(f'<p class="lm-ink3" style="margin:0 0 6px;{small}">{e(line)}</p>' for line in (why, unsubscribe, footer) if line)
+    hero_image = (
+        f'<img src="{e(base, quote=True)}{HERO_PATH}" width="640" alt="An illustrated media vault filled with film reels and records." '
+        f'style="display:block;width:100%;max-width:640px;height:auto;border:0;border-radius:12px 12px 0 0;color:{INK_2};font-family:{SANS};font-size:13px">')
+    # Modern clients collapse blocked artwork to its alt text; classic Outlook retains explicit image dimensions.
+    hero = "" if poster else (
+        f'<tr><td bgcolor="{PAPER}" style="background:{PAPER};border-radius:12px 12px 0 0;overflow:hidden">'
+        f'<!--[if mso]>{hero_image.replace("width=\"640\"", "width=\"640\" height=\"240\"")}<![endif]-->'
+        f'<!--[if !mso]><!-->{hero_image}<!--<![endif]--></td></tr>')
+    font = "\n".join(f"@font-face {{ font-family:'Newsreader';font-style:{style};font-weight:200 800;src:url('{e(base)}/fonts/{file}') format('woff2'); }}"
+                     for style, file in (("normal", "Newsreader-variable.woff2"), ("italic", "Newsreader-Italic-variable.woff2")))
+    return f'''<!doctype html>
 <html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="x-apple-disable-message-reformatting">
-<meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting"><meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+<meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">
 <title>{e(subject)}</title>
 <!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><![endif]-->
-<style>
-{font}
+<style>{font}
 :root {{ color-scheme:light dark; supported-color-schemes:light dark; }}
-body {{ margin:0 !important; padding:0 !important; width:100% !important; -webkit-text-size-adjust:100%; }}
+body {{ margin:0 !important;padding:0 !important;width:100% !important;-webkit-text-size-adjust:100%; }}
 a {{ color:{GOLD_INK}; }}
 @media (max-width:600px) {{
-  .lm-outer {{ padding:20px 10px 28px !important; }}
-  .lm-pad {{ padding:32px 24px 30px !important; }}
-  .lm-head {{ padding:0 4px 18px !important; }}
-  .lm-h1 {{ font-size:28px !important; }}
-  .lm-btn, .lm-btn a {{ display:block !important; text-align:center !important; }}
+.lm-outer {{ padding:20px 12px 28px !important; }}
+.lm-pad {{ padding:28px 24px !important; }}
+.lm-h1 {{ font-size:30px !important; }}
+.lm-poster-cell {{ width:96px !important; }}
+.lm-poster {{ width:96px !important;height:144px !important; }}
+.lm-media-copy {{ padding-right:16px !important; }}
+.lm-btn,.lm-btn a {{ display:block !important;text-align:center !important; }}
+.lm-tagline {{ display:none !important; }}
 }}{_LIGHT}
-</style>
-</head>
+@media (prefers-color-scheme: light) {{ .lm-status {{ color:{light_colour} !important; }} }}
+</style></head>
 <body class="lm-paper" bgcolor="{PAPER}" style="margin:0;padding:0;background:{PAPER}">
 <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all">{e(preheader)}{"&#8199;&#847; " * 40}</div>
-<table role="presentation" class="lm-paper" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{PAPER}" style="background:{PAPER}">
-<tr><td align="center" class="lm-outer" style="padding:40px 16px 48px">
-<!--[if mso]><table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;margin:0 auto">
-<tr><td class="lm-head" style="padding:0 4px 22px"><a href="{e(base, quote=True)}" style="text-decoration:none">
-<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-<td valign="middle" style="padding-right:12px"><img src="{e(base, quote=True)}{LOGO_PATH}" width="36" height="36" alt="{SERVER_NAME}" style="display:block;width:36px;height:36px;border:0;font-family:{SANS};font-size:10px;line-height:36px;color:{INK_3}"></td>
-<td valign="middle" class="lm-ink" style="font-family:{SERIF};font-style:italic;font-weight:600;font-size:24px;line-height:1;letter-spacing:-.01em;color:{INK}">{SERVER_NAME}</td>
-</tr></table></a></td></tr>
-<tr><td class="lm-card lm-pad" bgcolor="{PAPER_2}" style="background:{PAPER_2};border:1px solid {RULE};border-top:2px solid {GOLD};padding:44px 44px 40px">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-{"".join(rows)}
-</table></td></tr>
-<tr><td style="padding:24px 4px 0">{footer_html}</td></tr>
-</table>
-<!--[if mso]></td></tr></table><![endif]-->
-</td></tr></table>
-</body>
-</html>"""
+<table role="presentation" class="lm-paper" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{PAPER}" style="background:{PAPER}"><tr>
+<td align="center" class="lm-outer" style="padding:32px 16px 40px">
+<!--[if mso]><table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;margin:0 auto">
+<tr><td style="padding:0 4px 20px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td><a href="{e(base, quote=True)}" style="text-decoration:none"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+<td valign="middle" style="padding-right:12px"><img src="{e(base, quote=True)}{LOGO_PATH}" width="36" height="28" alt="Lumina" style="display:block;width:36px;height:28px;border:0;color:{INK_3}"></td>
+<td class="lm-ink" valign="middle" style="font-family:{SERIF};font-size:21px;font-weight:600;line-height:1;letter-spacing:.1em;color:{INK}">LUMINA</td>
+</tr></table></a></td><td align="right" class="lm-ink3 lm-tagline" style="{label};color:{INK_3}">The media vault</td></tr></table></td></tr>
+<tr><td class="lm-card" bgcolor="{PAPER_2}" style="background:{PAPER_2};border-radius:12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">{hero}
+<tr><td class="lm-pad" style="padding:36px 36px 32px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">{"".join(rows)}</table></td></tr>
+</table></td></tr><tr><td style="padding:20px 4px 0">{footer_html}</td></tr>
+</table><!--[if mso]></td></tr></table><![endif]-->
+</td></tr></table></body></html>'''
 
 
 def _button(label: str, url: str) -> str:
-    """A gold button that survives Outlook (VML) and image blocking (it is a styled link, not a picture)."""
+    """Live HTML action, with VML for classic Outlook; no image is needed to act."""
     href, text = escape(url, quote=True), escape(label)
-    width = max(200, len(label) * 11 + 64)
-    style = (f"display:inline-block;background:{GOLD};color:{ON_GOLD};font-family:{SANS};font-size:13px;font-weight:700;"
-             f"line-height:48px;letter-spacing:.12em;text-transform:uppercase;text-decoration:none;padding:0 30px;border-radius:2px;"
-             "mso-hide:all")
+    width = max(200, len(label) * 10 + 64)
+    style = (f"display:inline-block;background:{GOLD};color:{ON_GOLD};font-family:{SANS};font-size:12px;font-weight:700;"
+             "line-height:48px;letter-spacing:.1em;text-transform:uppercase;text-decoration:none;padding:0 28px;border-radius:2px;mso-hide:all")
     return (
         f'<div class="lm-btn"><!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" '
         f'href="{href}" style="height:48px;v-text-anchor:middle;width:{width}px;" arcsize="4%" stroke="f" fillcolor="{GOLD}">'
-        f'<w:anchorlock/><center style="color:{ON_GOLD};font-family:Segoe UI,Arial,sans-serif;font-size:13px;font-weight:bold;'
-        f'letter-spacing:2px;">{escape(label.upper())}</center></v:roundrect><![endif]-->'
-        f'<a href="{href}" target="_blank" style="{style}">{text}</a></div>'
-    )
+        f'<w:anchorlock/><center style="color:{ON_GOLD};font-family:Segoe UI,Arial,sans-serif;font-size:12px;font-weight:bold;letter-spacing:1px">'
+        f'{escape(label.upper())}</center></v:roundrect><![endif]--><a href="{href}" target="_blank" style="{style}">{text} &nbsp;↗</a></div>')

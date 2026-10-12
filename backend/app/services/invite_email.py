@@ -7,19 +7,20 @@ from app.services import email_layout
 
 
 def render(*, inviter: str, server: str, libraries: list[str], link: str, expires: datetime) -> tuple[str, str, str]:
-    """(subject, text, html). ``libraries`` are human names; empty means everything the household shares."""
+    """(subject, text, html). Only supplied library names are listed; an empty list makes no access promise."""
     when = f"{expires:%B} {expires.day}, {expires.year}"
-    subject = f"{inviter} invited you to {server}"
+    subject = f"{' '.join(inviter.split())} invited you to {' '.join(server.split())}"
     text, html = email_layout.compose(
         subject=subject,
-        preheader=f"Join {inviter} on {server}. The link works once and expires on {when}.",
+        preheader=f"{inviter} shared a media vault with you. Accept by {when}.",
         eyebrow="You're invited",
-        heading=subject,
-        paragraphs=(f"{server} is where {inviter}'s household keeps its films, shows and more. "
-                    "Accept the invitation, choose a password, and pull up a chair.",),
-        listing=("You can watch", libraries or ["Everything the household shares"]),
+        heading="Step inside the vault.",
+        paragraphs=(f"{inviter} invited you to {server}. Movies, music, and favorites, ready to discover.",),
+        facts=(("Accept by", when), ("Access link", "Single use")),
+        status="invite",
+        listing=("Shared with you", libraries) if libraries else None,
         button=("Accept invitation", link),
-        fineprint=(f"This link works once and expires on {when}.", f"Button not working? Paste this into your browser: {link}"),
+        fineprint=("Choose your password when you accept. Your invitation is personal; keep the link private.",),
         why=f"You're getting this because {inviter} invited this address to {server}. Not expecting it? Ignore this email "
             "and nothing happens.",
     )

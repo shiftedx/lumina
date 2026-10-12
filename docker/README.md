@@ -96,6 +96,12 @@ Existing `/settings/<section>` and `/admin/<section>` bookmarks still work; owne
 open in Manage Server. Subpage bookmarks use `?page=`, for example `/manage/requests?page=email`.
 Forms with Save buttons retain their save/discard behavior and warn before leaving unsaved edits.
 
+## Outgoing email
+
+Configure SMTP under **Manage Server → Connections → Email**, then use **Send test email** to check delivery. Invitations, request updates, security notices, and the test message share the app’s media-vault styling. Invitations show their expiry and shared libraries; request messages show the title, status, and the relevant action; security notices show the affected account and pause duration.
+
+Email artwork uses versioned public assets from the configured public address. Keep that address reachable over HTTPS so remote mail clients can load the logo, vault illustration, and fonts. Request posters use their existing HTTPS artwork URLs. Status, account details, links, and actions remain live text when images are blocked, and every message includes a plain-text alternative. Clients without web fonts use system fonts; classic Outlook uses a VML button fallback. Preview the variants without sending mail with `mise exec -- backend/.venv/bin/python scripts/email_preview.py /tmp/lumina-email-preview.html`.
+
 ## Storage
 
 - `./app-data` holds the database, backups, caches and the built-in Library (`app-data/library/<member-id>/`). Keep it app-exclusive: no household-writable share.

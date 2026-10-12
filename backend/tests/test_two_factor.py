@@ -425,7 +425,8 @@ def test_owners_get_an_email_when_a_members_codes_pause(client: TestClient, fact
         two_factor.verify(db, user, code="000000")
         assert done.wait(5)
         assert sent == [("owner@example.com", "Two-step verification paused for Local", sent[0][2])]
-        assert "(local) entered 10 wrong" in sent[0][2] and "000000" not in sent[0][2]
+        assert "Account: Local (local)" in sent[0][2] and "Trigger: 10 incorrect codes" in sent[0][2]
+        assert "Recovery codes still work" in sent[0][2] and "000000" not in sent[0][2]
         # Further misses after the pause do not mail again.
         db.get(User, "u1", populate_existing=True).totp_locked_until = None
         db.commit()

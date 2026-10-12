@@ -298,7 +298,7 @@
   .g-roots thead { display: none; }
   .g-roots tr:not(.g-root-detail) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 20px; padding: 16px 0; border-bottom: var(--g-rule); }
   .g-roots :is(th, td) { padding: 0; border: 0; }
-  .g-root-label { display: block; color: var(--g-ink-3); font: var(--g-type-label); }
+  .g-root-label { display: block; margin-bottom: 2px; color: var(--g-ink-3); font: var(--g-type-label); }
   .g-root-name { grid-area: 1 / 1; }
   .g-root-actions { grid-area: 1 / 2; }
   .g-root-state, .g-root-path { grid-column: 1 / -1; }

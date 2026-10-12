@@ -1,4 +1,3 @@
-import { Check } from 'lucide-react';
 import { type FocusEvent, type KeyboardEvent, type ReactElement, type ReactNode, type Ref, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { cx } from './cx';
 import { place } from './placement';
@@ -139,7 +138,7 @@ export function Menu({ trigger, items, align = 'start', label, variant = 'paper'
             const rowsOf = section.entries.map((entry, row) => {
               if (entry.kind === 'separator') return <div className="g-menu-separator" key={`s${row}`} role="separator" />;
               if (entry.kind === 'radio') {
-                return <button aria-checked={entry.checked} className="g-menu-item" key={entry.label} onClick={() => choose(entry.onSelect)} role="menuitemradio" tabIndex={-1} type="button"><span aria-hidden="true" className="g-menu-check">{entry.checked ? <Check /> : null}</span>{entry.label}{entry.hint ? <span className="g-menu-hint">{entry.hint}</span> : null}</button>;
+                return <button aria-checked={entry.checked} className="g-menu-item" key={entry.label} onClick={() => choose(entry.onSelect)} role="menuitemradio" tabIndex={-1} type="button">{entry.label}{entry.hint ? <span className="g-menu-hint">{entry.hint}</span> : null}</button>;
               }
               if (entry.kind !== 'item') return null;
               const content = <>{entry.icon ? <span aria-hidden="true" className="g-menu-icon">{entry.icon}</span> : null}{entry.label}{entry.hint ? <span className="g-menu-hint">{entry.hint}</span> : null}{entry.detail && expanded === entry.label ? <span className="g-menu-detail">{entry.detail}</span> : null}</>;

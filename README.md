@@ -47,28 +47,31 @@
   <img src="docs/assets/library.jpg" alt="Lumina movie library grid">
 </p>
 
-## In 0.3.0
+## In 0.3.1
 
-- **Refresh without leaving the Library.** Use **Refresh** beside the library tabs to reload the current view. For vault owners, it also starts a full background rescan of eligible imported folders. Notifications report scans started or queued, unavailable folders, and errors. To scan one folder or review missing-file confirmation, open **Manage Server → Library & storage → Imports**.
-- **A cleaner interface throughout the app.** Actions, cards, panels, notices, and dialogs use spacing and restrained surfaces instead of decorative outlined boxes. Settings fields use underlines, and automatically focused headings no longer show a rectangular frame. Keyboard focus remains visible on interactive controls.
+- **See what the server is doing.** Header Activity combines downloads with library-wide scan phases, checked-file totals, and indexing percentages. Files still copying are shown separately.
+- **Films and TV take the stage.** The player comes first, with title, synopsis, playback actions, episode continuation, and movie collection context beneath it.
+- **A visual welcome.** New members explore interests and creators with bespoke illustrations, or go straight into their Home without setup.
+- **Consistent surfaces and communications.** Rounded menus and cards, a quieter Home greeting, aligned theme selections, illustrated link previews, and concise visual emails follow Lumina’s media-vault styling.
+- **More stable playback recovery.** DASH retries preserve the current position before tearing down the previous player.
 
-Version 0.3.0 is the new repository and release baseline. Earlier release tags and downloads have been removed. See the [release notes](RELEASE_NOTES.md) for what is included.
+Version 0.3.0 established the new repository and release baseline. Version 0.3.1 includes the new onboarding, playback layouts, scan activity, and visual communications. See the [release notes](RELEASE_NOTES.md) for what is included.
 
 ## Run
 
-Needs Docker with Compose, on amd64 or arm64. Lumina 0.3.0 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.0`.
+Needs Docker with Compose, on amd64 or arm64. Lumina 0.3.1 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.1`.
 
 ```bash
 mkdir lumina && cd lumina
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.0/docker-compose.yml
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.0/SHA256SUMS
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.1/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.1/SHA256SUMS
 grep 'docker-compose.yml$' SHA256SUMS | shasum -a 256 -c -
 printf 'LUMINA_RUNTIME_UID=%s\nLUMINA_RUNTIME_GID=%s\n' "$(id -u)" "$(id -g)" > .env
 docker compose pull lumina
 docker compose up -d --no-build lumina
 ```
 
-Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.3.0/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
+Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.3.1/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
 
 | To | See |
 | --- | --- |

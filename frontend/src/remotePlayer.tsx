@@ -428,9 +428,11 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
         }
         const onError = () => {
           if (cancelled) return;
+          // dash.js reset clears currentTime. Snapshot it before tearing down so a transient
+          // startup failure resumes where playback stopped instead of looping from zero.
+          recoverDash();
           player?.reset();
           player = null;
-          recoverDash();
         };
         player.on(dashjs.MediaPlayer.events.ERROR, onError);
         // dash.js drops video it cannot decode and would play the rest as sound only: fail honestly instead.

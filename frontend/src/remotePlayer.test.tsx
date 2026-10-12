@@ -13,6 +13,8 @@ const dashCalls = vi.hoisted(() => ({
   extensions: [] as string[],
   streamInitialized: [] as Array<() => void>,
   videoTracks: [{}] as unknown[],
+  resetCurrentTime: false,
+  media: null as HTMLVideoElement | null,
 }));
 
 // These tests own the player and fetch sequence; the queue rail (and its GET) is covered in v1_watch_queue.test.tsx.
@@ -24,6 +26,7 @@ vi.mock('dashjs', () => {
   const MediaPlayer = Object.assign(() => ({
     create: () => ({
       initialize: (_video: HTMLVideoElement, url: string, autoPlay: boolean, startTime: number | string) => {
+        dashCalls.media = _video;
         dashCalls.initialized.push({ autoPlay, startTime, url });
       },
       on: (event: string, handler: (event: unknown) => void) => {
@@ -31,7 +34,10 @@ vi.mock('dashjs', () => {
         else dashCalls.streamInitialized.push(handler as () => void);
       },
       getTracksFor: () => dashCalls.videoTracks,
-      reset: () => { dashCalls.resets += 1; },
+      reset: () => {
+        dashCalls.resets += 1;
+        if (dashCalls.resetCurrentTime && dashCalls.media) dashCalls.media.currentTime = 0;
+      },
       setXHRWithCredentialsForType: (requestType: string, value: boolean) => { dashCalls.credentials.push({ requestType, value }); },
       updateSettings: (value: unknown) => { dashCalls.settings.push(value); },
       extend: (name: string) => { dashCalls.extensions.push(name); },
@@ -62,6 +68,8 @@ describe('RemotePlayer', () => {
     dashCalls.extensions = [];
     dashCalls.streamInitialized = [];
     dashCalls.videoTracks = [{}];
+    dashCalls.resetCurrentTime = false;
+    dashCalls.media = null;
     vi.restoreAllMocks();
   });
 
@@ -537,6 +545,38 @@ describe('RemotePlayer', () => {
       '/api/remote-streams/dash-recovery/refresh',
       expect.objectContaining({ method: 'POST' }),
     ));
+  });
+
+  it('keeps the playback position when dash.js clears the media element during recovery', async () => {
+    dashCalls.resetCurrentTime = true;
+    const playback: RemotePlayback = {
+      status: 'ready', stream_id: 'dash-resume', transport: 'dash', media_kind: 'video',
+      playback_url: '/api/remote-streams/dash-resume/dash/1/manifest.mpd', content_type: 'application/dash+xml',
+      has_video: true, has_audio: true, seekable: true,
+    };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      ...playback,
+      playback_url: '/api/remote-streams/dash-resume/dash/2/manifest.mpd',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    render(<RemotePlayer playback={playback} poster={null} title="DASH resume" />);
+    await waitFor(() => expect(dashCalls.initialized).toHaveLength(1));
+    const media = screen.getByTitle('DASH remote stream') as HTMLVideoElement;
+    media.currentTime = 6;
+    Object.defineProperty(media, 'paused', { configurable: true, value: false });
+
+    act(() => dashCalls.handlers[0]({ error: 'network' }));
+
+    await waitFor(() => expect(dashCalls.initialized).toHaveLength(2));
+    expect(dashCalls.initialized[1].startTime).toBe(6);
+
+    (dashCalls.media as HTMLVideoElement).currentTime = 9;
+    act(() => dashCalls.handlers[1]({ error: 'network-again' }));
+
+    await waitFor(() => expect(dashCalls.initialized).toHaveLength(3));
+    expect(dashCalls.initialized[2]).toEqual(expect.objectContaining({
+      startTime: 9,
+      url: '/api/remote-streams/dash-resume/dash/2/manifest.mpd',
+    }));
   });
 
   it('resumes the same DASH position after an exact manual quality change', async () => {

@@ -16,7 +16,7 @@ The web player and Jellyfin clients need direct play when possible, and a hardwa
 ## Consequences
 
 - Hosts without a GPU and Docker Desktop on a Mac keep working in software with the same code path.
-- One rendition per session bounds GPU cost. Quality changes restart the session at the current position.
+- One encode per session bounds GPU cost. Quality changes restart the session at the current position.
 - Mute and normalization are web-player features. Infuse and other apps play unfiltered, and the settings copy says so.
 
 ## Roku audio rendition compatibility

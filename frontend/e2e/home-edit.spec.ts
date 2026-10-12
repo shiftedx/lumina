@@ -181,7 +181,7 @@ test('another browser signed in to a member without a saved layout sees the defa
 
 for (const scheme of ['light', 'dark'] as const) {
   for (const width of [1440, 390]) {
-    test(`compact greeting, right date and fading featured edges: ${scheme} ${width}`, async ({ page }) => {
+    test(`compact greeting and right date: ${scheme} ${width}`, async ({ page }) => {
       await openHome(page, {}, { width, height: width === 390 ? 844 : 900 });
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
       const header = page.locator('.h-masthead');
@@ -195,12 +195,12 @@ for (const scheme of ['light', 'dark'] as const) {
       const dateBox = (await date.boundingBox())!;
       expect(dateBox.x).toBeGreaterThan(greetingBox.x);
       expect(dateBox.x + dateBox.width).toBeLessThanOrEqual(width);
-      const fade = await page.locator('.h-hero').evaluate((element) => ({
-        background: getComputedStyle(element, '::after').backgroundImage,
-        pointerEvents: getComputedStyle(element, '::after').pointerEvents,
-      }));
-      expect(fade.background).toContain('linear-gradient');
-      expect(fade.pointerEvents).toBe('none');
+      const hero = page.locator('.h-hero');
+      const heroBox = (await hero.boundingBox())!;
+      expect(heroBox.x).toBe(0);
+      expect(heroBox.width).toBe(width);
+      expect(await hero.evaluate(element => getComputedStyle(element, '::after').content)).toBe('none');
+      expect(await hero.locator('.h-hero-art').first().evaluate(element => getComputedStyle(element).maskImage)).toBe('none');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       await page.screenshot({ path: `../output/playwright/home/masthead-${scheme}-${width}.png` });
       await page.goto('/downloads');

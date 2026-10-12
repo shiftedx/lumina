@@ -413,6 +413,8 @@ Audio conversion honors the client's AAC-specific channel limit even when the de
 
 Roku HLS playback delivers separate fMP4 video and audio renditions. Copies of each completed segment are cached in the playback session directory, preserving its timestamps and avoiding a second encode. This works around Roku devices that play combined fMP4 video without sound.
 
+The Roku HLS fallback always uses stereo AAC, including when the app advertises Dolby passthrough support. This avoids unreadable EAC3 initialization headers and Dolby rendition playback errors. Compatible direct playback keeps its original audio, and HLS still copies supported video.
+
 Members with two-step verification type an **app password** instead of their account password (see "App passwords" above). Each sign-in appears under **Settings → Connected apps** with its device, client and last-seen time. **Revoke** signs that app out immediately and stops its streams. Changing or resetting a password revokes all of that member's apps. Every member signs in as themselves: apps see only what that member can see in Lumina.
 
 Backups keep the Jellyfin server key, so a restored vault keeps its `ServerId` and apps reconnect without being re-added. Treat a backup file like a credential: whoever holds it can also forge image tags. Backups are already admin-only and password-gated.

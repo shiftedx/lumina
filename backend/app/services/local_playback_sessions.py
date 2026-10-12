@@ -1,6 +1,6 @@
 """Bounded ffmpeg remux/transcode sessions that turn a local file into HLS.
 
-Each session is an opaque id owning one ffmpeg child and one disposable directory of fMP4 segments, keyed per (member, device) so a TV and a phone can play at once. Originals are only read. Video encodes are capped by max_playback_sessions; copies share a fixed limit. A child far ahead of its player is paused (SIGSTOP) and resumed (SIGCONT). Directories go on cancel, idle expiry, least-recent use over the cache cap, shutdown and startup.
+Each session is an opaque id owning one ffmpeg child and one disposable directory of HLS segments, keyed per (member, device) so a TV and a phone can play at once. Originals are only read. Video encodes are capped by max_playback_sessions; copies share a fixed limit. A child far ahead of its player is paused (SIGSTOP) and resumed (SIGCONT). Directories go on cancel, idle expiry, least-recent use over the cache cap, shutdown and startup.
 """
 from __future__ import annotations
 
@@ -42,8 +42,8 @@ MANIFEST_POLL_SECONDS = 0.025
 # 1 s segments outlast its 2 s re-poll, and copied video, cut at source keyframes (often ~10 s apart), copies far
 # faster than real time.
 SEGMENTS_LISTED = 3
-FILE_NAME = re.compile(r"^(index\.m3u8|init\.mp4|seg\d{1,6}\.m4s)$")
-SEGMENT = re.compile(r"^seg(\d{1,6})\.m4s$")
+FILE_NAME = re.compile(r"^(index\.m3u8|init\.mp4|seg\d{1,6}\.(?:m4s|ts))$")
+SEGMENT = re.compile(r"^seg(\d{1,6})\.(?:m4s|ts)$")
 OTHER_SESSIONS = 16  # remux/audio-only copies; max_playback_sessions caps video encodes
 # A seekable (Jellyfin) session starts a new ffmpeg run when a segment is requested this far past the one in progress:
 # Jellyfin's 24 s for encodes; copies run far faster than real time, so they wait longer.
@@ -97,6 +97,11 @@ class PlaybackSession:
     respawn: Callable[[HlsRun], subprocess.Popen] | None = None
     run: HlsRun | None = None  # what the current ffmpeg child writes
     seek_lock: threading.Lock = field(default_factory=threading.Lock)
+    hls_container: str = "mp4"
+
+    @property
+    def segment_extension(self) -> str:
+        return "ts" if self.hls_container == "ts" else "m4s"
 
 
 def describe_decision(decision: Decision, facts: dict[str, Any]) -> dict[str, Any]:
@@ -232,13 +237,16 @@ def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: 
     # not splice, and Firefox applies that edit on top of hls.js's own shift to playlist time, so a resume buffers at twice
     # its position and never plays. With it every fragment carries its absolute time and every run writes the same init.mp4.
     # A seekable run numbers its segments from its own and keeps ffmpeg's playlist apart: the client's is the Plan.
-    playlist = ["-hls_segment_options", "movflags=+frag_discont", *(["-start_number", str(run.index)] if run else ["-hls_playlist_type", "event"])]
+    # TS also keeps absolute timestamps: its default muxer delay would shift every run by 1.4 seconds.
+    transport = decision.hls_container == "ts"
+    playlist = ["-hls_segment_options", "mpegts_copyts=1" if transport else "movflags=+frag_discont", *(["-start_number", str(run.index)] if run else ["-hls_playlist_type", "event"])]
     return [
         ffmpeg, "-nostdin", "-v", "error", "-progress", str(directory / "progress"), *pre,
         *LOCAL_INPUT_ARGS, *seek, "-i", str(source), *offset, *length, "-sn", "-dn", *out,
         "-f", "hls", "-hls_time", str(SEGMENT_SECONDS), *first_segment, *playlist,
-        "-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", run.init if run else "init.mp4",
-        "-hls_segment_filename", str(directory / "seg%d.m4s"),
+        "-hls_segment_type", "mpegts" if transport else "fmp4",
+        *([] if transport else ["-hls_fmp4_init_filename", run.init if run else "init.mp4"]),
+        "-hls_segment_filename", str(directory / ("seg%d.ts" if transport else "seg%d.m4s")),
         "-hls_flags", "temp_file+independent_segments", str(directory / ("ffmpeg.m3u8" if run else "index.m3u8")),
     ]
 
@@ -351,7 +359,7 @@ class LocalPlaybackSessions:
             start = min(start, max(0.0, duration - SEGMENT_SECONDS))
         encode = decision.video == "encode"
         hw, tonemap = hwaccel.choice(ffmpeg, hwaccel_mode) if encode else ("none", "none")
-        key = (decision.video_index, decision.audio_index, decision.burn_subtitle, decision.height, decision.video, decision.audio, plan is not None)
+        key = (decision.video_index, decision.audio_index, decision.burn_subtitle, decision.height, decision.video, decision.audio, plan is not None, decision.hls_container)
         spawn = functools.partial(
             self._spawn, user_id=user_id, item_id=item_id, device=device, play_session_id=play_session_id, ffmpeg=ffmpeg,
             source=source, facts=facts, decision=decision, start=start, audio_gain_db=audio_gain_db, key=key,
@@ -422,16 +430,16 @@ class LocalPlaybackSessions:
         session = PlaybackSession(
             session_id, user_id, item_id, decision.mode, directory, process, start, start,
             device=device, play_session_id=play_session_id, kind=kind, key=key, bandwidth=bandwidth,
-            hw=hw, info=describe_decision(decision, facts), plan=plan, run=run, respawn=launch if plan else None,
+            hw=hw, info=describe_decision(decision, facts), hls_container=decision.hls_container, plan=plan, run=run, respawn=launch if plan else None,
         )
         self._sessions[session_id] = session
         return session
 
     def _await_manifest(self, session: PlaybackSession) -> PlaybackSession:
         manifest = session.directory / "index.m3u8"
-        first = session.directory / f"seg{session.run.index}.m4s" if session.run else None  # a seekable session has no growing playlist
+        first = session.directory / f"seg{session.run.index}.{session.segment_extension}" if session.run else None  # a seekable session has no growing playlist
         deadline = time.monotonic() + MANIFEST_WAIT_SECONDS
-        while not (first.is_file() and (session.directory / "init.mp4").is_file() if first else _listed(manifest, SEGMENTS_LISTED)):
+        while not (first.is_file() and (session.hls_container == "ts" or (session.directory / "init.mp4").is_file()) if first else _listed(manifest, SEGMENTS_LISTED)):
             failed = session.process.poll() not in (None, 0) or time.monotonic() > deadline
             with self._lock:  # read after poll(): a supersede pops the session before it kills the child
                 superseded = self._sessions.get(session.id) is not session
@@ -519,7 +527,7 @@ class LocalPlaybackSessions:
             if self._sessions.get(session.id) is not session:
                 return
         _terminate(session.process)
-        for stale in session.directory.glob("seg*.m4s"):  # a run's files after its start are its own; older runs' are kept
+        for stale in session.directory.glob(f"seg*.{session.segment_extension}"):  # a run's files after its start are its own; older runs' are kept
             if (match := SEGMENT.fullmatch(stale.name)) and int(match[1]) >= run.index:
                 with contextlib.suppress(OSError):
                     stale.unlink()
@@ -535,8 +543,8 @@ class LocalPlaybackSessions:
         """Pause ffmpeg > 120 s ahead of the player, resume under 60 s. ffmpeg renames segN into place only when complete."""
         if session.process.poll() is not None:
             return
-        ahead = session.directory / f"seg{session.max_requested + THROTTLE_AHEAD_SECONDS // SEGMENT_SECONDS}.m4s"
-        near = session.directory / f"seg{session.max_requested + RESUME_AHEAD_SECONDS // SEGMENT_SECONDS}.m4s"
+        ahead = session.directory / f"seg{session.max_requested + THROTTLE_AHEAD_SECONDS // SEGMENT_SECONDS}.{session.segment_extension}"
+        near = session.directory / f"seg{session.max_requested + RESUME_AHEAD_SECONDS // SEGMENT_SECONDS}.{session.segment_extension}"
         if not session.throttled and ahead.exists():
             _signal(session.process, signal.SIGSTOP)
             session.throttled = True

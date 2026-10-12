@@ -55,6 +55,7 @@ class ClientCaps:
     max_bitrate: int | None = None
     selects_audio: bool = False  # can pick a non-default audio track of a direct-played file
     channel_limits: Mapping[str, int] = field(default_factory=dict)  # per-codec AudioChannels limits
+    hls_container: str = "mp4"  # preferred supported HLS segment container
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ class Decision:
     audio_channels: int | None = None  # when audio is encoded
     tonemap: bool = False
     reasons: tuple[str, ...] = field(default=())
+    hls_container: str = "mp4"
 
     @property
     def kind(self) -> str:
@@ -188,6 +190,7 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
         audio=None if audio is None else "copy" if copy_audio else "encode",
         burn_subtitle=burn, height=height, bitrate=bitrate, audio_channels=channels, tonemap=tonemap,
         reasons=tuple(reasons), **indexes,
+        hls_container=client.hls_container if not copy_video or video.get("codec") in {"h264", "hevc"} else "mp4",
     )
 
 
@@ -303,4 +306,7 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         max_bitrate=max_bitrate,
         selects_audio=True,
         channel_limits=channel_limits,
+        hls_container=next((str(e.get("Container")).lower() for e in _dicts(profile.get("TranscodingProfiles"))
+                            if e.get("Type") == "Video" and str(e.get("Protocol") or "").lower() == "hls"
+                            and str(e.get("Container")).lower() in {"ts", "mp4"}), "mp4"),
     )

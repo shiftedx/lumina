@@ -162,12 +162,13 @@ def fetch(vault: Vault, who, base: str, name: str, tmp: Path) -> Path:  # noqa: 
 
 
 @needs_ffmpeg
-def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path: Path) -> None:  # noqa: F811
+@pytest.mark.parametrize("container", ["mp4", "ts"])
+def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path: Path, container: str) -> None:  # noqa: F811
     source_path = vault.media / SEASON / "Vault Show - S01E01.mkv"
     source_path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([
         "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=4",
-        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=5.1", "-t", "4", "-c:v", "libx264", "-g", "24",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-ac", "6", "-t", "4", "-c:v", "libx264", "-g", "24",
         "-c:a", "eac3", str(source_path),
     ], check=True, timeout=30)
     scan(vault.admin, vault.media)
@@ -175,7 +176,7 @@ def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path
     item_id = jellyfin_id(episodes(vault)[0]["id"])
     profile = {
         "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "aac,ac3"}],
-        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "ac3"}],
+        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": container, "VideoCodec": "h264", "AudioCodec": "ac3"}],
         "CodecProfiles": [{"Type": "VideoAudio", "Codec": "aac", "Conditions": [
             {"Condition": "LessThanEqual", "Property": "AudioChannels", "Value": "2"},
         ]}],
@@ -186,11 +187,17 @@ def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path
     source = info["MediaSources"][0]
     original_audio = next(stream for stream in source["MediaStreams"] if stream["Type"] == "Audio")
     assert (original_audio["Codec"], original_audio["Channels"]) == ("eac3", 6)
+    assert source["TranscodingContainer"] == container
     assert vault.jf.get(source["TranscodingUrl"]).status_code == 200
     base = f"/videos/{source['Id']}/hls/{info['PlaySessionId']}"
-    fetch(vault, who, base, "init.mp4", tmp_path)
-    fetch(vault, who, base, "seg0.m4s", tmp_path)
-    joined = f"concat:{tmp_path / 'init.mp4'}|{tmp_path / 'seg0.m4s'}"
+    playlist = vault.jf.get(f"{base}/index.m3u8", headers=who.headers).text
+    if container == "ts":
+        assert "#EXT-X-MAP" not in playlist and "seg0.ts" in playlist
+        joined = str(fetch(vault, who, base, "seg0.ts", tmp_path))
+    else:
+        fetch(vault, who, base, "init.mp4", tmp_path)
+        fetch(vault, who, base, "seg0.m4s", tmp_path)
+        joined = f"concat:{tmp_path / 'init.mp4'}|{tmp_path / 'seg0.m4s'}"
     result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,channels",
                              "-of", "json", joined], text=True, capture_output=True, check=True, timeout=30)
     audio = next(stream for stream in json.loads(result.stdout)["streams"] if stream["codec_type"] == "audio")
@@ -198,6 +205,44 @@ def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path
     decoded = subprocess.run(["ffmpeg", "-v", "error", "-i", joined, "-frames:v", "1", "-frames:a", "1", "-f", "null", "-"],
                              capture_output=True, timeout=30)
     assert decoded.returncode == 0, decoded.stderr.decode()
+    pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", joined, "-map", "0:a:0", "-f", "s16le", "-"], capture_output=True, check=True, timeout=30).stdout
+    assert any(pcm)  # converting must retain audible samples, not merely create an AAC track
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("video", ["copy", "encode"])
+def test_ts_conversion_keeps_audio_after_resume_and_backward_seek(vault: Vault, tmp_path: Path, video: str) -> None:  # noqa: F811
+    who, open_master = clip_session(vault)
+    profile = {**HLS_ENCODE, "TranscodingProfiles": [{**HLS_ENCODE["TranscodingProfiles"][0], "Container": "ts"}]}
+    if video == "encode":
+        profile["CodecProfiles"] = [{"Type": "Video", "Codec": "h264", "Conditions": [
+            {"Property": "Height", "Condition": "LessThanEqual", "Value": "144"},
+        ]}]
+    source, base, play_session = open_master(profile, resume=33)
+    assert source["TranscodingContainer"] == "ts"
+    starts, text = listed(vault, who, base)
+    assert "#EXT-X-MAP" not in text and "#EXT-X-ENDLIST" in text
+    session = next(s for s in lps.sessions._sessions.values() if s.play_session_id == play_session)
+    for index in (max(i for i, start in enumerate(starts) if start <= 33), 0, len(starts) - 1):
+        response = vault.jf.get(f"{base}/seg{index}.ts", headers=who.headers)
+        assert response.status_code == 200 and response.headers["content-type"] == "video/mp2t"
+        path = tmp_path / f"seg{index}.ts"
+        path.write_bytes(response.content)
+        streams = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(path)],
+                                            capture_output=True, text=True, check=True).stdout)["streams"]
+        audio = next(s for s in streams if s["codec_type"] == "audio")
+        assert audio["codec_name"] == "aac"
+        # TS muxing must preserve the whole-file timeline, without its default 1.4 second offset.
+        assert float(next(s for s in streams if s["codec_type"] == "video")["start_time"]) == pytest.approx(starts[index], abs=0.2)
+        pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:a:0", "-f", "s16le", "-"],
+                             capture_output=True, check=True, timeout=30).stdout
+        assert any(pcm)
+    assert session.hls_container == "ts"
+    mp4_profile = {**profile, "TranscodingProfiles": [{**profile["TranscodingProfiles"][0], "Container": "mp4"}]}
+    _, mp4_base, mp4_play = open_master(mp4_profile, resume=33)
+    mp4_session = next(s for s in lps.sessions._sessions.values() if s.play_session_id == mp4_play)
+    assert mp4_session.id != session.id and mp4_session.hls_container == "mp4"
+    assert "#EXT-X-MAP" in listed(vault, who, mp4_base)[1]
 
 
 @needs_ffmpeg

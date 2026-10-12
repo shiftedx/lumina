@@ -129,7 +129,7 @@ def hls_file(
         raise HTTPException(status_code=404, detail=NOT_FOUND)
     screen_time.enforce(db, caller.user)
     if name == "index.m3u8" and session.plan is not None:  # the whole file's timeline, not ffmpeg's growing list
-        return Response(session.plan.playlist(caller.token), media_type=MPEGURL, headers={"Cache-Control": "no-store"})
+        return Response(session.plan.playlist(caller.token, session.hls_container), media_type=MPEGURL, headers={"Cache-Control": "no-store"})
     path = sessions.segment(session, name)  # D: FILE_NAME allowlist, highest-segment record and throttling; seeks start runs
     if path is None:
         raise HTTPException(status_code=404, detail="Playback segment not found")
@@ -137,7 +137,7 @@ def hls_file(
         return Response(with_api_key(path.read_text(encoding="utf-8"), caller.token), media_type=MPEGURL, headers={"Cache-Control": "no-store"})
     if name == "init.mp4":  # a seek's run rewrites it in place: read it whole, never stat-then-open (pp-encode's playlist race)
         return Response(path.read_bytes(), media_type="video/mp4", headers={"Cache-Control": "no-store"})
-    return MediaFileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
+    return MediaFileResponse(path, media_type="video/mp2t" if session.hls_container == "ts" else "video/mp4", headers={"Cache-Control": "private, max-age=600"})
 
 
 def stop_active_encodings(playsessionid: str = "", caller: JellyfinCaller = Depends(jellyfin_caller)) -> Response:

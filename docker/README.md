@@ -409,6 +409,8 @@ Anime series appear in their own **Anime** library; if Infuse does not show it a
 
 Roku and Android TV also connect through the Jellyfin API. TV playback compatibility fixes include the file-source fields Roku needs, the primary source identity Android TV's external player needs, and an HLS fallback when a client disables direct play. After updating, close and reopen the TV app so it fetches fresh item details before retrying playback.
 
+Audio conversion honors the client's AAC-specific channel limit even when the device supports more channels with other codecs. For Roku profiles that limit AAC to stereo, unsupported surround audio is converted to stereo AAC; directly playable surround tracks are retained.
+
 Members with two-step verification type an **app password** instead of their account password (see "App passwords" above). Each sign-in appears under **Settings → Connected apps** with its device, client and last-seen time. **Revoke** signs that app out immediately and stops its streams. Changing or resetting a password revokes all of that member's apps. Every member signs in as themselves: apps see only what that member can see in Lumina.
 
 Backups keep the Jellyfin server key, so a restored vault keeps its `ServerId` and apps reconnect without being re-added. Treat a backup file like a credential: whoever holds it can also forge image tags. Backups are already admin-only and password-gated.

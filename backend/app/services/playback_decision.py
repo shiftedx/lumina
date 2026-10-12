@@ -298,7 +298,7 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         video={codec: VideoCap(**limits) for codec, limits in caps.items()},
         audio=frozenset(audio),
         max_channels=max_channels,
-        encode_channels=min(6, max_channels),
+        encode_channels=min(6, max_channels, channel_limits.get("aac", max_channels)),
         image_subtitles=image,
         max_bitrate=max_bitrate,
         selects_audio=True,

@@ -1,6 +1,7 @@
 """Jellyfin apps get the whole file's HLS timeline from 0 and ffmpeg runs wherever they seek (26-pp, jellyfin_hls.py)."""
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import threading
@@ -158,6 +159,45 @@ def fetch(vault: Vault, who, base: str, name: str, tmp: Path) -> Path:  # noqa: 
     assert response.status_code == 200, (name, response.status_code)
     (tmp / name).write_bytes(response.content)
     return tmp / name
+
+
+@needs_ffmpeg
+def test_roku_surround_movie_fallback_delivers_stereo_aac(vault: Vault, tmp_path: Path) -> None:  # noqa: F811
+    source_path = vault.media / SEASON / "Vault Show - S01E01.mkv"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([
+        "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=4",
+        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=5.1", "-t", "4", "-c:v", "libx264", "-g", "24",
+        "-c:a", "eac3", str(source_path),
+    ], check=True, timeout=30)
+    scan(vault.admin, vault.media)
+    who = login(vault)
+    item_id = jellyfin_id(episodes(vault)[0]["id"])
+    profile = {
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "aac,ac3"}],
+        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "ac3"}],
+        "CodecProfiles": [{"Type": "VideoAudio", "Codec": "aac", "Conditions": [
+            {"Condition": "LessThanEqual", "Property": "AudioChannels", "Value": "2"},
+        ]}],
+    }
+    response = vault.jf.post(f"/Items/{item_id}/PlaybackInfo", headers=who.headers, json={"DeviceProfile": profile})
+    assert response.status_code == 200
+    info = response.json()
+    source = info["MediaSources"][0]
+    original_audio = next(stream for stream in source["MediaStreams"] if stream["Type"] == "Audio")
+    assert (original_audio["Codec"], original_audio["Channels"]) == ("eac3", 6)
+    assert vault.jf.get(source["TranscodingUrl"]).status_code == 200
+    base = f"/videos/{source['Id']}/hls/{info['PlaySessionId']}"
+    fetch(vault, who, base, "init.mp4", tmp_path)
+    fetch(vault, who, base, "seg0.m4s", tmp_path)
+    joined = f"concat:{tmp_path / 'init.mp4'}|{tmp_path / 'seg0.m4s'}"
+    result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,channels",
+                             "-of", "json", joined], text=True, capture_output=True, check=True, timeout=30)
+    audio = next(stream for stream in json.loads(result.stdout)["streams"] if stream["codec_type"] == "audio")
+    assert (audio["codec_name"], audio["channels"]) == ("aac", 2)
+    decoded = subprocess.run(["ffmpeg", "-v", "error", "-i", joined, "-frames:v", "1", "-frames:a", "1", "-f", "null", "-"],
+                             capture_output=True, timeout=30)
+    assert decoded.returncode == 0, decoded.stderr.decode()
 
 
 @needs_ffmpeg

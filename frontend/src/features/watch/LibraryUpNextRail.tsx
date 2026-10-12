@@ -59,7 +59,7 @@ export function LibraryUpNextRail({ upNext, autoplay, onAutoplayChange, onPlay, 
           const started = !item.user_data.played && item.user_data.position_seconds > 0 && total;
           return (
             <li className="g-list-row watch-queue-item" key={item.id}>
-              <button aria-current={current || undefined} className="watch-queue-play" disabled={current || !item.play_item_id} onClick={() => item.play_item_id && onPlay(item.play_item_id)} type="button">
+              <button aria-current={current || undefined} className="watch-queue-play" data-focus-item disabled={current || !item.play_item_id} onClick={() => item.play_item_id && onPlay(item.play_item_id)} type="button">
                 <span className="watch-queue-thumb">
                   <Artwork alt="" src={episodes ? item.poster?.url ?? item.poster_url : item.backdrop?.url ?? item.backdrop_url ?? item.poster_url} />
                   {item.user_data.played ? <b aria-hidden="true"><Check /></b> : null}
@@ -71,7 +71,7 @@ export function LibraryUpNextRail({ upNext, autoplay, onAutoplayChange, onPlay, 
           );
         })}
       </ol>
-      {episodes && onOpenAll ? <TextButton onClick={onOpenAll}>See all episodes</TextButton> : null}
+      {episodes && onOpenAll ? <TextButton data-focus-item onClick={onOpenAll}>See all episodes</TextButton> : null}
     </section>
   );
 }

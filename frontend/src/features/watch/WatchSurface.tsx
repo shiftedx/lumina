@@ -1,4 +1,4 @@
-import { type ComponentProps, type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentProps, type KeyboardEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAccess, useCanDownload, watchGate } from '../access/access';
 import { ArrowDownToLine, Check, ChevronDown, ChevronLeft, Download, ExternalLink, LoaderCircle, Plus, RotateCcw, Share2 } from 'lucide-react';
 import { clearRemotePlaybackProgress, getLibraryUpNext, getMediaSegments, getMuteRanges, getRecap, getRemotePlaybackProgress, getTitle, type Summary, updateRemotePlaybackProgress } from '../../api';
@@ -169,6 +169,7 @@ export function WatchSurface({
   startNonce?: number;
 }) {
   const canDownload = useCanDownload();
+  const localTitleId = useId();
   const local = selection.kind === 'library' ? selection.item : null;
   // Where the local player starts: the link's `t`, else the resume point, read when the player
   // first shows for this item and moved only by a new `t`, so progress checkpoints and a reopen without `t`
@@ -673,12 +674,12 @@ export function WatchSurface({
   const saveLabel = webVideo ? (activeJob ? 'Saving' : saved ? 'Saved' : 'Save to library') : (activeJob ? 'Downloading' : saved ? 'In your vault' : 'Download to vault');
   const actionButtons = (
     <>
-      {canDownload ? <div className="download-control">
+      {canDownload && !mediaTitle ? <div className="download-control">
         <button aria-describedby={acquireUnavailableCopy ? 'watch-acquisition-unavailable' : undefined} className={`g-button is-primary ${activeJob ? 'downloading' : ''}`} data-focus-item disabled={busy || saved || Boolean(activeJob) || acquireUnavailable} onClick={onDownload} type="button">{busy ? <LoaderCircle className="spin" /> : activeJob ? <LoaderCircle className="spin" /> : saved ? <Check /> : <ArrowDownToLine />}{saveLabel}</button>
         {!saved && !activeJob && !acquireUnavailable ? <button aria-controls="download-quality-menu" aria-expanded={downloadMenuOpen} aria-label="Download options" className="g-button is-primary split-button" data-focus-item onClick={onToggleDownloadMenu} ref={downloadToggleRef} type="button"><ChevronDown /></button> : null}
         {downloadMenuOpen ? <div aria-label="Download quality" className="download-menu" id="download-quality-menu" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onCloseDownloadMenu(); }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeDownloadMenuAndRestoreFocus(); } }} ref={downloadMenuRef} role="radiogroup"><p>Download quality</p>{acquisitionFormatOptions.map(([value, label, detail], index) => <button aria-checked={downloadQuality === value} className={downloadQuality === value ? 'selected' : ''} id={`watch-preset-${value}`} key={value} onClick={() => { onDownloadQuality(value); closeDownloadMenuAndRestoreFocus(); }} onKeyDown={(event) => onDownloadOptionKeyDown(event, index)} role="radio" tabIndex={downloadQuality === value ? 0 : -1} type="button"><span><strong>{label}</strong><small>{detail}</small></span>{downloadQuality === value ? <Check /> : null}</button>)}</div> : null}
       </div> : null}
-      {canDownload && acquireUnavailableCopy ? <p className="capability-note" id="watch-acquisition-unavailable" role="status">{acquireUnavailableCopy}</p> : null}
+      {canDownload && !mediaTitle && acquireUnavailableCopy ? <p className="capability-note" id="watch-acquisition-unavailable" role="status">{acquireUnavailableCopy}</p> : null}
       {remote && sourceUrl && playUnavailable ? <a className="g-button" data-focus-item href={sourceUrl} rel="noreferrer noopener" target="_blank"><ExternalLink /> Open original</a> : null}
       <button className="g-button" data-focus-item onClick={() => void shareSource()} type="button"><Share2 /> Share</button>
       {(local && playback && playback.position_seconds > 0) || (remoteProgress && remoteProgress.position_seconds > 0) ? <button className="g-button" data-focus-item onClick={restartPlayback} type="button"><RotateCcw /> Start over</button> : null}
@@ -696,12 +697,11 @@ export function WatchSurface({
   const toolList = [
     webVideo ? null : {
       id: 'overview',
-      label: 'Overview',
+      label: mediaTitle ? 'Details' : 'Overview',
       panel: (
         <>
         <div className="description-card">
-          <div className="description-meta">{views ? <strong>{formatCompactNumber(views)} views</strong> : null}{published ? <strong>{formatPublished(published)}</strong> : null}{duration ? <span>{formatDuration(duration)}</span> : null}</div>
-          {description ? <DescriptionWithTimestamps description={`${description.slice(0, 900)}${description.length > 900 ? '…' : ''}`} onSeek={seekPlayback} timestamps={descriptionTimestamps.filter((token) => token.end <= 900)} /> : <p>{mediaTitle ? 'No synopsis available.' : 'Stream now, or keep this video in your household vault for later.'}</p>}
+          {mediaTitle ? null : <><div className="description-meta">{views ? <strong>{formatCompactNumber(views)} views</strong> : null}{published ? <strong>{formatPublished(published)}</strong> : null}{duration ? <span>{formatDuration(duration)}</span> : null}</div>{description ? <DescriptionWithTimestamps description={`${description.slice(0, 900)}${description.length > 900 ? '…' : ''}`} onSeek={seekPlayback} timestamps={descriptionTimestamps.filter((token) => token.end <= 900)} /> : <p>Stream now, or keep this video in your household vault for later.</p>}</>}
           {local && mediaTitle ? <details><summary>File details <ChevronDown /></summary><dl><div><dt>File name</dt><dd>{local.title}</dd></div><div><dt>Source</dt><dd>{imported ? 'Imported · read-only' : uploader}</dd></div>{mediaTitle.overview && sourceDescription ? <div><dt>Source description</dt><dd><DescriptionWithTimestamps description={sourceDescription} onSeek={seekPlayback} timestamps={local.description_timestamps || []} /></dd></div> : null}</dl></details> : null}
           {local ? null : <details><summary>Details &amp; provenance <ChevronDown /></summary><dl><div><dt>Original source</dt><dd>{readString(raw, 'extractor_key') || readString(raw, 'extractor') || 'Web video'}</dd></div>{knownResolution ? <div><dt>Known resolution</dt><dd>{knownResolution}</dd></div> : null}{sourceUrl ? <div><dt>Source address</dt><dd>{sourceUrl}</dd></div> : null}<div><dt>Availability</dt><dd>Streaming from source</dd></div></dl></details>}
         </div>
@@ -719,6 +719,13 @@ export function WatchSurface({
   ];
 
   const playerPreferences = { volume: playerVolume, onVolumeChange: onPlayerVolumeChange, onNext: playNext, globalShortcuts: !mini, subtitle: episode ? episodeCode(episode) || undefined : uploader, theater: theaterMode, captions };
+  const localTitleMeta = mediaTitle ? [
+    episode ? episodeCode(episode) : mediaTitle.year,
+    duration ? formatDuration(duration) : null,
+    mediaTitle.official_rating,
+    typeof mediaTitle.community_rating === 'number' ? `${mediaTitle.community_rating.toFixed(1)} / 10` : null,
+    ...(mediaTitle.genres || []).slice(0, 3),
+  ].filter(Boolean).join(' · ') : '';
 
   return (
     <div
@@ -729,13 +736,8 @@ export function WatchSurface({
       tabIndex={mini ? -1 : undefined}
     >
       <button className="watch-back g-text-button" onClick={onBack} type="button"><ChevronLeft /> Back</button>
-      <div className={`watch-layout ${theaterMode ? 'theater' : 'standard'}${webVideo ? ' is-editorial' : ''}${mediaTitle ? ' has-title' : ''}`} data-theater-mode={theaterMode ? 'theater' : 'standard'}>
-        <div className="watch-main" onKeyDown={(event) => { if ((event.target as HTMLElement).closest('.watch-info')) moveFocus(event); }}>
-          {mediaTitle ? <header className="watch-info watch-title">
-            {episode?.series_id ? <p className="watch-episode-byline"><button className="g-text-button" data-focus-item onClick={() => onOpenTitle?.(episode)} type="button">{episode.series_name || 'Show'}</button></p> : null}
-            <h1>{title}</h1>
-            <p className="watch-episode-byline">{[episode ? episodeCode(episode) : mediaTitle.year, duration ? formatDuration(duration) : null].filter(Boolean).join(' · ')}</p>
-          </header> : null}
+      <div className={`watch-layout ${theaterMode ? 'theater' : 'standard'}${webVideo ? ' is-editorial' : ''}${mediaTitle ? ' is-library-title' : ''}`} data-theater-mode={theaterMode ? 'theater' : 'standard'}>
+        <div className="watch-main" onKeyDown={(event) => { if ((event.target as HTMLElement).closest('.watch-info, .watch-local-body')) moveFocus(event); }}>
           <div className={`player-frame${audio ? ' has-audio-stage' : ''}`}>
             {audio ? <AudioStage album={album} item={audio} next={nextTrack} onPlayItem={(itemId) => onOpenLibraryItem?.(itemId)} onSeek={seekPlayback} previous={previousTrack} /> : null}
             <PlayerPreferencesContext.Provider value={playerPreferences}>
@@ -775,26 +777,50 @@ export function WatchSurface({
                 </details>
               </aside>
             </div>
+          ) : mediaTitle ? (
+            <>
+              <div className="watch-local-body" data-focus-row>
+                <section aria-labelledby={localTitleId} className={`watch-info watch-title watch-local-story is-${episode ? 'episode' : 'film'}`}>
+                  {!episode ? <div aria-hidden="true" className="watch-local-poster"><Artwork alt="" sizes="144px" src={mediaTitle.poster?.url ?? mediaTitle.poster_url} /></div> : null}
+                  <div className="watch-local-copy">
+                    {episode?.series_id ? <p className="watch-local-series"><button className="g-text-button" data-focus-item onClick={() => onOpenTitle?.(episode)} type="button">{episode.series_name || 'Show'}</button></p> : null}
+                    <h1 className="watch-local-title" id={localTitleId}>{title}</h1>
+                    {localTitleMeta ? <p className="watch-local-meta">{localTitleMeta}</p> : null}
+                    <p className={`watch-local-synopsis${description ? '' : ' is-empty'}`}>{description || 'No synopsis available.'}</p>
+                    <div className="watch-actions watch-local-actions">{actionButtons}</div>
+                    {shareNote}
+                  </div>
+                </section>
+                <aside aria-label="Watch context" className="watch-local-continuation">
+                  {local ? <LibraryCapturedChatRail currentTimeSeconds={currentTime} durationSeconds={duration} item={local} onSeek={seekPlayback} /> : null}
+                  <WatchQueuePanel autoplay={autoplayUpNext} onPlay={playQueued} />
+                  {libraryNext.loading && !libraryNext.error ? <Skeleton count={3} label="Loading up next…" shape="row" /> : null}
+                  {libraryNext.error ? <ErrorState onRetry={() => setUpNextRevision((revision) => revision + 1)} retrying={libraryNext.loading} title="Up next couldn't load." /> : null}
+                  {episode && libraryUpNext && !libraryUpNext.items.length ? <p className="watch-local-empty-next">No next episode in your library. <TextButton data-focus-item onClick={() => onOpenTitle?.(episode)}>See all episodes</TextButton></p> : null}
+                  {libraryUpNext ? <LibraryUpNextRail autoplay={autoplayUpNext} onAutoplayChange={onAutoplayUpNextChange} onOpenAll={episode ? () => onOpenTitle?.(episode) : undefined} onPlay={(itemId) => onOpenLibraryItem?.(itemId)} upNext={libraryUpNext} /> : null}
+                </aside>
+              </div>
+              <div className="watch-local-tools"><WatchTools tools={toolList} /></div>
+            </>
           ) : (
             <>
               {/* Byline, Follow and the actions row are one arrow-key grid. */}
               <section className="watch-info">
-                {mediaTitle ? null : <h1>{title}</h1>}
-                {imported && mediaTitle ? null : <div className="watch-byline">
+                <h1>{title}</h1>
+                <div className="watch-byline">
                   <Avatar decorative name={uploader} size={34} />
                   <div><strong>{uploader}</strong><small>{imported ? 'Imported · read-only' : readNumber(raw, 'channel_follower_count') ? `${formatCompactNumber(readNumber(raw, 'channel_follower_count') || 0)} followers` : 'Channel'}</small></div>
                   {imported ? null : <button className={`g-button${following ? ' is-quiet' : ''}`} data-focus-item onClick={onFollow} type="button">{following ? <Check /> : <Plus />}{following ? 'Following' : 'Follow channel'}</button>}
-                </div>}
+                </div>
                 <div className="watch-actions" data-focus-row>{actionButtons}</div>
                 {shareNote}
                 {recordingControls}
-                {libraryNext.error ? <ErrorState onRetry={() => setUpNextRevision((revision) => revision + 1)} retrying={libraryNext.loading} title="Up next couldn't load." /> : episode && libraryUpNext && !libraryUpNext.items.length ? <p>No next episode in your library. <TextButton data-focus-item onClick={() => onOpenTitle?.(episode)}>See all episodes</TextButton></p> : null}
               </section>
               <WatchTools tools={toolList} />
             </>
           )}
         </div>
-        {webVideo ? null : (
+        {webVideo || mediaTitle ? null : (
           <aside aria-label="Watch context" className="watch-rail">
             {local ? (
               // Completed live-recording playback (#100 AC6, #110): the recording's

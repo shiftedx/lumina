@@ -338,3 +338,20 @@ def test_artist_stylization_and_provider_aliases_match_without_losing_non_latin_
     assert music.normalized('東京') == '東京'
     assert music.normalized('Mara_Vale') == 'mara vale'
     assert not any(row['exact'] for row in music.candidates_for('artist', '!!!'))
+
+
+@pytest.mark.parametrize('protected', [False, True])
+def test_person_lifespan_is_not_a_career_and_manual_active_years_stay_protected(db_factory, monkeypatch, protected):
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    monkeypatch.setattr(music, 'fetch_json', lambda _url: {'name': 'Artist A', 'type': 'Person', 'life-span': {'begin': '1987-03-12'}})
+    monkeypatch.setattr(music, 'release_page', lambda _id: {'items': []})
+    monkeypatch.setattr(music, 'artist_profile', lambda _value: ({}, []))
+    with db_factory() as db:
+        db.add(MediaTitle(id=ARTIST, type='artist', key='artist:a', name='Artist A', provider_ids={'MusicBrainz': ARTIST},
+                          metadata_json={'active_since': '1987-03-12'}, field_sources={'active_since': 'user' if protected else 'musicbrainz'}))
+        db.commit()
+    assert music.enrich_title(ARTIST)['identified']
+    with db_factory() as db:
+        artist = db.get(MediaTitle, ARTIST)
+        assert artist.metadata_json.get('active_since') == ('1987-03-12' if protected else None)
+        assert artist.metadata_json['birth_date'] == '1987-03-12'

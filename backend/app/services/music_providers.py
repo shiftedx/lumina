@@ -414,7 +414,12 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
               "styles": [g["name"] for g in sorted(value.get("tags", []), key=lambda t: t.get("count", 0), reverse=True)[:15] if isinstance(g.get("name"), str)]}
     if kind == "artist":
         life = value.get("life-span", {})
-        fields.update(origin=(value.get("begin-area") or value.get("area") or {}).get("name"), active_since=life.get("begin"), active_until=life.get("end"), overview=value.get("disambiguation"))
+        fields.update(origin=(value.get("begin-area") or value.get("area") or {}).get("name"), overview=value.get("disambiguation"))
+        if value.get("type") == "Person":
+            fields.update({field: date for field, key in (("birth_date", "begin"), ("death_date", "end"))
+                           if isinstance(date := life.get(key), str) and re.fullmatch(r"\d{4}(?:-\d{2}){0,2}", date)})
+        else:
+            fields.update(active_since=life.get("begin"), active_until=life.get("end"))
         releases = release_page(chosen)["items"]
     else:
         group = value.get("release-group", {})
@@ -440,6 +445,13 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
             return {"locked": True}
         if title.name != name or title.parent_id != parent_before or (title.provider_ids or {}) != identity_before:
             return {"changed": True}
+        if kind == "artist" and value.get("type") == "Person":
+            # Earlier provider refreshes labelled person life spans as careers.
+            # Remove only those derived values; a household edit remains authoritative.
+            for field in ("active_since", "active_until"):
+                if (title.field_sources or {}).get(field) == "musicbrainz":
+                    title.metadata_json = {k: v for k, v in (title.metadata_json or {}).items() if k != field}
+                    title.field_sources = {k: v for k, v in (title.field_sources or {}).items() if k != field}
         for field, content in fields.items():
             if content:
                 from app.services.metadata_editor import CATALOGUE, FieldError, validate

@@ -110,10 +110,12 @@ test('member library choices use the full pane and Activity has no unrelated Sav
   await mockApi(page, {}); await mockAdminFixtures(page);
   await page.goto('/settings/members/m2'); await signIn(page);
   await page.getByRole('tab', { name: 'Libraries', exact: true }).click();
-  const choices = page.locator('[data-setting-id="members.libraries"] .g-setting-options');
+  const choices = page.locator('[data-setting-id="members.libraries"] .g-control-stack');
   await expect(choices).toBeVisible();
   expect(await choices.evaluate((element) => element.clientWidth)).toBeGreaterThan(500);
   await expect(choices.getByRole('checkbox')).toHaveCount(4);
+  await expect(choices.getByRole('group', { name: 'Watch', exact: true })).toBeVisible();
+  await expect(choices.getByRole('group', { name: 'Other files', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Activity', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
 });

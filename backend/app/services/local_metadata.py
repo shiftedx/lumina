@@ -470,6 +470,11 @@ def music_key(text: str) -> str:
     return " ".join(text.casefold().split())
 
 
+def _main_performer(name: str | None) -> str | None:
+    """An explicit featured-guest marker identifies a lead; punctuation alone does not."""
+    return re.split(r"\s+(?:feat\.?|ft\.?|featuring)\s+", name, maxsplit=1, flags=re.I)[0].strip() if name else None
+
+
 def _audio_files(root: Path, dirs: tuple[str, ...], cache: dict[str, Any]) -> list[str]:
     """One folder's audio files in the scan's (sorted) order, theme songs left out."""
     return sorted(
@@ -502,7 +507,7 @@ def _release_artist(root: Path, dirs: tuple[str, ...], cache: dict[str, Any], au
                 not other.musicbrainz_album_id and music_key(other.album or "") == music_key(album))
             if not same or (tags.year and other.year and tags.year != other.year):
                 continue
-            name = other.album_artist or other.artist
+            name = other.album_artist or _main_performer(other.artist)
             if name:
                 names.append(name)
         counts = Counter(music_key(name) for name in names)
@@ -574,7 +579,7 @@ def _music(root: Path, dirs: tuple[str, ...], stem: str, tags: AudioTags, cache:
     album_artist = (
         tags.album_artist or (VARIOUS_ARTISTS if tags.compilation else None) or clean_text(nfo.get("artist") or "")
         or clean_text(nfo.get("albumartist") or "") or (artist_dirs[-1] if artist_dirs else None)
-        or _release_artist(root, album_dirs, cache, audio_tags, tags, album) or tags.artist or UNKNOWN_ARTIST
+        or _release_artist(root, album_dirs, cache, audio_tags, tags, album) or _main_performer(tags.artist) or UNKNOWN_ARTIST
     )
     year = tags.year or _year(nfo) or (int(folder_year.group(1)) if folder_year else None)
     genres = list(tags.genres)

@@ -420,3 +420,19 @@ def test_album_artist_consensus_never_crosses_release_ids(tmp_path: Path) -> Non
     tags[paths[-1]] = AudioTags(artist='Artist B', album='Same Name', musicbrainz_album_id=second)
     result = described(tmp_path, paths[-1], paths[:-1], tags)
     assert result['metadata']['album_artist'] == 'Artist B'
+
+
+@pytest.mark.parametrize('credit', ['Artist A feat. Guest B', 'Artist A featuring Guest B', 'Artist A ft Guest B'])
+def test_explicit_feature_marker_never_creates_a_guest_album_artist(tmp_path: Path, credit: str) -> None:
+    path = 'Flat/01 Featured.flac'
+    result = described(tmp_path, path, tags={path: AudioTags(artist=credit, album='Single Release')})
+    assert result['metadata']['artist'] == credit
+    assert result['metadata']['album_artist'] == 'Artist A'
+
+
+def test_two_track_release_uses_feature_credit_lead_without_splitting_joint_names(tmp_path: Path) -> None:
+    paths = ('Flat/01 One.flac', 'Flat/02 Two.flac')
+    tags = {paths[0]: AudioTags(artist='Artist A', album='Short Release'), paths[1]: AudioTags(artist='Artist A feat. Guest B', album='Short Release')}
+    assert described(tmp_path, paths[1], paths[:1], tags)['metadata']['album_artist'] == 'Artist A'
+    tags[paths[1]] = AudioTags(artist='Artist A & Artist B', album='Joint Release')
+    assert described(tmp_path, paths[1], paths[:1], tags)['metadata']['album_artist'] == 'Artist A & Artist B'

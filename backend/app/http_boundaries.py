@@ -18,7 +18,7 @@ MAX_REQUEST_BODY_BYTES = 2_097_152
 REQUEST_TOO_LARGE_MESSAGE = "Request body is too large. The maximum request size is 2 MiB."
 # The one route shape with a bigger cap: an artwork upload. ASGI ``path`` is already percent-decoded
 # and carries no query; fullmatch refuses any extra segment or trailing slash. PUT only.
-UPLOAD_ROUTE = re.compile(r"/api/titles/[0-9a-f-]{36}/images/(?:Primary|Backdrop|Logo)/[0-4]|/api/metadata/people/[0-9a-f-]{36}/photo")
+UPLOAD_ROUTE = re.compile(r"/api/titles/[0-9a-f-]{36}/images/(?:Primary|Backdrop|Logo)/[0-4]|/api/metadata/people/[0-9a-f-]{36}/photo|/api/music/artwork/bulk")
 MAX_UPLOAD_BODY_BYTES = 15 * 1024 * 1024
 UPLOAD_TOO_LARGE_MESSAGE = "Request body is too large. The maximum upload size is 15 MiB."
 # An upload body that stops arriving (or trickles) is cut so it cannot hold a connection and a worker.

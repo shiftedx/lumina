@@ -105,17 +105,17 @@ test('test_library_visual', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await openLibrary(page, '/library', { width: 1536, height: 960 }, 'dark');
-  await expect(page.getByRole('heading', { level: 1, name: 'Library' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Video' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Low Tide/ })).toHaveCount(0); // All lists titles by chapter, never single episodes
   await tabs(page).getByRole('link', { name: 'Movies' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Movies' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Northern Lantern,/ })).toBeVisible();
-  await expect(page).toHaveURL(/\/library\/movies$/);
+  await expect(page).toHaveURL(/\/video\/movies$/);
   await tabs(page).getByRole('link', { name: 'Shows' }).click();
   await page.getByRole('button', { name: /^Harbor Lights,/ }).click();
   await expect(page.getByRole('tab', { name: 'Season 2' })).toBeVisible();
   await page.goBack();
-  await expect(page).toHaveURL(/\/library\/shows$/);
+  await expect(page).toHaveURL(/\/video\/shows$/);
   await tabs(page).getByRole('link', { name: 'YouTube' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'YouTube' })).toBeVisible();
   expect(errors).toEqual([]);
@@ -155,13 +155,13 @@ test('the wall keeps its sort and filters in the address across a reload', async
   await page.getByRole('checkbox', { name: /^Drama/ }).check();
   await page.getByRole('dialog').getByRole('button', { name: /^Show/ }).click();
   await expect(page.getByRole('button', { name: 'Filters (1)' })).toBeFocused();
-  await expect(page).toHaveURL(/\/library\/movies\?sort=name&unwatched=1&genre=Drama$/);
+  await expect(page).toHaveURL(/\/video\/movies\?sort=name&unwatched=1&genre=Drama$/);
   await page.reload();
   await expect(page.getByRole('combobox', { name: 'Sort' })).toHaveValue('name');
   await expect(page.getByRole('button', { name: 'Unwatched', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: 'Filters (1)' })).toBeVisible();
   await page.goBack();
-  await expect(page).toHaveURL(/\/library\/movies\?sort=name&unwatched=1$/);
+  await expect(page).toHaveURL(/\/video\/movies\?sort=name&unwatched=1$/);
   await expect(page.getByRole('button', { name: 'Filters' })).toBeVisible();
 });
 
@@ -178,7 +178,7 @@ test('Back from a title page puts the wall back: filters, sort, scroll and the f
   for (const back of ['browser', 'page'] as const) {
     if (back === 'browser') await page.goBack();
     else await page.locator('.t-back').click();
-    await expect(page).toHaveURL(/\/library\/movies\?sort=name&unwatched=1$/);
+    await expect(page).toHaveURL(/\/video\/movies\?sort=name&unwatched=1$/);
     await expect(page.getByRole('button', { name: /^Gallery 060,/ })).toBeFocused();
     expect(Math.abs(await page.evaluate(() => window.scrollY) - scrolled)).toBeLessThanOrEqual(2);
     if (back === 'browser') {
@@ -240,7 +240,7 @@ test('a member who signs in after another sees none of their wall: no filters an
   await openGallery(page, '/library/movies');
   await expect(page.getByRole('button', { name: /^Gallery 000,/ })).toBeVisible();
   await page.getByRole('button', { name: 'Unwatched', exact: true }).click();
-  await expect(page).toHaveURL(/\/library\/movies\?unwatched=1$/);
+  await expect(page).toHaveURL(/\/video\/movies\?unwatched=1$/);
   await page.getByRole('button', { name: /^Gallery 000,/ }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Northern Lantern' })).toBeVisible();
   await page.getByRole('button', { name: /, account menu$/ }).click();
@@ -253,7 +253,7 @@ test('a member who signs in after another sees none of their wall: no filters an
   await page.getByRole('button', { name: /^Northern Lantern, / }).first().click();
   await expect(page.getByRole('heading', { level: 1, name: 'Northern Lantern' })).toBeVisible();
   await page.locator('.t-back').click();
-  await expect(page).toHaveURL(/\/library\/movies$/);
+  await expect(page).toHaveURL(/\/video\/movies$/);
   await expect(page.getByRole('button', { name: /^Gallery 000,/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Unwatched', exact: true })).toHaveAttribute('aria-pressed', 'false');
   expect(lists.length).toBeGreaterThan(before);

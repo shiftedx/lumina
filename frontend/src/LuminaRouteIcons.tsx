@@ -8,6 +8,7 @@ export const luminaRouteIconNames = [
   'subscriptions',
   'library',
   'music',
+  'books',
   'downloads',
   'settings',
 ] as const;
@@ -19,6 +20,7 @@ export type LuminaRouteIconProps = Omit<SVGProps<SVGSVGElement>, 'aria-label' | 
 };
 
 const routeGlyphs: Record<LuminaRouteIconName, ReactNode> = {
+  books: <><path d="M12 5.5C8.5 3.5 5 3.25 2.5 4.5v15c2.5-1.25 6-1 9.5 1 3.5-2 7-2.25 9.5-1v-15c-2.5-1.25-6-1-9.5 1Z" /><path d="M12 5.5v15M5.5 7.5l3.5.5M5.5 10.5l3.5.5M15 8l3.5-.5M15 11l3.5-.5" /></>,
   home: <>
     <path d="m4 11.5 8-6.5 8 6.5v8.25a1.25 1.25 0 0 1-1.25 1.25H5.25A1.25 1.25 0 0 1 4 19.75Z" />
     <path d="M9.25 21v-5.5h5.5V21M12 2.75v-1M7.2 4.1l-.7-.7M16.8 4.1l.7-.7" />

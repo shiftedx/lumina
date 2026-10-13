@@ -10,13 +10,15 @@ const PATTERNS: Record<string, { re: RegExp; message: string }> = {
   Tmdb: { re: /^\d{1,10}$/, message: 'Use up to 10 digits.' },
   Tvdb: { re: /^\d{1,10}$/, message: 'Use up to 10 digits.' },
   Imdb: { re: /^tt\d{7,10}$/, message: 'Use tt followed by 7 to 10 digits.' },
+  MusicBrainz: { re: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, message: 'Use a valid MusicBrainz UUID.' },
 };
 const KEY_RE = /^[A-Za-z][A-Za-z0-9]{0,31}$/;
-const LABELS: Record<string, string> = { Tmdb: 'TMDB', Imdb: 'IMDb', Tvdb: 'TVDB' };
+const LABELS: Record<string, string> = { Tmdb: 'TMDB', Imdb: 'IMDb', Tvdb: 'TVDB', MusicBrainz: 'MusicBrainz UUID' };
 
 function linkFor(key: string, value: string, type: TitleType): string | null {
   const media = type === 'movie' ? 'movie' : type === 'series' ? 'tv' : null;
   if (key === 'Imdb') return `https://www.imdb.com/title/${value}/`;
+  if (key === 'MusicBrainz' && (type === 'album' || type === 'artist')) return `https://musicbrainz.org/${type === 'artist' ? 'artist' : 'release'}/${value}`;
   if (!media) return null;
   if (key === 'Tmdb') return `https://www.themoviedb.org/${media}/${value}`;
   if (key === 'Tvdb') return `https://thetvdb.com/dereferrer/${media === 'tv' ? 'series' : 'movie'}/${value}`;
@@ -31,7 +33,8 @@ export default function IdsTab({ doc, draft, user, setField }: TabProps) {
   const [newValue, setNewValue] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const owner = user.role === 'admin';
-  const keys = [...['Tmdb', 'Imdb', 'Tvdb'], ...Object.keys(ids).filter((key) => !PATTERNS[key])];
+  const standard = doc.type === 'album' || doc.type === 'artist' ? ['MusicBrainz'] : ['Tmdb', 'Imdb', 'Tvdb'];
+  const keys = [...standard, ...Object.keys(ids).filter((key) => !PATTERNS[key] && !standard.includes(key))];
 
   const commit = (next: Record<string, string>) => {
     setIds(next);

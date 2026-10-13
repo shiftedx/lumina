@@ -58,13 +58,13 @@ test('Collections: the list, the lens link, the All chapter, a tile and Back', a
   await chapter.scrollIntoViewIfNeeded(); // the chapter loads lazily, one viewport ahead
   await expect(page.locator('.g-collection-tile')).toHaveCount(2);
   await page.getByRole('link', { name: 'See all', exact: true }).click();
-  await expect(page).toHaveURL(/\/library\/collections$/);
+  await expect(page).toHaveURL(/\/video\/collections$/);
 
   await page.locator('.g-collection-tile').first().click();
-  await expect(page).toHaveURL(/\/library\/collections\/c-1$/);
+  await expect(page).toHaveURL(/\/video\/collections\/c-1$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Rainy Sundays' })).toBeVisible();
   await page.goBack();
-  await expect(page).toHaveURL(/\/library\/collections$/);
+  await expect(page).toHaveURL(/\/video\/collections$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Collections' })).toBeVisible();
 });
 
@@ -72,7 +72,7 @@ test('Collections: ?new=smart opens the builder and leaves the address clean, wi
   await page.goto('about:blank');
   await open(page, '/library/collections?new=smart');
   await expect(page.getByRole('dialog', { name: 'New smart collection' })).toBeVisible();
-  await expect(page).toHaveURL(/\/library\/collections$/);
+  await expect(page).toHaveURL(/\/video\/collections$/);
   await page.keyboard.press('Escape');
   await page.goBack();
   await expect(page).toHaveURL('about:blank');
@@ -90,7 +90,7 @@ test('Collections: deleting asks first, Esc returns focus to Delete, confirming 
   await remove.click();
   await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect.poll(() => collections.deleted).toEqual(['c-1']);
-  await expect(page).toHaveURL(/\/library\/collections$/);
+  await expect(page).toHaveURL(/\/video\/collections$/);
   await expect(page.getByText('Rainy Sundays', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('link', { name: /Short films/ })).toBeVisible();
 });
@@ -147,8 +147,8 @@ test('YouTube coexistence: the YouTube channels view keeps its lens, and Collect
   await expect(lensRow(page).getByRole('link', { name: 'YouTube' })).toHaveAttribute('aria-current', 'page');
   await expect(lensRow(page).getByRole('link', { name: 'Collections' })).not.toHaveAttribute('aria-current', 'page');
   await lensRow(page).getByRole('link', { name: 'Collections' }).click();
-  await expect(page).toHaveURL(/\/library\/collections$/);
+  await expect(page).toHaveURL(/\/video\/collections$/);
   await page.goBack();
-  await expect(page).toHaveURL(/\/library\/youtube\?view=channels/);
+  await expect(page).toHaveURL(/\/video\/youtube\?view=channels/);
   await expect(lensRow(page).getByRole('link', { name: 'YouTube' })).toHaveAttribute('aria-current', 'page');
 });

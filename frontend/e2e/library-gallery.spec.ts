@@ -59,7 +59,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     expect(refreshes).toBe(1);
     await expect.poll(() => titles.length).toBeGreaterThan(before);
     await expect.poll(() => sections.length).toBeGreaterThan(countsBefore);
-    await expect(page).toHaveURL(/\/library\/shows\?sort=name$/);
+    await expect(page).toHaveURL(/\/video\/shows\?sort=name$/);
     await expect(refresh).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
     await page.screenshot({ path: `../output/playwright/library/refresh-${viewport.width}.png` });
@@ -74,9 +74,9 @@ for (const scheme of ['light', 'dark'] as const) {
       const aborted: string[] = []; // React StrictMode (dev server) mounts twice and aborts the first round: not requests the landing made
       page.on('requestfailed', (request) => aborted.push(request.url()));
       const { titles, sections, library } = await openLibrary(page, '/library', viewport, scheme);
-      await expect(page.locator('.g-all .g-kicker')).toHaveText('1,735 movies · 812 shows · 29 anime · 110 albums · 318 videos · 12 recordings');
+      await expect(page.locator('.g-all .g-kicker')).toHaveText('1,735 movies · 812 shows · 29 anime · 318 videos · 12 recordings');
       await expect(page.locator('.g-spotlight .g-feature')).toHaveCount(3);
-      for (const name of ['Movies', 'Shows', 'Anime', 'Music', 'YouTube', 'Recordings', 'Collections']) await expect(page.getByRole('heading', { level: 2, name, exact: true })).toBeAttached();
+      for (const name of ['Movies', 'Shows', 'Anime', 'YouTube', 'Recordings', 'Collections']) await expect(page.getByRole('heading', { level: 2, name, exact: true })).toBeAttached();
       await expect(page.locator('#g-chapter-movies .g-poster').first()).toBeVisible();
       await expect(page.locator('#g-chapter-shows .g-poster').first()).toBeVisible();
       await expect(page.locator('#g-chapter-movies .g-chapter-row')).toHaveCount(2);
@@ -118,15 +118,15 @@ test('lazy chapters load as they near the viewport; with reduced motion nothing 
 test('tabs, See all, the /music address and Back to the All landing where it was left', async ({ page }) => {
   await openLibrary(page);
   await mockTitleDetails(page);
-  await expect(tabs(page).getByRole('link')).toHaveText(['All', 'Movies', 'Shows', 'Anime', 'Music', 'YouTube', 'Recordings', 'Collections', 'Deleted']);
+  await expect(tabs(page).getByRole('link')).toHaveText(['All', 'Movies', 'Shows', 'Anime', 'YouTube', 'Recordings', 'Collections', 'Deleted']);
   await expect(tabs(page).getByRole('link', { name: 'All' })).toHaveAttribute('aria-current', 'page');
   await tabs(page).getByRole('link', { name: 'Shows' }).click();
-  await expect(page).toHaveURL(/\/library\/shows$/);
+  await expect(page).toHaveURL(/\/video\/shows$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Shows' })).toBeVisible();
   await page.goBack();
-  await expect(page).toHaveURL(/\/library$/);
+  await expect(page).toHaveURL(/\/video$/);
   await page.getByRole('link', { name: 'See all movies' }).click();
-  await expect(page).toHaveURL(/\/library\/movies$/);
+  await expect(page).toHaveURL(/\/video\/movies$/);
   await page.goBack();
   await page.locator('#g-chapter-anime').scrollIntoViewIfNeeded();
   const poster = page.locator('#g-chapter-anime .g-poster').first();
@@ -135,25 +135,25 @@ test('tabs, See all, the /music address and Back to the All landing where it was
   const scrolled = await page.evaluate(() => window.scrollY);
   expect(scrolled).toBeGreaterThan(300);
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/\/title\//);
+  await expect(page).toHaveURL(/\/video\/title\//);
   await expect(page.getByRole('button', { name: 'Back to Library' })).toBeVisible(); // Back names where it goes (G9)
   await page.goBack();
-  await expect(page).toHaveURL(/\/library$/);
+  await expect(page).toHaveURL(/\/video$/);
   await expect(poster).toBeFocused();
   expect(Math.abs(await page.evaluate(() => window.scrollY) - scrolled)).toBeLessThanOrEqual(2);
   await page.goto('/music');
-  await expect(page).toHaveURL(/\/library\/music$/);
+  await expect(page).toHaveURL(/\/audio$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Music' })).toBeVisible();
-  await expect(tabs(page).getByRole('link', { name: 'Music' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('navigation', { name: 'Audio' }).getByRole('link', { name: 'Music', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
 test('YouTube: sort and source live in the address, pages load ahead, and a delete undoes', async ({ page }) => {
   const { library } = await openLibrary(page, '/library/youtube');
   await expect(page.locator('.g-still-wall .g-kicker')).toHaveText('318 videos · Sorted by recently added');
   await page.getByRole('combobox', { name: 'Sort' }).selectOption('title');
-  await expect(page).toHaveURL(/\/library\/youtube\?sort=title$/);
+  await expect(page).toHaveURL(/\/video\/youtube\?sort=title$/);
   await page.getByRole('combobox', { name: 'Source' }).selectOption('twitch');
-  await expect(page).toHaveURL(/\/library\/youtube\?sort=title&source=twitch$/);
+  await expect(page).toHaveURL(/\/video\/youtube\?sort=title&source=twitch$/);
   await page.reload();
   await expect(page.getByRole('combobox', { name: 'Source' })).toHaveValue('twitch');
   await page.goto('/library/youtube');
@@ -175,14 +175,14 @@ test('Enter on a tab or See all keeps keyboard focus on the new active tab', asy
   await openLibrary(page);
   await tabs(page).getByRole('link', { name: 'Shows' }).focus();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/\/library\/shows$/);
+  await expect(page).toHaveURL(/\/video\/shows$/);
   await expect(tabs(page).getByRole('link', { name: 'Shows' })).toBeFocused();
   await page.keyboard.press('ArrowRight');
   await expect(tabs(page).getByRole('link', { name: 'Anime' })).toBeFocused();
   await page.goto('/library');
   await page.getByRole('link', { name: 'See all movies' }).focus();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/\/library\/movies$/);
+  await expect(page).toHaveURL(/\/video\/movies$/);
   await expect(tabs(page).getByRole('link', { name: 'Movies' })).toBeFocused();
 });
 
@@ -327,44 +327,41 @@ test('Anime: a filtered wall survives a title and Back', async ({ page }) => {
   await page.getByRole('button', { name: 'Filters' }).click();
   await page.getByRole('checkbox', { name: /^Drama/ }).check();
   await page.getByRole('dialog').getByRole('button', { name: /^Show/ }).click();
-  await expect(page).toHaveURL(/\/library\/anime\?genre=Drama$/);
+  await expect(page).toHaveURL(/\/video\/anime\?genre=Drama$/);
   await page.locator('.g-poster').first().click();
-  await expect(page).toHaveURL(/\/title\//);
+  await expect(page).toHaveURL(/\/video\/title\//);
   await page.goBack();
-  await expect(page).toHaveURL(/\/library\/anime\?genre=Drama$/);
+  await expect(page).toHaveURL(/\/video\/anime\?genre=Drama$/);
   await expect(page.getByRole('button', { name: 'Filters (1)' })).toBeVisible();
 });
 
 test('Music: See all, the Artists view kept across a page, and an album opened on its artist goes back there', async ({ page }) => {
-  await openLibrary(page);
+  await openLibrary(page, '/library/music');
   await mockTitleDetails(page);
-  await page.locator('#g-chapter-music').scrollIntoViewIfNeeded();
-  await expect(page.locator('#g-chapter-music .g-album').first()).toBeVisible();
-  await page.getByRole('link', { name: 'See all music' }).click();
-  await expect(page).toHaveURL(/\/library\/music$/);
+  await expect(page).toHaveURL(/\/audio$/);
   const views = page.getByRole('group', { name: 'Show' });
   await views.getByRole('button', { name: 'Artists' }).click();
-  await expect(page).toHaveURL(/\/library\/music\?view=artists/);
+  await expect(page).toHaveURL(/\/audio\?view=artists/);
   await page.locator('.g-album').first().click();
-  await expect(page).toHaveURL(/\/title\/artist-0000$/);
+  await expect(page).toHaveURL(/\/audio\/title\/artist-0000$/);
   await page.goBack();
-  await expect(page).toHaveURL(/\/library\/music\?view=artists/);
+  await expect(page).toHaveURL(/\/audio\?view=artists/);
   await expect(views.getByRole('button', { name: 'Artists' })).toHaveAttribute('aria-pressed', 'true');
   await page.locator('.g-album').first().click();
-  await expect(page).toHaveURL(/\/title\/artist-0000$/);
+  await expect(page).toHaveURL(/\/audio\/title\/artist-0000$/);
   await page.locator('main .g-album').first().click();
-  await expect(page).toHaveURL(/\/title\/album-of-artist-0000$/);
+  await expect(page).toHaveURL(/\/audio\/title\/album-of-artist-0000$/);
   await page.getByRole('button', { name: /^Back/ }).first().click(); // Back to the artist, not the Music tab
-  await expect(page).toHaveURL(/\/title\/artist-0000$/);
+  await expect(page).toHaveURL(/\/audio\/title\/artist-0000$/);
   await views.waitFor({ state: 'detached' });
   await page.goBack();
-  await expect(page).toHaveURL(/\/library\/music\?view=artists/);
+  await expect(page).toHaveURL(/\/audio\?view=artists/);
 });
 
 test('Music: saved audio in its own view, square', async ({ page }) => {
   await openLibrary(page, '/library/music');
   await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Saved audio' }).click();
-  await expect(page).toHaveURL(/\/library\/music\?view=saved/);
+  await expect(page).toHaveURL(/\/audio\?view=saved/);
   await expect(page.getByRole('button', { name: /^Track 0, / }).first()).toBeVisible();
   await expect(page.locator('.g-still-card.is-square .g-art-square').first()).toBeVisible();
 });

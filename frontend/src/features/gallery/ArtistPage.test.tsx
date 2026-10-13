@@ -55,4 +55,13 @@ describe('ArtistPage', () => {
     expect(screen.getByText('Nothing by this artist is available right now.')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Play all' }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it('attributes enriched biographies to their source article', () => {
+    artistPage(titleDetail(artistSummary(), { music: {
+      release_type: null, edition: null, label: null, catalogue_number: null, country: null, original_year: null,
+      origin: null, active_since: null, active_until: null, styles: [], mood: [], discography: [], candidates: [],
+      identified: true, biography_url: 'https://en.wikipedia.org/wiki/Example_Artist',
+    } }));
+    expect(screen.getByRole('link', { name: 'Biography from Wikipedia' }).getAttribute('href')).toBe('https://en.wikipedia.org/wiki/Example_Artist');
+  });
 });

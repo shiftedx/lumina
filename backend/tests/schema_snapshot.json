@@ -532,6 +532,52 @@
    "title",
    "user_id"
   ],
+  "music_cast_tickets": [
+   "expires_at",
+   "id",
+   "item_ids",
+   "output_format",
+   "speaker_id",
+   "token_hash",
+   "user_id"
+  ],
+  "music_edit_batches": [
+   "changes",
+   "created_at",
+   "id",
+   "undone_at",
+   "user_id"
+  ],
+  "music_file_writebacks": [
+   "backup_id",
+   "created_at",
+   "id",
+   "item_id",
+   "restored_at",
+   "user_id"
+  ],
+  "music_lookups": [
+   "expires_at",
+   "key",
+   "kind",
+   "payload",
+   "refreshed_at"
+  ],
+  "music_playlists": [
+   "id",
+   "item_ids",
+   "name",
+   "revision",
+   "rules",
+   "shared",
+   "updated_at",
+   "user_id"
+  ],
+  "music_track_overrides": [
+   "fields",
+   "item_id",
+   "updated_at"
+  ],
   "nfo_people": [
    "id",
    "image_path",
@@ -873,5 +919,5 @@
    "user_id"
   ]
  },
- "version": 17
+ "version": 18
 }

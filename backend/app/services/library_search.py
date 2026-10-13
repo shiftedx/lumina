@@ -28,10 +28,10 @@ the base rows and are rebuildable from them via :func:`ensure_search_index`.
 from __future__ import annotations
 
 import json
-
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 from sqlalchemy import delete, event, literal_column, select, text
 from sqlalchemy.engine import Connection, Engine, Row
@@ -39,7 +39,18 @@ from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import Session, aliased
 
 from app.db import Base
-from app.models import LibraryNote, LibraryItem, LibraryTag, MediaTitle, SearchEmbedding, Summary, Transcript, TranscriptCue, User
+from app.models import (
+    LibraryNote,
+    LibraryItem,
+    LibraryTag,
+    MediaTitle,
+    MusicTrackOverride,
+    SearchEmbedding,
+    Summary,
+    Transcript,
+    TranscriptCue,
+    User,
+)
 from app.services import member_access
 
 
@@ -65,8 +76,8 @@ MEMBER_FTS_MAP_TABLE = "library_member_fts_map"
 # Media titles: one row per title; episodes and seasons also carry their series name.
 TITLE_FTS_TABLE = "media_title_fts"
 TITLE_FTS_MAP_TABLE = "media_title_fts_map"
-# Music titles are never in the title index: search finds music through its track items.
-UNINDEXED_TITLE_TYPES = ("album", "artist")
+# Every title kind participates in discovery. Tracks remain item rows; albums and artists are title rows.
+UNINDEXED_TITLE_TYPES: tuple[str, ...] = ()
 # Moments: one row per ~60 s window of an item's one timing transcript (see
 # TranscriptService.timing_transcript: ASR, then synced, then captions; never a translation or a
 # second copy), plus one row (start_ms NULL) for its latest summary. A timed hit is "the one where…".
@@ -204,17 +215,27 @@ def title_search_fields(title: MediaTitle, lookup: Callable[[str | None], MediaT
     elif title.type == "episode":
         season = lookup(title.parent_id)
         series = lookup(season.parent_id) if season is not None else None
+    elif title.type == "album":
+        series = lookup(title.parent_id)
     genres = metadata.get("genres") if isinstance(metadata.get("genres"), list) else []
     tags = metadata.get("tags") if isinstance(metadata.get("tags"), list) else []
+    styles = metadata.get("styles") if isinstance(metadata.get("styles"), list) else []
+    mood = metadata.get("mood") if isinstance(metadata.get("mood"), list) else []
     people = metadata.get("people") if isinstance(metadata.get("people"), list) else []
+    credits = metadata.get("credits") if isinstance(metadata.get("credits"), list) else []
+    composers = metadata.get("composers") if isinstance(metadata.get("composers"), list) else []
     overview = metadata.get("overview")
+    names = [
+        value.get("name") if isinstance(value, dict) else value
+        for value in [*people, *credits, *composers]
+    ]
     return {
         "title_id": title.id,
         "name": title.name or "",
         "series_name": series.name if series is not None else "",
         "overview": overview if isinstance(overview, str) else "",
-        "genres": " ".join(item for item in [*genres, *tags] if isinstance(item, str)),
-        "people": " ".join(p["name"] for p in people if isinstance(p, dict) and isinstance(p.get("name"), str)),
+        "genres": " ".join(item for item in [*genres, *tags, *styles, *mood] if isinstance(item, str)),
+        "people": " ".join(name for name in names if isinstance(name, str)),
     }
 
 
@@ -264,6 +285,8 @@ def index_title(db: Session, title: MediaTitle) -> None:
         seasons = list(db.scalars(select(MediaTitle).where(MediaTitle.parent_id == title.id)))
         episodes = list(db.scalars(select(MediaTitle).where(MediaTitle.parent_id.in_([s.id for s in seasons])))) if seasons else []
         targets += seasons + episodes
+    elif title.type == "artist":
+        targets += list(db.scalars(select(MediaTitle).where(MediaTitle.parent_id == title.id, MediaTitle.type == "album")))
     renamed = _renamed_people(db, targets)
     for target in targets:
         fields = title_search_fields(target, lookup)
@@ -348,9 +371,55 @@ class LibrarySearchService:
 
     # -- write path -----------------------------------------------------------
 
-    def sync_item(self, item: LibraryItem) -> None:
+    def sync_item(self, item: LibraryItem, music_fields: Mapping[str, Any] | None = None) -> None:
         """Rebuild the item-level FTS row from the item and its household notes."""
-        self._write_item_row(item, self._shared_comment_text(item.id))
+        if music_fields is None and _is_music_item(item):
+            override = self.db.get(MusicTrackOverride, item.id)
+            music_fields = override.fields if override is not None else {}
+        self._write_item_row(item, self._shared_comment_text(item.id), music_fields)
+
+    def sync_music_items(
+        self,
+        items: Iterable[LibraryItem],
+        overrides: Mapping[str, Mapping[str, Any]],
+    ) -> None:
+        """Re-index music items with caller-preloaded overrides and constant-count reads.
+
+        Import and bulk-edit paths already own a batch of items and override rows. Passing that
+        map here avoids a per-track override, note, and row-id lookup while preserving the raw
+        ``LibraryItem`` values as the fallback for fields absent from an override.
+        """
+        batch = list(items)
+        if not batch:
+            return
+        item_ids = [item.id for item in batch]
+        shared_by_item: dict[str, list[str]] = {}
+        for item_id, body in self.db.execute(
+            select(LibraryNote.item_id, LibraryNote.body).where(
+                LibraryNote.item_id.in_(item_ids), LibraryNote.visibility == "household"
+            )
+        ):
+            if body:
+                shared_by_item.setdefault(item_id, []).append(body)
+        rowids = dict(self.db.execute(
+            text(
+                f"SELECT item_id, rowid FROM {ITEM_FTS_MAP_TABLE} "
+                "WHERE item_id IN (SELECT value FROM json_each(:ids))"
+            ),
+            {"ids": json.dumps(item_ids)},
+        ).all())
+        for item in batch:
+            rowid = rowids.get(item.id)
+            if rowid is None:
+                rowid = self._allocate_item_rowid(item.id)
+            else:
+                self.db.execute(text(f"DELETE FROM {ITEM_FTS_TABLE} WHERE rowid = :rowid"), {"rowid": rowid})
+            self._insert_item_row(
+                int(rowid),
+                item,
+                "\n".join(shared_by_item.get(item.id, [])),
+                overrides.get(item.id, {}),
+            )
 
     def index_new_item(self, item: LibraryItem) -> None:
         """Insert the FTS row for a just-created item.
@@ -362,15 +431,27 @@ class LibrarySearchService:
         rowid = self._allocate_item_rowid(item.id)
         self._insert_item_row(rowid, item, "")
 
-    def _write_item_row(self, item: LibraryItem, shared_comments: str) -> None:
+    def _write_item_row(
+        self,
+        item: LibraryItem,
+        shared_comments: str,
+        music_fields: Mapping[str, Any] | None = None,
+    ) -> None:
         rowid = self._item_rowid(item.id)
         if rowid is None:
             rowid = self._allocate_item_rowid(item.id)
         else:
             self.db.execute(text(f"DELETE FROM {ITEM_FTS_TABLE} WHERE rowid = :rowid"), {"rowid": rowid})
-        self._insert_item_row(rowid, item, shared_comments)
+        self._insert_item_row(rowid, item, shared_comments, music_fields)
 
-    def _insert_item_row(self, rowid: int, item: LibraryItem, shared_comments: str) -> None:
+    def _insert_item_row(
+        self,
+        rowid: int,
+        item: LibraryItem,
+        shared_comments: str,
+        music_fields: Mapping[str, Any] | None = None,
+    ) -> None:
+        fields = _item_search_fields(item, music_fields)
         self.db.execute(
             text(
                 f"INSERT INTO {ITEM_FTS_TABLE} "
@@ -380,11 +461,11 @@ class LibrarySearchService:
             {
                 "rowid": rowid,
                 "item_id": item.id,
-                "title": item.title or "",
-                "uploader": item.uploader or "",
-                "playlist": item.playlist_name or "",
+                "title": fields["title"],
+                "uploader": fields["uploader"],
+                "playlist": fields["playlist"],
                 "channel": _metadata_channel(item),
-                "description": _metadata_description(item),
+                "description": fields["description"],
                 "shared_comments": shared_comments,
             },
         )
@@ -689,6 +770,59 @@ def _metadata_description(item: LibraryItem) -> str:
     return description if isinstance(description, str) else ""
 
 
+def _is_music_item(item: LibraryItem) -> bool:
+    return item.kind in ("track", "audio")
+
+
+def _music_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if not isinstance(value, (list, tuple)):
+        return []
+    found = []
+    for entry in value:
+        name = entry.get("name") if isinstance(entry, dict) else entry
+        if isinstance(name, str):
+            found.append(name)
+    return found
+
+
+def _item_search_fields(item: LibraryItem, music_fields: Mapping[str, Any] | None) -> dict[str, str]:
+    metadata = item.metadata_json if isinstance(item.metadata_json, dict) else {}
+    if not _is_music_item(item):
+        return {
+            "title": item.title or "",
+            "uploader": item.uploader or "",
+            "playlist": item.playlist_name or "",
+            "description": _metadata_description(item),
+        }
+    override = music_fields or {}
+
+    def effective(key: str, fallback: Any) -> Any:
+        value = override.get(key, fallback)
+        return fallback if value is None else value
+
+    artist = effective("artist", metadata.get("artist") or item.uploader or "")
+    album_artist = effective("album_artist", metadata.get("album_artist") or artist)
+    uploader = " ".join(dict.fromkeys(value for value in (artist, album_artist) if isinstance(value, str)))
+    raw_genres = metadata.get("genres", metadata.get("genre", []))
+    genres = _music_list(effective("genres", raw_genres))
+    credits = [
+        *_music_list(metadata.get("composers")),
+        *_music_list(metadata.get("performers")),
+    ]
+    description = " ".join(
+        value for value in [_metadata_description(item), *genres, *credits] if isinstance(value, str)
+    )
+    title = effective("title", item.title or "")
+    return {
+        "title": title if isinstance(title, str) else item.title or "",
+        "uploader": uploader,
+        "playlist": item.playlist_name or "",
+        "description": description,
+    }
+
+
 def ensure_search_index(engine: Engine) -> None:
     """Create the FTS tables if absent and rebuild them when out of sync with the base tables.
 
@@ -757,7 +891,7 @@ def _index_in_sync(connection: Connection) -> bool:
     indexed_members = connection.exec_driver_sql(f"SELECT count(*) FROM {MEMBER_FTS_TABLE}").scalar()
     if expected_members != indexed_members:
         return False
-    titles = connection.exec_driver_sql("SELECT count(*) FROM media_titles WHERE type NOT IN ('album', 'artist')").scalar()
+    titles = connection.exec_driver_sql("SELECT count(*) FROM media_titles").scalar()
     if titles != connection.exec_driver_sql(f"SELECT count(*) FROM {TITLE_FTS_TABLE}").scalar():
         return False
     # Count check (like the item tables): items with a searchable transcript or a succeeded summary.
@@ -794,9 +928,18 @@ def _rebuild(connection: Connection) -> None:
         ):
             if body:
                 shared_by_item.setdefault(item_id, []).append(body)
+        music_overrides = {
+            item_id: fields or {}
+            for item_id, fields in session.query(MusicTrackOverride.item_id, MusicTrackOverride.fields).all()
+        }
         for item in session.query(LibraryItem).yield_per(500):
             rowid = service._allocate_item_rowid(item.id)
-            service._insert_item_row(rowid, item, "\n".join(shared_by_item.get(item.id, [])))
+            service._insert_item_row(
+                rowid,
+                item,
+                "\n".join(shared_by_item.get(item.id, [])),
+                music_overrides.get(item.id, {}) if _is_music_item(item) else None,
+            )
 
         member_tags: dict[tuple[str, str], list[str]] = {}
         for item_id, member_id, tag in session.query(LibraryTag.item_id, LibraryTag.user_id, LibraryTag.tag).all():

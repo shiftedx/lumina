@@ -22,7 +22,7 @@ test('Next up → series → Season 2 → play', async ({ page }) => {
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect(page.locator('.h-shelf h2')).toHaveText(['Next up', 'Because you watched Harbor Lights', 'Recently saved']);
   await page.getByRole('button', { name: 'Harbor Lights, S2 · E2' }).click();
-  await expect(page).toHaveURL(/\/title\/series-1\?season=2$/);
+  await expect(page).toHaveURL(/\/video\/title\/series-1\?season=2$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Harbor Lights' })).toBeVisible();
   await expect(page.getByRole('tab')).toHaveText(['Season 1', 'Season 2', 'Specials']);
   await expect(page.getByRole('tab', { name: 'Season 2' })).toHaveAttribute('aria-selected', 'true');
@@ -36,7 +36,7 @@ test('Next up → series → Season 2 → play', async ({ page }) => {
   await expect(page.locator('.watch-title')).toContainText('S2 · E2');
   await expect(page.getByRole('heading', { level: 1, name: 'The Ferry' })).toBeVisible();
   await page.getByRole('button', { name: 'Harbor Lights', exact: true }).click();
-  await expect(page).toHaveURL(/\/title\/series-1\?season=2$/);
+  await expect(page).toHaveURL(/\/video\/title\/series-1\?season=2$/);
   expect(errors).toEqual([]);
 });
 
@@ -46,7 +46,7 @@ test('Back from Watch returns to the title page and season it was played from', 
   await page.getByRole('button', { name: 'Resume S2 · E2', exact: true }).click();
   await expect(page).toHaveURL(/\/watch\/library\/item-ep-2-2$/);
   await page.getByRole('button', { name: 'Back', exact: true }).click();
-  await expect(page).toHaveURL(/\/title\/series-1\?season=2$/);
+  await expect(page).toHaveURL(/\/video\/title\/series-1\?season=2$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Harbor Lights' })).toBeVisible();
 });
 
@@ -75,10 +75,10 @@ test('keyboard only: arrows move between Home rows, Enter opens, Escape goes bac
   await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('button', { name: /^Northern Lantern,/ }).first()).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/\/title\/movie-1$/);
+  await expect(page).toHaveURL(/\/video\/title\/movie-1$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Northern Lantern' })).toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(page).toHaveURL(/\/library\/movies$/);
+  await expect(page).toHaveURL(/\/video\/movies$/);
   await expect(page.getByRole('button', { name: /^Northern Lantern,/ })).toBeVisible();
 });
 

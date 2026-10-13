@@ -16,7 +16,7 @@ import { watchSurface } from './test/watchSurface';
 import { cancelSpeculativeStart, claimSpeculativeStart, forgetPlaybackWarmup } from './playbackPrefetch';
 import type { AcquisitionFormat } from './mediaAcquisition';
 import { takePlayIntent } from './perfMetrics';
-import { movieSummary, titleDetail, titlePage } from './test/galleryFixtures';
+import { artistSummary, movieSummary, titleDetail, titlePage } from './test/galleryFixtures';
 import { docFixture } from './features/titles/editor/editorFixtures';
 import { forgetTitles } from './features/gallery/titleCache';
 import { CHANNEL_ID, channelPage } from './test/remoteFixtures';
@@ -25,6 +25,7 @@ import { openAppPath } from './features/channels/channelMention';
 import { openMemberPicker } from './app/commands';
 import { resetDeviceRing } from './features/auth/deviceRing';
 import { recordRecoOpen } from './features/reco/recoEvents';
+import { clearAlbumQueue } from './features/gallery/albumQueue';
 
 // The app raises its shell messages as toasts, which need the provider main.tsx supplies.
 const render = (ui: ReactElement, options: Parameters<typeof baseRender>[1] = {}) => baseRender(ui, { wrapper: ToastProvider, ...options });
@@ -72,6 +73,7 @@ const mocks = vi.hoisted(() => ({
   getDeviceMembers: vi.fn(),
   createAutomation: vi.fn(),
   getTitleMetadata: vi.fn(),
+  playMusic: vi.fn(),
 }));
 
 const paletteChunk = vi.hoisted(() => ({ gate: null as Promise<void> | null }));
@@ -95,6 +97,11 @@ vi.mock('./playbackPrefetch', async (importOriginal) => {
 vi.mock('./workspace', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./workspace')>()),
   useAuthenticatedWorkspace: mocks.useAuthenticatedWorkspace,
+}));
+
+vi.mock('./features/music/musicSession', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./features/music/musicSession')>()),
+  playMusic: mocks.playMusic,
 }));
 
 vi.mock('./api', async (importOriginal) => ({
@@ -158,6 +165,9 @@ const libraryItem: LibraryItem = {
   status: 'available',
   metadata_json: {},
 };
+const musicItem: LibraryItem = {
+  id: 'track-1', title: 'Song in the vault', kind: 'track', status: 'available', title_id: null, metadata_json: {},
+};
 
 function upNextSnapshot(items: YouTubeSearchResult[]) {
   return { items, categories: [], state: 'ready' as const, refreshing: false, stale: false, error: null };
@@ -179,6 +189,7 @@ beforeEach(() => {
   window.history.replaceState(null, "", '/');
   mobile = false;
   drawerOnly = false;
+  clearAlbumQueue();
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -235,6 +246,7 @@ beforeEach(() => {
   mocks.getPopularDiscovery.mockRejectedValue(new Error('Popular is unavailable.'));
   mocks.previewUrl.mockResolvedValue({ kind: 'playlist', title: 'Channel', entries: [], raw: {} });
   mocks.createJob.mockResolvedValue({ id: 'job-acquisition', source_url: 'https://example.test/video-acquisition', status: 'queued' });
+  mocks.playMusic.mockResolvedValue(undefined);
   mocks.getLibraryItem.mockImplementation(async (id: string) => ({ ...libraryItem, id }));
   mocks.getPlaybackProgress.mockResolvedValue(null);
   mocks.listUsers.mockResolvedValue([]);
@@ -287,17 +299,17 @@ describe('browser routes', () => {
     expect(mocks.getLibraryItem).toHaveBeenCalledWith('library-1');
     expect(window.location.pathname).toBe('/watch/library/library-1');
 
-    await navigateWithMenu(browser, 'Library');
-    await screen.findByRole('heading', { level: 1, name: 'Library' });
-    expect(window.location.pathname).toBe('/library');
+    await navigateWithMenu(browser, 'Video');
+    await screen.findByRole('heading', { level: 1, name: 'Video' });
+    expect(window.location.pathname).toBe('/video');
 
     window.history.back();
     await waitFor(() => expect(window.location.pathname).toBe('/watch/library/library-1'));
     await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
 
     window.history.forward();
-    await screen.findByRole('heading', { level: 1, name: 'Library' });
-    expect(window.location.pathname).toBe('/library');
+    await screen.findByRole('heading', { level: 1, name: 'Video' });
+    expect(window.location.pathname).toBe('/video');
   });
 
   it('asks for the resume point beside the item, not after it, and loads the item once', async () => {
@@ -344,8 +356,8 @@ describe('browser routes', () => {
     let position = 50;
     Object.defineProperty(player, 'currentTime', { configurable: true, get: () => position, set: (value: number) => { position = value; } });
 
-    await navigateWithMenu(browser, 'Library');
-    await screen.findByRole('heading', { level: 1, name: 'Library' });
+    await navigateWithMenu(browser, 'Video');
+    await screen.findByRole('heading', { level: 1, name: 'Video' });
     window.history.back();
     await waitFor(() => expect(window.location.pathname).toBe('/watch/library/library-1'));
     await new Promise((resolve) => { setTimeout(resolve, 20); });
@@ -439,7 +451,7 @@ describe('browser routes', () => {
     mocks.markNavigation.mockClear();
     mocks.markNavigation.mockImplementation(() => { beforePage.push(document.querySelector('.g-route-loading, .t-page') === null); });
     await browser.click(poster);
-    await waitFor(() => expect(window.location.pathname).toBe('/title/movie-1'));
+    await waitFor(() => expect(window.location.pathname).toBe('/video/title/movie-1'));
     await screen.findByRole('heading', { level: 1, name: 'Northern Lantern' });
     expect(beforePage).toEqual([true]); // once, at the click: the page's own commit does not restart the clock
   });
@@ -497,9 +509,9 @@ describe('browser routes', () => {
     expect(mocks.getTitle).toHaveBeenCalledWith('series-1');
     expect(screen.getByRole('tab', { name: 'Season 2' }).getAttribute('aria-selected')).toBe('true');
     await browser.click(screen.getByRole('tab', { name: 'Season 1' }));
-    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe('/title/series-1?season=1'));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe('/video/title/series-1?season=1'));
     await browser.click(screen.getByRole('button', { name: 'Back to Shows' }));
-    await waitFor(() => expect(window.location.pathname).toBe('/library/shows'));
+    await waitFor(() => expect(window.location.pathname).toBe('/video/shows'));
     window.history.back();
     await waitFor(() => expect(window.location.search).toBe('?season=1'));
     await screen.findByRole('heading', { level: 1, name: 'Harbor Lights' });
@@ -515,7 +527,7 @@ describe('browser routes', () => {
     await screen.findByRole('heading', { name: 'Severance' });
     const length = window.history.length;
     await browser.click(screen.getByRole('radio', { name: 'People' }));
-    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe('/title/t1/edit?tab=people'));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe('/video/title/t1/edit?tab=people'));
     expect(window.history.length).toBe(length);
     window.history.pushState(null, '', '/title/t1/edit');
     window.dispatchEvent(new PopStateEvent('popstate'));
@@ -556,16 +568,67 @@ describe('browser routes', () => {
     expect(window.history.length).toBe(before);
   });
 
-  it('/music opens the Music lens and replaces the address', async () => {
+  it('/music opens Audio and replaces the address', async () => {
     window.history.replaceState(null, '', '/music');
     const length = window.history.length;
     render(<LuminaApp />);
     await screen.findByRole('heading', { level: 1, name: 'Music' });
-    expect(window.location.pathname).toBe('/library/music');
+    expect(window.location.pathname).toBe('/audio');
     expect(window.history.length).toBe(length);
     await openNavigationMenu();
-    // Music is a Library lens, so Library remains the active destination.
-    expect(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Library' }).getAttribute('aria-current')).toBe('page');
+    expect(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name: 'Audio' }).getAttribute('aria-current')).toBe('page');
+  });
+
+  it('resolves a timed music Library route back to Audio and starts at the explicit link time', async () => {
+    mocks.getLibraryItem.mockResolvedValueOnce(musicItem);
+    window.history.replaceState(null, '', '/watch/library/track-1?t=37');
+
+    render(<LuminaApp />);
+
+    await waitFor(() => expect(mocks.playMusic).toHaveBeenCalledWith('user-1', { item_ids: ['track-1'] }, 'track-1', 37));
+    await waitFor(() => expect(window.location.pathname).toBe('/audio'));
+    expect(mocks.getPlaybackProgress).toHaveBeenCalledWith('track-1');
+  });
+
+  it('keeps the open Audio artist location when a direct music ID resolves asynchronously', async () => {
+    mocks.getTitle.mockResolvedValue(titleDetail(artistSummary()));
+    mocks.listSimilarTitles.mockResolvedValue([]);
+    mocks.getLibraryItem.mockResolvedValueOnce({ ...musicItem, title_id: 'album-1' });
+    window.history.replaceState(null, '', '/audio/title/artist-1');
+    render(<LuminaApp />);
+    await screen.findByRole('heading', { level: 1, name: 'Artist A' });
+
+    act(() => { openAppPath('/watch/library/track-1?t=19'); });
+
+    await waitFor(() => expect(mocks.playMusic).toHaveBeenCalledWith('user-1', { item_ids: ['track-1'] }, 'track-1', 19));
+    expect(window.location.pathname).toBe('/audio/title/artist-1');
+  });
+
+  it('reports a rejected foreground music start through the shell error UI', async () => {
+    mocks.getLibraryItem.mockResolvedValueOnce(musicItem);
+    mocks.playMusic.mockRejectedValueOnce(new Error('Audio device failed'));
+    window.history.replaceState(null, '', '/watch/library/track-1');
+
+    render(<LuminaApp />);
+
+    expect(await screen.findByText('Audio device failed')).toBeTruthy();
+  });
+
+  it('replaces a Video artist alias with Audio so Back skips the redirect entry', async () => {
+    mocks.getTitle.mockResolvedValue(titleDetail(artistSummary()));
+    mocks.listSimilarTitles.mockResolvedValue([]);
+    window.history.replaceState(null, '', '/video');
+    const pushes: string[] = [];
+    const push = window.history.pushState.bind(window.history);
+    const spy = vi.spyOn(window.history, 'pushState').mockImplementation((data, unused, url) => { pushes.push(String(url)); push(data, unused, url); });
+    render(<LuminaApp />);
+
+    act(() => { openAppPath('/video/title/artist-1'); });
+    await waitFor(() => expect(window.location.pathname).toBe('/audio/title/artist-1'));
+    expect(pushes).toEqual(['/video/title/artist-1']);
+    act(() => { window.history.back(); });
+    await waitFor(() => expect(window.location.pathname).toBe('/video'));
+    spy.mockRestore();
   });
 
   it('Back from a title opened on the All landing returns to All', async () => {
@@ -584,8 +647,8 @@ describe('browser routes', () => {
     await browser.click(await within(chapter).findByRole('button', { name: /^Northern Lantern, 2019/ }));
     await screen.findByRole('heading', { level: 1, name: 'Northern Lantern' });
     await browser.click(document.querySelector('.t-back') as HTMLElement);
-    await waitFor(() => expect(window.location.pathname).toBe('/library'));
-    await screen.findByRole('heading', { level: 1, name: 'Library' });
+    await waitFor(() => expect(window.location.pathname).toBe('/video'));
+    await screen.findByRole('heading', { level: 1, name: 'Video' });
   });
 
   it('sign-out forgets the member\'s stored Library tabs', async () => {
@@ -612,8 +675,8 @@ describe('keyboard navigation in the authenticated shell', () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger));
     expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
     await keyboard.click(trigger);
-    await keyboard.click(within(screen.getByRole('dialog', { name: 'Navigation' })).getByRole('button', { name: 'Library' }));
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Library' });
+    await keyboard.click(within(screen.getByRole('dialog', { name: 'Navigation' })).getByRole('button', { name: 'Video' }));
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Video' });
     await waitFor(() => expect(document.activeElement).toBe(heading));
     expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
     expect(container.querySelector('.g-mobile-tabs button:nth-child(2)')?.getAttribute('aria-current')).toBe('page');
@@ -650,7 +713,7 @@ describe('household and Library curation integration', () => {
   const openNotes = async (browser: ReturnType<typeof userEvent.setup>) => browser.click(await screen.findByRole('tab', { name: 'Sharing & tags' }));
   // Library items open from their own tab now that All is the chaptered landing.
   const openYouTube = async (browser: ReturnType<typeof userEvent.setup>) => {
-    await navigateWithMenu(browser, 'Library');
+    await navigateWithMenu(browser, 'Video');
     await browser.click(await within(screen.getByRole('navigation', { name: 'Library' })).findByRole('link', { name: 'YouTube' }));
   };
 

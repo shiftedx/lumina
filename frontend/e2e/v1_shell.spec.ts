@@ -16,19 +16,19 @@ test('test_route_reload_back_forward', async ({ page }) => {
   await page.reload();
   await expect(page.locator('video').first()).toBeVisible();
 
-  await navigateApp(page, 'Library');
-  await expect(page).toHaveURL(/\/library$/);
+  await navigateApp(page, 'Video');
+  await expect(page).toHaveURL(/\/video$/);
   await navigateApp(page, 'Streaming');
   await expect(page).toHaveURL(/\/streaming$/);
 
   await page.goBack();
-  await expect(page.getByRole('heading', { level: 1, name: 'Library' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Video' })).toBeVisible();
   await page.goBack();
   await expect(page.locator('video').first()).toBeVisible();
   await page.goForward();
-  await expect(page.getByRole('heading', { level: 1, name: 'Library' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Video' })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('heading', { level: 1, name: 'Library' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Video' })).toBeVisible();
 });
 
 test('the old Live, Explore and Subscriptions addresses land on Streaming', async ({ page }) => {

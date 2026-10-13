@@ -27,7 +27,7 @@ export function LibraryViewSwitch({ current, onWallChange }: { current: 'videos'
   );
 }
 
-const tileHref = (channel: LibraryChannelResponse) => (channel.channel_id ? channelPagePath(channel.channel_id, 'library') : `/library/youtube?${new URLSearchParams({ channel: channel.uploader })}`);
+const tileHref = (channel: LibraryChannelResponse) => (channel.channel_id ? channelPagePath(channel.channel_id, 'library') : `/video/youtube?${new URLSearchParams({ channel: channel.uploader })}`);
 const plural = (count: number) => `${count} video${count === 1 ? '' : 's'}`;
 
 export function ChannelsView({ state, onWallChange, lenses, viewSwitch }: { state?: string; onWallChange: (state: string) => void; lenses?: ReactNode; viewSwitch: ReactNode }) {

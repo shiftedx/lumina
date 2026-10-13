@@ -133,7 +133,7 @@ test('browser boots: local login, one synthetic playback, review surfaces render
   await expect(assertMediaPlaybackAdvances(media, { timeoutMs: 15_000 })).resolves.toMatchObject({ readyState: expect.any(Number) });
 
   // The remaining review surfaces render.
-  for (const surface of ['Library', 'Streaming']) {
+  for (const surface of ['Video', 'Streaming']) {
     await navigateApp(page, surface);
     await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
   }

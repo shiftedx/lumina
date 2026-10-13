@@ -221,7 +221,7 @@ const SCREENS: Shot[] = [
   { area: 'palette', state: 'error', open: async (page) => {
     await over(page, '**/api/search?*', { detail: 'down' }, 500); await over(page, '**/api/youtube-search', { detail: 'down' }, 500); // the palette shows its error only when the library and YouTube searches both fail
     await at('/')(page); await page.keyboard.press('ControlOrMeta+k'); await page.getByRole('combobox').fill('alp'); await expect(page.getByText('Search is unavailable right now.')).toBeVisible(); } },
-  { area: 'palette', state: 'phone-sheet', only: 'phone', open: async (page) => { await at('/')(page); await page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: 'Search' }).click(); await expect(page.locator('dialog.g-palette')).toBeVisible(); await page.waitForTimeout(500); } },
+  { area: 'palette', state: 'phone-sheet', only: 'phone', open: async (page) => { await at('/')(page); await page.getByRole('button', { name: /^Search Lumina, / }).click(); await expect(page.locator('dialog.g-palette')).toBeVisible(); await page.waitForTimeout(500); } },
   { area: 'member-picker', state: 'dialog', open: async (page) => {
     await over(page, '**/api/session/device-members', [{ user_id: 'm2', display_name: 'Sam Rivers', username: 'sam', role: 'viewer', switch: 'instant', active: false }]);
     await at('/')(page); await page.getByRole('button', { name: /account menu$/ }).click(); await page.getByRole('menuitem', { name: /^Switch member/ }).click(); await expect(page.getByRole('dialog')).toBeVisible(); } },

@@ -81,7 +81,7 @@ export default function ArtworkTab({ doc, onImages, onChanged }: ArtworkTabProps
   return (
     <div className="ed-art">
       <p>Artwork changes save as you make them. Each one can be undone from History.</p>
-      {doc.tmdb_configured ? null : <p>Add a TMDB key in Settings → Server → Metadata to choose artwork from TMDB.</p>}
+      {doc.type === 'album' || doc.type === 'artist' ? <p>Upload your preferred artwork here, or identify the music on its page to retrieve provider artwork.</p> : doc.tmdb_configured ? null : <p>Add a TMDB key in Settings → Server → Metadata to choose artwork from TMDB.</p>}
       <div className="ed-art-grid" role="list">
         {slots.map((slot) => (
           <ArtworkCard

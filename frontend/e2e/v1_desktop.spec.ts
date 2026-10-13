@@ -119,8 +119,8 @@ test('web UI has no host-launch affordances after desktop removal', async ({ pag
   await expect(authCard).toBeHidden();
   await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
 
-  // Library surface: the item renders without any open/reveal OS-launch affordance.
-  await navigateApp(page, 'Library');
+  // Video surface: the item renders without any open/reveal OS-launch affordance.
+  await navigateApp(page, 'Video');
   await page.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'YouTube' }).click();
   await expect(page.getByRole('button', { name: new RegExp(`^${fixtureItem.title},`) })).toBeVisible();
   const main = page.locator('main[aria-label="Main content"]');

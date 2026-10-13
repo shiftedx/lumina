@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { LIBRARY_LENSES } from '../features/gallery/libraryLens';
-import { libraryBackRoute, parseRoute, routeFocusKey, routePath, SETTINGS_SECTION_IDS, type AppRoute } from './routes';
+import { canonicalRoute, libraryBackRoute, parseRoute, routeFocusKey, routePath, SETTINGS_SECTION_IDS, type AppRoute } from './routes';
 
 describe('app routes', () => {
   it('round-trips every canonical route', () => {
@@ -79,20 +79,30 @@ describe('gallery route parameters', () => {
 });
 
 describe('library lenses', () => {
-  it('parses and round-trips every lens, with and without a wall', () => {
+  it('parses every legacy Library lens, moving Music to Audio', () => {
     for (const view of LIBRARY_LENSES) {
       for (const route of [{ surface: 'library', view }, { surface: 'library', view, wall: 'sort=title' }] as AppRoute[]) {
         const url = new URL(routePath(route), 'http://lumina.test');
-        expect(parseRoute(url.pathname, url.search), routePath(route)).toEqual(route);
+        expect(parseRoute(url.pathname, url.search), routePath(route)).toEqual(view === 'music' ? { ...route, surface: 'audio' } : route);
       }
     }
     expect(parseRoute('/library', '')).toEqual({ surface: 'library' });
   });
 
-  it('sends /music to the Music lens', () => {
-    expect(parseRoute('/music', '')).toEqual({ surface: 'library', view: 'music' });
-    expect(parseRoute('/music/', '')).toEqual({ surface: 'library', view: 'music' });
-    expect(routePath({ surface: 'library', view: 'music' })).toBe('/library/music');
+  it('sends old music bookmarks to Audio and canonicalizes the old Library landing to Video', () => {
+    for (const path of ['/music', '/music/', '/library/music']) expect(parseRoute(path, '')).toEqual({ surface: 'audio', view: 'music' });
+    expect(routePath(canonicalRoute(parseRoute('/library', '')))).toBe('/video');
+    expect(routePath(canonicalRoute(parseRoute('/library/music', '')))).toBe('/audio');
+  });
+
+  it.each([
+    { surface: 'video' }, { surface: 'audio', view: 'music' }, { surface: 'books' },
+    { surface: 'video', titleId: 'film-1' }, { surface: 'audio', titleId: 'album-1' },
+    { surface: 'video', titleId: 'film-1', edit: true, tab: 'artwork' }, { surface: 'audio', titleId: 'album-1', edit: true, tab: 'details' },
+    { surface: 'video', collections: 'list' }, { surface: 'video', collections: 'detail', collectionId: 'collection-1' },
+  ] as AppRoute[])('round-trips explicit media route $surface', (route) => {
+    const url = new URL(routePath(route), 'http://lumina.test');
+    expect(parseRoute(url.pathname, url.search), routePath(route)).toEqual(route);
   });
 
   it('sends an unknown or miscased lens Home', () => {

@@ -51,13 +51,13 @@ describe('anchored navigation', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('closes the menu when opening the Library or Manage Server', async () => {
+  it('closes the menu when opening Video or Manage Server', async () => {
     const onNavigate = vi.fn(); const onManageServer = vi.fn();
     render(<Host onNavigate={onNavigate} onManageServer={onManageServer} />);
     const trigger = screen.getByRole('button', { name: 'Open navigation' });
     await userEvent.click(trigger);
-    await userEvent.click(within(screen.getByRole('dialog', { name: 'Navigation' })).getByRole('button', { name: 'Library' }));
-    expect(onNavigate).toHaveBeenCalledWith('library');
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Navigation' })).getByRole('button', { name: 'Video' }));
+    expect(onNavigate).toHaveBeenCalledWith('video');
     expect(screen.queryByRole('dialog')).toBeNull();
     await userEvent.click(trigger);
     await userEvent.click(screen.getByRole('button', { name: 'Manage Server' }));

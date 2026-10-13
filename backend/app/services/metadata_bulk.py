@@ -16,8 +16,8 @@ from app.services.metadata_editor import (
     write_user_field,
 )
 
-LIST_FIELDS = ("genres", "tags", "studios")
-SET_FIELDS = ("official_rating", "custom_rating", "status")
+LIST_FIELDS = ("genres", "tags", "studios", "mood", "styles")
+SET_FIELDS = ("official_rating", "custom_rating", "status", "release_type")
 FIELD_OPS = ("add", "remove", "set", "lock", "unlock")
 OPS = (*FIELD_OPS, "lock_item", "unlock_item")
 

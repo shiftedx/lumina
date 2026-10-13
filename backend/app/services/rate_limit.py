@@ -71,6 +71,8 @@ RATE_LIMIT_RULES: dict[str, RateLimitRule] = {
     # A TMDB round trip per preview; people typeahead is cheap but per keystroke burst.
     "metadata_preview": RateLimitRule(max_requests=6, window_seconds=60),
     "metadata_people": RateLimitRule(max_requests=120, window_seconds=60),
+    "music_cast": RateLimitRule(max_requests=12, window_seconds=60),
+    "music_control": RateLimitRule(max_requests=120, window_seconds=60),
     "popular": RateLimitRule(max_requests=60, window_seconds=60),
     # The client flushes every 30 s and on pagehide, so 12 a minute is generous; per member, not per address.
     "reco_events": RateLimitRule(max_requests=12, window_seconds=60),

@@ -84,6 +84,7 @@ export function followInApp(event: MouseEvent<HTMLAnchorElement>, open: () => vo
 }
 
 export type LibraryTabsProps = {
+  videoOnly?: boolean;
   current: LibraryPlace;
   sections: LibrarySections | null;
   /** Vault owners always see Deleted, to restore anyone's file. */
@@ -91,8 +92,8 @@ export type LibraryTabsProps = {
   onOpen: (place: LibraryPlace) => void;
 };
 
-export function LibraryTabs({ current, sections, isAdmin, onOpen }: LibraryTabsProps) {
-  const shownTabs = TABS.filter((tab) => tabShown(tab, sections));
+export function LibraryTabs({ current, sections, isAdmin, onOpen, videoOnly = false }: LibraryTabsProps) {
+  const shownTabs = TABS.filter((tab) => (!videoOnly || tab !== 'music') && tabShown(tab, sections));
   const deletedShown = isAdmin || (sections?.deleted ?? 0) > 0;
   /** Left and Right step along the row and stop at its ends; Down leaves for the page's next control. */
   const keys = (event: KeyboardEvent<HTMLElement>) => {

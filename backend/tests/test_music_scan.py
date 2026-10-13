@@ -7,6 +7,7 @@ import pytest
 
 from app.services.audio_tags import AudioTags
 from app.services.local_metadata import describe
+from app.services.library_import import _add_audio_tag_metadata, is_media_name
 
 ALBUM_ONE = AudioTags(title="Song One", artist="Artist A", album_artist="Artist A", album="Album One", track=1, year=2019, genres=("Folk",))
 
@@ -77,6 +78,42 @@ def test_a_compilation_is_one_various_artists_album_whose_tracks_keep_their_arti
     assert [(r["metadata"]["artist"], r["uploader"], r["metadata"]["album_artist"]) for r in results] == [
         ("Singer B", "Singer B", "Various Artists"), ("Singer C", "Singer C", "Various Artists"),
     ]
+
+
+@pytest.mark.parametrize("album_artist_id", [None, "52345678-1234-4678-9234-123456789012"])
+def test_compilation_identity_does_not_reclassify_album_artist_as_track_performer(tmp_path: Path, album_artist_id: str | None) -> None:
+    target = "Music/Compilations/Mix/01 - First.flac"
+    performer_id = "12345678-1234-4678-9234-123456789012"
+    tags = AudioTags(title="First", artist="Singer B", album="Mix", compilation=True,
+                     musicbrainz_artist_id=performer_id, musicbrainz_album_artist_id=album_artist_id)
+    result = described(tmp_path, target, tags={target: tags})
+    _add_audio_tag_metadata(result, tags)
+    artist = result["titles"][0]
+    assert artist["fields"].get("musicbrainz", {}).get("provider_ids") == ({"MusicBrainz": album_artist_id} if album_artist_id else None)
+    assert result["metadata"]["musicbrainz_artist_id"] == performer_id
+
+
+def test_album_source_edition_credits_and_release_group_are_available_to_title_readers(tmp_path: Path) -> None:
+    target = "Music/Artist A/Album One/01 - Song One.flac"
+    tags = AudioTags(title="Song One", artist="Artist A", album="Album One", album_artist="Artist A",
+                     edition="Deluxe", label="Example Label", catalogue_number="EX-01", composers=("Composer A",),
+                     musicbrainz_release_group_id="32345678-1234-4678-9234-123456789012")
+    result = described(tmp_path, target, tags={target: tags})
+    _add_audio_tag_metadata(result, tags)
+    fields = result["titles"][1]["fields"]["path"]
+    assert {key: fields[key] for key in ("edition", "label", "catalogue_number", "credits", "release_group_id")} == {
+        "edition": "Deluxe", "label": "Example Label", "catalogue_number": "EX-01",
+        "credits": [{"name": "Composer A", "role": "composer"}], "release_group_id": tags.musicbrainz_release_group_id,
+    }
+
+
+@pytest.mark.parametrize("extension", ["aiff", "aif", "ape", "wv", "dsf", "dff", "mka", "oga", "m4b", "wma", "caf", "tta", "tak"])
+def test_collector_formats_are_walked_and_classified_as_audio(tmp_path: Path, extension: str) -> None:
+    target = f"Music/Artist A/Album One/01 - Song One.{extension}"
+    assert is_media_name(target.split("/")[-1])
+    result = described(tmp_path, target, tags={target: ALBUM_ONE})
+    assert result["metadata"]["lumina_import_kind"] == "track"
+    assert chain(result) == [("artist", "artist:artist a"), ("album", "album:artist a/album one")]
 
 
 def test_an_untagged_album_is_named_by_its_folders(tmp_path) -> None:  # noqa: ANN001

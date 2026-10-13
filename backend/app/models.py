@@ -1118,6 +1118,78 @@ class MediaTitle(Base):
         return self.added_at or self.created_at
 
 
+class MusicLookup(Base):
+    """Shared public-provider results. Library visibility is applied when serving them."""
+
+    __tablename__ = "music_lookups"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+
+
+class MusicTrackOverride(Base):
+    """Explicit track edits survive a source rescan without changing its file."""
+
+    __tablename__ = "music_track_overrides"
+
+    item_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    fields: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class MusicEditBatch(Base):
+    __tablename__ = "music_edit_batches"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    changes: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class MusicCastTicket(Base):
+    """A revocable, expiring capability for the member's specific Sonos queue."""
+
+    __tablename__ = "music_cast_tickets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    speaker_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    item_ids: Mapped[list] = mapped_column(JSON, default=list)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    output_format: Mapped[str] = mapped_column(String(16), default="sonos")
+
+
+class MusicFileWriteback(Base):
+    """A file backup handle; restore also verifies the artifact's current digest."""
+
+    __tablename__ = "music_file_writebacks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    item_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    backup_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    restored_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class MusicPlaylist(Base):
+    __tablename__ = "music_playlists"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    shared: Mapped[bool] = mapped_column(Boolean, default=False)
+    item_ids: Mapped[list] = mapped_column(JSON, default=list)
+    rules: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class DeviceToken(Base):
     """A Connected app credential (ADR 0010): one per (member, device); only the digest is stored."""
 

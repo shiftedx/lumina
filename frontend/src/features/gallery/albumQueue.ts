@@ -13,7 +13,7 @@ let current: AlbumQueue | null = null;
 export const trackLabel = (track: Pick<AlbumTrack, 'number' | 'name'>): string => (track.number ? `${track.number}. ${track.name}` : track.name);
 
 /** Stores the order for an album (album id) or an artist's Play all (artist id). */
-export function setAlbumQueue(albumId: string, tracks: readonly AlbumTrack[]): AlbumQueue {
+export function setAlbumQueue(albumId: string, tracks: readonly Pick<AlbumTrack, 'item_id' | 'name' | 'number'>[]): AlbumQueue {
   current = { albumId, order: tracks.map((track) => track.item_id), labels: Object.fromEntries(tracks.map((track) => [track.item_id, trackLabel(track)])) };
   return current;
 }

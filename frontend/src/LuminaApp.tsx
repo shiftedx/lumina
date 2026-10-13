@@ -22,11 +22,11 @@ import { remoteSourceIdentity } from './playbackModel';
 import { buildAcquisitionFormatSelection, useMediaAcquisition } from './mediaAcquisition';
 import { useSubscriptionAcquisitionFeed } from './subscriptionFeed';
 import { applyTheme } from './theme';
-import { type AppRoute, type RequestsRoute, type StreamingProvider, type StreamingView, type ChannelPageTab, type EditorTab, libraryBackRoute, parseRoute, routeFocusKey, routePath, type SettingsSectionId, type Surface } from './app/routes';
+import { type AppRoute, type RequestsRoute, type StreamingProvider, type StreamingView, type ChannelPageTab, type EditorTab, canonicalRoute, libraryBackRoute, parseRoute, routeFocusKey, routePath, type SettingsSectionId, type Surface } from './app/routes';
 import { AppShell } from './app/AppShell';
 import { onCommand, openMemberPicker, PALETTE_EVENT, type PaletteMode, type PaletteRequest } from './app/commands';
 import type { PaletteContext } from './features/palette/actions';
-import { Skeleton, useToast } from './ui';
+import { EmptyState, Skeleton, useToast } from './ui';
 import { usePolledSnapshot } from './app/usePolledSnapshot';
 import { HomeSurface } from './features/home/HomeSurface';
 import { forgetHomeCache } from './features/home/homeCache';
@@ -42,6 +42,10 @@ import { forgetStoredSections, type LibraryPlace } from './features/gallery/Libr
 import { LENS_LABELS, type LibraryLens } from './features/gallery/libraryLens';
 import { forgetWallStores } from './features/gallery/wallPages';
 import { LibraryBrowser } from './features/library/LibraryBrowser';
+import { albumQueue } from './features/gallery/albumQueue';
+import { checkpointMusic, playMusic, pauseMusic, setMusicOwner } from './features/music/musicSession';
+import { forgetMusicCast, stopMusicCast } from './features/music/musicCastSession';
+import { clearOfflineMusic } from './features/music/musicOffline';
 import { confirmLeaveSettings } from './features/settings/unsavedChanges';
 import { titleDestination } from './features/titles/titleModel';
 import { listRequests } from './features/requests/requestsApi';
@@ -54,6 +58,29 @@ import { cancelSpeculativeStart, claimSpeculativeStart, forgetPlaybackWarmup, pr
 import { AuthScreen, readAccountLink } from './features/auth/AuthScreen';
 import { resetDeviceRing, ringCall } from './features/auth/deviceRing';
 import { MemberPickerHost } from './features/auth/memberPicker';
+
+export async function stopMusicOutputBeforeVideo(
+  stop: () => Promise<void>,
+  isCurrent: () => boolean,
+  onError: (error: unknown) => void,
+): Promise<boolean> {
+  try { await stop(); }
+  catch (error) {
+    if (isCurrent()) onError(error);
+    return false;
+  }
+  return isCurrent();
+}
+
+export function stopOwnerMusicOutputBeforeVideo(
+  owner: string | null,
+  isCurrent: () => boolean,
+  onError: (error: unknown) => void,
+): Promise<boolean> {
+  return owner
+    ? stopMusicOutputBeforeVideo(() => stopMusicCast(owner), isCurrent, onError)
+    : Promise.resolve(isCurrent());
+}
 
 // Heavy, non-landing surfaces load on first use so the player stack (hls.js,
 // dash.js) and settings/onboarding code stay out of the initial bundle.
@@ -76,6 +103,8 @@ const ChannelDiscoveryStep = lazy(() => import('./features/onboarding/Onboarding
 const TitleEditorPage = preloadableSurface(() => import('./features/titles/editor/EditorPage').then((module) => module.EditorPage));
 const RequestsSurface = preloadableSurface(() => import('./features/requests/RequestsSurface').then((module) => module.RequestsSurface));
 const TitleDetailPage = preloadableSurface(() => import('./features/gallery/GalleryTitlePage').then((module) => module.GalleryTitlePage));
+const AudioSurface = preloadableSurface(() => import('./features/music/AudioSurface').then((module) => module.AudioSurface));
+const MusicPlayer = preloadableSurface(() => import('./features/music/MusicPlayer').then((module) => module.MusicPlayer));
 /** After the landing surface settles: the next likely surfaces, so opening one never shows the Suspense fallback. */
 /** Toasts a shell error. With `clear` the error is cleared once toasted so identical text toasts again; without it the error stays (inline surfaces keep reading it) and `identity` marks a new occurrence. */
 export function useShellErrorToast(error: string | null, clear?: () => void, identity?: unknown): void {
@@ -101,7 +130,7 @@ const CommandPalette = preloadableSurface(() => import('./features/palette/Comma
 /** Where inside Library the member is: a lens with its wall query (none: All), or one title page. */
 type LibraryLocation = { view?: LibraryLens; wall?: string; titleId?: string; season?: number; edit?: boolean; tab?: EditorTab; collections?: 'list' | 'detail'; collectionId?: string; create?: 'collection' | 'smart' };
 function libraryLocationOf(route: AppRoute): LibraryLocation {
-  if (route.surface !== 'library') return {};
+  if (route.surface !== 'library' && route.surface !== 'video' && route.surface !== 'audio') return {};
   if ('titleId' in route && 'edit' in route) return route.tab ? { titleId: route.titleId, edit: true, tab: route.tab } : { titleId: route.titleId, edit: true };
   if ('titleId' in route) return route.season === undefined ? { titleId: route.titleId } : { titleId: route.titleId, season: route.season };
   if ('collections' in route) {
@@ -205,7 +234,7 @@ export default function LuminaApp() {
   }, [signedInRole]);
   // The browser location is read once at startup; afterwards app state is the
   // single source of truth and the URL follows it (popstate re-applies a route).
-  const [initialRoute] = useState(() => parseRoute(window.location.pathname, window.location.search));
+  const [initialRoute] = useState(() => canonicalRoute(parseRoute(window.location.pathname, window.location.search)));
   const pendingRouteRef = useRef<AppRoute | null>(initialRoute.surface === 'watch' || (initialRoute.surface === 'streaming' && initialRoute.query) ? initialRoute : null);
   const [surface, setSurface] = useState<Surface>(initialRoute.surface);
   const [channelId, setChannelId] = useState<string | null>('channelId' in initialRoute ? initialRoute.channelId : null);
@@ -271,6 +300,8 @@ export default function LuminaApp() {
   const [curationDataItemId, setCurationDataItemId] = useState<string | null>(null);
   const curationMutationGenerationRef = useRef(0);
   const playbackLoadRequestRef = useRef(0);
+  const currentMusicOwnerRef = useRef(state.currentUser?.id ?? null);
+  currentMusicOwnerRef.current = state.currentUser?.id ?? null;
   const playbackMutationRef = useRef<Promise<void>>(Promise.resolve());
   const activeLibraryItemIdRef = useRef<string | null>(null);
   const appMainRef = useRef<HTMLElement>(null);
@@ -390,8 +421,8 @@ export default function LuminaApp() {
     openNavigation: () => setNavigationOpen(true),
     signOut: paletteSignOut,
     openLinkMode: () => openPaletteMode('link'),
-    titleId: surface === 'library' ? libraryLocation.titleId : undefined,
-    titleType: surface === 'library' && libraryLocation.titleId ? (cachedTitle(libraryLocation.titleId)?.type ?? summaryFor(libraryLocation.titleId)?.type) : undefined,
+    titleId: (surface === 'library' || surface === 'video' || surface === 'audio') ? libraryLocation.titleId : undefined,
+    titleType: (surface === 'library' || surface === 'video' || surface === 'audio') && libraryLocation.titleId ? (cachedTitle(libraryLocation.titleId)?.type ?? summaryFor(libraryLocation.titleId)?.type) : undefined,
   }) : null, [state.currentUser, state.preferences.theme, surface, libraryLocation.titleId, palette.open]); // eslint-disable-line react-hooks/exhaustive-deps -- dispatch is stable; surface and the open title gate the edit actions; the rest read through stable callbacks
   const openInterestSettingsStable = useStableCallback(() => openRoute({ surface: 'settings', section: 'discovery' }));
   const retryRecommendations = useCallback(() => setHomeRecommendationRefreshGeneration((generation) => generation + 1), []);
@@ -710,6 +741,15 @@ export default function LuminaApp() {
   }
 
   async function handleLogout() {
+    pauseMusic();
+    await Promise.allSettled([checkpointMusic(), stopMusicCast(state.currentUser?.id)]);
+    if (state.currentUser) {
+      forgetMusicCast(state.currentUser.id);
+      await clearOfflineMusic(state.currentUser.id).catch(() => undefined);
+      localStorage.removeItem(`lumina:music:queue:${state.currentUser.id}`);
+      localStorage.removeItem('lumina:music:offline-owner');
+    }
+    setMusicOwner(null);
     if (state.currentUser) forgetStoredSections(state.currentUser.id); // a sign-out clears the member's stored tabs
     const warmupStopped = forgetPlaybackWarmup(); // an early session's stop needs the session this ends
     resetMemberState();
@@ -725,6 +765,9 @@ export default function LuminaApp() {
    * Returns how to hand the stream back when the change then fails; the closed player stays closed. */
   async function prepareMemberChange() {
     if (!leaveSettingsOk()) throw new Error('Staying in Settings: your changes are not saved yet.'); // ask before anything is torn down
+    pauseMusic();
+    await Promise.allSettled([checkpointMusic(), stopMusicCast(state.currentUser?.id)]);
+    setMusicOwner(null);
     const earlierWrites = playbackMutationRef.current;
     // flushSync commits now, so the player's unmount checkpoint and the stream's close run before any switch request.
     flushSync(() => { resetWatch(); workspace.holdEvents(true); });
@@ -755,11 +798,12 @@ export default function LuminaApp() {
   const leaveSettingsOk = () => confirmLeaveSettings();
   function resetWatch() { playbackLoadRequestRef.current += 1; curationMutationGenerationRef.current += 1; acquisition.reset(); setLibraryWatchItem(null); activeLibraryItemIdRef.current = null; setPlaybackLoading(false); }
   // Leaving Watch keeps the selection: its surface docks as the mini-player.
-  function navigate(next: Surface, confirmed = false) { navigationMarked.current = null; if (!confirmed && !confirmLeaveSettings()) return false; if (surface !== 'watch') setPreviousSurface(surface); if (surface === next) focusSurfaceHeading(); else window.scrollTo({ top: 0 }); setSurface(next); setStreamingView('home'); setStreamingProvider('youtube'); setChannelId(null); setChannelPage(null); setExploreRail(null); setLiveRail(null); setRequestsRoute({ surface: 'requests', view: 'discover' }); if (next !== 'watch') setLibraryLocation({}); closePalette(); setNavigationOpen(false); return true; }
+  function navigate(next: Surface, confirmed = false) { navigationMarked.current = null; if (!confirmed && !confirmLeaveSettings()) return false; if (surface !== 'watch') setPreviousSurface(surface); if (surface === next) focusSurfaceHeading(); else window.scrollTo({ top: 0 }); setSurface(next); setStreamingView('home'); setStreamingProvider('youtube'); setChannelId(null); setChannelPage(null); setExploreRail(null); setLiveRail(null); setRequestsRoute({ surface: 'requests', view: 'discover' }); if (next !== 'watch') setLibraryLocation(next === 'audio' ? { view: 'music' } : {}); closePalette(); setNavigationOpen(false); return true; }
   // Watch's Back returns where the member came from, including the title page and season.
-  function leaveWatch() { const back = previousSurface === 'watch' ? 'home' : previousSurface; const location = libraryLocation; const page = channelPage; const view = streamingView; const provider = streamingProvider; navigate(back); if (back === 'streaming') { setStreamingView(view); setStreamingProvider(provider); } if (back === 'library') setLibraryLocation(location); if (back === 'subscriptions') setChannelPage(page); }
+  function leaveWatch() { const back = previousSurface === 'watch' ? 'home' : previousSurface; const location = libraryLocation; const page = channelPage; const view = streamingView; const provider = streamingProvider; navigate(back); if (back === 'streaming') { setStreamingView(view); setStreamingProvider(provider); } if ((back === 'library' || back === 'video' || back === 'audio')) setLibraryLocation(location); if (back === 'subscriptions') setChannelPage(page); }
 
   function openRoute(route: AppRoute, confirmed = false) {
+    route = canonicalRoute(route);
     navigationMarked.current = null; // a poster click's mark is for its own navigation only
     if (route.surface === 'streaming') {
       const provider = route.provider ?? 'youtube';
@@ -771,7 +815,7 @@ export default function LuminaApp() {
       if (route.view === 'home') { setExploreQuery(''); setExploreResults(NO_EXPLORE_RESULTS); }
     }
     // Switching tabs inside the open editor keeps the draft: no unsaved-changes prompt.
-    if (route.surface === 'library' && 'edit' in route && route.edit && surface === 'library' && libraryLocation.edit && libraryLocation.titleId === route.titleId) { setLibraryLocation(libraryLocationOf(route)); return; }
+    if ((route.surface === 'library' || route.surface === 'video' || route.surface === 'audio') && 'edit' in route && route.edit && (surface === 'library' || surface === 'video' || surface === 'audio') && libraryLocation.edit && libraryLocation.titleId === route.titleId) { setLibraryLocation(libraryLocationOf(route)); return; }
     if (route.surface !== 'watch') {
       if (!navigate(route.surface, confirmed)) return;
       if (route.surface === 'settings') { setSettingsSpace(route.space); setSettingsPage('page' in route ? route.page ?? null : null); setSettingsSection(route.section ?? null); setSettingsMember('memberId' in route ? route.memberId : null); }
@@ -782,7 +826,7 @@ export default function LuminaApp() {
         setStreamingView(route.view === 'search' ? 'home' : route.view); setStreamingProvider(route.provider ?? 'youtube');
         if (route.rail) (route.view === 'live' ? setLiveRail : setExploreRail)(route.rail);
       }
-      if (route.surface === 'library') setLibraryLocation(libraryLocationOf(route));
+      if ((route.surface === 'library' || route.surface === 'video' || route.surface === 'audio')) setLibraryLocation(libraryLocationOf(route));
       if (route.surface === 'requests') setRequestsRoute(route);
       return;
     }
@@ -805,7 +849,7 @@ export default function LuminaApp() {
     const progress = getPlaybackProgress(route.libraryId);
     progress.catch(() => undefined); // openLibrary reports a failure; a Play that never gets that far must not leave it unhandled
     void getLibraryItem(route.libraryId).then((item) => {
-      if (request === playbackLoadRequestRef.current && workspace.isSessionTokenCurrent(token)) openLibrary(item, true, progress);
+      if (request === playbackLoadRequestRef.current && workspace.isSessionTokenCurrent(token)) void openLibrary(item, true, progress, route.startSeconds);
     }).catch(() => {
       if (request !== playbackLoadRequestRef.current || !workspace.isSessionTokenCurrent(token)) return;
       takePlayIntent(); // a failed Play must not time the next one's first frame
@@ -821,19 +865,32 @@ export default function LuminaApp() {
   usePolledSnapshot(state.currentUser?.role === 'admin' ? `requests-pending:${state.currentUser.id}:${requestsQueueGeneration}` : null, workspace, (isCurrent) => listRequests({ scope: 'all', status: 'pending' }).then((page) => {
     if (isCurrent()) setPendingRequests(page.counts.pending ?? page.items.length);
   }, () => undefined));
-  const openLibraryIdStable = useStableCallback((libraryId: string, startSeconds?: number) => openRoute({ surface: 'watch', libraryId, ...(startSeconds === undefined ? {} : { startSeconds }) }));
+  function startForegroundMusic(owner: string, playback: Promise<void>): void {
+    const token = workspace.captureSessionToken();
+    void playback.catch((playError) => {
+      if (workspace.isSessionTokenCurrent(token) && currentMusicOwnerRef.current === owner) {
+        setError(playError instanceof Error ? playError.message : 'Music could not start.');
+      }
+    });
+  }
+  const openLibraryIdStable = useStableCallback((libraryId: string, startSeconds?: number) => {
+    const queued = albumQueue();
+    if (state.currentUser && queued?.order.includes(libraryId)) { resetWatch(); startForegroundMusic(state.currentUser.id, playMusic(state.currentUser.id, { item_ids: queued.order }, libraryId, startSeconds ?? 0)); return; }
+    openRoute({ surface: 'watch', libraryId, ...(startSeconds === undefined ? {} : { startSeconds }) });
+  });
   // What the hover menu on any cover art may do (ArtMenu); the callbacks are stable, so the value moves only with the member.
   const artActions = useMemo(() => ({ user: state.currentUser, navigate: paletteNavigate, playLibrary: openLibraryIdStable, openRemote: openRemoteStable, saveRemote: queueRemoteStable }), [state.currentUser, paletteNavigate, openLibraryIdStable, openRemoteStable, queueRemoteStable]);
   const homeShelvesChangeStable = useStableCallback((homeShelves: HomeShelfPref[] | null) => workspace.dispatch({ type: 'preferences/patch', patch: { homeShelves } }));
   const openTitleStable = useStableCallback((title: TitleSummary) => {
     if (title.reco) recordRecoOpen(title.reco);
     const { id, season } = titleDestination(title);
-    const route: AppRoute = season === null ? { surface: 'library', titleId: id } : { surface: 'library', titleId: id, season };
+    const destination = title.type === 'album' || title.type === 'artist' ? 'audio' : 'video';
+    const route: AppRoute = season === null ? { surface: destination, titleId: id } : { surface: destination, titleId: id, season };
     // Back returns to the place the title was opened from; from a title page, the one before.
-    const fromTitlePage = surface === 'library' && Boolean(libraryLocation.titleId);
+    const fromTitlePage = (surface === 'library' || surface === 'video' || surface === 'audio') && Boolean(libraryLocation.titleId);
     if (!fromTitlePage) {
-      lastLens.current = surface === 'library' ? (libraryLocation.collections ? 'collections' : libraryLocation.view ?? 'all') : null;
-      lastCollection.current = surface === 'library' && libraryLocation.collections === 'detail' ? libraryLocation.collectionId ?? null : null;
+      lastLens.current = (surface === 'library' || surface === 'video' || surface === 'audio') ? (libraryLocation.collections ? 'collections' : libraryLocation.view ?? 'all') : null;
+      lastCollection.current = (surface === 'library' || surface === 'video' || surface === 'audio') && libraryLocation.collections === 'detail' ? libraryLocation.collectionId ?? null : null;
     }
     const artist = libraryLocation.titleId!;
     backToArtist.current = fromTitlePage && title.type === 'album' ? { album: id, artist, name: summaryFor(artist)?.name ?? cachedTitle(artist)?.name ?? 'Artist', direct: true } : null;
@@ -843,6 +900,14 @@ export default function LuminaApp() {
     navigationMarked.current = routePath(route);
     window.scrollTo({ top: 0 });
   });
+  const correctTitleSurfaceStable = useStableCallback((title: TitleSummary) => {
+    const destination = title.type === 'artist' || title.type === 'album' ? 'audio' : 'video';
+    if (surface === destination) return;
+    const { id, season } = titleDestination(title);
+    const route: AppRoute = season === null ? { surface: destination, titleId: id } : { surface: destination, titleId: id, season };
+    replacePathRef.current = routePath(route);
+    openTitleStable(title);
+  });
   // The title page's own Back returns to the place it was opened from, with each lens's wall as it was left.
   const lastWalls = useRef<Partial<Record<LibraryPlace, string>>>({});
   const lastLens = useRef<LibraryLens | 'all' | 'collections' | null>(null);
@@ -851,7 +916,7 @@ export default function LuminaApp() {
   // on screen since (`direct`); after a detour (a track played, another surface) the entry before is not the artist.
   const backToArtist = useRef<{ album: string; artist: string; name: string; direct: boolean } | null>(null);
   useEffect(() => {
-    if (backToArtist.current && (surface !== 'library' || libraryLocation.titleId !== backToArtist.current.album)) backToArtist.current.direct = false;
+    if (backToArtist.current && (!(surface === 'library' || surface === 'video' || surface === 'audio') || libraryLocation.titleId !== backToArtist.current.album)) backToArtist.current.direct = false;
   }, [surface, libraryLocation.titleId]);
   // A sign-out or member switch forgets every wall (its filters and search, and the cached pages with their marks),
   // the All landing, the cached title details and summaries with their marks, and any early playback session and decisions.
@@ -919,6 +984,7 @@ export default function LuminaApp() {
   // A popstate (Back, or a surface's own redirect) just moved the address; the next sync must not push the stale path over it.
   const poppedRef = useRef(false);
   const replaceHistoryRef = useRef(false);
+  const replacePathRef = useRef<string | null>(null);
   useEffect(() => {
     const onPopState = () => {
       // Fragment-only moves (the skip link) also fire popstate; they are not route changes.
@@ -967,7 +1033,7 @@ export default function LuminaApp() {
     ? watchSelection?.kind === 'library' ? { surface: 'watch', libraryId: watchSelection.item.id }
       : watchSelection?.item.webpage_url ? { surface: 'watch', url: watchSelection.item.webpage_url }
         : null
-    : surface === 'library' ? libraryRoute
+    : (surface === 'library' || surface === 'video' || surface === 'audio') ? ({ ...libraryRoute, surface: surface === 'audio' ? 'audio' : 'video' } as AppRoute)
       : surface === 'streaming' ? streamingRoute
         : surface === 'settings' ? (settingsSection === 'members' && settingsMember ? { surface, section: 'members', memberId: settingsMember, ...(settingsSpace ? { space: settingsSpace } : {}) } : { surface, ...(settingsSection ? { section: settingsSection } : {}), ...(settingsPage ? { page: settingsPage } : {}), ...(settingsSpace ? { space: settingsSpace } : {}) })
         : surface === 'requests' ? requestsRoute
@@ -990,12 +1056,14 @@ export default function LuminaApp() {
     navigationMarked.current = null;
     const popped = poppedRef.current;
     poppedRef.current = false;
+    const replaceTarget = replacePathRef.current === currentPath;
     if (locationPath() !== currentPath && !popped) {
       // The first write only canonicalizes the entry the browser opened with.
       // A channel tab change replaces: Back leaves the channel page in one press.
-      if (syncedPathRef.current && !replaceHistoryRef.current) window.history.pushState(null, '', currentPath);
+      if (syncedPathRef.current && !replaceHistoryRef.current && !replaceTarget) window.history.pushState(null, '', currentPath);
       else window.history.replaceState(null, '', currentPath);
     }
+    if (replaceTarget) replacePathRef.current = null;
     replaceHistoryRef.current = false;
     syncedPathRef.current = currentPath;
   }, [currentPath]);
@@ -1131,15 +1199,41 @@ export default function LuminaApp() {
 
   // Only openRoute's own load keeps the link time it just set; every other Play starts from the saved position.
   /** `early`: the item's progress, already requested beside a full item (openRoute), so neither is fetched again here. */
-  function openLibrary(item: LibraryItem, keepStart = false, early?: Promise<PlaybackProgress | null>) {
+  async function openLibrary(item: LibraryItem, keepStart = false, early?: Promise<PlaybackProgress | null>, requestedStartSeconds?: number) {
+    if (state.currentUser && (item.kind === 'track' || item.kind === 'audio')) {
+      const preserveAudioLocation = surface === 'audio';
+      resetWatch();
+      setSurface('audio');
+      if (!preserveAudioLocation) setLibraryLocation(item.title_id ? { titleId: item.title_id } : { view: 'music' });
+      const queued = albumQueue();
+      startForegroundMusic(state.currentUser.id, playMusic(
+        state.currentUser.id,
+        { item_ids: queued?.order.includes(item.id) ? queued.order : [item.id] },
+        item.id,
+        keepStart ? requestedStartSeconds ?? 0 : 0,
+      ));
+      return;
+    }
+    pauseMusic();
     if (!keepStart) setWatchStart(null);
-    if (libraryWatchItem?.id === item.id && surface !== 'watch') { navigate('watch'); return; }
     if (!leaveSettingsOk()) return;
+    const outputRequest = ++playbackLoadRequestRef.current;
+    const outputOwner = state.currentUser?.id ?? null;
+    const outputSession = workspace.captureSessionToken();
+    const outputIsCurrent = () => outputRequest === playbackLoadRequestRef.current
+      && workspace.isSessionTokenCurrent(outputSession) && currentMusicOwnerRef.current === outputOwner;
+    if (!await stopOwnerMusicOutputBeforeVideo(outputOwner, outputIsCurrent, (stopError) => {
+      takePlayIntent();
+      setPlaybackLoading(false);
+      if (surface === 'watch' && !libraryWatchItem) setSurface(previousSurface === 'watch' ? 'home' : previousSurface);
+      setError(stopError instanceof Error ? stopError.message : 'The speaker session could not be stopped.');
+    })) return;
+    if (libraryWatchItem?.id === item.id && surface !== 'watch') { navigate('watch'); return; }
     notePlayIntent({ keepRecent: true }); // TTFF; keeps openRoute's earlier mark
     holdBackground(); // the page's side requests wait for this Play's first frame, so the video's own request is not queued behind them
     const sessionToken = workspace.captureSessionToken();
     acquisition.reset();
-    const playbackRequest = ++playbackLoadRequestRef.current;
+    const playbackRequest = outputRequest;
     curationMutationGenerationRef.current += 1;
     activeLibraryItemIdRef.current = item.id;
     setPreviousSurface(surface === 'watch' ? previousSurface : surface); setLibraryWatchItem(item); setActivePlayback(null); setPlaybackLoading(true); setSurface('watch'); closePalette(); window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
@@ -1165,9 +1259,18 @@ export default function LuminaApp() {
   async function openRemote(item: YouTubeSearchResult) {
     if (item.reco) recordRecoOpen(item.reco);
     if (!leaveSettingsOk()) return;
+    pauseMusic();
+    const outputRequest = ++playbackLoadRequestRef.current;
+    const outputOwner = state.currentUser?.id ?? null;
+    const outputSession = workspace.captureSessionToken();
+    const outputIsCurrent = () => outputRequest === playbackLoadRequestRef.current
+      && workspace.isSessionTokenCurrent(outputSession) && currentMusicOwnerRef.current === outputOwner;
+    if (!await stopOwnerMusicOutputBeforeVideo(outputOwner, outputIsCurrent, (stopError) => {
+      setError(stopError instanceof Error ? stopError.message : 'The speaker session could not be stopped.');
+    })) return;
     const opening = acquisition.open(item);
     if (!opening) return;
-    playbackLoadRequestRef.current += 1; curationMutationGenerationRef.current += 1; activeLibraryItemIdRef.current = null; setPlaybackLoading(false); setActivePlayback(null);
+    curationMutationGenerationRef.current += 1; activeLibraryItemIdRef.current = null; setPlaybackLoading(false); setActivePlayback(null);
     setLibraryWatchItem(null); setPreviousSurface(surface === 'watch' ? previousSurface : surface); setSurface('watch'); closePalette(); setDownloadMenuOpen(false); window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
     // Search history tracks queries the member typed, not videos opened directly.
     await opening;
@@ -1384,7 +1487,7 @@ export default function LuminaApp() {
     onOpenTitle: openTitleStable,
     onQueueRemote: queueRemoteStable,
     // `?new=` opened a form: drop it from the address without a history entry.
-    onRouteHandled: () => { window.history.replaceState(null, '', '/library/collections'); setLibraryLocation({ collections: 'list' }); },
+    onRouteHandled: () => { window.history.replaceState(null, '', routePath({ surface: 'video', collections: 'list' })); setLibraryLocation({ collections: 'list' }); },
     outputProfile: batchPlan.outputProfile,
   };
   const householdCollections = <CollectionsPage {...collectionsProps} embedded onBackToList={() => openPlaceStable('collections')} route={{ collections: 'list' }} />;
@@ -1406,12 +1509,12 @@ export default function LuminaApp() {
           : channelPage ? <ChannelPage channelId={channelPage.id} commands={subscriptionCommands} follows={channelAutomations} isQueueing={acquisition.isQueueing} key={channelPage.id} onAutomationChange={handleAutomationChange} onAutomationRemoved={handleAutomationRemoved} onFollow={({ name, url }) => followChannel(name, url)} onOpen={openRemoteStable} onPlayLibrary={openLibraryStable} onQueue={queueRemoteStable} onRecover={recoverSubscription} onTabChange={(tab) => { replaceHistoryRef.current = (tab ?? 'videos') !== (channelPage.tab ?? 'videos'); setChannelPage({ id: channelPage.id, tab }); }} tab={channelPage.tab} />
             : channelsElement
       )
-        : surface === 'library' ? (libraryLocation.titleId && libraryLocation.edit
-          ? <TitleEditorPage id={libraryLocation.titleId} key={libraryLocation.titleId} onBack={() => openRoute({ surface: 'library', titleId: libraryLocation.titleId! })} onTab={(tab) => { replaceHistoryRef.current = true; openRoute({ surface: 'library', titleId: libraryLocation.titleId!, edit: true, tab }); }} tab={libraryLocation.tab ?? null} user={state.currentUser} />
+        : (surface === 'library' || surface === 'video' || surface === 'audio') ? (libraryLocation.titleId && libraryLocation.edit
+          ? <TitleEditorPage id={libraryLocation.titleId} key={libraryLocation.titleId} onBack={() => openRoute({ surface: surface === 'audio' ? 'audio' : 'video', titleId: libraryLocation.titleId! })} onTab={(tab) => { replaceHistoryRef.current = true; openRoute({ surface: surface === 'audio' ? 'audio' : 'video', titleId: libraryLocation.titleId!, edit: true, tab }); }} tab={libraryLocation.tab ?? null} user={state.currentUser} />
           : libraryLocation.titleId
-          ? <TitleDetailPage backLabel={titleBackLabel()} id={libraryLocation.titleId} key={libraryLocation.titleId} onBack={titleBackStable} onEdit={(titleId) => paletteNavigate(`/title/${encodeURIComponent(titleId)}/edit`)} onOpenTitle={openTitleStable} onPlay={openLibraryIdStable} onSearch={runExploreStable} onSeason={(season) => setLibraryLocation((current) => ({ ...current, season }))} season={libraryLocation.season ?? null} user={state.currentUser} />
-          : <LibraryBrowser collections={householdCollections} collectionsPage={collectionsPage} currentUser={state.currentUser} onItemChanged={libraryItemChangedStable} onOpenTitle={openTitleStable} onPlay={openLibraryStable} onPlayAt={(libraryId, startSeconds) => openRoute({ surface: 'watch', libraryId, startSeconds })} onViewChange={openPlaceStable} onWallChange={(wall) => setLibraryLocation((current) => (wall ? { view: current.view, wall } : { view: current.view }))} view={libraryLocation.collections ? 'collections' : libraryLocation.view ?? 'all'} wall={libraryLocation.wall} />)
-            : surface === 'downloads' ? <DownloadsSurface hasMoreJobs={state.jobsNextCursor !== null} jobs={state.jobs} loadingMoreJobs={state.jobsLoadingMore} loadMoreJobsError={state.jobsLoadMoreError} loadState={state.jobsState} onCancel={handleCancelStable} onClear={handleClear} onLoadMoreJobs={loadMoreJobsStable} onOpenItem={openLibraryIdStable} onRetry={handleRetryStable} onRetryLoad={retryJobs} onSignIn={returnToSignIn} playlistActivity={playlistActivity} recordingActivity={<LiveRecordingActivity key={`recordings:${state.currentUser.id}`} onOpenItem={openLibraryIdStable} session={workspace} />} problem={state.jobsProblem} retryingLoad={state.jobsRetrying} />
+          ? <TitleDetailPage onPlayArtist={(id, shuffle) => { resetWatch(); startForegroundMusic(state.currentUser!.id, playMusic(state.currentUser!.id, { title_id: id }, undefined, 0, shuffle)); }} onWatchVideo={(url, itemId) => { pauseMusic(); if (itemId) openLibraryIdStable(itemId); else void openRemote({ title: 'Music performance', webpage_url: url }); }} onResolvedTitle={correctTitleSurfaceStable} backLabel={titleBackLabel()} id={libraryLocation.titleId} key={libraryLocation.titleId} onBack={titleBackStable} onEdit={(titleId) => openRoute({ surface: surface === 'audio' ? 'audio' : 'video', titleId, edit: true })} onOpenTitle={openTitleStable} onPlay={openLibraryIdStable} onSearch={runExploreStable} onSeason={(season) => setLibraryLocation((current) => ({ ...current, season }))} season={libraryLocation.season ?? null} user={state.currentUser} />
+          : surface === 'audio' ? <AudioSurface user={state.currentUser} wall={libraryLocation.wall} onWallChange={(wall) => setLibraryLocation({ view: 'music', ...(wall ? { wall } : {}) })} onOpenTitle={openTitleStable} onPlay={openLibraryStable} onItemChanged={libraryItemChangedStable} /> : <LibraryBrowser videoOnly collections={householdCollections} collectionsPage={collectionsPage} currentUser={state.currentUser} onItemChanged={libraryItemChangedStable} onOpenTitle={openTitleStable} onPlay={openLibraryStable} onPlayAt={(libraryId, startSeconds) => openRoute({ surface: 'watch', libraryId, startSeconds })} onViewChange={openPlaceStable} onWallChange={(wall) => setLibraryLocation((current) => (wall ? { view: current.view, wall } : { view: current.view }))} view={libraryLocation.collections ? 'collections' : libraryLocation.view ?? 'all'} wall={libraryLocation.wall} />)
+            : surface === 'books' ? <div className="gallery"><EmptyState title="Books" body="Your reading collection will appear here when book support is available on this server." /></div> : surface === 'downloads' ? <DownloadsSurface hasMoreJobs={state.jobsNextCursor !== null} jobs={state.jobs} loadingMoreJobs={state.jobsLoadingMore} loadMoreJobsError={state.jobsLoadMoreError} loadState={state.jobsState} onCancel={handleCancelStable} onClear={handleClear} onLoadMoreJobs={loadMoreJobsStable} onOpenItem={openLibraryIdStable} onRetry={handleRetryStable} onRetryLoad={retryJobs} onSignIn={returnToSignIn} playlistActivity={playlistActivity} recordingActivity={<LiveRecordingActivity key={`recordings:${state.currentUser.id}`} onOpenItem={openLibraryIdStable} session={workspace} />} problem={state.jobsProblem} retryingLoad={state.jobsRetrying} />
               : surface === 'requests' ? <RequestsSurface key={state.currentUser.id} onOpenRoute={openRouteStable} onQueueChanged={requestsQueueChangedStable} onRoute={requestsRouteStable} route={requestsRoute} session={workspace} user={state.currentUser} />
               : surface === 'settings' ? <SettingsSurface acquisitionDefaults={acquisitionDefaultsSettings} advanced={state.preferences.settingsAdvanced} onAdvancedChange={(settingsAdvanced) => workspace.dispatch({ type: 'preferences/patch', patch: { settingsAdvanced } })} captions={state.preferences.captions} onCaptionsChange={(captions) => workspace.dispatch({ type: 'preferences/patch', patch: { captions } })} autoplayUpNext={state.preferences.autoplayUpNext} onAutoplayUpNextChange={(autoplayUpNext) => workspace.dispatch({ type: 'preferences/patch', patch: { autoplayUpNext } })} playbackMaxHeight={state.preferences.playbackMaxHeight} onPlaybackMaxHeightChange={(playbackMaxHeight) => workspace.dispatch({ type: 'preferences/patch', patch: { playbackMaxHeight } })} onClearSearchHistory={clearSearchHistoryStable} onUpdateDisplayName={updateDisplayNameStable} searchHistory={searchHistory} onThemeChange={(theme) => workspace.dispatch({ type: 'preferences/patch', patch: { theme } })} theme={state.preferences.theme} formatPreset={acquisition.state.format} interests={memberInterests} onFormatChange={acquisition.chooseFormat} onLogout={handleLogout} playbackPrefs={playbackPrefs} onPlaybackPrefsChange={patchPlaybackPrefsStable} onRemotePlaybackCacheChange={handleRemotePlaybackCacheChange} onRestoreSuppression={restoreSuppressionStable} onSaveInterests={saveMemberInterests} remotePlaybackCache={state.userSettings?.remote_playback_cache || undefined} key={state.currentUser.id} onMessage={reportMessage} onLocation={(location) => { setSettingsSection(location.section); setSettingsPage(location.page); setSettingsSpace(location.space); }} space={settingsSpace} page={settingsPage} onSection={setSettingsSection} section={settingsSection} member={settingsMember} onMember={setSettingsMember} suppressions={suppressions} user={state.currentUser} />
                 : watchSelection ? null : surfaceLoading;
@@ -1457,6 +1560,7 @@ export default function LuminaApp() {
     >
       <RecoFeedbackProvider onError={setError} onExpired={recoExpired} resetKey={`${state.currentUser.id}:${recoEpoch}`} restore={recoRestore} suppress={recoSuppress}>
         <ArtActionsProvider value={artActions}>
+          <Suspense fallback={null}><MusicPlayer owner={state.currentUser.id} hidden={Boolean(watchSelection)} onWatchVideo={(url, itemId) => { pauseMusic(); if (itemId) openLibraryIdStable(itemId); else void openRemote({ title: 'Music performance', webpage_url: url }); }} onOpenAlbum={(id) => openRoute({ surface: 'audio', titleId: id })} onOpenPlaylists={() => openRoute({ surface: 'audio', view: 'music', wall: 'pane=playlists' })} /></Suspense>
           <SurfaceBoundary key={surface}><Suspense fallback={surfaceLoading}>{content}</Suspense></SurfaceBoundary>
           <WatchFullscreenHost active={!gate && (Boolean(watchSelection) || surface === 'watch')}>{watchPlayer}</WatchFullscreenHost>
           {watchSelection && !gate ? <TimeLeftNotice minutes={access?.remaining_minutes ?? null} /> : null}

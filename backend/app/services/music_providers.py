@@ -491,7 +491,7 @@ def import_art(title_id: str, url: str | None, *, identity: str | None = None, i
             apply_field(title, field, image, "musicbrainz")
             if credit and writable:
                 credits = [c for c in (title.metadata_json or {}).get("artwork_credits", []) if c.get("image_type") != image_type]
-                credits.append({k: credit[k] for k in ("image_type", "source_url", "author", "license")})
+                credits.append({**{k: credit[k] for k in ("image_type", "source_url", "author", "license")}, "tag": tag})
                 title.metadata_json = {**(title.metadata_json or {}), "artwork_credits": credits[:3]}
 
 

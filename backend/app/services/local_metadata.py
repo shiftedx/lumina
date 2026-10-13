@@ -14,6 +14,7 @@ import re
 import stat
 import xml.etree.ElementTree as ET
 import xml.parsers.expat
+from collections import Counter
 from pathlib import Path, PurePosixPath
 from collections.abc import Callable
 from typing import Any
@@ -478,6 +479,38 @@ def _audio_files(root: Path, dirs: tuple[str, ...], cache: dict[str, Any]) -> li
     )
 
 
+def _album_tracks(root: Path, dirs: tuple[str, ...], cache: dict[str, Any], audio_tags: AudioTagReader | None) -> list:
+    key = "/".join(dirs) + "/<album cover tracks>"
+    if key not in cache:
+        discs = sorted(name for name, is_dir, _tag in _listing(root, dirs, cache).values() if is_dir and DISC_DIR_PATTERN.match(name))
+        folders = [dirs, *((*dirs, disc) for disc in discs)]
+        cache[key] = [((*folder, name), audio_tags((*folder, name))) for folder in folders
+                      for name in _audio_files(root, folder, cache)] if audio_tags else []
+    return cache[key]
+
+
+def _release_artist(root: Path, dirs: tuple[str, ...], cache: dict[str, Any], audio_tags: AudioTagReader | None,
+                    tags: AudioTags, album: str) -> str | None:
+    """Missing album-artist tags can use a strict same-release consensus, never a guest name split."""
+    key = "/".join(dirs) + f"/<release artist:{tags.musicbrainz_album_id or music_key(album)}:{tags.year}>"
+    if key not in cache:
+        names = []
+        for _path, other in _album_tracks(root, dirs, cache, audio_tags):
+            if other is None or other.compilation:
+                continue
+            same = other.musicbrainz_album_id == tags.musicbrainz_album_id if tags.musicbrainz_album_id else (
+                not other.musicbrainz_album_id and music_key(other.album or "") == music_key(album))
+            if not same or (tags.year and other.year and tags.year != other.year):
+                continue
+            name = other.album_artist or other.artist
+            if name:
+                names.append(name)
+        counts = Counter(music_key(name) for name in names)
+        winner = counts.most_common(1)
+        cache[key] = next((name for name in names if music_key(name) == winner[0][0]), None) if winner and winner[0][1] >= 2 and winner[0][1] > len(names) / 2 else None
+    return cache[key]
+
+
 def _album_cover(root: Path, album_dirs: tuple[str, ...], cache: dict[str, Any], audio_tags: AudioTagReader | None,
                  album: str, album_artist: str, album_tags: AudioTags) -> dict[str, dict[str, str]]:
     """An album's Primary: a cover/folder/front/album image in the album folder, then in its disc folders in
@@ -487,13 +520,9 @@ def _album_cover(root: Path, album_dirs: tuple[str, ...], cache: dict[str, Any],
     identity = album_tags.musicbrainz_album_id or f"{music_key(album_artist)}/{music_key(album)}"
     key = "/".join(album_dirs) + f"/<album cover:{identity}>"
     if key not in cache:
+        tracks = _album_tracks(root, album_dirs, cache, audio_tags)
         discs = sorted(name for name, is_dir, _tag in _listing(root, album_dirs, cache).values() if is_dir and DISC_DIR_PATTERN.match(name))
         folders = [album_dirs, *((*album_dirs, disc) for disc in discs)]
-        tracks_key = "/".join(album_dirs) + "/<album cover tracks>"
-        if tracks_key not in cache:
-            cache[tracks_key] = [((*folder, name), audio_tags((*folder, name))) for folder in folders
-                                 for name in _audio_files(root, folder, cache)] if audio_tags else []
-        tracks = cache[tracks_key]
 
         def belongs(tags: AudioTags) -> bool:
             if album_tags.musicbrainz_album_id:
@@ -544,7 +573,8 @@ def _music(root: Path, dirs: tuple[str, ...], stem: str, tags: AudioTags, cache:
     album = tags.album or clean_text(nfo.get("title") or "") or folder_name or UNKNOWN_ALBUM
     album_artist = (
         tags.album_artist or (VARIOUS_ARTISTS if tags.compilation else None) or clean_text(nfo.get("artist") or "")
-        or clean_text(nfo.get("albumartist") or "") or (artist_dirs[-1] if artist_dirs else None) or tags.artist or UNKNOWN_ARTIST
+        or clean_text(nfo.get("albumartist") or "") or (artist_dirs[-1] if artist_dirs else None)
+        or _release_artist(root, album_dirs, cache, audio_tags, tags, album) or tags.artist or UNKNOWN_ARTIST
     )
     year = tags.year or _year(nfo) or (int(folder_year.group(1)) if folder_year else None)
     genres = list(tags.genres)

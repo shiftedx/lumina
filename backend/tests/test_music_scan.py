@@ -393,3 +393,30 @@ def test_artist_background_sidecar_is_separate_from_album_cover(tmp_path: Path) 
     images = result['titles'][0]['fields']['nfo']
     assert images['images.Primary']['path'].endswith('/artist.jpg')
     assert images['images.Backdrop']['path'].endswith('/fanart.jpg')
+
+
+def test_guest_track_without_album_artist_stays_on_the_main_release(tmp_path: Path) -> None:
+    paths = ('Artist A/01 One.flac', 'Artist A/02 Two.flac', 'Artist A/03 Guest.flac')
+    tags = {path: AudioTags(title=str(i), artist='Artist A' if i < 2 else 'Artist A feat. Guest B', album='Shared Release', track=i+1)
+            for i, path in enumerate(paths)}
+    result = described(tmp_path, paths[-1], paths[:-1], tags)
+    assert result['metadata']['artist'] == 'Artist A feat. Guest B'
+    assert result['metadata']['album_artist'] == 'Artist A'
+    assert chain(result) == [('artist', 'artist:artist a'), ('album', 'album:artist a/shared release')]
+
+
+def test_explicit_joint_album_artist_is_not_replaced_by_track_majority(tmp_path: Path) -> None:
+    paths = ('Shared/01 One.flac', 'Shared/02 Two.flac', 'Shared/03 Joint.flac')
+    tags = {path: AudioTags(artist='Artist A', album='Shared Release') for path in paths}
+    tags[paths[-1]] = AudioTags(artist='Artist A feat. Guest B', album_artist='Artist A & Artist B', album='Shared Release')
+    result = described(tmp_path, paths[-1], paths[:-1], tags)
+    assert result['metadata']['album_artist'] == 'Artist A & Artist B'
+
+
+def test_album_artist_consensus_never_crosses_release_ids(tmp_path: Path) -> None:
+    paths = ('Shared/01 One.flac', 'Shared/02 Two.flac', 'Shared/03 Other.flac')
+    first, second = '12345678-1234-4678-9234-123456789012', '22345678-1234-4678-9234-123456789012'
+    tags = {path: AudioTags(artist='Artist A', album='Same Name', musicbrainz_album_id=first) for path in paths}
+    tags[paths[-1]] = AudioTags(artist='Artist B', album='Same Name', musicbrainz_album_id=second)
+    result = described(tmp_path, paths[-1], paths[:-1], tags)
+    assert result['metadata']['album_artist'] == 'Artist B'

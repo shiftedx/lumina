@@ -1016,7 +1016,10 @@ class TitleService:
         artist = batch.titles.get(title.parent_id) if title.type == "album" else None
         from app.music_schemas import MusicTitleInfo
         data = title.metadata_json or {}
-        info = MusicTitleInfo(**{key: data[key] for key in MusicTitleInfo.model_fields if key in data})
+        music_data = {key: data[key] for key in MusicTitleInfo.model_fields if key in data}
+        music_data["artwork_credits"] = [credit for credit in data.get("artwork_credits", []) if isinstance(credit, dict)
+            and credit.get("tag") and credit["tag"] == ((title.images or {}).get(credit.get("image_type")) or {}).get("tag")]
+        info = MusicTitleInfo(**music_data)
         info.identified = bool((title.provider_ids or {}).get("MusicBrainz"))
         if user.role != "admin":
             info.candidates = []

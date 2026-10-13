@@ -163,13 +163,15 @@ test('Books deep link has its own navigation and reaches a manga reader without 
   await expect(page.getByRole('heading', { level: 1, name: 'Skybound' })).toBeVisible();
 });
 
-test('Books overview fits a phone viewport', async ({ page }) => {
-  await openBooks(page, '/books', PHONE);
-  await expect(page.getByRole('heading', { level: 1, name: 'Books' })).toBeVisible();
-  await assertAccessibleAndNoOverflow(page);
-  await page.screenshot({ path: '../output/playwright/books/overview-390.png', fullPage: true });
-  await impeccableReview(page, 'sparse-overview-phone');
-});
+for (const width of [320, 390]) {
+  test(`Books overview fits a ${width}px phone viewport`, async ({ page }) => {
+    await openBooks(page, '/books', { ...PHONE, width });
+    await expect(page.getByRole('heading', { level: 1, name: 'Books' })).toBeVisible();
+    await assertAccessibleAndNoOverflow(page);
+    await page.screenshot({ path: `../output/playwright/books/overview-${width}.png`, fullPage: true });
+    await impeccableReview(page, `sparse-overview-phone-${width}`);
+  });
+}
 
 test('ebook reader keeps its phone controls usable and closes both sidebars', async ({ page }) => {
   await openBooks(page, '/books/read/ebook-1', PHONE);

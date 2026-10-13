@@ -87,8 +87,8 @@ describe('BookReader', () => {
     ] });
     api.getBookReader.mockResolvedValue(ebookManifest({ book: bundled }));
     api.updateBookState.mockImplementation(async (_id: string, patch: object) => ({ ...bundled, progress: { ...bundled.progress, ...patch } }));
-    const onFileChange = vi.fn();
-    render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} onFileChange={onFileChange} userId="books-member" />);
+    const onFileChange = vi.fn(() => view.unmount());
+    const view = render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} onFileChange={onFileChange} userId="books-member" />);
     await screen.findByText('Departure');
     await waitFor(() => expect(api.updateBookState).toHaveBeenCalled());
     api.updateBookState.mockClear();
@@ -98,6 +98,7 @@ describe('BookReader', () => {
     await browser.selectOptions(formats, 'pdf-1');
     await waitFor(() => expect(onFileChange).toHaveBeenCalledWith('pdf-1'));
     expect(api.updateBookState).toHaveBeenCalledWith('ebook-1', { unit_index: 0, offset: 0 }, false);
+    expect(api.updateBookState).toHaveBeenCalledOnce();
   });
 
   it('shows the approved book cover when the first EPUB chapter has no inert content', async () => {

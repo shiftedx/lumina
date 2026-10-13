@@ -773,6 +773,26 @@ class LibraryImportService:
         )))) if keys else []
         titles = {title.key: title for title in candidates}
 
+        # A confirmed artist identity spans batches and releases. Requiring its
+        # entire discography in one batch creates another artist for every
+        # partial scan. Keep the oldest identity (and its edits/history), even
+        # when both the legacy and provider keys already exist. Album identities
+        # still use the stricter reconciliation below.
+        artists_by_provider: dict[str, list[MediaTitle]] = {}
+        for candidate in candidates:
+            identity = (candidate.provider_ids or {}).get("MusicBrainz")
+            if candidate.type == "artist" and isinstance(identity, str) and identity:
+                artists_by_provider.setdefault(identity, []).append(candidate)
+        for identity, artists in artists_by_provider.items():
+            canonical = min(artists, key=lambda artist: (artist.created_at, artist.id))
+            for artist in artists:
+                titles[artist.key] = canonical
+            for spec in specs:
+                if spec["type"] == "artist" and (
+                    ((spec.get("fields") or {}).get("musicbrainz") or {}).get("provider_ids", {}).get("MusicBrainz") == identity
+                ):
+                    titles[full_key(spec)] = canonical
+
         # MusicBrainz identities supersede the old name-only keys. Adopt a
         # compatible title only when this batch accounts for its whole source
         # grouping and names exactly one new identity. Otherwise create a new

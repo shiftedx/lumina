@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import app.main as main
@@ -91,7 +92,7 @@ def test_channel_suggestions_endpoint_ranks_curates_and_marks_existing_follows(m
 
     snapshot = _snapshot(
         _item("v1", ("science-technology",), uploader="Veritasium", uploader_url="https://www.youtube.com/@veritasium"),
-        _item("v2", ("science-technology",), uploader="Other", uploader_url="https://www.youtube.com/@other"),
+        replace(_item("v2", ("science-technology",), uploader="Other", uploader_url="https://www.youtube.com/@other"), thumbnail="https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"),
         categories=(
             PopularCategorySnapshot("science-technology", "Science & Technology", "ready", REFERENCE, None),
             PopularCategorySnapshot("music", "Music", "failed", None, None),
@@ -109,6 +110,10 @@ def test_channel_suggestions_endpoint_ranks_curates_and_marks_existing_follows(m
     by_name = {channel["display_name"]: channel for channel in tech["channels"]}
     assert by_name["Veritasium"]["following"] is True
     assert by_name["Other"]["following"] is False
+    assert by_name["Other"]["preview_artwork_url"].startswith("/api/artwork/remote/")
+    assert by_name["Other"]["preview_title"] == "V2"
+    assert by_name["Other"]["artwork_url"] is None
+    assert "i.ytimg.com" not in response.text
 
     music = categories["music"]
     assert music["state"] == "curated"
@@ -159,7 +164,7 @@ def test_channel_search_endpoint_returns_deduplicated_candidates(monkeypatch, db
         return YouTubeSearchResponse(
             query=query,
             items=[
-                YouTubeSearchResult(id="a", title="One", uploader="Veritasium", uploader_url="https://www.youtube.com/@veritasium"),
+                YouTubeSearchResult(id="a", title="One", uploader="Veritasium", uploader_url="https://www.youtube.com/@veritasium", thumbnail="https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"),
                 YouTubeSearchResult(id="b", title="Two", uploader="Veritasium", uploader_url="https://m.youtube.com/@veritasium"),
                 YouTubeSearchResult(id="c", title="Three", uploader="Other", uploader_url="https://www.youtube.com/@other"),
             ],
@@ -175,6 +180,10 @@ def test_channel_search_endpoint_returns_deduplicated_candidates(monkeypatch, db
     response = client.post("/api/discovery/channels/search", json={"query": "veritasium"})
     assert response.status_code == 200
     channels = response.json()["channels"]
+    assert channels[0]["preview_artwork_url"].startswith("/api/artwork/remote/")
+    assert channels[0]["preview_title"] == "One"
+    assert channels[0]["artwork_url"] is None
+    assert "i.ytimg.com" not in response.text
     keys = [channel["channel_key"] for channel in channels]
     assert keys == [
         normalize_channel_source_url("https://www.youtube.com/@veritasium"),

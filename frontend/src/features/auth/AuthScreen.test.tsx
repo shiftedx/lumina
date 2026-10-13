@@ -37,6 +37,7 @@ describe('AuthScreen', () => {
   it('setup, invite and reset stages have their fields, new-password tokens and copy', () => {
     const { rerender } = render(<AuthScreen {...props({ stage: 'setup' })} />);
     expect(screen.getByRole('heading', { name: 'Make Lumina yours' })).toBeTruthy();
+    expect(screen.getByText(/Next, we’ll help you connect your media/)).toBeTruthy();
     expect(screen.getByLabelText('Display name').getAttribute('autocomplete')).toBe('name');
     expect(screen.getByLabelText('Password').getAttribute('autocomplete')).toBe('new-password');
     expect(describedBy(screen.getByLabelText('Password'))).toBe('At least 12 characters.');

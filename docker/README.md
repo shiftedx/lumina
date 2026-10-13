@@ -118,6 +118,8 @@ Email artwork uses versioned public assets from the configured public address. K
 - Never open the live `app.db` from another process while the container runs (on macOS bind mounts a second writer can poison the running app with `disk I/O error`). Use the API or stop the container first.
 - Extra media: bind-mount it under a mount parent, then register it under **Settings → Library & storage**:
 
+  The first-owner walkthrough lists configured mount parents and connects and scans folders immediately after account creation. Setup later keeps the same controls available under **Manage Server → Library & storage**.
+
   ```yaml
   volumes:
     - ./app-data:/app/backend/.data
@@ -175,6 +177,7 @@ Schema steps 6 to 18 only add tables, columns and indexes that older releases ig
 | Rolling back to | Stamp |
 | --- | --- |
 | Before the dedicated music experience (schema 17, step 18) | `PRAGMA user_version = 17` (the older release ignores `music_lookups`, `music_track_overrides`, `music_edit_batches`, `music_cast_tickets`, `music_file_writebacks`, and `music_playlists`. Track overrides and new navigation are unavailable, and its scans may regroup tracks from their source tags. Provider portraits need this release to render. Keep `music-file-backups` and all six tables; upgrading again restores their controls. Explicit audio-file writeback remains in the files across rollback; restore chosen files before rolling back if desired.) |
+| Before first-owner media onboarding (schema 19) | `PRAGMA user_version = 19` (`users.vault_setup_pending` remains and is ignored by the older release) |
 | Before Books (schema 18) | `DROP TABLE book_shelf_memberships; DROP TABLE book_shelves; DROP TABLE book_states; DROP TABLE book_items; PRAGMA user_version = 18` (uploaded files under `app-data/books/` remain on disk) |
 | Before the local address (schema 16, step 17) | `PRAGMA user_version = 16` (step 17 only adds `app_settings.local_address`; the older release ignores it, so the local name is refused as an untrusted host until you upgrade again) |
 | Before the people editor (schema 15, step 16) | `PRAGMA user_version = 15` (step 16 only adds `person_overrides`, which the older release ignores: people renames and photos show their source names and photos until you upgrade again. Its scans also put moved episodes back in their folder's season, and its TMDB refresh reads every series in aired order) |

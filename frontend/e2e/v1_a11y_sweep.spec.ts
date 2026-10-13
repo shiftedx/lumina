@@ -352,19 +352,19 @@ areaTest('onboarding', async ({ page, visit }) => {
   await expect(page.getByRole('button', { name: 'Personalize my Home' })).toBeVisible();
   await visit('welcome', 2);
   await page.getByRole('button', { name: 'Personalize my Home' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeVisible();
   await visit('interests', true);
   await page.getByRole('checkbox', { name: 'Music' }).check();
   await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Follow a few channels' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Meet your next favorites' })).toBeVisible();
   await page.getByRole('searchbox').or(page.getByRole('textbox').first()).fill('creator');
   await visit('channels');
   await page.route('**/api/onboarding/complete', (route) => route.fulfill({ status: 500, json: { detail: 'boom' } }));
-  await page.getByRole('button', { name: /^Continue/ }).click();
+  await page.getByRole('button', { name: 'Enter my Home' }).click();
   await expect(page.getByRole('alert').first()).toBeVisible();
   await visit('error');
   await page.route('**/api/onboarding/complete', () => new Promise<void>(() => undefined)); // never answers: the preparing phase stays up
-  await page.getByRole('button', { name: /^Continue/ }).click();
+  await page.getByRole('button', { name: 'Enter my Home' }).click();
   await expect(page.getByRole('status').first()).toBeVisible();
   await visit('preparing');
 });

@@ -35,6 +35,7 @@ from app.routers import two_factor as two_factor_routes
 from app.routers import jellyfin_history
 from app.services import title_metadata  # TMDB metadata worker
 from app.services import member_access, provider_budget
+from app.services.storage_roots import mount_parents
 from app.services import screen_time, streaming_gate
 from app.services.streaming_gate import require_streaming
 from app.routers import admin_metadata  # TMDB metadata routes
@@ -85,6 +86,7 @@ from app.schemas import (
     AcquisitionBatchResponse,
     AcquisitionErrorDetail,
     AutomationRunResponse,
+    AdminMediaOnboardingContextResponse,
     AppSettingsResponse,
     AppSettingsUpdateRequest,
     BootstrapAdminCreateRequest,
@@ -1334,6 +1336,24 @@ def bootstrap_admin(payload: BootstrapAdminCreateRequest, db: Session = Depends(
     return service.serialize_user(user)
 
 
+@app.get("/api/admin/onboarding/media", response_model=AdminMediaOnboardingContextResponse)
+def admin_media_onboarding_context(
+    current_user: User = Depends(get_admin_user),
+) -> AdminMediaOnboardingContextResponse:
+    del current_user
+    return AdminMediaOnboardingContextResponse(mount_parents=[str(path) for path in mount_parents()])
+
+
+@app.post("/api/admin/onboarding/media/complete", response_model=UserResponse)
+def complete_admin_media_onboarding(
+    current_user: User = Depends(get_admin_user),
+    db: Session = Depends(get_db, scope="function"),
+) -> UserResponse:
+    service = UserService(db)
+    user = service.complete_vault_setup(current_user.id)
+    return service.serialize_user(user)
+
+
 @app.post("/api/session/login", response_model=SessionResponse)
 def login_session(payload: SessionLoginRequest, response: Response, request: Request, db: Session = Depends(get_db, scope="function")) -> SessionResponse | JSONResponse:
     user = authenticate_rate_limited(db, request, payload.username, payload.password)
@@ -2528,6 +2548,8 @@ def _channel_candidate_response(candidate) -> ChannelCandidateResponse:
         # Register any provider artwork through the opaque-id boundary; a channel
         # with no avatar carries None so the UI can show an accessible fallback.
         artwork_url=_remote_artwork_url(candidate.artwork_url),
+        preview_artwork_url=_remote_artwork_url(candidate.preview_thumbnail),
+        preview_title=candidate.preview_title,
         category_keys=list(candidate.category_keys),
         following=candidate.following,
     )
@@ -2578,6 +2600,7 @@ def search_channels(
         {
             "uploader": item.uploader, "channel_url": item.uploader_url, "channel_id": item.uploader_id,
             "availability": item.availability, "source": item.source,
+            "preview_thumbnail": item.thumbnail, "preview_title": item.title,
         }
         for item in results.items
     ]

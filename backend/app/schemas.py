@@ -717,6 +717,8 @@ class ChannelCandidateResponse(BaseModel):
     source: str = "youtube"
     source_label: str = "YouTube"
     artwork_url: str | None = None
+    preview_artwork_url: str | None = None
+    preview_title: str | None = None
     category_keys: list[str] = Field(default_factory=list)
     following: bool = False
 
@@ -1434,6 +1436,7 @@ class UserResponse(BaseModel):
     role: UserRole
     is_active: bool
     onboarding_status: str = "completed"
+    vault_setup_pending: bool = False
     has_local_password: bool = True
     bio: str | None = None
     can_edit_details: bool = False  # Owners always; members while the household switch is on
@@ -1441,6 +1444,10 @@ class UserResponse(BaseModel):
     two_factor_setup_required: bool = False  # an owner the household requires to turn it on (owner settings refuse until then)
     created_at: datetime
     updated_at: datetime
+
+
+class AdminMediaOnboardingContextResponse(BaseModel):
+    mount_parents: list[str]
 
 
 class SessionResponse(BaseModel):

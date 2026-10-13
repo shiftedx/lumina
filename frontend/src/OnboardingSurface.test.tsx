@@ -37,7 +37,7 @@ describe('new-member welcome', () => {
   it('uses the approved vault artwork decoratively and surfaces failures', () => {
     const { container } = render(<WelcomeSurface error="Setup is unavailable." onBegin={vi.fn()} onSkip={vi.fn()} reducedMotion />);
     const artwork = container.querySelector<HTMLImageElement>('img.g-onboarding-vault-art');
-    expect(artwork?.getAttribute('src')).toBe('/onboarding/vault.jpg');
+    expect(artwork?.getAttribute('src')).toBe('/onboarding/vault-arrival-v2.jpg');
     expect(artwork?.getAttribute('alt')).toBe('');
     expect(screen.getByRole('alert').textContent).toContain('Setup is unavailable.');
     expect(container.querySelector('.reduced-motion')).toBeTruthy();
@@ -78,7 +78,7 @@ describe('first-run onboarding interaction', () => {
 
   it('lands keyboard focus on the surface heading so setup is reachable', () => {
     render(<OnboardingSurface categories={categories} onContinue={vi.fn()} onSkip={vi.fn()} phase="setup" />);
-    expect(screen.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBe(document.activeElement);
+    expect(screen.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBe(document.activeElement);
   });
 
   it('disables the controls while a decision is being saved', () => {
@@ -89,12 +89,23 @@ describe('first-run onboarding interaction', () => {
 });
 
 describe('editorial onboarding', () => {
+  it('starts with a manageable set and makes every interest reachable', async () => {
+    const many = [...categories, ...Array.from({ length: 9 }, (_, i) => ({ key: `interest-${i}`, label: `Interest ${i}` }))];
+    render(<OnboardingSurface categories={many} onContinue={vi.fn()} onSkip={vi.fn()} phase="setup" />);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2);
+    await userEvent.click(screen.getByRole('button', { name: 'Explore all 11 interests' }));
+    expect(screen.getAllByRole('checkbox')).toHaveLength(11);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Interest 8' }));
+    expect(screen.getByRole('checkbox', { name: 'Interest 8' }).getAttribute('type')).toBe('checkbox');
+    expect(screen.getByText('1 selected — a place to start.')).toBeTruthy();
+  });
+
   const renderInterests = () => render(<OnboardingSurface categories={categories} onContinue={vi.fn()} onSkip={vi.fn()} phase="setup" />);
 
   it('heads step 1 with its kicker and a decorative progress hairline', () => {
     const { container } = renderInterests();
-    expect(screen.getByText('Step 1 of 2')).toBeTruthy();
-    expect(screen.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeTruthy();
+    expect(screen.getByText('Step 1 of 2 · Your taste')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeTruthy();
     expect(document.querySelector('.g-onboarding-progress')?.getAttribute('aria-hidden')).toBe('true');
     expect(container.querySelector<HTMLImageElement>('.g-onboarding-interest-art img')?.getAttribute('src')).toBe('/onboarding/listening-room-v1.jpg');
   });
@@ -106,7 +117,7 @@ describe('editorial onboarding', () => {
     expect(chip.checked).toBe(false);
     await userEvent.click(chip);
     expect(chip.checked).toBe(true);
-    expect(screen.getByText('1 selected')).toBeTruthy();
+    expect(screen.getByText('1 selected — a place to start.')).toBeTruthy();
   });
 
   it('preparing is a status with an indeterminate progress bar', () => {
@@ -114,6 +125,6 @@ describe('editorial onboarding', () => {
     expect(screen.getByRole('heading', { name: 'Preparing your Home' })).toBeTruthy();
     expect(screen.getByRole('progressbar').hasAttribute('aria-valuenow')).toBe(false);
     expect(screen.getByRole('status')).toBeTruthy();
-    expect(container.querySelector<HTMLImageElement>('img.g-onboarding-vault-art')?.getAttribute('src')).toBe('/onboarding/film-archive-v1.jpg');
+    expect(container.querySelector<HTMLImageElement>('img.g-onboarding-vault-art')?.getAttribute('src')).toBe('/onboarding/vault-arrival-v2.jpg');
   });
 });

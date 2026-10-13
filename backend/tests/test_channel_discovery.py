@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from app.services.channel_discovery import (
@@ -175,3 +176,26 @@ def test_normalize_rejects_a_malformed_port_without_crashing() -> None:
     # urlsplit succeeds but .port raises ValueError on a non-numeric port; a
     # crafted address must resolve to None (an invalid follow), never a crash.
     assert normalize_channel_source_url("https://youtube.com:abc/@x") is None
+
+
+def test_category_preview_uses_video_art_without_misrepresenting_it_as_a_channel_avatar() -> None:
+    first = _item("first", ("music",), uploader="Creator", uploader_url="https://www.youtube.com/@creator")
+    second = replace(first, thumbnail="https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg", title="A studio visit")
+    snapshot = _snapshot(first, second, categories=(_ready("music"),))
+    channels = ChannelDiscoveryService().suggestions_for_categories(snapshot, ["music"])[0].channels
+    assert len(channels) == 1
+    assert channels[0].artwork_url is None
+    assert channels[0].preview_thumbnail == second.thumbnail
+    assert channels[0].preview_title == second.title
+
+
+def test_search_keeps_preview_title_paired_with_its_image_when_deduplicating() -> None:
+    channels = ChannelDiscoveryService().channels_from_search([
+        {"uploader": "Creator", "channel_url": "https://www.youtube.com/@creator", "preview_title": "No image"},
+        {"uploader": "Creator", "channel_url": "https://www.youtube.com/@creator", "preview_thumbnail": "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg", "preview_title": "With image"},
+        {"uploader": "Creator", "channel_url": "https://www.youtube.com/@creator", "preview_thumbnail": "https://i.ytimg.com/vi/lmnopqrstuv/hqdefault.jpg", "preview_title": "Later image"},
+    ])
+    assert len(channels) == 1
+    assert channels[0].preview_thumbnail == "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"
+    assert channels[0].preview_title == "With image"
+    assert channels[0].artwork_url is None

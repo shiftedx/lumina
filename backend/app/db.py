@@ -234,6 +234,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     17: ("ALTER TABLE app_settings ADD COLUMN local_address TEXT",),  # the local address beside the public one; additive
     18: (),  # Music: provider cache, protected track edits/history and revocable Sonos queue tickets; create_all adds tables.
     19: (),  # standalone Books tables come from create_all; rollback drops them and stamps schema 18.
+    20: ("ALTER TABLE users ADD COLUMN vault_setup_pending BOOLEAN NOT NULL DEFAULT 0",),
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

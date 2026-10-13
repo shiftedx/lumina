@@ -10,7 +10,8 @@ const KB = 1024;
 // listening room, collector tools and offline shell bring the measured build to
 // 57 KB gzip. Shared core and JavaScript chunk limits remain fixed.
 // Books adds 4.7 KB gzip of lazy catalog/reader CSS.
-export const CSS_BUDGET = 65 * KB;
+// Creator discovery and first-owner media setup add 2.4 KB gzip of lazy CSS.
+export const CSS_BUDGET = 68 * KB;
 export const CORE_BUDGET = 7 * KB; // tokens.css + ui.css (spec 1.8)
 export const CHUNK_BUDGETS = { ui: 8 * KB, palette: 12 * KB, BooksSurface: 15 * KB };
 const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b/gi;

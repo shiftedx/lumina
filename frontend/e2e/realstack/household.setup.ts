@@ -1,6 +1,6 @@
 import { MEDIA_ROOT, OWNER, OWNER_STATE, expect, test } from './realstack';
 
-test('first owner sets up the vault, signs in again, adds an external root and imports it', async ({ page }) => {
+test('first owner connects and imports media during onboarding, then signs in again', async ({ page }) => {
   await test.step('first-owner setup', async () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Make Lumina yours' })).toBeVisible();
@@ -8,6 +8,17 @@ test('first owner sets up the vault, signs in again, adds an external root and i
     await page.getByLabel('Display name').fill(OWNER.displayName);
     await page.getByLabel('Password', { exact: true }).fill(OWNER.password);
     await page.getByRole('button', { name: 'Create household vault' }).click();
+    await expect(page.getByRole('heading', { name: 'Give your vault a home.' })).toBeVisible();
+    await page.getByLabel('Folder name').fill('Fixture media');
+    await page.getByLabel('Mounted path').fill(MEDIA_ROOT);
+    await expect(page.getByRole('radio', { name: 'Household', exact: true })).toBeChecked();
+    // household.spec proves a member cannot see the owner's private import.
+    await page.getByRole('radio', { name: 'Private', exact: true }).check();
+    const scanStarted = page.waitForResponse((response) => response.url().endsWith('/api/admin/imports') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Add and scan' }).click();
+    expect((await scanStarted).status()).toBe(202);
+    await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('button', { name: 'Explore without setup' }).click();
     await expect(page.getByRole('main', { name: 'Main content' })).toBeVisible();
   });
@@ -22,24 +33,14 @@ test('first owner sets up the vault, signs in again, adds an external root and i
     await expect(page.getByRole('main', { name: 'Main content' })).toBeVisible();
   });
 
-  await test.step('admin adds the fixture folder as an external storage root', async () => {
+  await test.step('the connected folder is available in storage settings', async () => {
     await page.goto('/admin/storage');
-    await page.getByLabel('Container path').fill(MEDIA_ROOT);
-    await page.getByLabel('Label').fill('Fixture media');
-    await page.getByLabel('Mode').selectOption({ label: 'External — read-only, for imports' });
-    await page.getByRole('button', { name: 'Add root' }).click();
     const root = page.getByRole('row', { name: /^Fixture media External/ });  // roots are table rows
     await expect(root).toContainText('External · read-only');
     await expect(root).toContainText('Available');
   });
 
-  await test.step('Import now indexes every fixture file (shared by default, chosen private here)', async () => {
-    const root = page.getByRole('group', { name: /Import Fixture media now/ });  // the import step opens under the new root's row
-    await expect(root.getByRole('radio', { name: /Household/ })).toBeChecked();
-    // household.spec proves a member cannot see the owner's private import.
-    await root.getByRole('radio', { name: /Private/ }).check();
-    await root.getByRole('button', { name: 'Import now' }).click();
-    await expect(page.getByText('Import started. Its progress shows under Imports.')).toBeVisible();
+  await test.step('the onboarding scan indexes every fixture file', async () => {
     await page.getByRole('link', { name: 'Imports', exact: true }).click();
     const run = page.getByRole('region', { name: 'Fixture media Complete' });
     await expect(run).toBeVisible({ timeout: 30_000 });

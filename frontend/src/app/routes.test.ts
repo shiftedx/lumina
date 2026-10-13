@@ -134,7 +134,7 @@ describe('library lenses', () => {
   });
 
   it.each([
-    { surface: 'video' }, { surface: 'audio', view: 'music' }, { surface: 'books' },
+    { surface: 'video' }, { surface: 'audio', view: 'music' }, { surface: 'books', view: 'overview' },
     { surface: 'video', titleId: 'film-1' }, { surface: 'audio', titleId: 'album-1' },
     { surface: 'video', titleId: 'film-1', edit: true, tab: 'artwork' }, { surface: 'audio', titleId: 'album-1', edit: true, tab: 'details' },
     { surface: 'video', collections: 'list' }, { surface: 'video', collections: 'detail', collectionId: 'collection-1' },

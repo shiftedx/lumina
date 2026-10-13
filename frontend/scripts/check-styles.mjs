@@ -9,9 +9,10 @@ const KB = 1024;
 // Aggregate includes lazy routes and the separate offline entry. Audio's soundstage,
 // listening room, collector tools and offline shell bring the measured build to
 // 57 KB gzip. Shared core and JavaScript chunk limits remain fixed.
-export const CSS_BUDGET = 60 * KB;
+// Books adds 4.7 KB gzip of lazy catalog/reader CSS.
+export const CSS_BUDGET = 65 * KB;
 export const CORE_BUDGET = 7 * KB; // tokens.css + ui.css (spec 1.8)
-export const CHUNK_BUDGETS = { ui: 8 * KB, palette: 12 * KB };
+export const CHUNK_BUDGETS = { ui: 8 * KB, palette: 12 * KB, BooksSurface: 15 * KB };
 const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b/gi;
 const FUNC = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\((?!\s*var\()/gi; // `color-mix(` is not `color(`; the retired galleryColours lint's superset
 const NAMED = /\b(white|black|red|green|blue|gray|grey|silver|orange|yellow|purple|pink|maroon|navy|teal|olive|lime|aqua|fuchsia|gold)\b/i;

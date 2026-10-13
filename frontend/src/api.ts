@@ -488,7 +488,7 @@ export function selectRemoteRendition(streamId: string, renditionId: string, sig
 // keepalive writes (a player's last checkpoint, a stream release) are fire-and-forget for their callers; a member change
 // waits for them so the leaving member's last writes go out under their own cookie.
 const keepaliveWrites = new Set<Promise<unknown>>();
-function trackKeepalive<T>(request: Promise<T>): Promise<T> {
+export function trackKeepalive<T>(request: Promise<T>): Promise<T> {
   keepaliveWrites.add(request);
   void request.catch(() => undefined).finally(() => keepaliveWrites.delete(request));
   return request;

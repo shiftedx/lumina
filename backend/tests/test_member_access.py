@@ -210,7 +210,7 @@ def test_admin_access_api(household: TestClient) -> None:
     assert admin.put(f"/api/admin/members/{KID}/access", json={"schedule": {"mon": [["20:00", "07:00"]]}}).status_code == 422
     assert admin.get(f"/api/admin/members/{uid(1234)}/access").status_code == 404
     sections = {s["id"]: s["count"] for s in admin.get("/api/admin/sections").json()}
-    assert sections == {"movies": 1, "shows": 2, "anime": 2, "music": 1, "vault": 3, f"root:{ROOT}": 1}
+    assert sections == {"movies": 1, "shows": 2, "anime": 2, "music": 1, "books": 0, "vault": 3, f"root:{ROOT}": 1}
     listed = {row["id"]: row for row in admin.get("/api/admin/users").json()}
     assert listed[ADULT]["access"] is None and listed[KID]["access"]["tv_rating_max"] == "TV-Y7"
     assert listed[KID]["screen_time_today_seconds"] == 0 and kid["screen_time_today_seconds"] == 0 and kid["bonus_minutes_today"] == 0

@@ -419,7 +419,7 @@ test('navigation menu fits a narrow viewport and scrolls to every action', async
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused();
-  const more = page.getByRole('button', { name: /^More/ });
+  const more = page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: /^More/ });
   await more.click();
   const anchor = await more.boundingBox();
   const bounds = await dialog.boundingBox();

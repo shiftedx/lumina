@@ -16,7 +16,7 @@ export const MainLandmark = forwardRef<HTMLElement, { children: ReactNode }>(fun
   return <main aria-label="Main content" className="lumina-main" id="main-content" ref={ref} tabIndex={-1}>{children}</main>;
 });
 
-export function AppShell({ children, surface, pendingRequests = 0, user, mobile, compact, navigationOpen, menuButtonRef, mainRef, announcer, activity, theme, extraSkipLinks, onNavigate, onMenu, onCloseNavigation, onSearch, onAddLink, onSettings, onManageServer, managingServer = false, onTheme, onSignOut, moreItems }: {
+export function AppShell({ children, surface, pendingRequests = 0, user, mobile, compact, focused = false, navigationOpen, menuButtonRef, mainRef, announcer, activity, theme, extraSkipLinks, onNavigate, onMenu, onCloseNavigation, onSearch, onAddLink, onSettings, onManageServer, managingServer = false, onTheme, onSignOut, moreItems }: {
   children: ReactNode;
   surface: Surface;
   /** Requests waiting for an admin (the Requests nav badge); 0 for members. */
@@ -25,6 +25,8 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
   /** Phone, <= 680px: the tab bar and the icon-only Add link. */
   mobile: boolean;
   compact: boolean;
+  /** A self-contained reader owns its own controls while retaining the app landmark and skip link. */
+  focused?: boolean;
   navigationOpen: boolean;
   menuButtonRef: RefObject<HTMLButtonElement | null>;
   mainRef: RefObject<HTMLElement | null>;
@@ -55,12 +57,12 @@ export function AppShell({ children, surface, pendingRequests = 0, user, mobile,
     <div className="lumina-app">
       <SkipLink />
       {extraSkipLinks}
-      <NavigationPopover anchorRef={anchorRef} onManageServer={onManageServer} managingServer={managingServer} activeDownloads={trustedActive} pendingRequests={pendingRequests} extra={mobile ? moreItems : null} onClose={onCloseNavigation} onNavigate={onNavigate} open={navigationOpen} surface={surface} />
+      {focused ? null : <NavigationPopover anchorRef={anchorRef} onManageServer={onManageServer} managingServer={managingServer} activeDownloads={trustedActive} pendingRequests={pendingRequests} extra={mobile ? moreItems : null} onClose={onCloseNavigation} onNavigate={onNavigate} open={navigationOpen} surface={surface} />}
       <div className="app-background">
         {announcer}
-        <TopBar activity={activity} compact={compact} libraryActivity={libraryActivity} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel="Open navigation" mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={() => { anchorRef.current = menuButtonRef.current; onMenu(); }} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />
+        {focused ? null : <TopBar activity={activity} compact={compact} libraryActivity={libraryActivity} menuButtonRef={menuButtonRef} menuExpanded={navigationOpen} menuLabel="Open navigation" mobile={mobile} onActivity={() => onNavigate('downloads')} onAddLink={onAddLink} onHome={() => onNavigate('home')} onMenu={() => { anchorRef.current = menuButtonRef.current; onMenu(); }} onSearch={onSearch} onSettings={onSettings} onManageServer={onManageServer} onSignOut={onSignOut} onTheme={onTheme} theme={theme} user={user} />}
         <MainLandmark ref={mainRef}>{children}</MainLandmark>
-        <MobileTabs activeDownloads={trustedActive} moreOpen={navigationOpen} moreButtonRef={moreButtonRef} onMore={() => { anchorRef.current = moreButtonRef.current; onMenu(); }} onNavigate={onNavigate} onSearch={onSearch} surface={surface} />
+        {focused ? null : <MobileTabs activeDownloads={trustedActive} moreOpen={navigationOpen} moreButtonRef={moreButtonRef} onMore={() => { anchorRef.current = moreButtonRef.current; onMenu(); }} onNavigate={onNavigate} onSearch={onSearch} surface={surface} />}
       </div>
     </div>
   );

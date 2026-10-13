@@ -23,7 +23,7 @@ from app.db import session_scope
 from app.models import LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberAccess, ScreenTime, StorageRoot, User
 from app.persistence import queue_after_commit, write_transaction
 
-SECTIONS = ("movies", "shows", "anime", "music", "vault")  # plus "root:<storage_root_id>" for untitled files of a root
+SECTIONS = ("movies", "shows", "anime", "music", "books", "vault")  # plus "root:<storage_root_id>" for untitled files of a root
 VIDEO_SECTIONS = ("movies", "shows", "anime")  # media_titles.category values
 MUSIC_TYPES = ("album", "artist")
 ROOT_PREFIX = "root:"
@@ -486,6 +486,8 @@ def section_counts(db: Session) -> list[dict[str, Any]]:
     ).all())
     rows = [{"id": s, "label": s.title(), "count": counts.get(s, 0)} for s in VIDEO_SECTIONS]
     rows.append({"id": "music", "label": "Music", "count": db.scalar(select(func.count()).where(MediaTitle.type == "album")) or 0})
+    from app.book_models import BookItem
+    rows.append({"id": "books", "label": "Books", "count": db.scalar(select(func.count()).select_from(BookItem).where(BookItem.available.is_(True))) or 0})
     untitled = [LibraryItem.title_id.is_(None), LibraryItem.status != "missing"]
     rows.append({"id": "vault", "label": "Vault", "count": db.scalar(
         select(func.count()).select_from(LibraryItem).where(*untitled, func.coalesce(LibraryItem.extractor, "") != EXTERNAL_ORIGIN)

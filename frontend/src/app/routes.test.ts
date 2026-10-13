@@ -78,6 +78,44 @@ describe('gallery route parameters', () => {
   });
 });
 
+describe('Books routes', () => {
+  it('parses, serializes and round-trips each Books destination', () => {
+    const routes: AppRoute[] = [
+      { surface: 'books', view: 'overview' },
+      { surface: 'books', view: 'ebooks', q: 'A wizard & a ship', sort: 'title', status: 'unread' },
+      { surface: 'books', view: 'manga', sort: 'author', status: 'reading' },
+      { surface: 'books', view: 'shelves', shelfId: 'weekend_reads', status: 'favorites' },
+      { surface: 'books', view: 'discover', q: 'octavia butler', status: 'reading_list' },
+      { surface: 'books', view: 'title', bookId: 'book-1' },
+      { surface: 'books', view: 'series', seriesId: 'series-1' },
+      { surface: 'books', view: 'read', bookId: 'book-1' },
+    ];
+    for (const route of routes) {
+      const url = new URL(routePath(route), 'http://lumina.test');
+      expect(parseRoute(url.pathname, url.search), routePath(route)).toEqual(route);
+    }
+    expect(routePath({ surface: 'books', view: 'overview' })).toBe('/books');
+    expect(routePath({ surface: 'books', view: 'shelves', shelfId: 'weekend_reads' })).toBe('/books/shelves/weekend_reads');
+  });
+
+  it('keeps malformed Books locations inside Books at the overview', () => {
+    const overview = { surface: 'books', view: 'overview' };
+    for (const path of [
+      '/books/nope', '/books/title', '/books/title/..%2Fapi', '/books/title/%E0%A4%A', `/books/title/${'a'.repeat(65)}`,
+      '/books/series/a/b', '/books/read/a/b', '/books/shelves/a/b', '/books/shelves/%2E%2E',
+    ]) expect(parseRoute(path, ''), path).toEqual(overview);
+    expect(parseRoute('/books/ebooks', `?q=${'a'.repeat(500)}&sort=nope&status=unknown`)).toEqual({ surface: 'books', view: 'ebooks', q: 'a'.repeat(200) });
+  });
+
+  it('moves heading focus for Books detail pages but keeps it within book lists', () => {
+    expect(routeFocusKey({ surface: 'books', view: 'ebooks', q: 'a' })).toBe('books');
+    expect(routeFocusKey({ surface: 'books', view: 'shelves', shelfId: 's1' })).toBe('books');
+    expect(routeFocusKey({ surface: 'books', view: 'title', bookId: 'b1' })).toBe('books:title:b1');
+    expect(routeFocusKey({ surface: 'books', view: 'series', seriesId: 's1' })).toBe('books:series:s1');
+    expect(routeFocusKey({ surface: 'books', view: 'read', bookId: 'b1' })).toBe('books:read:b1');
+  });
+});
+
 describe('library lenses', () => {
   it('parses every legacy Library lens, moving Music to Audio', () => {
     for (const view of LIBRARY_LENSES) {

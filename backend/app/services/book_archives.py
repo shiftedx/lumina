@@ -316,14 +316,36 @@ def _is_image(data: bytes, mime: str) -> bool:
 
 def inspect_book(path: Path, format: str, *, filename: str | None = None) -> dict[str, Any]:
     """Inspect an EPUB or CBZ without extracting it; all returned values are JSON-serializable."""
+    if format in {"cbr", "pdf"}:
+        from app.services.book_native import native_book
+        manifest = native_book(path, format)
+        if filename and manifest.get("title") == _clean(path.stem):
+            manifest["title"] = _clean(Path(filename).stem)
+        return _filename_series(manifest, filename or path.name)
     if format not in {"epub", "cbz"}:
         raise BookArchiveError("Unsupported book format")
     archive = _Archive(path)
     try:
         metadata_name = Path(filename) if filename is not None else path
-        return _epub(archive, metadata_name) if format == "epub" else _cbz(archive, metadata_name)
+        manifest = _epub(archive, metadata_name) if format == "epub" else _cbz(archive, metadata_name)
+        return _filename_series(manifest, metadata_name.name)
     finally:
         archive.close()
+
+
+def _filename_series(manifest: dict[str, Any], filename: str) -> dict[str, Any]:
+    """Fill missing comic metadata only for explicit volume or numbered/year filenames."""
+    if manifest["format"] not in {"cbz", "cbr"} or manifest.get("series_name"):
+        return manifest
+    stem = Path(filename).stem
+    match = re.match(r"^(.+?)\s+v(?:ol(?:ume)?\.?)?\s*(\d+(?:\.\d+)?)(?:\s|$)", stem, re.I)
+    if match is None:
+        match = re.match(r"^(.+?)\s+(\d{1,3}(?:\.\d+)?)\s+\((?:\d{4}|of\s+\d+)\)", stem, re.I)
+    if match:
+        manifest["series_name"] = _clean(match[1])
+        if manifest.get("volume_number") is None:
+            manifest["volume_number"] = _volume(match[2])
+    return manifest
 
 
 def read_resource(path: Path, member: str) -> tuple[bytes, str]:
@@ -335,6 +357,12 @@ def read_resource(path: Path, member: str) -> tuple[bytes, str]:
     mime = _image_type(name)
     if not mime:
         raise FileNotFoundError("Book resource is unavailable")
+    if path.suffix.lower() in {".cbr", ".pdf"}:
+        from app.services.book_native import native_book
+        try:
+            return native_book(path, path.suffix.lower()[1:], name), mime
+        except BookArchiveError as exc:
+            raise FileNotFoundError("Book resource is unavailable") from exc
     archive = _Archive(path)
     try:
         if name not in archive.info:

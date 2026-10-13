@@ -137,7 +137,7 @@ describe('BooksSurface', () => {
     render(<Surface access={{ ...permitted, access: { ...permitted.access!, can_download: false } }} initial={{ surface: 'books', view: 'overview' }} />);
     await screen.findByRole('heading', { level: 2, name: 'A home for every story' });
     expect(screen.queryByRole('button', { name: /import/i })).toBeNull();
-    expect(screen.getByLabelText('Choose EPUB and CBZ files')).toHaveProperty('disabled', true);
+    expect(screen.getByLabelText('Choose EPUB, PDF, CBZ, and CBR files')).toHaveProperty('disabled', true);
   });
 
   it('adds to shelves, updates shelf order/removal, and changes reading state through the API', async () => {
@@ -167,20 +167,24 @@ describe('BooksSurface', () => {
 });
 
 describe('book import', () => {
-  it('imports only EPUB and CBZ files and retries a failed archive', async () => {
+  it('imports supported books and retries a failed archive', async () => {
     const browser = userEvent.setup();
     const epub = new File(['book'], 'northbound.epub', { type: 'application/epub+zip' });
     const cbz = new File(['manga'], 'skybound.cbz', { type: 'application/vnd.comicbook+zip' });
+    const pdf = new File(['pdf'], 'scan.pdf');
+    const cbr = new File(['rar'], 'comic.cbr');
     const text = new File(['no'], 'notes.txt', { type: 'text/plain' });
     api.importBook.mockRejectedValueOnce(new Error('Archive needs repair.')).mockResolvedValue(book());
-    render(<ImportBooksDialog files={[epub, cbz, text]} onClose={vi.fn()} onImported={vi.fn()} />);
-    await browser.click(screen.getByRole('button', { name: 'Import 3 files' }));
-    await screen.findByText('Choose an EPUB ebook or a CBZ manga archive.');
-    expect(api.importBook).toHaveBeenCalledTimes(2);
+    render(<ImportBooksDialog files={[epub, cbz, pdf, cbr, text]} onClose={vi.fn()} onImported={vi.fn()} />);
+    await browser.click(screen.getByRole('button', { name: 'Import 5 files' }));
+    await screen.findByText('Choose an EPUB or PDF ebook, or a CBZ or CBR manga archive.');
+    expect(api.importBook).toHaveBeenCalledTimes(4);
     expect(api.importBook).toHaveBeenCalledWith(epub);
     expect(api.importBook).toHaveBeenCalledWith(cbz);
+    expect(api.importBook).toHaveBeenCalledWith(pdf);
+    expect(api.importBook).toHaveBeenCalledWith(cbr);
     await browser.click(screen.getByRole('button', { name: 'Retry remaining files' }));
-    await waitFor(() => expect(api.importBook).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(api.importBook).toHaveBeenCalledTimes(5));
     expect(api.importBook).toHaveBeenLastCalledWith(epub);
   });
 });

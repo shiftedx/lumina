@@ -1,5 +1,5 @@
 export type BookKind = 'ebook' | 'manga';
-export type BookFormat = 'epub' | 'cbz';
+export type BookFormat = 'epub' | 'cbz' | 'cbr' | 'pdf';
 export type BookStatus = 'all' | 'unread' | 'reading' | 'read' | 'favorites' | 'reading_list';
 export type BookSort = 'added' | 'title' | 'author' | 'custom';
 

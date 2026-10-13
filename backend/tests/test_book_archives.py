@@ -148,3 +148,17 @@ def test_long_paragraph_is_not_silently_abridged(tmp_path: Path) -> None:
 def test_staged_archive_uses_original_filename_as_missing_title(tmp_path: Path) -> None:
     staged = _zip(tmp_path / ".upload-random.tmp", {"1.png": PNG})
     assert inspect_book(staged, "cbz", filename="Harbor, volume 1.cbz")["title"] == "Harbor, volume 1"
+
+
+@pytest.mark.parametrize('filename,series,number', [
+    ('Harbor v03 (2020).cbz', 'Harbor', 3),
+    ('Harbor 012 (2020) (Digital).cbz', 'Harbor', 12),
+    ('Harbor Vol. 2 Evening (2020).cbz', 'Harbor', 2),
+    ('Harbor.cbz', None, None),
+    ('1984.cbz', None, None),
+])
+def test_missing_comic_series_uses_explicit_filename_number(tmp_path, filename, series, number):
+    staged = _zip(tmp_path / '.upload.tmp', {'1.png': PNG})
+    manifest = inspect_book(staged, 'cbz', filename=filename)
+    assert manifest['series_name'] == series
+    assert manifest['volume_number'] == number

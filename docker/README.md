@@ -2,6 +2,17 @@
 
 Lumina ships as one container: the FastAPI backend serves the built React app on port 8765. Docker Compose is the supported install path. Read `RELEASE_NOTES.md`, `SECURITY.md` and `LICENSE` before exposing an installation.
 
+## Books formats
+
+Books imports accept EPUB and PDF ebooks and CBZ and CBR comics, up to 256 MiB per file.
+Imports create private managed copies under `app-data/books/`; back up that directory as well as the database.
+PDF uses raster page navigation rather than reflowable text. CBR reads RAR members without extraction.
+Encrypted files, linked archive members, oversized archives, and files exceeding native parser limits are rejected.
+The Docker image includes PyMuPDF and libarchive. Source installs need the libarchive shared library
+(`brew install libarchive` on macOS, `apt-get install libarchive13t64` on Debian trixie).
+Rollback to an older image preserves files and database rows but cannot read PDF/CBR entries; retain the updated image
+until those books are no longer needed. No schema migration is required.
+
 ## Install
 
 The release Compose file defaults to the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.2` for amd64 and arm64. It pulls the published image; it does not build on the host.

@@ -15,9 +15,9 @@ from app.config import settings
 from app.models import User, utcnow
 from app.services import member_access
 
-BOOK_EXTENSIONS = {".epub": "epub", ".cbz": "cbz"}
+BOOK_EXTENSIONS = {".epub": "epub", ".cbz": "cbz", ".cbr": "cbr", ".pdf": "pdf"}
 MAX_SHELF_ENTRIES = 500
-_STORE_KEY = re.compile(r"^[0-9a-f-]{36}\.(?:epub|cbz)$")
+_STORE_KEY = re.compile(r"^[0-9a-f-]{36}\.(?:epub|cbz|cbr|pdf)$")
 
 
 class BookError(ValueError):
@@ -96,7 +96,7 @@ class BookService:
         extension = Path(filename).suffix.lower()
         format_ = BOOK_EXTENSIONS.get(extension)
         if format_ is None:
-            raise BookError("Books must be EPUB or CBZ files.")
+            raise BookError("Books must be EPUB, PDF, CBZ, or CBR files.")
         from app.services.book_archives import inspect_book
         try:
             manifest = inspect_book(path, format_, filename=filename)
@@ -111,14 +111,14 @@ class BookService:
         book_id = str(uuid.uuid4())
         # Every CBZ is a Manga series, even a plain image archive without ComicInfo.
         # A standalone volume uses its durable book UUID until its owner assigns a name.
-        sid = series_id(found_series, author) if found_series else (book_id if format_ == "cbz" else None)
+        sid = series_id(found_series, author) if found_series else (book_id if format_ in {"cbz", "cbr"} else None)
         key = f"{uuid.uuid4()}.{format_}"
         target = book_root() / key
         book_root().mkdir(parents=True, exist_ok=True)
         try:
             os.replace(path, target)
             book = BookItem(
-                id=book_id, storage_key=key, format=format_, kind="manga" if format_ == "cbz" else "ebook",
+                id=book_id, storage_key=key, format=format_, kind="manga" if format_ in {"cbz", "cbr"} else "ebook",
                 title=title, author=author, description=_clean(manifest.get("description"), 10_000),
                 language=_clean(manifest.get("language"), 32), genres=_genres(manifest.get("genres")),
                 series_id=sid, series_name=found_series,
@@ -159,7 +159,7 @@ class BookService:
     def serialize(self, book: BookItem, user: User, *, state: BookState | None = None, shelf_ids: list[str] | None = None) -> dict[str, Any]:
         state = state if state is not None else self.state_for(user, [book.id]).get(book.id)
         manifest = book.manifest if isinstance(book.manifest, dict) else {}
-        units = len(manifest.get("pages") or []) if book.format == "cbz" else len(manifest.get("chapters") or [])
+        units = len(manifest.get("pages") or []) if book.format != "epub" else len(manifest.get("chapters") or [])
         percent = 0.0
         if state is not None and units:
             percent = 100.0 if state.completed else min(100.0, max(0.0, ((state.unit_index + state.offset) / units) * 100))
@@ -227,7 +227,7 @@ class BookService:
         for key in ("favorite", "reading_list", "completed", "unit_index", "offset"):
             if key in values and values[key] is not None:
                 setattr(state, key, values[key])
-        units = len((book.manifest or {}).get("pages") or []) if book.format == "cbz" else len((book.manifest or {}).get("chapters") or [])
+        units = len((book.manifest or {}).get("pages") or []) if book.format != "epub" else len((book.manifest or {}).get("chapters") or [])
         if state.unit_index >= max(1, units):
             raise BookError("Reading position is outside this book.")
         if reset_checkpoint:

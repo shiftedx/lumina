@@ -20,7 +20,7 @@ class BookItem(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     # A server-generated filename below <data_dir>/books; never a caller-provided path.
     storage_key: Mapped[str] = mapped_column(String(48), nullable=False, unique=True)
-    format: Mapped[str] = mapped_column(String(8), nullable=False)  # epub | cbz
+    format: Mapped[str] = mapped_column(String(8), nullable=False)  # epub | pdf | cbz | cbr
     kind: Mapped[str] = mapped_column(String(8), nullable=False)  # ebook | manga
     title: Mapped[str] = mapped_column(Text, nullable=False)
     author: Mapped[str | None] = mapped_column(Text, nullable=True)

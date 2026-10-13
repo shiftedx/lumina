@@ -42,6 +42,18 @@ describe('BookProse', () => {
 });
 
 describe('BookReader', () => {
+  it.each(['pdf', 'cbr'] as const)('reads %s with page navigation and saves page checkpoints', async (format) => {
+    const browser = userEvent.setup();
+    const scanned = book({ format, kind: format === 'pdf' ? 'ebook' : 'manga', page_count: 2, chapter_count: 0 });
+    api.getBookReader.mockResolvedValue({ book: scanned, chapters: [], page_count: 2, reading_direction: 'ltr' });
+    api.updateBookState.mockImplementation(async (_id: string, patch: object) => ({ ...scanned, progress: { ...scanned.progress, ...patch } }));
+    render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} userId="books-member" />);
+    expect((await screen.findByRole('img', { name: 'Page 1 of 2' })).getAttribute('src')).toBe('/api/books/ebook-1/pages/0');
+    await browser.click(screen.getByRole('button', { name: 'Next' }));
+    expect((await screen.findByRole('img', { name: 'Page 2 of 2' })).getAttribute('src')).toBe('/api/books/ebook-1/pages/1');
+    await waitFor(() => expect(api.updateBookState).toHaveBeenCalledWith('ebook-1', { unit_index: 1, offset: 0 }, false));
+    expect(api.getBookChapter).not.toHaveBeenCalled();
+  });
   it('changes reader appearance, chapters and checkpoints before returning to Books', async () => {
     const browser = userEvent.setup();
     const onBack = vi.fn();

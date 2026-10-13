@@ -17,7 +17,7 @@ class BookProgress(BaseModel):
 class BookResponse(BaseModel):
     id: str
     kind: Literal["ebook", "manga"]
-    format: Literal["epub", "cbz"]
+    format: Literal["epub", "cbz", "cbr", "pdf"]
     title: str
     author: str = ""
     description: str = ""

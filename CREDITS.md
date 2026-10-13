@@ -13,6 +13,8 @@ Lumina is built on other people's work. Thank you.
 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and [CTranslate2](https://github.com/OpenNMT/CTranslate2) | On-device transcripts | MIT |
 | [FastAPI](https://fastapi.tiangolo.com), [Uvicorn](https://www.uvicorn.org), [SQLAlchemy](https://www.sqlalchemy.org), [Pydantic](https://docs.pydantic.dev), [HTTPX](https://www.python-httpx.org) | Backend | MIT / BSD-3-Clause |
 | [Mutagen](https://github.com/quodlibet/mutagen) | Music tags | GPL-2.0-or-later |
+| [PyMuPDF](https://github.com/pymupdf/PyMuPDF) | Raster PDF book pages | AGPL-3.0 |
+| [libarchive](https://www.libarchive.org) and [libarchive-c](https://github.com/Changaco/python-libarchive-c) | Read CBR archives without extraction | BSD |
 | [Node.js](https://nodejs.org) | JavaScript runtime yt-dlp uses for YouTube | MIT |
 | [React](https://react.dev), [hls.js](https://github.com/video-dev/hls.js), [dash.js](https://github.com/Dash-Industry-Forum/dash.js), [Lucide](https://lucide.dev) | Web app and player | MIT / Apache-2.0 / BSD-3-Clause / ISC |
 | [Newsreader](https://github.com/productiontype/Newsreader) | Typeface | OFL-1.1 ([text](frontend/public/fonts/OFL.txt)) |

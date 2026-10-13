@@ -16,7 +16,7 @@ export function ImportBooksDialog({ files, onClose, onImported }: { files: File[
     let imported = false;
     for (const entry of waiting) {
       const update = (state: typeof entry.state, error = '') => setEntries((current) => current.map((value) => value.file === entry.file ? { ...value, state, error } : value));
-      if (!/\.(epub|cbz)$/i.test(entry.file.name)) { update('failed', 'Choose an EPUB ebook or a CBZ manga archive.'); continue; }
+      if (!/\.(epub|pdf|cbz|cbr)$/i.test(entry.file.name)) { update('failed', 'Choose an EPUB or PDF ebook, or a CBZ or CBR manga archive.'); continue; }
       if (entry.file.size > 256 * 1024 * 1024) { update('failed', 'This file is larger than the 256 MiB import limit.'); continue; }
       update('importing');
       try { await importBook(entry.file); update('done'); imported = true; }
@@ -25,7 +25,7 @@ export function ImportBooksDialog({ files, onClose, onImported }: { files: File[
     if (imported) onImported();
     setBusy(false);
   }
-  return <Dialog busy={busy} description="Import EPUB ebooks and CBZ manga. Your imports are private until you share them." footer={<><Button disabled={busy} onClick={onClose} variant="quiet">{waiting.length ? 'Close' : 'Done'}</Button>{waiting.length ? <Button busy={busy} onClick={() => { void start(); }} variant="primary">{entries.some((entry) => entry.state === 'failed') ? 'Retry remaining files' : `Import ${waiting.length} ${waiting.length === 1 ? 'file' : 'files'}`}</Button> : null}</>} onClose={onClose} open size="md" title="Import into Books">
+  return <Dialog busy={busy} description="Import EPUB and PDF ebooks and CBZ and CBR manga. Your imports are private until you share them." footer={<><Button disabled={busy} onClick={onClose} variant="quiet">{waiting.length ? 'Close' : 'Done'}</Button>{waiting.length ? <Button busy={busy} onClick={() => { void start(); }} variant="primary">{entries.some((entry) => entry.state === 'failed') ? 'Retry remaining files' : `Import ${waiting.length} ${waiting.length === 1 ? 'file' : 'files'}`}</Button> : null}</>} onClose={onClose} open size="md" title="Import into Books">
     <ul className="books-import-files">{entries.map((entry, index) => <li key={index}><span aria-hidden="true">{entry.state === 'done' ? <Check /> : <FileText />}</span><div><strong>{entry.file.name}</strong><span aria-live="polite">{entry.state === 'pending' ? `${(entry.file.size / 1024 / 1024).toFixed(1)} MiB · Ready to import` : entry.state === 'importing' ? 'Importing…' : entry.state === 'done' ? 'Imported' : entry.error}</span></div></li>)}</ul>
   </Dialog>;
 }

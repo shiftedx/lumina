@@ -248,7 +248,7 @@ def gc_uploads(db: Session, now: datetime) -> int:
 # ---- slots and writes: every write goes through metadata_editor.write_user_field, one batch per request ----
 
 ALLOWED_TYPES: dict[str, frozenset[str]] = {  # image type -> title types that may have it
-    "Primary": frozenset({"movie", "series", "season", "episode"}),
+    "Primary": frozenset({"movie", "series", "season", "episode", "album", "artist"}),
     "Backdrop": frozenset({"movie", "series", "season"}),
     "Logo": frozenset({"movie", "series"}),
 }

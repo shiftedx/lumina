@@ -31,7 +31,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(page.getByRole('radio', { name: 'System' })).toBeChecked();
     await page.waitForTimeout(300);
     await expectReadable(page);
-    await navigateApp(page, 'Library');
+    await navigateApp(page, 'Video');
     await page.getByRole('button', { name: new RegExp(`^${item.title}, `) }).first().click();
     await expect(page.locator('video').first()).toBeVisible();
     await page.waitForTimeout(500);

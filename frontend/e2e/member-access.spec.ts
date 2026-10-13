@@ -25,7 +25,7 @@ test('all streaming blocked: no Streaming nav, and /streaming is a calm explanat
 test('phone: the tab bar drops Streaming when everything is blocked', async ({ page }) => {
   await visit(page, '/', { blocked_streaming: ['youtube', 'twitch', 'kick', 'open_search'] }, 390);
   const tabs = page.getByRole('navigation', { name: 'Mobile primary navigation' });
-  await expect(tabs.getByRole('button', { name: 'Library' })).toBeVisible();
+  await expect(tabs.getByRole('button', { name: 'Video' })).toBeVisible();
   await expect(tabs.getByRole('button', { name: 'Streaming' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Add a link' })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);

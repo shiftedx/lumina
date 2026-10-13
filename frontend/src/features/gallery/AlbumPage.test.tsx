@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { albumDetail, albumSummary, albumTrack, userData } from '../../test/galleryFixtures';
 import type { TitleDetail } from '../../types';
 
-const api = vi.hoisted(() => ({ setFavorite: vi.fn() }));
+const api = vi.hoisted(() => ({
+  setFavorite: vi.fn(), getMusicVideos: vi.fn(), getMusicEnrichment: vi.fn(), getMusicQueue: vi.fn(), getMusicTrackMetadata: vi.fn(), listTitles: vi.fn(),
+  getMusicEditions: vi.fn(), identifyMusic: vi.fn(),
+  previewMusicWriteback: vi.fn(), applyMusicWriteback: vi.fn(), listMusicFileBackups: vi.fn(), restoreMusicFile: vi.fn(), editMusicTracks: vi.fn(), undoMusicEdit: vi.fn(),
+}));
 vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api')>()), ...api }));
 const { AlbumPage } = await import('./AlbumPage');
 const { albumQueue, clearAlbumQueue } = await import('./albumQueue');
@@ -20,7 +24,16 @@ function albumPage(detail: TitleDetail | null, overrides: Record<string, unknown
   return { ...render(<AlbumPage {...props} />), props };
 }
 
-beforeEach(() => { clearAlbumQueue(); resetImageLoader(); });
+beforeEach(() => {
+  clearAlbumQueue(); resetImageLoader();
+  api.getMusicVideos.mockResolvedValue({ items: [], refreshing: false, error: null });
+  api.getMusicEnrichment.mockResolvedValue({ refreshing: false, identified: true, error: null, candidates: [] });
+  api.getMusicQueue.mockResolvedValue([]);
+  api.getMusicTrackMetadata.mockResolvedValue({ fields: {}, overridden: [] });
+  api.listTitles.mockResolvedValue({ items: [], next_cursor: null, total: 0, start_index: 0 });
+  api.getMusicEditions.mockResolvedValue({ owned: [], items: [], next_offset: null, refreshing: false, error: null });
+  api.identifyMusic.mockResolvedValue({ queued: true });
+});
 afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
@@ -37,21 +50,22 @@ describe('AlbumPage', () => {
     expect(screen.getByText('Album · 2019 · 3 tracks · 1 h 12 min')).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'Album One' })).toBeTruthy();
     expect(screen.getByText('Folk · Pop · Jazz')).toBeTruthy();
-    expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual(['Disc 1', 'Disc 2']);
+    expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent).filter((text) => text?.startsWith('Disc'))).toEqual(['Disc 1', 'Disc 2']);
     expect(screen.getAllByRole('button', { name: /^Play \d/ }).map((row) => row.getAttribute('aria-label'))).toEqual(['Play 1. Song 1, 25:00', 'Play 2. Song 2, 23:00', 'Play 1. Closing, 24:00']);
     expect(container.querySelector('.g-album-cover .g-art-square')).not.toBeNull();
     await userEvent.click(screen.getByRole('link', { name: 'Artist A' }));
     expect(props.onOpenTitle).toHaveBeenCalledWith(expect.objectContaining({ id: 'artist-1', type: 'artist', name: 'Artist A' }));
   });
 
-  it('marks played and in-progress tracks in words and offers to resume the latest one', () => {
+  it('marks played and in-progress tracks in words and resumes the latest one from its saved position', async () => {
+    const onPlay = vi.fn();
     const tracks = [
       albumTrack(1, { user_data: userData({ played: true }) }),
       albumTrack(2, { duration_seconds: 900, user_data: userData({ position_seconds: 180, last_watched_at: '2026-09-01T10:00:00' }) }),
       albumTrack(3, { duration_seconds: 200, user_data: userData({ position_seconds: 170, last_watched_at: '2026-09-02T10:00:00' }) }),
       albumTrack(4, { number: null, name: 'Hidden', duration_seconds: 60 }),
     ];
-    const { container } = albumPage(albumDetail(albumSummary(), tracks));
+    const { container } = albumPage(albumDetail(albumSummary(), tracks), { onPlay });
     expect(screen.getByRole('button', { name: 'Play 1. Song 1, 3:01, played' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Play 2. Song 2, 15:00, 12 minutes left' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Play 3. Song 3, 3:20, less than a minute left' })).toBeTruthy();
@@ -61,7 +75,11 @@ describe('AlbumPage', () => {
     expect(screen.getByText('–')).toBeTruthy();
     expect(container.querySelectorAll('.g-track-progress')).toHaveLength(2);
     expect(container.querySelectorAll('.g-track-duration svg')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'Resume · 3. Song 3' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Resume · 3. Song 3' }));
+    expect(onPlay).toHaveBeenLastCalledWith('track-3', 170);
+    onPlay.mockClear();
+    await userEvent.click(screen.getByRole('button', { name: 'Play 3. Song 3, 3:20, less than a minute left' }));
+    expect(onPlay).toHaveBeenLastCalledWith('track-3');
   });
 
   it('plays a row with the album order queued, and Shuffle stores a shuffled order and plays its first', async () => {
@@ -128,5 +146,39 @@ describe('AlbumPage', () => {
     expect(document.activeElement).toBe(rows[0]);
     fireEvent.keyDown(rows[0], { key: 'ArrowLeft' });
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Play' }));
+  });
+
+  it('presents release context, credits, editions, videos and the two editing paths', async () => {
+    api.getMusicVideos.mockResolvedValue({ items: [{ id: 'video-1', title: 'Studio performance', url: 'https://video.example/watch', thumbnail_url: null, uploader: 'Artist A', duration: 240, performance: 'official', association: 'recording', item_id: 'saved-video-1' }], refreshing: false, error: null });
+    const onEdit = vi.fn();
+    const onWatchVideo = vi.fn();
+    api.getMusicEditions.mockResolvedValue({
+      owned: [albumSummary('owned-expanded', { name: 'Album One Expanded', artist_name: 'Artist A', year: 2021 })],
+      items: [{ id: '11111111-2222-4333-8444-555555555555', name: 'Album One Japanese pressing', date: '2021-03-05', country: 'JP', edition: 'Expanded', label: 'Night Records' }],
+      next_offset: null, refreshing: false, error: null,
+    });
+    const detail = albumDetail(albumSummary('album-1', { overview: 'Recorded in a quiet room.' }), undefined, { music: {
+      release_type: 'album', edition: 'Deluxe', label: 'Night Records', catalogue_number: 'NR-42', country: 'US', original_year: 2018,
+      origin: null, active_since: null, active_until: null, styles: ['Chamber folk'], mood: ['Reflective'], identified: true, candidates: [],
+      credits: [{ name: 'Mira Lane', role: 'Producer', instrument: null }], release_group_id: 'group-1',
+      discography: [{ id: 'edition-1', name: 'Album One Expanded', year: '2021', type: 'Album' }],
+    } });
+    albumPage(detail, { canEdit: true, onEdit, onWatchVideo, user: { id: 'owner', role: 'admin', can_edit_details: true } });
+    expect(screen.getByText('Recorded in a quiet room.')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Release details' })).toBeTruthy();
+    expect(screen.getByText('Night Records')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Credits' })).toBeTruthy();
+    expect(screen.getByText('Mira Lane')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Editions & releases' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /Album One Expanded/ })).toBeTruthy();
+    expect(screen.getByRole('link', { name: /Open Album One Japanese pressing release/ }).getAttribute('href')).toBe('https://musicbrainz.org/release/11111111-2222-4333-8444-555555555555');
+    expect(api.getMusicVideos).toHaveBeenCalledWith('album-1', 'title');
+    await userEvent.click(await screen.findByRole('link', { name: /Studio performance/ }));
+    expect(onWatchVideo).toHaveBeenCalledWith('https://video.example/watch', 'saved-video-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Edit details' }));
+    expect(onEdit).toHaveBeenCalledWith('album-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Manage tracks' }));
+    expect(screen.getByRole('dialog', { name: 'Manage tracks' })).toBeTruthy();
+    expect(api.getMusicQueue).toHaveBeenCalledWith({ title_id: 'album-1' });
   });
 });

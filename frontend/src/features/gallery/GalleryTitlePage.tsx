@@ -60,6 +60,9 @@ export type GalleryTitlePageProps = {
   onOpenTitle: (title: TitleSummary) => void;
   onSearch: (query: string) => void;
   onSeason: (season: number) => void;
+  onPlayArtist?: (id: string, shuffle: boolean) => void;
+  onWatchVideo?: (url: string, itemId?: string) => void;
+  onResolvedTitle?: (title: TitleSummary) => void;
 };
 
 function SideColumn({ detail, onOpenTitle }: { detail: TitleDetail; onOpenTitle: (title: TitleSummary) => void }) {
@@ -179,7 +182,7 @@ function PosterRow({ heading, headingId, titles, onOpenTitle }: { heading: strin
   );
 }
 
-export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, onPlay, onOpenTitle, onSearch, onSeason }: GalleryTitlePageProps) {
+export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, onPlay, onOpenTitle, onSearch, onSeason, onPlayArtist, onWatchVideo, onResolvedTitle }: GalleryTitlePageProps) {
   const [revision, setRevision] = useState(0);
   // Try again and reloads after a change bypass the 30 s cache; a first open may use what intent prefetch loaded.
   const title = useFetched<TitleDetail>(id, () => { if (revision) forgetTitle(id); return loadTitle(id); }, revision);
@@ -202,6 +205,7 @@ export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, 
   const data = title.data ?? (reloadFailed ? lastDetail.current : title.error ? null : cachedTitle(id));
   const failed = !data && Boolean(title.error);
   const shown: TitleSummary | null = data ?? summaryFor(id);
+  useEffect(() => { if (data) onResolvedTitle?.(data); }, [data?.id, data?.type]);
   const hasBackdrop = Boolean(shown?.backdrop);
   /** Back to the Library with the shown title's type and category. */
   const back = () => onBack(shown?.type ?? null, shown?.category ?? null);
@@ -259,7 +263,7 @@ export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, 
     return <div aria-busy="true" className="gallery t-page" onKeyDown={onKeyDown}><div aria-hidden="true" className="t-hero is-empty" /></div>;
   }
   if (shown.type === 'album' || shown.type === 'artist') {
-    const music = { backLabel: backLabel ?? lensLabel(shown), detail: data, headingRef, onBack: back, onKeyDown, onOpenTitle, onPlay, summary: shown };
+    const music = { backLabel: backLabel ?? 'Music', detail: data, headingRef, onBack: back, onKeyDown, onOpenTitle, onPlay, summary: shown, canEdit: user.role === 'admin' || Boolean(user.can_edit_details), onEdit, onRefreshed: reload, onPlayArtist, onWatchVideo, user };
     return shown.type === 'album' ? <AlbumPage {...music} onPatch={reloadFailed ? () => reload() : title.patch} /> : <ArtistPage {...music} />;
   }
 

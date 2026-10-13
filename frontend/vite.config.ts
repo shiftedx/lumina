@@ -1,5 +1,6 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'node:path';
 
 export default defineConfig({
   plugins: [react()],
@@ -8,6 +9,10 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      input: {
+        index: resolve(__dirname, 'index.html'),
+        offline: resolve(__dirname, 'music-offline.html'),
+      },
       output: {
         // The ui/ and palette budgets are measured on their own chunks.
         // The palette is the lazy CommandPalette entry chunk, named here rather than via manualChunks: a manual chunk

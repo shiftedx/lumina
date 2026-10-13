@@ -50,6 +50,8 @@ All settings are `LUMINA_*` environment variables (full list: `backend/app/confi
 | `LUMINA_ASR_BASE_URL` / `_ASR_MODEL` | empty (off) | OpenAI-compatible speech-to-text endpoint for transcripts. |
 | `LUMINA_TMDB_API_KEY` | empty (off) | TMDB v3 API key or v4 read token for movie and TV metadata and artwork. An admin can change or clear it under **Manage Server → Connections → Metadata** (write-only). |
 | `LUMINA_ARTWORK_PASS` | `on` | `off` stops the background pass that prepares small copies of artwork; they are then made only when first requested. |
+| `LUMINA_MUSIC_METADATA_ENABLED` | `true` | Background MusicBrainz identity, release, artwork and lyric enrichment. Add this variable to Compose's `environment:` block to change it. |
+| `LUMINA_MUSIC_YOUTUBE_DISCOVERY` | `true` | Cached public performance discovery for owned music. Saved local performances remain available when discovery is off. |
 | `LUMINA_PEOPLE_DIR` | unset | Container path of a read-only folder of cast photos in the `metadata/People` layout, such as a copy of Jellyfin's. Cast photos for titles whose NFO files name them. `LUMINA_JELLYFIN_PEOPLE_DIR`, the name before 2.11, is still read. |
 | `LUMINA_JELLYFIN_TRACE` | `0` | `1` logs each Jellyfin request's method, route template and query parameter names (never values or headers). Use it only while capturing client traffic. |
 | `LUMINA_LAN_HTTP` | `false` | `true` serves plain http on a private LAN IP without a proxy. Set it only through the override in "LAN HTTP mode". |
@@ -168,10 +170,11 @@ For a checkout-based install, first update the Compose file with `git fetch orig
 
 ### Rollback after a schema upgrade
 
-Schema steps 6 to 17 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to:
+Schema steps 6 to 18 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to:
 
 | Rolling back to | Stamp |
 | --- | --- |
+| Before the dedicated music experience (schema 17, step 18) | `PRAGMA user_version = 17` (the older release ignores `music_lookups`, `music_track_overrides`, `music_edit_batches`, `music_cast_tickets`, `music_file_writebacks`, and `music_playlists`. Track overrides and new navigation are unavailable, and its scans may regroup tracks from their source tags. Provider portraits need this release to render. Keep `music-file-backups` and all six tables; upgrading again restores their controls. Explicit audio-file writeback remains in the files across rollback; restore chosen files before rolling back if desired.) |
 | Before the local address (schema 16, step 17) | `PRAGMA user_version = 16` (step 17 only adds `app_settings.local_address`; the older release ignores it, so the local name is refused as an untrusted host until you upgrade again) |
 | Before the people editor (schema 15, step 16) | `PRAGMA user_version = 15` (step 16 only adds `person_overrides`, which the older release ignores: people renames and photos show their source names and photos until you upgrade again. Its scans also put moved episodes back in their folder's season, and its TMDB refresh reads every series in aired order) |
 | 2.9.0 (schema 14, before the dedicated two-step key, step 15) | `PRAGMA user_version = 14` (step 15 changes no table; at startup it re-encrypts each authenticator secret under `app-data/totp-key`, which 2.9.0 cannot read, so after rolling back **authenticator codes fail** for members who had two-step verification on: they sign in with a recovery code, or an owner resets them. Upgrading again reads them as before; keep `app-data/totp-key`) |
@@ -253,6 +256,28 @@ NAS notes:
 - On a union mount such as mergerfs, folder times may not reflect every branch; prefer hourly scans there.
 - The mass-missing guard still applies to automatic scans. If a scan would mark a large share of a root's files missing (an unplugged drive, a wrong mount), it stops as **needs confirmation**, and automation for that root pauses. Lumina never confirms by itself: an admin reviews the run under **Settings → Library & storage → Imports** and confirms it or rescans.
 - Diagnostics shows whether the poller is healthy and when each root was last scanned or watched.
+
+## Music in Audio
+
+**Audio** (`/audio`) has its own artist soundstage, artist and release pages, playlists, smart mixes and listening room. **Video** (`/video`) holds film, TV and saved video. `/library` bookmarks still resolve to the appropriate section; `/books` is the reading section's integration route.
+
+Register the music folder under **Manage Server → Library & storage** and scan it. Lumina reads embedded album/track/disc tags, MusicBrainz identities, composer and performer credits, edition and label details, lyrics and ReplayGain. FLAC, MP3, AAC, Opus, Vorbis, WAV, AIFF, APE, WavPack, DSD and other registered audio formats are indexed. Playback uses the original source where the browser can decode it, with a lossless PCM compatibility conversion when needed. Conversion requires ffmpeg/ffprobe, included in the Docker image; it cannot restore quality absent from a lossy original.
+
+MusicBrainz, Cover Art Archive, Wikimedia and LRCLIB provide useful metadata without accounts or paid keys. Automatic enrichment accepts a unique confident identity; ambiguous results appear under **Identify music** for review. Explicit identities are recorded in edit history. Saved edits and locks remain protected. YouTube discovery uses Lumina's existing public-source search and caches related performances, labeling official, live, cover and remix results separately. Provider outages retain useful cached results. Metadata workers are capped at two concurrent jobs and 128 pending requests; public lookup cache retains 10,000 answers, artwork and converted audio each have a 2 GiB disk cap. Set the music variables above to disable public lookup work.
+
+**Manage music** previews edits or a shared artwork replacement for up to 500 selected titles. Album **Manage tracks** edits titles, artists, genres, disc/track order, lyrics and loudness, or groups selected tracks into a distinct release. These database edits survive rescans and have conflict-aware undo. Owners can separately preview **Write tags to files** for up to 100 tracks. Supported writeback formats are MP3, FLAC, Vorbis, Opus and MP4 audio. Originals are backed up under `music-file-backups`; restore refuses to overwrite a file changed since writeback. Keep this directory with database backups. Writeback needs a writable media mount and backup space; read-only mounts remain fully usable for database curation. Backups are capped at 10 GiB, and each apply requires free space for three times the selected original file size.
+
+The browser keeps a persistent queue, supports repeat/shuffle and uses ReplayGain or existing server loudness analysis for optional normalization. The gapless engine schedules the current and next decoded track on the audio clock. Very large tracks use **Streaming source** because decoded audio memory is bounded; native streaming does not promise gapless transitions. The player reports source codec/rate/depth separately from browser output and compatibility conversion.
+
+### Desktop offline listening
+
+Save a track, album or queue from the listening room while online, then open **Offline listening** (`/music-offline.html`) once before disconnecting. The standalone page caches its static application shell and fonts, plus saved audio, artwork and lyrics in browser storage scoped to the current member. It does not cache authenticated API responses or Sonos capability URLs. Use HTTPS or loopback for service workers; private LAN plain HTTP does not support them. Each transfer is capped at 100 uncached tracks, each audio file at 128 MiB and each artwork at 2 MiB, subject to the browser's storage quota. Unsupported browser codecs are stored as a truthful PCM compatibility copy; long saved tracks stream from a local Blob. Downloads respect the member's download permission. Switching members hides the previous member's offline collection; signing out removes that member's saved music. Browsers may evict local storage, so retain the original library.
+
+### Sonos output
+
+Choose **Output → Sonos** in the listening room. The server must discover the speakers by SSDP on their LAN, and **Manage Server → Connections → Addresses** must contain a local or public address the speaker can reach. Container networking must allow multicast discovery; routed networks and Docker bridges can require host networking or multicast forwarding. No speaker addresses or browser credentials are shared with another member.
+
+The selected speaker's group coordinator receives up to the next 100 tracks. Output is lossless FLAC with supported source sample rates preserved up to 48 kHz and stereo; use **Compatibility** for 16-bit Sonos S1 output. The browser follows the speaker's track, position and volume. Browser loudness normalization applies only to browser output. Cast capabilities expire after 24 hours and are revoked on Stop, account changes or a denied member listening policy while status is polled. Speakers may finish a buffered track when disconnected from the server. Hardware verification requires speakers reachable from the running server.
 
 ## Editing details
 

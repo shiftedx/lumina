@@ -1,5 +1,5 @@
 import { StrictMode } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('hls.js', () => import('./test/fakeHls'));
@@ -149,10 +149,14 @@ describe('playback start', () => {
     expect(api.startLocalPlaybackSession.mock.calls).toEqual([['t-4', 0], ['t-4', 0, undefined]]);
   });
 
-  it('seeks again when the same start time is asked for again', async () => {
-    api.getLocalPlaybackOptions.mockResolvedValue(direct);
+  it('keeps the preparing direct element and seeks again when the same start time is asked for again', async () => {
+    let resolveOptions: ((options: typeof direct) => void) | undefined;
+    api.getLocalPlaybackOptions.mockReturnValue(new Promise((resolve) => { resolveOptions = resolve; }));
     const view = render(<LocalLibraryPlayer itemId="d-6" kind="video" poster={null} startAt={42} startKey={1} title="Film" />);
+    const preparing = video();
+    await act(async () => { resolveOptions?.(direct); });
     await waitFor(() => expect(video().getAttribute('src')).toBe('/api/library/d-6/media#t=42'));
+    expect(video()).toBe(preparing);
     let position = 0;
     Object.defineProperty(video(), 'currentTime', { configurable: true, get: () => position, set: (value: number) => { position = value; } });
     position = 300;

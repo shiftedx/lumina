@@ -61,6 +61,7 @@ NEW_TABLES = {
     12: ("media_requests", "media_request_followers", "arr_servers", "request_policies"),
     13: ("member_access", "screen_time"),
     16: ("person_overrides",),
+    18: ("music_lookups", "music_track_overrides", "music_edit_batches", "music_cast_tickets", "music_file_writebacks", "music_playlists"),
 }
 
 

@@ -8,11 +8,13 @@ import { moveFocus } from '../features/media/focusNav';
 import { type Surface } from './routes';
 
 type NavItem = { surface: Surface; label: string; icon: LuminaRouteIconName };
-/** Navigation only, grouped. Music lives under Library; Collections under the Library lens row. */
+/** Navigation only, grouped. Video, Audio and Books each have their own destination. */
 export const navGroups: ReadonlyArray<{ label: string; items: readonly NavItem[] }> = [
   { label: 'Watch', items: [
     { surface: 'home', label: 'Home', icon: 'home' },
-    { surface: 'library', label: 'Library', icon: 'library' },
+    { surface: 'video', label: 'Video', icon: 'library' },
+    { surface: 'audio', label: 'Audio', icon: 'music' },
+    { surface: 'books', label: 'Books', icon: 'books' },
     { surface: 'streaming', label: 'Streaming', icon: 'live' },
     { surface: 'requests', label: 'Requests', icon: 'requests' },
   ] },
@@ -25,7 +27,7 @@ export const navGroups: ReadonlyArray<{ label: string; items: readonly NavItem[]
 // Watch is its own route context; it never pretends to be Home.
 export function surfaceIsActive(current: Surface, target: Surface): boolean {
   // A followed channel's page is still Streaming.
-  return current === target || (target === 'streaming' && current === 'subscriptions');
+  return current === target || (target === 'video' && current === 'library') || (target === 'streaming' && current === 'subscriptions');
 }
 
 export const MobileTabs = memo(function MobileTabs({ surface, activeDownloads, moreOpen, onNavigate, onSearch, onMore, moreButtonRef }: {
@@ -40,9 +42,9 @@ export const MobileTabs = memo(function MobileTabs({ surface, activeDownloads, m
   return (
     <nav aria-label="Mobile primary navigation" className="g-mobile-tabs">
       {tab('home', 'Home', 'home')}
-      {tab('library', 'Library', 'library')}
-      {noStreaming ? null : tab('streaming', 'Streaming', 'live')}
-      <button onClick={onSearch} type="button"><Search aria-hidden="true" /><span>Search</span></button>
+      {tab('video', 'Video', 'library')}
+      {tab('audio', 'Audio', 'music')}
+      {tab('books', 'Books', 'books')}
       <button ref={moreButtonRef} aria-expanded={moreOpen} aria-haspopup="dialog" aria-label={activeDownloads ? `More, ${activeDownloads} active downloads` : 'More'} onClick={onMore} type="button">
         <Ellipsis aria-hidden="true" /><span>More</span>{activeDownloads ? <b aria-hidden="true" className="g-nav-count">{activeDownloads}</b> : null}
       </button>

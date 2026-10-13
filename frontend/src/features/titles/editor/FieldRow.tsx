@@ -3,17 +3,17 @@ import { useEffect, useState } from 'react';
 
 import { listEpisodeGroups, revertMetadata } from '../../../api';
 import type { EpisodeGroup, FieldState, SeasonChoice } from '../../../types';
-import { Checkbox, Field, fieldProps, IconButton, Input, Select, Textarea, useToast } from '../../../ui';
+import { Button, Checkbox, Field, fieldProps, IconButton, Input, Select, Textarea, useToast } from '../../../ui';
 import { forgetTitle } from '../../gallery/titleCache';
 import { undoBatch } from './editorActions';
 import { ChipInput } from './ChipInput';
-import { FIELD_META, parseInput, sourceChip, type TitleDraft } from './editorModel';
+import { FIELD_META, MUSIC_RELEASE_TYPES, parseInput, sourceChip, type TitleDraft } from './editorModel';
 import { RevertPopover } from './RevertPopover';
 import { useVocabulary } from './useVocabulary';
 import './fields.css';
 
 const WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const LIST_CAP: Record<string, number> = { genres: 30, studios: 30, tags: 50 };
+const LIST_CAP: Record<string, number> = { genres: 30, studios: 30, tags: 50, mood: 30, styles: 30 };
 const pad = (n: number) => String(n).padStart(2, '0');
 const ORDERS = [{ value: 'aired', label: 'Aired' }, { value: 'dvd', label: 'DVD' }, { value: 'absolute', label: 'Absolute' }];
 const GROUP_TYPES: Record<number, string> = { 1: 'Original air date', 2: 'Absolute', 3: 'DVD', 4: 'Digital', 5: 'Story arc', 6: 'Production', 7: 'TV' };
@@ -89,8 +89,16 @@ export function FieldRow({ titleId, fieldKey, state, draft, itemLocked, setField
   const list = Array.isArray(shown) ? (shown as string[]) : [];
   let control;
   switch (meta.kind) {
+    case 'credits': {
+      const credits = Array.isArray(shown) ? shown as { name: string; role: string; instrument?: string | null }[] : [];
+      control = <fieldset disabled={itemLocked} className="ed-days"><legend className="g-field-label">Credits</legend><p className="g-setting-note">{meta.hint}</p>{credits.map((credit, index) => <div className="music-credit-editor" key={index}>
+        {(['name', 'role', 'instrument'] as const).map((key) => <Field label={`${key === 'name' ? 'Name' : key === 'role' ? 'Role' : 'Instrument'} ${index + 1}`} key={key}>{(ids) => <Input {...fieldProps(ids)} maxLength={200} value={credit[key] ?? ''} onChange={(event) => commit(credits.map((c, i) => i === index ? { ...c, [key]: event.target.value } : c))} />}</Field>)}
+        <Button variant="quiet" onClick={() => commit(credits.filter((_, i) => i !== index))}>Remove credit {index + 1}</Button>
+      </div>)}<Button disabled={credits.length >= 200} variant="quiet" onClick={() => commit([...credits, { name: '', role: 'Performer', instrument: null }])}>Add credit</Button></fieldset>;
+      break;
+    }
     case 'list':
-      control = <Field label={label}>{(ids) => <ChipInput id={ids.inputId} label={label} maxItems={LIST_CAP[fieldKey]} maxLength={fieldKey === 'studios' ? 120 : 60} onChange={commit} suggestions={vocabulary} values={list} />}</Field>;
+      control = <Field hint={meta.hint} label={label}>{(ids) => <ChipInput id={ids.inputId} label={label} maxItems={LIST_CAP[fieldKey]} maxLength={fieldKey === 'studios' ? 120 : 60} onChange={commit} suggestions={vocabulary} values={list} />}</Field>;
       break;
     case 'days':
       control = (
@@ -101,11 +109,11 @@ export function FieldRow({ titleId, fieldKey, state, draft, itemLocked, setField
       );
       break;
     case 'long':
-      control = <Field error={error} label={label}>{(ids) => <Textarea {...fieldProps(ids)} maxLength={20000} onChange={(event) => type(event.target.value)} rows={6} value={text} />}</Field>;
+      control = <Field error={error} hint={meta.hint} label={label}>{(ids) => <Textarea {...fieldProps(ids)} maxLength={20000} onChange={(event) => type(event.target.value)} rows={6} value={text} />}</Field>;
       break;
     case 'status':
       control = (
-        <Field label={label}>
+        <Field hint={meta.hint} label={label}>
           {(ids) => (
             <Select {...fieldProps(ids)} onChange={(event) => type(event.target.value)} value={text}>
               <option value="" />
@@ -115,9 +123,28 @@ export function FieldRow({ titleId, fieldKey, state, draft, itemLocked, setField
         </Field>
       );
       break;
+    case 'release_type':
+      control = (
+        <Field hint={meta.hint} label={label}>
+          {(ids) => (
+            <Select {...fieldProps(ids)} onChange={(event) => type(event.target.value)} value={text}>
+              <option value="">Not set</option>
+              {MUSIC_RELEASE_TYPES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </Select>
+          )}
+        </Field>
+      );
+      break;
+    case 'music_date':
+      control = (
+        <Field error={error} hint={meta.hint} label={label}>
+          {(ids) => <Input {...fieldProps(ids)} inputMode="numeric" maxLength={meta.max} onChange={(event) => type(event.target.value)} placeholder="YYYY or YYYY-MM-DD" value={text} />}
+        </Field>
+      );
+      break;
     case 'season':
       control = (
-        <Field label={label}>
+        <Field hint={meta.hint} label={label}>
           {(ids) => (
             <Select {...fieldProps(ids)} onChange={(event) => commit(event.target.value)} value={text}>
               {seasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}
@@ -128,7 +155,7 @@ export function FieldRow({ titleId, fieldKey, state, draft, itemLocked, setField
       break;
     case 'order':
       control = (
-        <Field hint="How the files are numbered. Lumina reads TMDB in that order and never renames files." label={label}>
+        <Field hint={meta.hint ?? "How the files are numbered. Lumina reads TMDB in that order and never renames files."} label={label}>
           {(ids) => (
             <Select {...fieldProps(ids)} onChange={(event) => commit(event.target.value)} value={text || 'aired'}>
               {ORDERS.map((order) => <option key={order.value} value={order.value}>{order.label}</option>)}
@@ -139,20 +166,21 @@ export function FieldRow({ titleId, fieldKey, state, draft, itemLocked, setField
       break;
     case 'group':
       control = (
-        <Field error={error} hint="Leave empty to use TMDB's largest group for the episode order." label={label}>
+        <Field error={error} hint={meta.hint ?? "Leave empty to use TMDB's largest group for the episode order."} label={label}>
           {(ids) => <Input {...fieldProps(ids)} list={`ed-list-${fieldKey}`} maxLength={meta.max} onChange={(event) => type(event.target.value)} onFocus={loadGroups} value={text} />}
         </Field>
       );
       break;
     default: {
+      const isYear = fieldKey === 'year' || fieldKey === 'original_year';
       const attrs = {
-        int: { type: 'number', step: 1, min: fieldKey === 'year' ? 1870 : fieldKey === 'runtime_minutes' ? 1 : 0, max: fieldKey === 'year' ? 2100 : fieldKey === 'runtime_minutes' ? 2000 : 9999 },
+        int: { type: 'number', step: 1, min: isYear ? 1870 : fieldKey === 'runtime_minutes' ? 1 : 0, max: isYear ? 2100 : fieldKey === 'runtime_minutes' ? 2000 : 9999 },
         decimal: { type: 'number', step: 0.1, min: 0, max: fieldKey === 'critic_rating' ? 100 : 10 },
         date: { type: 'date' }, time: { type: 'time' }, datetime: { type: 'datetime-local', max: toText('datetime', new Date().toISOString()) },
         text: { type: 'text', maxLength: meta.max },
       }[meta.kind as 'int' | 'decimal' | 'date' | 'time' | 'datetime' | 'text'];
       control = (
-        <Field error={error} label={label}>
+        <Field error={error} hint={meta.hint} label={label}>
           {(ids) => <Input {...fieldProps(ids)} {...attrs} list={fieldKey === 'official_rating' ? `ed-list-${fieldKey}` : undefined} onChange={(event) => type(event.target.value)} value={text} />}
         </Field>
       );

@@ -127,6 +127,7 @@ def _stream(raw: dict[str, Any]) -> dict[str, Any]:
         "channels": _int(raw.get("channels")),
         "channel_layout": _text(raw.get("channel_layout"), 40),
         "sample_rate": _int(raw.get("sample_rate")),
+        **({"bit_depth": bits} if (bits := _int(raw.get("bits_per_raw_sample")) or _int(raw.get("bits_per_sample"))) else {}),
         "bit_rate": _int(raw.get("bit_rate")),
         "pix_fmt": _text(raw.get("pix_fmt"), 40),
         "color_transfer": _text(raw.get("color_transfer"), 40),

@@ -55,7 +55,7 @@ test('chips and filters live in the address, keep focus and announce the count',
   const requests = await openWall(page);
   const chip = page.getByRole('button', { name: 'Unwatched', exact: true });
   await chip.click();
-  await expect(page).toHaveURL(/\/library\/movies\?unwatched=1$/);
+  await expect(page).toHaveURL(/\/video\/movies\?unwatched=1$/);
   await expect(chip).toHaveAttribute('aria-pressed', 'true');
   await expect(chip).toBeFocused();
   await expect(page.locator('.g-wall > [role="status"]')).toHaveText('150 titles');
@@ -73,7 +73,7 @@ test('chips and filters live in the address, keep focus and announce the count',
   await expect(drawer).toBeHidden();
   await expect(filters).toBeFocused();
   await page.goBack();
-  await expect(page).toHaveURL(/\/library\/movies\?unwatched=1$/);
+  await expect(page).toHaveURL(/\/video\/movies\?unwatched=1$/);
 });
 
 test('phone: the chips and filters live in a bottom sheet', async ({ page }) => {
@@ -117,7 +117,7 @@ test('keyboard only: Down from the heading into the grid, arrows move, Up reache
   await expect(page.getByRole('searchbox', { name: 'Find the one where…' })).toBeFocused();
   await page.locator('.g-grid button[tabindex="0"]').focus();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/\/title\/movie-0001$/);
+  await expect(page).toHaveURL(/\/video\/title\/movie-0001$/);
 });
 
 test('"Find the one where…" searches on Enter and opens the player at the moment', async ({ page }) => {
@@ -131,12 +131,12 @@ test('"Find the one where…" searches on Enter and opens the player at the mome
   await page.waitForTimeout(400);
   expect(requests.some((url) => url.pathname === '/api/search')).toBe(false);
   await field.press('Enter');
-  await expect(page).toHaveURL(/\/library\/movies\?q=lamp$/);
+  await expect(page).toHaveURL(/\/video\/movies\?q=lamp$/);
   await expect(page.getByRole('heading', { level: 2, name: 'Results for “lamp”' })).toBeVisible();
   expect(requests.find((url) => url.pathname === '/api/search')?.searchParams.get('scope')).toBe('movies');
   await expect(page.getByRole('button', { name: new RegExp(`^${movie.name},`) })).toBeVisible();
   await page.getByRole('searchbox', { name: 'Find the one where…' }).press('Escape');
-  await expect(page).toHaveURL(/\/library\/movies$/);
+  await expect(page).toHaveURL(/\/video\/movies$/);
   await field.fill('lamp');
   await field.press('Enter');
   // lumina-mock's clip is 1.5 s long, and a start that close to the end restarts at 0 (as in gallery-title.spec).

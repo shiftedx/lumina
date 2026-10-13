@@ -37,15 +37,15 @@ for (const theme of ['light', 'dark'] as const) {
 test('Channels lists 12 tiles with unwatched badges, sorts by name, and a tile without a channel id opens the filtered Videos wall', async ({ page }) => {
   await open(page);
   await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Channels' }).click();
-  await expect(page).toHaveURL(/\/library\/youtube\?view=channels$/);
+  await expect(page).toHaveURL(/\/video\/youtube\?view=channels$/);
   await expect(page.locator('.g-channel-card')).toHaveCount(12);
   await expect(page.getByRole('link', { name: /^Channel B1, .*1 unwatched/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /^Channel A0, / })).not.toContainText('unwatched');
   await expect(page.getByRole('link', { name: /^Channel A0, / }).locator('.g-art-marker, .g-marker')).toHaveCount(0);
   await page.getByRole('combobox', { name: 'Sort' }).selectOption('name');
-  await expect(page).toHaveURL(/\/library\/youtube\?view=channels&sort=name$/);
+  await expect(page).toHaveURL(/\/video\/youtube\?view=channels&sort=name$/);
   await page.getByRole('link', { name: /^Channel A0, / }).click();
-  await expect(page).toHaveURL(/\/library\/youtube\?channel=Channel(\+|%20)A0$/);
+  await expect(page).toHaveURL(/\/video\/youtube\?channel=Channel(\+|%20)A0$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Channel A0' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Clear' }).or(page.getByRole('button', { name: 'Clear' })).first()).toBeVisible();
 });

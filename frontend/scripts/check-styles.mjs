@@ -6,8 +6,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
 const KB = 1024;
-// Aggregate includes lazy route CSS. Visual onboarding, local cinema layouts, and activity add 1.7 KB gzip; core/chunk limits remain fixed.
-export const CSS_BUDGET = 46 * KB;
+// Aggregate includes lazy routes and the separate offline entry. Audio's soundstage,
+// listening room, collector tools and offline shell bring the measured build to
+// 57 KB gzip. Shared core and JavaScript chunk limits remain fixed.
+export const CSS_BUDGET = 60 * KB;
 export const CORE_BUDGET = 7 * KB; // tokens.css + ui.css (spec 1.8)
 export const CHUNK_BUDGETS = { ui: 8 * KB, palette: 12 * KB };
 const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b/gi;

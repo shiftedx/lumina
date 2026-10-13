@@ -22,7 +22,7 @@ from app.schemas import (
 )
 from app.persistence import write_transaction
 from app.security import hash_password, has_local_password, session_digest, utcnow, validate_password_policy, verify_password
-from app.services import network_policy, two_factor
+from app.services import music_cast_capabilities, network_policy, two_factor
 from app.services.local_playback_sessions import sessions
 
 
@@ -157,9 +157,10 @@ class UserService:
         return updated
 
     def revoke_sessions(self, user_id: str) -> None:
-        """Sign the member out everywhere: browser sessions and every Connected app (ADR 0010)."""
+        """Sign the member out everywhere and revoke their active playback capabilities."""
         self.db.query(AppSession).filter(AppSession.user_id == user_id).delete(synchronize_session=False)
         self.db.query(DeviceToken).filter(DeviceToken.user_id == user_id).delete(synchronize_session=False)
+        music_cast_capabilities.revoke_for_user(self.db, user_id)
         sessions.stop_where(user_id=user_id)  # every stream of the member ends with its sign-ins
 
     def _apply_user_update(self, user: User, payload: UserUpdateRequest) -> User:
@@ -169,13 +170,17 @@ class UserService:
             user.bio = payload.bio.strip() or None
         if payload.role is not None and payload.role != user.role:
             user.role = payload.role
-            # A role change signs the member out of every browser: a promoted member's
-            # remembered device-ring session must never become a vault owner's bearer.
+            # A role change signs the member out of every browser and revokes casts: a promoted
+            # member's remembered device-ring session must never become a vault owner's bearer.
             self.db.query(AppSession).filter(AppSession.user_id == user.id).delete(synchronize_session=False)
+            music_cast_capabilities.revoke_for_user(self.db, user.id)
+        active_changed = payload.is_active is not None and payload.is_active != user.is_active
         if payload.is_active is not None:
             user.is_active = payload.is_active
             if not payload.is_active:
                 self.revoke_sessions(user.id)
+            elif active_changed:
+                music_cast_capabilities.revoke_for_user(self.db, user.id)
         self.db.flush()
         return user
 

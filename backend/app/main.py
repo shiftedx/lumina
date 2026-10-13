@@ -2548,6 +2548,8 @@ def _channel_candidate_response(candidate) -> ChannelCandidateResponse:
         # Register any provider artwork through the opaque-id boundary; a channel
         # with no avatar carries None so the UI can show an accessible fallback.
         artwork_url=_remote_artwork_url(candidate.artwork_url),
+        preview_artwork_url=_remote_artwork_url(candidate.preview_thumbnail),
+        preview_title=candidate.preview_title,
         category_keys=list(candidate.category_keys),
         following=candidate.following,
     )
@@ -2598,6 +2600,7 @@ def search_channels(
         {
             "uploader": item.uploader, "channel_url": item.uploader_url, "channel_id": item.uploader_id,
             "availability": item.availability, "source": item.source,
+            "preview_thumbnail": item.thumbnail, "preview_title": item.title,
         }
         for item in results.items
     ]

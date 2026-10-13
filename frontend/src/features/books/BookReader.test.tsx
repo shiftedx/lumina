@@ -77,6 +77,15 @@ describe('BookReader', () => {
     const position = screen.getByRole('slider', { name: 'Reading position' });
     expect(fireEvent.keyDown(position, { key: forward })).toBe(true);
     expect(screen.queryByRole('img', { name: 'Page 2 of 3' })).toBeNull();
+    await browser.clear(input);
+    await browser.type(input, '2');
+    expect(screen.queryByRole('img', { name: 'Page 2 of 3' })).toBeNull();
+    await browser.keyboard('{Enter}');
+    await screen.findByRole('img', { name: 'Page 2 of 3' });
+    position.focus();
+    fireEvent.change(position, { target: { value: '0' } });
+    await screen.findByRole('img', { name: 'Page 1 of 3' });
+    expect(document.activeElement).toBe(position);
   });
 
   it('saves the current file checkpoint before switching bundled formats', async () => {
@@ -110,6 +119,29 @@ describe('BookReader', () => {
     await browser.click(screen.getByRole('button', { name: 'Add to reading list' }));
     await screen.findByRole('button', { name: 'Remove from reading list' });
     expect(screen.getByText(/Chapter 1 of 2.*% read/).textContent).toContain('% read');
+  });
+
+  it('pages through EPUB text before changing chapters and returns to the previous chapter end', async () => {
+    const browser = userEvent.setup();
+    render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} userId="books-member" />);
+    await screen.findByText('Departure');
+    await waitFor(() => expect(api.updateBookState).toHaveBeenCalled());
+    const chapter = screen.getByLabelText('Book chapter');
+    Object.defineProperties(chapter, { scrollHeight: { configurable: true, value: 1400 }, clientHeight: { configurable: true, value: 400 }, scrollTop: { configurable: true, writable: true, value: 0 } });
+    chapter.focus();
+    await browser.keyboard('{ArrowRight}');
+    expect(chapter.scrollTop).toBe(368);
+    expect(screen.queryByText('The pass')).toBeNull();
+    await browser.keyboard('{ArrowLeft}');
+    expect(chapter.scrollTop).toBe(0);
+    chapter.scrollTop = 1000;
+    await browser.keyboard('{ArrowRight}');
+    await screen.findByText('The pass');
+    chapter.scrollTop = 0;
+    await browser.keyboard('{ArrowLeft}');
+    await screen.findByText('Departure');
+    await waitFor(() => expect(chapter.scrollTop).toBe(1000));
+    await waitFor(() => expect(api.updateBookState).toHaveBeenCalledWith('ebook-1', { unit_index: 0, offset: 1 }, false));
   });
 
   it('shows the approved book cover when the first EPUB chapter has no inert content', async () => {

@@ -14,6 +14,7 @@ from app.book_models import BookItem, BookShelf, BookShelfMembership, BookState
 from app.config import settings
 from app.models import User, utcnow
 from app.services import member_access
+from app.services.book_archives import clean_synopsis
 
 BOOK_EXTENSIONS = {".epub": "epub", ".cbz": "cbz", ".cbr": "cbr", ".pdf": "pdf"}
 MAX_SHELF_ENTRIES = 500
@@ -108,6 +109,8 @@ class BookService:
         title = _clean(manifest.get("title")) or _clean(Path(filename).stem) or "Untitled"
         author = _clean(manifest.get("author"))
         found_series = _clean(manifest.get("series_name"))
+        description = clean_synopsis(manifest.get("description"))
+        stored_manifest = {**manifest, "description": description}
         book_id = str(uuid.uuid4())
         # Every CBZ is a Manga series, even a plain image archive without ComicInfo.
         # A standalone volume uses its durable book UUID until its owner assigns a name.
@@ -119,12 +122,12 @@ class BookService:
             os.replace(path, target)
             book = BookItem(
                 id=book_id, storage_key=key, format=format_, kind="manga" if format_ in {"cbz", "cbr"} else "ebook",
-                title=title, author=author, description=_clean(manifest.get("description"), 10_000),
+                title=title, author=author, description=description,
                 language=_clean(manifest.get("language"), 32), genres=_genres(manifest.get("genres")),
                 series_id=sid, series_name=found_series,
                 volume_number=self._volume(manifest.get("volume_number")),
                 reading_direction="rtl" if manifest.get("reading_direction") == "rtl" else "ltr",
-                manifest=manifest, visibility="private", owner_user_id=user.id,
+                manifest=stored_manifest, visibility="private", owner_user_id=user.id,
             )
             self.db.add(book)
             self.db.flush()
@@ -165,7 +168,7 @@ class BookService:
             percent = 100.0 if state.completed else min(100.0, max(0.0, ((state.unit_index + state.offset) / units) * 100))
         return {
             "id": book.id, "kind": book.kind, "format": book.format, "title": book.title, "author": book.author or "",
-            "description": book.description or "", "language": book.language or "", "genres": book.genres or [],
+            "description": clean_synopsis(book.description) or "", "language": book.language or "", "genres": book.genres or [],
             "series_id": book.series_id, "series_name": book.series_name, "volume_number": book.volume_number,
             "reading_direction": book.reading_direction, "cover_url": f"/api/books/{book.id}/cover" if manifest.get("cover_member") else None,
             "chapter_count": len(manifest.get("chapters") or []), "page_count": len(manifest.get("pages") or []),
@@ -250,6 +253,9 @@ class BookService:
                 setattr(book, field, _genres(values[field]) if field == "genres" else (_clean(values[field]) if field == "author" else values[field]))
         if "series_name" in values:
             book.series_name = _clean(values["series_name"])
+        if "description" in values:
+            book.description = clean_synopsis(values["description"])
+            book.manifest = {**(book.manifest if isinstance(book.manifest, dict) else {}), "description": book.description}
         if "series_name" in values or "author" in values:
             book.series_id = series_id(book.series_name, book.author) if book.series_name else (book.id if book.kind == "manga" else None)
         if "volume_number" in values:
@@ -346,7 +352,7 @@ class BookService:
             next_book = next((book.id for book in entries if (state := states.get(book.id)) is not None and not state.completed and state.last_read_at is not None), None)
             if next_book is None:
                 next_book = next((book.id for book in entries if not (states.get(book.id) and states[book.id].completed)), None)
-            result.append({"id": sid, "title": first.series_name or first.title, "author": first.author or "", "description": first.description or "", "cover_url": f"/api/books/{first.id}/cover" if (first.manifest or {}).get("cover_member") else None, "volume_count": len(entries), "read_volume_count": read, "next_book_id": next_book, "created_at": max(book.created_at for book in entries)})
+            result.append({"id": sid, "title": first.series_name or first.title, "author": first.author or "", "description": clean_synopsis(first.description) or "", "cover_url": f"/api/books/{first.id}/cover" if (first.manifest or {}).get("cover_member") else None, "volume_count": len(entries), "read_volume_count": read, "next_book_id": next_book, "created_at": max(book.created_at for book in entries)})
         return result
 
     def overview(self, user: User) -> dict[str, Any]:

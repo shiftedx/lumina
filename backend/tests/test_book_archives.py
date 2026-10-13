@@ -25,11 +25,11 @@ def _zip(path: Path, members: dict[str, bytes], *, encrypted_flag: bool = False)
     return path
 
 
-def _epub(path: Path, chapter: bytes | None = None) -> Path:
+def _epub(path: Path, chapter: bytes | None = None, description: bytes = b" A summary ") -> Path:
     chapter = chapter or b"""<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><h1 id=\"start\">Start</h1><p>Hello <em>reader</em>.</p><p><a href=\"two.xhtml#later\">Next</a><img src=\"images/cover.png\" alt=\"Cover\" /></p></body></html>"""
     return _zip(path, {
         "META-INF/container.xml": b"""<?xml version='1.0'?><container><rootfiles><rootfile full-path='OPS/book.opf'/></rootfiles></container>""",
-        "OPS/book.opf": b"""<?xml version='1.0'?><package><metadata xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:title> A Book </dc:title><dc:creator> Author </dc:creator><dc:description> A summary </dc:description><dc:language>en</dc:language><dc:subject>Fantasy</dc:subject><meta name='calibre:series' content='Stories'/><meta name='calibre:series_index' content='2.5'/><meta name='cover' content='cover'/></metadata><manifest><item id='one' href='one.xhtml' media-type='application/xhtml+xml'/><item id='two' href='two.xhtml' media-type='application/xhtml+xml'/><item id='cover' href='images/cover.png' media-type='image/png'/><item id='nav' href='nav.xhtml' properties='nav' media-type='application/xhtml+xml'/></manifest><spine page-progression-direction='rtl'><itemref idref='one'/><itemref idref='two'/></spine></package>""",
+        "OPS/book.opf": b"""<?xml version='1.0'?><package><metadata xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:title> A Book </dc:title><dc:creator> Author </dc:creator><dc:description>""" + description + b"""</dc:description><dc:language>en</dc:language><dc:subject>Fantasy</dc:subject><meta name='calibre:series' content='Stories'/><meta name='calibre:series_index' content='2.5'/><meta name='cover' content='cover'/></metadata><manifest><item id='one' href='one.xhtml' media-type='application/xhtml+xml'/><item id='two' href='two.xhtml' media-type='application/xhtml+xml'/><item id='cover' href='images/cover.png' media-type='image/png'/><item id='nav' href='nav.xhtml' properties='nav' media-type='application/xhtml+xml'/></manifest><spine page-progression-direction='rtl'><itemref idref='one'/><itemref idref='two'/></spine></package>""",
         "OPS/nav.xhtml": b"""<html><body><nav><a href='one.xhtml'>Beginning</a><a href='two.xhtml'>Later</a></nav></body></html>""",
         "OPS/one.xhtml": chapter,
         "OPS/two.xhtml": b"<html><body><h2 id='later'>Two</h2><p>Second chapter</p></body></html>",
@@ -66,6 +66,32 @@ def test_cbz_uses_natural_page_order_and_comicinfo(tmp_path: Path) -> None:
         "genres": ["Action", "Comedy"], "series_name": "Series", "volume_number": 4.0,
         "cover_member": "1.png", "chapters": [], "pages": ["1.png", "2.png", "10.png"], "reading_direction": "rtl",
     }
+
+
+def test_epub_description_cleans_escaped_html_and_keeps_long_paragraphs(tmp_path: Path) -> None:
+    long_synopsis = " ".join(f"Meaningful synopsis sentence {index} advances the story." for index in range(40))
+    description = (
+        f"&lt;p&gt;First paragraph.&lt;/p&gt;&lt;p&gt;{long_synopsis}&lt;/p&gt;"
+        "&lt;script&gt;discard this script&lt;/script&gt;"
+        "&lt;style&gt;discard these styles&lt;/style&gt;"
+        "&lt;p hidden&gt;discard this hidden paragraph&lt;/p&gt;"
+        "&lt;span style='display:none'&gt;discard this hidden span&lt;/span&gt;"
+    ).encode()
+    manifest = inspect_book(_epub(tmp_path / "long.epub", description=description), "epub")
+
+    assert manifest["description"] == f"First paragraph.\n\n{long_synopsis}"
+    assert len(manifest["description"]) > 500
+    assert "discard" not in manifest["description"]
+
+
+def test_comicinfo_description_cleans_escaped_html(tmp_path: Path) -> None:
+    description = b"&lt;p&gt;Comic opening.&lt;/p&gt;&lt;p&gt;Comic continuation.&lt;/p&gt;&lt;script&gt;discarded&lt;/script&gt;"
+    book = _zip(tmp_path / "manga.cbz", {
+        "1.png": PNG,
+        "ComicInfo.xml": b"<ComicInfo><Summary>" + description + b"</Summary></ComicInfo>",
+    })
+
+    assert inspect_book(book, "cbz")["description"] == "Comic opening.\n\nComic continuation."
 
 
 def test_chapter_markup_drops_active_hidden_and_remote_content(tmp_path: Path) -> None:

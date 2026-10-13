@@ -93,6 +93,7 @@ class BookStatePatch(BaseModel):
 class BookPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=500)
     author: str | None = Field(default=None, max_length=500)
+    description: str | None = Field(default=None, max_length=10_000)
     series_name: str | None = Field(default=None, max_length=500)
     volume_number: float | None = Field(default=None, ge=0, le=100000)
     reading_direction: Literal["ltr", "rtl"] | None = None

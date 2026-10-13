@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from html import escape
 
 from app import book_models  # noqa: F401 - registers Books metadata before db_factory creates its schema
 from app.book_models import BookItem
@@ -9,10 +10,11 @@ from app.http_boundaries import MAX_BOOK_UPLOAD_BODY_BYTES, body_limit
 from app.models import MemberAccess, User
 
 
-def _cbz(*, title: str = "Moon", series: str = "Night", number: int = 1, pages: int = 1) -> bytes:
+def _cbz(*, title: str = "Moon", series: str = "Night", number: int = 1, pages: int = 1, summary: str | None = None) -> bytes:
     body = io.BytesIO()
     with zipfile.ZipFile(body, "w") as archive:
-        archive.writestr("ComicInfo.xml", f"<ComicInfo><Title>{title}</Title><Writer>Ada</Writer><Series>{series}</Series><Number>{number}</Number></ComicInfo>")
+        summary_tag = f"<Summary>{summary}</Summary>" if summary is not None else ""
+        archive.writestr("ComicInfo.xml", f"<ComicInfo><Title>{title}</Title><Writer>Ada</Writer><Series>{series}</Series><Number>{number}</Number>{summary_tag}</ComicInfo>")
         for page in range(1, pages + 1): archive.writestr(f"{page:03}.png", b"\x89PNG\r\n\x1a\nsmall")
     return body.getvalue()
 
@@ -41,6 +43,51 @@ def _user(db_factory, user_id: str) -> User:
     with db_factory() as db:
         user = User(id=user_id, username=user_id, display_name=user_id, role="viewer", is_active=True)
         db.add(user); db.commit(); return user
+
+
+def test_book_synopsis_is_cleaned_stored_and_editable_over_500_characters(api_client, db_factory) -> None:
+    owner = _user(db_factory, "synopsis-owner")
+    long_synopsis = " ".join(f"Meaningful imported sentence {index} describes the journey." for index in range(40))
+    raw_synopsis = f"<p>Imported opening.</p><p>{long_synopsis}</p><script>discarded script</script><p hidden>discarded hidden text</p>"
+    expected = f"Imported opening.\n\n{long_synopsis}"
+
+    with api_client(user=owner, base_url="http://localhost") as client:
+        imported_response = client.put(
+            "/api/books/import?filename=synopsis.cbz",
+            content=_cbz(summary=escape(raw_synopsis)),
+        )
+        assert imported_response.status_code == 201, imported_response.text
+        imported = imported_response.json()
+        assert imported["description"] == expected
+        assert len(imported["description"]) > 500
+
+        edited = ("Edited synopsis with a meaningful sentence. " * 200).strip()
+        edited_response = client.patch(f"/api/books/{imported['id']}", json={"description": edited})
+        assert edited_response.status_code == 200, edited_response.text
+        assert edited_response.json()["description"] == edited
+
+    with db_factory() as db:
+        stored = db.get(BookItem, imported["id"])
+        assert stored is not None
+        assert stored.description == edited
+        assert stored.manifest["description"] == edited
+
+
+def test_existing_raw_html_synopsis_is_cleaned_in_book_response(api_client, db_factory) -> None:
+    owner = _user(db_factory, "legacy-synopsis-owner")
+    with db_factory() as db:
+        db.add(BookItem(
+            id="legacy-synopsis-book", storage_key="00000000-0000-0000-0000-000000000001.cbz", format="cbz", kind="manga",
+            title="Legacy synopsis", description="<p>Legacy opening.</p><p>Legacy continuation.</p><script>discarded</script><p hidden>secret</p>",
+            genres=[], manifest={"pages": []}, visibility="private", owner_user_id=owner.id,
+        ))
+        db.commit()
+
+    with api_client(user=owner, base_url="http://localhost") as client:
+        response = client.get("/api/books/legacy-synopsis-book")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["description"] == "Legacy opening.\n\nLegacy continuation."
 
 
 def test_cbz_books_are_private_then_shareable_with_member_state_and_shelves(api_client, db_factory) -> None:

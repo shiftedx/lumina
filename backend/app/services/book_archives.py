@@ -10,6 +10,7 @@ import posixpath
 import re
 import zipfile
 from dataclasses import dataclass, field
+from html import escape
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -25,6 +26,7 @@ MAX_METADATA_BYTES = 1024 * 1024
 MAX_TOTAL_UNCOMPRESSED = 512 * 1024 * 1024
 MAX_MARKUP_NODES = 50_000
 MAX_MARKUP_DEPTH = 128
+MAX_DESCRIPTION_CHARS = 10_000
 IMAGE_TYPES = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
     ".webp": "image/webp", ".gif": "image/gif",
@@ -50,6 +52,34 @@ class _Markup:
 def _clean(value: str | None, limit: int = 500) -> str | None:
     value = " ".join((value or "").split())
     return value[:limit] if value else None
+
+
+def _raw_text(element: ET.Element | None) -> str:
+    return "".join(element.itertext()) if element is not None else ""
+
+
+def _element_markup(element: ET.Element) -> str:
+    if not isinstance(element.tag, str):
+        return ""
+    tag = _local_name(element.tag)
+    attrs = "".join(f' {_local_name(key)}="{escape(value, quote=True)}"' for key, value in element.attrib.items())
+    inner = element.text or ""
+    for child in element:
+        inner += _element_markup(child)
+        inner += child.tail or ""
+    return f"<{tag}{attrs}>{inner}</{tag}>"
+
+
+def _metadata_markup(element: ET.Element | None) -> str:
+    if element is None:
+        return ""
+    if not list(element):
+        return element.text or ""
+    value = element.text or ""
+    for child in element:
+        value += _element_markup(child)
+        value += child.tail or ""
+    return value
 
 
 def _local_name(tag: str) -> str:
@@ -142,7 +172,7 @@ class _Archive:
 
 
 def _text(element: ET.Element | None) -> str | None:
-    return _clean("".join(element.itertext()) if element is not None else None)
+    return _clean(_raw_text(element))
 
 
 def _unique(values: list[str], limit: int = 20) -> list[str]:
@@ -163,8 +193,10 @@ def _metadata(opf: ET.Element) -> tuple[dict[str, Any], dict[str, tuple[str, str
     meta: dict[str, str] = {}
     for node in metadata:
         name = _local_name(node.tag)
-        if name in fields and (value := _text(node)):
-            fields[name].append(value)
+        if name in fields:
+            value = clean_synopsis(_metadata_markup(node)) if name == "description" else _text(node)
+            if value:
+                fields[name].append(value)
         elif name == "meta":
             key = (node.get("name") or node.get("property") or "").casefold()
             value = _clean(node.get("content") or node.text)
@@ -288,7 +320,12 @@ def _cbz(archive: _Archive, path: Path) -> dict[str, Any]:
     if comic:
         try:
             root = _xml(archive.read(comic, MAX_METADATA_BYTES), "ComicInfo")
-            data = {_local_name(node.tag): _text(node) for node in root if _text(node)}
+            data = {}
+            for node in root:
+                name = _local_name(node.tag)
+                value = clean_synopsis(_metadata_markup(node)) if name == "summary" else _text(node)
+                if value:
+                    data[name] = value
         except BookArchiveError:
             data = {}
     genres = _unique(re.split(r"[;,/]", ";".join(filter(None, (data.get("genres"), data.get("genre"), data.get("tags"))))))
@@ -432,8 +469,52 @@ def _from_element(element: ET.Element, depth: int = 0, count: list[int] | None =
 
 
 def _hidden(node: _Markup) -> bool:
-    style = node.attrs.get("style", "").replace(" ", "").casefold()
+    style = re.sub(r"\s+", "", node.attrs.get("style", "")).casefold()
     return "hidden" in node.attrs or node.attrs.get("aria-hidden", "").casefold() == "true" or "display:none" in style or "visibility:hidden" in style
+
+
+_SYNOPSIS_BLOCK_TAGS = {
+    "address", "article", "aside", "blockquote", "dd", "div", "dl", "dt", "figcaption", "figure", "footer",
+    "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section",
+    "table", "tbody", "td", "tfoot", "th", "thead", "tr", "ul",
+}
+
+
+def _synopsis_parts(node: _Markup) -> list[str]:
+    if node.tag is None:
+        return [node.text] if node.text else []
+    tag = node.tag.casefold()
+    if tag in UNSAFE_TAGS or _hidden(node):
+        return []
+    if tag == "br":
+        return ["\n"]
+    parts: list[str] = []
+    if node.text:
+        parts.append(node.text)
+    for child in node.children:
+        parts.extend(_synopsis_parts(child))
+    if tag in _SYNOPSIS_BLOCK_TAGS:
+        return ["\n\n", *parts, "\n\n"]
+    return parts
+
+
+def clean_synopsis(value: object, limit: int = MAX_DESCRIPTION_CHARS) -> str | None:
+    """Return bounded plain synopsis text without allowing markup to cross the archive boundary."""
+    if not isinstance(value, str):
+        return None
+    parser = _LooseHtml()
+    try:
+        parser.feed(value)
+        parser.close()
+    except BookArchiveError:
+        return None
+    raw = "".join(part for node in parser.root.children for part in _synopsis_parts(node))
+    paragraphs = [
+        "\n".join(" ".join(line.split()) for line in part.splitlines() if line.strip())
+        for part in re.split(r"\n{2,}", raw)
+    ]
+    cleaned = "\n\n".join(part for part in paragraphs if part).strip()
+    return cleaned[:limit] or None
 
 
 def _fragment(href: str) -> str | None:

@@ -42,7 +42,7 @@ export function AudioSoundstage({ owner, onOpenArtist }: { owner: string; onOpen
     void listTitles({ type: 'artist', limit: FEATURED_LIMIT, sort: 'created' }).then((page) => {
       if (listRequest.current !== current) return;
       const found = page.items.filter((title) => title.type === 'artist').slice(0, FEATURED_LIMIT);
-      setArtists(found); setSelectedId(found[0]?.id ?? null);
+      setArtists(found); setSelectedId(found.find((title) => title.poster)?.id ?? found[0]?.id ?? null);
     }, (error) => {
       if (listRequest.current === current) { setArtists([]); setProblem(failureMessage(error, 'Featured artists could not be loaded.')); }
     });

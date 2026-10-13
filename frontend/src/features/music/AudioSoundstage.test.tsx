@@ -34,6 +34,13 @@ beforeEach(() => {
 });
 
 describe('AudioSoundstage', () => {
+  it('opens with a real artist photograph when another recent artist is still missing one', async () => {
+    mocks.list.mockResolvedValue(titlePage([{ ...artistA, poster: null }, artistB]));
+    render(<AudioSoundstage onOpenArtist={vi.fn()} owner="u1" />);
+    expect(await screen.findByRole('heading', { name: 'North Arcade' })).toBeTruthy();
+    expect(mocks.title).toHaveBeenCalledWith('artist-b');
+    expect(screen.queryByRole('button', { name: /Featured release:/ })).toBeNull();
+  });
   it('uses a distinct artist background and credits its photograph instead of a release cover', async () => {
     mocks.title.mockResolvedValue({ ...detailA, backdrop: { ...detailA.poster, url: '/artist-landscape' }, music: { ...music,
       artwork_credits: [{ image_type: 'Backdrop', source_url: 'https://commons.wikimedia.org/wiki/File:Concert.jpg', author: 'Photographer', license: 'CC BY-SA 4.0' }],

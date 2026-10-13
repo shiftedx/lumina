@@ -178,6 +178,8 @@ async function installApi(page: Page, options: { onboarding?: 'pending'; discove
     const url = new URL(request.url());
     const path = url.pathname;
     const json = (body: unknown) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (path === '/api/books/overview') return json({ totals: { ebooks: 0, manga_series: 0, volumes: 0 }, continue_reading: [], recently_added: [], shelves: [], discover: [] });
+    if (path === '/api/books/shelves') return json([]);
     if (path === '/api/library/activity') return json({ scanning_roots: 0, discovering_roots: 0, indexing_roots: 0, preparing_roots: 0, waiting_files: 0, discovered_files: 0, completed_files: 0, total_files: null, progress: null, inspected_files: 0, directories_listed: 0, directories_total: null });
     if (path === '/api/session/me') return json({ user: { ...user, onboarding_status: onboardingStatus } });
     if (path === '/api/onboarding/complete') {
@@ -364,7 +366,7 @@ async function coverEverySurface(page: Page) {
   expect(avatarGeometry).toEqual({ width: avatarSize, height: avatarSize, borderRadius: '50%' });
   await navigateWithMobileTabs(page, 'Audio', /^Music$/);
   await page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: 'Books' }).click();
-  await expect(page.getByText('Your reading collection will appear here when book support is available on this server.')).toBeVisible();
+  await expect(page.getByText('A home for every story')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectEffectiveTargets(page);
   await navigateWithMobileTabs(page, 'Video', /^Video$/);

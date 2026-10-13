@@ -3,7 +3,7 @@ import { createElement, type CSSProperties, type ReactNode, useCallback, useEffe
 
 import { getSessionUserId, trackKeepalive } from '../../api';
 import { BrandMark, Button, ErrorState, IconButton, Skeleton } from '../../ui';
-import { bookPageUrl, bookResourceUrl, getBookChapter, getBookReader, updateBookState } from './booksApi';
+import { bookCoverUrl, bookPageUrl, bookResourceUrl, getBookChapter, getBookReader, updateBookState } from './booksApi';
 import type { Book, BookNode, BookReaderManifest } from './types';
 
 type Appearance = { size: number; line: number; theme: 'system' | 'dark' | 'light' | 'sepia'; layout: 'single' | 'spread'; fit: 'height' | 'width' };
@@ -116,6 +116,10 @@ export function BookReader({ bookId, userId, onBack, onBookChange }: { bookId: s
   }, [bookId, manifest?.book.format, unit, chapterRetry]);
 
   useEffect(() => {
+    if (manifest?.book.id) reading.current?.focus({ preventScroll: true });
+  }, [manifest?.book.id]);
+
+  useEffect(() => {
     if (!nodes || !reading.current) return;
     const handle = requestAnimationFrame(() => {
       const panel = reading.current;
@@ -157,7 +161,13 @@ export function BookReader({ bookId, userId, onBack, onBookChange }: { bookId: s
   if (loadError) return <div className="books-reader-recovery"><Button icon={<ArrowLeft />} onClick={onBack} variant="quiet">Back to Books</Button><ErrorState body={loadError} onRetry={() => setRetry((value) => value + 1)} title="This book could not be opened" /></div>;
   if (!manifest || !book) return <div className="books-reader-recovery"><Skeleton count={5} label="Opening your book…" shape="row" /></div>;
 
-  return <div className={`books-reader is-${book.kind}`} data-appearance={appearance.theme} onKeyDown={(event) => { if (event.key === 'Escape') { setContentsOpen(false); setAppearanceOpen(false); } }} ref={root} style={{ '--book-font-size': `${appearance.size}px`, '--book-line-height': appearance.line } as CSSProperties}>
+  return <div className={`books-reader is-${book.kind}`} data-appearance={appearance.theme} onKeyDown={(event) => {
+    if (event.key === 'Escape') { setContentsOpen(false); setAppearanceOpen(false); }
+    if ((event.target as HTMLElement).closest('input, select, textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="slider"], [role="combobox"], [role="listbox"], [role="menu"]') || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const forward = book.format !== 'epub' && manifest.reading_direction === 'rtl' ? 'ArrowLeft' : 'ArrowRight';
+    if (event.key === forward && !atEnd) { event.preventDefault(); void go(next); }
+    else if (event.key === (forward === 'ArrowLeft' ? 'ArrowRight' : 'ArrowLeft') && unit > 0) { event.preventDefault(); void go(previous); }
+  }} ref={root} style={{ '--book-font-size': `${appearance.size}px`, '--book-line-height': appearance.line } as CSSProperties}>
     <header className="books-reader-header">
       <IconButton icon={<ArrowLeft />} label="Back to Books" onClick={() => { void persist().then((saved) => { if (saved || !ready.current) onBack(); }); }} />
       <BrandMark compact={false} size="bar" />
@@ -175,19 +185,14 @@ export function BookReader({ bookId, userId, onBack, onBookChange }: { bookId: s
         <h2>{book.format === 'epub' ? 'Contents' : 'Pages'}</h2>
         {book.format === 'epub' ? <ol>{manifest.chapters.map((chapter, index) => <li key={index}><button aria-current={unit === index ? 'location' : undefined} onClick={() => { void go(index); }} type="button"><span>{index + 1}</span>{chapter.label}</button></li>)}</ol> : <div className="books-reader-page-jump"><label htmlFor="book-page-input">Go to page</label><input id="book-page-input" max={count} min={1} onChange={(event) => { const value = Number(event.target.value); if (Number.isInteger(value) && value >= 1 && value <= count) void go(value - 1); }} type="number" value={unit + 1} /><p>{count} pages · {manifest.reading_direction === 'rtl' ? 'Right to left' : 'Left to right'}</p></div>}
       </aside> : null}
-      <div aria-label={book.format === 'epub' ? 'Book chapter' : book.kind === 'manga' ? 'Manga pages' : 'Book pages'} className={`books-reader-page is-${appearance.fit}`} onKeyDown={(event) => {
-        if ((event.target as HTMLElement).closest('input, select, button, textarea, a') || event.altKey || event.ctrlKey || event.metaKey) return;
-        const forward = book.format !== 'epub' && manifest.reading_direction === 'rtl' ? 'ArrowLeft' : 'ArrowRight';
-        if (event.key === forward && !atEnd) { event.preventDefault(); void go(next); }
-        else if (event.key === (forward === 'ArrowLeft' ? 'ArrowRight' : 'ArrowLeft') && unit > 0) { event.preventDefault(); void go(previous); }
-      }} onScroll={() => {
+      <div aria-label={book.format === 'epub' ? 'Book chapter' : book.kind === 'manga' ? 'Manga pages' : 'Book pages'} className={`books-reader-page is-${appearance.fit}`} onScroll={() => {
         if (!ready.current || book.format !== 'epub' || !reading.current) return;
         const panel = reading.current;
         checkpoint.current = { unit_index: unit, offset: panel.scrollHeight > panel.clientHeight ? clamp(panel.scrollTop / (panel.scrollHeight - panel.clientHeight), 0, 1) : 0 };
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(() => { void persistRef.current(); }, 1000);
       }} ref={reading} tabIndex={0}>
-        {book.format === 'epub' ? chapterError ? <ErrorState body={chapterError} onRetry={() => setChapterRetry((value) => value + 1)} title="This chapter could not be loaded" /> : !nodes ? <Skeleton count={6} label="Loading chapter…" shape="row" /> : <article className={`books-prose${appearance.layout === 'spread' ? ' is-spread' : ''}`} id="book-prose"><p className="books-chapter-label">Chapter {unit + 1} of {count}</p><BookProse bookId={bookId} nodes={nodes} onLink={(chapter, anchor) => { void go(chapter ?? unit, anchor); }} /></article>
+        {book.format === 'epub' ? chapterError ? <ErrorState body={chapterError} onRetry={() => setChapterRetry((value) => value + 1)} title="This chapter could not be loaded" /> : !nodes ? <Skeleton count={6} label="Loading chapter…" shape="row" /> : <article className={`books-prose${appearance.layout === 'spread' ? ' is-spread' : ''}`} id="book-prose"><p className="books-chapter-label">Chapter {unit + 1} of {count}</p>{unit === 0 && nodes.length === 0 && bookCoverUrl(book.cover_url) ? <img alt={`Cover of ${book.title}`} className="books-prose-cover" src={bookCoverUrl(book.cover_url)!} /> : null}<BookProse bookId={bookId} nodes={nodes} onLink={(chapter, anchor) => { void go(chapter ?? unit, anchor); }} /></article>
           : imageError ? <ErrorState body="The page image could not be loaded." onRetry={() => { setImageError(false); setChapterRetry((value) => value + 1); }} title="Page unavailable" /> : <div className={`books-manga-pages${displayedPages.length === 2 ? ' is-spread' : ''}`} dir={manifest.reading_direction}>{displayedPages.map((page) => <img alt={`Page ${page + 1} of ${count}`} decoding="async" key={`${page}:${chapterRetry}`} onError={() => setImageError(true)} src={bookPageUrl(bookId, page)} />)}</div>}
       </div>
       {appearanceOpen ? <aside aria-label="Reading appearance" className="books-reader-aside books-reader-appearance" id="book-appearance">

@@ -279,3 +279,5 @@
 }
 @media (prefers-reduced-motion: reduce) { .books-reader-page { scroll-behavior: auto; } }
 @media (forced-colors: active) { .books-selection-check.is-checked, .books-cover-progress > span { background: Highlight; color: HighlightText; } .books-card.is-selected .books-card-art { outline: 2px solid Highlight; } .books-reader { --reader-paper: Canvas; --reader-ink: CanvasText; --reader-muted: CanvasText; } }
+
+.books-prose .books-prose-cover { display: block; width: min(100%, 420px); max-height: 70vh; object-fit: contain; margin: 0 auto; }

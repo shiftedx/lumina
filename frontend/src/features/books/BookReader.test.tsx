@@ -42,6 +42,50 @@ describe('BookProse', () => {
 });
 
 describe('BookReader', () => {
+  it('turns EPUB chapters with arrow keys immediately after opening', async () => {
+    const browser = userEvent.setup();
+    render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} userId="books-member" />);
+    await screen.findByText('Departure');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Book chapter');
+    await browser.keyboard('{ArrowRight}');
+    await screen.findByText('The pass');
+    await browser.keyboard('{ArrowLeft}');
+    await screen.findByText('Departure');
+  });
+
+  it.each([
+    ['pdf', 'ltr', 'ArrowRight', 'ArrowLeft'],
+    ['cbr', 'ltr', 'ArrowRight', 'ArrowLeft'],
+    ['cbz', 'rtl', 'ArrowLeft', 'ArrowRight'],
+  ] as const)('turns %s pages from toolbar focus in %s order', async (format, direction, forward, backward) => {
+    const browser = userEvent.setup();
+    const scanned = book({ format, kind: format === 'pdf' ? 'ebook' : 'manga', page_count: 3, chapter_count: 0 });
+    api.getBookReader.mockResolvedValue({ book: scanned, chapters: [], page_count: 3, reading_direction: direction });
+    api.updateBookState.mockImplementation(async (_id: string, patch: object) => ({ ...scanned, progress: { ...scanned.progress, ...patch } }));
+    render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} userId="books-member" />);
+    await screen.findByRole('img', { name: 'Page 1 of 3' });
+    screen.getByRole('button', { name: 'Pages' }).focus();
+    await browser.keyboard(`{${forward}}`);
+    await screen.findByRole('img', { name: 'Page 2 of 3' });
+    await browser.keyboard(`{${backward}}`);
+    await screen.findByRole('img', { name: 'Page 1 of 3' });
+    await browser.click(screen.getByRole('button', { name: 'Pages' }));
+    const input = screen.getByRole('spinbutton', { name: 'Go to page' });
+    input.focus();
+    expect(fireEvent.keyDown(input, { key: forward })).toBe(true);
+    expect(screen.queryByRole('img', { name: 'Page 2 of 3' })).toBeNull();
+    const position = screen.getByRole('slider', { name: 'Reading position' });
+    expect(fireEvent.keyDown(position, { key: forward })).toBe(true);
+    expect(screen.queryByRole('img', { name: 'Page 2 of 3' })).toBeNull();
+  });
+
+  it('shows the approved book cover when the first EPUB chapter has no inert content', async () => {
+    api.getBookReader.mockResolvedValue(ebookManifest({ book: book({ cover_url: '/api/books/ebook-1/cover' }) }));
+    api.getBookChapter.mockResolvedValue({ nodes: [] });
+    render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} userId="books-member" />);
+    const cover = await screen.findByRole('img', { name: 'Cover of Northbound' });
+    expect(cover.getAttribute('src')).toBe('/api/books/ebook-1/cover');
+  });
   it.each(['pdf', 'cbr'] as const)('reads %s with page navigation and saves page checkpoints', async (format) => {
     const browser = userEvent.setup();
     const scanned = book({ format, kind: format === 'pdf' ? 'ebook' : 'manga', page_count: 2, chapter_count: 0 });

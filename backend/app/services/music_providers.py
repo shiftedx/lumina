@@ -52,7 +52,9 @@ def validate_art_url(value: str) -> str:
 
 
 def normalized(value: str) -> str:
-    return " ".join(re.findall(r"\w+", unicodedata.normalize("NFKC", value).casefold()))
+    decomposed = unicodedata.normalize("NFKD", value).casefold()
+    letters = "".join(char for char in decomposed if not unicodedata.combining(char))
+    return " ".join(re.findall(r"\w+", letters.replace("_", " ")))
 
 
 def key_for(kind: str, *parts: str) -> str:
@@ -242,7 +244,10 @@ def candidates_for(kind: str, name: str, artist: str | None = None) -> list[dict
         except (ValueError, KeyError, TypeError):
             continue
         credits = "".join(c.get("name", "") + c.get("joinphrase", " ") for c in entry.get("artist-credit", []) if isinstance(c, dict)).strip()
-        exact = normalized(entry.get("name") or entry.get("title") or "") == normalized(name)
+        names = [entry.get("name") or entry.get("title") or ""]
+        if kind == "artist":
+            names.extend(alias["name"] for alias in entry.get("aliases", [])[:30] if isinstance(alias, dict) and isinstance(alias.get("name"), str))
+        exact = bool(normalized(name)) and any(normalized(candidate) == normalized(name) for candidate in names)
         if artist:
             exact = exact and normalized(credits) == normalized(artist)
         # A partial search page cannot establish a unique identity.

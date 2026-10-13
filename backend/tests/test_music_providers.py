@@ -326,3 +326,15 @@ def test_wikipedia_link_can_resolve_entity_photos_without_a_direct_wikidata_rela
     _, pictures = music.artist_profile({'relations': [{'type': 'wikipedia', 'url': {'resource': 'https://en.wikipedia.org/wiki/Artist_A'}}]})
     assert pictures[0]['source_url'] == 'https://commons.wikimedia.org/wiki/File:Photo.jpg'
     assert len(urls) == 3
+
+
+def test_artist_stylization_and_provider_aliases_match_without_losing_non_latin_names(monkeypatch):
+    monkeypatch.setattr(music, 'fetch_json', lambda _url: {'artists': [
+        {'id': ARTIST, 'name': 'Mára‐Vale', 'score': 100},
+        {'id': RELEASE, 'name': 'North Arcade', 'score': 100, 'aliases': [{'name': 'The Arcade', 'locale': 'en'}]},
+    ]})
+    assert music.candidates_for('artist', 'Mara-Vale')[0]['exact']
+    assert music.candidates_for('artist', 'The Arcade')[1]['exact']
+    assert music.normalized('東京') == '東京'
+    assert music.normalized('Mara_Vale') == 'mara vale'
+    assert not any(row['exact'] for row in music.candidates_for('artist', '!!!'))

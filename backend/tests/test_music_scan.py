@@ -338,3 +338,49 @@ def test_same_named_releases_in_one_folder_use_their_own_cover(tmp_path: Path) -
     for name in ['a.flac', 'b.flac']:
         result = _music(root, ('Artist',), name, tags[('Artist', name)], cache, tags.get)
         assert result[0][1]['fields']['nfo']['images.Primary']['embedded'] == f'Artist/{name}'
+
+
+def test_identified_release_does_not_borrow_a_picture_with_missing_release_id(tmp_path: Path) -> None:
+    from app.services.local_metadata import _music
+
+    root = tmp_path / 'music'
+    (root / 'Artist').mkdir(parents=True)
+    for name in ['a.flac', 'b.flac']:
+        (root / 'Artist' / name).write_bytes(b'fixture')
+    tags = {
+        ('Artist', 'a.flac'): AudioTags(album='Shared title', album_artist='Artist', has_picture=True),
+        ('Artist', 'b.flac'): AudioTags(album='Shared title', album_artist='Artist',
+                                      musicbrainz_album_id='12345678-1234-4678-9234-123456789012'),
+    }
+    result = _music(root, ('Artist',), 'b', tags[('Artist', 'b.flac')], {}, tags.get)
+    assert 'images.Primary' not in result[0][1]['fields']['nfo']
+
+
+def test_missing_album_tag_keeps_dedicated_folder_sidecar(tmp_path: Path) -> None:
+    target = 'Artist/Album/01.flac'
+    result = described(tmp_path, target, ('Artist/Album/02.flac', 'Artist/Album/cover.jpg'), {
+        target: AudioTags(album='Album', album_artist='Artist', has_picture=True),
+        'Artist/Album/02.flac': AudioTags(album_artist='Artist', has_picture=True),
+    })
+    assert result['titles'][1]['fields']['nfo']['images.Primary']['path'] == 'Artist/Album/cover.jpg'
+
+
+def test_release_cover_candidates_are_read_once_per_folder(tmp_path: Path) -> None:
+    from app.services.local_metadata import _music
+
+    root = tmp_path / 'music'
+    (root / 'Artist').mkdir(parents=True)
+    tags = {}
+    for name, album in [('a.flac', 'First'), ('b.flac', 'Second')]:
+        (root / 'Artist' / name).write_bytes(b'fixture')
+        tags[('Artist', name)] = AudioTags(album=album, has_picture=True)
+    calls = []
+
+    def read(parts):
+        calls.append(parts)
+        return tags.get(parts)
+
+    cache = {}
+    for name in ['a.flac', 'b.flac']:
+        _music(root, ('Artist',), name, tags[('Artist', name)], cache, read)
+    assert calls == [('Artist', 'a.flac'), ('Artist', 'b.flac')]

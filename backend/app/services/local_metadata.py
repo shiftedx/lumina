@@ -489,17 +489,26 @@ def _album_cover(root: Path, album_dirs: tuple[str, ...], cache: dict[str, Any],
     if key not in cache:
         discs = sorted(name for name, is_dir, _tag in _listing(root, album_dirs, cache).values() if is_dir and DISC_DIR_PATTERN.match(name))
         folders = [album_dirs, *((*album_dirs, disc) for disc in discs)]
-        tracks = [((*folder, name), audio_tags((*folder, name))) for folder in folders
-                  for name in _audio_files(root, folder, cache)] if audio_tags else []
+        tracks_key = "/".join(album_dirs) + "/<album cover tracks>"
+        if tracks_key not in cache:
+            cache[tracks_key] = [((*folder, name), audio_tags((*folder, name))) for folder in folders
+                                 for name in _audio_files(root, folder, cache)] if audio_tags else []
+        tracks = cache[tracks_key]
 
         def belongs(tags: AudioTags) -> bool:
-            if album_tags.musicbrainz_album_id and tags.musicbrainz_album_id:
+            if album_tags.musicbrainz_album_id:
                 return tags.musicbrainz_album_id == album_tags.musicbrainz_album_id
             if album_tags.album_artist and tags.album_artist and music_key(album_tags.album_artist) != music_key(tags.album_artist):
                 return False
-            return music_key(tags.album or "") == music_key(album_tags.album or "")
+            return music_key(tags.album or album) == music_key(album)
 
-        shared = any(tags is not None and not belongs(tags) for _track, tags in tracks)
+        def foreign(tags: AudioTags) -> bool:
+            if tags.musicbrainz_album_id and album_tags.musicbrainz_album_id:
+                return tags.musicbrainz_album_id != album_tags.musicbrainz_album_id
+            return bool((tags.album and music_key(tags.album) != music_key(album)) or
+                        (tags.album_artist and music_key(tags.album_artist) != music_key(album_artist)))
+
+        shared = any(tags is not None and foreign(tags) for _track, tags in tracks)
         cover = {} if shared else next((art for folder in folders if (art := _art(root, folder, cache, {"Primary": ALBUM_ART}))), {})
         if not cover and audio_tags is not None:
             track = next((

@@ -41,6 +41,18 @@ def call(client: TestClient, csrf: str, method: str, url: str, **kw):
     return client.request(method, url, headers={"Origin": ORIGIN, CSRF_HEADER: csrf}, **kw)
 
 
+@pytest.mark.parametrize('sections', [['books'], ['books:ebook'], ['books:manga'], ['books:ebook', 'books:manga']])
+def test_invites_accept_legacy_and_separate_book_views(client, sections):
+    csrf = login(client)
+    response = call(client, csrf, 'POST', '/api/admin/invites', json={
+        'email': 'reader@example.com', 'access': {'sections': sections}, 'send': False,
+    })
+    assert response.status_code == 201, response.text
+    assert response.json()['access']['sections'] == sorted(sections)
+    labels = {'books': 'Books', 'books:ebook': 'Ebooks', 'books:manga': 'Manga & comics'}
+    assert response.json()['libraries'] == [labels[key] for key in sorted(sections)]
+
+
 def test_create_sends_email_with_link(client, factory, outbox):
     smtp_on(factory)
     csrf = login(client)

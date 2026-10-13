@@ -24,7 +24,7 @@ from app.services.users import UserService
 logger = logging.getLogger(__name__)
 INVITE_DAYS = 7
 SERVER_NAME = "Lumina"
-SECTION_NAMES = {"movies": "Movies", "shows": "TV shows", "anime": "Anime", "music": "Music", "vault": "Videos and downloads"}
+SECTION_NAMES = {"movies": "Movies", "shows": "TV shows", "anime": "Anime", "music": "Music", "books": "Books", "books:ebook": "Ebooks", "books:manga": "Manga & comics", "vault": "Videos & downloads"}
 
 
 class InvitePreset(MemberAccessIn):
@@ -49,7 +49,7 @@ def library_names(db: Session, sections: list[str] | None) -> list[str]:
     for section in sections or []:
         if section.startswith("root:"):
             root = db.get(StorageRoot, section[5:])
-            names.append(root.label if root else "A shared folder")
+            names.append(f"Other files from {root.label}" if root else "Other imported files")
         else:
             names.append(SECTION_NAMES.get(section, section.capitalize()))
     return names

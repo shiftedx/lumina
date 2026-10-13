@@ -23,6 +23,14 @@ afterEach(() => { vi.resetAllMocks(); });
 const person = (id: string, name: string, role: 'admin' | 'viewer', extra = {}): UserProfile => ({ id, username: name.toLowerCase(), display_name: name, role, is_active: true, ...extra } as UserProfile);
 const dana = person('owner', 'Dana', 'admin');
 const sections = [{ id: 'movies', label: 'Movies', count: 1204 }, { id: 'shows', label: 'TV shows', count: 310 }, { id: 'anime', label: 'Anime', count: 42 }];
+const modernSections = [
+  ...sections,
+  { id: 'music', label: 'Music', count: 18, description: 'Albums, artists and shared songs.' },
+  { id: 'books:ebook', label: 'Ebooks', count: 7, description: 'Shared books only. Private books stay private.' },
+  { id: 'books:manga', label: 'Manga & comics', count: 9, description: 'Shared books only. Private books stay private.' },
+  { id: 'vault', label: 'Videos & downloads', count: 3 },
+  { id: 'root:33333333-3333-4333-8333-333333333333', label: 'Other files from Home videos', count: 4, description: 'Imported files that are not part of a movie, TV or music library.' },
+];
 const kids = { ...withDefaults(PRESETS.kids.access), sections: ['movies', 'anime'] };
 const mia = person('mia', 'Mia', 'viewer', { access: kids, screen_time_today_seconds: 3900 });
 const accessState = { ...kids, screen_time_today_seconds: 3900, bonus_minutes_today: 0 };
@@ -126,6 +134,35 @@ describe('Invitations', () => {
     const ready = await screen.findByRole('dialog', { name: 'Invitation ready' });
     expect(ready.textContent).toContain('Sent to ana@example.com');
     expect((within(ready).getByLabelText('Invite link') as HTMLInputElement).value).toBe('https://lumina.example.com/#invite=t');
+  });
+
+  it('groups the new library leaves and sends their IDs without collapsing them', async () => {
+    const { dialog } = await openDialog({ '/api/admin/sections': modernSections });
+    expect(within(dialog).getByText('Watch')).not.toBeNull();
+    expect(within(dialog).getByText('Listen')).not.toBeNull();
+    expect(within(dialog).getByText('Read')).not.toBeNull();
+    expect(within(dialog).getByText('Other files')).not.toBeNull();
+    expect(within(dialog).getByText('Only shared items are included. Private items stay private.')).not.toBeNull();
+    api.post.mockResolvedValue({ id: 'i9', email: 'ana@example.com', status: 'pending', invitation_url: 'https://lumina.example.com/#invite=t', email_sent: true });
+    await userEvent.type(within(dialog).getByLabelText(/Email/), 'ana@example.com');
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Ebooks' }));
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Manga & comics' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Send email' }));
+    expect(api.post).toHaveBeenCalledWith('/api/admin/invites', expect.objectContaining({ access: inviteAccess('guest', ['books:ebook', 'books:manga'], false, false) }));
+  });
+
+  it('keeps two same-labelled source files distinguishable', async () => {
+    const sourceSections = [
+      { id: 'root:11111111-1111-4111-8111-111111111111', label: 'Music', count: 1, description: 'Source file A.' },
+      { id: 'root:22222222-2222-4222-8222-222222222222', label: 'Music', count: 2, description: 'Source file B.' },
+    ];
+    const { dialog } = await openDialog({ '/api/admin/sections': sourceSections });
+    const choices = within(dialog).getAllByRole('checkbox', { name: /Music/ });
+    expect(choices).toHaveLength(2);
+    expect(choices.map((choice) => choice.parentElement?.textContent)).toEqual([
+      expect.stringContaining('Source file A.'),
+      expect.stringContaining('Source file B.'),
+    ]);
   });
 
   it('when email is not set up, says so and shows the link to copy', async () => {
@@ -264,6 +301,25 @@ describe('Member page', () => {
     expect(api.put.mock.calls[0][1]).toMatchObject({ sections: null });
     await userEvent.click(all);
     expect(screen.getAllByRole('checkbox').every((box) => (box as HTMLInputElement).checked)).toBe(true);
+  });
+
+  it('expands a legacy Books grant into both Read leaves, then can narrow it to Ebooks', async () => {
+    const legacy = { ...accessState, sections: ['books'] };
+    routes({ '/api/admin/sections': modernSections, '/api/admin/members/mia/access': legacy });
+    api.listUsers.mockResolvedValue([dana, mia]);
+    inHost(<MemberPage memberId="mia" onBack={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'Mia' });
+    await userEvent.click(screen.getByRole('tab', { name: 'Libraries' }));
+    const ebooks = screen.getByRole('checkbox', { name: 'Ebooks' }) as HTMLInputElement;
+    const manga = screen.getByRole('checkbox', { name: 'Manga & comics' }) as HTMLInputElement;
+    expect(ebooks.checked).toBe(true);
+    expect(manga.checked).toBe(true);
+    await userEvent.click(manga);
+    expect(ebooks.checked).toBe(true);
+    expect(manga.checked).toBe(false);
+    api.put.mockResolvedValue({ ...legacy, sections: ['books:ebook'] });
+    await save();
+    expect(api.put).toHaveBeenCalledWith('/api/admin/members/mia/access', expect.objectContaining({ sections: ['books:ebook'] }));
   });
 
   it('a preset fills the form for review; Discard brings back the saved access', async () => {

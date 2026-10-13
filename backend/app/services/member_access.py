@@ -23,7 +23,7 @@ from app.db import session_scope
 from app.models import LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberAccess, ScreenTime, StorageRoot, User
 from app.persistence import queue_after_commit, write_transaction
 
-SECTIONS = ("movies", "shows", "anime", "music", "books", "vault")  # plus "root:<storage_root_id>" for untitled files of a root
+SECTIONS = ("movies", "shows", "anime", "music", "books", "books:ebook", "books:manga", "vault")  # plus "root:<storage_root_id>" for untitled files of a root
 VIDEO_SECTIONS = ("movies", "shows", "anime")  # media_titles.category values
 MUSIC_TYPES = ("album", "artist")
 ROOT_PREFIX = "root:"
@@ -484,12 +484,18 @@ def section_counts(db: Session) -> list[dict[str, Any]]:
     counts = dict(db.execute(
         select(MediaTitle.category, func.count()).where(MediaTitle.type.in_(("movie", "series"))).group_by(MediaTitle.category)
     ).all())
-    rows = [{"id": s, "label": s.title(), "count": counts.get(s, 0)} for s in VIDEO_SECTIONS]
-    rows.append({"id": "music", "label": "Music", "count": db.scalar(select(func.count()).where(MediaTitle.type == "album")) or 0})
+    rows = [{"id": s, "label": "TV shows" if s == "shows" else s.title(), "count": counts.get(s, 0)} for s in VIDEO_SECTIONS]
+    rows.append({"id": "music", "label": "Music", "count": db.scalar(select(func.count()).where(MediaTitle.type == "album")) or 0, "description": "Albums, artists and shared songs."})
     from app.book_models import BookItem
-    rows.append({"id": "books", "label": "Books", "count": db.scalar(select(func.count()).select_from(BookItem).where(BookItem.available.is_(True))) or 0})
+    book_counts = dict(db.execute(select(BookItem.kind, func.count()).where(
+        BookItem.available.is_(True), BookItem.visibility == "shared", BookItem.deleted_at.is_(None),
+        BookItem.bundle_parent_id.is_(None),
+    ).group_by(BookItem.kind)).all())
+    for kind, label in (("ebook", "Ebooks"), ("manga", "Manga & comics")):
+        rows.append({"id": f"books:{kind}", "label": label, "count": book_counts.get(kind, 0),
+                     "description": "Shared books only. Private books stay private."})
     untitled = [LibraryItem.title_id.is_(None), LibraryItem.status != "missing"]
-    rows.append({"id": "vault", "label": "Vault", "count": db.scalar(
+    rows.append({"id": "vault", "label": "Videos & downloads", "count": db.scalar(
         select(func.count()).select_from(LibraryItem).where(*untitled, func.coalesce(LibraryItem.extractor, "") != EXTERNAL_ORIGIN)
     ) or 0})
     for root_id, label, count in db.execute(
@@ -501,6 +507,7 @@ def section_counts(db: Session) -> list[dict[str, Any]]:
         .where(*untitled, LibraryItem.extractor == EXTERNAL_ORIGIN)
         .group_by(MediaArtifact.root_id, StorageRoot.label)
     ).all():
-        rows.append({"id": f"{ROOT_PREFIX}{root_id}", "label": label, "count": count})
+        rows.append({"id": f"{ROOT_PREFIX}{root_id}", "label": f"Other files from {label}", "count": count,
+                     "description": "Imported files that are not part of a movie, TV or music library."})
     return rows
 

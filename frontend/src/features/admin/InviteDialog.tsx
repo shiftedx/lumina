@@ -5,6 +5,7 @@ import { errorMessage } from '../../utils';
 import { settingDomId } from '../settings/SettingRow';
 import { SettingsHostContext } from '../settings/settingsHost';
 import { CopyableLink } from './AdminMembers';
+import { LibraryChoices } from './LibraryChoices';
 import { createInvite, getPublicAddress, type InviteAccess, type IssuedInvite, listSections, NO_LIMITS, PRESETS, type PresetId } from './memberAccess';
 import { useAdminResource } from './useAdminResource';
 
@@ -46,7 +47,7 @@ function InviteForm({ onClose, onIssued }: { onClose: () => void; onIssued: () =
     setProblem(null);
     setBusy(send ? 'send' : 'link');
     try {
-      const sectionIds = all ? null : (sections ?? []).map((entry) => entry.id).filter((id) => chosen.has(id));
+      const sectionIds = all ? null : [...chosen];
       const invite = await createInvite({ email: email.trim(), ...(name.trim() ? { display_name: name.trim() } : {}), access: inviteAccess(limits, sectionIds, canDownload, canRequest), send });
       setIssued({ invite, send });
       onIssued();
@@ -103,11 +104,8 @@ function InviteForm({ onClose, onIssued }: { onClose: () => void; onIssued: () =
         </Field>
         <fieldset className="g-fieldset">
           <legend>Libraries</legend>
-          <Checkbox checked={all} hint="Includes libraries added later." label="All libraries" onChange={(event) => setAll(event.currentTarget.checked)} />
-          {all ? null : <div className="g-setting-options">{(sections ?? []).map((section) => (
-            <Checkbox checked={chosen.has(section.id)} hint={`${section.count.toLocaleString()} titles`} key={section.id} label={section.label}
-              onChange={(event) => { const on = event.currentTarget.checked; setChosen((set) => { const next = new Set(set); if (on) next.add(section.id); else next.delete(section.id); return next; }); }} />
-          ))}</div>}
+          <Checkbox checked={all} hint="Includes libraries added later. Only shared items are included; private items stay private." label="All libraries" onChange={(event) => setAll(event.currentTarget.checked)} />
+          {all ? null : <LibraryChoices onChange={(next) => setChosen(new Set(next))} sections={sections ?? []} selected={[...chosen]} />}
           {problem?.field === 'libraries' ? <p className="auth-error" role="alert">{problem.text}</p> : null}
         </fieldset>
         <Field hint="Fine-tune ratings, hours and streaming on their member page later." label="Limits">

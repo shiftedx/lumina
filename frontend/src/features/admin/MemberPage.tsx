@@ -11,9 +11,10 @@ import type { SettingEntry } from '../settings/settingsTypes';
 import { spanLabel } from './activityModel';
 import { CopyableLink, nameOf, roleLabel } from './AdminMembers';
 import {
-  addBonusMinutes, addMemberFollow, applyPreset, copyMondayToWeekdays, getMemberAccess, getMemberActivity, limitsSummary, librariesSummary, listMemberFollows, listSections, type MemberAccess, type MemberAccessState, type MemberFollow,
+  addBonusMinutes, addMemberFollow, applyPreset, copyMondayToWeekdays, expandLegacyBookSections, getMemberAccess, getMemberActivity, limitsSummary, librariesSummary, listMemberFollows, listSections, type MemberAccess, type MemberAccessState, type MemberFollow,
   type MemberActivity, type MemberRow, minutesLabel, MOVIE_RATINGS, PRESETS, type PresetId, putMemberAccess, removeMemberFollow, scheduleError, type Section, type StreamingKind, TV_RATINGS, WEEKDAYS, withDefaults,
 } from './memberAccess';
+import { LibraryChoices } from './LibraryChoices';
 
 type Role = 'admin' | 'viewer';
 type Ctx = {
@@ -176,22 +177,13 @@ function SignInLock() {
 function AllLibraries() {
   const { access, set, sections } = useMember();
   // Turning "all" off starts from every library checked, so nothing disappears until one is unchecked.
-  return <SettingSwitch checked={access.sections === null} onChange={(on) => set({ sections: on ? null : (sections ?? []).map((section) => section.id) })} />;
+  return <SettingSwitch checked={access.sections === null} onChange={(on) => set({ sections: on ? null : expandLegacyBookSections((sections ?? []).map((section) => section.id)) })} />;
 }
 
 function LibraryChecklist() {
   const { access, set, sections } = useMember();
-  if (access.sections === null) return <p className="g-setting-note">Every library is shared, including ones added later.</p>;
-  const chosen = new Set(access.sections);
-  const toggle = (id: string, on: boolean) => set({ sections: (sections ?? []).map((section) => section.id).filter((entry) => (entry === id ? on : chosen.has(entry))) });
-  return (
-    <div className="g-setting-options">
-      {(sections ?? []).map((section) => (
-        <Checkbox checked={chosen.has(section.id)} hint={`${section.count.toLocaleString()} titles`} key={section.id} label={section.label} onChange={(event) => toggle(section.id, event.currentTarget.checked)} />
-      ))}
-      {!access.sections.length ? <p className="g-setting-note" role="status">No library is shared: this member sees nothing in the Library.</p> : null}
-    </div>
-  );
+  if (access.sections === null) return <p className="g-setting-note">Every library is shared, including ones added later. Only shared items are included; private items stay private.</p>;
+  return <LibraryChoices onChange={(next) => set({ sections: next })} sections={sections ?? []} selected={access.sections} />;
 }
 
 // ---- Ratings ----
@@ -403,7 +395,7 @@ export const MEMBER_TABS: ReadonlyArray<{ id: string; label: string; ownerToo?: 
     { id: 'members.status', label: 'Account', info: 'Deactivating signs this member out everywhere and stops their downloads, but keeps their library, history and notes. Reactivating lets them sign in again, and Unlock sign-in lifts the pause of up to 15 minutes after repeated wrong passwords on the public address. Both take effect at once.', Control: AccountStatus },
   ] },
   { id: 'libraries', label: 'Libraries', entries: [
-    { id: 'members.all-libraries', label: 'All libraries', layout: 'switch', description: 'Includes libraries added later.', info: 'Shares every library on this server with this member, including ones you add later. Turn it off to choose libraries one by one. Titles in other libraries never appear for them anywhere, including in apps like Infuse.', Control: AllLibraries },
+    { id: 'members.all-libraries', label: 'All libraries', layout: 'switch', description: 'Includes future shared libraries; private items stay private.', info: 'Shares every library on this server with this member, including ones you add later. Turn it off to choose libraries one by one; only items marked shared are included, and private items stay private. Titles in other libraries never appear for them anywhere, including in apps like Infuse.', Control: AllLibraries },
     { id: 'members.libraries', label: 'Shared libraries', layout: 'block', info: 'The libraries this member can browse, search and play. Unchecked libraries are hidden everywhere for them, including Home, search and connected apps. The counts are titles in each library.', Control: LibraryChecklist },
   ] },
   { id: 'ratings', label: 'Ratings', entries: [

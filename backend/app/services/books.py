@@ -130,10 +130,11 @@ class BookService:
 
     def visible_predicate(self, user: User):
         shared = BookItem.visibility == "shared"
-        # Restricted members must be explicitly granted Books. Unrestricted members retain household visibility.
+        # Legacy Books grants include both views; new grants can allow either view independently.
         access = member_access.for_user(self.db, user)
         if access is not None and access.sections is not None and "books" not in access.sections:
-            shared = False
+            kinds = [kind for kind in ("ebook", "manga") if f"books:{kind}" in access.sections]
+            shared = and_(shared, BookItem.kind.in_(kinds))
         visible = or_(shared, BookItem.owner_user_id == user.id)
         if user.role == "admin":
             visible = or_(visible, BookItem.owner_user_id.is_(None))

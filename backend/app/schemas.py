@@ -1622,7 +1622,7 @@ MovieRating = Literal["G", "PG", "PG-13", "R", "NC-17"]
 TvRating = Literal["TV-Y", "TV-Y7", "TV-G", "TV-PG", "TV-14", "TV-MA"]
 Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 CLOCK = r"^(?:[01]\d|2[0-3]):[0-5]\d$|^24:00$"
-SECTION_ID = re.compile(r"^(?:movies|shows|anime|music|vault|root:[0-9a-f-]{1,36})$")
+SECTION_ID = re.compile(r"^(?:movies|shows|anime|music|books(?::ebook|:manga)?|vault|root:[0-9a-f-]{1,36})$")
 
 
 class StreamingAccess(BaseModel):
@@ -1716,3 +1716,4 @@ class SectionInfo(BaseModel):
     id: str
     label: str
     count: int
+    description: str | None = None

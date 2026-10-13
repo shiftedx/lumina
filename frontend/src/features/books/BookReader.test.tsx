@@ -144,9 +144,12 @@ describe('BookReader', () => {
     await waitFor(() => expect(api.updateBookState).toHaveBeenCalledWith('ebook-1', { unit_index: 0, offset: 1 }, false));
   });
 
-  it('shows the approved book cover when the first EPUB chapter has no inert content', async () => {
+  it.each([
+    { case: 'empty', nodes: [] },
+    { case: 'whitespace wrappers', nodes: [{ tag: 'span', text: '\n' }, { tag: 'span', children: [{ tag: 'span', text: ' ' }] }] },
+  ])('shows the approved book cover for a $case first EPUB chapter', async ({ nodes }) => {
     api.getBookReader.mockResolvedValue(ebookManifest({ book: book({ cover_url: '/api/books/ebook-1/cover' }) }));
-    api.getBookChapter.mockResolvedValue({ nodes: [] });
+    api.getBookChapter.mockResolvedValue({ nodes });
     render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} userId="books-member" />);
     const cover = await screen.findByRole('img', { name: 'Cover of Northbound' });
     expect(cover.getAttribute('src')).toBe('/api/books/ebook-1/cover');

@@ -39,6 +39,14 @@ export function BookProse({ nodes, bookId, onLink, depth = 0 }: { nodes: BookNod
   })}</>;
 }
 
+function hasChapterContent(nodes: BookNode[], depth = 0): boolean {
+  return depth <= 40 && Array.isArray(nodes) && nodes.some((node) => node && typeof node === 'object' && (
+    (typeof node.text === 'string' && node.text.trim().length > 0)
+    || (node.tag === 'img' && typeof node.member === 'string' && node.member.length > 0)
+    || (node.children && hasChapterContent(node.children, depth + 1))
+  ));
+}
+
 export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange }: { bookId: string; userId: string; onBack: () => void; onBookChange: (book: Book) => void; onFileChange?: (id: string) => void }) {
   const [manifest, setManifest] = useState<BookReaderManifest | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -224,7 +232,7 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
         {book.format === 'epub' ? <ol>{manifest.chapters.map((chapter, index) => <li key={index}><button aria-current={unit === index ? 'location' : undefined} onClick={() => { void go(index); }} type="button"><span>{index + 1}</span>{chapter.label}</button></li>)}</ol> : <div className="books-reader-page-jump"><label htmlFor="book-page-input">Go to page</label><input id="book-page-input" max={count} min={1} onChange={(event) => setPageDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const value = Number(pageDraft); if (Number.isInteger(value)) void go(value - 1); } }} type="number" value={pageDraft} /><Button disabled={!Number.isInteger(Number(pageDraft)) || Number(pageDraft) < 1 || Number(pageDraft) > count || busy} onClick={() => { void go(Number(pageDraft) - 1); }} variant="quiet">Go to page</Button><p>{count} pages · {manifest.reading_direction === 'rtl' ? 'Right to left' : 'Left to right'}</p></div>}
       </aside> : null}
       <div aria-label={book.format === 'epub' ? 'Book chapter' : book.kind === 'manga' ? 'Manga pages' : 'Book pages'} className={`books-reader-page is-${appearance.fit}`} onScroll={recordScroll} ref={reading} tabIndex={0}>
-        {book.format === 'epub' ? chapterError ? <ErrorState body={chapterError} onRetry={() => setChapterRetry((value) => value + 1)} title="This chapter could not be loaded" /> : !nodes ? <Skeleton count={6} label="Loading chapter…" shape="row" /> : <article className={`books-prose${appearance.layout === 'spread' ? ' is-spread' : ''}`} id="book-prose"><p className="books-chapter-label">Chapter {unit + 1} of {count}</p>{unit === 0 && nodes.length === 0 && bookCoverUrl(book.cover_url) ? <img alt={`Cover of ${book.title}`} className="books-prose-cover" src={bookCoverUrl(book.cover_url)!} /> : null}<BookProse bookId={bookId} nodes={nodes} onLink={(chapter, anchor) => { void go(chapter ?? unit, anchor); }} /></article>
+        {book.format === 'epub' ? chapterError ? <ErrorState body={chapterError} onRetry={() => setChapterRetry((value) => value + 1)} title="This chapter could not be loaded" /> : !nodes ? <Skeleton count={6} label="Loading chapter…" shape="row" /> : <article className={`books-prose${appearance.layout === 'spread' ? ' is-spread' : ''}`} id="book-prose"><p className="books-chapter-label">Chapter {unit + 1} of {count}</p>{unit === 0 && !hasChapterContent(nodes) && bookCoverUrl(book.cover_url) ? <img alt={`Cover of ${book.title}`} className="books-prose-cover" src={bookCoverUrl(book.cover_url)!} /> : null}<BookProse bookId={bookId} nodes={nodes} onLink={(chapter, anchor) => { void go(chapter ?? unit, anchor); }} /></article>
           : imageError ? <ErrorState body="The page image could not be loaded." onRetry={() => { setImageError(false); setChapterRetry((value) => value + 1); }} title="Page unavailable" /> : <div className={`books-manga-pages${displayedPages.length === 2 ? ' is-spread' : ''}`} dir={manifest.reading_direction}>{displayedPages.map((page) => <img alt={`Page ${page + 1} of ${count}`} decoding="async" key={`${page}:${chapterRetry}`} onError={() => setImageError(true)} src={bookPageUrl(bookId, page)} />)}</div>}
       </div>
       {appearanceOpen ? <aside aria-label="Reading appearance" className="books-reader-aside books-reader-appearance" id="book-appearance">

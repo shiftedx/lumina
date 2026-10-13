@@ -48,6 +48,8 @@ class ChannelCandidate:
     artwork_url: str | None = None
     category_keys: tuple[str, ...] = ()
     following: bool = False
+    preview_thumbnail: str | None = None
+    preview_title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -234,6 +236,7 @@ class ChannelDiscoveryService:
             # A category candidate is derived from video records, which carry no
             # channel avatar; the accessible initials fallback stands in.
             artwork_url=None, category_keys=(category_key,),
+            preview_thumbnail=item.thumbnail, preview_title=item.title if item.thumbnail else None,
         )
 
     @staticmethod
@@ -251,6 +254,8 @@ class ChannelDiscoveryService:
             channel_key=identity, source_url=identity, display_name=display_name, source=source,
             source_label=_source_label(source),
             artwork_url=_first_str(raw, "avatar_url", "channel_artwork_url", "artwork_url", "thumbnail"),
+            preview_thumbnail=_first_str(raw, "preview_thumbnail"),
+            preview_title=_first_str(raw, "preview_title") if _first_str(raw, "preview_thumbnail") else None,
         )
 
     @staticmethod
@@ -272,6 +277,8 @@ def _dedupe(candidates: Iterable[ChannelCandidate]) -> list[ChannelCandidate]:
             artwork_url=existing.artwork_url or candidate.artwork_url,
             category_keys=tuple(dict.fromkeys(existing.category_keys + candidate.category_keys)),
             following=existing.following or candidate.following,
+            preview_thumbnail=existing.preview_thumbnail or candidate.preview_thumbnail,
+            preview_title=existing.preview_title if existing.preview_thumbnail else candidate.preview_title,
         )
     return list(merged.values())
 

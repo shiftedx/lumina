@@ -630,6 +630,8 @@ export interface StorageRuleSet { revision: number; default_root_id: string | nu
 export interface StorageDecision { rule_id: string | null; rule_revision: number; root_id: string; root_label: string; relative_path: string; reason: string; can_admit: boolean }
 
 const STORAGE = '/api/admin/storage';
+export const getAdminMediaSetup = (): Promise<{ mount_parents: string[] }> => requestJson('/api/admin/onboarding/media');
+export const completeAdminMediaSetup = (): Promise<UserProfile> => post('/api/admin/onboarding/media/complete');
 export const listStorageRoots = (): Promise<StorageRootRecord[]> => requestJson(`${STORAGE}/roots`);
 export const createStorageRoot = (payload: { label: string; container_path: string; mode: 'managed' | 'external'; minimum_free_bytes: number }): Promise<StorageRootRecord> => post(`${STORAGE}/roots`, payload);
 export const updateStorageRoot = (id: string, payload: { enabled?: boolean; label?: string; minimum_free_bytes?: number }): Promise<StorageRootRecord> => patch(`${STORAGE}/roots/${enc(id)}`, payload);

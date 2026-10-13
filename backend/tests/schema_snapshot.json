@@ -949,7 +949,8 @@
    "totp_recovery",
    "totp_secret",
    "updated_at",
-   "username"
+   "username",
+   "vault_setup_pending"
   ],
   "watch_queue_entries": [
    "artwork_url",
@@ -970,5 +971,5 @@
    "user_id"
   ]
  },
- "version": 19
+ "version": 20
 }

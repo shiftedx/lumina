@@ -117,6 +117,7 @@ def test_concurrent_bootstrap_one_owner() -> None:
     assert conflict_code == 409
     winner_username = created_body["username"]
     assert created_body["role"] == "admin"
+    assert created_body["vault_setup_pending"] is True
     assert conflict_body["detail"] == CONSUMED_SETUP_DETAIL
 
     # Committed state (a fresh session, not the request sessions): exactly one
@@ -132,6 +133,7 @@ def test_concurrent_bootstrap_one_owner() -> None:
     assert owners[0].username == winner_username
     assert owners[0].role == "admin"
     assert owners[0].is_active is True
+    assert owners[0].vault_setup_pending is True
     assert len(settings_rows) == 1
     assert settings_rows[0].id == 1
     assert orphan_settings == []

@@ -181,13 +181,13 @@ describe('first-run onboarding surface presentation', () => {
     const html = renderToStaticMarkup(
       <OnboardingSurface categories={categories} onContinue={noop} onSkip={noop} phase="setup" />,
     );
-    expect(html).toContain('Set up your Home');
+    expect(html).toContain('What draws you in?');
     expect(html).toContain('type="checkbox"');
     expect(html).toContain('Music');
     expect(html).toContain('Continue');
     expect(html).toContain('Skip for now');
     // Interest selection is not endorsement: no channel follows or acquisitions.
-    expect(html).toContain('will not follow creators');
+    expect(html).toContain('Just for your recommendations.');
   });
 
   it('announces preparation progress politely instead of choosing interests', () => {

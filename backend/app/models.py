@@ -751,6 +751,8 @@ class User(Base):
     onboarding_status: Mapped[str] = mapped_column(
         String(24), default="pending", server_default=text("'pending'"), nullable=False
     )
+    # Only the first bootstrap owner enters server media setup; upgrades and other members keep the false default.
+    vault_setup_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
     # 2.9.0 two-step verification (services/two_factor.py). The TOTP secret is AES-GCM encrypted under a key derived from
     # the app secret; it is a pending enrollment until totp_enabled_at is set. Recovery codes are stored as SHA-256 digests.
     totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)

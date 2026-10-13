@@ -413,6 +413,8 @@ export interface ChannelCandidate {
   source: string;
   source_label: string;
   artwork_url: string | null;
+  preview_artwork_url?: string | null;
+  preview_title?: string | null;
   category_keys: string[];
   following: boolean;
 }
@@ -1015,6 +1017,8 @@ export interface UserProfile {
   role: UserRole;
   is_active: boolean;
   onboarding_status?: OnboardingStatus;
+  /** Only the first vault owner connects media after account creation. */
+  vault_setup_pending?: boolean;
   has_local_password?: boolean;
   two_factor_enabled?: boolean;
   /** Vault owner, the household requires two-step for owners, and they have not enrolled: admin calls answer 403 two_factor_setup_required. */

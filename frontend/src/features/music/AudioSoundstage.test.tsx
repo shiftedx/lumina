@@ -34,6 +34,15 @@ beforeEach(() => {
 });
 
 describe('AudioSoundstage', () => {
+  it('uses a real release cover when the selected artist has no portrait', async () => {
+    const open = vi.fn();
+    mocks.list.mockResolvedValue(titlePage([{ ...artistA, poster: null }]));
+    mocks.title.mockResolvedValue({ ...detailA, poster: null });
+    render(<AudioSoundstage onOpenArtist={open} owner="u1" />);
+    const release = await screen.findByRole('button', { name: 'Featured release: Amber Rooms' });
+    await userEvent.click(release);
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ id: 'release-a', type: 'album' }));
+  });
   it('loads one bounded recent-artist page, then paints real details and releases', async () => {
     render(<AudioSoundstage onOpenArtist={vi.fn()} owner="u1" />);
     expect(screen.getByText('Preparing the soundstage…')).toBeTruthy();

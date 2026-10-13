@@ -25,6 +25,7 @@ const failureMessage = (error: unknown, fallback: string) => error instanceof Er
 export function AudioSoundstage({ owner, onOpenArtist }: { owner: string; onOpenArtist: (artist: TitleSummary) => void }) {
   const [artists, setArtists] = useState<TitleSummary[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [failedPortraitId, setFailedPortraitId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TitleDetail | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [detailProblem, setDetailProblem] = useState<string | null>(null);
@@ -74,10 +75,15 @@ export function AudioSoundstage({ owner, onOpenArtist }: { owner: string; onOpen
   if (artists === null) return <section aria-label="Featured artist" aria-live="polite" className="gallery audio-soundstage is-loading"><div className="audio-soundstage-loading" role="status">Preparing the soundstage…</div></section>;
   if (!artists.length) return <section aria-labelledby="audio-soundstage-empty" className="gallery audio-soundstage is-empty"><div><p className="g-kicker">Featured artist</p><h2 id="audio-soundstage-empty">Your soundstage is waiting</h2><p>{problem ?? 'Artists will appear here when albums join your library.'}</p>{problem ? <TextButton icon={<RefreshCw />} onClick={() => setReload((value) => value + 1)}>Try again</TextButton> : null}</div></section>;
   if (!artist) return null;
+  const featuredRelease = albums.find((album) => album.poster) ?? albums[0];
+  const useReleaseCover = (!artist.poster || failedPortraitId === artist.id) && featuredRelease;
 
   return <section aria-labelledby="audio-soundstage-title" className="gallery audio-soundstage">
-    <div className="audio-soundstage-portrait">
-      <GalleryArt alt={`Portrait of ${artist.name}`} art={artist.poster} card={{ name: artist.name }} className="audio-soundstage-art" colour={cardColour(artist, 'square')} kind="square" priority={1} sizes="(max-width: 599px) 100vw, (max-width: 1099px) 42vw, 520px" />
+    <div className={`audio-soundstage-portrait${useReleaseCover ? ' is-release' : ''}`}>
+      {useReleaseCover ? <button aria-label={`Featured release: ${featuredRelease.name}`} className="audio-soundstage-sleeve" onClick={() => onOpenArtist(featuredRelease)} type="button">
+        <GalleryArt alt={`Cover of ${featuredRelease.name}`} art={featuredRelease.poster} card={{ name: featuredRelease.name, year: featuredRelease.year }} colour={cardColour(featuredRelease, 'square')} kind="square" priority={1} sizes="(max-width: 599px) 100vw, (max-width: 1099px) 42vw, 520px" />
+        <span><small>Featured release</small><strong>{featuredRelease.name}</strong></span>
+      </button> : <GalleryArt alt={`Portrait of ${artist.name}`} art={artist.poster} card={{ name: artist.name }} className="audio-soundstage-art" colour={cardColour(artist, 'square')} kind="square" onFail={() => setFailedPortraitId(artist.id)} priority={1} sizes="(max-width: 599px) 100vw, (max-width: 1099px) 42vw, 520px" />}
     </div>
     <div className="audio-soundstage-story">
       <p className="g-kicker">On the soundstage</p>

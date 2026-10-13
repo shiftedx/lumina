@@ -287,3 +287,54 @@ def test_albums_are_dated_by_their_newest_track_not_by_scan_order(admin, media) 
     assert scan(admin)["state"] == "succeeded"
     titles = music_titles()
     assert (titles["album:Alpha"].added_at, titles["album:Zed"].added_at, titles["artist:Artist"].added_at) == (_at(2020), _at(2025, 6), _at(2025, 6))
+
+
+def test_flat_artist_folder_keeps_embedded_covers_with_their_album(tmp_path: Path) -> None:
+    from app.services.local_metadata import _music
+
+    root = tmp_path / 'music'
+    (root / 'Artist').mkdir(parents=True)
+    for name in ['a.flac', 'b.flac', 'cover.jpg']:
+        (root / 'Artist' / name).write_bytes(b'fixture')
+    tags = {
+        ('Artist', 'a.flac'): AudioTags(album='First', album_artist='Artist', has_picture=True),
+        ('Artist', 'b.flac'): AudioTags(album='Second', album_artist='Artist', has_picture=True),
+    }
+    cache = {}
+    for name in ['b.flac', 'a.flac', 'b.flac']:
+        result = _music(root, ('Artist',), name, tags[('Artist', name)], cache, tags.get)
+        assert result[0][1]['fields']['nfo']['images.Primary']['embedded'] == f'Artist/{name}'
+
+
+def test_flat_folder_does_not_borrow_another_album_picture(tmp_path: Path) -> None:
+    from app.services.local_metadata import _music
+
+    root = tmp_path / 'music'
+    (root / 'Artist').mkdir(parents=True)
+    for name in ['a.flac', 'b.flac']:
+        (root / 'Artist' / name).write_bytes(b'fixture')
+    tags = {
+        ('Artist', 'a.flac'): AudioTags(album='First', has_picture=True),
+        ('Artist', 'b.flac'): AudioTags(album='Second'),
+    }
+    result = _music(root, ('Artist',), 'b', tags[('Artist', 'b.flac')], {}, tags.get)
+    assert 'images.Primary' not in result[0][1]['fields']['nfo']
+
+
+def test_same_named_releases_in_one_folder_use_their_own_cover(tmp_path: Path) -> None:
+    from app.services.local_metadata import _music
+
+    root = tmp_path / 'music'
+    (root / 'Artist').mkdir(parents=True)
+    for name in ['a.flac', 'b.flac']:
+        (root / 'Artist' / name).write_bytes(b'fixture')
+    tags = {
+        ('Artist', name): AudioTags(album='Shared title', album_artist='Artist', has_picture=True,
+                                   musicbrainz_album_id=release)
+        for name, release in [('a.flac', '12345678-1234-4678-9234-123456789012'),
+                              ('b.flac', '22345678-1234-4678-9234-123456789012')]
+    }
+    cache = {}
+    for name in ['a.flac', 'b.flac']:
+        result = _music(root, ('Artist',), name, tags[('Artist', name)], cache, tags.get)
+        assert result[0][1]['fields']['nfo']['images.Primary']['embedded'] == f'Artist/{name}'

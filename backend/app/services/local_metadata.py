@@ -478,19 +478,32 @@ def _audio_files(root: Path, dirs: tuple[str, ...], cache: dict[str, Any]) -> li
     )
 
 
-def _album_cover(root: Path, album_dirs: tuple[str, ...], cache: dict[str, Any], audio_tags: AudioTagReader | None) -> dict[str, dict[str, str]]:
+def _album_cover(root: Path, album_dirs: tuple[str, ...], cache: dict[str, Any], audio_tags: AudioTagReader | None,
+                 album: str, album_artist: str, album_tags: AudioTags) -> dict[str, dict[str, str]]:
     """An album's Primary: a cover/folder/front/album image in the album folder, then in its disc folders in
     name order; else the first track, in the same order, with an embedded picture. Every track of an album computes the
-    same cover, so it is memoized per album folder for the batch."""
-    key = "/".join(album_dirs) + "/<album cover>"
+    same cover, so it is memoized per release within the album folder for the batch.
+    A shared folder's generic sidecar cannot identify which album it belongs to."""
+    identity = album_tags.musicbrainz_album_id or f"{music_key(album_artist)}/{music_key(album)}"
+    key = "/".join(album_dirs) + f"/<album cover:{identity}>"
     if key not in cache:
         discs = sorted(name for name, is_dir, _tag in _listing(root, album_dirs, cache).values() if is_dir and DISC_DIR_PATTERN.match(name))
         folders = [album_dirs, *((*album_dirs, disc) for disc in discs)]
-        cover = next((art for folder in folders if (art := _art(root, folder, cache, {"Primary": ALBUM_ART}))), {})
+        tracks = [((*folder, name), audio_tags((*folder, name))) for folder in folders
+                  for name in _audio_files(root, folder, cache)] if audio_tags else []
+
+        def belongs(tags: AudioTags) -> bool:
+            if album_tags.musicbrainz_album_id and tags.musicbrainz_album_id:
+                return tags.musicbrainz_album_id == album_tags.musicbrainz_album_id
+            if album_tags.album_artist and tags.album_artist and music_key(album_tags.album_artist) != music_key(tags.album_artist):
+                return False
+            return music_key(tags.album or "") == music_key(album_tags.album or "")
+
+        shared = any(tags is not None and not belongs(tags) for _track, tags in tracks)
+        cover = {} if shared else next((art for folder in folders if (art := _art(root, folder, cache, {"Primary": ALBUM_ART}))), {})
         if not cover and audio_tags is not None:
             track = next((
-                (*folder, name) for folder in folders for name in _audio_files(root, folder, cache)
-                if (tags := audio_tags((*folder, name))) is not None and tags.has_picture
+                track for track, tags in tracks if tags is not None and tags.has_picture and belongs(tags)
             ), None)
             if track is not None:
                 try:
@@ -543,7 +556,7 @@ def _music(root: Path, dirs: tuple[str, ...], stem: str, tags: AudioTags, cache:
     album_spec = {"type": "album", "key": f"album:musicbrainz:{tags.musicbrainz_album_id}" if tags.musicbrainz_album_id else album_name_key,
                   "legacy_key": album_name_key, "source_identity": bool(tags.musicbrainz_album_id), "fields": {
         "path": _present(name=album, year=year),
-        "nfo": {**({"genres": genres} if genres else {}), **_album_cover(root, album_dirs, cache, audio_tags)},
+        "nfo": {**({"genres": genres} if genres else {}), **_album_cover(root, album_dirs, cache, audio_tags, album, album_artist, tags)},
     }}
     metadata = {
         "track": tags.title or (_clean(track.group("title")) if track else stem),

@@ -80,7 +80,7 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
 
   await navigateApp(page, 'Books');
   await expect(page).toHaveURL(/\/books$/);
-  await expect(page.getByText('Your reading collection will appear here when book support is available on this server.')).toBeVisible();
+  await expect(page.getByText('A home for every story')).toBeVisible();
   await expect(player).toBeVisible();
 
   await navigateApp(page, 'Audio');

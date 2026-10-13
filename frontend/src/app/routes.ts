@@ -1,3 +1,4 @@
+import { booksRouteFocusKey, booksRoutePath, parseBooksRoute, type BooksRoute } from '../features/books/routes';
 import { resolveSettingsPage, type SettingsSpace } from '../features/settings/navigation';
 import { LIBRARY_LENSES, type LibraryLens, titleLens } from '../features/gallery/libraryLens';
 import type { LibraryPlace } from '../features/gallery/LibraryTabs';
@@ -44,7 +45,8 @@ const ownKey = (record: object, key: string) => Object.prototype.hasOwnProperty.
 
 /** One canonical, bookmarkable app location. `watch` carries exactly one media reference. */
 export type AppRoute =
-  | { surface: Exclude<Surface, 'watch' | 'streaming' | 'settings' | 'subscriptions' | 'requests'> }
+  | { surface: Exclude<Surface, 'watch' | 'streaming' | 'settings' | 'subscriptions' | 'requests' | 'books'> }
+  | BooksRoute
   | RequestsRoute
   | { surface: 'streaming'; view: StreamingView; provider?: StreamingProvider; query?: string; rail?: string }
   | { surface: 'subscriptions'; youtubeChannelId: string; tab?: ChannelPageTab }
@@ -140,7 +142,8 @@ export function parseRoute(pathname: string, search: string): AppRoute {
   const mediaSurface = requested === '/video' || requested.startsWith('/video/') ? 'video' : 'library';
   const path = requested.replace(/^\/video\/title\//, '/title/').replace(/^\/video(?=\/|$)/, '/library');
   const params = new URLSearchParams(search);
-  if (requested === '/books') return { surface: 'books' };
+  const books = parseBooksRoute(requested, params);
+  if (books) return books;
   if (['/audio', '/music', '/library/music', '/audio/music', '/audio/albums', '/audio/artists', '/audio/saved'].includes(requested)) {
     const query = new URLSearchParams(search);
     if (requested === '/audio/artists') query.set('view', 'artists');
@@ -264,6 +267,7 @@ export function routePath(route: AppRoute): string {
     const path = routePath({ ...route, surface: 'library' } as AppRoute);
     return path.replace(/^\/title\//, '/video/title/').replace(/^\/library(?=\/|$)/, '/video');
   }
+  if (route.surface === 'books') return booksRoutePath(route);
   if (route.surface === 'home') return '/';
   if (route.surface === 'requests') {
     if (route.view === 'search') return `/requests/search?q=${encodeURIComponent(route.query)}`;
@@ -302,6 +306,7 @@ export function routePath(route: AppRoute): string {
 /** Identifies the page a route shows. A new key means a new page: the shell moves focus to its heading. Tabs, lenses, walls, rails, queries and Settings sections are in-page state and keep the key. */
 export function routeFocusKey(route: AppRoute | null): string {
   if (!route) return '';
+  if (route.surface === 'books') return booksRouteFocusKey(route);
   if (route.surface === 'subscriptions') {
     if ('youtubeChannelId' in route) return `subscriptions:youtube:${route.youtubeChannelId}`;
     if ('channelUrl' in route) return `subscriptions:url:${route.channelUrl}`;

@@ -198,6 +198,57 @@
    "summary_json",
    "user_id"
   ],
+  "book_items": [
+   "author",
+   "available",
+   "created_at",
+   "description",
+   "format",
+   "genres",
+   "id",
+   "kind",
+   "language",
+   "manifest",
+   "owner_user_id",
+   "reading_direction",
+   "series_id",
+   "series_name",
+   "storage_key",
+   "title",
+   "updated_at",
+   "visibility",
+   "volume_number"
+  ],
+  "book_shelf_memberships": [
+   "book_id",
+   "created_at",
+   "id",
+   "position",
+   "shelf_id"
+  ],
+  "book_shelves": [
+   "created_at",
+   "description",
+   "id",
+   "name",
+   "name_key",
+   "owner_user_id",
+   "updated_at",
+   "visibility"
+  ],
+  "book_states": [
+   "book_id",
+   "completed",
+   "created_at",
+   "favorite",
+   "id",
+   "last_read_at",
+   "offset",
+   "reading_list",
+   "unit_index",
+   "updated_at",
+   "user_id"
+  ],
   "chat_replay_assets": [
    "build_id",
    "bytes_processed",
@@ -919,5 +970,5 @@
    "user_id"
   ]
  },
- "version": 18
+ "version": 19
 }

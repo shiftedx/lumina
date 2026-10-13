@@ -64,6 +64,8 @@ def test_root_segments_come_from_the_registered_routes() -> None:
 def test_spa_segments_match_the_frontend_routes() -> None:
     source = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "app" / "routes.ts").read_text()
     parse = source[source.index("export function parseRoute"):source.index("export function routePath")]
+    books_source = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "features" / "books" / "routes.ts").read_text()
+    parse += books_source[books_source.index("export function parseBooksRoute"):books_source.index("export function booksRoutePath")]
     plain = re.search(r"PLAIN_SURFACES = \[([^\]]*)\]", source).group(1)
     found = set(re.findall(r"'/([a-z]+)'|\^\\/([a-z]+)", parse)) | {(name, "") for name in re.findall(r"'([a-z]+)'", plain)}
     grouped = re.findall(r"\^\\/\(([a-z|]+)\)", parse)

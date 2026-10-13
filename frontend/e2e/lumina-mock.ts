@@ -75,6 +75,9 @@ export async function mockApi(page: Page, uiPrefs: Record<string, unknown>) {
     if (path === '/api/bootstrap/status') return json({ needs_setup: false });
     if (path === '/api/health' || path === '/api/runtime-health') return json({ status: 'ok', desktop_dir: null, data_dir: '/tmp/lumina-test' });
     if (path === '/api/library/sections') return json({ movies: 1, shows: 1, anime: 0, albums: 0, artists: 0, saved_audio: 0, youtube: 1, recordings: 0, deleted: 0 });
+    if (path === '/api/books/overview') return json({ totals: { ebooks: 0, manga_series: 0, volumes: 0 }, continue_reading: [], recently_added: [], shelves: [], discover: [] });
+    if (path === '/api/books/shelves') return json([]);
+    if (path === '/api/books' || path === '/api/books/series') return json({ items: [], total: 0, next_cursor: null });
     if (path === '/api/library/activity') return json(LIBRARY_ACTIVITY_IDLE);
     if (path === '/api/library') return json({ items: [item], next_cursor: null });
     if (path === '/api/titles') return json({ items: [], next_cursor: null });

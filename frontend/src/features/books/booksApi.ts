@@ -30,3 +30,7 @@ export const createBookShelf = (name: string, description = '', visibility: 'pri
 export const updateBookShelf = (id: string, metadata: Partial<Pick<BookShelf, 'name' | 'description' | 'visibility'>>) => requestJson<BookShelf>(`/api/books/shelves/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(metadata) });
 export const setBookShelfEntries = (id: string, book_ids: string[]) => put<BookShelf>(`/api/books/shelves/${enc(id)}/entries`, { book_ids });
 export const deleteBookShelf = (id: string) => del(`/api/books/shelves/${enc(id)}`);
+export const combineBookEntries = (primary_book_id: string, book_ids: string[]) => post<Book>('/api/books/combine', { primary_book_id, book_ids });
+export const deleteBook = (id: string) => del(`/api/books/${enc(id)}`);
+export const listBookTrash = (signal?: AbortSignal) => requestJson<Book[]>('/api/books/trash', undefined, { signal });
+export const restoreBook = (id: string) => post<Book>(`/api/books/${enc(id)}/restore`, {});

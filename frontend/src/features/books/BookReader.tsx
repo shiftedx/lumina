@@ -39,7 +39,7 @@ export function BookProse({ nodes, bookId, onLink, depth = 0 }: { nodes: BookNod
   })}</>;
 }
 
-export function BookReader({ bookId, userId, onBack, onBookChange }: { bookId: string; userId: string; onBack: () => void; onBookChange: (book: Book) => void }) {
+export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange }: { bookId: string; userId: string; onBack: () => void; onBookChange: (book: Book) => void; onFileChange?: (id: string) => void }) {
   const [manifest, setManifest] = useState<BookReaderManifest | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -173,6 +173,7 @@ export function BookReader({ bookId, userId, onBack, onBookChange }: { bookId: s
       <BrandMark compact={false} size="bar" />
       <h1 className="books-reader-title" tabIndex={-1}><span>Books / </span>{book.title}</h1>
       <div className="books-reader-tools">
+        {onFileChange && book.files && book.files.length > 1 ? <label className="books-reader-format"><span className="sr-only">Read format</span><select aria-label="Read format" disabled={busy} onChange={(event) => { const id = event.target.value; void persist().then((saved) => { if (saved || !ready.current) onFileChange(id); }); }} value={book.id}>{book.files.map((file) => <option disabled={!file.available} key={file.id} value={file.id}>{file.format.toUpperCase()} · {file.filename}</option>)}</select></label> : null}
         <IconButton aria-controls="book-contents" aria-expanded={contentsOpen} icon={<List />} label={book.format === 'epub' ? 'Chapters' : 'Pages'} onClick={() => { setContentsOpen((value) => !value); setAppearanceOpen(false); }} />
         <IconButton aria-controls="book-appearance" aria-expanded={appearanceOpen} icon={<Settings2 />} label="Reading appearance" onClick={() => { setAppearanceOpen((value) => !value); if (window.innerWidth < 1000) setContentsOpen(false); }} />
         <IconButton aria-pressed={book.reading_list} icon={<Bookmark />} label={book.reading_list ? 'Remove from reading list' : 'Add to reading list'} onClick={() => { void updateBookState(bookId, { reading_list: !book.reading_list }).then((updated) => { setManifest((value) => value ? { ...value, book: updated } : value); onBookChange(updated); }).catch((error: unknown) => setSaveError(error instanceof Error ? error.message : 'Your reading list could not be updated.')); }} />

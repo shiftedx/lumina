@@ -10,7 +10,7 @@ import { booksUser, book, ebookManifest, mangaVolume, overview, series, shelf } 
 import type { BooksRoute } from './routes';
 
 const api = vi.hoisted(() => ({
-  deleteBookShelf: vi.fn(), getBook: vi.fn(), getBookReader: vi.fn(), getBookSeries: vi.fn(), getBooksOverview: vi.fn(), importBook: vi.fn(),
+  combineBookEntries: vi.fn(), deleteBook: vi.fn(), listBookTrash: vi.fn(), restoreBook: vi.fn(), deleteBookShelf: vi.fn(), getBook: vi.fn(), getBookReader: vi.fn(), getBookSeries: vi.fn(), getBooksOverview: vi.fn(), importBook: vi.fn(),
   listBooks: vi.fn(), listBookSeries: vi.fn(), setBookShelfEntries: vi.fn(), updateBookShelf: vi.fn(), updateBookState: vi.fn(),
 }));
 vi.mock('./booksApi', async (importOriginal) => ({ ...(await importOriginal<typeof import('./booksApi')>()), ...api }));
@@ -35,6 +35,10 @@ beforeEach(() => {
   api.updateBookState.mockImplementation(async (_id: string, patch: object) => book({ ...patch }));
   api.setBookShelfEntries.mockResolvedValue(shelf());
   api.importBook.mockResolvedValue(book());
+  api.combineBookEntries.mockResolvedValue(book());
+  api.deleteBook.mockResolvedValue(undefined);
+  api.listBookTrash.mockResolvedValue([]);
+  api.restoreBook.mockResolvedValue(book());
 });
 
 describe('BooksSurface', () => {
@@ -63,6 +67,21 @@ describe('BooksSurface', () => {
     await browser.click(within(recent).getByRole('button', { name: 'View all' }));
     await screen.findByRole('heading', { level: 1, name: 'All books' });
     expect(api.listBooks).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'added', status: 'all' }));
+  });
+
+  it('combines selected catalog entries through a reviewable file-preserving dialog', async () => {
+    const browser = userEvent.setup();
+    render(<Surface initial={{ surface: 'books', view: 'ebooks' }} />);
+    await screen.findByRole('button', { name: 'Open Northbound' });
+    await browser.click(screen.getByRole('button', { name: /^Select$/ }));
+    await browser.click(screen.getByRole('button', { name: 'Select Northbound' }));
+    await browser.click(screen.getByRole('button', { name: 'Select After the Storm' }));
+    await browser.click(screen.getByRole('button', { name: 'Combine entries' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Combine book entries' });
+    expect(within(dialog).getByRole<HTMLInputElement>('checkbox', { name: 'After the Storm' }).checked).toBe(true);
+    await browser.click(within(dialog).getByRole('button', { name: 'Combine 2 entries' }));
+    await waitFor(() => expect(api.combineBookEntries).toHaveBeenCalledWith('ebook-1', ['ebook-1', 'ebook-2']));
+    await screen.findByRole('heading', { level: 1, name: 'Northbound' });
   });
 
   it('routes Ebooks, Manga and personal shelves through their canonical paths', async () => {

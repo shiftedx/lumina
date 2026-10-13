@@ -1,4 +1,4 @@
-"""Authenticated REST boundary for the standalone EPUB and CBZ Books surface."""
+"""Authenticated REST boundary for the standalone Books surface."""
 from __future__ import annotations
 
 import os
@@ -13,7 +13,8 @@ from sqlalchemy import select
 from starlette.requests import ClientDisconnect
 
 from app.book_schemas import (
-    BookOverview, BookPatch, BookResponse, BookSeriesResponse, BookShelfResponse, BookStatePatch,
+    BookCombine, BookOverview, BookPatch, BookResponse, BookSeriesResponse, BookShelfResponse, BookStatePatch,
+    BundleMatchesResponse,
     BooksPage, SeriesPage, ShelfCreate, ShelfEntries, ShelfPatch,
 )
 from app.db import get_db
@@ -52,7 +53,7 @@ async def import_book(filename: str, request: Request, current_user: User = Depe
     root = book_root(); root.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".upload-", suffix=".tmp", dir=root)
     staged = Path(temporary)
-    target: Path | None = None
+    new_target: Path | None = None
     try:
         with os.fdopen(fd, "wb") as handle:
             try:
@@ -70,15 +71,17 @@ async def import_book(filename: str, request: Request, current_user: User = Depe
             format_, manifest = service.inspect_staged(staged, filename)
             with write_transaction(db, name="book_import"):
                 book = service.import_staged(staged, filename, current_user, format_=format_, manifest=manifest)
-                target = book_root() / book.storage_key
+                # ``book`` may now be a child of an existing canonical root. Its storage key is
+                # still the newly moved upload; never infer cleanup from the canonical row.
+                new_target = book_root() / book.storage_key
                 payload = service.serialize(book, current_user)
         except (BookError, IntegrityError) as exc:
-            if target is not None:
-                target.unlink(missing_ok=True)
+            if new_target is not None:
+                new_target.unlink(missing_ok=True)
             raise _error(exc) from exc
         except Exception:
-            if target is not None:
-                target.unlink(missing_ok=True)
+            if new_target is not None:
+                new_target.unlink(missing_ok=True)
             raise
         return payload
     finally:
@@ -107,7 +110,7 @@ def get_series(series_id: str, current_user: User = Depends(get_current_user), d
     service = BookService(db); series = next((item for item in service.series(current_user) if item["id"] == series_id), None)
     if series is None: raise HTTPException(status_code=404, detail="Series not found")
     from app.book_models import BookItem
-    books = list(db.scalars(select(BookItem).where(BookItem.series_id == series_id, BookItem.kind == "manga", service.visible_predicate(current_user)).order_by(BookItem.volume_number.nulls_last(), BookItem.title.collate("NOCASE"), BookItem.id)))
+    books = list(db.scalars(select(BookItem).where(BookItem.series_id == series_id, BookItem.kind == "manga", service.catalog_predicate(current_user)).order_by(BookItem.volume_number.nulls_last(), BookItem.title.collate("NOCASE"), BookItem.id)))
     return {"series": series, "books": service.serialize_many(books, current_user)}
 
 
@@ -120,7 +123,7 @@ def get_book(book_id: str, current_user: User = Depends(get_current_user), db: S
 def reader(book_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
     service = BookService(db)
     try:
-        book = service.get(book_id, current_user); data = service.reader(book); data["book"] = service.serialize(book, current_user); return data
+        book = service.get(book_id, current_user); data = service.reader(book); data["book"] = service.serialize(book, current_user, for_reader=True); return data
     except BookError as exc: raise _error(exc) from exc
 
 
@@ -163,7 +166,7 @@ def patch_state(book_id: str, payload: BookStatePatch, current_user: User = Depe
     service = BookService(db)
     try:
         with write_transaction(db, name="book_state"):
-            book = service.get(book_id, current_user); state = service.update_state(book, current_user, payload.model_dump(exclude_none=True)); return service.serialize(book, current_user, state=state)
+            book = service.get(book_id, current_user); state = service.update_state(book, current_user, payload.model_dump(exclude_none=True)); return service.serialize(book, current_user, state=state, for_reader=payload.unit_index is not None or payload.offset is not None)
     except BookError as exc: raise _error(exc) from exc
 
 
@@ -205,17 +208,64 @@ def delete_shelf(shelf_id: str, current_user: User = Depends(get_current_user), 
     return Response(status_code=204)
 
 
+def combine_books(payload: BookCombine, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
+    service = BookService(db)
+    try:
+        with write_transaction(db, name="book_combine"):
+            book = service.combine(current_user, payload.primary_book_id, payload.book_ids)
+            return service.serialize(book, current_user)
+    except BookError as exc:
+        raise _error(exc) from exc
+
+
+def bundle_matches(current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict[str, int]:
+    try:
+        with write_transaction(db, name="book_bundle_matches"):
+            return BookService(db).bundle_matches(current_user)
+    except BookError as exc:
+        raise _error(exc) from exc
+
+
+def delete_book(book_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> Response:
+    try:
+        with write_transaction(db, name="book_trash"):
+            BookService(db).trash(book_id, current_user)
+    except BookError as exc:
+        raise _error(exc) from exc
+    return Response(status_code=204)
+
+
+def list_trash(current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> list[dict]:
+    service = BookService(db)
+    return [service.serialize(book, current_user, include_deleted_files=True) for book in service.trash_list(current_user)]
+
+
+def restore_book(book_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
+    service = BookService(db)
+    try:
+        with write_transaction(db, name="book_restore"):
+            book = service.restore(book_id, current_user)
+            return service.serialize(book, current_user)
+    except BookError as exc:
+        raise _error(exc) from exc
+
+
 def register(app: FastAPI) -> None:
     app.put(URL + "/import", response_model=BookResponse, status_code=201)(import_book)
     app.get(URL + "/overview", response_model=BookOverview)(overview)
     app.get(URL, response_model=BooksPage)(list_books)
     app.get(URL + "/series", response_model=SeriesPage)(list_series)
     app.get(URL + "/series/{series_id}")(get_series)
+    # Static management routes must precede the asset-id route below.
+    app.post(URL + "/combine", response_model=BookResponse)(combine_books)
+    app.post(URL + "/bundle-matches", response_model=BundleMatchesResponse)(bundle_matches)
+    app.get(URL + "/trash", response_model=list[BookResponse])(list_trash)
     app.get(URL + "/shelves", response_model=list[BookShelfResponse])(list_shelves)
     app.post(URL + "/shelves", response_model=BookShelfResponse, status_code=201)(create_shelf)
     app.patch(URL + "/shelves/{shelf_id}", response_model=BookShelfResponse)(patch_shelf)
     app.put(URL + "/shelves/{shelf_id}/entries", response_model=BookShelfResponse)(put_shelf_entries)
     app.delete(URL + "/shelves/{shelf_id}", status_code=204)(delete_shelf)
+    app.post(URL + "/{book_id}/restore", response_model=BookResponse)(restore_book)
     app.get(URL + "/{book_id}/reader")(reader)
     app.get(URL + "/{book_id}/chapters/{index}")(get_chapter)
     app.get(URL + "/{book_id}/pages/{index}")(get_page)
@@ -223,4 +273,5 @@ def register(app: FastAPI) -> None:
     app.get(URL + "/{book_id}/cover")(get_cover)
     app.patch(URL + "/{book_id}/state", response_model=BookResponse)(patch_state)
     app.patch(URL + "/{book_id}", response_model=BookResponse)(patch_book)
+    app.delete(URL + "/{book_id}", status_code=204)(delete_book)
     app.get(URL + "/{book_id}", response_model=BookResponse)(get_book)

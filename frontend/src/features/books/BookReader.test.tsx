@@ -79,6 +79,27 @@ describe('BookReader', () => {
     expect(screen.queryByRole('img', { name: 'Page 2 of 3' })).toBeNull();
   });
 
+  it('saves the current file checkpoint before switching bundled formats', async () => {
+    const browser = userEvent.setup();
+    const bundled = book({ files: [
+      { id: 'ebook-1', filename: 'Northbound.epub', format: 'epub', chapter_count: 2, page_count: 0, available: true },
+      { id: 'pdf-1', filename: 'Northbound.pdf', format: 'pdf', chapter_count: 0, page_count: 30, available: true },
+    ] });
+    api.getBookReader.mockResolvedValue(ebookManifest({ book: bundled }));
+    api.updateBookState.mockImplementation(async (_id: string, patch: object) => ({ ...bundled, progress: { ...bundled.progress, ...patch } }));
+    const onFileChange = vi.fn();
+    render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} onFileChange={onFileChange} userId="books-member" />);
+    await screen.findByText('Departure');
+    await waitFor(() => expect(api.updateBookState).toHaveBeenCalled());
+    api.updateBookState.mockClear();
+    const formats = screen.getByRole('combobox', { name: 'Read format' });
+    expect(fireEvent.keyDown(formats, { key: 'ArrowRight' })).toBe(true);
+    expect(screen.queryByText('The pass')).toBeNull();
+    await browser.selectOptions(formats, 'pdf-1');
+    await waitFor(() => expect(onFileChange).toHaveBeenCalledWith('pdf-1'));
+    expect(api.updateBookState).toHaveBeenCalledWith('ebook-1', { unit_index: 0, offset: 0 }, false);
+  });
+
   it('shows the approved book cover when the first EPUB chapter has no inert content', async () => {
     api.getBookReader.mockResolvedValue(ebookManifest({ book: book({ cover_url: '/api/books/ebook-1/cover' }) }));
     api.getBookChapter.mockResolvedValue({ nodes: [] });

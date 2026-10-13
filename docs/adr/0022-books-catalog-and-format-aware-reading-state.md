@@ -18,7 +18,13 @@ The archive reader treats every ZIP member as untrusted input. It validates arch
 - Movie/Music scanning, title metadata, Jellyfin, and playback continue to have their existing semantics.
 - Favorites and reading-list edits do not create a reading checkpoint; only a reader location or completion update enters Continue reading.
 - The Books catalog has no external discovery dependency. Its deterministic Discover list comes from visible, unread household books.
-- The schema upgrade is additive. Rollback drops the four Books tables and re-stamps schema 18; stored uploads are intentionally left for an operator to decide about.
+- The schema upgrades are additive. Rollback before format bundling unlinks bundle parents, clears soft-trash timestamps, drops only the three additive columns and their indexes, and re-stamps schema 20; every BookItem, BookState, shelf membership, and managed upload remains. A rollback before Books can still drop the four Books tables while intentionally leaving stored uploads on disk.
+
+### Format bundles, original filenames, and recoverable removal (2026-10-13)
+
+Each imported file remains its own `book_items` asset, with its original safe basename, storage key, native manifest, UUID, and independent member checkpoint. A root row (`bundle_parent_id IS NULL`) is the catalog entry; flattened children remain valid reader/resource IDs. Catalog, overview, series, and shelf responses expose roots only, while live child IDs remain readable when their owner or visibility permits it. The root aggregates the current member's favorites, reading-list flags, completion, and latest checkpoint without copying a page or chapter index between formats.
+
+Combining and automatic matching are owner-scoped and require compatible ownership, visibility, kind, language, volume, and distinct formats. Automatic matching requires either normalized explicit filename stems or a nonempty normalized title-plus-known-author key; legacy rows without filenames are never auto-combined. Deletion is a soft-trash operation over rows and files, and restore returns the rows, states, and shelf memberships without removing or rewriting managed files.
 
 ### Native page formats (2026-10-13)
 

@@ -28,6 +28,9 @@ On-device models are downloaded only when an admin chooses one, and each model's
 | [TMDB](https://www.themoviedb.org) | Movie and TV metadata and artwork. This product uses the TMDB API but is not endorsed or certified by TMDB. |
 | [AniList](https://anilist.co) | Anime catalogue for requests |
 | [TheIntroDB](https://theintrodb.org) | Intro and credits markers |
+| [MusicBrainz](https://musicbrainz.org) and [Cover Art Archive](https://coverartarchive.org) | Music identities, releases, credits and album artwork |
+| [Wikipedia](https://www.wikipedia.org), [Wikidata](https://www.wikidata.org) and [Wikimedia Commons](https://commons.wikimedia.org) | Identity-linked artist biographies and photographs. Photo credits link to the original file and its licence. |
+| [LRCLIB](https://lrclib.net) | Public song lyrics |
 | YouTube, Twitch, Kick | Public media, through yt-dlp |
 
 ## Compatibility

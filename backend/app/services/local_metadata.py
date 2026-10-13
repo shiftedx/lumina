@@ -560,7 +560,7 @@ def _music(root: Path, dirs: tuple[str, ...], stem: str, tags: AudioTags, cache:
     album_name_key = f"album:{music_key(album_artist)}/{music_key(album)}"
     artist_spec = {"type": "artist", "key": f"artist:musicbrainz:{album_artist_id}" if album_artist_id else artist_name_key,
                    "legacy_key": artist_name_key, "source_identity": bool(album_artist_id), "fields": {
-        "path": {"name": album_artist}, "nfo": _art(root, artist_dirs, cache, {"Primary": ARTIST_ART}) if artist_dirs else {},
+        "path": {"name": album_artist}, "nfo": _art(root, artist_dirs, cache, {"Primary": ARTIST_ART, "Backdrop": ["fanart", "backdrop", "background"]}) if artist_dirs else {},
     }}
     album_spec = {"type": "album", "key": f"album:musicbrainz:{tags.musicbrainz_album_id}" if tags.musicbrainz_album_id else album_name_key,
                   "legacy_key": album_name_key, "source_identity": bool(tags.musicbrainz_album_id), "fields": {

@@ -384,3 +384,12 @@ def test_release_cover_candidates_are_read_once_per_folder(tmp_path: Path) -> No
     for name in ['a.flac', 'b.flac']:
         _music(root, ('Artist',), name, tags[('Artist', name)], cache, read)
     assert calls == [('Artist', 'a.flac'), ('Artist', 'b.flac')]
+
+
+def test_artist_background_sidecar_is_separate_from_album_cover(tmp_path: Path) -> None:
+    target = 'Music/Artist A/Album One/01 - Song One.flac'
+    result = described(tmp_path, target, ('Music/Artist A/artist.jpg', 'Music/Artist A/fanart.jpg'),
+                       tags={target: AudioTags(artist='Artist A', album_artist='Artist A', album='Album One')})
+    images = result['titles'][0]['fields']['nfo']
+    assert images['images.Primary']['path'].endswith('/artist.jpg')
+    assert images['images.Backdrop']['path'].endswith('/fanart.jpg')

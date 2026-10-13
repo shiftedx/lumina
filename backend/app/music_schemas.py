@@ -139,6 +139,13 @@ class MusicVideos(BaseModel):
     error: str | None = None
 
 
+class MusicArtworkCredit(BaseModel):
+    image_type: Literal["Primary", "Backdrop"]
+    source_url: str
+    author: str = ""
+    license: str = ""
+
+
 class MusicTitleInfo(BaseModel):
     release_type: str | None = None
     edition: str | None = None
@@ -157,3 +164,4 @@ class MusicTitleInfo(BaseModel):
     credits: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
     release_group_id: str | None = None
     biography_url: str | None = None
+    artwork_credits: list[MusicArtworkCredit] = Field(default_factory=list, max_length=3)

@@ -64,6 +64,7 @@ export interface MusicTitleInfo {
   credits?: { name: string; role: string; instrument?: string | null }[];
   release_group_id?: string | null;
   biography_url?: string | null;
+  artwork_credits?: { image_type: 'Primary' | 'Backdrop'; source_url: string; author: string; license: string }[];
 }
 
 export interface SonosSpeaker { id: string; name: string; model: string; coordinator_id: string }

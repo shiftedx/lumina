@@ -11,7 +11,7 @@ import { AudioSurface } from './AudioSurface';
 const mocks = vi.hoisted(() => ({ list: vi.fn(), title: vi.fn(), play: vi.fn() }));
 vi.mock('../../api', async (original) => ({ ...(await original<typeof import('../../api')>()), listTitles: mocks.list, getTitle: mocks.title }));
 vi.mock('./musicSession', () => ({ playMusic: mocks.play }));
-vi.mock('../gallery/GalleryArt', () => ({ GalleryArt: ({ card }: { card: { name: string } }) => <span data-testid={`art-${card.name}`}>{card.name}</span> }));
+vi.mock('../gallery/GalleryArt', () => ({ GalleryArt: ({ card, art, className }: { card: { name: string }; art?: { url: string }; className?: string }) => <span className={className} data-art-url={art?.url} data-testid={`art-${card.name}`}>{card.name}</span> }));
 vi.mock('../gallery/LibraryTabs', () => ({ useLibrarySections: () => ({ sections: null }) }));
 vi.mock('../gallery/MusicTab', () => ({ MusicTab: ({ state }: { state?: string }) => <div data-state={state} data-testid="music-browser">Music browser</div> }));
 vi.mock('./MusicCuration', () => ({ MusicCuration: () => <div>Music curation</div> }));
@@ -34,6 +34,15 @@ beforeEach(() => {
 });
 
 describe('AudioSoundstage', () => {
+  it('uses a distinct artist background and credits its photograph instead of a release cover', async () => {
+    mocks.title.mockResolvedValue({ ...detailA, backdrop: { ...detailA.poster, url: '/artist-landscape' }, music: { ...music,
+      artwork_credits: [{ image_type: 'Backdrop', source_url: 'https://commons.wikimedia.org/wiki/File:Concert.jpg', author: 'Photographer', license: 'CC BY-SA 4.0' }],
+    } });
+    const view = render(<AudioSoundstage onOpenArtist={vi.fn()} owner="u1" />);
+    await screen.findByRole('link', { name: 'Photo · Photographer · CC BY-SA 4.0' });
+    expect(view.container.querySelector('.audio-soundstage-art')?.getAttribute('data-art-url')).toBe('/artist-landscape');
+    expect(screen.queryByRole('button', { name: /Featured release:/ })).toBeNull();
+  });
   it('uses a real release cover when the selected artist has no portrait', async () => {
     const open = vi.fn();
     mocks.list.mockResolvedValue(titlePage([{ ...artistA, poster: null }]));

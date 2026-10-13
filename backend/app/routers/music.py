@@ -249,7 +249,7 @@ def enrichment(title_id: str, user: User = Depends(get_current_user), db: Sessio
         music_providers.request_enrichment(title.id)
     return {"refreshing": music_providers.pending(key), "identified": bool((title.provider_ids or {}).get("MusicBrainz")),
             "candidates": (title.metadata_json or {}).get("music_candidates", []) if can_edit_details(user, db.get(AppSettings, 1)) else [],
-            "error": (row.payload or {}).get("error") if row else None}
+            "error": ((row.payload or {}).get("error") or (row.payload or {}).get("artwork_error")) if row else None}
 
 
 def speakers(request: Request, user: User = Depends(get_current_user)) -> list[dict]:

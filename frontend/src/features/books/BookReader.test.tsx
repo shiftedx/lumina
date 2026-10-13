@@ -101,6 +101,17 @@ describe('BookReader', () => {
     expect(api.updateBookState).toHaveBeenCalledOnce();
   });
 
+  it('keeps reader progress when a reading-list response describes another format', async () => {
+    const browser = userEvent.setup();
+    render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} userId="books-member" />);
+    await screen.findByText('Departure');
+    await waitFor(() => expect(api.updateBookState).toHaveBeenCalled());
+    api.updateBookState.mockResolvedValueOnce(book({ reading_list: true, reading_file_id: 'pdf-1', progress: { ...book().progress, unit_index: 1, percent: 100, completed: true } }));
+    await browser.click(screen.getByRole('button', { name: 'Add to reading list' }));
+    await screen.findByRole('button', { name: 'Remove from reading list' });
+    expect(screen.getByText(/Chapter 1 of 2.*% read/).textContent).toContain('% read');
+  });
+
   it('shows the approved book cover when the first EPUB chapter has no inert content', async () => {
     api.getBookReader.mockResolvedValue(ebookManifest({ book: book({ cover_url: '/api/books/ebook-1/cover' }) }));
     api.getBookChapter.mockResolvedValue({ nodes: [] });

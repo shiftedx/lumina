@@ -16,7 +16,7 @@ export function CombineBooksDialog({ book, initialBooks = [], onClose, onCombine
     const controller = new AbortController();
     setOptions(null); setError(null);
     const timer = setTimeout(() => {
-      listBooks({ q: query, kind: book.kind, limit: 100 }, controller.signal).then((page) => setOptions(page.items.filter((candidate) => candidate.id !== book.id && candidate.can_edit && candidate.visibility === book.visibility))).catch((failure: unknown) => { if (!controller.signal.aborted) setError(message(failure)); });
+      listBooks({ q: query, kind: book.kind, limit: 100 }, controller.signal).then((page) => setOptions(page.items.filter((candidate) => candidate.id !== book.id && candidate.can_edit && candidate.visibility === book.visibility && (candidate.volume_number === null || book.volume_number === null || candidate.volume_number === book.volume_number) && (!candidate.language || !book.language || candidate.language.toLowerCase().replace('_', '-').split('-')[0] === book.language.toLowerCase().replace('_', '-').split('-')[0])))).catch((failure: unknown) => { if (!controller.signal.aborted) setError(message(failure)); });
     }, 200);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [query, book.id, book.kind, book.visibility]);

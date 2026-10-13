@@ -269,25 +269,30 @@ class BookService:
         states = states if states is not None else self._states_for_members(user, members)
         state_rows = [(member, states[member.id]) for member in members if member.id in states]
         checkpoints = [(member, state) for member, state in state_rows if state.last_read_at is not None]
+        active = [(member, state) for member, state in checkpoints if not state.completed]
+        available_members = [member for member in members if member.available and self._available(member)]
+        available_ids = {member.id for member in available_members}
+        selectable = [(member, state) for member, state in (active or checkpoints) if member.id in available_ids]
         selected_book: BookItem | None = None
         selected_state: BookState | None = None
-        if checkpoints:
-            selected_book, selected_state = max(checkpoints, key=lambda item: (item[1].last_read_at or datetime.min, item[0].id))
+        if selectable:
+            selected_book, selected_state = max(selectable, key=lambda item: (item[1].last_read_at or datetime.min, item[0].id))
         reading_book = selected_book
+        eligible = available_members or members
         if reading_book is None:
-            reading_book = next((member for member in members if member.format == "epub"), None)
+            reading_book = next((member for member in eligible if member.format == "epub"), None)
         if reading_book is None:
-            reading_book = next((member for member in members if member.id == root.id), None) or (members[0] if members else root)
+            reading_book = next((member for member in eligible if member.id == root.id), None) or (eligible[0] if eligible else root)
         return {
             "states": state_rows,
             "selected_book": selected_book,
             "selected_state": selected_state,
             "reading_file_id": reading_book.id,
-            "completed": any(state.completed for _member, state in state_rows),
+            "completed": bool(not active and any(state.completed for _member, state in state_rows)),
             "favorite": any(state.favorite for _member, state in state_rows),
             "reading_list": any(state.reading_list for _member, state in state_rows),
             "has_checkpoint": bool(checkpoints),
-            "reading": any(state.last_read_at is not None and not state.completed for _member, state in state_rows),
+            "reading": bool(active),
         }
 
     def _filename(self, book: BookItem) -> str:
@@ -460,6 +465,9 @@ class BookService:
                         states[member_id] = self._new_state(user, member_id)
             for state in states.values():
                 setattr(state, flag, values[flag])
+        if values.get("completed") is True and "unit_index" not in values and "offset" not in values:
+            for state in states.values():
+                state.completed = True
         for key in ("completed", "unit_index", "offset"):
             if key in values and values[key] is not None:
                 setattr(target, key, values[key])
@@ -526,9 +534,9 @@ class BookService:
             return False
         # A logical entry may already contain the other format. Never turn a later
         # import into a duplicate same-format member of that bundle.
-        if any(member.format == left.format for member in self._bundle_members(right)):
+        if any(member.format == left.format for member in self._bundle_members(right, include_deleted=True)):
             return False
-        if any(member.format == right.format for member in self._bundle_members(left)):
+        if any(member.format == right.format for member in self._bundle_members(left, include_deleted=True)):
             return False
         if left.volume_number is not None and right.volume_number is not None and left.volume_number != right.volume_number:
             return False
@@ -554,8 +562,8 @@ class BookService:
         return left if left_key <= right_key else right
 
     def _find_auto_pair(self, roots: list[BookItem]) -> tuple[BookItem, BookItem] | None:
-        for index, left in enumerate(roots):
-            candidates = [right for right in roots[index + 1:] if self._auto_match(left, right)]
+        for left in roots:
+            candidates = [right for right in roots if right.id != left.id and self._auto_match(left, right)]
             if len(candidates) == 1:
                 right = candidates[0]
                 if sum(self._auto_match(right, other) for other in roots if other.id != right.id) == 1:
@@ -629,8 +637,16 @@ class BookService:
                 raise BookError("Entries must have the same visibility.")
             if root.kind != primary.kind:
                 raise BookError("Entries must have the same kind.")
+            if not _compatible_language(root.language, primary.language):
+                raise BookError("Entries must have compatible languages.")
+            if root.volume_number is not None and primary.volume_number is not None and root.volume_number != primary.volume_number:
+                raise BookError("Different volumes must stay separate.")
         if len(roots) < 2:
             raise BookError("Choose at least two distinct entries.")
+        if len({root.volume_number for root in roots if root.volume_number is not None}) > 1:
+            raise BookError("Different volumes must stay separate.")
+        if any(not _compatible_language(left.language, right.language) for left in roots for right in roots):
+            raise BookError("Entries must have compatible languages.")
         return self._combine_roots(primary, roots)
 
     def _auto_bundle_import(self, book: BookItem, user: User) -> None:
@@ -658,13 +674,33 @@ class BookService:
         remaining = self.db.scalar(select(func.count()).select_from(BookItem).where(BookItem.owner_user_id == user.id, BookItem.deleted_at.is_(None), BookItem.bundle_parent_id.is_(None))) or 0
         return {"combined": combined, "remaining": remaining}
 
+    def separate(self, book_id: str, user: User) -> BookItem:
+        book = self.get(book_id, user)
+        root = self._canonical(book)
+        if root.owner_user_id != user.id:
+            raise BookForbidden("Only the book owner may separate files.")
+        if book.id == root.id:
+            raise BookError("Choose an alternate file to separate.")
+        book.bundle_parent_id = None
+        entries = list(self.db.scalars(select(BookShelfMembership).where(BookShelfMembership.book_id == root.id)))
+        for entry in entries:
+            siblings = list(self.db.scalars(select(BookShelfMembership).where(BookShelfMembership.shelf_id == entry.shelf_id).order_by(BookShelfMembership.position, BookShelfMembership.id)))
+            for sibling in siblings:
+                if sibling.position > entry.position:
+                    sibling.position += 1
+            self.db.add(BookShelfMembership(id=str(uuid.uuid4()), shelf_id=entry.shelf_id, book_id=book.id, position=entry.position + 1))
+        self.db.flush()
+        return book
+
     def trash(self, book_id: str, user: User) -> None:
         book = self.get(book_id, user)
         root = self._canonical(book)
         if root.owner_user_id != user.id:
             raise BookForbidden("Only the book owner may move it to Trash.")
+        if book.id != root.id:
+            raise BookError("Separate this file into an entry before moving it to Trash.")
         removed_at = utcnow()
-        members = self._bundle_members(root, include_deleted=True) if book.id == root.id else [book]
+        members = self._bundle_members(root, include_deleted=True)
         for member in members:
             member.deleted_at = removed_at
         self.db.flush()

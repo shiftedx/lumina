@@ -34,3 +34,5 @@ export const combineBookEntries = (primary_book_id: string, book_ids: string[]) 
 export const deleteBook = (id: string) => del(`/api/books/${enc(id)}`);
 export const listBookTrash = (signal?: AbortSignal) => requestJson<Book[]>('/api/books/trash', undefined, { signal });
 export const restoreBook = (id: string) => post<Book>(`/api/books/${enc(id)}/restore`, {});
+
+export const separateBookFile = (id: string) => post<Book>(`/api/books/${enc(id)}/separate`, {});

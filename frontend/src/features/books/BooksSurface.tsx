@@ -8,7 +8,7 @@ import { AddToShelfDialog, BookMetadataEditor, ImportBooksDialog, ShelfEditor } 
 import { BookCard, BookCover, readingPosition, SeriesCard, ShelfTile } from './BookCards';
 import { BookDetail } from './BookDetail';
 import { booksRoutePath, type BooksRoute } from './routes';
-import { deleteBook, deleteBookShelf, getBook, getBookSeries, getBooksOverview, listBooks, listBookSeries, setBookShelfEntries, updateBookShelf, updateBookState, type BooksQuery } from './booksApi';
+import { deleteBook, deleteBookShelf, getBook, getBookSeries, getBooksOverview, listBooks, listBookSeries, setBookShelfEntries, separateBookFile, updateBookShelf, updateBookState, type BooksQuery } from './booksApi';
 import type { Book, BookPage, BookSeries, BookShelf, BookSort, BookStateUpdate } from './types';
 import './books.css';
 
@@ -52,6 +52,7 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   const [trashOpen, setTrashOpen] = useState(false);
   const [combinePreset, setCombinePreset] = useState<Book[]>([]);
   const [combineBook, setCombineBook] = useState<Book | null>(null);
+  const [fileToSeparate, setFileToSeparate] = useState<string | null>(null);
   const [bookToDelete, setBookToDelete] = useState<Book | null>(null);
   const [metadataBook, setMetadataBook] = useState<Book | null>(null);
   const [importFiles, setImportFiles] = useState<File[] | null>(null);
@@ -180,7 +181,7 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   } else if (route.view === 'title') {
     const book = detail.data;
     heading = book?.title ?? 'Book'; actions = undefined;
-    body = detail.error ? <ErrorState body={ERROR(detail.error)} onRetry={refreshed} title="This book is unavailable" /> : !book ? <Skeleton count={4} label="Loading book details…" shape="row" /> : <><BookDetail book={book} onRead={read} onReadFile={readId} onState={state} onShelf={() => setShelfIds([book.id])} onEdit={() => setMetadataBook(book)} onCombine={() => beginCombine(book)} onDelete={() => setBookToDelete(book)} onSeries={() => { if (book.series_id) open({ surface: 'books', view: 'series', seriesId: book.series_id }); }} />{section(`More by ${book.author}`, (related.data?.items ?? []).filter((item) => item.id !== book.id && item.author === book.author).slice(0, 8), undefined, 'books-related')}</>;
+    body = detail.error ? <ErrorState body={ERROR(detail.error)} onRetry={refreshed} title="This book is unavailable" /> : !book ? <Skeleton count={4} label="Loading book details…" shape="row" /> : <><BookDetail book={book} onRead={read} onReadFile={readId} onState={state} onShelf={() => setShelfIds([book.id])} onEdit={() => setMetadataBook(book)} onCombine={() => beginCombine(book)} onSeparate={setFileToSeparate} onDelete={() => setBookToDelete(book)} onSeries={() => { if (book.series_id) open({ surface: 'books', view: 'series', seriesId: book.series_id }); }} />{section(`More by ${book.author}`, (related.data?.items ?? []).filter((item) => item.id !== book.id && item.author === book.author).slice(0, 8), undefined, 'books-related')}</>;
   } else if (route.view === 'series') {
     const data = seriesDetail.data;
     heading = data?.series.title ?? 'Manga series'; actions = undefined;
@@ -236,6 +237,7 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
     <Suspense fallback={null}>{combineBook ? <CombineBooksDialog book={combineBook} initialBooks={combinePreset} onClose={() => setCombineBook(null)} onCombined={(combined) => { setCombineBook(null); refreshed(); open({ surface: 'books', view: 'title', bookId: combined.id }); setNotice('Entries combined. All files are retained.'); }} /> : null}
     {trashOpen ? <BooksTrashDialog onClose={() => setTrashOpen(false)} onRestored={refreshed} /> : null}</Suspense>
     <ConfirmDialog body="This entry will leave your library. Its files and reading progress stay in Trash, where you can restore it." busy={busy} confirmLabel="Move to trash" onCancel={() => setBookToDelete(null)} onConfirm={() => { if (bookToDelete) void mutate(() => deleteBook(bookToDelete.id), 'Book moved to trash.').then((saved) => { if (saved) { setBookToDelete(null); open(lastListRoute.current); setNotice('Book moved to trash.'); } }); }} open={Boolean(bookToDelete)} title="Move this book to trash?" />
+    <ConfirmDialog body="This file will become its own catalog entry. Its original metadata, reading position, and shelf membership are retained." busy={busy} confirmLabel="Separate entry" onCancel={() => setFileToSeparate(null)} onConfirm={() => { if (fileToSeparate) { const id = fileToSeparate; void mutate(() => separateBookFile(id), 'File separated into its own entry.').then((saved) => { if (saved) { setFileToSeparate(null); open({ surface: 'books', view: 'title', bookId: id }); setNotice('File separated into its own entry.'); } }); } }} open={Boolean(fileToSeparate)} title="Separate this file?" />
     {metadataBook ? <BookMetadataEditor book={metadataBook} onClose={() => setMetadataBook(null)} onSaved={(updated) => { setMetadataBook(null); refreshed(); if (route.view === 'series') open(titleRoute(updated), true); setNotice('Book details saved.'); }} /> : null}
     <ConfirmDialog body="The shelf will be removed. Its books stay in your collection." busy={busy} confirmLabel="Delete shelf" danger onCancel={() => setShelfToDelete(null)} onConfirm={() => { if (shelfToDelete) void mutate(() => deleteBookShelf(shelfToDelete.id), 'Shelf deleted.').then((done) => { if (done) { setShelfToDelete(null); open({ surface: 'books', view: 'shelves' }); } }); }} open={Boolean(shelfToDelete)} title="Delete this shelf?" />
   </div>;

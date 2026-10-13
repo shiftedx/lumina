@@ -240,6 +240,15 @@ def list_trash(current_user: User = Depends(get_current_user), db: Session = Dep
     return [service.serialize(book, current_user, include_deleted_files=True) for book in service.trash_list(current_user)]
 
 
+def separate_book(book_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
+    service = BookService(db)
+    try:
+        with write_transaction(db, name="book_separate"):
+            return service.serialize(service.separate(book_id, current_user), current_user)
+    except BookError as exc:
+        raise _error(exc) from exc
+
+
 def restore_book(book_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
     service = BookService(db)
     try:
@@ -265,6 +274,7 @@ def register(app: FastAPI) -> None:
     app.patch(URL + "/shelves/{shelf_id}", response_model=BookShelfResponse)(patch_shelf)
     app.put(URL + "/shelves/{shelf_id}/entries", response_model=BookShelfResponse)(put_shelf_entries)
     app.delete(URL + "/shelves/{shelf_id}", status_code=204)(delete_shelf)
+    app.post(URL + "/{book_id}/separate", response_model=BookResponse)(separate_book)
     app.post(URL + "/{book_id}/restore", response_model=BookResponse)(restore_book)
     app.get(URL + "/{book_id}/reader")(reader)
     app.get(URL + "/{book_id}/chapters/{index}")(get_chapter)

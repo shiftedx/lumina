@@ -9,10 +9,10 @@ const languageName = (language: string) => {
   catch { return language; }
 };
 
-export function BookDetail({ book, onRead, onReadFile, onState, onShelf, onEdit, onCombine, onDelete, onSeries }: {
+export function BookDetail({ book, onRead, onReadFile, onState, onShelf, onEdit, onCombine, onDelete, onSeries, onSeparate }: {
   book: Book; onRead: (book: Book) => void; onReadFile: (id: string) => void;
   onState: (book: Book, patch: BookStateUpdate) => void; onShelf: () => void; onEdit: () => void;
-  onCombine: () => void; onDelete: () => void; onSeries: () => void;
+  onCombine: () => void; onDelete: () => void; onSeries: () => void; onSeparate?: (id: string) => void;
 }) {
   const files = book.files ?? [{ id: book.id, filename: book.filename || `${book.title}.${book.format}`, format: book.format, available: book.available, chapter_count: book.chapter_count, page_count: book.page_count }];
   const paragraphs = book.description.split(/\n\s*\n/).map((paragraph) => paragraph.trim()).filter(Boolean);
@@ -32,7 +32,7 @@ export function BookDetail({ book, onRead, onReadFile, onState, onShelf, onEdit,
     </div>
     <aside aria-label="Book details and files" className="books-title-information">
       <section><h2>In your library</h2><dl><div><dt>Formats</dt><dd>{[...new Set(files.map((file) => file.format.toUpperCase()))].join(' · ')}</dd></div><div><dt>Length</dt><dd>{book.format === 'epub' ? `${book.chapter_count} chapters` : `${book.page_count} pages`}</dd></div>{book.language ? <div><dt>Language</dt><dd>{languageName(book.language)}</dd></div> : null}<div><dt>Visibility</dt><dd>{book.visibility === 'shared' ? 'Household' : 'Private'}</dd></div></dl></section>
-      <section className="books-title-files"><h2>{files.length === 1 ? 'Your file' : `Your files · ${files.length}`}</h2><ul>{files.map((file) => <li key={file.id}><FileText aria-hidden="true" /><div><strong>{file.format.toUpperCase()} · {file.format === 'epub' ? `${file.chapter_count} chapters` : `${file.page_count} pages`}</strong><span>{file.filename}</span><button disabled={!file.available} onClick={() => onReadFile(file.id)} type="button">Read {file.format.toUpperCase()}</button></div></li>)}</ul></section>
+      <section className="books-title-files"><h2>{files.length === 1 ? 'Your file' : `Your files · ${files.length}`}</h2><ul>{files.map((file) => <li key={file.id}><FileText aria-hidden="true" /><div><strong>{file.format.toUpperCase()} · {file.format === 'epub' ? `${file.chapter_count} chapters` : `${file.page_count} pages`}</strong><span>{file.filename}</span><button disabled={!file.available} onClick={() => onReadFile(file.id)} type="button">Read {file.format.toUpperCase()}</button>{book.can_edit && onSeparate && file.id !== book.id ? <button aria-label={`Separate ${file.filename}`} onClick={() => onSeparate(file.id)} type="button">Separate entry</button> : null}</div></li>)}</ul></section>
       <div className="books-title-management"><Button icon={<Check />} onClick={() => onState(book, { completed: !book.progress.completed, ...(book.progress.completed ? { unit_index: 0, offset: 0 } : {}) })} variant="quiet">{book.progress.completed ? 'Mark as unread' : 'Mark as read'}</Button>{book.series_id && book.kind === 'manga' ? <Button onClick={onSeries} variant="quiet">View series</Button> : null}{book.can_edit ? <><Button onClick={onEdit} variant="quiet">Edit details</Button><Button icon={<Layers />} onClick={onCombine} variant="quiet">Combine entries</Button><Button icon={<Trash2 />} onClick={onDelete} variant="quiet">Move to trash</Button></> : null}</div>
     </aside>
   </article>;

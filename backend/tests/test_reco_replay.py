@@ -36,6 +36,7 @@ def test_the_replay_scores_every_member_of_the_synthetic_household_deterministic
     report = replay.replay(factory)
 
     assert report == replay.replay(factory)
+    assert report["policies"] == ["legacy"] and report["pool_recall"] is None and "legacy" in report["by_policy"]
     assert report["members_evaluated"] == 4
     assert report["instances"]["home_picked"] == 40 and report["instances"]["home_recommended"] == 40
     assert report["instances"]["up_next"] > 0 and report["instances"]["home_because"] > 0
@@ -335,7 +336,7 @@ def test_the_ablation_ranks_the_new_pool_with_the_legacy_scorer(monkeypatch) -> 
     assert ablated and ablated[0].channel == "alpha"  # the legacy scorer's creator affinity, now with Alpha's uploads to choose from
 
 
-def test_the_compare_run_scores_every_policy_on_one_pass_and_resolves_every_key(monkeypatch) -> None:  # noqa: ANN001
+def test_the_compare_run_scores_every_policy_and_meets_quality_targets_deterministically() -> None:
     replay = load("reco_replay")
     factory = memory_session_factory()
     with factory() as session:
@@ -354,19 +355,15 @@ def test_the_compare_run_scores_every_policy_on_one_pass_and_resolves_every_key(
     assert report["by_policy"]["legacy"]["coverage_at_20"]["home_picked"] < 1.0
     assert all(0 <= value <= 1 for policy in report["by_policy"].values() for value in policy["coverage_at_20"].values() if value is not None)
     assert 0 < report["pool_recall"] <= 1
+    # Release quality gate on the same comparison workload; fix ranking, not thresholds.
+    rows = replay.evaluate_targets(report, synthetic=True)
+    assert len(rows) == 24
+    failed = [f"{row['metric']}: {row['value']} needs {row['required']}" for row in rows if not row["ok"]]
+    assert not failed, "\n".join(failed)
+
     text = json.dumps(report)
     for private in ("ana", "Kitchen Lab", "kitchen lab", "kitchen-lab", "film"):
         assert private not in text
-
-
-def test_a_legacy_only_run_keeps_its_old_shape() -> None:
-    replay = load("reco_replay")
-    factory = memory_session_factory()
-    with factory() as session:
-        load("seed_reco").seed(session, settings.data_dir)
-    report = replay.replay(factory)
-    assert report["policies"] == ["legacy"] and report["pool_recall"] is None and "legacy" in report["by_policy"]
-    assert set(report["hit_at_10"]["remote_channel_hit@10"]) == {"legacy", "newest_first", "household_top_channel", "last_watch_channel"}
 
 
 def _top12(distinct, over_cap, freshness):  # noqa: ANN001, ANN202
@@ -498,16 +495,3 @@ def test_the_remote_item_row_is_judged_on_the_synthetic_seed_only() -> None:
     assert "remote_item_hit@10" in _failed(replay.evaluate_targets(weak, synthetic=True))
     rows = replay.evaluate_targets(weak, synthetic=False)
     assert _failed(rows) == set() and len(rows) == 24 - 1 - 3  # no item row, no item-versus-trivial rows
-
-
-def test_the_new_policy_meets_every_synthetic_target_of_spec_8_1() -> None:
-    """The release gate on the synthetic household (runs in make check). A failure means the ranking regressed; fix the ranking, not the gate."""
-    replay = load("reco_replay")
-    factory = memory_session_factory()
-    with factory() as session:
-        load("seed_reco").seed(session, settings.data_dir)
-    report = replay.replay(factory, "new", also=("legacy", "ablation"))
-    rows = replay.evaluate_targets(report, synthetic=True)
-    assert len(rows) == 24
-    failed = [f"{row['metric']}: {row['value']} needs {row['required']}" for row in rows if not row["ok"]]
-    assert not failed, "\n".join(failed)

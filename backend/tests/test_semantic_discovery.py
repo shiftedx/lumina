@@ -433,7 +433,8 @@ def test_search_loads_only_candidate_items_not_the_whole_library() -> None:
     assert len(loaded_ids) <= 10
 
 
-def test_title_only_search_does_not_hydrate_item_or_automation_records() -> None:
+@pytest.mark.parametrize("types", [{"movie"}, None])
+def test_title_search_does_not_hydrate_unused_item_records(types) -> None:  # noqa: ANN001
     """A typed title search needs item link fields for scoring, not full item/channel records."""
     from sqlalchemy import event
 
@@ -477,10 +478,11 @@ def test_title_only_search_does_not_hydrate_item_or_automation_records() -> None
         statements.append(statement)
 
     try:
-        result = SemanticDiscovery().search(session, member, "aurora benchmark", limit=10, types={"movie"})
+        result = SemanticDiscovery().search(session, member, "aurora benchmark", limit=10, types=types)
         statement_count = len(statements)
         assert [(match.kind, match.record_id, match_title_id(match)) for match in result.matches] == [
-            ("title", "aurora-movie", "aurora-movie")
+            ("title", "aurora-movie", "aurora-movie"),
+            *(([("channel", "aurora-channel", None)]) if types is None else []),
         ]
         title = result.matches[0].media_title
         assert title is not None
@@ -493,7 +495,7 @@ def test_title_only_search_does_not_hydrate_item_or_automation_records() -> None
         event.remove(session.get_bind(), "before_cursor_execute", _record_sql)
 
     assert loaded_items == []
-    assert not any("source_automations" in statement.casefold() for statement in statements)
+    assert any("source_automations" in statement.casefold() for statement in statements) == (types is None)
     title_loads = [
         statement.casefold() for statement in statements
         if "from media_titles" in statement.casefold() and "where media_titles.id in" in statement.casefold()

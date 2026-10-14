@@ -1,13 +1,10 @@
 /// <reference types="node" />
-import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ getJellyfinImport: vi.fn(), previewJellyfinImport: vi.fn(), runJellyfinImport: vi.fn() }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
-const settingsCss = readFileSync('src/features/settings/settings.css', 'utf8');
-const uiCss = readFileSync('src/ui/ui.css', 'utf8');
 const { JellyfinHistoryImport } = await import('./features/settings/JellyfinHistoryImport');
 const { sectionById } = await import('./features/settings/registry');
 const { SettingsHostContext } = await import('./features/settings/settingsHost');
@@ -107,15 +104,4 @@ describe('Watch history from Jellyfin', () => {
     expect((within(dialog).getByRole('button', { name: 'Import history' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('a Settings dialog is built by the Dialog primitive and is opaque', async () => {
-    setup();
-    api.previewJellyfinImport.mockResolvedValue(summary);
-    const dialog = await preview();
-    expect(dialog.classList.contains('g-dialog')).toBe(true);
-    expect(settingsCss).not.toMatch(/\.setting-dialog/);
-    const block = /\.g-dialog\s*\{([^}]*)\}/.exec(uiCss)?.[1];
-    expect(block).toBeTruthy();
-    expect(block).toMatch(/background:\s*var\(--g-paper-3\)/);
-    expect(block).not.toMatch(/rgba?\(|transparent|color-mix|hsla?\(/);
-  });
 });

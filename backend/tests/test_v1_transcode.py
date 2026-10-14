@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import subprocess
-import threading
 import time
 from pathlib import Path
 
@@ -232,33 +231,31 @@ def test_a_hardware_crash_retries_in_software(household: None, monkeypatch: pyte
     assert streams == {"video": "h264", "audio": "aac"}
 
 
-def test_a_playlist_replaced_while_it_is_served_is_answered_whole(household: None) -> None:
-    """ffmpeg (temp_file) renames a new playlist over index.m3u8 every segment. A response that took its length from one
-    file and its body from the next broke ("Response content longer than Content-Length") and failed playback."""
+def test_a_playlist_replaced_while_it_is_served_is_answered_whole(household: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force ffmpeg's rename between stat and open: headers and body must use one snapshot."""
     media = make_media(settings.library_root / "alice" / "clip.mkv")
     body = _start(_download("alice", media)).json()
     directory = _finished(body["session_id"])
-    stop = threading.Event()
+    manifest = directory / "index.m3u8"
+    original_stat = os.stat
+    replacements = []
 
-    def replace() -> None:
-        lines = 1
-        while not stop.is_set():
-            lines = lines % 50 + 1
-            (directory / "next.m3u8").write_text("#EXTM3U\n" + "#EXTINF:1.0,\nseg0.m4s\n" * lines)
-            os.replace(directory / "next.m3u8", directory / "index.m3u8")
+    def stat_then_replace(path, *args, **kwargs):  # noqa: ANN001, ANN202
+        result = original_stat(path, *args, **kwargs)
+        if not isinstance(path, int) and Path(path) == manifest:
+            # Each stat observes one size; opening afterwards sees a different one.
+            lines = 3 if result.st_size == len("#EXTM3U\n" + "#EXTINF:1.0,\nseg0.m4s\n" * 2) else 2
+            content = "#EXTM3U\n" + "#EXTINF:1.0,\nseg0.m4s\n" * lines
+            replacement = directory / "next.m3u8"
+            replacement.write_text(content)
+            os.replace(replacement, manifest)
+            replacements.append(content)
+        return result
 
-    writer = threading.Thread(target=replace)
-    writer.start()
-    try:
-        with _client("alice") as client:
-            for _ in range(300):
-                # This test compares the entity length with the decoded body to prove the playlist was
-                # read atomically. Disable transfer compression: HTTPX decodes gzip while retaining its
-                # wire Content-Length, which is intentionally different from the decoded body length.
-                response = client.get(body["playback_url"], headers={"Accept-Encoding": "identity"})
-                assert response.status_code == 200
-                assert int(response.headers["content-length"]) == len(response.content)
-                assert response.text.startswith("#EXTM3U\n") and response.text.endswith("seg0.m4s\n")
-    finally:
-        stop.set()
-        writer.join()
+    monkeypatch.setattr(os, "stat", stat_then_replace)
+    with _client("alice") as client:
+        response = client.get(body["playback_url"], headers={"Accept-Encoding": "identity"})
+    assert replacements, "the response must overlap an actual playlist replacement"
+    assert response.status_code == 200
+    assert int(response.headers["content-length"]) == len(response.content)
+    assert response.text == replacements[-1]

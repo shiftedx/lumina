@@ -94,6 +94,7 @@ test('invitation libraries fit a compact grid with every choice and the limits s
   await page.goto('/settings/members?page=invitations'); await signIn(page);
   await page.getByRole('button', { name: 'Invite someone', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Invite someone' });
+  await expect(dialog).toHaveCSS('background-color', /^rgb\(/); // opaque computed surface
   await expect(dialog.getByRole('checkbox', { name: 'All libraries', exact: true })).toBeVisible();
   const choices = dialog.locator('.g-setting-options .g-choice');
   await expect(choices).toHaveCount(4);

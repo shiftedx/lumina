@@ -15,7 +15,7 @@ mise exec -- make bootstrap
 ## Pull requests
 
 1. Branch from `main`. `main` is protected: changes land through pull requests only.
-2. Keep each PR to one change. Add or update tests with the code.
+2. Keep each PR to one change. Test observable behavior at API/service boundaries or user workflows, extending existing contract tests where possible. Avoid tests for individual helpers, CSS declarations, or incidental implementation details. Preserve security, data-integrity, and concurrency regressions; name retained coverage when removing redundant tests.
 3. Run `mise exec -- make check` and paste its final lines in the PR. There is no hosted CI, so this local run is the gate. [docs/VERIFICATION.md](docs/VERIFICATION.md) maps each kind of change to faster focused commands.
 4. Read the relevant [ADR](docs/adr/) before changing an architectural boundary. If you change one, add or amend an ADR in the same PR.
 5. Update [docker/README.md](docker/README.md) when operator-facing behaviour changes.

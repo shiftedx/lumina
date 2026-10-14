@@ -30,7 +30,9 @@ make check                                      # full gate, required before a P
 
 - Run focused tests while iterating and `make check` before handing work back.
 - Match the surrounding code: naming, comment density, idioms. No speculative abstractions.
-- Every change ships with a test that fails without it.
+- Behavior changes must have a meaningful regression check at the public API, service boundary, or user workflow. Reuse or extend an existing contract test before adding another.
+- Do not add one test per helper, CSS declaration, class name, or implementation detail. Prefer observable behavior; keep release/build contracts and trust-boundary edge cases.
+- Before deleting a test, name the retained contract that covers its useful behavior. Do not merge unrelated assertions merely to lower the reported count.
 - Schema changes: add a step to `MIGRATIONS` in `backend/app/db.py`, keep upgrades additive, document the rollback in `docker/README.md`.
 - Treat AI model output as untrusted input (ADR 0013).
 - Never write credentials, tokens, real hostnames or private media details into code, tests, docs or issues.

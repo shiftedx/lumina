@@ -1,6 +1,6 @@
 # Release notes
 
-## Lumina 0.3.3
+## Lumina 0.3.4
 
 This release includes every change merged since 0.3.2 and the remaining music, Books, member-access, and connection-guidance fixes.
 
@@ -10,8 +10,9 @@ This release includes every change merged since 0.3.2 and the remaining music, B
 - **Clear member library access.** Invitations and member settings group Watch, Listen, Read, and Other files, with separate Ebooks and Manga/comics grants. Existing Books grants retain access to both reading views.
 - **Connection guidance.** Sonarr and Radarr show their own example addresses, default ports, and API-key instructions.
 - **TV playback fixes retained.** Includes all Roku and Android TV fixes from 0.3.2.
+- **Updated README screenshots.** Fresh captures show the current Home and Movies UI staged with actual Blender open-movie stills and official posters.
 
-**Upgrade:** Back up your data, pull `ghcr.io/shiftedx/lumina:0.3.3` (Linux amd64/arm64), then restart Lumina. This release includes the additive music and Books schema upgrades introduced after 0.3.2; Lumina creates an automatic pre-upgrade backup. See the [operator guide](docker/README.md) for upgrade and rollback instructions.
+**Upgrade:** Back up your data, pull `ghcr.io/shiftedx/lumina:0.3.4` (Linux amd64/arm64), then restart Lumina. This release includes the additive music and Books schema upgrades introduced after 0.3.2; Lumina creates an automatic pre-upgrade backup. See the [operator guide](docker/README.md) for upgrade and rollback instructions.
 
 ## Lumina 0.3.2
 

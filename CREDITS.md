@@ -52,3 +52,9 @@ Email banners use the vault for invitations, the film archive for delivery messa
 ## Onboarding artwork
 
 The onboarding film archive, listening room, creator studio, and security-key illustrations are original imagery generated for Lumina in the media-vault artwork’s engraving style. Their fictional scenes contain no household media, member details, real brands, or tracking identifiers.
+
+## README screenshots
+
+The README uses actual film stills and official posters from Blender Studio / Blender Foundation open movies (Creative Commons Attribution): Cosmos Laundromat, Spring, Tears of Steel, Sintel, Big Buck Bunny, Elephants Dream, Caminandes: Gran Dillama, and Agent 327: Operation Barbershop. The UI captures resize and crop the images to fit the application’s artwork slots.
+
+Original image URLs are recorded in [docs/assets/blender-sources.json](docs/assets/blender-sources.json); the films are listed in the [Blender open-project gallery](https://www.blender.org/about/projects/).

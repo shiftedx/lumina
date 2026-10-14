@@ -279,3 +279,68 @@
 }
 @media (prefers-reduced-motion: reduce) { .books-reader-page { scroll-behavior: auto; } }
 @media (forced-colors: active) { .books-selection-check.is-checked, .books-cover-progress > span { background: Highlight; color: HighlightText; } .books-card.is-selected .books-card-art { outline: 2px solid Highlight; } .books-reader { --reader-paper: Canvas; --reader-ink: CanvasText; --reader-muted: CanvasText; } }
+
+.books-prose .books-prose-cover { display: block; width: min(100%, 420px); max-height: 70vh; object-fit: contain; margin: 0 auto; }
+
+.books-title-detail { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr) 240px; gap: var(--g-space-7); align-items: start; margin: var(--g-space-5) 0 var(--g-space-7); }
+.books-title-cover { min-width: 0; }
+.books-title-status { color: var(--g-ink-2); font: var(--g-type-small); margin: var(--g-space-4) 0 8px; }
+.books-title-cover progress { width: 100%; }
+.books-title-story { min-width: 0; }
+.books-title-heading > .g-kicker { margin: 0 0 12px; color: var(--g-gold-ink); }
+.books-title-heading h1 { margin: 0; font: italic 600 clamp(34px, 3.4vw, 56px) / 1.08 var(--g-serif); text-wrap: balance; overflow-wrap: break-word; }
+.books-title-author { margin: var(--g-space-4) 0 0; color: var(--g-ink-2); font: 400 21px / 1.4 var(--g-serif); }
+.books-title-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: var(--g-space-5) 0 var(--g-space-6); }
+.books-title-actions > .g-button { margin-right: 8px; }
+.books-title-synopsis h2, .books-title-information h2 { margin: 0 0 var(--g-space-4); font: var(--g-type-h2); }
+.books-title-synopsis p { margin: 0 0 16px; font: 400 19px / 1.65 var(--g-serif); white-space: pre-line; color: var(--g-ink); overflow-wrap: break-word; }
+.books-title-genres { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 0; list-style: none; margin: var(--g-space-5) 0 0; color: var(--g-ink-2); font: var(--g-type-small); }
+.books-title-genres li { background: var(--g-paper-2); border-radius: 4px; padding: 5px 9px; }
+.books-title-information { min-width: 0; padding-left: var(--g-space-5); border-left: var(--g-rule); }
+.books-title-information section + section { margin-top: var(--g-space-6); }
+.books-title-information dl { margin: 0; display: grid; gap: 16px; }
+.books-title-information dl > div { display: grid; gap: 4px; }
+.books-title-information dt { color: var(--g-ink-2); font: var(--g-type-small); }
+.books-title-information dd { margin: 0; font: var(--g-type-ui); }
+.books-title-files ul { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--g-space-5); }
+.books-title-files li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; }
+.books-title-files li > svg { width: 18px; height: 18px; margin-top: 2px; color: var(--g-ink-2); }
+.books-title-files li > div { display: grid; justify-items: start; gap: 6px; }
+.books-title-files strong { font: 600 12px / 1.5 var(--g-sans); letter-spacing: .06em; }
+.books-title-files span { color: var(--g-ink-2); overflow-wrap: anywhere; font: var(--g-type-small); }
+.books-title-files button { padding: 8px 0; border: 0; background: none; color: var(--g-gold-ink); font: var(--g-type-small); text-decoration: underline; text-underline-offset: 4px; cursor: pointer; min-height: 44px; }
+.books-title-management { display: grid; justify-items: start; margin-top: var(--g-space-5); }
+.books-title-management > .g-button { padding-inline: 0; }
+.books-surface:has(.books-title-detail) { max-width: 1480px; }
+.books-related { border-top: var(--g-rule); padding-top: var(--g-space-6); }
+.books-related .books-cover-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 180px)); }
+.books-combine-options { display: grid; gap: var(--g-space-4); margin-top: var(--g-space-5); }
+.books-combine-file { display: block; color: var(--g-ink-2); font: var(--g-type-small); overflow-wrap: anywhere; }
+.books-trash-list { list-style: none; padding: 0; display: grid; gap: var(--g-space-4); }
+.books-trash-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--g-space-4); }
+.books-trash-list strong { display: block; }
+@media (max-width: 1199px) {
+  .books-title-detail { grid-template-columns: 260px minmax(0, 1fr); gap: var(--g-space-6); }
+  .books-title-information { grid-column: 2; padding: var(--g-space-5) 0 0; border-left: 0; border-top: var(--g-rule); display: grid; grid-template-columns: 1fr 1fr; gap: var(--g-space-5); }
+  .books-title-information section + section { margin: 0; }
+  .books-title-management { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0; }
+}
+@media (max-width: 699px) {
+  .books-title-detail { grid-template-columns: 112px minmax(0, 1fr); gap: var(--g-space-5) var(--g-space-4); }
+  .books-title-cover { width: 112px; grid-column: 1; grid-row: 1; }
+  .books-title-story { display: contents; }
+  .books-title-heading { grid-column: 2; grid-row: 1; }
+  .books-title-heading > .g-kicker { font-size: 12px; }
+  .books-title-heading h1 { font-size: 30px; }
+  .books-title-author { font-size: 18px; }
+  .books-title-actions, .books-title-synopsis, .books-title-genres, .books-title-information, .books-title-story > .books-form-error { grid-column: 1 / -1; }
+  .books-title-actions { justify-content: flex-start; margin: 0; }
+  .books-title-synopsis p { font-size: 18px; }
+  .books-title-synopsis p:last-child { margin-bottom: 0; }
+  .books-title-genres { margin-top: 0; }
+  .books-related .books-cover-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.books-card-filename { display: -webkit-box; overflow: hidden; color: var(--g-ink-2); font: var(--g-type-small); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.books-reader-format { min-width: 0; max-width: 200px; }
+.books-reader-format select { width: 100%; min-height: 44px; color: var(--g-ink); background: var(--g-paper-2); font: var(--g-type-small); border: 0; border-radius: 4px; padding: 8px; }
+@media (max-width: 699px) { .books-reader-format { max-width: 110px; } }

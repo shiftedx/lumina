@@ -74,7 +74,7 @@ test("Books imports real EPUB and CBZ archives, persists readers, and keeps pers
     await expect(
       page.getByRole("heading", { level: 1, name: "Books" }),
     ).toBeVisible();
-    const chooser = page.getByLabel("Choose EPUB and CBZ files");
+    const chooser = page.getByLabel("Choose EPUB, PDF, CBZ, and CBR files");
     await chooser.setInputFiles([
       {
         name: "lantern-tales.epub",

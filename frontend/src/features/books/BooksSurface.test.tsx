@@ -10,7 +10,7 @@ import { booksUser, book, ebookManifest, mangaVolume, overview, series, shelf } 
 import type { BooksRoute } from './routes';
 
 const api = vi.hoisted(() => ({
-  deleteBookShelf: vi.fn(), getBook: vi.fn(), getBookReader: vi.fn(), getBookSeries: vi.fn(), getBooksOverview: vi.fn(), importBook: vi.fn(),
+  combineBookEntries: vi.fn(), deleteBook: vi.fn(), listBookTrash: vi.fn(), restoreBook: vi.fn(), deleteBookShelf: vi.fn(), getBook: vi.fn(), getBookReader: vi.fn(), getBookSeries: vi.fn(), getBooksOverview: vi.fn(), importBook: vi.fn(),
   listBooks: vi.fn(), listBookSeries: vi.fn(), setBookShelfEntries: vi.fn(), updateBookShelf: vi.fn(), updateBookState: vi.fn(),
 }));
 vi.mock('./booksApi', async (importOriginal) => ({ ...(await importOriginal<typeof import('./booksApi')>()), ...api }));
@@ -35,6 +35,10 @@ beforeEach(() => {
   api.updateBookState.mockImplementation(async (_id: string, patch: object) => book({ ...patch }));
   api.setBookShelfEntries.mockResolvedValue(shelf());
   api.importBook.mockResolvedValue(book());
+  api.combineBookEntries.mockResolvedValue(book());
+  api.deleteBook.mockResolvedValue(undefined);
+  api.listBookTrash.mockResolvedValue([]);
+  api.restoreBook.mockResolvedValue(book());
 });
 
 describe('BooksSurface', () => {
@@ -63,6 +67,21 @@ describe('BooksSurface', () => {
     await browser.click(within(recent).getByRole('button', { name: 'View all' }));
     await screen.findByRole('heading', { level: 1, name: 'All books' });
     expect(api.listBooks).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'added', status: 'all' }));
+  });
+
+  it('combines selected catalog entries through a reviewable file-preserving dialog', async () => {
+    const browser = userEvent.setup();
+    render(<Surface initial={{ surface: 'books', view: 'ebooks' }} />);
+    await screen.findByRole('button', { name: 'Open Northbound' });
+    await browser.click(screen.getByRole('button', { name: /^Select$/ }));
+    await browser.click(screen.getByRole('button', { name: 'Select Northbound' }));
+    await browser.click(screen.getByRole('button', { name: 'Select After the Storm' }));
+    await browser.click(screen.getByRole('button', { name: 'Combine entries' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Combine book entries' });
+    expect(within(dialog).getByRole<HTMLInputElement>('checkbox', { name: 'After the Storm' }).checked).toBe(true);
+    await browser.click(within(dialog).getByRole('button', { name: 'Combine 2 entries' }));
+    await waitFor(() => expect(api.combineBookEntries).toHaveBeenCalledWith('ebook-1', ['ebook-1', 'ebook-2']));
+    await screen.findByRole('heading', { level: 1, name: 'Northbound' });
   });
 
   it('routes Ebooks, Manga and personal shelves through their canonical paths', async () => {
@@ -137,7 +156,7 @@ describe('BooksSurface', () => {
     render(<Surface access={{ ...permitted, access: { ...permitted.access!, can_download: false } }} initial={{ surface: 'books', view: 'overview' }} />);
     await screen.findByRole('heading', { level: 2, name: 'A home for every story' });
     expect(screen.queryByRole('button', { name: /import/i })).toBeNull();
-    expect(screen.getByLabelText('Choose EPUB and CBZ files')).toHaveProperty('disabled', true);
+    expect(screen.getByLabelText('Choose EPUB, PDF, CBZ, and CBR files')).toHaveProperty('disabled', true);
   });
 
   it('adds to shelves, updates shelf order/removal, and changes reading state through the API', async () => {
@@ -167,20 +186,24 @@ describe('BooksSurface', () => {
 });
 
 describe('book import', () => {
-  it('imports only EPUB and CBZ files and retries a failed archive', async () => {
+  it('imports supported books and retries a failed archive', async () => {
     const browser = userEvent.setup();
     const epub = new File(['book'], 'northbound.epub', { type: 'application/epub+zip' });
     const cbz = new File(['manga'], 'skybound.cbz', { type: 'application/vnd.comicbook+zip' });
+    const pdf = new File(['pdf'], 'scan.pdf');
+    const cbr = new File(['rar'], 'comic.cbr');
     const text = new File(['no'], 'notes.txt', { type: 'text/plain' });
     api.importBook.mockRejectedValueOnce(new Error('Archive needs repair.')).mockResolvedValue(book());
-    render(<ImportBooksDialog files={[epub, cbz, text]} onClose={vi.fn()} onImported={vi.fn()} />);
-    await browser.click(screen.getByRole('button', { name: 'Import 3 files' }));
-    await screen.findByText('Choose an EPUB ebook or a CBZ manga archive.');
-    expect(api.importBook).toHaveBeenCalledTimes(2);
+    render(<ImportBooksDialog files={[epub, cbz, pdf, cbr, text]} onClose={vi.fn()} onImported={vi.fn()} />);
+    await browser.click(screen.getByRole('button', { name: 'Import 5 files' }));
+    await screen.findByText('Choose an EPUB or PDF ebook, or a CBZ or CBR manga archive.');
+    expect(api.importBook).toHaveBeenCalledTimes(4);
     expect(api.importBook).toHaveBeenCalledWith(epub);
     expect(api.importBook).toHaveBeenCalledWith(cbz);
+    expect(api.importBook).toHaveBeenCalledWith(pdf);
+    expect(api.importBook).toHaveBeenCalledWith(cbr);
     await browser.click(screen.getByRole('button', { name: 'Retry remaining files' }));
-    await waitFor(() => expect(api.importBook).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(api.importBook).toHaveBeenCalledTimes(5));
     expect(api.importBook).toHaveBeenLastCalledWith(epub);
   });
 });

@@ -14,10 +14,23 @@ class BookProgress(BaseModel):
     updated_at: datetime | None = None
 
 
+class BookFileResponse(BaseModel):
+    id: str
+    filename: str
+    format: Literal["epub", "cbz", "cbr", "pdf"]
+    chapter_count: int = 0
+    page_count: int = 0
+    available: bool
+
+
 class BookResponse(BaseModel):
     id: str
+    filename: str
+    canonical_book_id: str
+    reading_file_id: str
+    files: list[BookFileResponse] = Field(default_factory=list)
     kind: Literal["ebook", "manga"]
-    format: Literal["epub", "cbz"]
+    format: Literal["epub", "cbz", "cbr", "pdf"]
     title: str
     author: str = ""
     description: str = ""
@@ -93,6 +106,8 @@ class BookStatePatch(BaseModel):
 class BookPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=500)
     author: str | None = Field(default=None, max_length=500)
+    description: str | None = Field(default=None, max_length=10_000)
+    filename: str | None = Field(default=None, max_length=255)
     series_name: str | None = Field(default=None, max_length=500)
     volume_number: float | None = Field(default=None, ge=0, le=100000)
     reading_direction: Literal["ltr", "rtl"] | None = None
@@ -114,3 +129,13 @@ class ShelfPatch(BaseModel):
 
 class ShelfEntries(BaseModel):
     book_ids: list[str] = Field(max_length=500)
+
+
+class BookCombine(BaseModel):
+    primary_book_id: str
+    book_ids: list[str] = Field(min_length=2, max_length=100)
+
+
+class BundleMatchesResponse(BaseModel):
+    combined: int
+    remaining: int

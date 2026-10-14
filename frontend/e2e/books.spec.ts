@@ -243,3 +243,25 @@ for (const [label, viewport] of [['1440', DESKTOP], ['390', PHONE]] as const) {
     }
   });
 }
+
+for (const [name, viewport] of [['desktop', DESKTOP], ['phone', PHONE]] as const) {
+  test(`book detail presents bundled files and readable synopsis on ${name}`, async ({ page }, testInfo) => {
+    await openBooks(page, '/books', viewport);
+    const bundled = { ...ebook, cover_url: '/api/books/ebook-1/cover', description: 'The old road held the quiet of a world not yet awake. Northbound, Mira kept her map folded until the river opened into view.\n\nBeyond the last bridge, the coast was pale sky, dark water, and possibilities.', filename: 'Northbound - Mira Vale.epub', canonical_book_id: 'ebook-1', reading_file_id: 'ebook-1', files: [
+      { id: 'ebook-1', filename: 'Northbound - Mira Vale.epub', format: 'epub', chapter_count: 2, page_count: 0, available: true },
+      { id: 'pdf-1', filename: 'Northbound - Mira Vale.pdf', format: 'pdf', chapter_count: 0, page_count: 30, available: true },
+    ] };
+    await page.route('**/api/books/ebook-1', (route) => json(route, bundled));
+    await page.route('**/api/books/ebook-1/cover', (route) => route.fulfill({ contentType: 'image/png', body: PAGE_PNG }));
+    await page.route(/\/api\/books(?:\?|$)/, (route) => json(route, { items: [{ ...ebook, id: 'ebook-2', title: 'After the Storm', cover_url: '/api/books/ebook-1/cover' }], total: 1, next_cursor: null }));
+    await page.goto('/books/title/ebook-1');
+    await expect(page.getByRole('heading', { level: 1, name: 'Northbound' })).toBeVisible();
+    await expect(page.getByText('Northbound - Mira Vale.epub', { exact: true })).toBeVisible();
+    await expect(page.getByText('Northbound - Mira Vale.pdf', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Read PDF', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'More by Mira Vale' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`books-detail-${name}.png`), fullPage: true });
+  });
+}

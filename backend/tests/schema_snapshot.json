@@ -201,8 +201,11 @@
   "book_items": [
    "author",
    "available",
+   "bundle_parent_id",
    "created_at",
+   "deleted_at",
    "description",
+   "filename",
    "format",
    "genres",
    "id",
@@ -971,5 +974,5 @@
    "user_id"
   ]
  },
- "version": 20
+ "version": 21
 }

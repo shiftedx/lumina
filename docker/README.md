@@ -2,6 +2,17 @@
 
 Lumina ships as one container: the FastAPI backend serves the built React app on port 8765. Docker Compose is the supported install path. Read `RELEASE_NOTES.md`, `SECURITY.md` and `LICENSE` before exposing an installation.
 
+## Books formats
+
+Books imports accept EPUB and PDF ebooks and CBZ and CBR comics, up to 256 MiB per file.
+Imports create private managed copies under `app-data/books/`; back up that directory as well as the database.
+PDF uses raster page navigation rather than reflowable text. CBR reads RAR members without extraction.
+Encrypted files, linked archive members, oversized archives, and files exceeding native parser limits are rejected.
+The Docker image includes PyMuPDF and libarchive. Source installs need the libarchive shared library
+(`brew install libarchive` on macOS, `apt-get install libarchive13t64` on Debian trixie).
+Rollback to an older image preserves files and database rows but cannot read PDF/CBR entries; retain the updated image
+until those books are no longer needed. No schema migration is required.
+
 ## Install
 
 The release Compose file defaults to the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.2` for amd64 and arm64. It pulls the published image; it does not build on the host.
@@ -178,6 +189,7 @@ Schema steps 6 to 18 only add tables, columns and indexes that older releases ig
 | --- | --- |
 | Before the dedicated music experience (schema 17, step 18) | `PRAGMA user_version = 17` (the older release ignores `music_lookups`, `music_track_overrides`, `music_edit_batches`, `music_cast_tickets`, `music_file_writebacks`, and `music_playlists`. Track overrides and new navigation are unavailable, and its scans may regroup tracks from their source tags. Provider portraits need this release to render. Keep `music-file-backups` and all six tables; upgrading again restores their controls. Explicit audio-file writeback remains in the files across rollback; restore chosen files before rolling back if desired.) |
 | Before first-owner media onboarding (schema 19) | `PRAGMA user_version = 19` (`users.vault_setup_pending` remains and is ignored by the older release) |
+| Before Books format bundling (schema 20) | `UPDATE book_items SET bundle_parent_id = NULL, deleted_at = NULL; DROP INDEX IF EXISTS ix_book_items_bundle_parent_id; DROP INDEX IF EXISTS ix_book_items_deleted_at; ALTER TABLE book_items DROP COLUMN filename; ALTER TABLE book_items DROP COLUMN bundle_parent_id; ALTER TABLE book_items DROP COLUMN deleted_at; PRAGMA user_version = 20` (every `book_items` row, file, state and shelf membership remains; this only unlinks bundles and makes trashed rows visible to the older Books release) |
 | Before Books (schema 18) | `DROP TABLE book_shelf_memberships; DROP TABLE book_shelves; DROP TABLE book_states; DROP TABLE book_items; PRAGMA user_version = 18` (uploaded files under `app-data/books/` remain on disk) |
 | Before the local address (schema 16, step 17) | `PRAGMA user_version = 16` (step 17 only adds `app_settings.local_address`; the older release ignores it, so the local name is refused as an untrusted host until you upgrade again) |
 | Before the people editor (schema 15, step 16) | `PRAGMA user_version = 15` (step 16 only adds `person_overrides`, which the older release ignores: people renames and photos show their source names and photos until you upgrade again. Its scans also put moved episodes back in their folder's season, and its TMDB refresh reads every series in aired order) |

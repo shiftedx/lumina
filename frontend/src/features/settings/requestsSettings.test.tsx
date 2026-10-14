@@ -51,6 +51,19 @@ describe('Requests settings', () => {
     expect(searchSettings(query, SETTINGS_SECTIONS).map((match) => match.section.id)).toContain('requests');
   });
 
+  it('shows each service local address and port with guidance for new users', async () => {
+    renderSection();
+    const sonarr = await screen.findByLabelText('Sonarr address');
+    const radarr = screen.getByLabelText('Radarr address');
+    expect(sonarr).toHaveProperty('placeholder', 'http://sonarr.local:8989');
+    expect(radarr).toHaveProperty('placeholder', 'http://radarr.local:7878');
+    expect(sonarr.getAttribute('aria-describedby')).toBeTruthy();
+    expect(radarr.getAttribute('aria-describedby')).toBeTruthy();
+    expect(screen.getByText(/For example http:\/\/sonarr.local:8989/).textContent).toContain('local name may be different');
+    expect(screen.getByText(/For example http:\/\/radarr.local:7878/).textContent).toContain('running Radarr');
+    expect(screen.getByText('Copy this from Radarr → Settings → General → Security → API Key.')).toBeTruthy();
+  });
+
   it('test connection fills the root folder and profile selects, and the saved key is never echoed', async () => {
     renderSection();
     const key = await screen.findByLabelText(/^Sonarr API key/);

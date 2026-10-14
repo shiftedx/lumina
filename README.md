@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/home.jpg" alt="Lumina home screen with continue watching and movie rails">
+  <img src="docs/assets/home.jpg" alt="Lumina 0.3.3 Home with the compact greeting, featured media, and Continue watching">
 </p>
 
 <table>
@@ -44,7 +44,7 @@
 </table>
 
 <p align="center">
-  <img src="docs/assets/library.jpg" alt="Lumina movie library grid">
+  <img src="docs/assets/library.jpg" alt="Lumina 0.3.3 Movies library with sorting, filters, and rounded artwork">
 </p>
 
 ## In 0.3.3
@@ -103,7 +103,7 @@ Lumina plays public sources only. It stores no provider credentials and does not
 
 Lumina stands on [yt-dlp](https://github.com/yt-dlp/yt-dlp), [FFmpeg](https://ffmpeg.org) (via [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg)), [llama.cpp](https://github.com/ggml-org/llama.cpp) and [faster-whisper](https://github.com/SYSTRAN/faster-whisper), with metadata from [TMDB](https://www.themoviedb.org) and [AniList](https://anilist.co). Full list and licenses: [CREDITS.md](CREDITS.md). This product uses the TMDB API but is not endorsed or certified by TMDB. Lumina is not affiliated with Jellyfin, YouTube, Twitch or any other project or service it works with.
 
-Screenshots show [Blender Studio](https://studio.blender.org) open movies (CC BY).
+Screenshots show the 0.3.3 interface with fictional demo media and Lumina’s own vault artwork.
 
 ## License
 

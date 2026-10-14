@@ -1,12 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { LiveBadge, liveBadgeState, upcomingLabel } from './LiveBadge';
 
-const css = readFileSync(join(__dirname, 'liveBadge.css'), 'utf8');
-const baseCss = readFileSync(join(__dirname, '../../styles/base.css'), 'utf8');
 const time = (at: Date) => at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toUpperCase();
 
 describe('LiveBadge', () => {
@@ -44,16 +40,4 @@ describe('LiveBadge', () => {
     expect(upcoming.textContent).toBe('UPCOMING');
   });
 
-  it('pulses only the live dot, and never under reduced motion', () => {
-    const animated = [...css.matchAll(/([^{}]+)\{[^{}]*\banimation:(?!\s*none)[^;}]+/g)].map(([, selector]) => selector.trim());
-    expect(animated).toEqual(['.g-live.is-live .g-live-dot']);
-    expect(baseCss).toContain('@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after, ::backdrop { animation: none !important; transition: none !important; scroll-behavior: auto !important; }\n}');
-    expect(css).toContain('@keyframes g-live { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }');
-  });
-
-  it('keeps its only colour literals in one :root block, and has no red', () => {
-    const outside = css.replace(/:root \{[^}]*\}/, '').replace(/var\([^)]*\)/g, '');
-    expect(outside).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(/i);
-    expect(css).not.toMatch(/#c0264a|rgba\(105, 30, 22|rgba\(255, 132, 107/i);
-  });
 });

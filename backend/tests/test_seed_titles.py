@@ -47,30 +47,22 @@ def test_a_small_seed_has_the_pinned_shape(tmp_path: Path) -> None:
     again = subprocess.run(command, capture_output=True, text=True, timeout=60)
     assert again.returncode != 0 and "not empty" in again.stderr
 
-
-def test_the_seed_s_categories_and_music_have_the_contract_shape(tmp_path: Path) -> None:
-    """Categories agree with the category SQL, keys have the music shapes, covers split 6/3/1 per 10."""
+    # Check category derivation and real music covers on the same seeded corpus.
     from app.db import CATEGORY_BACKFILL_SQL
 
-    target = tmp_path / "seed"
-    subprocess.run(
-        [sys.executable, str(SCRIPT), str(target), "--movies", "4", "--series", "2", "--episodes", "20", "--progress", "0",
-         "--anime-series", "2", "--anime-movies", "1", "--albums", "10", "--tracks", "30"],
-        capture_output=True, text=True, timeout=600, check=True,
-    )
     database = target / "data" / "app.db"
     with closing(sqlite3.connect(database)) as db:
         changes = db.total_changes
         for statement in CATEGORY_BACKFILL_SQL:
             db.execute(statement)
         assert db.total_changes == changes  # every seeded category is what the scan would derive
-        assert db.execute("SELECT count(*) FROM media_titles WHERE category = 'anime' AND type IN ('movie', 'series')").fetchone()[0] == 3
+        assert db.execute("SELECT count(*) FROM media_titles WHERE category = 'anime' AND type IN ('movie', 'series')").fetchone()[0] == 5
         assert db.execute("SELECT count(*) FROM media_titles WHERE type = 'album' AND key NOT LIKE 'album:%/%'").fetchone()[0] == 0
         assert db.execute("SELECT count(*) FROM media_titles WHERE type = 'artist' AND key NOT LIKE 'artist:%'").fetchone()[0] == 0
         assert db.execute(
             "SELECT count(*) FROM library_items i JOIN media_titles a ON a.id = i.title_id"
             " WHERE i.kind = 'track' AND a.type = 'album' AND json_extract(i.metadata_json, '$.track_number') IS NOT NULL"
-        ).fetchone()[0] == 30
+        ).fetchone()[0] == 40
         folder = db.execute("SELECT json_extract(images, '$.Primary.path') FROM media_titles WHERE type = 'album' AND json_extract(images, '$.Primary.path') IS NOT NULL").fetchall()
         embedded = db.execute("SELECT json_extract(images, '$.Primary.embedded'), json_extract(images, '$.Primary.tag') FROM media_titles WHERE type = 'album' AND json_extract(images, '$.Primary.embedded') IS NOT NULL").fetchall()
     assert (len(folder), len(embedded)) == (6, 3)

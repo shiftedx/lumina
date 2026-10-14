@@ -429,3 +429,20 @@ def test_cast_status_counts_playing_only_and_revokes_speaker_access_when_member_
     assert stops == ["stop"]
     with factory() as db:
         assert db.get(MusicCastTicket, ticket_id).expires_at <= utcnow()
+
+
+def test_photo_credit_is_only_returned_for_the_current_image(music_world):
+    factory, client_for, _root = music_world
+    with factory() as db:
+        artist = db.get(MediaTitle, ARTIST)
+        artist.images = {'Primary': {'music': 'https://thumb.wikimedia.org/photo.jpg', 'tag': 'photo-tag'}}
+        artist.metadata_json = {'artwork_credits': [{'image_type': 'Primary', 'source_url': 'https://commons.wikimedia.org/wiki/File:Photo.jpg', 'author': 'Photographer', 'license': 'CC BY', 'tag': 'photo-tag'}]}
+        db.commit()
+    client = client_for(ALICE)
+    response = client.get(f'/api/titles/{ARTIST}')
+    assert response.status_code == 200 and response.json()['music']['artwork_credits'][0]['author'] == 'Photographer'
+    with factory() as db:
+        artist = db.get(MediaTitle, ARTIST)
+        artist.images = {'Primary': {'upload': 'my-photo', 'tag': 'manual-tag'}}
+        db.commit()
+    assert client.get(f'/api/titles/{ARTIST}').json()['music']['artwork_credits'] == []

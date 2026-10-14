@@ -437,7 +437,21 @@ class TitleService:
     def get_visible(self, title_id: str | None, user: User) -> MediaTitle | None:
         if not title_id:
             return None
-        return self.db.scalar(select(MediaTitle).where(MediaTitle.id == title_id, self.visible(user)))
+        title = self.db.scalar(select(MediaTitle).where(MediaTitle.id == title_id, self.visible(user)))
+        if title is not None:
+            return title
+        # A scan can consolidate an old duplicate artist's releases. Saved
+        # artist links still resolve through the confirmed provider identity;
+        # visibility is checked again on the destination for this member.
+        alias = self.db.get(MediaTitle, title_id)
+        identity = (alias.provider_ids or {}).get("MusicBrainz") if alias is not None and alias.type == "artist" else None
+        if not isinstance(identity, str) or not identity:
+            return None
+        return self.db.scalar(select(MediaTitle).where(
+            MediaTitle.type == "artist",
+            func.json_extract(MediaTitle.provider_ids, "$.MusicBrainz") == identity,
+            self.visible(user),
+        ).order_by(MediaTitle.created_at, MediaTitle.id).limit(1))
 
     # ---- set-based page loading ------------------------------------------------
 
@@ -1016,7 +1030,10 @@ class TitleService:
         artist = batch.titles.get(title.parent_id) if title.type == "album" else None
         from app.music_schemas import MusicTitleInfo
         data = title.metadata_json or {}
-        info = MusicTitleInfo(**{key: data[key] for key in MusicTitleInfo.model_fields if key in data})
+        music_data = {key: data[key] for key in MusicTitleInfo.model_fields if key in data}
+        music_data["artwork_credits"] = [credit for credit in data.get("artwork_credits", []) if isinstance(credit, dict)
+            and credit.get("tag") and credit["tag"] == ((title.images or {}).get(credit.get("image_type")) or {}).get("tag")]
+        info = MusicTitleInfo(**music_data)
         info.identified = bool((title.provider_ids or {}).get("MusicBrainz"))
         if user.role != "admin":
             info.candidates = []

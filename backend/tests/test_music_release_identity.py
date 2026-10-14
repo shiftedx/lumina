@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from mutagen.flac import FLAC
 from sqlalchemy import func, select
 
@@ -182,3 +184,51 @@ def test_locked_edited_release_is_preserved_when_a_rescan_reports_a_different_re
         assert original.provider_ids["MusicBrainz"] == RELEASE_A
         assert replacement.id != original_id and replacement.provider_ids["MusicBrainz"] == RELEASE_B
         assert item is not None and item.title_id == replacement.id
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("existing_duplicate", [False, True])
+def test_confirmed_artist_identity_survives_partial_batches_and_consolidates_duplicates(
+    admin, media: Path, monkeypatch, existing_duplicate: bool,
+) -> None:  # noqa: ANN001
+    from app.services import library_import
+    from app.services.titles import TitleService
+    from app.models import User
+
+    root = media / "Music"
+    _write(root / "First" / "01 One.flac", title="One", album="First", release_id=RELEASE_A)
+    _write(root / "Second" / "01 Two.flac", title="Two", album="Second", release_id=RELEASE_B)
+    assert scan(admin)["state"] == "succeeded"
+    with db_module.SessionLocal() as db:
+        artist = _title(db, f"artist:musicbrainz:{ARTIST_A}")
+        artist_id = artist.id
+        album_ids = set(db.scalars(select(MediaTitle.id).where(MediaTitle.type == "album")))
+        track_ids = set(db.scalars(select(LibraryItem.id)))
+        artist.key = "artist:legacy-confirmed"
+        artist.name = "My artist name"
+        artist.field_sources = {"name": "user", "images.Primary": "user"}
+        artist.images = {"Primary": {"upload": "my-portrait"}}
+        alias_id = None
+        if existing_duplicate:
+            duplicate = MediaTitle(id="duplicate-artist", key=f"artist:musicbrainz:{ARTIST_A}",
+                                   type="artist", name="Same Artist", provider_ids={"MusicBrainz": ARTIST_A})
+            db.add(duplicate)
+            db.flush()
+            alias_id = duplicate.id
+            _title(db, f"album:musicbrainz:{RELEASE_B}").parent_id = alias_id
+        db.commit()
+
+    monkeypatch.setattr(library_import, "BATCH_SIZE", 1)
+    assert scan(admin)["state"] == "succeeded"
+    with db_module.SessionLocal() as db:
+        artist = db.get(MediaTitle, artist_id)
+        assert artist.name == "My artist name" and artist.images["Primary"] == {"upload": "my-portrait"}
+        albums = list(db.scalars(select(MediaTitle).where(MediaTitle.type == "album")))
+        assert {album.id for album in albums} == album_ids
+        assert {album.parent_id for album in albums} == {artist_id}
+        assert set(db.scalars(select(LibraryItem.id))) == track_ids
+        assert db.scalar(select(func.count()).select_from(MediaTitle).where(MediaTitle.type == "artist")) == (2 if existing_duplicate else 1)
+        if alias_id:
+            user = db.scalar(select(User).where(User.role == "admin"))
+            assert user is not None
+            assert TitleService(db).get_visible(alias_id, user).id == artist_id

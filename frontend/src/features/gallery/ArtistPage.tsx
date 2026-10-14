@@ -15,6 +15,7 @@ import { loadTitle } from './titleCache';
 import { useMediaQuery } from './WallGrid';
 import './music.css';
 import { MusicDiscography, MusicEnrichment, MusicHighlights, MusicVideoRail } from '../music/MusicExtras';
+import { ArtistPhotoCredit } from '../music/ArtistPhotoCredit';
 
 export type ArtistPageProps = {
   summary: TitleSummary;
@@ -72,6 +73,7 @@ export function ArtistPage({ summary, detail, headingRef, backLabel, onBack, onK
         <aside aria-label={`${artist.name} portrait`} className="soundstage-portrait">
           <GalleryArt alt="" art={artist.poster} card={{ name: artist.name }} colour={cardColour(artist, 'square')} kind="square" priority={1} sizes="(max-width: 599px) 100vw, (max-width: 1023px) 32vw, 520px" />
           {detail?.music?.origin ? <p className="soundstage-origin">{detail.music.origin}</p> : null}
+          <ArtistPhotoCredit music={detail?.music} />
         </aside>
         <div className="soundstage-content">
         <header className="g-artist-text">

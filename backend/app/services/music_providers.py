@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import re
 import threading
@@ -11,7 +12,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any, Callable
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import quote, unquote, urlencode, urlparse
 
 import httpx
 from sqlalchemy import delete, exists, or_, select
@@ -31,7 +32,7 @@ _lock = threading.Lock()
 _brainz_lock = threading.Lock()
 _brainz_at = 0.0
 _TIMESTAMP = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
-_PUBLIC_HOSTS = {"musicbrainz.org", "coverartarchive.org", "lrclib.net", "en.wikipedia.org", "www.wikidata.org"}
+_PUBLIC_HOSTS = {"musicbrainz.org", "coverartarchive.org", "lrclib.net", "en.wikipedia.org", "www.wikidata.org", "commons.wikimedia.org"}
 _artwork = None
 
 
@@ -44,14 +45,16 @@ def validate_art_url(value: str) -> str:
     parsed = urlparse(value)
     hostname = parsed.hostname or ""
     if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in (None, 443) or not (
-        hostname in {"coverartarchive.org", "archive.org", "upload.wikimedia.org"} or hostname.endswith(".archive.org")
+        hostname in {"coverartarchive.org", "archive.org", "upload.wikimedia.org", "thumb.wikimedia.org"} or hostname.endswith(".archive.org")
     ):
         raise ValueError("Unsupported music artwork host")
     return value
 
 
 def normalized(value: str) -> str:
-    return " ".join(re.findall(r"\w+", unicodedata.normalize("NFKC", value).casefold()))
+    decomposed = unicodedata.normalize("NFKD", value).casefold()
+    letters = "".join(char for char in decomposed if not unicodedata.combining(char))
+    return " ".join(re.findall(r"\w+", letters.replace("_", " ")))
 
 
 def key_for(kind: str, *parts: str) -> str:
@@ -110,7 +113,7 @@ def enqueue(key: str, kind: str, load: Callable[[], dict], *, ttl_days: int = 7,
         try:
             try:
                 payload = load()
-                expiry = utcnow() + timedelta(days=ttl_days)
+                expiry = utcnow() if payload.get("changed") else utcnow() + (timedelta(hours=1) if payload.get("artwork_error") else timedelta(days=ttl_days))
             except Exception:  # noqa: BLE001 - availability is reported without private provider details
                 payload, expiry = {"error": "Music provider is temporarily unavailable"}, utcnow() + timedelta(hours=1)
             with session_scope() as db, write_transaction(db, name="music_lookup"):
@@ -232,19 +235,26 @@ def candidates_for(kind: str, name: str, artist: str | None = None) -> list[dict
     query = f'{entity}:"{escaped}"'
     if artist:
         query += f' AND artist:"{artist.replace(chr(34), " ")[:300]}"'
-    value = fetch_json(f"https://musicbrainz.org/ws/2/{entity}/?" + urlencode({"query": query, "fmt": "json", "limit": 5}))
+    value = fetch_json(f"https://musicbrainz.org/ws/2/{entity}/?" + urlencode({"query": query, "fmt": "json", "limit": 10}))
     results = value.get("artists" if kind == "artist" else "releases", [])
     rows = []
-    for entry in results[:5]:
+    for entry in results[:10]:
         try:
             identity = str(uuid.UUID(entry["id"]))
         except (ValueError, KeyError, TypeError):
             continue
-        credits = " ".join(c.get("name", "") for c in entry.get("artist-credit", []) if isinstance(c, dict))
-        exact = normalized(entry.get("name") or entry.get("title") or "") == normalized(name)
+        credits = "".join(c.get("name", "") + c.get("joinphrase", " ") for c in entry.get("artist-credit", []) if isinstance(c, dict)).strip()
+        names = [entry.get("name") or entry.get("title") or ""]
+        if kind == "artist":
+            names.extend(alias["name"] for alias in entry.get("aliases", [])[:30] if isinstance(alias, dict) and isinstance(alias.get("name"), str))
+        exact = bool(normalized(name)) and any(normalized(candidate) == normalized(name) for candidate in names)
         if artist:
             exact = exact and normalized(credits) == normalized(artist)
+        # A partial search page cannot establish a unique identity.
+        count = value.get("count")
+        exact = exact and not (type(count) is int and count > len(results))
         rows.append({"id": identity, "name": entry.get("name") or entry.get("title"), "artist": credits,
+                     "release_group_id": (entry.get("release-group") or {}).get("id"),
                      "disambiguation": entry.get("disambiguation"), "date": entry.get("date"), "country": entry.get("country"),
                      "score": int(entry.get("score") or 0), "exact": exact})
     return rows
@@ -300,6 +310,77 @@ def release_editions(group_id: str, offset: int = 0) -> dict:
     return {"items": items, "next_offset": offset + 100 if type(count) is int and offset + 100 < count else None}
 
 
+def artist_profile(value: dict) -> tuple[dict, list[dict]]:
+    """Follow identity-linked articles and P18 photographs, never a name-based image search."""
+    fields, pictures, entity = {}, [], {}
+    retry = False
+    relations = value.get("relations", [])[:200]
+    wiki = next((r.get("url", {}).get("resource", "") for r in relations if r.get("type") == "wikipedia"), "")
+    wikidata = next((r.get("url", {}).get("resource", "") for r in relations if r.get("type") == "wikidata"), "")
+    entity_id = wikidata.rsplit("/", 1)[-1]
+    if re.fullmatch(r"Q\d{1,12}", entity_id):
+        try:
+            entity = fetch_json(f"https://www.wikidata.org/wiki/Special:EntityData/{entity_id}.json").get("entities", {}).get(entity_id, {})
+            article_name = entity.get("sitelinks", {}).get("enwiki", {}).get("title")
+            if not wiki and isinstance(article_name, str):
+                wiki = "https://en.wikipedia.org/wiki/" + quote(article_name.replace(" ", "_"), safe="")
+        except (httpx.HTTPError, ValueError):
+            retry = True
+    portrait = None
+    if wiki.startswith("https://en.wikipedia.org/wiki/"):
+        try:
+            article = fetch_json("https://en.wikipedia.org/api/rest_v1/page/summary/" + quote(unquote(wiki.partition("/wiki/")[2]), safe=""))
+            fields = {"overview": article.get("extract", "")[:10_000], "biography_url": wiki}
+            portrait = (article.get("originalimage") or article.get("thumbnail") or {}).get("source")
+            article_entity = article.get("wikibase_item", "")
+            if not entity and isinstance(article_entity, str) and re.fullmatch(r"Q\d{1,12}", article_entity):
+                entity = fetch_json(f"https://www.wikidata.org/wiki/Special:EntityData/{article_entity}.json").get("entities", {}).get(article_entity, {})
+        except (httpx.HTTPError, ValueError):
+            retry = True
+    # Commons supplies image dimensions and per-photo attribution. Up to three
+    # explicit images of this entity can fill different roles without borrowing a sleeve.
+    claims = sorted(entity.get("claims", {}).get("P18", [])[:20], key=lambda c: c.get("rank") != "preferred")
+    filenames = []
+    for claim in claims:
+        filename = claim.get("mainsnak", {}).get("datavalue", {}).get("value")
+        if claim.get("rank") != "deprecated" and isinstance(filename, str) and 0 < len(filename) <= 300 and not any(ch in filename for ch in "|\r\n"):
+            filenames.append("File:" + filename)
+    if isinstance(portrait, str) and urlparse(portrait).hostname in ("upload.wikimedia.org", "thumb.wikimedia.org"):
+        parts = urlparse(portrait).path.split("/")
+        filename = unquote(parts[-2] if "/thumb/" in portrait else parts[-1])
+        if re.search(r"\.(jpe?g|png|webp)$", filename, re.I) and len(filename) <= 300 and not any(ch in filename for ch in "|\r\n"):
+            filenames.insert(0, "File:" + filename)
+    if filenames:
+        try:
+            answer = fetch_json("https://commons.wikimedia.org/w/api.php?" + urlencode({"action": "query", "format": "json", "prop": "imageinfo",
+                "titles": "|".join(dict.fromkeys(filenames[:3])), "iiprop": "url|size|extmetadata", "iiurlwidth": 1600}))
+            for page in answer.get("query", {}).get("pages", {}).values():
+                info = (page.get("imageinfo") or [{}])[0]
+                width, height = info.get("width"), info.get("height")
+                url = info.get("thumburl") or info.get("url")
+                if type(width) is not int or type(height) is not int or min(width, height) < 400 or not isinstance(url, str):
+                    continue
+                validate_art_url(url)
+                metadata = info.get("extmetadata", {})
+                def text(key: str) -> str:
+                    return html.unescape(re.sub(r"<[^>]*>", "", str(metadata.get(key, {}).get("value", ""))))[:500].strip()
+                source = info.get("descriptionurl", "")
+                if not source.startswith("https://commons.wikimedia.org/wiki/File:"):
+                    continue
+                pictures.append({"url": url, "width": width, "height": height, "source_url": source,
+                                 "author": text("Artist"), "license": text("LicenseShortName")})
+        except (httpx.HTTPError, ValueError):
+            retry = True
+    if retry:
+        fields["_artwork_retry"] = True
+    if pictures:
+        primary = min(pictures, key=lambda p: abs(p["width"] / p["height"] - 0.85))
+        primary = {**primary, "image_type": "Primary"}
+        background = next((p for p in pictures if p["source_url"] != primary["source_url"] and p["width"] >= p["height"] * 1.4), None)
+        return fields, [primary, *([{**background, "image_type": "Backdrop"}] if background else [])]
+    return fields, [{"url": portrait, "image_type": "Primary", "source_url": wiki, "author": "", "license": ""}] if portrait else []
+
+
 def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
     with session_scope() as db:
         title = db.get(MediaTitle, title_id)
@@ -311,11 +392,12 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
         parent = db.get(MediaTitle, title.parent_id) if title.parent_id else None
         artist = parent.name if parent else None
         existing_id = (title.provider_ids or {}).get("MusicBrainz")
+        release_group = (title.metadata_json or {}).get("release_group_id") if kind == "album" else None
         identity_before, parent_before = dict(title.provider_ids or {}), title.parent_id
         if (title.field_sources or {}).get("provider_ids") == "user" and not existing_id and not provider_id:
             return {"unmatched": True}
     candidates = [] if provider_id or existing_id else candidates_for(kind, name, artist)
-    exact = [c for c in candidates if c["exact"] and c["score"] >= 95]
+    exact = [c for c in candidates if c["exact"] and c["score"] >= 95 and (not release_group or c.get("release_group_id") == release_group)]
     chosen = provider_id or existing_id or (exact[0]["id"] if len(exact) == 1 else None)
     if not chosen:
         with session_scope() as db, write_transaction(db, name="music_candidates"):
@@ -332,7 +414,12 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
               "styles": [g["name"] for g in sorted(value.get("tags", []), key=lambda t: t.get("count", 0), reverse=True)[:15] if isinstance(g.get("name"), str)]}
     if kind == "artist":
         life = value.get("life-span", {})
-        fields.update(origin=(value.get("begin-area") or value.get("area") or {}).get("name"), active_since=life.get("begin"), active_until=life.get("end"), overview=value.get("disambiguation"))
+        fields.update(origin=(value.get("begin-area") or value.get("area") or {}).get("name"), overview=value.get("disambiguation"))
+        if value.get("type") == "Person":
+            fields.update({field: date for field, key in (("birth_date", "begin"), ("death_date", "end"))
+                           if isinstance(date := life.get(key), str) and re.fullmatch(r"\d{4}(?:-\d{2}){0,2}", date)})
+        else:
+            fields.update(active_since=life.get("begin"), active_until=life.get("end"))
         releases = release_page(chosen)["items"]
     else:
         group = value.get("release-group", {})
@@ -346,34 +433,25 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
         releases = []
         fields["credits"] = _credits(value)
         fields["release_group_id"] = group.get("id")
-    portrait = None
+    pictures = []
+    profile_retry = False
     if kind == "artist":
-        wiki = next((r.get("url", {}).get("resource", "") for r in value.get("relations", []) if r.get("type") == "wikipedia"), "")
-        if not wiki:
-            wikidata = next((r.get("url", {}).get("resource", "") for r in value.get("relations", []) if r.get("type") == "wikidata"), "")
-            entity_id = wikidata.rsplit("/", 1)[-1]
-            if re.fullmatch(r"Q\d{1,12}", entity_id):
-                try:
-                    entity = fetch_json(f"https://www.wikidata.org/wiki/Special:EntityData/{entity_id}.json")
-                    article_name = entity.get("entities", {}).get(entity_id, {}).get("sitelinks", {}).get("enwiki", {}).get("title")
-                    if isinstance(article_name, str):
-                        wiki = "https://en.wikipedia.org/wiki/" + quote(article_name.replace(" ", "_"), safe="")
-                except (httpx.HTTPError, ValueError):
-                    pass
-        if wiki.startswith("https://en.wikipedia.org/wiki/"):
-            try:
-                article = fetch_json("https://en.wikipedia.org/api/rest_v1/page/summary/" + quote(wiki.partition("/wiki/")[2], safe=""))
-                fields["overview"] = article.get("extract", "")[:10_000] or fields.get("overview")
-                portrait = (article.get("originalimage") or article.get("thumbnail") or {}).get("source")
-                fields["biography_url"] = wiki
-            except (httpx.HTTPError, ValueError):
-                pass
+        profile, pictures = artist_profile(value)
+        profile_retry = profile.pop("_artwork_retry", False)
+        fields.update({k: v for k, v in profile.items() if v})
     with session_scope() as db, write_transaction(db, name="music_enrichment"):
         title = db.get(MediaTitle, title_id)
         if title is None or title.locked:
             return {"locked": True}
         if title.name != name or title.parent_id != parent_before or (title.provider_ids or {}) != identity_before:
             return {"changed": True}
+        if kind == "artist" and value.get("type") == "Person":
+            # Earlier provider refreshes labelled person life spans as careers.
+            # Remove only those derived values; a household edit remains authoritative.
+            for field in ("active_since", "active_until"):
+                if (title.field_sources or {}).get(field) == "musicbrainz":
+                    title.metadata_json = {k: v for k, v in (title.metadata_json or {}).items() if k != field}
+                    title.field_sources = {k: v for k, v in (title.field_sources or {}).items() if k != field}
         for field, content in fields.items():
             if content:
                 from app.services.metadata_editor import CATALOGUE, FieldError, validate
@@ -394,18 +472,28 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
         from app.services.library_search import index_title
         db.flush()
         index_title(db, title)
-    try:
-        import_art(title_id, portrait if kind == "artist" else f"https://coverartarchive.org/release/{chosen}/front-1200", identity=chosen)
-    except Exception:  # noqa: BLE001 - missing provider artwork must not discard a valid identity
-        pass
-    return {"identified": True, "id": chosen}
+    artwork_error = profile_retry
+    if kind == "album":
+        pictures = [{"url": f"https://coverartarchive.org/release/{chosen}/front-1200", "image_type": "Primary"}]
+    for picture in pictures:
+        try:
+            import_art(title_id, picture["url"], identity=chosen, image_type=picture["image_type"], credit=picture if kind == "artist" else None)
+        except Exception as error:  # noqa: BLE001 - artwork retries without discarding a valid identity
+            from app.services.artwork import ArtworkNotFoundError
+            artwork_error = artwork_error or not isinstance(error, ArtworkNotFoundError)
+    if artwork_error:
+        with session_scope() as db, write_transaction(db, name="music_art_retry"):
+            title = db.get(MediaTitle, title_id)
+            if title and (title.provider_ids or {}).get("MusicBrainz") == chosen:
+                title.metadata_due_at = utcnow() + timedelta(hours=1)
+    return {"identified": True, "id": chosen, **({"artwork_error": "Artist or release artwork is temporarily unavailable"} if artwork_error else {})}
 
 
 def request_enrichment(title_id: str, provider_id: str | None = None, *, force: bool = False) -> bool:
     return enqueue(key_for("metadata", title_id), "metadata", lambda: enrich_title(title_id, provider_id), ttl_days=30, force=force)
 
 
-def import_art(title_id: str, url: str | None, *, identity: str | None = None) -> None:
+def import_art(title_id: str, url: str | None, *, identity: str | None = None, image_type: str = "Primary", credit: dict | None = None) -> None:
     if not url or _artwork is None:
         return
     response = _artwork.load_pinned(url, bucket="music", max_bytes=2 * 1024**3, validate_redirect=validate_art_url)
@@ -413,7 +501,15 @@ def import_art(title_id: str, url: str | None, *, identity: str | None = None) -
     with session_scope() as db, write_transaction(db, name="music_art"):
         title = db.get(MediaTitle, title_id)
         if title is not None and (identity is None or (title.provider_ids or {}).get("MusicBrainz") == identity):
-            apply_field(title, "images.Primary", {"music": url, "tag": tag}, "musicbrainz")
+            from app.services.media_titles import write_outcome
+            field = f"images.{image_type}"
+            image = {"music": url, "tag": tag}
+            writable = write_outcome(title, field, image, "musicbrainz") in ("write", "same")
+            apply_field(title, field, image, "musicbrainz")
+            if credit and writable:
+                credits = [c for c in (title.metadata_json or {}).get("artwork_credits", []) if c.get("image_type") != image_type]
+                credits.append({**{k: credit[k] for k in ("image_type", "source_url", "author", "license")}, "tag": tag})
+                title.metadata_json = {**(title.metadata_json or {}), "artwork_credits": credits[:3]}
 
 
 def maintenance() -> None:

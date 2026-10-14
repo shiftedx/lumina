@@ -287,3 +287,152 @@ def test_albums_are_dated_by_their_newest_track_not_by_scan_order(admin, media) 
     assert scan(admin)["state"] == "succeeded"
     titles = music_titles()
     assert (titles["album:Alpha"].added_at, titles["album:Zed"].added_at, titles["artist:Artist"].added_at) == (_at(2020), _at(2025, 6), _at(2025, 6))
+
+
+def test_flat_artist_folder_keeps_embedded_covers_with_their_album(tmp_path: Path) -> None:
+    from app.services.local_metadata import _music
+
+    root = tmp_path / 'music'
+    (root / 'Artist').mkdir(parents=True)
+    for name in ['a.flac', 'b.flac', 'cover.jpg']:
+        (root / 'Artist' / name).write_bytes(b'fixture')
+    tags = {
+        ('Artist', 'a.flac'): AudioTags(album='First', album_artist='Artist', has_picture=True),
+        ('Artist', 'b.flac'): AudioTags(album='Second', album_artist='Artist', has_picture=True),
+    }
+    cache = {}
+    for name in ['b.flac', 'a.flac', 'b.flac']:
+        result = _music(root, ('Artist',), name, tags[('Artist', name)], cache, tags.get)
+        assert result[0][1]['fields']['nfo']['images.Primary']['embedded'] == f'Artist/{name}'
+
+
+def test_flat_folder_does_not_borrow_another_album_picture(tmp_path: Path) -> None:
+    from app.services.local_metadata import _music
+
+    root = tmp_path / 'music'
+    (root / 'Artist').mkdir(parents=True)
+    for name in ['a.flac', 'b.flac']:
+        (root / 'Artist' / name).write_bytes(b'fixture')
+    tags = {
+        ('Artist', 'a.flac'): AudioTags(album='First', has_picture=True),
+        ('Artist', 'b.flac'): AudioTags(album='Second'),
+    }
+    result = _music(root, ('Artist',), 'b', tags[('Artist', 'b.flac')], {}, tags.get)
+    assert 'images.Primary' not in result[0][1]['fields']['nfo']
+
+
+def test_same_named_releases_in_one_folder_use_their_own_cover(tmp_path: Path) -> None:
+    from app.services.local_metadata import _music
+
+    root = tmp_path / 'music'
+    (root / 'Artist').mkdir(parents=True)
+    for name in ['a.flac', 'b.flac']:
+        (root / 'Artist' / name).write_bytes(b'fixture')
+    tags = {
+        ('Artist', name): AudioTags(album='Shared title', album_artist='Artist', has_picture=True,
+                                   musicbrainz_album_id=release)
+        for name, release in [('a.flac', '12345678-1234-4678-9234-123456789012'),
+                              ('b.flac', '22345678-1234-4678-9234-123456789012')]
+    }
+    cache = {}
+    for name in ['a.flac', 'b.flac']:
+        result = _music(root, ('Artist',), name, tags[('Artist', name)], cache, tags.get)
+        assert result[0][1]['fields']['nfo']['images.Primary']['embedded'] == f'Artist/{name}'
+
+
+def test_identified_release_does_not_borrow_a_picture_with_missing_release_id(tmp_path: Path) -> None:
+    from app.services.local_metadata import _music
+
+    root = tmp_path / 'music'
+    (root / 'Artist').mkdir(parents=True)
+    for name in ['a.flac', 'b.flac']:
+        (root / 'Artist' / name).write_bytes(b'fixture')
+    tags = {
+        ('Artist', 'a.flac'): AudioTags(album='Shared title', album_artist='Artist', has_picture=True),
+        ('Artist', 'b.flac'): AudioTags(album='Shared title', album_artist='Artist',
+                                      musicbrainz_album_id='12345678-1234-4678-9234-123456789012'),
+    }
+    result = _music(root, ('Artist',), 'b', tags[('Artist', 'b.flac')], {}, tags.get)
+    assert 'images.Primary' not in result[0][1]['fields']['nfo']
+
+
+def test_missing_album_tag_keeps_dedicated_folder_sidecar(tmp_path: Path) -> None:
+    target = 'Artist/Album/01.flac'
+    result = described(tmp_path, target, ('Artist/Album/02.flac', 'Artist/Album/cover.jpg'), {
+        target: AudioTags(album='Album', album_artist='Artist', has_picture=True),
+        'Artist/Album/02.flac': AudioTags(album_artist='Artist', has_picture=True),
+    })
+    assert result['titles'][1]['fields']['nfo']['images.Primary']['path'] == 'Artist/Album/cover.jpg'
+
+
+def test_release_cover_candidates_are_read_once_per_folder(tmp_path: Path) -> None:
+    from app.services.local_metadata import _music
+
+    root = tmp_path / 'music'
+    (root / 'Artist').mkdir(parents=True)
+    tags = {}
+    for name, album in [('a.flac', 'First'), ('b.flac', 'Second')]:
+        (root / 'Artist' / name).write_bytes(b'fixture')
+        tags[('Artist', name)] = AudioTags(album=album, has_picture=True)
+    calls = []
+
+    def read(parts):
+        calls.append(parts)
+        return tags.get(parts)
+
+    cache = {}
+    for name in ['a.flac', 'b.flac']:
+        _music(root, ('Artist',), name, tags[('Artist', name)], cache, read)
+    assert calls == [('Artist', 'a.flac'), ('Artist', 'b.flac')]
+
+
+def test_artist_background_sidecar_is_separate_from_album_cover(tmp_path: Path) -> None:
+    target = 'Music/Artist A/Album One/01 - Song One.flac'
+    result = described(tmp_path, target, ('Music/Artist A/artist.jpg', 'Music/Artist A/fanart.jpg'),
+                       tags={target: AudioTags(artist='Artist A', album_artist='Artist A', album='Album One')})
+    images = result['titles'][0]['fields']['nfo']
+    assert images['images.Primary']['path'].endswith('/artist.jpg')
+    assert images['images.Backdrop']['path'].endswith('/fanart.jpg')
+
+
+def test_guest_track_without_album_artist_stays_on_the_main_release(tmp_path: Path) -> None:
+    paths = ('Artist A/01 One.flac', 'Artist A/02 Two.flac', 'Artist A/03 Guest.flac')
+    tags = {path: AudioTags(title=str(i), artist='Artist A' if i < 2 else 'Artist A feat. Guest B', album='Shared Release', track=i+1)
+            for i, path in enumerate(paths)}
+    result = described(tmp_path, paths[-1], paths[:-1], tags)
+    assert result['metadata']['artist'] == 'Artist A feat. Guest B'
+    assert result['metadata']['album_artist'] == 'Artist A'
+    assert chain(result) == [('artist', 'artist:artist a'), ('album', 'album:artist a/shared release')]
+
+
+def test_explicit_joint_album_artist_is_not_replaced_by_track_majority(tmp_path: Path) -> None:
+    paths = ('Shared/01 One.flac', 'Shared/02 Two.flac', 'Shared/03 Joint.flac')
+    tags = {path: AudioTags(artist='Artist A', album='Shared Release') for path in paths}
+    tags[paths[-1]] = AudioTags(artist='Artist A feat. Guest B', album_artist='Artist A & Artist B', album='Shared Release')
+    result = described(tmp_path, paths[-1], paths[:-1], tags)
+    assert result['metadata']['album_artist'] == 'Artist A & Artist B'
+
+
+def test_album_artist_consensus_never_crosses_release_ids(tmp_path: Path) -> None:
+    paths = ('Shared/01 One.flac', 'Shared/02 Two.flac', 'Shared/03 Other.flac')
+    first, second = '12345678-1234-4678-9234-123456789012', '22345678-1234-4678-9234-123456789012'
+    tags = {path: AudioTags(artist='Artist A', album='Same Name', musicbrainz_album_id=first) for path in paths}
+    tags[paths[-1]] = AudioTags(artist='Artist B', album='Same Name', musicbrainz_album_id=second)
+    result = described(tmp_path, paths[-1], paths[:-1], tags)
+    assert result['metadata']['album_artist'] == 'Artist B'
+
+
+@pytest.mark.parametrize('credit', ['Artist A feat. Guest B', 'Artist A featuring Guest B', 'Artist A ft Guest B'])
+def test_explicit_feature_marker_never_creates_a_guest_album_artist(tmp_path: Path, credit: str) -> None:
+    path = 'Flat/01 Featured.flac'
+    result = described(tmp_path, path, tags={path: AudioTags(artist=credit, album='Single Release')})
+    assert result['metadata']['artist'] == credit
+    assert result['metadata']['album_artist'] == 'Artist A'
+
+
+def test_two_track_release_uses_feature_credit_lead_without_splitting_joint_names(tmp_path: Path) -> None:
+    paths = ('Flat/01 One.flac', 'Flat/02 Two.flac')
+    tags = {paths[0]: AudioTags(artist='Artist A', album='Short Release'), paths[1]: AudioTags(artist='Artist A feat. Guest B', album='Short Release')}
+    assert described(tmp_path, paths[1], paths[:1], tags)['metadata']['album_artist'] == 'Artist A'
+    tags[paths[1]] = AudioTags(artist='Artist A & Artist B', album='Joint Release')
+    assert described(tmp_path, paths[1], paths[:1], tags)['metadata']['album_artist'] == 'Artist A & Artist B'

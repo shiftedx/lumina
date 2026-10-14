@@ -8,6 +8,7 @@ import { albumLabel } from '../gallery/AlbumCard';
 import { GalleryArt } from '../gallery/GalleryArt';
 import { cardColour, countNoun } from '../gallery/galleryModel';
 import { playMusic } from './musicSession';
+import { ArtistPhotoCredit } from './ArtistPhotoCredit';
 
 const FEATURED_LIMIT = 6;
 
@@ -25,6 +26,7 @@ const failureMessage = (error: unknown, fallback: string) => error instanceof Er
 export function AudioSoundstage({ owner, onOpenArtist }: { owner: string; onOpenArtist: (artist: TitleSummary) => void }) {
   const [artists, setArtists] = useState<TitleSummary[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [failedPortraitId, setFailedPortraitId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TitleDetail | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [detailProblem, setDetailProblem] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function AudioSoundstage({ owner, onOpenArtist }: { owner: string; onOpen
     void listTitles({ type: 'artist', limit: FEATURED_LIMIT, sort: 'created' }).then((page) => {
       if (listRequest.current !== current) return;
       const found = page.items.filter((title) => title.type === 'artist').slice(0, FEATURED_LIMIT);
-      setArtists(found); setSelectedId(found[0]?.id ?? null);
+      setArtists(found); setSelectedId(found.find((title) => title.poster)?.id ?? found[0]?.id ?? null);
     }, (error) => {
       if (listRequest.current === current) { setArtists([]); setProblem(failureMessage(error, 'Featured artists could not be loaded.')); }
     });
@@ -74,10 +76,16 @@ export function AudioSoundstage({ owner, onOpenArtist }: { owner: string; onOpen
   if (artists === null) return <section aria-label="Featured artist" aria-live="polite" className="gallery audio-soundstage is-loading"><div className="audio-soundstage-loading" role="status">Preparing the soundstage…</div></section>;
   if (!artists.length) return <section aria-labelledby="audio-soundstage-empty" className="gallery audio-soundstage is-empty"><div><p className="g-kicker">Featured artist</p><h2 id="audio-soundstage-empty">Your soundstage is waiting</h2><p>{problem ?? 'Artists will appear here when albums join your library.'}</p>{problem ? <TextButton icon={<RefreshCw />} onClick={() => setReload((value) => value + 1)}>Try again</TextButton> : null}</div></section>;
   if (!artist) return null;
+  const featuredRelease = albums.find((album) => album.poster) ?? albums[0];
+  const photograph = detail?.backdrop ?? artist.poster;
+  const useReleaseCover = (!photograph || failedPortraitId === artist.id) && featuredRelease;
 
   return <section aria-labelledby="audio-soundstage-title" className="gallery audio-soundstage">
-    <div className="audio-soundstage-portrait">
-      <GalleryArt alt={`Portrait of ${artist.name}`} art={artist.poster} card={{ name: artist.name }} className="audio-soundstage-art" colour={cardColour(artist, 'square')} kind="square" priority={1} sizes="(max-width: 599px) 100vw, (max-width: 1099px) 42vw, 520px" />
+    <div className={`audio-soundstage-portrait${useReleaseCover ? ' is-release' : ''}`}>
+      {useReleaseCover ? <button aria-label={`Featured release: ${featuredRelease.name}`} className="audio-soundstage-sleeve" onClick={() => onOpenArtist(featuredRelease)} type="button">
+        <GalleryArt alt={`Cover of ${featuredRelease.name}`} art={featuredRelease.poster} card={{ name: featuredRelease.name, year: featuredRelease.year }} colour={cardColour(featuredRelease, 'square')} kind="square" priority={1} sizes="(max-width: 599px) 100vw, (max-width: 1099px) 42vw, 520px" />
+        <span><small>Featured release</small><strong>{featuredRelease.name}</strong></span>
+      </button> : <GalleryArt alt={`Portrait of ${artist.name}`} art={photograph} card={{ name: artist.name }} className="audio-soundstage-art" colour={cardColour(artist, 'square')} kind="square" onFail={() => setFailedPortraitId(artist.id)} priority={1} sizes="(max-width: 599px) 100vw, (max-width: 1099px) 42vw, 520px" />}
     </div>
     <div className="audio-soundstage-story">
       <p className="g-kicker">On the soundstage</p>
@@ -85,6 +93,7 @@ export function AudioSoundstage({ owner, onOpenArtist }: { owner: string; onOpen
       {metadata.length ? <p className="audio-soundstage-meta">{metadata.join(' · ')}</p> : null}
       {artist.overview ? <p className="audio-soundstage-bio">{artist.overview}</p> : detail === null && !detailProblem ? <p aria-live="polite" className="audio-soundstage-note" role="status">Loading artist story…</p> : null}
       {artist.genres.length ? <p className="audio-soundstage-genres">{artist.genres.slice(0, 4).join(' · ')}</p> : null}
+      {!useReleaseCover ? <ArtistPhotoCredit imageType={detail?.backdrop ? 'Backdrop' : 'Primary'} music={detail?.music} /> : null}
       <div className="audio-soundstage-actions">
         <Button busy={busy === 'play'} disabled={artist.child_count === 0} icon={<Play />} onClick={() => void listen(false)} variant="primary">Play artist</Button>
         <Button busy={busy === 'shuffle'} disabled={artist.child_count === 0} icon={<Shuffle />} onClick={() => void listen(true)}>Shuffle</Button>

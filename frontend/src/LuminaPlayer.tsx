@@ -66,6 +66,8 @@ export type LuminaPlayerSource = {
 
 /** Caller-owned content for future playback features; the shell owns their placement. */
 export type LuminaPlayerExtensions = {
+  /** Caller-owned next step when the source cannot play here. */
+  unavailableAction?: ReactNode;
   quality?: ReactNode;
   chapters?: ReactNode;
   theater?: ReactNode;
@@ -714,11 +716,12 @@ export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(func
       ) : null}
       {unavailable ? (
         <div aria-live={failure ? undefined : 'polite'} role={failure ? 'alert' : 'status'}>
-          <strong>Stream unavailable</strong>
+          <strong>{extensions?.unavailableAction ? 'Continue at source' : 'Stream unavailable'}</strong>
           <span>{playerMessage(activeSource, failure ? 'failed' : 'unsupported')}</span>
+          {extensions?.unavailableAction}
           {activeSource.onRefresh ? <button disabled={refreshing} onClick={() => void refresh()} type="button">{refreshing ? 'Refreshing stream' : 'Refresh stream'}</button> : null}
           {extensions?.quality ? <div className="player-recovery-quality" data-player-extension="quality">{extensions.quality}</div> : null}
-          {extensions?.theater ? <div className="player-recovery-theater" data-player-extension="theater">{extensions.theater}</div> : null}
+          {extensions?.theater && !extensions.unavailableAction ? <div className="player-recovery-theater" data-player-extension="theater">{extensions.theater}</div> : null}
           {extensions?.chapters ? <div className="player-progress-stack player-recovery-chapters">{extensions.chapters}</div> : null}
         </div>
       ) : (

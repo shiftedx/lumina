@@ -15,6 +15,35 @@ const VOD_URL = 'https://www.twitch.tv/videos/2000000001';
 const LIVE_URL = 'https://www.twitch.tv/luminafixture';
 let hlsDir = '';
 
+test('protected Twitch streams offer a deliberate source handoff', async ({ page }) => {
+  await open(page, LIVE_URL, 'dark', { width: 1280, height: 900 }, async (p) => {
+    await p.route('**/api/preview', (route) => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ detail: {
+      category: 'unsupported',
+      message: 'This Twitch broadcast is DRM-protected and must be watched on the Twitch website. Open the original link to watch it. Lumina cannot play, record or save this broadcast.',
+    } }) }));
+  });
+  const handoff = page.getByRole('link', { name: 'Watch on Twitch (opens in a new tab)' });
+  await expect(handoff).toBeVisible();
+  await expect(handoff).toHaveAttribute('href', LIVE_URL);
+  await expect(handoff).toHaveAttribute('target', '_blank');
+  await expect(page.getByRole('button', { name: 'Save to library' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Record from now' })).toHaveCount(0);
+  await expect(page.locator('iframe, video')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Dismiss:.*DRM-protected/ })).toHaveCount(0);
+  await page.screenshot({ path: '../output/twitch-source-handoff-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(handoff).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: '../output/twitch-source-handoff-phone.png' });
+  await page.context().route(LIVE_URL, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Twitch source</title>' }));
+  const popup = page.waitForEvent('popup');
+  await handoff.click();
+  const source = await popup;
+  await expect(source).toHaveURL(LIVE_URL);
+  await expect(page).toHaveURL(new RegExp(`/watch\\?url=${encodeURIComponent(LIVE_URL)}`));
+  await source.close();
+});
+
 test.beforeAll(() => {
   hlsDir = mkdtempSync(join(tmpdir(), 'lumina-s29-'));
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=24:duration=8', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=8',

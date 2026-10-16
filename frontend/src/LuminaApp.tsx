@@ -537,7 +537,8 @@ export default function LuminaApp() {
   }, [message, toast]);
   // The auth screens render `error` inline (role=alert), and Watch reads the acquisition failure inline, so neither is cleared by toasting.
   useShellErrorToast(state.authStage === 'ready' ? error : null, () => setError(null));
-  useShellErrorToast(acquisition.state.failure?.message ?? null, undefined, acquisition.state.failure);
+  const inlineSourceHandoff = surface === 'watch' && acquisition.state.failure?.phase === 'preview' && acquisition.state.failure.category === 'unsupported';
+  useShellErrorToast(inlineSourceHandoff ? null : acquisition.state.failure?.message ?? null, undefined, acquisition.state.failure);
   const offlineToasted = useRef<number | null>(null);
   useEffect(() => {
     if (state.jobsState === 'offline') {

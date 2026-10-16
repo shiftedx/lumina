@@ -528,3 +528,7 @@ AI features use only the OpenAI-compatible endpoints configured under **Manage S
 **TheIntroDB** lookups (Manage Server → Connections → Metadata) are off by default. Each lookup tells a third party which episodes the household owns.
 
 On the first v3 boot after an upgrade, restart recovery re-queues any `queued` or `running` speech-to-text (ASR) rows left over from before the restart, so a transcription in progress at shutdown resumes instead of being lost.
+
+## Protected Twitch broadcasts
+
+Some Twitch broadcasts require DRM and permit viewing only on the Twitch website, including through restrictions on Twitch's own embedded player. When Twitch returns `no_cdm_specified`, Lumina explains the restriction and offers **Watch on Twitch** in the player. This opens Twitch in a new tab and preserves the member's place in Lumina. The guarded HLS relay cannot play, record or save these broadcasts. Updating extraction settings or retrying the stream does not enable DRM playback.

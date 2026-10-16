@@ -255,7 +255,7 @@ _RESTRICTION_MARKERS: tuple[tuple[AcquisitionErrorCategory, tuple[str, ...]], ..
         "has been removed", "has been terminated", "no longer available", "video unavailable",
         "does not exist", "has been deleted",
     )),
-    ("unsupported", ("public media on this page", "unsupported url", "no video formats found", "no media found")),
+    ("unsupported", ("public media on this page", "unsupported url", "no video formats found", "no media found", "no_cdm_specified")),
 )
 _RESTRICTION_MESSAGES: dict[str, str] = {
     "rate_limited": "The provider is limiting anonymous requests from this server right now. Try the link again later.",
@@ -1287,6 +1287,11 @@ class YtDlpService:
         if PUBLIC_SOURCE_POLICY_MESSAGE.lower() in lowered:
             return PUBLIC_SOURCE_POLICY_MESSAGE
         category = YtDlpService.classify_download_error(normalized)
+        if category == "unsupported" and "no_cdm_specified" in lowered:
+            return (
+                "This Twitch broadcast is DRM-protected and must be watched on the Twitch website. "
+                "Open the original link to watch it. Lumina cannot play, record or save this broadcast."
+            )
         if category == "format_unavailable":
             return (
                 "YouTube did not expose any playable audio/video formats for this item in the current session. "

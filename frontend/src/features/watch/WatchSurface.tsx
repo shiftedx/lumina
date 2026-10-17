@@ -181,6 +181,15 @@ export function WatchSurface({
   const startAt = local && startRef.current?.id === local.id ? startRef.current.at : 0;
   const remote = selection.kind === 'remote' ? selection.item : null;
   const preview = selection.kind === 'remote' ? selection.preview : null;
+  // A title detail can arrive after the generic library layout has already mounted.
+  // Keep the tool selection above those layouts, but do not carry it into another item.
+  const toolOwnerId = selection.kind === 'library' ? `library:${selection.item.id}` : `remote:${selection.item.id}`;
+  const [toolSelection, setToolSelection] = useState<{ ownerId: string; selectedId: string | null }>({ ownerId: toolOwnerId, selectedId: null });
+  const selectedToolId = toolSelection.ownerId === toolOwnerId ? toolSelection.selectedId : null;
+  const selectTool = (id: string) => setToolSelection({ ownerId: toolOwnerId, selectedId: id });
+  useEffect(() => {
+    setToolSelection((current) => current.ownerId === toolOwnerId ? current : { ownerId: toolOwnerId, selectedId: null });
+  }, [toolOwnerId]);
   const capabilities = preview?.capabilities;
   // The player learns a live broadcast ended (relay refresh); the page stops claiming Live.
   const [liveEnded, setLiveEnded] = useState(false);
@@ -766,7 +775,7 @@ export function WatchSurface({
                 startsAt={capabilities?.scheduled_start}
                 timestamps={descriptionTimestamps}
                 title={title}
-                tools={<WatchTools tools={toolList} />}
+                tools={<WatchTools onSelectedChange={selectTool} selectedId={selectedToolId} tools={toolList} />}
               />
               <aside aria-label="Watch context" className="g-watch-side">
                 {local ? <LibraryCapturedChatRail currentTimeSeconds={currentTime} durationSeconds={duration} item={local} onSeek={seekPlayback} /> : null}
@@ -804,7 +813,7 @@ export function WatchSurface({
                   {libraryUpNext ? <LibraryUpNextRail autoplay={autoplayUpNext} onAutoplayChange={onAutoplayUpNextChange} onOpenAll={episode ? () => onOpenTitle?.(episode) : undefined} onPlay={(itemId) => onOpenLibraryItem?.(itemId)} upNext={libraryUpNext} /> : null}
                 </aside>
               </div>
-              <div className="watch-local-tools"><WatchTools tools={toolList} /></div>
+              <div className="watch-local-tools"><WatchTools onSelectedChange={selectTool} selectedId={selectedToolId} tools={toolList} /></div>
             </>
           ) : (
             <>
@@ -820,7 +829,7 @@ export function WatchSurface({
                 {shareNote}
                 {recordingControls}
               </section>
-              <WatchTools tools={toolList} />
+              <WatchTools onSelectedChange={selectTool} selectedId={selectedToolId} tools={toolList} />
             </>
           )}
         </div>

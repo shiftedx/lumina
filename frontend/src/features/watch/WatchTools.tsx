@@ -10,14 +10,30 @@ export type WatchTool = { id: string; label: string; panel: ReactNode };
  * join by adding an entry. Inactive panels stay mounted but hidden, so drafts
  * and scroll state survive tab switches and the player is never touched.
  */
-export function WatchTools({ tools: candidates }: { tools: Array<WatchTool | null> }) {
+export function WatchTools({
+  tools: candidates,
+  selectedId,
+  onSelectedChange,
+}: {
+  tools: Array<WatchTool | null>;
+  /** `null` lets the caller use this tool list's first available panel. */
+  selectedId?: string | null;
+  onSelectedChange?: (id: string) => void;
+}) {
   const tools = candidates.filter((tool): tool is WatchTool => tool !== null);
-  const [selected, setSelected] = useState(tools[0]?.id);
+  const [uncontrolledSelected, setUncontrolledSelected] = useState(tools[0]?.id);
+  const controlled = selectedId !== undefined;
+  const selected = controlled ? selectedId : uncontrolledSelected;
   const baseId = useId().replace(/:/g, '');
   if (!tools.length) return null;
   const active = tools.some((tool) => tool.id === selected) ? selected : tools[0].id;
   const tabbed = tools.length > 1;
   const tabId = (id: string) => `${baseId}-${id}-tab`;
+
+  function select(id: string) {
+    if (!controlled) setUncontrolledSelected(id);
+    onSelectedChange?.(id);
+  }
 
   function onKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     const last = tools.length - 1;
@@ -26,7 +42,7 @@ export function WatchTools({ tools: candidates }: { tools: Array<WatchTool | nul
         : event.key === 'Home' ? 0 : event.key === 'End' ? last : -1;
     if (next < 0) return;
     event.preventDefault();
-    setSelected(tools[next].id);
+    select(tools[next].id);
     document.getElementById(tabId(tools[next].id))?.focus();
   }
 
@@ -40,7 +56,7 @@ export function WatchTools({ tools: candidates }: { tools: Array<WatchTool | nul
               aria-selected={tool.id === active}
               id={tabId(tool.id)}
               key={tool.id}
-              onClick={() => setSelected(tool.id)}
+              onClick={() => select(tool.id)}
               onKeyDown={(event) => onKeyDown(event, index)}
               role="tab"
               tabIndex={tool.id === active ? 0 : -1}

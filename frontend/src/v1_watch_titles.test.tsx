@@ -71,6 +71,26 @@ describe('Watch for a title', () => {
     expect(sourceSeek.closest('dd')?.textContent).toContain('Source chapter');
   });
 
+  it('keeps the active tool when title detail changes the library layout', async () => {
+    let resolveTitle!: (value: TitleDetail) => void;
+    const delayedTitle = new Promise<TitleDetail>((resolve) => { resolveTitle = resolve; });
+    available();
+    api.getTitle.mockImplementation(() => delayedTitle);
+    const { rerender } = render(watchSurface({ selection: { kind: 'library', item } }));
+    await userEvent.click(await screen.findByRole('tab', { name: 'Notes' }));
+    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeTruthy();
+
+    await act(async () => { resolveTitle(detail); });
+
+    expect(await screen.findByRole('tab', { name: 'Notes', selected: true })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Notes' })).toBeTruthy();
+
+    rerender(watchSurface({ selection: { kind: 'library', item: { ...item, id: 'i-e2', title_id: 'e2' } } }));
+    expect(await screen.findByRole('tab', { name: 'Details', selected: true })).toBeTruthy();
+    rerender(watchSurface({ selection: { kind: 'library', item } }));
+    expect(await screen.findByRole('tab', { name: 'Details', selected: true })).toBeTruthy();
+  });
+
   it('marks the chosen text subtitle as the default track so a restart keeps it', async () => {
     available();
     render(watchSurface({ selection: { kind: 'library', item } }));

@@ -4,12 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lumina-backend"
-version = "0.3.2"
+version = "0.3.4"
 description = "Local-first backend for a yt-dlp powered media library"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.12"
 dependencies = [
+  "libarchive-c==5.3",
+  "PyMuPDF==1.28.2",
   "fastapi>=0.116.0,<1.0.0",
   "httpx>=0.28.0,<1.0.0",
   "mutagen==1.48.1",

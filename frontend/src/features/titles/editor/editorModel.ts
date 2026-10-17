@@ -84,11 +84,12 @@ export function applyConflicts(draft: Draft, conflicts: EditConflict[], mode: 'm
   return prune(next);
 }
 
-export type FieldKind = 'text' | 'long' | 'int' | 'decimal' | 'date' | 'time' | 'datetime' | 'list' | 'days' | 'status' | 'season' | 'order' | 'group';
-export interface FieldMeta { label: string; kind: FieldKind; max?: number; vocabulary?: 'genres' | 'tags' | 'studios' | 'official_rating' }
+export type FieldKind = 'text' | 'long' | 'int' | 'decimal' | 'date' | 'time' | 'datetime' | 'music_date' | 'list' | 'credits' | 'days' | 'status' | 'release_type' | 'season' | 'order' | 'group';
+export interface FieldMeta { label: string; kind: FieldKind; max?: number; hint?: string; vocabulary?: 'genres' | 'tags' | 'studios' | 'official_rating' }
 
 export const FIELD_META: Record<string, FieldMeta> = {
   name: { label: 'Name', kind: 'text', max: 300 },
+  credits: { label: 'Credits', kind: 'credits', hint: 'Musicians, composers, producers, and the instruments they played.' },
   original_title: { label: 'Original title', kind: 'text', max: 300 },
   sort_name: { label: 'Sort title', kind: 'text', max: 300 },
   year: { label: 'Year', kind: 'int' },
@@ -108,6 +109,17 @@ export const FIELD_META: Record<string, FieldMeta> = {
   genres: { label: 'Genres', kind: 'list', vocabulary: 'genres' },
   tags: { label: 'Tags', kind: 'list', vocabulary: 'tags' },
   studios: { label: 'Studios', kind: 'list', vocabulary: 'studios' },
+  release_type: { label: 'Release type', kind: 'release_type', hint: 'Use the guided release type so albums stay easy to browse.' },
+  edition: { label: 'Edition', kind: 'text', max: 300 },
+  label: { label: 'Label', kind: 'text', max: 300 },
+  catalogue_number: { label: 'Catalogue number', kind: 'text', max: 300 },
+  country: { label: 'Country', kind: 'text', max: 100 },
+  original_year: { label: 'Original release year', kind: 'int', hint: 'The first release year, separate from the release date.' },
+  mood: { label: 'Mood', kind: 'list' },
+  styles: { label: 'Styles', kind: 'list' },
+  origin: { label: 'Origin', kind: 'text', max: 300 },
+  active_since: { label: 'Active since', kind: 'music_date', max: 10, hint: 'Use YYYY, YYYY-MM, or YYYY-MM-DD.' },
+  active_until: { label: 'Active until', kind: 'music_date', max: 10, hint: 'Use YYYY, YYYY-MM, or YYYY-MM-DD.' },
   parent_id: { label: 'Season', kind: 'season' },
   index_number: { label: 'Number', kind: 'int' },
   index_number_end: { label: 'Ends at', kind: 'int' },
@@ -120,6 +132,15 @@ export const FIELD_META: Record<string, FieldMeta> = {
 /** Field order, minus the fields that have their own tabs (people, provider ids, images). */
 export const DETAIL_ORDER = Object.keys(FIELD_META);
 
+export const MUSIC_RELEASE_TYPES = [
+  { value: 'album', label: 'Album' },
+  { value: 'single', label: 'Single' },
+  { value: 'ep', label: 'EP' },
+  { value: 'compilation', label: 'Compilation' },
+  { value: 'live', label: 'Live' },
+  { value: 'soundtrack', label: 'Soundtrack' },
+] as const;
+
 export function parseInput(kind: FieldKind, raw: string): unknown {
   switch (kind) {
     case 'int': return raw.trim() === '' ? null : Math.trunc(Number(raw));
@@ -129,7 +150,7 @@ export function parseInput(kind: FieldKind, raw: string): unknown {
   }
 }
 
-const SOURCE_NAME = { tmdb: 'TMDB', nfo: 'NFO file', path: 'folder name' } as const;
+const SOURCE_NAME = { tmdb: 'TMDB', musicbrainz: 'MusicBrainz', nfo: 'NFO file', path: 'folder name' } as const;
 
 export function sourceChip(state: FieldState): string | null {
   if (state.source === 'user') return sameValue(state.value, state.kept?.value ?? null) ? 'Pinned' : 'Your edit';
@@ -149,12 +170,12 @@ export function revertCopy(kept: KeptValue | null): { question: string; quote: s
   return { question: 'Nothing to go back to. The field will be empty until the next scan or refresh.', quote: null, canRevert: true };
 }
 
-export const TYPE_LABEL: Partial<Record<TitleType, string>> = { movie: 'Movie', series: 'Series', season: 'Season', episode: 'Episode' };
+export const TYPE_LABEL: Partial<Record<TitleType, string>> = { movie: 'Movie', series: 'Series', season: 'Season', episode: 'Episode', album: 'Album', artist: 'Artist' };
 
 const TAB_LABEL: Record<TabId, string> = { details: 'Details', people: 'People', artwork: 'Artwork', ids: 'IDs', episodes: 'Episodes', history: 'History' };
 export function tabsFor(type: TitleType): { value: TabId; label: string }[] {
   const tabs: TabId[] = ['details'];
-  if (type !== 'season') tabs.push('people');
+  if (type !== 'season' && type !== 'album' && type !== 'artist') tabs.push('people');
   tabs.push('artwork', 'ids');
   if (type === 'series' || type === 'season') tabs.push('episodes');
   tabs.push('history');

@@ -41,7 +41,7 @@ test('no Continue title: the hero is the newest; Play plays it and Details opens
   await openHome(page, { newest: [newest, homeMovie(2)] });
   await expect(page.locator('.h-hero-kicker')).toHaveText('New in your library');
   await page.getByRole('button', { name: 'Details' }).click();
-  await expect(page).toHaveURL(/\/title\/home-movie-1$/);
+  await expect(page).toHaveURL(/\/video\/title\/home-movie-1$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Fresh Arrival' })).toBeVisible();
   await page.goBack();
   await page.getByRole('button', { name: 'Play' }).click();
@@ -82,7 +82,7 @@ test('a return from a title page paints shelves from the session cache before th
     await route.fallback();
   });
   await page.getByRole('region', { name: 'New in your library' }).getByRole('button', { name: /^(?!More options)/ }).last().click();
-  await expect(page).toHaveURL(/\/title\//);
+  await expect(page).toHaveURL(/\/video\/title\//);
   await page.goBack();
   await expect(page.getByRole('region', { name: 'Next up' }).getByRole('button', { name: 'Harbor Lights, S2 · E5' })).toBeVisible();
   expect(refetched).toBe(false);

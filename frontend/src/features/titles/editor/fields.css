@@ -6,3 +6,6 @@
 .ed-chip { display: inline-flex; align-items: center; padding-inline-start: 12px; }
 .ed-days { display: flex; flex-wrap: wrap; gap: var(--g-space-2); border: 0; padding: 0; }
 @media (min-width: 900px) { .ed-row:not(:has(textarea, .ed-chipbox, .ed-days)) { max-width: 480px; } }
+.music-credit-editor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--g-space-3); width: 100%; }
+.music-credit-editor > button { grid-column: 1 / -1; justify-self: start; }
+@media (max-width: 599px) { .music-credit-editor { grid-template-columns: minmax(0, 1fr); } }

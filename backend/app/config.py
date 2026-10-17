@@ -10,7 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, model_validator
 
 
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.3.4"
 WILDCARD_HOSTS = {"0.0.0.0", "::", "[::]"}
 # Opt-in LAN HTTP mode (ADR 0001 amendment): RFC 1918 IPv4 only. No IPv6: Starlette's TrustedHostMiddleware
 # cannot match a bracketed IPv6 Host header, so such a URL would start but reject every request.
@@ -39,6 +39,8 @@ class EnvSettings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8765
     reconcile_interval_seconds: int = 60
+    music_metadata_enabled: bool = True
+    music_youtube_discovery: bool = True
     remote_stream_idle_ttl_seconds: int = 30 * 60
     remote_stream_max_lifetime_seconds: int = 6 * 60 * 60
     remote_stream_refresh_margin_seconds: int = 60

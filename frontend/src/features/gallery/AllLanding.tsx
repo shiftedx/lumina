@@ -25,6 +25,7 @@ import { StillCard } from './StillCard';
 import { useMediaQuery } from './WallGrid';
 
 export type AllLandingProps = {
+  title?: string;
   /** The member's sections, stored or fresh; null before the first answer. */
   sections: LibrarySections | null;
   sectionsFailed: boolean;
@@ -58,7 +59,7 @@ function ChapterFrames({ columns, shape, caption, rows = 2 }: { columns: number;
   );
 }
 
-export function AllLanding({ sections, sectionsFailed, onRetrySections, lenses, collections, onOpenTitle, onPlay, onSeeAll }: AllLandingProps) {
+export function AllLanding({ sections, sectionsFailed, onRetrySections, lenses, collections, onOpenTitle, onPlay, onSeeAll, title = 'Library' }: AllLandingProps) {
   const [restored] = useState(restoreAllStore);
   const [spotlight, setSpotlight] = useState<TitleSummary[] | null>(restored?.spotlight ?? null);
   const [spotlightFailed, setSpotlightFailed] = useState(false);
@@ -294,7 +295,7 @@ export function AllLanding({ sections, sectionsFailed, onRetrySections, lenses, 
     <div className="surface gallery g-all" onKeyDown={keys} ref={root}>
       {lenses}
       <header className="g-masthead">
-        <h1>Library</h1>
+        <h1>{title}</h1>
         <p className="g-label g-kicker">{kicker || '\u00a0'}</p>
       </header>
       {sectionsFailed && !sections ? (

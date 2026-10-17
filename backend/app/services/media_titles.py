@@ -21,7 +21,7 @@ from app.models import MediaTitle
 LUMINA_NAMESPACE = uuid.UUID("b313b443-44d5-44a1-95e2-052a2d34c25b")
 TICKS_PER_SECOND = 10_000_000
 # user > nfo > tmdb > path: a scan or refresh writes a field only at or above its recorded source.
-FIELD_SOURCE_RANK = {"path": 0, "tmdb": 1, "nfo": 2, "user": 3}
+FIELD_SOURCE_RANK = {"path": 0, "tmdb": 1, "musicbrainz": 1, "nfo": 2, "user": 3}
 # Columns apply_field may write; key/type/root_id are structural and belong to the scanner. parent_id is structural
 # too, except that a user may move an episode to another season (#164): only the editor writes it through apply_field.
 TITLE_COLUMNS = frozenset({"name", "sort_name", "year", "index_number", "index_number_end", "provider_ids", "boxset_id", "parent_id"})

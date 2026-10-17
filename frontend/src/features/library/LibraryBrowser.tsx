@@ -24,6 +24,7 @@ import { scanSummary } from '../palette/actions';
 import './library.css';
 
 export type LibraryBrowserProps = {
+  videoOnly?: boolean;
   view: LibraryPlace;
   /** The lens's state in the address, without '?'. */
   wall?: string;
@@ -42,7 +43,7 @@ export type LibraryBrowserProps = {
 };
 
 function LibraryBrowserView(props: LibraryBrowserProps) {
-  const { view, currentUser, onViewChange } = props;
+  const { view, currentUser, onViewChange, videoOnly = false } = props;
   const { sections, failed, refresh } = useLibrarySections(currentUser.id);
   const [refreshing, setRefreshing] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -67,15 +68,15 @@ function LibraryBrowserView(props: LibraryBrowserProps) {
     }
   }
   const tabs = <div className="g-library-toolbar">
-    <LibraryTabs current={view} isAdmin={isAdmin} onOpen={onViewChange} sections={sections} />
+    <LibraryTabs current={view} isAdmin={isAdmin} onOpen={onViewChange} sections={sections} videoOnly={videoOnly} />
     <Button busy={refreshing} icon={<RefreshCw />} onClick={() => void refreshNow()} ref={refreshButton} title={isAdmin ? 'Refresh the library and rescan imported folders' : 'Refresh the library'}>Refresh</Button>
   </div>;
   return <LibraryContents {...props} failed={failed} key={`${currentUser.id}:${revision}`} refresh={refresh} sections={sections} tabs={tabs} />;
 }
 
-function LibraryContents({ view, wall, currentUser, collections, collectionsPage, onViewChange, onWallChange, onOpenTitle, onPlay, onPlayAt, onItemChanged, sections, failed, refresh, tabs }: LibraryBrowserProps & { sections: LibrarySections | null; failed: boolean; refresh: () => void; tabs: ReactNode }) {
+function LibraryContents({ view, wall, currentUser, collections, collectionsPage, onViewChange, onWallChange, onOpenTitle, onPlay, onPlayAt, onItemChanged, sections, failed, refresh, tabs, videoOnly = false }: LibraryBrowserProps & { sections: LibrarySections | null; failed: boolean; refresh: () => void; tabs: ReactNode }) {
   const canDelete = (item: LibraryItem) => canDeleteLibraryFile(item, currentUser);
-  if (view === 'all') return <AllLanding collections={collections} lenses={tabs} onOpenTitle={onOpenTitle} onPlay={onPlay} onRetrySections={refresh} onSeeAll={onViewChange} sections={sections} sectionsFailed={failed} />;
+  if (view === 'all') return <AllLanding title={videoOnly ? 'Video' : 'Library'} collections={collections} lenses={tabs} onOpenTitle={onOpenTitle} onPlay={onPlay} onRetrySections={refresh} onSeeAll={onViewChange} sections={videoOnly && sections ? { ...sections, albums: 0, artists: 0, saved_audio: 0 } : sections} sectionsFailed={failed} />;
   if (view === 'movies' || view === 'shows' || view === 'anime') return <GalleryWall canEdit={Boolean(currentUser.can_edit_details)} key={view} lenses={tabs} onOpen={onOpenTitle} onPlayAt={onPlayAt} onWallChange={onWallChange} state={wall} wall={view} />;
   if (view === 'music') return <MusicTab canDelete={canDelete} lenses={tabs} onItemChanged={onItemChanged} onOpen={onOpenTitle} onPlay={onPlay} onWallChange={onWallChange} sections={sections} state={wall} />;
   if (view === 'collections') return collectionsPage?.(tabs) ?? <div className="surface gallery">{tabs}<Skeleton count={4} label="Loading collections…" shape="still" /></div>;

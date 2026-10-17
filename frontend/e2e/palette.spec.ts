@@ -21,7 +21,7 @@ test('⌘K → type → ↓ → ↵ opens a title', async ({ page }) => {
   await expect(page.locator('[role=option][aria-selected=true]')).toHaveCount(1);
   while (!(await page.locator('[role=option][aria-selected=true]').textContent())?.includes('Alpine Crossing')) await input.press('ArrowDown');
   await input.press('Enter');
-  await expect(page).toHaveURL(/\/title\/movie-1$/);
+  await expect(page).toHaveURL(/\/video\/title\/movie-1$/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
@@ -54,9 +54,9 @@ test('link mode rejects text and opens a pasted link', async ({ page }) => {
   await expect(page).toHaveURL(/\/watch\?url=/);
 });
 
-test('phone: the Search tab opens a full-screen palette', async ({ page }) => {
+test('phone: the header Search control opens a full-screen palette', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: 'Search' }).click();
+  await page.getByRole('button', { name: /^Search Lumina, / }).click();
   const dialog = page.locator('dialog.g-palette');
   await expect(dialog).toBeVisible();
   await expect.poll(async () => Math.round((await dialog.boundingBox())?.width ?? 0)).toBe(390); // the open animation settles first
@@ -64,7 +64,7 @@ test('phone: the Search tab opens a full-screen palette', async ({ page }) => {
 
 test('the palette reaches Streaming, Live now, Your channels, saved channels and Home & discovery through one Actions row each', async ({ page }) => {
   // Live, YouTube and 1.9.0 surfaces. Mocks: mockLive / mockLibraryChannels from live-youtube-mock.ts if the surface needs them.
-  const cases: Array<[string, string, RegExp]> = [['streaming', 'Streaming', /\/streaming$/], ['live now', 'Live now', /\/streaming\/live$/], ['your channels', 'Your channels', /\/streaming\/channels$/], ['saved channels', 'Open saved channels', /\/library\/youtube\?view=channels$/], ['discovery', 'Home & discovery', /\/settings\/discovery$/]];
+  const cases: Array<[string, string, RegExp]> = [['streaming', 'Streaming', /\/streaming$/], ['live now', 'Live now', /\/streaming\/live$/], ['your channels', 'Your channels', /\/streaming\/channels$/], ['saved channels', 'Open saved channels', /\/video\/youtube\?view=channels$/], ['discovery', 'Home & discovery', /\/settings\/discovery$/]];
   for (const [query, label, url] of cases) {
     await page.keyboard.press('ControlOrMeta+k');
     await page.locator('dialog.g-palette').getByRole('combobox').fill(query);

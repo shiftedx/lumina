@@ -68,7 +68,7 @@ ARG LUMINA_SOURCE_REVISION=unrecorded
 LABEL org.opencontainers.image.title="Lumina" \
       org.opencontainers.image.source="https://github.com/shiftedx/lumina" \
       org.opencontainers.image.revision="$LUMINA_SOURCE_REVISION" \
-      org.opencontainers.image.version="0.3.2" \
+      org.opencontainers.image.version="0.3.4" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -83,7 +83,7 @@ WORKDIR /app
 # setpriv comes from util-linux (essential in Debian); local .debs resolve their Debian dependencies.
 RUN --mount=type=bind,from=media-debs,source=/debs,target=/tmp/media-debs \
     apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libgomp1 tzdata /tmp/media-debs/*.deb \
+    && apt-get install -y --no-install-recommends ca-certificates libgomp1 libarchive13t64 tzdata /tmp/media-debs/*.deb \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg \
     && ln -s /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe

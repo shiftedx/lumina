@@ -48,6 +48,6 @@ describe('origin chips', () => {
     expect(originLabel(image('Primary', 0, { origin: 'tmdb' }))).toBe('From TMDB');
     expect(originLabel(image('Primary', 0, { origin: 'upload' }))).toBe('Uploaded');
     expect(originLabel(image('Primary', 0, { origin: 'local' }))).toBe('From folder');
-    expect(originLabel(image('Primary', 0, { origin: 'embedded' }))).toBe('From video file');
+    expect(originLabel(image('Primary', 0, { origin: 'embedded' }))).toBe('From media file');
   });
 });

@@ -232,8 +232,16 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     15: (),
     16: (),  # #164 household people editor: person_overrides comes from create_all; rollback = drop it, user_version = 15.
     17: ("ALTER TABLE app_settings ADD COLUMN local_address TEXT",),  # the local address beside the public one; additive
-    18: (),  # standalone Books tables come from create_all; rollback drops them and stamps schema 17.
-    19: ("ALTER TABLE users ADD COLUMN vault_setup_pending BOOLEAN NOT NULL DEFAULT 0",),
+    18: (),  # Music: provider cache, protected track edits/history and revocable Sonos queue tickets; create_all adds tables.
+    19: (),  # standalone Books tables come from create_all; rollback drops them and stamps schema 18.
+    20: ("ALTER TABLE users ADD COLUMN vault_setup_pending BOOLEAN NOT NULL DEFAULT 0",),
+    21: (  # Books format bundles, original basenames, and recoverable removal. Additive; rollback = docker/README.md.
+        "ALTER TABLE book_items ADD COLUMN filename TEXT",
+        "ALTER TABLE book_items ADD COLUMN bundle_parent_id VARCHAR(36)",
+        "ALTER TABLE book_items ADD COLUMN deleted_at DATETIME",
+        "CREATE INDEX IF NOT EXISTS ix_book_items_bundle_parent_id ON book_items (bundle_parent_id)",
+        "CREATE INDEX IF NOT EXISTS ix_book_items_deleted_at ON book_items (deleted_at)",
+    ),
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

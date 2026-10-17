@@ -163,13 +163,15 @@ test('Books deep link has its own navigation and reaches a manga reader without 
   await expect(page.getByRole('heading', { level: 1, name: 'Skybound' })).toBeVisible();
 });
 
-test('Books overview fits a phone viewport', async ({ page }) => {
-  await openBooks(page, '/books', PHONE);
-  await expect(page.getByRole('heading', { level: 1, name: 'Books' })).toBeVisible();
-  await assertAccessibleAndNoOverflow(page);
-  await page.screenshot({ path: '../output/playwright/books/overview-390.png', fullPage: true });
-  await impeccableReview(page, 'sparse-overview-phone');
-});
+for (const width of [320, 390]) {
+  test(`Books overview fits a ${width}px phone viewport`, async ({ page }) => {
+    await openBooks(page, '/books', { ...PHONE, width });
+    await expect(page.getByRole('heading', { level: 1, name: 'Books' })).toBeVisible();
+    await assertAccessibleAndNoOverflow(page);
+    await page.screenshot({ path: `../output/playwright/books/overview-${width}.png`, fullPage: true });
+    await impeccableReview(page, `sparse-overview-phone-${width}`);
+  });
+}
 
 test('ebook reader keeps its phone controls usable and closes both sidebars', async ({ page }) => {
   await openBooks(page, '/books/read/ebook-1', PHONE);
@@ -239,5 +241,27 @@ for (const [label, viewport] of [['1440', DESKTOP], ['390', PHONE]] as const) {
       await page.screenshot({ path: `../output/playwright/books/${capture}-${label}.png`, fullPage: true });
       if (capture === 'rich-overview' && label === '1440') await impeccableReview(page, 'rich-overview-desktop');
     }
+  });
+}
+
+for (const [name, viewport] of [['desktop', DESKTOP], ['phone', PHONE]] as const) {
+  test(`book detail presents bundled files and readable synopsis on ${name}`, async ({ page }, testInfo) => {
+    await openBooks(page, '/books', viewport);
+    const bundled = { ...ebook, cover_url: '/api/books/ebook-1/cover', description: 'The old road held the quiet of a world not yet awake. Northbound, Mira kept her map folded until the river opened into view.\n\nBeyond the last bridge, the coast was pale sky, dark water, and possibilities.', filename: 'Northbound - Mira Vale.epub', canonical_book_id: 'ebook-1', reading_file_id: 'ebook-1', files: [
+      { id: 'ebook-1', filename: 'Northbound - Mira Vale.epub', format: 'epub', chapter_count: 2, page_count: 0, available: true },
+      { id: 'pdf-1', filename: 'Northbound - Mira Vale.pdf', format: 'pdf', chapter_count: 0, page_count: 30, available: true },
+    ] };
+    await page.route('**/api/books/ebook-1', (route) => json(route, bundled));
+    await page.route('**/api/books/ebook-1/cover', (route) => route.fulfill({ contentType: 'image/png', body: PAGE_PNG }));
+    await page.route(/\/api\/books(?:\?|$)/, (route) => json(route, { items: [{ ...ebook, id: 'ebook-2', title: 'After the Storm', cover_url: '/api/books/ebook-1/cover' }], total: 1, next_cursor: null }));
+    await page.goto('/books/title/ebook-1');
+    await expect(page.getByRole('heading', { level: 1, name: 'Northbound' })).toBeVisible();
+    await expect(page.getByText('Northbound - Mira Vale.epub', { exact: true })).toBeVisible();
+    await expect(page.getByText('Northbound - Mira Vale.pdf', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Read PDF', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'More by Mira Vale' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`books-detail-${name}.png`), fullPage: true });
   });
 }

@@ -94,6 +94,7 @@ test('invitation libraries fit a compact grid with every choice and the limits s
   await page.goto('/settings/members?page=invitations'); await signIn(page);
   await page.getByRole('button', { name: 'Invite someone', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Invite someone' });
+  await expect(dialog).toHaveCSS('background-color', /^rgb\(/); // opaque computed surface
   await expect(dialog.getByRole('checkbox', { name: 'All libraries', exact: true })).toBeVisible();
   const choices = dialog.locator('.g-setting-options .g-choice');
   await expect(choices).toHaveCount(4);
@@ -110,10 +111,12 @@ test('member library choices use the full pane and Activity has no unrelated Sav
   await mockApi(page, {}); await mockAdminFixtures(page);
   await page.goto('/settings/members/m2'); await signIn(page);
   await page.getByRole('tab', { name: 'Libraries', exact: true }).click();
-  const choices = page.locator('[data-setting-id="members.libraries"] .g-setting-options');
+  const choices = page.locator('[data-setting-id="members.libraries"] .g-control-stack');
   await expect(choices).toBeVisible();
   expect(await choices.evaluate((element) => element.clientWidth)).toBeGreaterThan(500);
   await expect(choices.getByRole('checkbox')).toHaveCount(4);
+  await expect(choices.getByRole('group', { name: 'Watch', exact: true })).toBeVisible();
+  await expect(choices.getByRole('group', { name: 'Other files', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Activity', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
 });

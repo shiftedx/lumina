@@ -13,6 +13,8 @@ Lumina is built on other people's work. Thank you.
 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and [CTranslate2](https://github.com/OpenNMT/CTranslate2) | On-device transcripts | MIT |
 | [FastAPI](https://fastapi.tiangolo.com), [Uvicorn](https://www.uvicorn.org), [SQLAlchemy](https://www.sqlalchemy.org), [Pydantic](https://docs.pydantic.dev), [HTTPX](https://www.python-httpx.org) | Backend | MIT / BSD-3-Clause |
 | [Mutagen](https://github.com/quodlibet/mutagen) | Music tags | GPL-2.0-or-later |
+| [PyMuPDF](https://github.com/pymupdf/PyMuPDF) | Raster PDF book pages | AGPL-3.0 |
+| [libarchive](https://www.libarchive.org) and [libarchive-c](https://github.com/Changaco/python-libarchive-c) | Read CBR archives without extraction | BSD |
 | [Node.js](https://nodejs.org) | JavaScript runtime yt-dlp uses for YouTube | MIT |
 | [React](https://react.dev), [hls.js](https://github.com/video-dev/hls.js), [dash.js](https://github.com/Dash-Industry-Forum/dash.js), [Lucide](https://lucide.dev) | Web app and player | MIT / Apache-2.0 / BSD-3-Clause / ISC |
 | [Newsreader](https://github.com/productiontype/Newsreader) | Typeface | OFL-1.1 ([text](frontend/public/fonts/OFL.txt)) |
@@ -28,6 +30,9 @@ On-device models are downloaded only when an admin chooses one, and each model's
 | [TMDB](https://www.themoviedb.org) | Movie and TV metadata and artwork. This product uses the TMDB API but is not endorsed or certified by TMDB. |
 | [AniList](https://anilist.co) | Anime catalogue for requests |
 | [TheIntroDB](https://theintrodb.org) | Intro and credits markers |
+| [MusicBrainz](https://musicbrainz.org) and [Cover Art Archive](https://coverartarchive.org) | Music identities, releases, credits and album artwork |
+| [Wikipedia](https://www.wikipedia.org), [Wikidata](https://www.wikidata.org) and [Wikimedia Commons](https://commons.wikimedia.org) | Identity-linked artist biographies and photographs. Photo credits link to the original file and its licence. |
+| [LRCLIB](https://lrclib.net) | Public song lyrics |
 | YouTube, Twitch, Kick | Public media, through yt-dlp |
 
 ## Compatibility
@@ -47,3 +52,9 @@ Email banners use the vault for invitations, the film archive for delivery messa
 ## Onboarding artwork
 
 The onboarding film archive, listening room, creator studio, and security-key illustrations are original imagery generated for Lumina in the media-vault artwork’s engraving style. Their fictional scenes contain no household media, member details, real brands, or tracking identifiers.
+
+## README screenshots
+
+The README uses actual film stills and official posters from Blender Studio / Blender Foundation open movies (Creative Commons Attribution): Cosmos Laundromat, Spring, Tears of Steel, Sintel, Big Buck Bunny, Elephants Dream, Caminandes: Gran Dillama, and Agent 327: Operation Barbershop. The UI captures resize and crop the images to fit the application’s artwork slots.
+
+Original image URLs are recorded in [docs/assets/blender-sources.json](docs/assets/blender-sources.json); the films are listed in the [Blender open-project gallery](https://www.blender.org/about/projects/).

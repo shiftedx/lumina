@@ -2,14 +2,25 @@
 
 Lumina ships as one container: the FastAPI backend serves the built React app on port 8765. Docker Compose is the supported install path. Read `RELEASE_NOTES.md`, `SECURITY.md` and `LICENSE` before exposing an installation.
 
+## Books formats
+
+Books imports accept EPUB and PDF ebooks and CBZ and CBR comics, up to 256 MiB per file.
+Imports create private managed copies under `app-data/books/`; back up that directory as well as the database.
+PDF uses raster page navigation rather than reflowable text. CBR reads RAR members without extraction.
+Encrypted files, linked archive members, oversized archives, and files exceeding native parser limits are rejected.
+The Docker image includes PyMuPDF and libarchive. Source installs need the libarchive shared library
+(`brew install libarchive` on macOS, `apt-get install libarchive13t64` on Debian trixie).
+Rollback to an older image preserves files and database rows but cannot read PDF/CBR entries; retain the updated image
+until those books are no longer needed. No schema migration is required.
+
 ## Install
 
-The release Compose file defaults to the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.2` for amd64 and arm64. It pulls the published image; it does not build on the host.
+The release Compose file defaults to the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.4` for amd64 and arm64. It pulls the published image; it does not build on the host.
 
 ```bash
 mkdir lumina && cd lumina
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.2/docker-compose.yml
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.2/SHA256SUMS
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.4/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.4/SHA256SUMS
 grep 'docker-compose.yml$' SHA256SUMS | shasum -a 256 -c -
 cat > .env <<EOF
 LUMINA_RUNTIME_UID=$(id -u)
@@ -22,7 +33,7 @@ docker compose ps          # lumina must report "healthy"
 
 Open <http://127.0.0.1:8765>. Stop with `docker compose down`; logs with `docker compose logs --tail=100 lumina`.
 
-To keep a release-tag checkout for Compose overrides, clone the same release instead: `git clone --branch v0.3.2 --depth 1 https://github.com/shiftedx/lumina lumina`. Create the same `.env`, then run the same `pull` and `up -d --no-build` commands. The optional hardware and HTTPS sections below download their companion release files.
+To keep a release-tag checkout for Compose overrides, clone the same release instead: `git clone --branch v0.3.4 --depth 1 https://github.com/shiftedx/lumina lumina`. Create the same `.env`, then run the same `pull` and `up -d --no-build` commands. The optional hardware and HTTPS sections below download their companion release files.
 
 ### Build from source
 
@@ -52,11 +63,13 @@ All settings are `LUMINA_*` environment variables (full list: `backend/app/confi
 | `LUMINA_ASR_BASE_URL` / `_ASR_MODEL` | empty (off) | OpenAI-compatible speech-to-text endpoint for transcripts. |
 | `LUMINA_TMDB_API_KEY` | empty (off) | TMDB v3 API key or v4 read token for movie and TV metadata and artwork. An admin can change or clear it under **Manage Server → Connections → Metadata** (write-only). |
 | `LUMINA_ARTWORK_PASS` | `on` | `off` stops the background pass that prepares small copies of artwork; they are then made only when first requested. |
+| `LUMINA_MUSIC_METADATA_ENABLED` | `true` | Background MusicBrainz identity, release, artwork and lyric enrichment. Add this variable to Compose's `environment:` block to change it. |
+| `LUMINA_MUSIC_YOUTUBE_DISCOVERY` | `true` | Cached public performance discovery for owned music. Saved local performances remain available when discovery is off. |
 | `LUMINA_PEOPLE_DIR` | unset | Container path of a read-only folder of cast photos in the `metadata/People` layout, such as a copy of Jellyfin's. Cast photos for titles whose NFO files name them. `LUMINA_JELLYFIN_PEOPLE_DIR`, the name before 2.11, is still read. |
 | `LUMINA_JELLYFIN_TRACE` | `0` | `1` logs each Jellyfin request's method, route template and query parameter names (never values or headers). Use it only while capturing client traffic. |
 | `LUMINA_LAN_HTTP` | `false` | `true` serves plain http on a private LAN IP without a proxy. Set it only through the override in "LAN HTTP mode". |
 | `TZ` | `UTC` | Server time zone, e.g. `America/Chicago`. Library scans set to **Nightly at** use it. See "Automatic scans and folder watching". |
-| `LUMINA_DOCKER_IMAGE` | `ghcr.io/shiftedx/lumina:0.3.2` | Pinned published image. Set `lumina:local` only when intentionally building the checked-out source. |
+| `LUMINA_DOCKER_IMAGE` | `ghcr.io/shiftedx/lumina:0.3.4` | Pinned published image. Set `lumina:local` only when intentionally building the checked-out source. |
 
 AI and ASR values are only defaults: an admin can change or clear them under **Manage Server → AI features** (the API key is write-only there). Tunables such as `LUMINA_QUARANTINE_RETENTION_HOURS`, `LUMINA_REMOTE_STREAM_*`, `LUMINA_RELAY_*` and `LUMINA_LIVE_RECORDING_*` keep safe defaults; add them to the `environment:` block only when you need to.
 
@@ -120,7 +133,7 @@ Email artwork uses versioned public assets from the configured public address. K
 - Never open the live `app.db` from another process while the container runs (on macOS bind mounts a second writer can poison the running app with `disk I/O error`). Use the API or stop the container first.
 - Extra media: bind-mount it under a mount parent, then register it under **Settings → Library & storage**:
 
-  The first-owner walkthrough lists the configured mount parents and can register these folders immediately after account creation. Choosing setup later leaves them available under **Settings → Library & storage**.
+  The first-owner walkthrough lists configured mount parents and connects and scans folders immediately after account creation. Setup later keeps the same controls available under **Manage Server → Library & storage**.
 
   ```yaml
   volumes:
@@ -162,7 +175,7 @@ To update, set or replace the image line in `.env` with the exact release you wa
 Set this line in `.env` (replace an existing `LUMINA_DOCKER_IMAGE` line):
 
 ```dotenv
-LUMINA_DOCKER_IMAGE=ghcr.io/shiftedx/lumina:0.3.2
+LUMINA_DOCKER_IMAGE=ghcr.io/shiftedx/lumina:0.3.4
 ```
 
 ```bash
@@ -170,16 +183,18 @@ docker compose pull lumina
 docker compose up -d --no-build lumina
 ```
 
-For a checkout-based install, first update the Compose file with `git fetch origin tag v0.3.2 && git checkout --detach v0.3.2`. When a release raises the schema version, Lumina first writes an automatic `pre-upgrade` backup (listed under Settings → Backups), then applies its additive upgrade steps in one transaction. It refuses to open a database from a newer release; to roll back, see "Rollback after a schema upgrade" below (the pre-upgrade backup is the last resort).
+For a checkout-based install, first update the Compose file with `git fetch origin tag v0.3.4 && git checkout --detach v0.3.4`. When a release raises the schema version, Lumina first writes an automatic `pre-upgrade` backup (listed under Settings → Backups), then applies its additive upgrade steps in one transaction. It refuses to open a database from a newer release; to roll back, see "Rollback after a schema upgrade" below (the pre-upgrade backup is the last resort).
 
 ### Rollback after a schema upgrade
 
-Schema steps 6 to 19 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to:
+Schema steps 6 to 18 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to:
 
 | Rolling back to | Stamp |
 | --- | --- |
-| Before first-owner media onboarding (schema 18) | `PRAGMA user_version = 18` (`users.vault_setup_pending` remains in place and is ignored by the older release) |
-| Before Books (schema 17) | `DROP TABLE book_shelf_memberships; DROP TABLE book_shelves; DROP TABLE book_states; DROP TABLE book_items; PRAGMA user_version = 17` (uploaded files under `app-data/books/` are no longer indexed; remove them manually only if they are no longer wanted) |
+| Before the dedicated music experience (schema 17, step 18) | `PRAGMA user_version = 17` (the older release ignores `music_lookups`, `music_track_overrides`, `music_edit_batches`, `music_cast_tickets`, `music_file_writebacks`, and `music_playlists`. Track overrides and new navigation are unavailable, and its scans may regroup tracks from their source tags. Provider portraits need this release to render. Keep `music-file-backups` and all six tables; upgrading again restores their controls. Explicit audio-file writeback remains in the files across rollback; restore chosen files before rolling back if desired.) |
+| Before first-owner media onboarding (schema 19) | `PRAGMA user_version = 19` (`users.vault_setup_pending` remains and is ignored by the older release) |
+| Before Books format bundling (schema 20) | `UPDATE book_items SET bundle_parent_id = NULL, deleted_at = NULL; DROP INDEX IF EXISTS ix_book_items_bundle_parent_id; DROP INDEX IF EXISTS ix_book_items_deleted_at; ALTER TABLE book_items DROP COLUMN filename; ALTER TABLE book_items DROP COLUMN bundle_parent_id; ALTER TABLE book_items DROP COLUMN deleted_at; PRAGMA user_version = 20` (every `book_items` row, file, state and shelf membership remains; this only unlinks bundles and makes trashed rows visible to the older Books release) |
+| Before Books (schema 18) | `DROP TABLE book_shelf_memberships; DROP TABLE book_shelves; DROP TABLE book_states; DROP TABLE book_items; PRAGMA user_version = 18` (uploaded files under `app-data/books/` remain on disk) |
 | Before the local address (schema 16, step 17) | `PRAGMA user_version = 16` (step 17 only adds `app_settings.local_address`; the older release ignores it, so the local name is refused as an untrusted host until you upgrade again) |
 | Before the people editor (schema 15, step 16) | `PRAGMA user_version = 15` (step 16 only adds `person_overrides`, which the older release ignores: people renames and photos show their source names and photos until you upgrade again. Its scans also put moved episodes back in their folder's season, and its TMDB refresh reads every series in aired order) |
 | 2.9.0 (schema 14, before the dedicated two-step key, step 15) | `PRAGMA user_version = 14` (step 15 changes no table; at startup it re-encrypts each authenticator secret under `app-data/totp-key`, which 2.9.0 cannot read, so after rolling back **authenticator codes fail** for members who had two-step verification on: they sign in with a recovery code, or an owner resets them. Upgrading again reads them as before; keep `app-data/totp-key`) |
@@ -262,6 +277,28 @@ NAS notes:
 - The mass-missing guard still applies to automatic scans. If a scan would mark a large share of a root's files missing (an unplugged drive, a wrong mount), it stops as **needs confirmation**, and automation for that root pauses. Lumina never confirms by itself: an admin reviews the run under **Settings → Library & storage → Imports** and confirms it or rescans.
 - Diagnostics shows whether the poller is healthy and when each root was last scanned or watched.
 
+## Music in Audio
+
+**Audio** (`/audio`) has its own artist soundstage, artist and release pages, playlists, smart mixes and listening room. **Video** (`/video`) holds film, TV and saved video. `/library` bookmarks still resolve to the appropriate section; `/books` is the reading section's integration route.
+
+Register the music folder under **Manage Server → Library & storage** and scan it. Lumina reads embedded album/track/disc tags, MusicBrainz identities, composer and performer credits, edition and label details, lyrics and ReplayGain. FLAC, MP3, AAC, Opus, Vorbis, WAV, AIFF, APE, WavPack, DSD and other registered audio formats are indexed. Playback uses the original source where the browser can decode it, with a lossless PCM compatibility conversion when needed. Conversion requires ffmpeg/ffprobe, included in the Docker image; it cannot restore quality absent from a lossy original.
+
+MusicBrainz, Cover Art Archive, Wikimedia and LRCLIB provide useful metadata without accounts or paid keys. Automatic enrichment accepts a unique confident identity; ambiguous results appear under **Identify music** for review. Explicit identities are recorded in edit history. Saved edits and locks remain protected. YouTube discovery uses Lumina's existing public-source search and caches related performances, labeling official, live, cover and remix results separately. Provider outages retain useful cached results. Metadata workers are capped at two concurrent jobs and 128 pending requests; public lookup cache retains 10,000 answers, artwork and converted audio each have a 2 GiB disk cap. Set the music variables above to disable public lookup work.
+
+**Manage music** previews edits or a shared artwork replacement for up to 500 selected titles. Album **Manage tracks** edits titles, artists, genres, disc/track order, lyrics and loudness, or groups selected tracks into a distinct release. These database edits survive rescans and have conflict-aware undo. Owners can separately preview **Write tags to files** for up to 100 tracks. Supported writeback formats are MP3, FLAC, Vorbis, Opus and MP4 audio. Originals are backed up under `music-file-backups`; restore refuses to overwrite a file changed since writeback. Keep this directory with database backups. Writeback needs a writable media mount and backup space; read-only mounts remain fully usable for database curation. Backups are capped at 10 GiB, and each apply requires free space for three times the selected original file size.
+
+The browser keeps a persistent queue, supports repeat/shuffle and uses ReplayGain or existing server loudness analysis for optional normalization. The gapless engine schedules the current and next decoded track on the audio clock. Very large tracks use **Streaming source** because decoded audio memory is bounded; native streaming does not promise gapless transitions. The player reports source codec/rate/depth separately from browser output and compatibility conversion.
+
+### Desktop offline listening
+
+Save a track, album or queue from the listening room while online, then open **Offline listening** (`/music-offline.html`) once before disconnecting. The standalone page caches its static application shell and fonts, plus saved audio, artwork and lyrics in browser storage scoped to the current member. It does not cache authenticated API responses or Sonos capability URLs. Use HTTPS or loopback for service workers; private LAN plain HTTP does not support them. Each transfer is capped at 100 uncached tracks, each audio file at 128 MiB and each artwork at 2 MiB, subject to the browser's storage quota. Unsupported browser codecs are stored as a truthful PCM compatibility copy; long saved tracks stream from a local Blob. Downloads respect the member's download permission. Switching members hides the previous member's offline collection; signing out removes that member's saved music. Browsers may evict local storage, so retain the original library.
+
+### Sonos output
+
+Choose **Output → Sonos** in the listening room. The server must discover the speakers by SSDP on their LAN, and **Manage Server → Connections → Addresses** must contain a local or public address the speaker can reach. Container networking must allow multicast discovery; routed networks and Docker bridges can require host networking or multicast forwarding. No speaker addresses or browser credentials are shared with another member.
+
+The selected speaker's group coordinator receives up to the next 100 tracks. Output is lossless FLAC with supported source sample rates preserved up to 48 kHz and stereo; use **Compatibility** for 16-bit Sonos S1 output. The browser follows the speaker's track, position and volume. Browser loudness normalization applies only to browser output. Cast capabilities expire after 24 hours and are revoked on Stop, account changes or a denied member listening policy while status is polled. Speakers may finish a buffered track when disconnected from the server. Hardware verification requires speakers reachable from the running server.
+
 ## Editing details
 
 Open a movie, show, season or episode and choose **Edit details** (or use the command palette) to correct titles, overviews, ratings, genres, cast and artwork in the Lumina web app. Edits are saved in Lumina's database only: nothing is written to NFO files, and Jellyfin apps (Infuse, Swiftfin) show the edits read-only; they cannot edit.
@@ -312,7 +349,7 @@ at it instead of running the `asr` service.
 On a Linux host with an Intel GPU, add the override so the container gets `/dev/dri` and the host's render group:
 
 ```bash
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.2/docker-compose.qsv.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.4/docker-compose.qsv.yml
 echo "LUMINA_RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
 docker compose -f docker-compose.yml -f docker-compose.qsv.yml up -d --no-build
 ```
@@ -328,9 +365,9 @@ Direct LAN HTTP responses compress text assets and JSON when the client accepts 
 Keep port 8765 on loopback. The only supported remote topology is one TLS-terminating Caddy proxy in front of Lumina (`docker-compose.https.example.yml` + `docker/Caddyfile.example`). Create the first administrator over loopback first: remote mode refuses to start on an empty database.
 
 ```bash
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.2/docker-compose.https.example.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.4/docker-compose.https.example.yml
 mkdir -p docker
-curl -fsSL https://github.com/shiftedx/lumina/releases/download/v0.3.2/Caddyfile.example -o docker/Caddyfile.example
+curl -fsSL https://github.com/shiftedx/lumina/releases/download/v0.3.4/Caddyfile.example -o docker/Caddyfile.example
 echo LUMINA_HOSTNAME=vault.example.com >> .env
 docker compose -f docker-compose.yml -f docker-compose.https.example.yml pull
 docker compose -f docker-compose.yml -f docker-compose.https.example.yml up -d --no-build

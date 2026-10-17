@@ -8,3 +8,4 @@
 - [`adr/`](adr/): architecture decision records.
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md): how to contribute.
 - [`../AGENTS.md`](../AGENTS.md): conventions for coding agents.
+- [`design/household-resources-handoff.md`](design/household-resources-handoff.md): implementation contract and swarm ownership for household defaults, member overrides, fair jobs, and bandwidth-aware playback. Read before implementing that feature.

@@ -4,7 +4,7 @@
  * summary cache, focus and Back.
  */
 import { type CSSProperties, type KeyboardEvent, type MouseEvent, type Ref, useState } from 'react';
-import { Check, ChevronLeft, Heart, Play, Shuffle } from 'lucide-react';
+import { Check, ChevronLeft, Heart, Pencil, Play, Shuffle, SlidersHorizontal } from 'lucide-react';
 
 import { setFavorite } from '../../api';
 import type { AlbumTrack, TitleDetail, TitleSummary } from '../../types';
@@ -15,6 +15,9 @@ import { cardColour, countNoun, type GalleryTheme } from './galleryModel';
 import { pageAccent } from './titlePageModel';
 import { useMediaQuery } from './WallGrid';
 import './music.css';
+import { MusicEnrichment, MusicVideoRail } from '../music/MusicExtras';
+import { MusicEditions } from '../music/MusicEditions';
+import { MusicTrackEditor } from '../music/MusicTrackEditor';
 
 const COVER_SIZES = '(max-width: 599px) min(100vw, 420px), 440px';
 const galleryTheme = (): GalleryTheme => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
@@ -29,8 +32,13 @@ export type AlbumPageProps = {
   onBack: () => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
   onOpenTitle: (title: TitleSummary) => void;
-  onPlay: (itemId: string) => void;
+  onPlay: (itemId: string, startSeconds?: number) => void;
   onPatch: (update: (current: TitleDetail) => TitleDetail) => void;
+  canEdit?: boolean;
+  onEdit?: (id: string) => void;
+  onRefreshed?: () => void;
+  onWatchVideo?: (url: string, itemId?: string) => void;
+  user?: { id?: string; role: string; can_edit_details?: boolean };
 };
 
 /** "48 min", "1 h 12 min": an album's length. */
@@ -117,9 +125,30 @@ function Tracklist({ tracks, onPlay }: { tracks: AlbumTrack[]; onPlay: (track: A
   );
 }
 
-export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKeyDown, onOpenTitle, onPlay, onPatch }: AlbumPageProps) {
+function ReleaseDetails({ detail }: { detail: TitleDetail }) {
+  const music = detail.music;
+  const facts = [
+    ['Release type', music?.release_type], ['Edition', music?.edition], ['Label', music?.label],
+    ['Catalogue number', music?.catalogue_number], ['Country', music?.country], ['Original year', music?.original_year],
+  ].filter((entry): entry is [string, string | number] => entry[1] !== null && entry[1] !== undefined && entry[1] !== '');
+  if (!facts.length && !music?.styles.length && !music?.mood.length) return null;
+  return <section aria-labelledby="album-release-details" className="soundstage-album-section"><h2 id="album-release-details">Release details</h2><dl className="soundstage-release-facts">
+    {facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+    {music?.styles.length ? <div><dt>Styles</dt><dd>{music.styles.join(' · ')}</dd></div> : null}
+    {music?.mood.length ? <div><dt>Mood</dt><dd>{music.mood.join(' · ')}</dd></div> : null}
+  </dl></section>;
+}
+
+function AlbumCredits({ detail }: { detail: TitleDetail }) {
+  const credits = detail.music?.credits ?? [];
+  if (!credits.length) return null;
+  return <section aria-labelledby="album-credits" className="soundstage-album-section"><h2 id="album-credits">Credits</h2><ul className="soundstage-credits">{credits.map((credit, index) => <li key={`${credit.name}-${credit.role}-${index}`}><strong>{credit.name}</strong><span>{[credit.role, credit.instrument].filter(Boolean).join(' · ')}</span></li>)}</ul></section>;
+}
+
+export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKeyDown, onOpenTitle, onPlay, onPatch, canEdit = false, onEdit, onRefreshed, onWatchVideo, user }: AlbumPageProps) {
   const phone = useMediaQuery('(max-width: 599px)');
   const [notice, setNotice] = useState<string | null>(null);
+  const [managingTracks, setManagingTracks] = useState(false);
   const album = detail ?? summary;
   const tracks = detail?.tracks ?? null;
   const resume = tracks ? resumeTrack(tracks) : null;
@@ -132,9 +161,10 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
   const linked = Boolean(artist && album.parent_id && artist.toLowerCase() !== 'various artists');
 
   /** Plays a track with the album order queued, so a stored shuffle of this album no longer applies. */
-  const play = (track: AlbumTrack, order: readonly AlbumTrack[] = tracks ?? []) => {
+  const play = (track: AlbumTrack, order: readonly AlbumTrack[] = tracks ?? [], startSeconds?: number) => {
     setAlbumQueue(album.id, order);
-    onPlay(track.item_id);
+    if (startSeconds === undefined) onPlay(track.item_id);
+    else onPlay(track.item_id, startSeconds);
   };
   const shuffle = () => {
     if (!tracks?.length) return;
@@ -157,7 +187,7 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
   };
 
   return (
-    <div className={`gallery g-album-page${phone ? ' is-phone' : ''}`} onKeyDown={onKeyDown} style={{ '--g-accent': pageAccent(album, galleryTheme()) } as CSSProperties}>
+    <div className={`gallery g-album-page soundstage-album${phone ? ' is-phone' : ''}`} onKeyDown={onKeyDown} style={{ '--g-accent': pageAccent(album, galleryTheme()) } as CSSProperties}>
       <button aria-label={`Back to ${backLabel}`} className="g-back g-label" data-focus-item onClick={onBack} type="button"><ChevronLeft aria-hidden="true" /> {backLabel}</button>
       <div className="g-album-layout">
         <div className="g-album-cover">
@@ -168,8 +198,13 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
           <h1 className="g-album-title" ref={headingRef} tabIndex={-1}>{album.name}</h1>
           {artist ? <p className="g-album-artist">by {linked ? <a data-focus-item href={`/title/${encodeURIComponent(album.parent_id as string)}`} onClick={openArtist}>{artist}</a> : artist}</p> : null}
           {album.genres.length ? <p className="g-label">{album.genres.slice(0, 3).join(' · ')}</p> : null}
+          {album.overview ? <p className="soundstage-album-overview">{album.overview}</p> : null}
           <div className="g-album-actions" data-focus-row>
-            <button className="g-button is-primary g-button-text g-album-play" data-focus-item disabled={!playable} onClick={() => { if (tracks?.length) play(resume ?? tracks[0]); }} type="button">
+            <button className="g-button is-primary g-button-text g-album-play" data-focus-item disabled={!playable} onClick={() => {
+              if (!tracks?.length) return;
+              if (resume) play(resume, tracks, resume.user_data.position_seconds);
+              else play(tracks[0]);
+            }} type="button">
               <Play aria-hidden="true" /> {resume ? `Resume · ${trackLabel(resume)}` : 'Play'}
             </button>
             {phone
@@ -178,11 +213,17 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
             {phone
               ? <button aria-label="Favorite" aria-pressed={favorite} className="g-icon-button" data-focus-item disabled={!detail} onClick={() => void toggleFavorite()} type="button"><Heart aria-hidden="true" fill={favorite ? 'currentColor' : 'none'} /></button>
               : <button aria-pressed={favorite} className="g-button g-button-text" data-focus-item disabled={!detail} onClick={() => void toggleFavorite()} type="button"><Heart aria-hidden="true" fill={favorite ? 'currentColor' : 'none'} /> Favorite</button>}
+            {canEdit && onEdit ? <button className="g-text-button" data-focus-item onClick={() => onEdit(album.id)} type="button"><Pencil aria-hidden="true" /> Edit details</button> : null}
+            {canEdit ? <button className="g-text-button" data-focus-item disabled={!detail} onClick={() => setManagingTracks(true)} type="button"><SlidersHorizontal aria-hidden="true" /> Manage tracks</button> : null}
           </div>
           {notice ? <p className="g-album-note" role="alert">{notice}</p> : null}
           {tracks === null ? null : tracks.length ? <Tracklist onPlay={play} tracks={tracks} /> : <p className="g-album-note">These tracks are not available right now.</p>}
+          {detail ? <div className="soundstage-album-sections"><ReleaseDetails detail={detail} /><AlbumCredits detail={detail} /><MusicEditions albumId={detail.id} canEdit={canEdit} identified={Boolean(detail.music?.release_group_id)} onOpenTitle={onOpenTitle} onRefreshed={onRefreshed} /></div> : null}
+          <MusicVideoRail id={album.id} onWatch={onWatchVideo} />
+          <MusicEnrichment canEdit={canEdit} id={album.id} onRefreshed={onRefreshed} />
         </div>
       </div>
+      <MusicTrackEditor albumId={album.id} albumName={album.name} onClose={() => setManagingTracks(false)} onRefreshed={onRefreshed} open={managingTracks} user={user ?? { role: 'viewer', can_edit_details: canEdit }} />
     </div>
   );
 }

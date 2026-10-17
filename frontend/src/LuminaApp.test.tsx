@@ -102,9 +102,9 @@ describe('authenticated navigation accessibility', () => {
   const user = { id: 'user-1', username: 'one', display_name: 'One', role: 'viewer', is_active: true } as const;
 
   it('marks the current destination inside the navigation dialog', () => {
-    const html = renderToStaticMarkup(<NavigationPopover activeDownloads={0} onClose={noop} onNavigate={noop} open surface="library" />);
+    const html = renderToStaticMarkup(<NavigationPopover activeDownloads={0} onClose={noop} onNavigate={noop} open surface="video" />);
     expect(html).toContain('popover="manual"');
-    expect(html).toMatch(/aria-current="page" aria-label="Library"/);
+    expect(html).toMatch(/aria-current="page" aria-label="Video"/);
   });
 
   it('does not render navigation until its dialog opens', () => {
@@ -113,7 +113,7 @@ describe('authenticated navigation accessibility', () => {
 
   it('marks the active mobile tab, and Watch does not pretend to be Home', () => {
     const tabs = { activeDownloads: 0, moreOpen: false, onMore: noop, onNavigate: noop, onSearch: noop };
-    expect(renderToStaticMarkup(<MobileTabs {...tabs} surface="library" />)).toMatch(/aria-current="page" class="is-active"[^>]*>.*?<span>Library<\/span>/);
+    expect(renderToStaticMarkup(<MobileTabs {...tabs} surface="video" />)).toMatch(/aria-current="page" class="is-active"[^>]*>.*?<span>Video<\/span>/);
     expect(renderToStaticMarkup(<MobileTabs {...tabs} surface="watch" />)).not.toMatch(/aria-current/);
   });
 

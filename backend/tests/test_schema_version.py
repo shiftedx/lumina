@@ -53,6 +53,7 @@ def _columns(engine) -> dict[str, list[str]]:  # noqa: ANN001
 
 # Tables a step's create_all adds; the step's ALTER/CREATE INDEX statements cover existing tables.
 NEW_TABLES = {
+    19: ("book_items", "book_states", "book_shelves", "book_shelf_memberships"),
     3: ("media_titles", "device_tokens", "member_favorites", "people", "search_embeddings", "series_recaps"),
     6: ("title_artwork", "client_metric_days"),
     9: ("remote_media", "reco_pool", "reco_events"),
@@ -61,6 +62,7 @@ NEW_TABLES = {
     12: ("media_requests", "media_request_followers", "arr_servers", "request_policies"),
     13: ("member_access", "screen_time"),
     16: ("person_overrides",),
+    18: ("music_lookups", "music_track_overrides", "music_edit_batches", "music_cast_tickets", "music_file_writebacks", "music_playlists"),
 }
 
 

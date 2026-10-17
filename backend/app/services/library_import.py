@@ -31,11 +31,14 @@ from sqlalchemy import and_, bindparam, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.db import session_scope
-from app.models import ImportEntry, ImportRun, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, StorageRoot, utcnow
+from app.models import (
+    ImportEntry, ImportRun, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MusicTrackOverride, StorageRoot,
+    User, utcnow,
+)
 from app.persistence import queue_after_commit, write_transaction
 from app.services.library import EXTERNAL_LIBRARY_ORIGIN, LibraryService
 from app.services.library_search import LibrarySearchService, index_title, title_search_fields
-from app.services.audio_tags import AudioTags, read_tags
+from app.services.audio_tags import AUDIO_TAG_VERSION, AudioTags, read_tags
 from app.services.cast_photos import save_people, split_crew, split_people
 from app.services.local_metadata import AUDIO_EXTENSIONS, describe, read_bounded
 from app.services.media_titles import apply_field, refresh_added_at, scanned_parent
@@ -73,8 +76,7 @@ def _wake_renditions(title_ids: list[str]) -> None:
 MAX_ENTRIES_PER_RUN = 1000
 MEDIA_EXTENSIONS = frozenset({
     ".mp4", ".m4v", ".mkv", ".mov", ".avi", ".webm", ".ts", ".wmv", ".mpg", ".mpeg",
-    ".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus",
-})
+}) | AUDIO_EXTENSIONS
 # Jellyfin-layout folders that never hold library media (".actors" is already hidden).
 SKIP_DIRS = frozenset({"backdrops", "theme-music"})
 ACTIVE_STATES = ("running", "cancel_requested")
@@ -106,6 +108,55 @@ MASS_MISSING_SHARE = 0.2
 MAX_GONE_CHECKS = 5000
 GONE_CHUNK = 500
 HARMLESS_SKIPS = frozenset({"symlink", "too_deep"})  # skipped, not failed: coverage stays complete
+
+# ``local_metadata._music`` owns the long-standing fields below. These are the
+# additive source-tag fields kept on LibraryItem.metadata_json for the music
+# reader and for a future editor; the original lumina_audio_tags record is
+# always retained separately and is never replaced by a manual override.
+MUSIC_AUDIO_METADATA_FIELDS = (
+    "musicbrainz_artist_id", "musicbrainz_album_artist_id", "musicbrainz_album_id", "musicbrainz_release_group_id", "musicbrainz_recording_id",
+    "lyrics", "replaygain_track_gain_db", "replaygain_album_gain_db", "replaygain_track_peak", "replaygain_album_peak",
+    "composers", "performers", "edition", "disc_subtitle", "label", "catalogue_number",
+)
+
+
+def _add_audio_tag_metadata(described: dict, tags: AudioTags | None) -> None:
+    """Add source-only audio fields and MusicBrainz source writes to one description."""
+    if tags is None or described["metadata"].get("lumina_import_kind") != "track":
+        return
+    metadata = described["metadata"]
+    if tags.genres:
+        # ``genre`` is the established display string; ``genres`` is the
+        # normalized list consumed by music_library.track_fields().
+        metadata["genres"] = list(tags.genres)
+    for field in MUSIC_AUDIO_METADATA_FIELDS:
+        value = getattr(tags, field)
+        if value is None or value == ():
+            continue
+        metadata[field] = list(value) if isinstance(value, tuple) else value
+
+    # A compilation's track performer is not its album artist. Only reuse the
+    # performer identity when the displayed album artist is the same person.
+    album_artist_id = tags.musicbrainz_album_artist_id
+    if not album_artist_id and tags.artist and metadata.get("album_artist", "").casefold() == tags.artist.casefold():
+        album_artist_id = tags.musicbrainz_artist_id
+    source_ids = {
+        "artist": album_artist_id,
+        "album": tags.musicbrainz_album_id,
+    }
+    for spec in described["titles"]:
+        if spec["type"] == "album":
+            values = {field: getattr(tags, field) for field in ("edition", "label", "catalogue_number") if getattr(tags, field)}
+            if tags.musicbrainz_release_group_id:
+                values["release_group_id"] = tags.musicbrainz_release_group_id
+            credits = [{"name": name, "role": role} for role, names in (("composer", tags.composers), ("performer", tags.performers)) for name in names]
+            if credits:
+                values["credits"] = credits
+            spec.setdefault("fields", {}).setdefault("path", {}).update(values)
+        provider_id = source_ids.get(spec["type"])
+        if provider_id is None:
+            continue
+        spec.setdefault("fields", {}).setdefault("musicbrainz", {})["provider_ids"] = {"MusicBrainz": provider_id}
 
 
 def mass_missing(candidates: int, available: int) -> bool:
@@ -442,6 +493,7 @@ class LibraryImportService:
         for parts, status, siblings in found:
             relative = "/".join(parts)
             described = describe(root_path, parts, siblings, folder_nfos, audio_tags=audio_tags)
+            _add_audio_tag_metadata(described, AudioTags.from_record(records.get(relative, {})))
             if relative in records:  # The tags travel with the item under the file's fingerprint
                 described["metadata"]["lumina_audio_tags"] = records[relative]
             files.append((relative, status, described))
@@ -476,6 +528,9 @@ class LibraryImportService:
                 counters["candidate_total"] = completed
             search = LibrarySearchService(self.db)
             items = self._linked_items([artifact.id for artifact in [*known.values(), *moves.values()]])
+            item_ids = [item.id for group in items.values() for item in group]
+            overrides = self._music_overrides(item_ids)
+            destinations = self._music_destinations(run, overrides)
             linked: list[tuple[LibraryItem, dict, bool]] = []
             sidecars: list[tuple[str, str, list[dict]]] = []
             for relative, status, described in files:
@@ -502,13 +557,15 @@ class LibraryImportService:
                         # video changes; add the sidecar's mtime to lumina_subtitles when that bites.
                         if text_tracks and (outcome != "unchanged" or (item.metadata_json or {}).get("lumina_subtitles") != subtitles):
                             sidecars.append((item.id, os.path.dirname(relative), text_tracks))
-                        _apply(item, described, status, search)
+                        override = overrides.get(item.id)
+                        music_fields = override.fields if override is not None and isinstance(override.fields, dict) else {}
+                        _apply(item, described, status, search, music_fields)
                         linked.append((item, described, relative in moves))
                 artifact.size, artifact.mtime_ns, artifact.inode = _fingerprint(status)
                 artifact.content_hash = hashes.get(relative, artifact.content_hash)
                 artifact.last_seen_run_id = run.id
                 counters[outcome] = counters.get(outcome, 0) + 1
-            self._link_titles(root, linked, run.created_at)
+            self._link_titles(root, linked, run.created_at, overrides=overrides, destinations=destinations)
             for parts, error in errors:
                 key = "skipped" if error in HARMLESS_SKIPS else "failed"
                 counters[key] = counters.get(key, 0) + 1
@@ -604,6 +661,41 @@ class LibraryImportService:
                 linked.setdefault(artifact_id, []).append(item)
         return linked
 
+    def _music_overrides(self, item_ids: list[str]) -> dict[str, MusicTrackOverride]:
+        """Load all track overrides for one import batch in one query."""
+        if not item_ids:
+            return {}
+        return {
+            row.item_id: row for row in self.db.scalars(
+                select(MusicTrackOverride).where(MusicTrackOverride.item_id.in_(item_ids))
+            )
+        }
+
+    def _music_destinations(
+        self, run: ImportRun, overrides: dict[str, MusicTrackOverride],
+    ) -> dict[str, MediaTitle]:
+        """Resolve manual album targets set-wise, including the music API's visibility/type rules."""
+        requested = {
+            fields.get("album_id") for fields in (row.fields or {} for row in overrides.values())
+            if isinstance(fields, dict) and isinstance(fields.get("album_id"), str)
+        }
+        if not requested:
+            return {}
+        user = self.db.get(User, run.user_id)
+        if user is None:
+            return {}
+        valid = {
+            title.id: title for title in self.db.scalars(select(MediaTitle).where(
+                MediaTitle.id.in_(requested), MediaTitle.type == "album", LibraryService.visible_title_predicate(user),
+            ))
+        }
+        return {
+            item_id: valid[fields["album_id"]]
+            for item_id, row in overrides.items()
+            if isinstance(fields := (row.fields or {}), dict)
+            and isinstance(fields.get("album_id"), str) and fields["album_id"] in valid
+        }
+
     def _audio_tags(self, root: StorageRoot, root_path: Path, statuses: dict[str, os.stat_result],
                     records: dict[str, dict]) -> Callable[[tuple[str, ...]], AudioTags | None]:
         """describe()'s tag reader for one batch.
@@ -626,9 +718,9 @@ class LibraryImportService:
                     stored.update(self._stored_audio_tags(root.id, [relative]))
                 fingerprint = "{}:{}:{}".format(*_fingerprint(status))
                 record = stored.get(relative)
-                if not isinstance(record, dict) or record.get("fp") != fingerprint:
+                if not isinstance(record, dict) or record.get("fp") != fingerprint or record.get("tag_version") != AUDIO_TAG_VERSION:
                     tags = read_tags(root_path / relative)
-                    record = {"fp": fingerprint} if tags is None else tags.record(fingerprint)
+                    record = {"fp": fingerprint, "tag_version": AUDIO_TAG_VERSION} if tags is None else tags.record(fingerprint)
                 records[relative] = record
             return AudioTags.from_record(records[relative])
 
@@ -646,32 +738,163 @@ class LibraryImportService:
         )
         return {relative: json.loads(value) for relative, value in rows if value}
 
-    def _link_titles(self, root: StorageRoot, linked: list[tuple[LibraryItem, dict, bool]], since: datetime) -> None:
+    def _link_titles(
+        self, root: StorageRoot, linked: list[tuple[LibraryItem, dict, bool]], since: datetime, *,
+        overrides: dict[str, MusicTrackOverride] | None = None, destinations: dict[str, MediaTitle] | None = None,
+    ) -> None:
         """Upsert each file's title chain outer→leaf and point the item at its leaf.
 
-        One prefetch per batch. Fields go through ``apply_field`` (sources ``path`` then ``nfo``), so a
+        One prefetch per batch. Fields go through ``apply_field`` (sources ``path``, ``nfo`` and
+        ``musicbrainz``), so a
         ``user``/``nfo`` value is never overwritten by a lower-ranked scan and ``None`` never erases.
         Titles are never deleted: an item that stops classifying just loses its link, and a title
         with no available item is invisible (``visible_title_predicate``).
         """
+        overrides = overrides or {}
+        destinations = destinations or {}
+
         def full_key(spec: dict) -> str:
             return spec["key"] if spec["type"] in GLOBAL_KEY_TYPES else f"{root.id}:{spec['key']}"
 
-        keys = {full_key(spec) for _, described, _ in linked for spec in described["titles"]}
-        titles = {title.key: title for title in self.db.scalars(select(MediaTitle).where(MediaTitle.key.in_(keys)))} if keys else {}
-        lookup = lambda title_id: self.db.get(MediaTitle, title_id) if title_id else None  # noqa: E731
+        specs = [spec for _, described, _ in linked for spec in described["titles"]]
+        keys = {full_key(spec) for spec in specs}
+        aliases = {spec["legacy_key"] for spec in specs if spec.get("source_identity") and spec.get("legacy_key")}
+        provider_ids = {
+            provider_id for spec in specs
+            if (provider_id := ((spec.get("fields") or {}).get("musicbrainz") or {}).get("provider_ids", {}).get("MusicBrainz"))
+        }
+        current_ids = {item.title_id for item, _described, _moved in linked if item.title_id}
+        current_titles = {
+            title.id: title for title in self.db.scalars(select(MediaTitle).where(MediaTitle.id.in_(current_ids)))
+        } if current_ids else {}
+        candidates = list(self.db.scalars(select(MediaTitle).where(or_(
+            MediaTitle.key.in_([*keys, *aliases]),
+            func.json_extract(MediaTitle.provider_ids, "$.MusicBrainz").in_(provider_ids),
+        )))) if keys else []
+        titles = {title.key: title for title in candidates}
+
+        # A confirmed artist identity spans batches and releases. Requiring its
+        # entire discography in one batch creates another artist for every
+        # partial scan. Keep the oldest identity (and its edits/history), even
+        # when both the legacy and provider keys already exist. Album identities
+        # still use the stricter reconciliation below.
+        artists_by_provider: dict[str, list[MediaTitle]] = {}
+        for candidate in candidates:
+            identity = (candidate.provider_ids or {}).get("MusicBrainz")
+            if candidate.type == "artist" and isinstance(identity, str) and identity:
+                artists_by_provider.setdefault(identity, []).append(candidate)
+        for identity, artists in artists_by_provider.items():
+            canonical = min(artists, key=lambda artist: (artist.created_at, artist.id))
+            for artist in artists:
+                titles[artist.key] = canonical
+            for spec in specs:
+                if spec["type"] == "artist" and (
+                    ((spec.get("fields") or {}).get("musicbrainz") or {}).get("provider_ids", {}).get("MusicBrainz") == identity
+                ):
+                    titles[full_key(spec)] = canonical
+
+        # MusicBrainz identities supersede the old name-only keys. Adopt a
+        # compatible title only when this batch accounts for its whole source
+        # grouping and names exactly one new identity. Otherwise create a new
+        # title and leave the old one intact: scans never delete a title, and a
+        # later correction cannot repurpose a locked, curated or mixed release.
+        desired_by_alias: dict[str, set[str]] = {}
+        specs_by_key: dict[str, list[dict]] = {}
+        for spec in specs:
+            key = full_key(spec)
+            specs_by_key.setdefault(key, []).append(spec)
+            if spec.get("source_identity") and spec.get("legacy_key"):
+                desired_by_alias.setdefault(spec["legacy_key"], set()).add(key)
+        linked_item_ids = {item.id for item, _described, _moved in linked}
+
+        def manual_destination(item_id: str) -> str | None:
+            override = overrides.get(item_id)
+            fields = override.fields if override is not None and isinstance(override.fields, dict) else {}
+            return fields.get("album_id") if isinstance(fields.get("album_id"), str) else None
+
+        protected_destinations = {
+            destination for item, _described, _moved in linked
+            if (destination := manual_destination(item.id)) is not None
+        }
+        candidate_ids = {title.id for title in candidates}
+        item_ids_by_album: dict[str, set[str]] = {}
+        child_ids_by_artist: dict[str, set[str]] = {}
+        if candidate_ids:
+            album_items = select(LibraryItem.title_id, LibraryItem.id).where(LibraryItem.title_id.in_(candidate_ids))
+            for title_id, item_id in self.db.execute(album_items):
+                item_ids_by_album.setdefault(title_id, set()).add(item_id)
+            for parent_id, title_id in self.db.execute(select(MediaTitle.parent_id, MediaTitle.id).where(
+                MediaTitle.type == "album", MediaTitle.parent_id.in_(candidate_ids),
+            )):
+                child_ids_by_artist.setdefault(parent_id, set()).add(title_id)
+
+        def complete_source_group(title: MediaTitle, desired_key: str) -> bool:
+            if title.id in protected_destinations:
+                return False
+            if title.type == "album":
+                incoming = {
+                    full_key(described["titles"][-1]) for item, described, _moved in linked
+                    if item.title_id == title.id and described["titles"] and manual_destination(item.id) is None
+                }
+                if incoming != {desired_key}:
+                    return False
+                return item_ids_by_album.get(title.id, set()) <= linked_item_ids
+            if title.type == "artist":
+                children = child_ids_by_artist.get(title.id, set())
+                represented = {
+                    item.title_id for item, _described, _moved in linked
+                    if item.title_id in children and item.id in linked_item_ids
+                }
+                return children <= represented
+            return False
+
+        claimed: set[str] = set()
+        for key, grouped_specs in specs_by_key.items():
+            if key in titles or not grouped_specs[0].get("source_identity"):
+                continue
+            spec = grouped_specs[0]
+            provider_id = ((spec.get("fields") or {}).get("musicbrainz") or {}).get("provider_ids", {}).get("MusicBrainz")
+            provider_matches = [
+                title for title in candidates
+                if title.type == spec["type"] and (title.provider_ids or {}).get("MusicBrainz") == provider_id
+                and title.key not in keys and title.id not in claimed
+            ]
+            legacy = titles.get(spec.get("legacy_key"))
+            if legacy is not None and (
+                legacy.type != spec["type"] or desired_by_alias.get(legacy.key) != {key}
+                or legacy.key in keys or legacy.id in claimed
+                or (legacy.provider_ids or {}).get("MusicBrainz") not in (None, provider_id)
+            ):
+                legacy = None
+            candidate = provider_matches[0] if len(provider_matches) == 1 else legacy
+            if candidate is None or not complete_source_group(candidate, key):
+                continue
+            titles.pop(candidate.key, None)
+            candidate.key = key
+            titles[key] = candidate
+            claimed.add(candidate.id)
+        titles_by_id = {title.id: title for title in titles.values()}
+        lookup = lambda title_id: current_titles.get(title_id) or titles_by_id.get(title_id) or (  # noqa: E731
+            self.db.get(MediaTitle, title_id) if title_id else None
+        )
         before = {title.id: title_search_fields(title, lookup) for title in titles.values()}
         art_before = {title.id: title.images for title in titles.values()}
         now = utcnow()
         photos: dict[str, dict] = {}  # person id -> nfo_people values
         for item, described, moved in linked:
             chain = described["titles"]
+            override = overrides.get(item.id)
+            override_fields = override.fields if override is not None and isinstance(override.fields, dict) else {}
+            manual_album = isinstance(override_fields.get("album_id"), str)
             if not chain:
                 if item.title_id is not None or item.extra_type is not None:
                     item.title_id = item.extra_type = None
                 continue
-            current = self.db.get(MediaTitle, item.title_id) if item.title_id else None
-            if current is not None and (moved or (current.key != full_key(chain[-1]) and self._sole_item(current.id, item.id))):
+            current = current_titles.get(item.title_id) if item.title_id else None
+            protects_destination = manual_album and current is not None and current.id == override_fields["album_id"]
+            stable_source_identity = bool(chain[-1].get("source_identity"))
+            can_rekey = moved or (current is not None and current.key != full_key(chain[-1]) and self._sole_item(current.id, item.id))
+            if not protects_destination and not stable_source_identity and current is not None and can_rekey:
                 # A move carries its titles and ancestors; a key the rules now spell differently carries only
                 # the leaf (no other file shares it), since its season/series may still hold other files.
                 self._rekey(item.title_id, [full_key(spec) for spec in chain], chain, titles, leaf_only=not moved)
@@ -690,6 +913,7 @@ class LibraryImportService:
                     )
                     self.db.add(title)
                     titles[key] = title
+                    titles_by_id[title.id] = title
                 elif title.type != spec["type"]:
                     title.type = spec["type"]  # a folder that became a show (tvshow.nfo added) keeps its id
                 if spec["type"] == "episode" and parent is not None:
@@ -699,8 +923,8 @@ class LibraryImportService:
                 if spec["type"] == "movie" and parent is not None and parent.type == "boxset":
                     apply_field(title, "boxset_id", parent.id, "nfo")
                 foreign = spec["type"] in ("album", "artist") and title.root_id != root.id  # global keys; art resolves under root_id
-                for source in ("path", "nfo"):
-                    for field, value in spec["fields"][source].items():
+                for source in ("path", "nfo", "musicbrainz"):
+                    for field, value in spec["fields"].get(source, {}).items():
                         if foreign and field.startswith("images."):
                             continue
                         if field == "provider_ids":
@@ -711,8 +935,18 @@ class LibraryImportService:
                             value = split_crew(value, photos)  # nfo_title_fields puts "crew" after "people": thumbs first
                         apply_field(title, field, value, source)
                 parent = title
-            if item.title_id != parent.id:
-                item.title_id = parent.id
+            source_album_id = parent.id
+            destination = destinations.get(item.id) if manual_album else None
+            if destination is not None:
+                if item.title_id != destination.id:
+                    item.title_id = destination.id
+            elif item.title_id != source_album_id:
+                # Invalid or no-longer-visible manual targets fall back to
+                # the source album. The override row stays intact so a
+                # restored destination can be selected on a later scan.
+                item.title_id = source_album_id
+            if manual_album and "_source_album_id" not in override_fields:
+                override.fields = {**override_fields, "_source_album_id": source_album_id}
             if item.extra_type != described["extra_type"]:
                 item.extra_type = described["extra_type"]
         # Re-index only new titles or changed search text; index_title drops the
@@ -883,7 +1117,13 @@ class LibraryImportService:
         run.finished_at = utcnow()
 
 
-def _apply(item: LibraryItem, described: dict, status: os.stat_result, search: LibrarySearchService | None) -> None:
+def _apply(
+    item: LibraryItem,
+    described: dict,
+    status: os.stat_result,
+    search: LibrarySearchService | None,
+    music_fields: dict | None = None,
+) -> None:
     """Refresh import-owned fields; the FTS row is rewritten only when its text changed."""
     item.status = "available"
     item.file_size = status.st_size
@@ -893,7 +1133,7 @@ def _apply(item: LibraryItem, described: dict, status: os.stat_result, search: L
     item.title, item.uploader, item.playlist_name = fields[:3]
     LibraryService._set_metadata(item, described["metadata"])
     if search is not None:
-        search.sync_item(item)
+        search.sync_item(item, music_fields)
 
 
 def drive(run_id: str) -> None:

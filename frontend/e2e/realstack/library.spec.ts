@@ -37,7 +37,9 @@ test('music imports into albums and artists, an album plays on, and the anime fo
   let tracks: { item_id: string }[] = [];
   await test.step('the album page shows its cover at exactly 1:1', async () => {
     await page.goto('/library/music');
+    await expect(page).toHaveURL(/\/audio$/);
     await page.getByRole('button', { name: /^Album One by Artist A/ }).click();
+    await expect(page).toHaveURL(/\/audio\/title\/[^/]+$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Album One' })).toBeVisible();
     const albumId = decodeURIComponent(new URL(page.url()).pathname.split('/').pop()!);
     tracks = (await (await page.request.get(`/api/titles/${albumId}`)).json()).tracks;
@@ -53,10 +55,16 @@ test('music imports into albums and artists, an album plays on, and the anime fo
     }), { timeout: 30_000 }).toBe(true);
   });
 
-  await test.step('track 1 plays to its end and track 2 starts', async () => {
+  await test.step('track 1 plays in place and advances to track 2', async () => {
+    const albumUrl = page.url();
     await page.getByRole('button', { name: /^Play 1\. Song One/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/watch/library/${tracks[0].item_id}$`));
-    await expect(page).toHaveURL(new RegExp(`/watch/library/${tracks[1].item_id}$`), { timeout: 30_000 });
+    const player = page.getByRole('region', { name: 'Music player' });
+    await expect(player).toBeVisible();
+    await expect(player.getByRole('button', { name: 'Open listening room for Song One' })).toBeVisible();
+    await expect(page).toHaveURL(albumUrl);
+    await expect(player.getByRole('button', { name: 'Open listening room for Song Two' })).toBeVisible({ timeout: 30_000 });
+    await expect(page).toHaveURL(albumUrl);
+    await expect(page.getByRole('heading', { level: 1, name: 'Album One' })).toBeVisible();
   });
 
   await test.step('Anime holds Show A and Film; Shows does not hold Show A', async () => {

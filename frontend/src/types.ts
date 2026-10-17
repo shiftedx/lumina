@@ -1026,7 +1026,7 @@ export interface UserProfile {
   role: UserRole;
   is_active: boolean;
   onboarding_status?: OnboardingStatus;
-  /** Only the first vault owner is guided through connecting media after account creation. */
+  /** Only the first vault owner connects media after account creation. */
   vault_setup_pending?: boolean;
   has_local_password?: boolean;
   two_factor_enabled?: boolean;
@@ -1160,7 +1160,7 @@ export type LocalPlaybackSession = { session_id: string; mode: 'remux' | 'transc
 
 export type TitleType = 'series' | 'season' | 'episode' | 'movie' | 'boxset' | 'album' | 'artist';
 export type ExtraType = 'trailer' | 'featurette' | 'behindthescenes' | 'deletedscene' | 'interview' | 'scene' | 'short' | 'clip' | 'other';
-export type FieldSource = 'user' | 'nfo' | 'tmdb' | 'path';
+export type FieldSource = 'user' | 'nfo' | 'tmdb' | 'musicbrainz' | 'path';
 export type ImageType = 'Primary' | 'Backdrop' | 'Logo' | 'Thumb' | 'Banner';
 export type MatchMethod = 'id' | 'find' | 'search' | 'llm' | 'user';
 export type TitleSort = 'name' | 'created' | 'year' | 'rating';
@@ -1356,6 +1356,7 @@ export interface TitleDetail extends TitleSummary {
   episode_count?: number | null;
   best_height?: number | null;
   tracks?: AlbumTrack[] | null;
+  music?: import('./features/music/musicTypes').MusicTitleInfo | null;
 }
 
 /** GET /api/library/sections. */
@@ -1804,7 +1805,7 @@ export interface ProfanityPref {
 // ── 2.1.0: media_schemas.py mirrors every type below except PersonRef, MetadataErrorBody, WatchIntervalS ──
 export type EditKind = 'edit' | 'lock' | 'revert' | 'bulk' | 'undo' | 'item_lock' | 'image';
 export type EditableImageType = 'Primary' | 'Backdrop' | 'Logo';
-export type ImageOrigin = 'tmdb' | 'upload' | 'local' | 'embedded';
+export type ImageOrigin = 'tmdb' | 'musicbrainz' | 'upload' | 'local' | 'embedded';
 export type RefreshOutcome = 'update' | 'same' | 'kept_edit' | 'kept_lock' | 'kept_higher_source' | 'new';
 export type BulkOpName = 'add' | 'remove' | 'set' | 'lock' | 'unlock' | 'lock_item' | 'unlock_item';
 export type BulkSkipReason = 'not_found' | 'locked_item' | 'wrong_type';

@@ -390,24 +390,23 @@ class SemanticDiscovery:
         loaded = list(dict.fromkeys([*item_ids, *(hit.item_id for hit in moments)]))
         needs_library = types is None or "library" in types
         needs_moments = types is None or "moment" in types
-        # Any item-backed result needs full rows, so load them once. A title-only
-        # search needs just these three link fields to build version and summary text.
-        needs_full_items = needs_library or needs_moments
-        items = (
-            {item.id: item for item in db.query(LibraryItem).filter(LibraryItem.id.in_(loaded)).all()}
-            if loaded and needs_full_items else {}
-        )
-        if not loaded:
-            links = {}
-        elif needs_full_items:
+        # Moment-only searches hydrate their candidates once. Mixed/library
+        # searches first read links so title-backed files never carry unused JSON.
+        if loaded and needs_moments and not needs_library:
+            items = {item.id: item for item in db.query(LibraryItem).filter(LibraryItem.id.in_(loaded)).all()}
             links = items
         else:
             links = {
-                row.id: row
-                for row in db.execute(
+                row.id: row for row in db.execute(
                     select(LibraryItem.id, LibraryItem.title, LibraryItem.title_id).where(LibraryItem.id.in_(loaded))
                 )
-            }
+            } if loaded else {}
+            full_ids = {
+                hit.item_id for hit in moments if needs_moments and hit.start_ms is not None
+            } | {item.id for item in links.values() if needs_library and not item.title_id}
+            items = {
+                item.id: item for item in db.query(LibraryItem).filter(LibraryItem.id.in_(full_ids)).all()
+            } if full_ids else {}
         versions: dict[str, list[str]] = {}
         summaries_by_title: dict[str, list[str]] = {}
         for item_id in item_ids:
@@ -508,20 +507,16 @@ class SemanticDiscovery:
     ) -> list[SearchDocument]:
         if not title_records:
             return []
-        columns = (
-            MediaTitle.id, MediaTitle.type, MediaTitle.parent_id, MediaTitle.name, MediaTitle.year, MediaTitle.metadata_json,
-        )
-
         def records(ids) -> dict[str, _TitleSearchRecord]:  # noqa: ANN001
+            # Ancestors contribute only their name and parent link, never metadata.
             return {
-                row.id: _TitleSearchRecord(
-                    id=row.id, type=row.type, parent_id=row.parent_id, name=row.name,
-                    year=row.year, metadata_json=row.metadata_json,
-                )
-                for row in db.execute(select(*columns).where(MediaTitle.id.in_(ids)))
+                row[0]: _TitleSearchRecord(*row, year=None, metadata_json={})
+                for row in db.execute(select(
+                    MediaTitle.id, MediaTitle.type, MediaTitle.parent_id, MediaTitle.name,
+                ).where(MediaTitle.id.in_(ids)))
             }
 
-        titles = {row.id: _TitleSearchRecord(**row._mapping) for row in title_records}
+        titles = {row[0]: _TitleSearchRecord(*row) for row in title_records}
         known = dict(titles)
         for _generation in range(2):  # parents, then grandparents: episodes need their series name
             missing = {t.parent_id for t in known.values() if t.parent_id and t.parent_id not in known}

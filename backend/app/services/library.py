@@ -507,6 +507,8 @@ class LibraryService:
         self.db.flush()
         if file_path:
             MediaArtifactService(self.db).register_file(existing, file_path)
+        from app.services.music_videos import associate_import
+        associate_import(self.db, existing)
         # Keep the search corpus in step with the item's text in the same
         # transaction, so a committed upsert is immediately searchable. A new
         # item takes the insert-only path to avoid a delete scan of the corpus.

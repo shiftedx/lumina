@@ -28,7 +28,7 @@ export interface MemberAccess {
 }
 /** GET /api/admin/members/{id}/access (and the bonus response): the access plus today's figures. */
 export type MemberAccessState = MemberAccess & { screen_time_today_seconds?: number; bonus_minutes_today?: number };
-export type Section = { id: string; label: string; count: number };
+export type Section = { id: string; label: string; count: number; description?: string | null };
 export type MemberActivity = { screen_time_today_seconds: number; recent: ActivityHistoryRow[] };
 /** /api/admin/users rows; members carry their access summary (null = all libraries, no limits). */
 export type MemberRow = UserProfile & { access?: MemberAccess | null; screen_time_today_seconds?: number; sign_in_locked?: boolean };
@@ -57,13 +57,42 @@ export const PRESETS: Record<PresetId, { label: string; hint: string; access: Om
 };
 export const applyPreset = (access: MemberAccess, preset: PresetId): MemberAccess => ({ ...structuredClone(PRESETS[preset].access), sections: access.sections });
 
-const SECTION_LABELS: Record<string, string> = { movies: 'Movies', shows: 'TV shows', anime: 'Anime', music: 'Music', books: 'Books', vault: 'Videos and downloads' };
-export const sectionLabel = (id: string, sections?: readonly Section[] | null) => sections?.find((entry) => entry.id === id)?.label ?? SECTION_LABELS[id] ?? id;
+export const BOOK_SECTION_IDS = ['books:ebook', 'books:manga'] as const;
+const SECTION_LABELS: Record<string, string> = { movies: 'Movies', shows: 'TV shows', anime: 'Anime', music: 'Music', books: 'Books', 'books:ebook': 'Ebooks', 'books:manga': 'Manga & comics', vault: 'Videos & downloads' };
+
+/** Expand the pre-books-library grant without losing its meaning when a member edits libraries. */
+export function expandLegacyBookSections(ids: readonly string[]): string[] {
+  const next: string[] = [];
+  for (const id of ids) {
+    const replacements = id === 'books' ? BOOK_SECTION_IDS : [id];
+    for (const replacement of replacements) if (!next.includes(replacement)) next.push(replacement);
+  }
+  return next;
+}
+
+/** Labels supplied by the section API are user-facing, but normalize older responses and stable leaf names here. */
+export function sectionDisplayLabel(section: Pick<Section, 'id' | 'label'>): string {
+  if (section.id === 'shows') return 'TV shows';
+  if (section.id === 'books:ebook') return 'Ebooks';
+  if (section.id === 'books:manga') return 'Manga & comics';
+  if (section.id.startsWith('root:')) {
+    const raw = section.label.trim();
+    const source = raw.replace(/^Other files from\s+/i, '').trim();
+    return source && source !== section.id ? `Other files from ${source}` : 'Other files';
+  }
+  return section.label.trim() || SECTION_LABELS[section.id] || section.id;
+}
+
+const fallbackSectionLabel = (id: string) => id.startsWith('root:') ? 'Other files' : SECTION_LABELS[id] ?? id;
+export const sectionLabel = (id: string, sections?: readonly Section[] | null) => {
+  const section = sections?.find((entry) => entry.id === id);
+  return section ? sectionDisplayLabel(section) : fallbackSectionLabel(id);
+};
 
 export function librariesSummary(access: MemberAccess, sections?: readonly Section[] | null): string {
   if (access.sections === null) return 'All libraries';
   if (!access.sections.length) return 'No libraries';
-  return access.sections.map((id) => sectionLabel(id, sections)).join(', ');
+  return expandLegacyBookSections(access.sections).map((id) => sectionLabel(id, sections)).join(', ');
 }
 
 /** "1 h", "2 h 30 min", "45 min". */

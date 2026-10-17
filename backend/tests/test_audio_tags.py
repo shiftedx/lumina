@@ -50,9 +50,10 @@ def test_every_format_reads_the_same_fields(tmp_path, codec) -> None:  # noqa: A
 def test_a_record_round_trips_and_an_unreadable_file_records_only_its_fingerprint() -> None:
     record = EXPECTED.record("10:20:30")
     assert record["fp"] == "10:20:30" and record["genres"] == ["Folk", "Rock", "Jazz"]
-    assert set(record) == {"fp", "title", "artist", "album_artist", "album", "track", "disc", "year", "genres", "compilation", "has_picture"}
+    assert set(record) == {"fp", "tag_version", "title", "artist", "album_artist", "album", "track", "disc", "year", "genres", "compilation", "has_picture"}
     assert AudioTags.from_record(record) == EXPECTED
     assert AudioTags.from_record({"fp": "10:20:30"}) is None
+    assert AudioTags.from_record({"fp": "10:20:30", "tag_version": record["tag_version"]}) is None
 
 
 @needs_ffmpeg

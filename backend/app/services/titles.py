@@ -23,7 +23,7 @@ from app.media_schemas import (
     AlbumTrack, GenreFacet, LibraryUpNext, ResolutionFacet, TitleArt, TitleDetail, TitleExtra, TitleFacets, TitleLetter, TitleMatch, TitleResolution, TitleSummary,
     TitleUserData, TitleVersion, YearRange,
 )
-from app.models import LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberFavorite, PlaybackProgress, StorageRoot, TitleArtwork, TitleUpload, User
+from app.models import LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberFavorite, MusicTrackOverride, PlaybackProgress, StorageRoot, TitleArtwork, TitleUpload, User
 from app.persistence import read_regular_file
 from app.schemas import PlaybackProgressUpdateRequest
 from app.services.artwork import LOCAL_ARTWORK_TYPES, ArtworkError, ArtworkService
@@ -437,7 +437,21 @@ class TitleService:
     def get_visible(self, title_id: str | None, user: User) -> MediaTitle | None:
         if not title_id:
             return None
-        return self.db.scalar(select(MediaTitle).where(MediaTitle.id == title_id, self.visible(user)))
+        title = self.db.scalar(select(MediaTitle).where(MediaTitle.id == title_id, self.visible(user)))
+        if title is not None:
+            return title
+        # A scan can consolidate an old duplicate artist's releases. Saved
+        # artist links still resolve through the confirmed provider identity;
+        # visibility is checked again on the destination for this member.
+        alias = self.db.get(MediaTitle, title_id)
+        identity = (alias.provider_ids or {}).get("MusicBrainz") if alias is not None and alias.type == "artist" else None
+        if not isinstance(identity, str) or not identity:
+            return None
+        return self.db.scalar(select(MediaTitle).where(
+            MediaTitle.type == "artist",
+            func.json_extract(MediaTitle.provider_ids, "$.MusicBrainz") == identity,
+            self.visible(user),
+        ).order_by(MediaTitle.created_at, MediaTitle.id).limit(1))
 
     # ---- set-based page loading ------------------------------------------------
 
@@ -982,25 +996,30 @@ class TitleService:
         """An album's visible, non-missing tracks with the member's progress, ordered (disc, number, name, id) with
         unknown discs and numbers last: one query that seeks items by title id."""
         progress = aliased(PlaybackProgress)
+        disc = cast(func.coalesce(func.json_extract(MusicTrackOverride.fields, "$.disc_number"), TRACK_DISC), Integer)
+        number = cast(func.coalesce(func.json_extract(MusicTrackOverride.fields, "$.track_number"), TRACK_NUMBER), Integer)
+        artist_name = func.coalesce(func.json_extract(MusicTrackOverride.fields, "$.artist"), TRACK_ARTIST)
+        track_name = func.coalesce(func.json_extract(MusicTrackOverride.fields, "$.title"), LibraryItem.title)
         rows = self.db.execute(
-            select(LibraryItem, progress, TRACK_DISC, TRACK_NUMBER, TRACK_ARTIST, cast(func.json_extract(MediaArtifact.probe, "$.duration"), Float))
+            select(LibraryItem, progress, disc, number, artist_name, cast(func.json_extract(MediaArtifact.probe, "$.duration"), Float), track_name)
             .options(defer(LibraryItem.metadata_json))
+            .outerjoin(MusicTrackOverride, MusicTrackOverride.item_id == LibraryItem.id)
             .outerjoin(progress, and_(progress.item_id == LibraryItem.id, progress.user_id == user.id))
             .outerjoin(LibraryItemArtifact, LibraryItemArtifact.library_item_id == LibraryItem.id)
             .outerjoin(MediaArtifact, MediaArtifact.id == LibraryItemArtifact.artifact_id)
             .where(LibraryItem.title_id == album.id, LibraryItem.extra_type.is_(None), LibraryItem.status != "missing",
                    LibraryService.visible_predicate(user))
-            .order_by(TRACK_DISC.nulls_last(), TRACK_NUMBER.nulls_last(), LibraryItem.title.collate("NOCASE"), LibraryItem.id)
+            .order_by(disc.nulls_last(), number.nulls_last(), track_name.collate("NOCASE"), LibraryItem.id)
         ).all()
         same = (album_artist or "").casefold()
         return [
             AlbumTrack(
-                item_id=item.id, disc=disc, number=number, name=item.title,
+                item_id=item.id, disc=disc, number=number, name=name,
                 artist=artist if isinstance(artist, str) and artist.casefold() != same else None,
                 duration_seconds=round(item.duration or probe or 0) or None,
                 user_data=user_data_from(row, favorite=False),
             )
-            for item, row, disc, number, artist, probe in rows
+            for item, row, disc, number, artist, probe, name in rows
         ]
 
     def music_detail(self, user: User, title: MediaTitle) -> TitleDetail:
@@ -1009,11 +1028,24 @@ class TitleService:
         albums = self.children(user, title)  # an artist's; [] for an album (no query)
         batch = self.load(user, [title, *albums])
         artist = batch.titles.get(title.parent_id) if title.type == "album" else None
+        from app.music_schemas import MusicTitleInfo
+        data = title.metadata_json or {}
+        music_data = {key: data[key] for key in MusicTitleInfo.model_fields if key in data}
+        music_data["artwork_credits"] = [credit for credit in data.get("artwork_credits", []) if isinstance(credit, dict)
+            and credit.get("tag") and credit["tag"] == ((title.images or {}).get(credit.get("image_type")) or {}).get("tag")]
+        info = MusicTitleInfo(**music_data)
+        info.identified = bool((title.provider_ids or {}).get("MusicBrainz"))
+        if user.role != "admin":
+            info.candidates = []
+        elif isinstance(data.get("music_candidates"), list):
+            info.candidates = data["music_candidates"][:10]
         return TitleDetail(
             **self.summary(title, batch).model_dump(exclude={"backdrop"}),
             backdrop=batch.art(title, "Backdrop", preview=True),
             children=[self.summary(album, batch) for album in albums],
             tracks=self.tracks(user, title, artist.name if artist else None) if title.type == "album" else None,
+            provider_ids=title.provider_ids or {}, music=info.model_dump(),
+            premiered=data.get("premiered"), studios=data.get("studios") or [],
         )
 
 
@@ -1034,6 +1066,13 @@ def title_image_bytes(db: Session, title: MediaTitle, image_type: str, artwork: 
     ``tmdb.load_image``). The path comes only from the scanner's stored map, never from the request.
     """
     entry = (title.images or {}).get(image_type)
+    if isinstance(entry, dict) and isinstance(entry.get("music"), str) and not entry.get("removed"):
+        from app.services.music_providers import validate_art_url
+        try:
+            response = artwork.load_pinned(entry["music"], bucket="music", max_bytes=2 * 1024**3, validate_redirect=validate_art_url)
+            return response.content_type, response.content
+        except (ArtworkError, ValueError) as error:
+            raise FileNotFoundError("Music artwork is unavailable") from error
     if isinstance(entry, dict) and entry.get("removed"):
         raise FileNotFoundError("Removed")
     if isinstance(entry, dict) and isinstance(entry.get("upload"), str) and not entry.get("path"):

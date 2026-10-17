@@ -14,7 +14,7 @@ export function imageAt(images: readonly TitleImageEntry[], type: EditableImageT
 
 export function slotsFor(docType: TitleType, images: readonly TitleImageEntry[]): Slot[] {
   const slot = (type: EditableImageType, index: number, label: string): Slot => ({ type, index, key: slotKey(type, index), label });
-  const slots = [slot('Primary', 0, docType === 'episode' ? 'Still' : 'Poster')];
+  const slots = [slot('Primary', 0, docType === 'album' ? 'Album cover' : docType === 'artist' ? 'Artist portrait' : docType === 'episode' ? 'Still' : 'Poster')];
   if (docType === 'movie' || docType === 'series' || docType === 'season') {
     const used = images.filter((entry) => entry.type === 'Backdrop' && entry.url !== null).map((entry) => entry.index).sort((a, b) => a - b);
     const free = [0, 1, 2, 3, 4].find((index) => !used.includes(index));
@@ -34,5 +34,5 @@ export function moveOrder(occupied: readonly number[], index: number, direction:
   return next;
 }
 
-const ORIGINS: Record<ImageOrigin, string> = { tmdb: 'From TMDB', upload: 'Uploaded', local: 'From folder', embedded: 'From video file' };
+const ORIGINS: Record<ImageOrigin, string> = { tmdb: 'From TMDB', musicbrainz: 'Music metadata', upload: 'Uploaded', local: 'From folder', embedded: 'From media file' };
 export const originLabel = (entry: TitleImageEntry): string => (entry.origin ? ORIGINS[entry.origin] : '');

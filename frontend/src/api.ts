@@ -466,8 +466,10 @@ export const stopLocalPlaybackSession = (sessionId: string): Promise<void> => de
 
 export const listContinueWatching = (): Promise<PlaybackProgress[]> => requestJson('/api/playback/continue');
 export const getPlaybackProgress = (id: string): Promise<PlaybackProgress | null> => requestJson(`/api/library/${enc(id)}/playback`, undefined, { timeoutMs: 2500 });
-export const updatePlaybackProgress = (id: string, payload: { position_seconds: number; duration_seconds?: number | null; completed?: boolean }): Promise<PlaybackProgress> =>
-  put(`/api/library/${enc(id)}/playback`, payload);
+export const updatePlaybackProgress = (id: string, payload: { position_seconds: number; duration_seconds?: number | null; completed?: boolean }, options?: { keepalive?: boolean }): Promise<PlaybackProgress> => {
+  const request = requestJson<PlaybackProgress>(`/api/library/${enc(id)}/playback`, { method: 'PUT', body: json(payload), keepalive: options?.keepalive });
+  return options?.keepalive ? trackKeepalive(request) : request;
+};
 export const clearPlaybackProgress = (id: string): Promise<void> => del(`/api/library/${enc(id)}/playback`);
 
 export const getRemotePlaybackProgress = (sourceIdentity: string, signal?: AbortSignal): Promise<RemotePlaybackProgress | null> =>
@@ -976,6 +978,36 @@ export const bulkEditMetadata = (request: BulkRequest): Promise<BulkResult> => p
 
 // ── 2.1.0 library automation ──
 const AUTOMATION = '/api/admin/library/automation';
+export const getMusicQueue = (request: { item_ids?: string[]; title_id?: string }): Promise<import('./features/music/musicTypes').MusicTrack[]> => post('/api/music/queue', request);
+export const getMusicTrack = (id: string): Promise<import('./features/music/musicTypes').MusicTrack> => requestJson(`/api/music/tracks/${enc(id)}`);
+export const getMusicTrackMetadata = (id: string): Promise<{ fields: Record<string, unknown>; overridden: string[] }> => requestJson(`/api/music/tracks/${enc(id)}/metadata`);
+export const getMusicHighlights = (id: string): Promise<import('./features/music/musicTypes').MusicTrack[]> => requestJson(`/api/music/titles/${enc(id)}/tracks`);
+export const getMusicLyrics = (id: string): Promise<import('./features/music/musicTypes').MusicLyrics> => requestJson(`/api/music/tracks/${enc(id)}/lyrics`);
+export const getMusicVideos = (id: string, kind: 'track' | 'title' = 'track'): Promise<import('./features/music/musicTypes').MusicVideos> => requestJson(`/api/music/${kind === 'track' ? 'tracks' : 'titles'}/${enc(id)}/videos`);
+export const getMusicEnrichment = (id: string): Promise<{ refreshing: boolean; identified: boolean; error: string | null; candidates: import('./features/music/musicTypes').MusicTitleInfo['candidates'] }> => requestJson(`/api/music/titles/${enc(id)}/enrichment`);
+export const identifyMusic = (id: string, providerId?: string): Promise<{ queued: boolean }> => post(`/api/music/titles/${enc(id)}/identify`, { ...(providerId ? { provider_id: providerId } : {}), refresh: true });
+export const editMusicTracks = (request: { item_ids: string[]; changes: Record<string, unknown>; base?: Record<string, Record<string, unknown>> }): Promise<{ batch_id: string | null; applied: number; tracks: import('./features/music/musicTypes').MusicTrack[] }> => post('/api/music/tracks/edit', request);
+export const createMusicRelease = (body: { item_ids: string[]; name: string; artist_id?: string; artist_name?: string; year?: number | null; edition?: string; base?: Record<string, Record<string, unknown>> }): Promise<{ batch_id: string | null; applied: number; tracks: import('./features/music/musicTypes').MusicTrack[]; album_id: string }> => post('/api/music/albums', body);
+export const undoMusicEdit = (id: string): Promise<{ applied: number; skipped: string[] }> => post(`/api/music/edits/${enc(id)}/undo`, {});
+export const discoverSonos = (): Promise<import('./features/music/musicTypes').SonosSpeaker[]> => requestJson('/api/music/sonos');
+export const castMusic = (speaker_id: string, item_ids: string[], compatibility = false): Promise<{ ticket_id: string; state: Record<string, unknown> }> => post('/api/music/cast', { speaker_id, item_ids, compatibility }, { timeoutMs: 60_000 });
+export const controlMusicCast = (id: string, action: 'play' | 'pause' | 'stop' | 'next' | 'previous' | 'volume' | 'seek', value?: number): Promise<Record<string, unknown>> => post(`/api/music/cast/${enc(id)}/control`, { action, ...(value === undefined ? {} : { value }) });
+export const getMusicCastStatus = (id: string): Promise<Record<string, unknown>> => requestJson(`/api/music/cast/${enc(id)}/status`);
+export const uploadMusicArtwork = async (titleIds: string[], image: Blob, base: Record<string, string | null>, imageType: 'Primary' | 'Backdrop' = 'Primary'): Promise<{ batch_id: string | null; applied: number; skipped: { title_id: string; reason: string }[] }> => {
+  const plan = await post<{ plan_id: string }>('/api/music/artwork/preview', { title_ids: titleIds, base, image_type: imageType });
+  return requestJson(`/api/music/artwork/bulk?plan_id=${enc(plan.plan_id)}`, { method: 'PUT', headers: { 'Content-Type': image.type || 'application/octet-stream' }, body: image }, { timeoutMs: 60_000 });
+};
+export const previewMusicWriteback = (itemIds: string[], includeArtwork: boolean): Promise<{ plan_id: string; backup_bytes: number; include_artwork: boolean; entries: { item_id: string; title: string; format: string; fields: Record<string, unknown>; supported: boolean }[] }> => post('/api/music/writeback/preview', { item_ids: itemIds, include_artwork: includeArtwork });
+export const applyMusicWriteback = (planId: string): Promise<{ applied: { id: string; item_id: string; title: string; format: string }[]; skipped: { item_id: string; reason: string }[] }> => post('/api/music/writeback/apply', { plan_id: planId }, { timeoutMs: 300_000 });
+export const listMusicFileBackups = (): Promise<{ id: string; item_id: string; created_at: string; restored: boolean }[]> => requestJson('/api/music/writeback/backups');
+export const restoreMusicFile = (id: string): Promise<{ restored: boolean }> => post(`/api/music/writeback/${enc(id)}/restore`, {});
+export const listMusicPlaylists = (): Promise<import('./features/music/musicTypes').MusicPlaylist[]> => requestJson('/api/music/playlists');
+export const saveMusicPlaylist = (body: import('./features/music/musicTypes').MusicPlaylistSave, id?: string): Promise<import('./features/music/musicTypes').MusicPlaylist> => id ? put(`/api/music/playlists/${enc(id)}`, body) : post('/api/music/playlists', body);
+export const deleteMusicPlaylist = (id: string): Promise<void> => del(`/api/music/playlists/${enc(id)}`);
+export const getMusicPlaylistTracks = (id: string): Promise<import('./features/music/musicTypes').MusicTrack[]> => requestJson(`/api/music/playlists/${enc(id)}/tracks`);
+export const getMusicMix = (kind: 'favorites' | 'unplayed' | 'rotation' | 'radio', seedId?: string): Promise<import('./features/music/musicTypes').MusicTrack[]> => requestJson(`/api/music/mixes/${kind}${seedId ? `?seed_id=${enc(seedId)}` : ''}`);
+export const getMusicDiscography = (id: string, offset = 0): Promise<{ items: NonNullable<import('./features/music/musicTypes').MusicTitleInfo['discography']>; next_offset: number | null; refreshing: boolean; error: string | null }> => requestJson(`/api/music/titles/${enc(id)}/discography?offset=${offset}`);
+export const getMusicEditions = (id: string, offset = 0): Promise<{ owned: TitleSummary[]; items: { id: string; name: string; date: string; country: string | null; edition: string | null; label: string | null }[]; next_offset: number | null; refreshing: boolean; error: string | null }> => requestJson(`/api/music/titles/${enc(id)}/editions?offset=${offset}`);
 export const getLibraryActivity = (signal?: AbortSignal): Promise<LibraryActivity> => requestJson('/api/library/activity', undefined, { signal, background: true });
 export const getLibraryAutomation = (): Promise<LibraryAutomation> => requestJson(AUTOMATION);
 export const updateRootAutomation = (rootId: string, payload: AutomationRootPatch): Promise<AutomationRoot> => patch(`${AUTOMATION}/roots/${enc(rootId)}`, payload);

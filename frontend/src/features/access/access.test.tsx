@@ -113,7 +113,9 @@ describe('hiding rules', () => {
     expect(allStreamingBlocked(value({ blocked_streaming: ['youtube', 'twitch', 'kick'] }).access)).toBe(true);
     nav(value({ blocked_streaming: ['youtube', 'twitch', 'kick'] }));
     expect(screen.queryByRole('button', { name: 'Streaming' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Library' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Video' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Audio' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Books' })).toBeTruthy();
   });
 
   const surface = (access: AccessValue, patch: Partial<StreamingSurfaceProps> = {}) => {

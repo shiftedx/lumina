@@ -24,17 +24,25 @@ from app.security import get_current_user
 from app.services import art_urls, embeddings, two_factor, library_search, media_titles, title_metadata, tmdb
 from app.services.library import LibraryService
 
-ALL, MS = frozenset({"movie", "series", "season", "episode"}), frozenset({"movie", "series"})
+VIDEO_ALL = frozenset({"movie", "series", "season", "episode"})
+MUSIC = frozenset({"album", "artist"})
+ALBUM, ARTIST = frozenset({"album"}), frozenset({"artist"})
+ALL, MS = VIDEO_ALL | MUSIC, frozenset({"movie", "series"})
 MSE, SE, S, E = frozenset({"movie", "series", "episode"}), frozenset({"season", "episode"}), frozenset({"series"}), frozenset({"episode"})
 SMS = frozenset({"movie", "series", "season"})
 DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-EDITABLE_TYPES = ("movie", "series", "season", "episode")
+EDITABLE_TYPES = ("movie", "series", "season", "episode", "album", "artist")
 IMAGE_KEYS = ("Primary", "Backdrop", "Backdrop.1", "Backdrop.2", "Backdrop.3", "Backdrop.4", "Logo")
+IMAGE_TYPES = {"Primary": ALL, "Backdrop": SMS, "Logo": MS}
 SEARCHABLE = frozenset({"name", "overview", "genres", "tags", "people"})
 _DATE, _TIME = re.compile(r"\d{4}-\d{2}-\d{2}"), re.compile(r"([01]\d|2[0-3]):[0-5]\d")
+_MUSIC_DATE = re.compile(r"\d{4}(?:-\d{2}(?:-\d{2})?)?")
 _GROUP = re.compile(r"[0-9a-f]{24}")  # a TMDB episode group id
 DISPLAY_ORDERS = ("aired", "dvd", "absolute")
-_TMDB, _IMDB, _TVDB, _KEY = re.compile(r"\d{1,10}"), re.compile(r"tt\d{7,10}"), re.compile(r"\d{1,10}"), re.compile(r"[A-Za-z][A-Za-z0-9]{0,31}")
+_TMDB, _IMDB, _TVDB = re.compile(r"\d{1,10}"), re.compile(r"tt\d{7,10}"), re.compile(r"\d{1,10}")
+_MUSICBRAINZ = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+_KEY = re.compile(r"[A-Za-z][A-Za-z0-9]{0,31}")
+RELEASE_TYPES = ("album", "single", "ep", "compilation", "live", "soundtrack")
 
 
 class FieldError(Exception):
@@ -118,6 +126,30 @@ def _status(value: Any) -> str:
     return value
 
 
+def _release_type(value: Any) -> str:
+    if value not in RELEASE_TYPES:
+        raise FieldError("bad_entry")
+    return value
+
+
+def _active_date(value: Any) -> str:
+    if not isinstance(value, str) or not _MUSIC_DATE.fullmatch(value):
+        raise FieldError("bad_date")
+    year = int(value[:4])
+    if not 1800 <= year <= 2100:
+        raise FieldError("out_of_range")
+    if len(value) > 4:
+        month = int(value[5:7])
+        if not 1 <= month <= 12:
+            raise FieldError("bad_date")
+    if len(value) == 10:
+        try:
+            date.fromisoformat(value)
+        except ValueError:
+            raise FieldError("bad_date") from None
+    return value
+
+
 def _season_id(value: Any) -> str:
     """Shape only; save_edits checks it names a season of the episode's own series."""
     if not isinstance(value, str) or media_titles.parse_item_id(value) != value:
@@ -172,7 +204,7 @@ def _provider_ids(value: Any) -> Any:
     for key, item in value.items():
         if not isinstance(key, str) or not isinstance(item, str):
             raise FieldError("bad_entry")
-        pattern = {"Tmdb": _TMDB, "Imdb": _IMDB, "Tvdb": _TVDB}.get(key)
+        pattern = {"Tmdb": _TMDB, "Imdb": _IMDB, "Tvdb": _TVDB, "MusicBrainz": _MUSICBRAINZ}.get(key)
         if pattern is not None:
             ok = pattern.fullmatch(item)
         else:
@@ -181,6 +213,19 @@ def _provider_ids(value: Any) -> Any:
             raise FieldError("bad_entry")
         out[key] = item
     return out
+
+
+def _music_credits(value: Any) -> list[dict] | None:
+    if not isinstance(value, list) or len(value) > 200:
+        raise FieldError("too_many")
+    result = []
+    for credit in value:
+        if not isinstance(credit, dict) or set(credit) - {"name", "role", "instrument"}:
+            raise FieldError("bad_entry")
+        result.append({"name": _text(200, required=True)(credit.get("name")),
+                       "role": _text(200)(credit.get("role") or "Performer"),
+                       "instrument": _text(200)(credit.get("instrument") or "")})
+    return result or None
 
 
 @dataclass(frozen=True)
@@ -192,25 +237,32 @@ class FieldSpec:
 
 CATALOGUE: dict[str, FieldSpec] = {
     "name": FieldSpec("column", ALL, _text(300, required=True)),
-    "original_title": FieldSpec("meta", ALL, _text(300)),
+    "original_title": FieldSpec("meta", VIDEO_ALL, _text(300)),
     "sort_name": FieldSpec("column", ALL, _text(300)),
-    "added_at": FieldSpec("column", MSE, _added_at),
-    "premiered": FieldSpec("meta", ALL, _day), "end_date": FieldSpec("meta", S, _day),
-    "year": FieldSpec("column", MS, _number(1870, 2100)),
+    "added_at": FieldSpec("column", MSE | MUSIC, _added_at),
+    "premiered": FieldSpec("meta", VIDEO_ALL | ALBUM, _day), "end_date": FieldSpec("meta", S, _day),
+    "year": FieldSpec("column", MS | ALBUM, _number(1870, 2100)),
     "status": FieldSpec("meta", S, _status), "air_days": FieldSpec("meta", S, _air_days), "air_time": FieldSpec("meta", S, _air_time),
     "runtime_minutes": FieldSpec("meta", MSE, _number(1, 2000)),
     "overview": FieldSpec("meta", ALL, _text(20_000)), "tagline": FieldSpec("meta", MS, _text(500)),
-    "official_rating": FieldSpec("meta", ALL, _text(20)), "custom_rating": FieldSpec("meta", ALL, _text(20)),
-    "community_rating": FieldSpec("meta", ALL, _number(0, 10, integer=False, decimals=1)),
+    "official_rating": FieldSpec("meta", VIDEO_ALL, _text(20)), "custom_rating": FieldSpec("meta", VIDEO_ALL, _text(20)),
+    "community_rating": FieldSpec("meta", VIDEO_ALL, _number(0, 10, integer=False, decimals=1)),
     "critic_rating": FieldSpec("meta", MS, _number(0, 100)),
-    "genres": FieldSpec("meta", MSE, _strings(30, 60)), "tags": FieldSpec("meta", ALL, _strings(50, 60)),
-    "studios": FieldSpec("meta", MS, _strings(30, 120)), "people": FieldSpec("meta", ALL, _people),
+    "genres": FieldSpec("meta", MSE | MUSIC, _strings(30, 60)), "tags": FieldSpec("meta", ALL, _strings(50, 60)),
+    "studios": FieldSpec("meta", MS | ALBUM, _strings(30, 120)), "people": FieldSpec("meta", VIDEO_ALL, _people),
     "provider_ids": FieldSpec("column", ALL, _provider_ids),
     "index_number": FieldSpec("column", SE, _number(0, 9999)), "index_number_end": FieldSpec("column", E, _number(0, 9999)),
     "airsbefore_season": FieldSpec("meta", E, _number(0, 9999)), "airsbefore_episode": FieldSpec("meta", E, _number(0, 9999)),
     "airsafter_season": FieldSpec("meta", E, _number(0, 9999)),
     "parent_id": FieldSpec("column", E, _season_id),  # #164: move an episode to another season of its series
     "display_order": FieldSpec("meta", S, _display_order), "episode_group": FieldSpec("meta", S, _episode_group),
+    "release_type": FieldSpec("meta", ALBUM, _release_type), "edition": FieldSpec("meta", ALBUM, _text(300)),
+    "label": FieldSpec("meta", ALBUM, _text(300)), "catalogue_number": FieldSpec("meta", ALBUM, _text(300)),
+    "country": FieldSpec("meta", MUSIC, _text(100)), "original_year": FieldSpec("meta", ALBUM, _number(1870, 2100)),
+    "mood": FieldSpec("meta", MUSIC, _strings(30, 60)), "styles": FieldSpec("meta", MUSIC, _strings(30, 60)),
+    "origin": FieldSpec("meta", ARTIST, _text(300)), "active_since": FieldSpec("meta", ARTIST, _active_date),
+    "active_until": FieldSpec("meta", ARTIST, _active_date),
+    "credits": FieldSpec("meta", MUSIC, _music_credits),
 }
 REFRESHING = frozenset({"display_order", "episode_group"})  # how TMDB numbers the files: a change refetches
 COLUMN_FIELDS = frozenset(k for k, s in CATALOGUE.items() if s.store == "column")
@@ -218,6 +270,15 @@ COLUMN_FIELDS = frozenset(k for k, s in CATALOGUE.items() if s.store == "column"
 
 def fields_for(type_: str) -> list[str]:
     return [key for key, spec in CATALOGUE.items() if type_ in spec.types]
+
+
+def image_field_allowed(type_: str, field: str) -> bool:
+    """Whether an editor image field is a slot this title type can hold."""
+    if not field.startswith("images."):
+        return False
+    key = field.removeprefix("images.")
+    kind = key.partition(".")[0]
+    return key in IMAGE_KEYS and type_ in IMAGE_TYPES.get(kind, ())
 
 
 def validate(type_: str, field: str, value: Any) -> Any:
@@ -331,6 +392,8 @@ def write_user_field(title: MediaTitle, field: str, value: Any, batch: Batch, *,
 
 def pin_field(title: MediaTitle, field: str, batch: Batch) -> bool:
     """Lock the current value (source becomes user) without changing it."""
+    if field.startswith("images.") and not image_field_allowed(title.type, field):
+        raise FieldError("wrong_type", field=field, title_id=title.id)
     value, source = read_field(title, field)
     if source == "user":
         return False
@@ -341,6 +404,8 @@ def pin_field(title: MediaTitle, field: str, batch: Batch) -> bool:
 
 
 def revert_field(title: MediaTitle, field: str, batch: Batch, now: datetime, *, owner: bool) -> bool:
+    if field.startswith("images.") and not image_field_allowed(title.type, field):
+        raise FieldError("wrong_type", field=field, title_id=title.id)
     if field == "provider_ids" and not owner and (title.field_sources or {}).get(field) == "user":
         kept = ((title.source_values or {}).get(field) or {}).get("value")  # the revert would restore this identity
         # Tmdb only: identify is Tmdb-only, so restoring Imdb/Tvdb ids alone is not an owner action.
@@ -379,12 +444,11 @@ def load_titles(db: Session, user: User, ids: Iterable[str]) -> dict[str, MediaT
 
 def image_slots(title: MediaTitle, uploads: dict[str, TitleUpload] | None = None) -> list[dict[str, Any]]:
     """TitleImageEntry dicts for the slots that hold a non-tombstone entry."""
-    allowed = {"Primary": ALL, "Backdrop": SMS, "Logo": MS}
     out = []
     for key in IMAGE_KEYS:
         kind, _, index = key.partition(".")
         entry = (title.images or {}).get(key)
-        if title.type not in allowed[kind] or not isinstance(entry, dict) or media_titles.is_tombstone(entry):
+        if title.type not in IMAGE_TYPES[kind] or not isinstance(entry, dict) or media_titles.is_tombstone(entry):
             continue
         n = int(index or 0)
         source = (entry.get("tag") or entry.get("path") or entry.get("embedded") or entry.get("tmdb") or entry.get("upload"))
@@ -396,7 +460,7 @@ def image_slots(title: MediaTitle, uploads: dict[str, TitleUpload] | None = None
         else:
             tag = hashlib.sha256(f"{title.id}:{key}:{source}".encode()).hexdigest()[:16]
             url = f"/api/titles/{title.id}/images/{kind}?index={n}&tag={tag}"
-        origin = "upload" if "upload" in entry else "tmdb" if "tmdb" in entry else "local" if "path" in entry else "embedded"
+        origin = "upload" if "upload" in entry else "musicbrainz" if "music" in entry else "tmdb" if "tmdb" in entry else "local" if "path" in entry else "embedded"
         row = (uploads or {}).get(str(entry.get("upload")))
         src = (title.field_sources or {}).get(f"images.{key}")
         out.append({"type": kind, "index": n, "url": url, "tag": str(source), "origin": origin, "source": src,
@@ -414,13 +478,13 @@ def build_docs(db: Session, user: User, titles: list[MediaTitle]) -> list[TitleM
     configured = tmdb.client_for(db.get(AppSettings, 1)) is not None
     docs = []
     for title in titles:
-        parent = db.get(MediaTitle, title.parent_id) if title.type in ("season", "episode") and title.parent_id else None
+        parent = db.get(MediaTitle, title.parent_id) if title.type in ("season", "episode", "album") and title.parent_id else None
         seasons = sibling_seasons(db, parent) if title.type == "episode" and parent is not None else []
         docs.append(TitleMetadataDoc(
             title_id=title.id, type=title.type, name=title.name, locked=bool(title.locked),
             parent={"id": parent.id, "type": parent.type, "name": parent.name} if parent else None,
             fields={f: field_state(title, f) for f in fields_for(title.type)}, images=image_slots(title, uploads),
-            can_identify=user.role == "admin" and title.type in title_metadata.MATCHABLE, tmdb_configured=configured,
+            can_identify=user.role == "admin" and title.type in title_metadata.MATCHABLE, tmdb_configured=configured and title.type in VIDEO_ALL,
             history_count=counts.get(title.id, 0),
             seasons=[{"id": s.id, "index_number": s.index_number, "name": s.name} for s in seasons],
         ))
@@ -469,6 +533,8 @@ def _cross_check(title: MediaTitle, new: dict[str, Any]) -> None:
         raise FieldError("end_before_start", field="end_date")
     if (hi := pick("index_number_end")) is not None and (lo := pick("index_number")) is not None and hi < lo:
         raise FieldError("end_before_start", field="index_number_end")
+    if title.type == "artist" and (until := pick("active_until")) is not None and (since := pick("active_since")) is not None and until < since:
+        raise FieldError("end_before_start", field="active_until")
     if new.get("people"):
         known = {(r.get("person_id"), r.get("name")) for r in (title.metadata_json or {}).get("people") or [] if isinstance(r, dict)}
         for ref in new["people"]:
@@ -494,7 +560,7 @@ def save_edits(db: Session, user: User, entries: list[EditEntry], *, owner: bool
                 new[field] = validate(title.type, field, change.value)
             for key in entry.pin:
                 if key not in CATALOGUE or title.type not in CATALOGUE[key].types:
-                    if not (key.startswith("images.") and key[7:] in IMAGE_KEYS):
+                    if not image_field_allowed(title.type, key):
                         raise FieldError("unknown_field", field=key)
             _cross_check(title, new)
             if "parent_id" in new:

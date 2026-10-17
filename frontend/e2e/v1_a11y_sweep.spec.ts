@@ -506,7 +506,7 @@ areaTest('palette', async ({ page, width, found, visit }) => {
   await page.getByRole('button', { name: 'Add a link' }).first().click();
   await expect(page.getByRole('dialog', { name: 'Add a link' })).toBeVisible();
   await field().fill('not a link'); await page.keyboard.press('Enter'); await expect(page.getByRole('alert').first()).toBeVisible(); await visit('invalid-link');
-  if (width <= 390) { await close(); await page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: 'Search' }).click(); await expect(page.locator('dialog.g-palette')).toBeVisible(); await visit('phone-sheet'); }
+  if (width <= 390) { await close(); await page.getByRole('button', { name: /^Search Lumina, / }).click(); await expect(page.locator('dialog.g-palette')).toBeVisible(); await visit('phone-sheet'); }
 });
 
 areaTest('member-picker-dialog', async ({ page, visit }) => {
@@ -887,7 +887,7 @@ test('walk 2: the palette picks a title by keyboard and opens its page', async (
   }
   await page.keyboard.press('Enter');
   // The mocked search row carries a partial title summary, so the page body is not asserted here (palette.spec.ts does the same).
-  await expect(page).toHaveURL(/\/title\/movie-1/);
+  await expect(page).toHaveURL(/\/video\/title\/movie-1/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 

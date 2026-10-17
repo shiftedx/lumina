@@ -20,8 +20,14 @@ class BookItem(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     # A server-generated filename below <data_dir>/books; never a caller-provided path.
     storage_key: Mapped[str] = mapped_column(String(48), nullable=False, unique=True)
-    format: Mapped[str] = mapped_column(String(8), nullable=False)  # epub | cbz
+    format: Mapped[str] = mapped_column(String(8), nullable=False)  # epub | pdf | cbz | cbr
     kind: Mapped[str] = mapped_column(String(8), nullable=False)  # ebook | manga
+    # The caller's safe basename, not a path. Legacy rows remain NULL and use a title/format fallback in responses.
+    filename: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A NULL parent is the logical catalog entry; children remain independent file assets.
+    bundle_parent_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # Soft removal only. Managed files and all member state remain on disk and in the database.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     author: Mapped[str | None] = mapped_column(Text, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

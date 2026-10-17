@@ -15,7 +15,7 @@ from app.services.local_ai import validate_endpoint_url
 
 TitleType = Literal["series", "season", "episode", "movie", "boxset", "album", "artist"]
 ExtraType = Literal["trailer", "featurette", "behindthescenes", "deletedscene", "interview", "scene", "short", "clip", "other"]
-FieldSource = Literal["user", "nfo", "tmdb", "path"]
+FieldSource = Literal["user", "nfo", "tmdb", "musicbrainz", "path"]
 ImageType = Literal["Primary", "Backdrop", "Logo", "Thumb", "Banner"]
 MatchMethod = Literal["id", "find", "search", "llm", "user"]
 TitleSort = Literal["name", "created", "year", "rating"]
@@ -300,6 +300,7 @@ class TitleDetail(TitleSummary):
     episode_count: int | None = None  # series/season: visible episodes
     best_height: int | None = None  # tallest probe height across visible versions (series: across episodes)
     tracks: list[AlbumTrack] | None = None  # album only: (disc NULLS LAST, number NULLS LAST, name NOCASE, id)
+    music: dict[str, Any] | None = None  # music-specific release/artist fields; provider candidates remain owner-only
 
 
 class TitleWatchedRequest(_Body):
@@ -830,7 +831,7 @@ class ProfanityPref(BaseModel):
 # ---- 2.1.0 metadata editor --------------------------
 EditKind = Literal["edit", "lock", "revert", "bulk", "undo", "item_lock", "image"]
 EditableImageType = Literal["Primary", "Backdrop", "Logo"]  # Thumb and Banner are out of 2.1.0
-ImageOrigin = Literal["tmdb", "upload", "local", "embedded"]
+ImageOrigin = Literal["tmdb", "musicbrainz", "upload", "local", "embedded"]
 RefreshOutcome = Literal["update", "same", "kept_edit", "kept_lock", "kept_higher_source", "new"]
 BulkOpName = Literal["add", "remove", "set", "lock", "unlock", "lock_item", "unlock_item"]
 BulkSkipReason = Literal["not_found", "locked_item", "wrong_type"]

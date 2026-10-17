@@ -50,8 +50,12 @@ idna==3.18
     #   requests
 iniconfig==2.3.0
     # via pytest
+libarchive-c==5.3
+    # via lumina-backend (backend/pyproject.toml)
 mutagen==1.48.1
-    # via yt-dlp
+    # via
+    #   lumina-backend (backend/pyproject.toml)
+    #   yt-dlp
 packaging==26.2
     # via pytest
 pluggy==1.6.0
@@ -70,6 +74,8 @@ pydantic-settings==2.14.2
     # via lumina-backend (backend/pyproject.toml)
 pygments==2.20.0
     # via pytest
+pymupdf==1.28.2
+    # via lumina-backend (backend/pyproject.toml)
 pytest==8.4.2
     # via lumina-backend (backend/pyproject.toml)
 python-dotenv==1.2.2

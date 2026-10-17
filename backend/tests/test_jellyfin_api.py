@@ -64,6 +64,8 @@ def test_root_segments_come_from_the_registered_routes() -> None:
 def test_spa_segments_match_the_frontend_routes() -> None:
     source = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "app" / "routes.ts").read_text()
     parse = source[source.index("export function parseRoute"):source.index("export function routePath")]
+    books_source = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "features" / "books" / "routes.ts").read_text()
+    parse += books_source[books_source.index("export function parseBooksRoute"):books_source.index("export function booksRoutePath")]
     plain = re.search(r"PLAIN_SURFACES = \[([^\]]*)\]", source).group(1)
     found = set(re.findall(r"'/([a-z]+)'|\^\\/([a-z]+)", parse)) | {(name, "") for name in re.findall(r"'([a-z]+)'", plain)}
     grouped = re.findall(r"\^\\/\(([a-z|]+)\)", parse)
@@ -249,7 +251,18 @@ def test_series_children_and_recursive_episodes(jf: TestClient) -> None:
     assert [e["Name"] for e in page["Items"]] == ["Second", "Return"] and (page["TotalRecordCount"], page["StartIndex"]) == (4, 2)
 
 
-def test_single_item_projects_versions_and_streams_without_paths(jf: TestClient, tmp_path: Path) -> None:
+def test_single_item_projects_versions_and_streams_without_paths(jf: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import jellyfin
+
+    converted = []
+    convert = jellyfin.jellyfin_id
+    jellyfin.jid.cache_clear()
+
+    def record_conversion(value: str) -> str:
+        converted.append(value)
+        return convert(value)
+
+    monkeypatch.setattr(jellyfin, "jellyfin_id", record_conversion)
     listed = get(jf, "/Items", ParentId=MOVIES, IncludeItemTypes="Movie", Recursive="true").json()["Items"][0]
     assert "MediaSources" not in listed
     assert "MediaSources" in get(jf, "/Items", ParentId=MOVIES, Recursive="true", Fields="MediaSources,Overview").json()["Items"][0]
@@ -270,6 +283,9 @@ def test_single_item_projects_versions_and_streams_without_paths(jf: TestClient,
     assert movie["PremiereDate"] == "2020-03-01T00:00:00.0000000Z" and movie["ParentId"] == MOVIES
     boxset = get(jf, f"/Items/{HEX(BOXSET)}").json()
     assert (boxset["Type"], boxset["ChildCount"]) == ("BoxSet", 1)
+    assert len(converted) == len(set(converted)), "nested DTOs should convert each UUID once"
+    assert jellyfin.jid.cache_info().maxsize == 4096
+    jellyfin.jid.cache_clear()
 
 
 def test_ids_accept_dashed_undashed_any_case_and_aliases(jf: TestClient) -> None:

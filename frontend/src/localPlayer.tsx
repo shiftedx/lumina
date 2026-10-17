@@ -350,7 +350,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   else if (options?.mode === 'unavailable') source = { ...base, src: null, state: 'unsupported', message: 'This file has no playable audio or video.' };
   else if (conversionProblem) source = { ...base, id: `${playId}:failed`, src: null, state: 'failed', message: conversionProblem };
   else if (session) source = { ...base, id: `${playId}:converted`, src: nativeHls() ? `${apiBaseUrl}${session.playback_url}` : null, state: 'loading' };
-  else source = { ...base, id: `${playId}:preparing`, src: null, state: 'loading' };
+  else source = { ...base, src: null, state: 'loading' };
 
   const sessionRef = useRef(session);
   sessionRef.current = session;

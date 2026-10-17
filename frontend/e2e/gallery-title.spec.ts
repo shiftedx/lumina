@@ -173,7 +173,7 @@ test('keyboard only: the headline takes focus, arrows walk the actions, tabs and
   await page.keyboard.press('ArrowDown');
   await expect(page.locator('.t-episode:focus')).toHaveCount(1);
   await page.keyboard.press('Escape');
-  await expect(page).toHaveURL(/\/library\/shows$/);
+  await expect(page).toHaveURL(/\/video\/shows$/);
 });
 
 for (const scheme of ['light', 'dark'] as const) {

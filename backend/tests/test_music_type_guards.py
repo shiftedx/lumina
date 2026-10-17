@@ -1,4 +1,4 @@
-"""Library gallery T3: album and artist titles never reach video surfaces or the title search index."""
+"""Music titles join search while remaining excluded from video-only surfaces."""
 from __future__ import annotations
 
 from datetime import timedelta
@@ -26,15 +26,15 @@ def gallery(db_factory, tmp_path):  # noqa: ANN001, ANN201
     return db_factory
 
 
-def test_music_titles_stay_out_of_the_title_index_and_never_force_a_rebuild(gallery, monkeypatch) -> None:  # noqa: ANN001
+def test_music_titles_are_indexed_and_their_counts_never_force_a_rebuild(gallery, monkeypatch) -> None:  # noqa: ANN001
     engine = gallery.kw["bind"]
     ensure_search_index(engine)  # the seeded rows were never indexed: this rebuilds
     with gallery() as session:
         indexed = set(session.execute(text(f"SELECT title_id FROM {TITLE_FTS_MAP_TABLE}")).scalars())
-        assert MOVIE in indexed and not indexed & {ALBUM, ARTIST}
+        assert {MOVIE, ALBUM, ARTIST} <= indexed
         index_title(session, session.get(MediaTitle, ALBUM))
         session.commit()
-        assert session.execute(text(f"SELECT count(*) FROM {TITLE_FTS_MAP_TABLE} WHERE title_id = :id"), {"id": ALBUM}).scalar() == 0
+        assert session.execute(text(f"SELECT count(*) FROM {TITLE_FTS_MAP_TABLE} WHERE title_id = :id"), {"id": ALBUM}).scalar() == 1
     monkeypatch.setattr(library_search, "_rebuild", lambda _connection: pytest.fail("rebuilt an index that was in sync"))
     ensure_search_index(engine)
 

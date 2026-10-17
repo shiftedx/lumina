@@ -1,6 +1,6 @@
+import { booksRouteFocusKey, booksRoutePath, parseBooksRoute, type BooksRoute } from '../features/books/routes';
 import { resolveSettingsPage, type SettingsSpace } from '../features/settings/navigation';
 import { LIBRARY_LENSES, type LibraryLens, titleLens } from '../features/gallery/libraryLens';
-import { booksRouteFocusKey, booksRoutePath, parseBooksRoute, type BooksRoute } from '../features/books/routes';
 import type { LibraryPlace } from '../features/gallery/LibraryTabs';
 import type { TitleCategory, TitleType } from '../types';
 
@@ -12,8 +12,8 @@ export type ChannelPageTab = (typeof CHANNEL_PAGE_TABS)[number];
 export type StreamingView = 'home' | 'live' | 'search' | 'channels';
 export type StreamingProvider = 'youtube' | 'twitch' | 'kick';
 
-/** Signed-in surfaces. 'subscriptions' is only a follow or channel page now; the list is Streaming's channels view. Music is a Library lens (/library/music) since the library gallery. */
-export type Surface = 'home' | 'streaming' | 'requests' | 'subscriptions' | 'library' | 'books' | 'downloads' | 'settings' | 'watch';
+/** Signed-in surfaces. Video, Audio and Books are separate; Library remains a bookmark alias. */
+export type Surface = 'home' | 'streaming' | 'requests' | 'subscriptions' | 'video' | 'audio' | 'books' | 'library' | 'downloads' | 'settings' | 'watch';
 
 /** Requests: what a member can discover and ask the household's Sonarr/Radarr for. */
 export type RequestKind = 'movie' | 'show' | 'anime';
@@ -43,7 +43,7 @@ const ADMIN_REDIRECTS: Readonly<Record<string, SettingsSectionId>> = {
 };
 const ownKey = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key);
 
-/** One canonical, bookmarkable app location. `watch` carries exactly one media reference; title pages are a Library lens. */
+/** One canonical, bookmarkable app location. `watch` carries exactly one media reference. */
 export type AppRoute =
   | { surface: Exclude<Surface, 'watch' | 'streaming' | 'settings' | 'subscriptions' | 'requests' | 'books'> }
   | BooksRoute
@@ -55,11 +55,11 @@ export type AppRoute =
   /** A member page under Settings → Members: /settings/members/<user id>. */
   | { surface: 'settings'; section: 'members'; memberId: string; space?: SettingsSpace }
   | { surface: 'subscriptions'; channelId: string }
-  | { surface: 'library'; view: LibraryLens; wall?: string }
-  | { surface: 'library'; collections: 'list'; create?: 'collection' | 'smart' }
-  | { surface: 'library'; collections: 'detail'; collectionId: string }
-  | { surface: 'library'; titleId: string; edit: true; tab?: EditorTab }
-  | { surface: 'library'; titleId: string; season?: number }
+  | { surface: 'library' | 'video' | 'audio'; view: LibraryLens; wall?: string }
+  | { surface: 'library' | 'video'; collections: 'list'; create?: 'collection' | 'smart' }
+  | { surface: 'library' | 'video'; collections: 'detail'; collectionId: string }
+  | { surface: 'library' | 'video' | 'audio'; titleId: string; edit: true; tab?: EditorTab }
+  | { surface: 'library' | 'video' | 'audio'; titleId: string; season?: number }
   | { surface: 'watch'; libraryId: string; startSeconds?: number }
   | { surface: 'watch'; url: string };
 
@@ -138,8 +138,24 @@ function parseRequests(path: string, params: URLSearchParams): RequestsRoute | n
  * resolves to Home, so a crafted link can never start a fetch for an unsafe reference.
  */
 export function parseRoute(pathname: string, search: string): AppRoute {
-  const path = pathname.replace(/\/+$/, '') || '/';
+  const requested = pathname.replace(/\/+$/, '') || '/';
+  const mediaSurface = requested === '/video' || requested.startsWith('/video/') ? 'video' : 'library';
+  const path = requested.replace(/^\/video\/title\//, '/title/').replace(/^\/video(?=\/|$)/, '/library');
   const params = new URLSearchParams(search);
+  const books = parseBooksRoute(requested, params);
+  if (books) return books;
+  if (['/audio', '/music', '/library/music', '/audio/music', '/audio/albums', '/audio/artists', '/audio/saved'].includes(requested)) {
+    const query = new URLSearchParams(search);
+    if (requested === '/audio/artists') query.set('view', 'artists');
+    if (requested === '/audio/saved') query.set('view', 'saved');
+    const wall = query.toString();
+    return { surface: 'audio', view: 'music', ...(wall && wall.length <= MAX_WALL ? { wall } : {}) };
+  }
+  const audioTitle = /^\/audio\/title\/([A-Za-z0-9_-]{1,64})(\/edit)?$/.exec(requested);
+  if (audioTitle) {
+    const tab = EDITOR_TABS.find((value) => value === params.get('tab'));
+    return audioTitle[2] ? { surface: 'audio', titleId: audioTitle[1], edit: true, ...(tab ? { tab } : {}) } : { surface: 'audio', titleId: audioTitle[1] };
+  }
   // Old addresses (Live, Explore, Subscriptions) resolve to their Streaming equivalent; the app's first address sync replaces them.
   const streamingPath = path === '/live' ? '/streaming/live' : path === '/explore' ? (params.get('q')?.trim() ? '/streaming/search' : '/streaming') : path === '/subscriptions' ? '/streaming/channels' : path;
   const streaming = /^\/streaming(?:\/(live|search|channels))?$/.exec(streamingPath);
@@ -152,8 +168,6 @@ export function parseRoute(pathname: string, search: string): AppRoute {
   }
   const requests = parseRequests(path, params);
   if (requests) return requests;
-  const books = parseBooksRoute(path, params);
-  if (books) return books;
   const youtubeChannel = YOUTUBE_CHANNEL_PATH.exec(path);
   if (youtubeChannel) {
     const tab = CHANNEL_PAGE_TABS.find((value) => value === params.get('tab'));
@@ -182,10 +196,10 @@ export function parseRoute(pathname: string, search: string): AppRoute {
     const validPage = section && page && resolveSettingsPage(section, page).id === page ? { page } : {};
     return section ? { surface: 'settings', section, ...validPage, ...scope } : { surface: 'settings', ...scope };
   }
-  // Music moved into the Library: the app's first address sync replaces /music with /library/music.
-  if (path === '/music') return { surface: 'library', view: 'music' };
+  // Preserve music bookmarks by resolving them to the standalone Audio section.
+  if (path === '/music') return { surface: 'audio', view: 'music' };
   const plain = PLAIN_SURFACES.find((surface) => path === `/${surface}`);
-  if (plain) return { surface: plain };
+  if (plain) return { surface: plain === 'library' && requested.startsWith('/video') ? 'video' : plain };
   const channel = /^\/subscriptions\/([A-Za-z0-9_-]{1,64})$/.exec(path);
   if (channel) return { surface: 'subscriptions', channelId: channel[1] };
   // Collections: the list, with ?new=collection|smart, and one collection by id. Unknown ids fall back to the list.
@@ -193,15 +207,16 @@ export function parseRoute(pathname: string, search: string): AppRoute {
   if (collections) {
     let id = '';
     try { id = decodeURIComponent(collections[1] ?? ''); } catch { /* malformed escape */ }
-    if (id && LIBRARY_ID.test(id)) return { surface: 'library', collections: 'detail', collectionId: id };
+    if (id && LIBRARY_ID.test(id)) return { surface: mediaSurface, collections: 'detail', collectionId: id };
     const create = params.get('new');
-    return create === 'collection' || create === 'smart' ? { surface: 'library', collections: 'list', create } : { surface: 'library', collections: 'list' };
+    return create === 'collection' || create === 'smart' ? { surface: mediaSurface, collections: 'list', create } : { surface: mediaSurface, collections: 'list' };
   }
   const lens = LENS_PATH.exec(path);
   if (lens) {
     const view = lens[1] as LibraryLens;
     const wall = search.replace(/^\?/, '');
-    return wall && wall.length <= MAX_WALL ? { surface: 'library', view, wall } : { surface: 'library', view };
+    const surface = view === 'music' ? 'audio' : requested.startsWith('/video') ? 'video' : 'library';
+    return wall && wall.length <= MAX_WALL ? { surface, view, wall } : { surface, view };
   }
   const editor = /^\/title\/([^/]+)\/edit$/.exec(path);
   if (editor) {
@@ -209,7 +224,7 @@ export function parseRoute(pathname: string, search: string): AppRoute {
     try { id = decodeURIComponent(editor[1]); } catch { /* malformed escape */ }
     if (LIBRARY_ID.test(id)) {
       const tab = EDITOR_TABS.find((value) => value === params.get('tab'));
-      return tab ? { surface: 'library', titleId: id, edit: true, tab } : { surface: 'library', titleId: id, edit: true };
+      return tab ? { surface: mediaSurface, titleId: id, edit: true, tab } : { surface: mediaSurface, titleId: id, edit: true };
     }
   }
   const title = /^\/title\/([^/]+)$/.exec(path);
@@ -218,7 +233,7 @@ export function parseRoute(pathname: string, search: string): AppRoute {
     try { id = decodeURIComponent(title[1]); } catch { /* malformed escape */ }
     if (LIBRARY_ID.test(id)) {
       const season = params.get('season') ?? '';
-      return /^\d{1,3}$/.test(season) ? { surface: 'library', titleId: id, season: Number(season) } : { surface: 'library', titleId: id };
+      return /^\d{1,3}$/.test(season) ? { surface: mediaSurface, titleId: id, season: Number(season) } : { surface: mediaSurface, titleId: id };
     }
   }
   const library = /^\/watch\/library\/([^/]+)$/.exec(path);
@@ -237,9 +252,23 @@ export function parseRoute(pathname: string, search: string): AppRoute {
   return { surface: 'home' };
 }
 
+export function canonicalRoute(route: AppRoute): AppRoute {
+  if (route.surface !== 'library') return route;
+  return { ...route, surface: 'view' in route && route.view === 'music' ? 'audio' : 'video' } as AppRoute;
+}
+
 export function routePath(route: AppRoute): string {
-  if (route.surface === 'home') return '/';
+  if (route.surface === 'audio') {
+    if ('edit' in route) return `/audio/title/${encodeURIComponent(route.titleId)}/edit${route.tab ? `?tab=${route.tab}` : ''}`;
+    if ('titleId' in route) return `/audio/title/${encodeURIComponent(route.titleId)}`;
+    return `/audio${'wall' in route && route.wall ? `?${route.wall}` : ''}`;
+  }
+  if (route.surface === 'video') {
+    const path = routePath({ ...route, surface: 'library' } as AppRoute);
+    return path.replace(/^\/title\//, '/video/title/').replace(/^\/library(?=\/|$)/, '/video');
+  }
   if (route.surface === 'books') return booksRoutePath(route);
+  if (route.surface === 'home') return '/';
   if (route.surface === 'requests') {
     if (route.view === 'search') return `/requests/search?q=${encodeURIComponent(route.query)}`;
     if (route.view === 'title') return `/requests/title/${route.kind}/${route.id}`;
@@ -269,7 +298,7 @@ export function routePath(route: AppRoute): string {
     return route.create ? `/library/collections?new=${route.create}` : '/library/collections';
   }
   if (route.surface === 'library' && 'edit' in route) return `/title/${encodeURIComponent(route.titleId)}/edit${route.tab ? `?tab=${route.tab}` : ''}`;
-  if (route.surface === 'library' && 'titleId' in route) return `/title/${encodeURIComponent(route.titleId)}${route.season !== undefined ? `?season=${route.season}` : ''}`;
+  if (route.surface === 'library' && 'titleId' in route) return `/title/${encodeURIComponent(route.titleId)}${'season' in route && route.season !== undefined ? `?season=${route.season}` : ''}`;
   if (route.surface === 'library' && 'view' in route) return `/library/${route.view}${route.wall ? `?${route.wall}` : ''}`;
   return `/${route.surface}`;
 }
@@ -284,8 +313,8 @@ export function routeFocusKey(route: AppRoute | null): string {
     if ('channelId' in route) return `subscriptions:${route.channelId}`;
   }
   if (route.surface === 'requests') return route.view === 'title' ? `requests:title:${route.kind}:${route.id}` : 'requests';
-  if (route.surface === 'library' && 'edit' in route) return `library:edit:${route.titleId}`;
-  if (route.surface === 'library' && 'titleId' in route) return `library:title:${route.titleId}`;
+  if (['library', 'audio', 'video'].includes(route.surface) && 'edit' in route) return `${route.surface}:edit:${route.titleId}`;
+  if (['library', 'audio', 'video'].includes(route.surface) && 'titleId' in route) return `${route.surface}:title:${route.titleId}`;
   if (route.surface === 'watch') return `watch:${'libraryId' in route ? route.libraryId : route.url}`;
   return route.surface;
 }

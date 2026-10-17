@@ -30,8 +30,8 @@ describe('Library Channels view', () => {
     expect(harbor.querySelector('.g-avatar img')?.getAttribute('src')).toBe('/api/artwork/remote/av');
     expect(harbor.getAttribute('aria-label')).toBe('Harbor Films, 24 videos, 3 unwatched');
     const tide = screen.getByRole('link', { name: /^Tide Talk/ });
-    expect(tide.getAttribute('href')).toBe('/library/youtube?channel=Tide+Talk');
-    expect(screen.getByRole('link', { name: /^Unknown/ }).getAttribute('href')).toBe('/library/youtube?channel=');
+    expect(tide.getAttribute('href')).toBe('/video/youtube?channel=Tide+Talk');
+    expect(screen.getByRole('link', { name: /^Unknown/ }).getAttribute('href')).toBe('/video/youtube?channel=');
     expect(tide.querySelector('.g-marker-count')).toBeNull();
     for (const image of container.querySelectorAll('img')) expect(image.getAttribute('src') ?? '').toMatch(/^\/api\//);
   });

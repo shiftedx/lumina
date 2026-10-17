@@ -1,13 +1,22 @@
 export type BookKind = 'ebook' | 'manga';
-export type BookFormat = 'epub' | 'cbz';
+export type BookFormat = 'epub' | 'cbz' | 'cbr' | 'pdf';
 export type BookStatus = 'all' | 'unread' | 'reading' | 'read' | 'favorites' | 'reading_list';
 export type BookSort = 'added' | 'title' | 'author' | 'custom';
+
+export type BookFile = {
+  id: string; filename: string; format: BookFormat; available: boolean;
+  chapter_count: number; page_count: number;
+};
 
 export type Book = {
   id: string;
   kind: BookKind;
   format: BookFormat;
   title: string;
+  filename?: string;
+  canonical_book_id?: string;
+  reading_file_id?: string;
+  files?: BookFile[];
   author: string;
   description: string;
   language: string;
@@ -71,4 +80,4 @@ export type BookNode = {
   anchor?: string;
 };
 export type BookStateUpdate = Partial<Pick<Book, 'favorite' | 'reading_list'>> & { completed?: boolean; unit_index?: number; offset?: number };
-export type BookMetadataUpdate = Partial<Pick<Book, 'title' | 'author' | 'series_name' | 'volume_number' | 'reading_direction' | 'visibility' | 'genres'>>;
+export type BookMetadataUpdate = Partial<Pick<Book, 'title' | 'author' | 'description' | 'filename' | 'series_name' | 'volume_number' | 'reading_direction' | 'visibility' | 'genres'>>;

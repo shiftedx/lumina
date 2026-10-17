@@ -29,7 +29,7 @@ from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.config import APP_VERSION, settings
-from app.routers import admin_invites, admin_ai, admin_backups, admin_activity, books, member_access as member_access_routes, admin_diagnostics, admin_library_automation, admin_models, admin_imports, admin_overview, admin_recording_retention, admin_storage, admin_tasks, discovery, idea_graph, local_playback, media_tools, profile_export, provenance, search_history, summaries, watch_queue
+from app.routers import books, admin_invites, admin_ai, admin_backups, admin_activity, member_access as member_access_routes, admin_diagnostics, admin_library_automation, admin_models, admin_imports, admin_overview, admin_recording_retention, admin_storage, admin_tasks, discovery, idea_graph, local_playback, media_tools, profile_export, provenance, search_history, summaries, watch_queue
 from app.routers import enrichment as enrichment_routes
 from app.routers import admin_media_server, connected_apps, jellyfin_auth
 from app.routers import two_factor as two_factor_routes
@@ -42,6 +42,7 @@ from app.services.streaming_gate import require_streaming
 from app.routers import admin_metadata  # TMDB metadata routes
 from app.routers import title_images as title_images_routes  # 2.1.0 title artwork routes
 from app.routers import metadata_editor as metadata_editor_routes
+from app.routers import music as music_routes
 from app.services import metadata_history, tmdb
 from app.routers import jellyfin, titles
 from app.routers import requests_catalog, showcase as showcase_routes
@@ -232,6 +233,7 @@ from app.services import backups
 from app.services import model_downloads, model_supervisor
 from app.services import enrichment as enrichment_jobs
 from app.services.background_work import background_work
+from app.services import music_cast_capabilities
 from app.services.redaction import install_log_redaction
 from app.services.watch_queue import RemoteRef
 from app.services.artifact_quarantine import ArtifactQuarantineService
@@ -725,6 +727,8 @@ def run_library_maintenance_cycle() -> None:
         metadata_history.maintenance(db)  # edit-history prune + upload GC; throttles itself to hourly
     with session_scope() as db:
         tmdb.cap_pinned(db, artwork)  # the pinned TMDB art folder's size cap; throttles itself to hourly
+    from app.services import music_providers
+    music_providers.maintenance()
     local_playback_sessions.reap()
     model_supervisor.supervisor.reap_idle()  # idle model servers stop (5 min); crashed ones are noticed
     start_embedding_backfill()  # non-blocking; restart-safe catch-up
@@ -1023,6 +1027,7 @@ idea_graph.register(app)
 admin_metadata.register(app, artwork)
 title_images_routes.register(app, artwork)
 metadata_editor_routes.register(app)
+music_routes.register(app, artwork)
 provenance.register(app)
 watch_queue.register(app)
 discovery.register(app)
@@ -1454,6 +1459,9 @@ def logout_session(response: Response, request: Request, db: Session = Depends(g
     ring = read_ring(request)
     leaving = peek_session_user(db, token)
     revoke_session(db, request)
+    if leaving is not None:
+        with write_transaction(db, name="music_cast_logout"):
+            music_cast_capabilities.revoke_for_user(db, leaving.id)
     clear_session_cookie(response)
     # The member signing out leaves the ring: their session, or their owner marker.
     kept = [entry for entry in ring if entry != token and (leaving is None or device_ring.marker_user_id(entry) != leaving.id)]
@@ -1560,6 +1568,8 @@ def switch_session(payload: SessionSwitchRequest, request: Request, response: Re
         if not claim_token(db, entry):  # a simultaneous switch with the same old token won
             return _ring_refusal(404, "not_in_ring", [t for t in kept if t != entry], True)
         session, token = create_app_session(db, user, request, expires_at=previous.expires_at)
+        if current is not None:
+            music_cast_capabilities.revoke_for_user(db, current.id)
     kept = [token if t == entry else t for t in kept]
     if current_token and current_token not in kept:
         revoke_token(db, current_token)  # leaving an un-remembered member (or any vault owner) signs them out

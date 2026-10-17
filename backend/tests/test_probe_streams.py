@@ -48,6 +48,15 @@ def test_zero_rates_and_junk_values_become_none() -> None:
     assert facts["bit_rate"] is None
 
 
+def test_audio_precision_uses_actual_bits_when_the_probe_reports_them() -> None:
+    facts = normalize({"streams": [
+        {"index": 0, "codec_type": "audio", "codec_name": "flac", "bits_per_raw_sample": "24", "bits_per_sample": "32"},
+        {"index": 1, "codec_type": "audio", "codec_name": "pcm_s16le", "bits_per_sample": "16"},
+        {"index": 2, "codec_type": "audio", "codec_name": "opus", "bits_per_raw_sample": "0"},
+    ]}, "Music.flac")
+    assert [stream.get("bit_depth") for stream in facts["streams"]] == [24, 16, None]
+
+
 def test_caches_without_streams_are_stale_but_cached_errors_are_not() -> None:
     assert is_stale(None, "1:2")
     assert is_stale({"fingerprint": "1:2", "container": "mp4"}, "1:2")  # a v2 cache: no streams

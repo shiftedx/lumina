@@ -14,6 +14,7 @@ import re
 import stat
 import xml.etree.ElementTree as ET
 import xml.parsers.expat
+from collections import Counter
 from pathlib import Path, PurePosixPath
 from collections.abc import Callable
 from typing import Any
@@ -45,7 +46,11 @@ PROVIDER_ID = re.compile(r"^[A-Za-z0-9]{1,32}$")
 PROVIDERS = {"tmdb": "Tmdb", "imdb": "Imdb", "tvdb": "Tvdb"}
 DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}")
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
-AUDIO_EXTENSIONS = frozenset({".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus"})
+AUDIO_EXTENSIONS = frozenset({
+    ".mp3", ".mp2", ".m4a", ".m4b", ".aac", ".wav", ".flac", ".ogg", ".oga", ".opus",
+    ".aif", ".aiff", ".aifc", ".alac", ".ape", ".wv", ".dsf", ".dff", ".mka", ".wma",
+    ".ac3", ".dts", ".amr", ".caf", ".tta", ".tak",
+})
 VIDEO_EXTENSIONS = frozenset({".mp4", ".m4v", ".mkv", ".mov", ".avi", ".webm", ".ts", ".wmv", ".mpg", ".mpeg"})
 
 EPISODE_PATTERN = re.compile(r"[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})|(?<![\dA-Za-z])(\d{1,2})x(\d{2,3})(?!\d)")
@@ -465,6 +470,11 @@ def music_key(text: str) -> str:
     return " ".join(text.casefold().split())
 
 
+def _main_performer(name: str | None) -> str | None:
+    """An explicit featured-guest marker identifies a lead; punctuation alone does not."""
+    return re.split(r"\s+(?:feat\.?|ft\.?|featuring)\s+", name, maxsplit=1, flags=re.I)[0].strip() if name else None
+
+
 def _audio_files(root: Path, dirs: tuple[str, ...], cache: dict[str, Any]) -> list[str]:
     """One folder's audio files in the scan's (sorted) order, theme songs left out."""
     return sorted(
@@ -474,19 +484,69 @@ def _audio_files(root: Path, dirs: tuple[str, ...], cache: dict[str, Any]) -> li
     )
 
 
-def _album_cover(root: Path, album_dirs: tuple[str, ...], cache: dict[str, Any], audio_tags: AudioTagReader | None) -> dict[str, dict[str, str]]:
+def _album_tracks(root: Path, dirs: tuple[str, ...], cache: dict[str, Any], audio_tags: AudioTagReader | None) -> list:
+    key = "/".join(dirs) + "/<album cover tracks>"
+    if key not in cache:
+        discs = sorted(name for name, is_dir, _tag in _listing(root, dirs, cache).values() if is_dir and DISC_DIR_PATTERN.match(name))
+        folders = [dirs, *((*dirs, disc) for disc in discs)]
+        cache[key] = [((*folder, name), audio_tags((*folder, name))) for folder in folders
+                      for name in _audio_files(root, folder, cache)] if audio_tags else []
+    return cache[key]
+
+
+def _release_artist(root: Path, dirs: tuple[str, ...], cache: dict[str, Any], audio_tags: AudioTagReader | None,
+                    tags: AudioTags, album: str) -> str | None:
+    """Missing album-artist tags can use a strict same-release consensus, never a guest name split."""
+    key = "/".join(dirs) + f"/<release artist:{tags.musicbrainz_album_id or music_key(album)}:{tags.year}>"
+    if key not in cache:
+        names = []
+        for _path, other in _album_tracks(root, dirs, cache, audio_tags):
+            if other is None or other.compilation:
+                continue
+            same = other.musicbrainz_album_id == tags.musicbrainz_album_id if tags.musicbrainz_album_id else (
+                not other.musicbrainz_album_id and music_key(other.album or "") == music_key(album))
+            if not same or (tags.year and other.year and tags.year != other.year):
+                continue
+            name = other.album_artist or _main_performer(other.artist)
+            if name:
+                names.append(name)
+        counts = Counter(music_key(name) for name in names)
+        winner = counts.most_common(1)
+        cache[key] = next((name for name in names if music_key(name) == winner[0][0]), None) if winner and winner[0][1] >= 2 and winner[0][1] > len(names) / 2 else None
+    return cache[key]
+
+
+def _album_cover(root: Path, album_dirs: tuple[str, ...], cache: dict[str, Any], audio_tags: AudioTagReader | None,
+                 album: str, album_artist: str, album_tags: AudioTags) -> dict[str, dict[str, str]]:
     """An album's Primary: a cover/folder/front/album image in the album folder, then in its disc folders in
     name order; else the first track, in the same order, with an embedded picture. Every track of an album computes the
-    same cover, so it is memoized per album folder for the batch."""
-    key = "/".join(album_dirs) + "/<album cover>"
+    same cover, so it is memoized per release within the album folder for the batch.
+    A shared folder's generic sidecar cannot identify which album it belongs to."""
+    identity = album_tags.musicbrainz_album_id or f"{music_key(album_artist)}/{music_key(album)}"
+    key = "/".join(album_dirs) + f"/<album cover:{identity}>"
     if key not in cache:
+        tracks = _album_tracks(root, album_dirs, cache, audio_tags)
         discs = sorted(name for name, is_dir, _tag in _listing(root, album_dirs, cache).values() if is_dir and DISC_DIR_PATTERN.match(name))
         folders = [album_dirs, *((*album_dirs, disc) for disc in discs)]
-        cover = next((art for folder in folders if (art := _art(root, folder, cache, {"Primary": ALBUM_ART}))), {})
+
+        def belongs(tags: AudioTags) -> bool:
+            if album_tags.musicbrainz_album_id:
+                return tags.musicbrainz_album_id == album_tags.musicbrainz_album_id
+            if album_tags.album_artist and tags.album_artist and music_key(album_tags.album_artist) != music_key(tags.album_artist):
+                return False
+            return music_key(tags.album or album) == music_key(album)
+
+        def foreign(tags: AudioTags) -> bool:
+            if tags.musicbrainz_album_id and album_tags.musicbrainz_album_id:
+                return tags.musicbrainz_album_id != album_tags.musicbrainz_album_id
+            return bool((tags.album and music_key(tags.album) != music_key(album)) or
+                        (tags.album_artist and music_key(tags.album_artist) != music_key(album_artist)))
+
+        shared = any(tags is not None and foreign(tags) for _track, tags in tracks)
+        cover = {} if shared else next((art for folder in folders if (art := _art(root, folder, cache, {"Primary": ALBUM_ART}))), {})
         if not cover and audio_tags is not None:
             track = next((
-                (*folder, name) for folder in folders for name in _audio_files(root, folder, cache)
-                if (tags := audio_tags((*folder, name))) is not None and tags.has_picture
+                track for track, tags in tracks if tags is not None and tags.has_picture and belongs(tags)
             ), None)
             if track is not None:
                 try:
@@ -518,16 +578,29 @@ def _music(root: Path, dirs: tuple[str, ...], stem: str, tags: AudioTags, cache:
     album = tags.album or clean_text(nfo.get("title") or "") or folder_name or UNKNOWN_ALBUM
     album_artist = (
         tags.album_artist or (VARIOUS_ARTISTS if tags.compilation else None) or clean_text(nfo.get("artist") or "")
-        or clean_text(nfo.get("albumartist") or "") or (artist_dirs[-1] if artist_dirs else None) or tags.artist or UNKNOWN_ARTIST
+        or clean_text(nfo.get("albumartist") or "") or (artist_dirs[-1] if artist_dirs else None)
+        or _release_artist(root, album_dirs, cache, audio_tags, tags, album) or _main_performer(tags.artist) or UNKNOWN_ARTIST
     )
     year = tags.year or _year(nfo) or (int(folder_year.group(1)) if folder_year else None)
     genres = list(tags.genres)
-    artist_spec = {"type": "artist", "key": f"artist:{music_key(album_artist)}", "fields": {
-        "path": {"name": album_artist}, "nfo": _art(root, artist_dirs, cache, {"Primary": ARTIST_ART}) if artist_dirs else {},
+    # A release and its album artist have stable provider identities. Keep the
+    # name keys as aliases so an existing pre-MusicBrainz library can be
+    # adopted without changing its title ids. A track performer identifies the
+    # album artist only when both displayed names agree; compilation performers
+    # must never split the Various Artists container.
+    album_artist_id = tags.musicbrainz_album_artist_id
+    if not album_artist_id and tags.artist and music_key(album_artist) == music_key(tags.artist):
+        album_artist_id = tags.musicbrainz_artist_id
+    artist_name_key = f"artist:{music_key(album_artist)}"
+    album_name_key = f"album:{music_key(album_artist)}/{music_key(album)}"
+    artist_spec = {"type": "artist", "key": f"artist:musicbrainz:{album_artist_id}" if album_artist_id else artist_name_key,
+                   "legacy_key": artist_name_key, "source_identity": bool(album_artist_id), "fields": {
+        "path": {"name": album_artist}, "nfo": _art(root, artist_dirs, cache, {"Primary": ARTIST_ART, "Backdrop": ["fanart", "backdrop", "background"]}) if artist_dirs else {},
     }}
-    album_spec = {"type": "album", "key": f"album:{music_key(album_artist)}/{music_key(album)}", "fields": {
+    album_spec = {"type": "album", "key": f"album:musicbrainz:{tags.musicbrainz_album_id}" if tags.musicbrainz_album_id else album_name_key,
+                  "legacy_key": album_name_key, "source_identity": bool(tags.musicbrainz_album_id), "fields": {
         "path": _present(name=album, year=year),
-        "nfo": {**({"genres": genres} if genres else {}), **_album_cover(root, album_dirs, cache, audio_tags)},
+        "nfo": {**({"genres": genres} if genres else {}), **_album_cover(root, album_dirs, cache, audio_tags, album, album_artist, tags)},
     }}
     metadata = {
         "track": tags.title or (_clean(track.group("title")) if track else stem),

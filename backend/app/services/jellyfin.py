@@ -66,6 +66,7 @@ TEXT_SUBTITLE_CODECS = {"subrip", "ass", "ssa", "webvtt", "mov_text", "text"}
 MAX_PAGE = 1000  # the largest page any list returns, whatever Limit a client sends
 
 
+@lru_cache(maxsize=4096)  # pure UUID conversion; never stores authorization or DTOs
 def jid(value: str | None) -> str | None:
     return jellyfin_id(value) if value else None
 

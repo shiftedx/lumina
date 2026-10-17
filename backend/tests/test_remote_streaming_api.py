@@ -23,6 +23,13 @@ from app.services.remote_streaming import (
 from app.services.yt_dlp_service import YtDlpService
 
 
+@pytest.fixture(autouse=True)
+def uncapped_resource_policy(monkeypatch):
+    # These transport fixtures replace the database with an opaque sentinel.
+    # Capped playback refusals are covered by test_resource_policy's real API journey.
+    monkeypatch.setattr(main_module, "_require_provider_policy", lambda *args: None)
+
+
 async def collect_streaming_response(response) -> bytes:  # noqa: ANN001
     return b"".join([chunk async for chunk in response.body_iterator])
 

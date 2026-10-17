@@ -73,6 +73,9 @@ import type {
   TwoFactorSetup,
   TwoFactorStatus,
   ConnectionTestResponse,
+  HouseholdResources,
+  MemberResources,
+  ResourceJob,
   EnrichmentJob,
   IdentifyCandidate,
   IdentifyRequest,
@@ -463,6 +466,7 @@ export const getLocalPlaybackOptions = (id: string): Promise<LocalPlaybackOption
 export const startLocalPlaybackSession = (id: string, start = 0, request?: PlaybackSessionRequest): Promise<LocalPlaybackSession> =>
   post(`/api/library/${enc(id)}/playback-sessions${qs({ start: start || undefined, profiles: localPlaybackProfiles() })}`, request, { timeoutMs: 30000 });
 export const stopLocalPlaybackSession = (sessionId: string): Promise<void> => del(`/api/playback-sessions/${enc(sessionId)}`);
+export const stopDirectPlayback = (itemId: string): Promise<void> => requestJson(`/api/library/${enc(itemId)}/playback/stop`, { method: 'POST', keepalive: true });
 
 export const listContinueWatching = (): Promise<PlaybackProgress[]> => requestJson('/api/playback/continue');
 export const getPlaybackProgress = (id: string): Promise<PlaybackProgress | null> => requestJson(`/api/library/${enc(id)}/playback`, undefined, { timeoutMs: 2500 });
@@ -569,6 +573,13 @@ export const deleteLibraryTag = (id: string, tag: string): Promise<void> => del(
 
 export const getMySettings = (): Promise<UserSettings> => requestJson('/api/settings/me');
 export const updateMySettings = (payload: UserSettingsUpdateRequest): Promise<UserSettings> => put('/api/settings/me', payload);
+export const getHouseholdResources = (): Promise<HouseholdResources> => requestJson('/api/admin/resources');
+export const updateHouseholdResources = (payload: HouseholdResources): Promise<HouseholdResources> => put('/api/admin/resources', payload);
+export const getMemberResources = (userId: string): Promise<MemberResources> => requestJson(`/api/admin/members/${enc(userId)}/resources`);
+export const updateMemberResources = (userId: string, payload: import('./types').ResourceOverrides): Promise<MemberResources> => put(`/api/admin/members/${enc(userId)}/resources`, payload);
+export const getMyResources = (): Promise<MemberResources> => requestJson('/api/me/resources');
+export const getMyResourceJobs = (): Promise<ResourceJob[]> => requestJson('/api/me/resource-jobs');
+export const cancelMyResourceJob = (kind: string, id: string): Promise<{ state: string }> => post(`/api/me/resource-jobs/${enc(kind)}/${enc(id)}/cancel`, {});
 export function keepLiveRecording(id: string, kept: boolean): Promise<LiveRecording> {
   return requestJson(`/api/live-recordings/${encodeURIComponent(id)}/keep`, { method: 'PUT', body: JSON.stringify({ kept }) });
 }

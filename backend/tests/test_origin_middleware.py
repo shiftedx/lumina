@@ -19,10 +19,10 @@ def client(api_client):  # noqa: ANN001, ANN201
     return api_client(base_url="http://localhost")
 
 
-def test_no_middleware_is_base_http_and_the_order_is_unchanged() -> None:
+def test_pacing_wraps_the_existing_pure_asgi_security_and_activity_order() -> None:
     assert BaseHTTPMiddleware not in {middleware.cls for middleware in app.user_middleware}
     assert [middleware.cls.__name__ for middleware in app.user_middleware] == [
-        "SecurityHeadersMiddleware", "AuthenticatedActivityMiddleware", "FailedRequestLogMiddleware", "OriginCheckMiddleware", "JellyfinPathMiddleware",
+        "BandwidthPacingMiddleware", "SecurityHeadersMiddleware", "AuthenticatedActivityMiddleware", "FailedRequestLogMiddleware", "OriginCheckMiddleware", "JellyfinPathMiddleware",
         "ResponseCompressionMiddleware", "RequestBodyLimitMiddleware", "CORSMiddleware", "SecureCookieMiddleware",
         "DynamicTrustedHostMiddleware",
     ]

@@ -49,7 +49,7 @@ export function MembersList({ onOpenMember }: { onOpenMember?: (id: string) => v
         {(data ?? []).map((member) => {
           const name = nameOf(member);
           const access = withDefaults(member.access);
-          const limits = member.role === 'admin' ? 'Owner — no limits' : [librariesSummary(access, sections), limitsSummary(access) || 'no limits'].join(' · ');
+          const limits = member.role === 'admin' ? 'Owner · full server access' : [librariesSummary(access, sections), limitsSummary(access) || 'no limits'].join(' · ');
           return (
             <li key={member.id}>
               <a className="g-list-row g-member-link" href={routePath({ surface: 'settings', section: 'members', memberId: member.id })} onClick={(event) => open(event, member.id)}>

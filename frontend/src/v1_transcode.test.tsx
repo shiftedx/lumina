@@ -161,8 +161,9 @@ describe('converted local playback', () => {
     await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
     Object.defineProperty(view.container.querySelector('video') as HTMLVideoElement, 'currentTime', { configurable: true, value: 312.4, writable: true });
     view.rerender(<LocalLibraryPlayer itemId="item-8" kind="video" poster={null} request={{ version_id: 'item-8-sd', max_height: null }} title="Clip" />);
-    await waitFor(() => expect(calls.filter((call) => call.method === 'POST')).toHaveLength(2));
-    const restart = calls.filter((call) => call.method === 'POST')[1];
+    const sessionPosts = () => calls.filter((call) => call.method === 'POST' && /\/library\/item-8\/playback-sessions(?:\?|$)/.test(call.url));
+    await waitFor(() => expect(sessionPosts()).toHaveLength(2));
+    const restart = sessionPosts()[1];
     expect(restart.url).toMatch(/\/library\/item-8\/playback-sessions\?start=312$/);
     expect(JSON.parse(String(restart.body))).toEqual({ version_id: 'item-8-sd' });
   });

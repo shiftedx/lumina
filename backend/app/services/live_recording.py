@@ -19,6 +19,7 @@ deliberate stop is distinct from an abrupt cancel and from a failure.
 from __future__ import annotations
 
 import uuid
+from bisect import bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -28,11 +29,12 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import AppSettings, LibraryItem, LiveRecording, User
+from app.models import AppSettings, DownloadJob, LibraryItem, LiveRecording, User
 from app.persistence import write_transaction
 from app.services.acquisition_batch import RedactedFailure
 from app.services.library import LibraryService, decode_library_cursor, encode_library_cursor
 from app.services.remote_playback import RemotePlaybackProgressService
+from app.services.resource_policy import effective as effective_resources
 
 
 # Overall live-aware states. Non-terminal states never pretend a live source has
@@ -43,6 +45,10 @@ from app.services.remote_playback import RemotePlaybackProgressService
 # active-uniqueness index — a duplicate schedule can never create a second waiter.
 NON_TERMINAL_STATUSES = frozenset({"waiting", "queued", "live", "stopping", "finalizing"})
 TERMINAL_STATUSES = frozenset({"completed", "partial", "failed", "cancelled"})
+WAITING_STATUSES = frozenset({"waiting", "queued"})
+CAPTURE_STATUSES = frozenset({"live", "stopping", "finalizing"})
+DOWNLOAD_WAITING_STATUSES = frozenset({"staged", "queued"})
+DOWNLOAD_RUNNING_STATUSES = frozenset({"running", "postprocessing"})
 
 # Media terminal states: ``completed`` means the recording reached true
 # source-end (the whole broadcast, to its end) and is the ONLY media state that
@@ -350,7 +356,13 @@ class LiveRecordingService:
         )
         try:
             with write_transaction(self.db, name="live_recording_begin"):
+                # Repeat idempotency under the writer slot so a duplicate never
+                # loses to a newly tightened queue allowance.
+                existing = self._active_for_source(user.id, key)
+                if existing is not None:
+                    return LiveRecordingClaim(recording=existing, created=False)
                 self._enforce_active_limits(user.id)
+                self._enforce_waiting_allowance(user.id)
                 self.db.add(recording)
                 self.db.flush()
         except IntegrityError:
@@ -384,6 +396,26 @@ class LiveRecordingService:
         )
         if member_active is not None and member_active >= self.max_active_per_user:
             raise LiveRecordingLimitError("You already have as many live recordings as Lumina allows.")
+
+    def _enforce_waiting_allowance(self, user_id: str) -> None:
+        """Admit a durable recording waiter with the download outbox in one writer slot."""
+        policy = effective_resources(self.db, user_id)
+        if not policy.download_queued:
+            return
+        waiting_downloads = self.db.scalar(
+            select(func.count()).select_from(DownloadJob).where(
+                DownloadJob.user_id == user_id,
+                DownloadJob.status.in_(tuple(DOWNLOAD_WAITING_STATUSES)),
+            )
+        ) or 0
+        waiting_recordings = self.db.scalar(
+            select(func.count()).select_from(LiveRecording).where(
+                LiveRecording.user_id == user_id,
+                LiveRecording.status.in_(tuple(WAITING_STATUSES)),
+            )
+        ) or 0
+        if waiting_downloads + waiting_recordings >= policy.download_queued:
+            raise LiveRecordingLimitError("You already have as many acquisitions waiting as Lumina allows.")
 
     # -- reads -------------------------------------------------------------
 
@@ -457,15 +489,69 @@ class LiveRecordingService:
             return recording
         now = _now()
         with write_transaction(self.db, name="live_recording_started"):
-            if recording.status == "queued":
-                recording.status = "live"
-            if recording.media_status in {"pending"}:
-                recording.media_status = "recording"
-            if recording.recording_started_at is None:
-                recording.recording_started_at = now
-            if recording.started_at is None:
-                recording.started_at = now
+            if recording.status != "queued":
+                return recording
+            if not self._member_can_capture(recording.user_id):
+                return recording
+            self._start_capture(recording, now)
         return recording
+
+    def claim_next_capture(self, last_user_id: str | None) -> LiveRecording | None:
+        """Fairly reserve one queued recording before any recorder starts.
+
+        The durable writer serializes competing recording dispatchers and the
+        download manager. The selected member is round-robin; each member's rows
+        retain their creation-order FIFO.
+        """
+        with write_transaction(self.db, name="live_recording_dispatch"):
+            queued = list(self.db.scalars(
+                select(LiveRecording)
+                .join(User, User.id == LiveRecording.user_id)
+                .where(LiveRecording.status == "queued", User.is_active.is_(True))
+                .order_by(LiveRecording.created_at.asc(), LiveRecording.id.asc())
+            ))
+            first_by_user: dict[str, LiveRecording] = {}
+            for recording in queued:
+                first_by_user.setdefault(recording.user_id, recording)
+            eligible_users = [
+                user_id for user_id in sorted(first_by_user) if self._member_can_capture(user_id)
+            ]
+            if not eligible_users:
+                return None
+            position = bisect_right(eligible_users, last_user_id or "")
+            selected_user = eligible_users[position % len(eligible_users)]
+            recording = first_by_user[selected_user]
+            self._start_capture(recording, _now())
+            self.db.flush()
+            return recording
+
+    def _member_can_capture(self, user_id: str) -> bool:
+        policy = effective_resources(self.db, user_id)
+        if not policy.download_running:
+            return True
+        active_downloads = self.db.scalar(
+            select(func.count()).select_from(DownloadJob).where(
+                DownloadJob.user_id == user_id,
+                DownloadJob.status.in_(tuple(DOWNLOAD_RUNNING_STATUSES)),
+            )
+        ) or 0
+        active_recordings = self.db.scalar(
+            select(func.count()).select_from(LiveRecording).where(
+                LiveRecording.user_id == user_id,
+                LiveRecording.status.in_(tuple(CAPTURE_STATUSES)),
+            )
+        ) or 0
+        return active_downloads + active_recordings < policy.download_running
+
+    @staticmethod
+    def _start_capture(recording: LiveRecording, now: datetime) -> None:
+        recording.status = "live"
+        if recording.media_status == "pending":
+            recording.media_status = "recording"
+        if recording.recording_started_at is None:
+            recording.recording_started_at = now
+        if recording.started_at is None:
+            recording.started_at = now
 
     def mark_connecting(
         self, recording_id: str, *, from_start_supported: bool | None = None
@@ -664,7 +750,10 @@ class LiveRecordingService:
             return recording
         with write_transaction(self.db, name="live_recording_stop"):
             recording.stop_requested = True
-            if recording.status in {"queued", "live"}:
+            if recording.status == "queued":
+                recording.status = "cancelled"
+                recording.finished_at = recording.finished_at or _now()
+            elif recording.status == "live":
                 recording.status = "stopping"
         return recording
 
@@ -676,6 +765,9 @@ class LiveRecordingService:
             return recording
         with write_transaction(self.db, name="live_recording_cancel"):
             recording.cancel_requested = True
+            if recording.status == "queued":
+                recording.status = "cancelled"
+                recording.finished_at = recording.finished_at or _now()
         return recording
 
     def finalize(self, recording_id: str) -> LiveRecording | None:

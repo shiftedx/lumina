@@ -250,6 +250,9 @@ class LiveRecordingManager:
         self._workers: dict[str, threading.Thread] = {}
         self._running: set[str] = set()
         self._lock = threading.Lock()
+        self._dispatch_lock = threading.Lock()
+        self._last_dispatched_user_id: str | None = None
+        self._capacity_waker: Callable[[], None] | None = None
 
     def _service(self, db: Session) -> LiveRecordingService:
         return LiveRecordingService(
@@ -316,8 +319,27 @@ class LiveRecordingManager:
                 recording=claim.recording,
             )
         if submission.created:
-            self._launch(submission.recording_id, resume=False)
+            if submission.status == "waiting":
+                self._launch(submission.recording_id, resume=False)
+            else:
+                self.dispatch_queued()
         return submission
+
+    def set_capacity_waker(self, waker: Callable[[], None] | None) -> None:
+        """Install the download dispatcher's wake-up for released capture slots."""
+        self._capacity_waker = waker
+
+    def dispatch_queued(self) -> None:
+        """Start every currently eligible queued recording in fair durable order."""
+        with self._dispatch_lock:
+            while True:
+                with self.session_factory() as db:
+                    recording = self._service(db).claim_next_capture(self._last_dispatched_user_id)
+                    if recording is None:
+                        return
+                    self._last_dispatched_user_id = recording.user_id
+                    recording_id = recording.id
+                self._launch(recording_id, resume=False)
 
     # -- member intent ------------------------------------------------------
 
@@ -351,12 +373,20 @@ class LiveRecordingManager:
             )
             service = self._service(db)
             plans = [(recording.id, service.plan_recovery(recording)) for recording in non_terminal]
+        queued_recovery = False
         for recording_id, decision in plans:
             if decision is RecoveryDecision.RESUME:
-                self._launch(recording_id, resume=True)
+                with self.session_factory() as db:
+                    recording = self._service(db).get_by_id(recording_id)
+                    if recording is not None and recording.status == "queued":
+                        queued_recovery = True
+                    elif recording is not None:
+                        self._launch(recording_id, resume=True)
             elif decision is RecoveryDecision.FINALIZE:
                 # Off the startup path: salvaging a crashed capture remuxes media.
                 self._spawn(recording_id, self._finalize_interrupted, recording_id)
+        if queued_recovery:
+            self.dispatch_queued()
 
     def _finalize_interrupted(self, recording_id: str) -> None:
         with self.session_factory() as db:
@@ -503,12 +533,10 @@ class LiveRecordingManager:
             # committed inside and the worker exits without a false capture.
             if was_waiting and not self._await_scheduled_source(recording_id, ctx):
                 return
-            with self.session_factory() as db:
-                service = self._service(db)
-                service.mark_recording_started(recording_id)
-                refreshed = service.get_by_id(recording_id)
-                if refreshed is not None:
-                    ctx.offset_base = refreshed.recording_started_at
+            if was_waiting:
+                # The waiter made this row queued. Its eventual recorder is
+                # selected by the fair durable dispatcher after this waiter exits.
+                return
             threading.Thread(
                 target=self._monitor, args=(ctx.user_id, control), name=f"live-mon-{recording_id[:8]}", daemon=True
             ).start()
@@ -529,6 +557,13 @@ class LiveRecordingManager:
             control.either.set()  # releases the monitor
             with self._lock:
                 self._running.discard(recording_id)
+            self.dispatch_queued()
+            if self._capacity_waker is not None:
+                try:
+                    self._capacity_waker()
+                except Exception:
+                    # A cross-lane wake-up must never alter recording cleanup.
+                    pass
 
     def _await_scheduled_source(self, recording_id: str, ctx: RecordingContext) -> bool:
         """Run the waiter for an upcoming broadcast; True to proceed to capture.
@@ -658,10 +693,17 @@ class LiveRecordingManager:
 
     def wait_all(self, timeout: float = 30.0) -> None:
         """Join every worker started so far (used by tests and shutdown)."""
-        with self._lock:
-            workers = list(self._workers.values())
-        for worker in workers:
-            worker.join(timeout=timeout)
+        deadline = time.monotonic() + timeout
+        while True:
+            with self._lock:
+                workers = list(self._workers.values())
+            for worker in workers:
+                worker.join(timeout=max(0.0, deadline - time.monotonic()))
+            with self._lock:
+                if not any(worker.is_alive() for worker in self._workers.values()):
+                    return
+            if time.monotonic() >= deadline:
+                return
 
     def close_all(self) -> None:
         """Ask every in-flight recording to stop and wait briefly for finalization."""

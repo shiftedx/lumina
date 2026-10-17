@@ -15,6 +15,7 @@ import {
   type MemberActivity, type MemberRow, minutesLabel, MOVIE_RATINGS, PRESETS, type PresetId, putMemberAccess, removeMemberFollow, scheduleError, type Section, type StreamingKind, TV_RATINGS, WEEKDAYS, withDefaults,
 } from './memberAccess';
 import { LibraryChoices } from './LibraryChoices';
+import { MemberResourcesSettings } from '../settings/HouseholdResources';
 
 type Role = 'admin' | 'viewer';
 type Ctx = {
@@ -73,7 +74,7 @@ function RoleControl() {
       {self ? <p className="g-setting-note">Your owner access stays on so the household cannot be locked out.</p> : null}
       {error ? <p className="auth-error" role="alert">{error}</p> : null}
       <ConfirmDialog
-        body={pending === 'admin' ? `${name} will be able to open the Server settings: manage members, storage and download limits, with no limits of their own.` : `${name} loses access to the Server settings. At least one active vault owner must remain.`}
+        body={pending === 'admin' ? `${name} will be able to open the Server settings and manage members, storage and resource allowances. Household resource ceilings still apply.` : `${name} loses access to the Server settings. At least one active vault owner must remain.`}
         busy={busy} confirmLabel={pending === 'admin' ? `Make ${name} a vault owner` : `Make ${name} a household member`}
         onCancel={() => setPending(null)} onConfirm={() => { const role = pending; setPending(null); if (role) void apply({ role }); }} open={pending !== null}
         title={pending === 'admin' ? `Make ${name} a vault owner?` : `Make ${name} a household member?`}
@@ -385,11 +386,16 @@ function RecentPlayback() {
   );
 }
 
+function ResourceAllowances() {
+  const { member } = useMember();
+  return <MemberResourcesSettings userId={member.id} />;
+}
+
 /** The member page's rows, by tab: the registry for /settings/members/<id> (each row has ⓘ text like every Settings row). */
 export const MEMBER_TABS: ReadonlyArray<{ id: string; label: string; ownerToo?: true; entries: readonly SettingEntry[] }> = [
   { id: 'profile', label: 'Profile', ownerToo: true, entries: [
     { id: 'members.name', label: 'Display name', info: 'The name shown on Home, in Who’s watching and to other members. Saving changes it everywhere at once. The sign-in username stays the same.', Control: DisplayName },
-    { id: 'members.role', label: 'Role', info: 'Vault owners open the Server settings and have no limits; household members see only what you share with them. Changing a role takes effect at once, and at least one active vault owner must remain.', Control: RoleControl },
+    { id: 'members.role', label: 'Role', info: 'Vault owners open the Server settings and have full server access; household members see only what you share with them. Household resource budgets still apply to remote delivery. Changing a role takes effect at once, and at least one active vault owner must remain.', Control: RoleControl },
     { id: 'members.reset', label: 'Password', description: 'A one-time link to choose a new password.', info: 'Creates a single-use link this member opens to choose a new password; you never see or set it. Send it to them yourself. Creating another link replaces the last one.', Control: ResetLink },
     { id: 'members.two-factor', label: 'Two-step verification', info: 'Whether this member also needs a code from an authenticator app to sign in. If they lose their phone and recovery codes, resetting it lets them in with just their password so they can set it up again. Affects only this member.', Control: TwoFactor },
     { id: 'members.status', label: 'Account', info: 'Deactivating signs this member out everywhere and stops their downloads, but keeps their library, history and notes. Reactivating lets them sign in again, and Unlock sign-in lifts the pause of up to 15 minutes after repeated wrong passwords on the public address. Both take effect at once.', Control: AccountStatus },
@@ -426,6 +432,9 @@ export const MEMBER_TABS: ReadonlyArray<{ id: string; label: string; ownerToo?: 
   { id: 'activity', label: 'Activity', ownerToo: true, entries: [
     { id: 'members.screen-time', label: 'Screen time today', info: 'Everything this member watched today, counted from playback in Lumina and in connected apps. The day starts at midnight in this server’s time zone. It is only shown to vault owners.', Control: ScreenTimeToday },
     { id: 'members.recent', label: 'Recent playback', layout: 'block', info: 'What this member played lately, newest first, with how long and on which app. It comes from the household playback history, kept for 90 days. Only vault owners see it.', Control: RecentPlayback },
+  ] },
+  { id: 'resources', label: 'Resources', ownerToo: true, entries: [
+    { id: 'members.resources', label: 'Resource allowances', layout: 'block', info: 'Sets this member’s optional bandwidth, playback, download and AI job limits. Leave fields blank to inherit the household defaults; zero makes that member allowance unlimited inside the household capacity.', Control: ResourceAllowances },
   ] },
 ];
 
@@ -510,12 +519,15 @@ export function MemberPage({ memberId, onBack }: { memberId: string; onBack: () 
     kind: 'item' as const, label: PRESETS[id].label, hint: PRESETS[id].hint,
     onSelect: () => { setDraft({ ...draft, access: applyPreset(draft.access, id) }); setStatus({ tone: 'ok', text: `${PRESETS[id].label} limits filled in. Review them, then save.` }); },
   }));
-  const summary = owner ? 'Owner — no limits' : [librariesSummary(draft.access, sections), limitsSummary(draft.access) || 'no limits'].join(' · ');
+  const summary = owner ? 'Owner · full server access' : [librariesSummary(draft.access, sections), limitsSummary(draft.access) || 'no limits'].join(' · ');
   const ctx: Ctx = {
     member, self, name: draft.name, setName: (next) => setDraft({ ...draft, name: next }),
     access: draft.access, set: (patch) => { setStatus(null); setDraft({ ...draft, access: { ...draft.access, ...patch } }); },
     saved, setSaved, sections, onMember: (next) => setMember(next),
   };
+  const panel = <div aria-labelledby={`member-tab-${shownTab.id}`} id="member-panel" role="tabpanel">
+    {entries.map(({ id, label, info, description, layout, Control }) => <SettingRow description={description} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>)}
+  </div>;
 
   return (
     <section aria-labelledby="settings-section-title" className="g-settings-section">
@@ -540,11 +552,10 @@ export function MemberPage({ memberId, onBack }: { memberId: string; onBack: () 
       </div>
       <MemberContext.Provider value={ctx}>
         <ActivityContext.Provider value={activity}>
-          <SectionForm readOnly={shownTab.id === 'activity'} dirty={dirty} label={`${name}’s settings`} onDiscard={() => { setDraft({ name: member.display_name, access: withDefaults(saved) }); setStatus(null); }} onSave={() => { void save(); }} saveLabel="Save" saving={saving} status={status}>
-            <div aria-labelledby={`member-tab-${shownTab.id}`} id="member-panel" role="tabpanel">
-              {entries.map(({ id, label, info, description, layout, Control }) => <SettingRow description={description} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>)}
-            </div>
-          </SectionForm>
+          {shownTab.id === 'resources' ? panel :
+            <SectionForm readOnly={shownTab.id === 'activity'} dirty={dirty} label={`${name}’s settings`} onDiscard={() => { setDraft({ name: member.display_name, access: withDefaults(saved) }); setStatus(null); }} onSave={() => { void save(); }} saveLabel="Save" saving={saving} status={status}>
+              {panel}
+            </SectionForm>}
         </ActivityContext.Provider>
       </MemberContext.Provider>
     </section>

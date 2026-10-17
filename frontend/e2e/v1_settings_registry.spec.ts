@@ -49,7 +49,7 @@ test('every member-page control belongs to a members.* row with ⓘ text (member
   await signIn(page);
   await page.goto('/settings/members/m2');
   const tabs = page.getByRole('tab');
-  await expect(tabs).toHaveCount(7);
+  await expect(tabs).toHaveCount(8);
   const problems: string[] = [];
   const seen = new Set<string>();
   for (const name of await tabs.allTextContents()) {
@@ -72,5 +72,5 @@ test('every member-page control belongs to a members.* row with ⓘ text (member
     }
   }
   expect(problems).toEqual([]);
-  expect(seen.size).toBe(26); // + the member page two-step reset row (2.9.0), + the followed channels row (2.10.0)
+  expect(seen.size).toBe(27); // Includes the two-step reset, followed channels, and resources rows.
 });

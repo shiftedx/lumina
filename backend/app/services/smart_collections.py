@@ -22,6 +22,7 @@ from app.media_schemas import SmartCollectionRule, SmartRuleDraft, SmartRulePrev
 from app.models import LibraryItem, LibraryTag, MediaTitle, PlaybackProgress, User, utcnow
 from app.services.library import LibraryService
 from app.services.local_ai import AiConfig, chat
+from app.services.resource_policy import effective
 from app.services.summaries import parse_model_json
 from app.services.titles import ADDED
 
@@ -420,6 +421,10 @@ def draft_rule(db: Session, user: User, prompt: str, config: AiConfig) -> SmartR
         {"role": "system", "content": DRAFT_SYSTEM % _field_lines()},
         {"role": "user", "content": f"<values>\n{json.dumps(listed, ensure_ascii=False)}\n</values>\n<request>\n{prompt}\n</request>"},
     ]
-    rule = parse_rule(parse_model_json(chat(config, messages, max_tokens=DRAFT_TOKENS)))
+    # This synchronous request is still member-initiated AI work.  Account for
+    # it before the model call so it cannot bypass a member's full job budget.
+    from app.services.ai_resources import interactive_execution
+    with interactive_execution(user.id, effective(db, user.id).ai_running, max(1, getattr(config, "ai_max_concurrency", 1))):
+        rule = parse_rule(parse_model_json(chat(config, messages, max_tokens=DRAFT_TOKENS)))
     _check_grounded(rule, allowed)
     return SmartRuleDraft(rule=rule, preview=preview(db, user, rule), description=describe_rule(rule))

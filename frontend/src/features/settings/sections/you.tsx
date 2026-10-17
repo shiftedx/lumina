@@ -9,6 +9,7 @@ import { RequestNotifications } from './requestsNotifications';
 import { ConnectedApps } from '../ConnectedApps';
 import { TwoFactorSettings } from '../TwoFactorSettings';
 import { JellyfinHistoryImport } from '../JellyfinHistoryImport';
+import { PersonalResources } from '../HouseholdResources';
 import { useSettingsHost } from '../settingsHost';
 import type { SettingsSectionDef } from '../settingsTypes';
 import {
@@ -148,6 +149,7 @@ export const YOU_SECTIONS: readonly SettingsSectionDef[] = [
       { id: 'account.password', label: 'Password', layout: 'block', keywords: ['change password', 'current password', 'new password', 'security', 'sign in'], info: 'Changes the password you sign in with. You need your current password, and the new one must have at least 12 characters; your other devices are signed out. Affects only you.', Control: AccountPassword },
       { id: 'account.two-factor', label: 'Two-step verification', layout: 'block', keywords: ['2fa', 'two factor', 'authenticator', 'totp', 'recovery codes', 'security', 'sign in', 'app password'], info: 'Asks for a 6-digit code from an authenticator app, as well as your password, when you sign in. Turning it on shows recovery codes once, so keep them safe; apps like Infuse use an app password instead. Affects only you.', Control: TwoFactorSettings },
       { id: 'account.request-notifications', label: 'Request notifications', layout: 'block', keywords: ['requests', 'email', 'notify', 'notifications', 'sonarr', 'radarr', 'approved', 'available'], info: 'Emails you when a movie, show or anime you asked for is approved, declined, ready to watch or fails. It needs an email address, and Lumina sends only through the mail server the owner set up. Affects only you.', Control: RequestNotifications },
+      { id: 'account.resources', label: 'Your allowances', layout: 'block', keywords: ['bandwidth', 'remote playback', 'ai jobs', 'queue', 'cancel'], info: 'Shows the household allowance that applies to your remote playback and work. You can cancel your active AI jobs here, even when the household is at capacity.', Control: PersonalResources },
     ],
   },
   {

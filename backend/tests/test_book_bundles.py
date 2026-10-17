@@ -171,7 +171,7 @@ def test_schema_20_to_21_adds_bundle_columns_without_losing_books_or_states(tmp_
     columns = {column["name"] for column in inspect(engine).get_columns("book_items")}
     assert {"filename", "bundle_parent_id", "deleted_at"} <= columns
     with engine.connect() as connection:
-        assert connection.scalar(text("PRAGMA user_version")) == 21
+        assert connection.scalar(text("PRAGMA user_version")) == db_module.SCHEMA_VERSION
         assert connection.scalar(text("SELECT title FROM book_items WHERE id = 'legacy-book'")) == "Legacy"
         assert connection.scalar(text("SELECT offset FROM book_states WHERE id = 'legacy-state'")) == 0.5
 

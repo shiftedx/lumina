@@ -193,6 +193,18 @@ def finish_job(model: type, job_id: str, **fields) -> None:
 
 
 def run_job(model: type, job_id: str, load: Callable[[Session, Any], Any], work: Callable[[AiConfig, Any], dict], label: str) -> None:
+    from app.services.ai_resources import execution
+    try:
+        with execution(model, job_id, jobs) as allowed:
+            if allowed:
+                _run_job(model, job_id, load, work, label)
+            else:
+                finish_job(model, job_id, state="canceled")
+    finally:
+        jobs.release(job_id)
+
+
+def _run_job(model: type, job_id: str, load: Callable[[Session, Any], Any], work: Callable[[AiConfig, Any], dict], label: str) -> None:
     """Worker body shared by summaries and idea graphs: stored failures are content-free."""
     try:
         with session_scope() as db:

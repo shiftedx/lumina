@@ -35,10 +35,10 @@ TRACK_NOT_FOUND = "Subtitle track not found"
 def _start(db: Session, item_id: str, kind: str, params: dict | None, user: User, response: Response) -> EnrichmentJob:
     try:
         job, created = enrichment.request_job(db, item_id, kind, params, user.id)
+    except AsrBusyError as exc:
+        raise HTTPException(status_code=429, detail=str(exc) or "Your AI queue is full.") from exc
     except enrichment.EnrichmentUnavailable as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except AsrBusyError as exc:
-        raise HTTPException(status_code=429, detail="Too many enrichment jobs in progress; try again shortly") from exc
     response.status_code = 202 if created else 200
     return enrichment.serialize(job)
 
@@ -109,6 +109,8 @@ def bulk_enrich(
     try:
         item_ids = enrichment.bulk_item_ids(db, title_id=body.title_id, root_id=body.root_id)
         queued, skipped = enrichment.queue_bulk(db, item_ids, list(body.kinds), admin.id)
+    except AsrBusyError as exc:
+        raise HTTPException(status_code=429, detail=str(exc) or "Your AI queue is full.") from exc
     except enrichment.EnrichmentUnavailable as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (enrichment.EnrichmentError, ValueError) as exc:

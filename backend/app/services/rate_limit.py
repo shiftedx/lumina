@@ -248,7 +248,7 @@ def rate_limit_dependency(bucket: str):
 
 
 def enforce_rate_limit(bucket: str, request: Request, *, user_id: str | None = None) -> None:
-    client_key = resolve_client_key(request)
+    # Verified members share their own budget across devices, independently of their NAT peers.
+    # Authentication failure/login protections retain their per-address buckets.
+    client_key = f"user:{user_id}" if user_id else resolve_client_key(request)
     rate_limiter.check(bucket, client_key, user_id=user_id)
-    if user_id:
-        rate_limiter.check(bucket, f"user:{user_id}", user_id=user_id)

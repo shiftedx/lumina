@@ -82,7 +82,7 @@ describe('member access rules', () => {
 
   it('gives every member-page row a unique members.* id and 2–3 sentence ⓘ text', () => {
     const rows = MEMBER_TABS.flatMap((tab) => tab.entries);
-    expect(MEMBER_TABS.map((tab) => tab.label)).toEqual(['Profile', 'Libraries', 'Ratings', 'Streaming', 'Schedule', 'Permissions', 'Activity']);
+    expect(MEMBER_TABS.map((tab) => tab.label)).toEqual(['Profile', 'Libraries', 'Ratings', 'Streaming', 'Schedule', 'Permissions', 'Activity', 'Resources']);
     expect(new Set(rows.map((row) => row.id)).size).toBe(rows.length);
     for (const row of rows) {
       expect(row.id.startsWith('members.'), row.id).toBe(true);
@@ -94,7 +94,7 @@ describe('member access rules', () => {
 });
 
 describe('Members list', () => {
-  it('shows each member with role, libraries, limits and today’s screen time; owners read “Owner — no limits”', async () => {
+  it('shows each member with role, libraries, limits and today’s screen time; owners retain full server access', async () => {
     routes();
     api.listUsers.mockResolvedValue([dana, mia, person('sam', 'Sam', 'viewer', { access: null, is_active: false })]);
     const onOpenMember = vi.fn();
@@ -104,7 +104,7 @@ describe('Members list', () => {
     await waitFor(() => expect(miaRow.textContent).toContain('Household member · Movies, Anime · G · TV-Y7'));
     expect(miaRow.textContent).toContain('1 h 05 min today');
     expect(miaRow.getAttribute('href')).toBe('/settings/members/mia');
-    expect(within(list).getByRole('link', { name: /Dana/ }).textContent).toContain('Vault owner · Owner — no limits');
+    expect(within(list).getByRole('link', { name: /Dana/ }).textContent).toContain('Vault owner · Owner · full server access');
     expect(within(list).getByRole('link', { name: /Sam/ }).textContent).toContain('Deactivated');
     expect(within(list).getByRole('link', { name: /Sam/ }).textContent).toContain('All libraries · no limits');
     await userEvent.click(miaRow);
@@ -266,9 +266,9 @@ describe('Member page', () => {
   }
   const save = () => userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-  it('has the seven tabs and saves every tab’s edits in one PUT', async () => {
+  it('has the eight tabs and saves every access tab’s edits in one PUT', async () => {
     const { tab } = await openMia();
-    expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Profile', 'Libraries', 'Ratings', 'Streaming', 'Schedule', 'Permissions', 'Activity']);
+    expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Profile', 'Libraries', 'Ratings', 'Streaming', 'Schedule', 'Permissions', 'Activity', 'Resources']);
     await tab('Libraries');
     await userEvent.click(screen.getByRole('checkbox', { name: 'TV shows' }));
     await tab('Ratings');
@@ -465,13 +465,13 @@ describe('Member page', () => {
     expect(screen.getByRole('list', { name: 'Recent playback' }).textContent).toContain('Bluey');
   });
 
-  it('an owner page shows only Profile and Activity, and the signed-in owner cannot demote or deactivate themself', async () => {
+  it('an owner page shows Profile, Activity and Resources, and the signed-in owner cannot demote or deactivate themself', async () => {
     routes();
     api.listUsers.mockResolvedValue([dana, mia]);
     inHost(<MemberPage memberId="owner" onBack={vi.fn()} />);
     await screen.findByRole('heading', { name: 'Dana' });
-    expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Profile', 'Activity']);
-    expect(screen.getByText(/Owner — no limits/)).not.toBeNull();
+    expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Profile', 'Activity', 'Resources']);
+    expect(screen.getByText(/Vault owners open the Server settings and have full server access/)).not.toBeNull();
     expect(screen.getByRole('combobox', { name: 'Role for Dana' }).hasAttribute('disabled')).toBe(true);
     expect(screen.queryByRole('button', { name: 'Deactivate' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Create reset link' })).toBeNull();
@@ -487,7 +487,7 @@ describe('Member page', () => {
     expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Libraries' }));
     expect(screen.getByRole('tab', { name: 'Libraries' }).getAttribute('aria-selected')).toBe('true');
     await userEvent.keyboard('{End}');
-    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Activity' }));
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Resources' }));
     await userEvent.click(screen.getByRole('button', { name: 'Members' }));
     expect(onBack).toHaveBeenCalled();
   });

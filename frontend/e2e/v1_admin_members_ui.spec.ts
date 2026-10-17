@@ -22,7 +22,7 @@ test('members list opens a member page whose edits save in one PUT', async ({ pa
   const eleanor = list.getByRole('link', { name: /Eleanor/ });
   await expect(eleanor).toContainText('Movies, Anime · G · TV-Y7');
   await expect(eleanor).toContainText('1 h 05 min today');
-  await expect(list.getByRole('link', { name: /Alexandria/ })).toContainText('Owner — no limits');
+  await expect(list.getByRole('link', { name: /Alexandria/ })).toContainText('Owner · full server access');
   await eleanor.click();
   await expect(page).toHaveURL(/\/settings\/members\/m2$/);
   await expect(page.getByRole('heading', { level: 2, name: /Eleanor/ })).toBeFocused();
@@ -35,6 +35,10 @@ test('members list opens a member page whose edits save in one PUT', async ({ pa
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Saved.')).toBeVisible();
   expect(saved).toMatchObject({ movie_rating_max: 'PG', daily_limit_minutes: 90, sections: ['movies', 'anime'] });
+  await page.getByRole('tab', { name: 'Resources' }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Remote stream ceiling' })).toHaveValue('4');
+  await expect(page.getByRole('spinbutton', { name: 'Member remote bandwidth' })).toHaveValue('6');
+  await expect(page.getByText('Inherits 2', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Members', exact: true }).first().click();
   await expect(page).toHaveURL(/\/settings\/members$/);
   expect(errors).toEqual([]);

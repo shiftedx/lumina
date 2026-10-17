@@ -190,7 +190,7 @@ test('member settings expose every page in a labeled phone selector', async ({ p
   const pages = page.getByRole('combobox', { name: 'Member settings page' });
   await expect(pages).toBeVisible();
   await expect(page.getByRole('tablist', { name: /settings/ })).toBeHidden();
-  await expect(pages.getByRole('option')).toHaveCount(7);
+  await expect(pages.getByRole('option')).toHaveCount(8);
   await pages.selectOption('schedule');
   const monday = page.getByRole('group', { name: 'Monday' });
   const [dayBox, fromBox] = await Promise.all([monday.locator('.g-day-name').boundingBox(), monday.getByRole('textbox', { name: 'Monday from' }).boundingBox()]);

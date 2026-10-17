@@ -22,6 +22,7 @@ from fastapi.security import HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.http_activity import AuthenticatedActivityMiddleware
+from app.http_bandwidth import BandwidthPacingMiddleware
 from app.http_compression import ResponseCompressionMiddleware
 from app.services import invites as invite_service, network_policy, public_address, social_preview, two_factor
 from starlette.background import BackgroundTask
@@ -36,6 +37,7 @@ from app.routers import two_factor as two_factor_routes
 from app.routers import jellyfin_history
 from app.services import title_metadata  # TMDB metadata worker
 from app.services import member_access, provider_budget
+from app.services import resource_policy
 from app.services.storage_roots import mount_parents
 from app.services import screen_time, streaming_gate
 from app.services.streaming_gate import require_streaming
@@ -549,6 +551,8 @@ live_recording_manager = LiveRecordingManager(
     max_waiting_seconds=settings.live_recording_schedule_max_waiting_seconds,
 )
 
+jobs.set_capacity_waker(live_recording_manager.dispatch_queued)
+live_recording_manager.set_capacity_waker(jobs.wake_queued)
 
 
 def _relay_service_for(current_user_id: str, stream_id: str):
@@ -884,7 +888,10 @@ async def lifespan(app: FastAPI):
     configured_concurrency = 1
     with session_scope() as db:
         UserService(db).require_remote_bootstrap_ready(settings.remote_https_enabled)
+        from app.services.ai_resources import recover as recover_ai_resources
+        recover_ai_resources(db)
         app_settings = YtDlpService(db).ensure_app_settings()
+        resource_policy.configure_runtime(resource_policy.household(db))
         configured_concurrency = app_settings.concurrency
         public_address.set_origin(app_settings.public_address)
         public_address.set_local_origin(app_settings.local_address)
@@ -1012,6 +1019,14 @@ admin_models.register(app)
 admin_overview.register(app, events)
 admin_activity.register(app, (hls_relay, live_hls_relay))
 member_access_routes.register(app)
+from app.routers import resources as resource_routes
+def _resource_policy_changed() -> None:
+    if jobs._worker_tasks:
+        jobs.wake_queued()
+        live_recording_manager.dispatch_queued()
+
+
+resource_routes.register(app, on_change=_resource_policy_changed)
 admin_diagnostics.register(app, events, lambda: maintenance_sweep_health.snapshot())
 client_metrics.register(app)
 books.register(app)
@@ -1133,6 +1148,7 @@ app.add_middleware(AuthenticatedActivityMiddleware)
 # Keep this outermost so framework, host, origin, upload, API, and static responses
 # all receive the same browser security policy, including early rejection paths.
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(BandwidthPacingMiddleware)
 
 
 def serialize_acquisition_batches(
@@ -1316,6 +1332,7 @@ def resolve_request_user_snapshot(
 ) -> User:
     with SessionLocal() as db:
         current_user = resolve_user_from_request(db, request=request, credentials=credentials)
+        request.state.resource_user_id = current_user.id
         snapshot = User(
             id=current_user.id,
             username=current_user.username,
@@ -1894,6 +1911,7 @@ async def preview(
         live=response.capabilities is not None and response.capabilities.lifecycle == "live",
     )
     if playable:
+        await run_in_threadpool(_require_provider_policy, request, current_user.id)
         enforce_rate_limit("remote_stream_register", request, user_id=current_user.id)
         browser_capabilities = _browser_capabilities(payload.supported_profiles, await run_in_threadpool(_playback_ceiling, current_user.id))
         registrar = _playback_registrar(response)
@@ -1971,7 +1989,25 @@ def prefetch_remote(
     return {"accepted": remote_prefetch.submit(current_user.id, payload.source_url, warm)}
 
 
-WATCH_TIME = Depends(screen_time.require_watch_time)  # a running stream re-checks viewing hours and the daily limit
+def _require_provider_policy(request: Request, user_id: str) -> None:
+    # Provider packaging and live relays copy upstream media; neither guarantees a bounded rendition.
+    if not resource_policy.runtime_state()[0]:
+        return
+    with SessionLocal() as db:
+        policy = resource_policy.household(db)
+        if policy.upload_bps is not None and resource_policy.remote(request, policy):
+            raise HTTPException(409, detail={
+                "code": "unsupported_resource_policy",
+                "message": "Remote provider playback cannot guarantee this upload budget. Add the media to your library for bandwidth-aware playback.",
+            })
+
+
+def _provider_watch_time(request: Request, current_user: User = Depends(get_current_user),
+                         _watch_time: None = Depends(screen_time.require_watch_time)) -> None:
+    _require_provider_policy(request, current_user.id)
+
+
+WATCH_TIME = Depends(_provider_watch_time)
 
 
 def _streaming_response(spec) -> StreamingResponse:  # noqa: ANN001
@@ -3750,7 +3786,8 @@ def update_playback_progress(
             serialized = service.serialize(progress, current_user)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    activity.touch(current_user.id, item_id, getattr(request.state, "connected_app_id", None) or "web", position=payload.position_seconds, duration=payload.duration_seconds)
+    device = resource_policy.playback_device(request) if resource_policy.runtime_state()[0] else getattr(request.state, "connected_app_id", None) or "web"
+    activity.touch(current_user.id, item_id, device, position=payload.position_seconds, duration=payload.duration_seconds)
     screen_time.heartbeat(db, current_user)
     return serialized
 
@@ -3807,11 +3844,32 @@ def stream_library_item(
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         screen_time.enforce(db, current_user)  # every Range request: at most one real check a minute
-    device = getattr(request.state, "connected_app_id", None) or "web"
+        from app.services.playback_resources import playback_resources
+        from app.services.media_probe import MediaProbeService
+        device = resource_policy.playback_device(request) if playback_resources.enabled(db) else getattr(request.state, "connected_app_id", None) or "web"
+        admission = playback_resources.admit_direct(
+            db, current_user, request, item.id, device,
+            facts=lambda: MediaProbeService(db).facts(item),
+            caps=local_playback.browser_caps(request.query_params.get("profiles")),
+        ) if request.method == "GET" else None
+        if admission is not None and admission.decision.mode != "direct":
+            playback_resources.release(admission)
+            raise HTTPException(409, detail={
+                "code": "resource_conversion_required",
+                "message": "This media needs conversion to fit the household playback bandwidth. Open it with automatic quality.",
+            })
+        request.state.playback_admission = admission
     activity.guard(current_user.id, item.id, device)
     if request.method == "GET":
         activity.touch(current_user.id, item.id, device)
     return MediaFileResponse(path, filename=path.name, content_disposition_type="inline")
+
+
+@app.post("/api/library/{item_id}/playback/stop", status_code=204)
+def stop_direct_playback(item_id: str, request: Request, user: User = Depends(get_current_user)) -> Response:
+    device = resource_policy.playback_device(request) if resource_policy.runtime_state()[0] else getattr(request.state, "connected_app_id", None) or "web"
+    activity.finish(user.id, item_id, device)
+    return Response(status_code=204)
 
 
 @app.post("/api/library/{item_id}/delete-file", response_model=LibraryItemResponse)

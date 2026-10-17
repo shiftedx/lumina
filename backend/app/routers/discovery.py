@@ -26,6 +26,7 @@ from app.persistence import write_transaction
 from app.routers.titles import visible_title_or_404
 from app.security import get_current_user
 from app.services import reco, recaps, smart_collections
+from app.services.ai_resources import AiCapacityError
 from app.services.local_ai import AiConfig, LocalAiError, effective_config
 from app.services.member_recommendations import MemberRecommendationPolicy
 from app.services.playback import PlaybackProgressService
@@ -176,6 +177,8 @@ def draft_smart_collection_rules(
         raise HTTPException(status_code=404, detail="Not found")
     try:
         return smart_collections.draft_rule(db, current_user, payload.prompt, config)
+    except AiCapacityError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except smart_collections.RuleError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except LocalAiError as exc:

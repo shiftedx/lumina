@@ -17,6 +17,7 @@ export type SettingsPage = {
 /** Stable registry rows keep their controls and providers; navigation gives each exactly one home. */
 export const SETTINGS_PAGES: readonly SettingsPage[] = [
   { id: 'profile', category: 'profile', section: 'account', label: 'Profile', summary: 'Your name and household identity.', rows: ['account.profile'] },
+  { id: 'allowances', category: 'profile', section: 'account', label: 'Your allowances', summary: 'Review remote playback and AI work allowances that apply to you.', rows: ['account.resources'] },
   { id: 'security', category: 'profile', section: 'account', label: 'Security', summary: 'Your password and two-step verification.', rows: ['account.password', 'account.two-factor'] },
   { id: 'notifications', category: 'profile', section: 'account', label: 'Notifications', summary: 'Email updates about your requests.', rows: ['account.request-notifications'] },
   { id: 'watching', category: 'playback', section: 'playback', label: 'Watching', summary: 'Quality, autoplay and sound for your profile.', rows: ['playback.autoplay', 'playback.max-quality', 'playback.loudness', 'playback.stream-cache'] },
@@ -36,6 +37,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
   { id: 'playing', category: 'overview', section: 'activity', label: 'Now playing', summary: 'Active streams, server load and background work.', rows: ['activity.now', 'activity.server', 'activity.background'] },
   { id: 'playback-history', category: 'overview', section: 'activity', label: 'Playback history', summary: 'What members played, and on which devices.', rows: ['activity.history'] },
   { id: 'members', category: 'household', section: 'members', label: 'Members', summary: 'Open a member to manage their libraries and viewing limits.', rows: ['members.list'] },
+  { id: 'resources', category: 'household', section: 'members', label: 'Resources', summary: 'Set upload protection and household defaults for playback and work.', rows: ['members.resources'] },
   { id: 'invitations', category: 'household', section: 'members', label: 'Invitations', summary: 'Choose access before inviting someone to your household.', rows: ['members.invitations'] },
   { id: 'request-rules', category: 'household', section: 'requests', label: 'Request rules', summary: 'Approval and request limits for the household and individual members.', rows: ['requests.enabled', 'requests.policies', 'requests.member-policies'] },
   { id: 'household-security', category: 'household', section: 'members', label: 'Security', summary: 'Require two-step verification for vault owners.', rows: ['members.owner-two-factor'] },

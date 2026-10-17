@@ -82,3 +82,18 @@ def test_enforce_rate_limit_tracks_recent_events_and_user_bucket() -> None:
     assert events
     assert events[0].bucket == "webhook_test"
     assert events[0].user_id == "user-1"
+
+
+def test_authenticated_members_on_one_address_have_independent_budgets() -> None:
+    rate_limiter.clear()
+    request = Request({"type": "http", "client": ("203.0.113.7", 1234), "headers": []})
+    for _ in range(5):
+        enforce_rate_limit("webhook_test", request, user_id="member-a")
+    enforce_rate_limit("webhook_test", request, user_id="member-b")
+    import pytest
+    from fastapi import HTTPException
+    # The same member on another device/address still uses the original budget.
+    other_device = Request({"type": "http", "client": ("198.51.100.8", 5678), "headers": []})
+    with pytest.raises(HTTPException) as blocked:
+        enforce_rate_limit("webhook_test", other_device, user_id="member-a")
+    assert blocked.value.status_code == 429

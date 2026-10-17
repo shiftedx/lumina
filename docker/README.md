@@ -107,6 +107,81 @@ manual entry remains available when the catalog is unavailable. A saved key is u
 for its saved endpoint, never forwarded to a different draft address.
 
 Search covers every setting you can access and opens its page, including advanced options.
+
+### Household resources
+
+**Manage Server → Household → Resources** sets household defaults. Open a member's
+**Resources** tab to override an allowance; clear a field to inherit it again.
+Zero means unlimited for that member, within household capacity. Owners obey the
+same resource ceilings. Rates shown in Mbps use decimal megabits (1 Mbps =
+1,000,000 bits/second); the API stores integer bits/second.
+
+The remote upload budget starts **Unconfigured**, including after upgrade. Existing
+playback compatibility is retained until an owner supplies a budget; Lumina cannot
+claim upload protection while it is unconfigured. Set it below your measured upload
+capacity to leave room for gaming and other household traffic. Enabling it offers
+8 Mbps per remote stream, 10 Mbps across a member's remote connections, two playback
+sessions and one video encode per member. Existing household video and model worker
+capacities remain hard ceilings. Web and Jellyfin clients share allowances across
+their authenticated devices. A compatible high-bitrate original is converted when
+needed; selecting Original cannot bypass the ceiling. Unknown-bitrate audio or media
+that cannot be converted receives a clear refusal instead of an unrestricted original.
+
+Remote provider streams and live relays copy upstream media and cannot guarantee a
+suitable rendition. Capped remote playback refuses these paths: add the media to
+the library for bandwidth-aware playback. Library audio compatibility formats are
+checked against the actual outgoing file. Member file downloads share the upload
+cap but do not consume playback slots.
+
+LAN exemption is explicit: enter the CIDRs you trust, for example `192.168.1.0/24`
+and `fd12::/64`. Empty means every connection receives remote policy. Direct peers
+must match an exempted network without forwarding ambiguity. Behind the supported
+single proxy, only the canonical client address supplied by that trusted proxy may
+qualify. Configure the proxy to **replace** `X-Forwarded-For` with the real client,
+strip client-supplied `Forwarded`/`CF-Connecting-IP`, and keep Uvicorn's
+`--no-proxy-headers`. Private proxy peers, Host headers, proxy chains, tunnel visitor
+headers and ambiguous traffic never establish locality. VPN clients are remote unless
+their verified network is explicitly exempted. Do not exempt a proxy's bridge network.
+
+Actual authenticated remote response bodies share process-wide household and member
+token buckets. The envelope is `bytes <= bits_per_second / 8 * elapsed_seconds + 32768`,
+including the initial 32 KiB burst. Opening parallel/range/segment requests does not
+renew that allowance. Pacing uses 16 KiB or smaller chunks and cancellable async waits;
+HEAD, conditional responses and byte ranges retain their normal semantics. Protected
+responses disable proxy buffering and caching (`X-Accel-Buffering: no`,
+`Cache-Control: private, no-store`). Disable caching and response buffering for
+authenticated media at your proxy/CDN too; a proxy that serves bytes independently
+cannot enforce Lumina's delivery budget. Caddy's `flush_interval -1` is supported.
+Application-byte accounting excludes TLS/IP overhead. Lumina controls its own traffic;
+router SQM is still useful for latency across the whole household.
+
+Upload/member changes reach active transfers within the 250 ms policy refresh/wait
+interval without replenishing bursts. Existing playback allocations stay stable;
+new starts must fit the remaining capacity. Stop, failed startup, replacement and
+cancellation release slots; paused/abandoned streams expire after ten minutes without
+activity. Restart removes ephemeral playback sessions and reservations together.
+
+Work defaults are one running acquisition plus 25 waiting acquisitions and one running
+AI job plus ten waiting AI jobs per member. Downloads and live recordings share the
+acquisition allowance; recording and download workers keep their existing global
+capacities. The legacy download setting `max_active_jobs_per_user` remains an additional
+queued-plus-running ceiling for DownloadJobs, distinct from the new waiting-only cap.
+Summary, recap, idea graph, ASR, subtitle generation/translation/sync and media-analysis
+jobs share AI member accounting, with existing model/process concurrency still in force.
+Dispatch rotates between eligible members, FIFO within each member; running work is
+not preempted. Lower limits retain queued and running work and prevent further starts
+above the new allowance. Members can cancel their own AI jobs from My Settings;
+owners retain Tasks recovery controls at capacity. Synchronous collection drafting
+refuses immediately if its member/model slot is busy. Owner-attributed automations
+use that owner's allowance. Unattributed caption/embedding/metadata maintenance keeps
+its existing bounded lane and background yielding; cached results create no new slot.
+
+`mise exec -- backend/.venv/bin/python scripts/qualify_household_resources.py` runs an
+isolated real Caddy TLS proxy, Lumina, synthetic media and concurrent downloads. It
+records client delivery and server-send samples, checks the envelope and verifies
+forced conversion. It requires Caddy, OpenSSL and FFmpeg and uses temporary data only.
+For an existing deployment, `scripts/measure_bandwidth.py` measures an authenticated
+media URL through its configured proxy. Never paste real credentials into reports.
 Existing `/settings/<section>` and `/admin/<section>` bookmarks still work; owner sections
 open in Manage Server. Subpage bookmarks use `?page=`, for example `/manage/requests?page=email`.
 Forms with Save buttons retain their save/discard behavior and warn before leaving unsaved edits.
@@ -193,6 +268,7 @@ Schema steps 6 to 18 only add tables, columns and indexes that older releases ig
 | --- | --- |
 | Before the dedicated music experience (schema 17, step 18) | `PRAGMA user_version = 17` (the older release ignores `music_lookups`, `music_track_overrides`, `music_edit_batches`, `music_cast_tickets`, `music_file_writebacks`, and `music_playlists`. Track overrides and new navigation are unavailable, and its scans may regroup tracks from their source tags. Provider portraits need this release to render. Keep `music-file-backups` and all six tables; upgrading again restores their controls. Explicit audio-file writeback remains in the files across rollback; restore chosen files before rolling back if desired.) |
 | Before first-owner media onboarding (schema 19) | `PRAGMA user_version = 19` (`users.vault_setup_pending` remains and is ignored by the older release) |
+| Before household resource budgets (schema 21) | `ALTER TABLE app_settings DROP COLUMN resource_policy; ALTER TABLE users DROP COLUMN resource_overrides; PRAGMA user_version = 21` (removes resource settings and overrides; existing media and work remain) |
 | Before Books format bundling (schema 20) | `UPDATE book_items SET bundle_parent_id = NULL, deleted_at = NULL; DROP INDEX IF EXISTS ix_book_items_bundle_parent_id; DROP INDEX IF EXISTS ix_book_items_deleted_at; ALTER TABLE book_items DROP COLUMN filename; ALTER TABLE book_items DROP COLUMN bundle_parent_id; ALTER TABLE book_items DROP COLUMN deleted_at; PRAGMA user_version = 20` (every `book_items` row, file, state and shelf membership remains; this only unlinks bundles and makes trashed rows visible to the older Books release) |
 | Before Books (schema 18) | `DROP TABLE book_shelf_memberships; DROP TABLE book_shelves; DROP TABLE book_states; DROP TABLE book_items; PRAGMA user_version = 18` (uploaded files under `app-data/books/` remain on disk) |
 | Before the local address (schema 16, step 17) | `PRAGMA user_version = 16` (step 17 only adds `app_settings.local_address`; the older release ignores it, so the local name is refused as an untrusted host until you upgrade again) |

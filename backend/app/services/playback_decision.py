@@ -62,6 +62,8 @@ class Limits:
     max_height: int | None = None  # member ceiling and/or the chosen quality
     max_bitrate: int | None = None  # Jellyfin MaxStreamingBitrate
     dv5_reshape: bool = False  # OpenCL tone-mapping can reshape Dolby Vision profile 5
+    require_known_bitrate: bool = False  # a protected remote direct play must not assume an unknown source fits
+    force_audio_encode: bool = False  # a constrained HLS rendition reserves a known AAC budget
 
 
 @dataclass(frozen=True)
@@ -141,7 +143,7 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
             (cap is not None and bit_depth(video) > cap.max_bit_depth, "VideoBitDepthNotSupported"),
             (cap is not None and rng not in cap.ranges and BASE_LAYER.get(rng) not in cap.ranges, "VideoRangeTypeNotSupported"),
             (bool(limits.max_height) and height > (limits.max_height or 0), "VideoResolutionNotSupported"),
-            (bool(bitrate_cap) and (facts.get("bit_rate") or 0) > (bitrate_cap or 0), "ContainerBitrateExceedsLimit"),
+            (bool(bitrate_cap) and ((facts.get("bit_rate") or 0) > (bitrate_cap or 0) or (limits.require_known_bitrate and not facts.get("bit_rate"))), "ContainerBitrateExceedsLimit"),
         )
         video_reasons = list(dict.fromkeys(reason for bad, reason in checks if bad))
         sub = next((x for x in streams if x.get("type") == "subtitle" and x.get("index") == subtitle_index), None) if subtitle_index is not None else None
@@ -155,11 +157,15 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
             codec_reasons.append("AudioCodecNotSupported")
         elif (audio.get("channels") or 2) > client.channel_limits.get(audio.get("codec") or "", client.max_channels):
             codec_reasons.append("AudioChannelsNotSupported")
+        elif limits.force_audio_encode:
+            codec_reasons.append("AudioBitrateExceedsLimit")
     secondary = audio is not None and audio is not default_audio and not client.selects_audio
     reasons = video_reasons + codec_reasons + (["SecondaryAudioNotSupported"] if secondary else [])
     tokens = _container_tokens(facts)
     playable = any(_profile_matches(p, tokens, video and video.get("codec"), audio and audio.get("codec")) for p in client.direct)
     indexes = {"video_index": video.get("index") if video else None, "audio_index": audio.get("index") if audio else None}
+    if video is None and bitrate_cap and ((facts.get("bit_rate") or 0) > bitrate_cap or (limits.require_known_bitrate and not facts.get("bit_rate"))):
+        return Decision("unavailable", reasons=("ContainerBitrateExceedsLimit",))
     if not reasons and playable:
         return Decision("direct", video="copy" if video else None, audio="copy" if audio else None, **indexes)
     if not reasons:

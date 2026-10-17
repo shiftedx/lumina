@@ -24,3 +24,7 @@ frontend/node_modules
 
 # Worktree bootstrap log (build artifact)
 .bootstrap.log
+
+# Native Apple shared source (the top-level shared/ data exclusion is unrelated).
+!apple/App/Shared/
+!apple/App/Shared/**

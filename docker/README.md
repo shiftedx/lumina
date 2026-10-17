@@ -520,6 +520,8 @@ docker compose exec lumina python -m app.services.two_factor reset <username>
 
 ## Jellyfin apps (Infuse, Swiftfin)
 
+The in-repository [native Apple proof](../apple/README.md) uses this same opt-in API for iPhone, iPad, and Apple TV. It needs no server schema or deployment change; enable the API and use the same address and member credentials described below. It is a development build, with a [hardware test checklist](../apple/docs/device-validation.md), rather than an App Store release.
+
 Lumina answers the Jellyfin API well enough for Infuse (tvOS, iOS, macOS) and Swiftfin to browse the vault, play files and sync watch state with Lumina's web UI. It is off by default and needs the Remote HTTPS setup or LAN HTTP mode above. With Remote HTTPS, apps connect through Caddy on the LAN and remotely alike, never to port 8765. In LAN HTTP mode the address is `http://<lan-ip>:8765` and works on the LAN only.
 
 1. **Manage Server → Connections → Metadata → Apps like Infuse**: turn it on and copy the server address it shows: the same address you open Lumina at, `https://<host>` (or `http://<lan-ip>:8765` in LAN HTTP mode), with nothing added. The API is served at the server root only; `/jellyfin` and `/emby` addresses do not work.

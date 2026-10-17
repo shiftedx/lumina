@@ -48,7 +48,7 @@ vi.mock('dashjs', () => {
 
 import { getSession } from './api';
 import { hlsCalls, resetHlsCalls } from './test/fakeHls';
-import { DASH_TOP_RUNG_KBPS, RemotePlayer } from './remotePlayer';
+import { AUTO_START_BANDWIDTH_BPS, RemotePlayer } from './remotePlayer';
 import { watchSurface } from './test/watchSurface';
 import type { LibraryItem, RemotePlayback, YouTubeSearchResult } from './types';
 
@@ -83,11 +83,11 @@ describe('RemotePlayer', () => {
     has_video: true, has_audio: true, seekable: true, selected_rendition_id: selected, auto_available: true, renditions: ladder,
   });
 
-  it('plays Auto through dash.js ABR from the top rung, stepping down only on measured trouble, and reports the active resolution', async () => {
+  it('starts DASH Auto from a conservative estimate, then leaves throughput ABR free to ramp up and reports the active resolution', async () => {
     const view = render(<RemotePlayer playback={adaptive('auto-abr', 'auto')} poster={null} title="Auto" />);
     await waitFor(() => expect(dashCalls.initialized).toHaveLength(1));
     expect(dashCalls.extensions).toEqual(['ThroughputModel']);
-    expect(dashCalls.settings).toEqual([{ streaming: { abr: { initialBitrate: { video: DASH_TOP_RUNG_KBPS }, rules: { throughputRule: { active: true }, bolaRule: { active: false }, droppedFramesRule: { active: true } } } } }]);
+    expect(dashCalls.settings).toEqual([{ streaming: { abr: { initialBitrate: { video: AUTO_START_BANDWIDTH_BPS / 1000 }, rules: { throughputRule: { active: true }, bolaRule: { active: false }, droppedFramesRule: { active: true } } } } }]);
     const select = screen.getByLabelText('Remote playback quality') as HTMLSelectElement;
     expect(select.value).toBe('auto');
     expect([...select.options].map((option) => option.text)).toEqual(['Auto', '720p', '4K']);
@@ -373,7 +373,7 @@ describe('RemotePlayer', () => {
     vi.restoreAllMocks();
   });
 
-  it('starts a multi-rendition stream at its highest rendition (owner: highest fidelity first, step down only on trouble)', async () => {
+  it('starts HLS Auto from a conservative estimate and leaves ABR free to ramp up', async () => {
     const { unmount } = render(<RemotePlayer playback={{
       status: 'ready', stream_id: 'opaque-live', transport: 'hls', media_kind: 'video',
       playback_url: '/api/remote-streams/opaque-live/relay/1/master.m3u8', content_type: 'application/vnd.apple.mpegurl',
@@ -381,10 +381,8 @@ describe('RemotePlayer', () => {
     }} poster={null} title="Live" />);
     await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(1));
     hlsCalls.onManifestParsed[0]('hlsManifestParsed', { levels: [{}, {}, {}, {}] });
-    expect(hlsCalls.instances.at(-1)?.startLevel).toBe(3);
-    // With a healthy buffer, ABR judges a level by what its segments really weigh, not its declared peak: YouTube live
-    // declares 1080p at 5.4 Mb/s for ~0.8 Mb/s of segments, and dropped to 720p/480p with 15 s buffered and no stall.
-    expect(hlsCalls.configs.at(-1)).toMatchObject({ abrEwmaDefaultEstimate: 20_000_000, abrMaxWithRealBitrate: true });
+    expect(hlsCalls.instances.at(-1)?.startLevel).toBe(-1);
+    expect(hlsCalls.configs.at(-1)).toMatchObject({ abrEwmaDefaultEstimate: AUTO_START_BANDWIDTH_BPS, abrMaxWithRealBitrate: true });
     unmount();
   });
 

@@ -45,6 +45,8 @@ All settings are `LUMINA_*` environment variables (full list: `backend/app/confi
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `LUMINA_RUNTIME_UID` / `_GID` | `1000` | Host account that owns `./app-data` and managed media mounts. |
+| `LUMINA_PLAYBACK_TEMP_DIR` | `/playback` in Docker; unset natively | Temporary local-playback storage. The base Compose file fixes this to its dedicated tmpfs. Native installs may set another explicit path. |
+| `LUMINA_PLAYBACK_TMPFS_SIZE` | `1g` | Maximum RAM-backed space for local playback segments and Roku derivatives. It counts toward `LUMINA_MEM_LIMIT`. |
 | `LUMINA_STORAGE_MOUNT_PARENTS` | `/media` | Comma-separated container paths under which admins may register storage roots. |
 | `LUMINA_AI_BASE_URL` / `_AI_MODEL` | empty (off) | OpenAI-compatible chat endpoint for summaries, moments and idea graphs, e.g. `http://192.0.2.10:8080/v1`. |
 | `LUMINA_ASR_BASE_URL` / `_ASR_MODEL` | empty (off) | OpenAI-compatible speech-to-text endpoint for transcripts. |
@@ -113,8 +115,12 @@ Email artwork uses versioned public assets from the configured public address. K
 ## Storage
 
 - `./app-data` holds the database, backups, caches and the built-in Library (`app-data/library/<member-id>/`). Keep it app-exclusive: no household-writable share.
+- Local playback segments and Roku derivatives use `/playback/playback-sessions` on the dedicated `/playback` tmpfs. Its `LUMINA_PLAYBACK_TMPFS_SIZE` limit defaults to 1 GiB, counts toward the container's 5 GiB memory limit, and has no swap allowance because `memswap_limit` equals `mem_limit`. A full tmpfs refuses new playback conversion instead of falling back to `./app-data`. Native installs can set `LUMINA_PLAYBACK_TEMP_DIR` to an explicit temporary mount; Lumina cleans only its `playback-sessions` child. When unset, playback sessions remain under the data directory for compatibility. Provision the mount as RAM-backed storage on native hosts; choosing a path alone does not make it RAM-backed.
+- Seekable Jellyfin/Roku conversions retain about 60 seconds of completed history and pause the producer about 120 seconds ahead, checked every second even while the player is paused. Seeking into removed history regenerates it. Growing web playlists retain their advertised history, so size the tmpfs for long web conversions and concurrent viewers; a full mount can interrupt a running conversion. The disk headroom setting applies to persistent playback storage, not to the smaller RAM mount.
 - Never open the live `app.db` from another process while the container runs (on macOS bind mounts a second writer can poison the running app with `disk I/O error`). Use the API or stop the container first.
 - Extra media: bind-mount it under a mount parent, then register it under **Settings → Library & storage**:
+
+  The first-owner walkthrough lists the configured mount parents and can register these folders immediately after account creation. Choosing setup later leaves them available under **Settings → Library & storage**.
 
   ```yaml
   volumes:
@@ -168,10 +174,12 @@ For a checkout-based install, first update the Compose file with `git fetch orig
 
 ### Rollback after a schema upgrade
 
-Schema steps 6 to 17 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to:
+Schema steps 6 to 19 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to:
 
 | Rolling back to | Stamp |
 | --- | --- |
+| Before first-owner media onboarding (schema 18) | `PRAGMA user_version = 18` (`users.vault_setup_pending` remains in place and is ignored by the older release) |
+| Before Books (schema 17) | `DROP TABLE book_shelf_memberships; DROP TABLE book_shelves; DROP TABLE book_states; DROP TABLE book_items; PRAGMA user_version = 17` (uploaded files under `app-data/books/` are no longer indexed; remove them manually only if they are no longer wanted) |
 | Before the local address (schema 16, step 17) | `PRAGMA user_version = 16` (step 17 only adds `app_settings.local_address`; the older release ignores it, so the local name is refused as an untrusted host until you upgrade again) |
 | Before the people editor (schema 15, step 16) | `PRAGMA user_version = 15` (step 16 only adds `person_overrides`, which the older release ignores: people renames and photos show their source names and photos until you upgrade again. Its scans also put moved episodes back in their folder's season, and its TMDB refresh reads every series in aired order) |
 | 2.9.0 (schema 14, before the dedicated two-step key, step 15) | `PRAGMA user_version = 14` (step 15 changes no table; at startup it re-encrypts each authenticator secret under `app-data/totp-key`, which 2.9.0 cannot read, so after rolling back **authenticator codes fail** for members who had two-step verification on: they sign in with a recovery code, or an owner resets them. Upgrading again reads them as before; keep `app-data/totp-key`) |
@@ -487,3 +495,21 @@ AI features use only the OpenAI-compatible endpoints configured under **Manage S
 **TheIntroDB** lookups (Manage Server → Connections → Metadata) are off by default. Each lookup tells a third party which episodes the household owns.
 
 On the first v3 boot after an upgrade, restart recovery re-queues any `queued` or `running` speech-to-text (ASR) rows left over from before the restart, so a transcription in progress at shutdown resumes instead of being lost.
+
+### Optional loudness and caption backfills
+
+Automatic loudness analysis and caption ingestion are quiet by default. Existing automatically queued caption jobs remain pending; they are not deleted or marked failed. Requested-item loudness work and explicitly requested caption bulk work run once the app is quiet. Interactive caption generation and playback subtitle extraction remain available on demand.
+
+To enable automatic backfills during a daily maintenance window, add both variables to the Compose `environment:` block (or the native service environment) and set both `LUMINA_BACKGROUND_BACKFILL_START_HOUR` and `LUMINA_BACKGROUND_BACKFILL_END_HOUR` to different integers from 0 through 23. For example, `2` and `5` allow work from 02:00 inclusive to 05:00 exclusive in the server's local timezone (`TZ` in Docker). A start later than the end crosses midnight. Leaving both unset disables automatic backfills; incomplete or empty windows are rejected at startup.
+
+Loudness and background caption extraction share one running media-child slot; interactive subtitle extraction keeps its own path. Artwork preparation and unrelated AI workers are outside this slot. Authenticated app activity pauses background media children immediately. They remain paused until requests finish and the app has been quiet for 30 seconds; maintenance work also pauses when its window closes. Authenticated polling counts conservatively as app use; passive server-sent event connections alone do not keep the server busy indefinitely. Paused time does not consume extraction/analysis timeouts. Scheduled recordings and backups continue independently.
+
+## Protected Twitch broadcasts
+
+Some Twitch broadcasts require DRM and permit viewing only on the Twitch website, including through restrictions on Twitch's own embedded player. When Twitch returns `no_cdm_specified`, Lumina explains the restriction and offers **Watch on Twitch** in the player. This opens Twitch in a new tab and preserves the member's place in Lumina. The guarded HLS relay cannot play, record or save these broadcasts. Updating extraction settings or retrying the stream does not enable DRM playback.
+
+## Chat emoji and emotes
+
+Live and replay chat preserve standard Unicode emoji and display provider-supplied YouTube and Twitch custom emotes. Custom images use a separate RAM-only cache (16 MiB total, 128 KiB per image), with bounded registrations and fetch concurrency; they do not compete with poster artwork. Repeated emotes share cached images. Unavailable images and images beyond a response's budget keep their readable text labels.
+
+Existing replay assets flattened before emote support retain their saved text. Refresh replay chat to rebuild those assets when the provider still offers them. Emote source addresses are internal JSON metadata; API responses contain authenticated Lumina image paths. No database migration or operator setting is required.

@@ -14,6 +14,7 @@ import dataclasses
 import logging
 import subprocess
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ from app.media_schemas import EnrichmentJob
 from app.models import AsrJob, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, Transcript, TranscriptCue, utcnow
 from app.persistence import queue_after_commit, write_transaction
 from app.services import local_asr, media_segments, model_endpoints, model_supervisor, subtitle_sync, subtitle_tracks, subtitle_translate
+from app.services.background_work import background_work
 from app.services.local_ai import LocalAiError, effective_config
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService, media_tool
@@ -65,6 +67,8 @@ class JobSpec:
     kind: str
     model_id: str
     params: dict[str, Any]
+    background: bool = False
+    backfill: bool = False
 
 
 def _work_asr(spec: JobSpec) -> dict[str, Any]:
@@ -77,6 +81,8 @@ FAILURES: tuple[type[BaseException], ...] = (
     subtitle_sync.SyncError, subtitle_translate.TranslationError, media_segments.SegmentError,
 )
 _bulk: set[str] = set()  # ids admitted by the pump; guarded by local_asr.jobs.lock
+_demanded_captions: set[str] = set()  # background caption ids promoted by an interactive request; same lock
+_caption_threads: set[threading.Thread] = set()  # background caption workers joined during graceful shutdown; same lock
 _pump_lock = threading.Lock()
 
 
@@ -118,6 +124,20 @@ def serialize(job: AsrJob) -> EnrichmentJob:
     )
 
 
+def _record_caption_demand(db: Session, job_id: str, user_id: str) -> bool:
+    """Persist interactive demand, then expose it to an already-admitted worker in this process."""
+    with write_transaction(db, name="enrichment_caption_demand"):
+        updated = bool(
+            db.query(AsrJob).filter(AsrJob.id == job_id, AsrJob.kind == "captions", AsrJob.state.in_(IN_FLIGHT))
+            .update({"requested_by": user_id}, synchronize_session=False)
+        )
+    if updated:
+        with local_asr.jobs.lock:
+            if job_id in local_asr.jobs.running:
+                _demanded_captions.add(job_id)
+    return updated
+
+
 def request_job(db: Session, item_id: str, kind: str, params: dict | None, user_id: str | None) -> tuple[AsrJob, bool]:
     """(job, created). Reuses a succeeded or in-flight job with the same kind, model and params.
 
@@ -135,8 +155,43 @@ def request_job(db: Session, item_id: str, kind: str, params: dict | None, user_
     )
     for job in existing:
         same = (job.params or None) == (params or None)
-        if same and (job.state in ("succeeded", "pending") or local_asr.jobs.is_active(job.id)) and _still_done(db, job):
+        if not (same and (job.state in ("succeeded", "pending") or local_asr.jobs.is_active(job.id)) and _still_done(db, job)):
+            continue
+        if job.kind == "captions" and job.state == "pending" and user_id is not None:
+            if local_asr.jobs.is_active(job.id):
+                _record_caption_demand(db, job.id, user_id)
+                db.refresh(job)
+                return job, False
+            if not local_asr.jobs.admit(job.id):
+                if local_asr.jobs.is_active(job.id):
+                    _record_caption_demand(db, job.id, user_id)
+                    db.refresh(job)
+                    return job, False
+                raise local_asr.AsrBusyError()
+            job_id = job.id
+            updated = committed = False
+            try:
+                with write_transaction(db, name="enrichment_job_promote"):
+                    updated = bool(
+                        db.query(AsrJob).filter(AsrJob.id == job_id, AsrJob.state == "pending")
+                        .update({"state": "queued", "requested_by": user_id}, synchronize_session=False)
+                    )
+                    if updated:
+                        queue_after_commit(db, lambda job_id=job_id: threading.Thread(
+                            target=run_job, args=(job_id,), daemon=True,
+                        ).start())
+                committed = updated
+            finally:
+                if not committed:
+                    local_asr.jobs.release(job_id)
+            if committed:
+                db.refresh(job)
             return job, False
+        if job.kind == "captions" and user_id is not None and local_asr.jobs.is_active(job.id):
+            _record_caption_demand(db, job.id, user_id)
+            db.refresh(job)
+            return job, False
+        return job, False
     job = local_asr.jobs.start(
         db,
         lambda job_id: AsrJob(
@@ -157,8 +212,18 @@ def _finish(job_id: str, **fields: Any) -> None:
         job.completed_at = utcnow()
 
 
-def run_job(job_id: str) -> None:
+def run_job(job_id: str, *, background: bool = False, backfill: bool = False) -> None:
     """Worker thread body for every kind: mark running, dispatch on ``kind``, store the outcome."""
+    worker = threading.current_thread()
+    if background:
+        with local_asr.jobs.lock:
+            if model_supervisor.supervisor.closed:
+                _bulk.discard(job_id)
+                _demanded_captions.discard(job_id)
+                local_asr.jobs.running.discard(job_id)
+                local_asr.jobs.canceled.discard(job_id)
+                return  # the queued row stays durable for recover_after_restart
+            _caption_threads.add(worker)
     kind = "enrichment"
     try:
         with session_scope() as db, write_transaction(db, name="enrichment_job_start"):
@@ -167,7 +232,10 @@ def run_job(job_id: str) -> None:
                 job.state, job.error, job.completed_at = "canceled", "ai_feature_disabled", utcnow()
                 return
             job.state = "running"
-            spec = JobSpec(job.id, job.library_item_id, job.kind, job.model_id, dict(job.params or {}))
+            spec = JobSpec(
+                job.id, job.library_item_id, job.kind, job.model_id, dict(job.params or {}),
+                background=background, backfill=backfill,
+            )
         kind = spec.kind
         result = WORKERS[spec.kind](spec)
         local_asr.check_canceled(job_id)
@@ -187,9 +255,27 @@ def run_job(job_id: str) -> None:
         with local_asr.jobs.lock:
             was_bulk = job_id in _bulk
             _bulk.discard(job_id)
+            _demanded_captions.discard(job_id)
+            _caption_threads.discard(worker)
         local_asr.jobs.release(job_id)
         if was_bulk:
             pump_pending()
+
+
+def join_background_captions() -> None:
+    """Bound graceful shutdown while caption workers reap children and leave unfinished rows durable."""
+    deadline = time.monotonic() + 10
+    current = threading.current_thread()
+    while True:
+        with local_asr.jobs.lock:
+            workers = [worker for worker in _caption_threads if worker is not current and worker.is_alive()]
+        if not workers:
+            return
+        for worker in workers:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("Background caption workers did not stop during shutdown")
+            worker.join(remaining)
 
 
 def pump_pending() -> int:
@@ -211,7 +297,15 @@ def pump_pending() -> int:
                 if len(_bulk) >= BULK_ACTIVE or model_supervisor.supervisor.closed:  # shutting down: pending rows wait for the next start
                     return started
             with session_scope() as db:
-                job = db.query(AsrJob).filter(AsrJob.state == "pending").order_by(AsrJob.created_at, AsrJob.id).first()
+                caption_eligible = AsrJob.kind != "captions"
+                if not background_work.busy():
+                    caption_eligible = or_(caption_eligible, AsrJob.requested_by.is_not(None))
+                if background_work.backfill_allowed():
+                    caption_eligible = or_(caption_eligible, AsrJob.requested_by.is_(None))
+                job = (
+                    db.query(AsrJob).filter(AsrJob.state == "pending", caption_eligible)
+                    .order_by(AsrJob.created_at, AsrJob.id).first()
+                )
                 if job is None or not local_asr.jobs.admit(job.id):
                     return started
                 job_id = job.id
@@ -226,7 +320,14 @@ def pump_pending() -> int:
                             .update({"state": "queued"}, synchronize_session=False)
                         )
                         if updated:
-                            queue_after_commit(db, lambda: threading.Thread(target=run_job, args=(job_id,), daemon=True).start())
+                            caption_background = job.kind == "captions"
+                            caption_backfill = caption_background and job.requested_by is None
+                            queue_after_commit(
+                                db,
+                                lambda job_id=job_id, background=caption_background, backfill=caption_backfill: threading.Thread(
+                                    target=run_job, args=(job_id,), kwargs={"background": background, "backfill": backfill}, daemon=True,
+                                ).start(),
+                            )
                     admitted = updated  # only once the commit succeeded; a failed commit releases the slot below
                 finally:
                     if not admitted:
@@ -376,8 +477,17 @@ def _mirror(db: Session, item_id: str, derived_from: str) -> Transcript | None:
     )
 
 
-def _extract_stream(db: Session, item: LibraryItem, stream_index: int) -> bytes:
-    """UTF-8 WebVTT of one embedded text stream through the cached extraction (``vtt_body``)."""
+@dataclass(frozen=True)
+class StreamExtraction:
+    facts: dict[str, Any]
+    source: Path
+    root: Path
+    artifact_id: str
+    fingerprint: str
+    ffmpeg: str
+
+
+def _stream_extraction(db: Session, item: LibraryItem) -> StreamExtraction:
     artifacts = MediaArtifactService(db)
     facts = MediaProbeService(db).facts(item)
     source, root = artifacts.locate(item)
@@ -385,14 +495,30 @@ def _extract_stream(db: Session, item: LibraryItem, stream_index: int) -> bytes:
     ffmpeg = media_tool(db, "ffmpeg")
     if not ffmpeg:
         raise EnrichmentError("ffmpeg is not available")
+    return StreamExtraction(
+        facts, source, root, artifact.id, (artifact.probe or {}).get("fingerprint") or "unknown", ffmpeg,
+    )
+
+
+def _read_stream(
+    extraction: StreamExtraction, stream_index: int, *, background: bool = False, backfill: bool = False,
+    check_active: Callable[[], None] | None = None, interactive: Callable[[], bool] | None = None,
+) -> bytes:
+    """UTF-8 WebVTT of one prepared embedded text stream; no database connection is held while ffmpeg waits."""
     try:
         body = subtitle_tracks.vtt_body(
-            f"e:{stream_index}", facts=facts, sidecar_entries=[], source=source, root=root, artifact_id=artifact.id,
-            fingerprint=(artifact.probe or {}).get("fingerprint") or "unknown", ffmpeg=ffmpeg,
+            f"e:{stream_index}", facts=extraction.facts, sidecar_entries=[], source=extraction.source,
+            root=extraction.root, artifact_id=extraction.artifact_id, fingerprint=extraction.fingerprint, ffmpeg=extraction.ffmpeg,
+            background=background, backfill=backfill, check_active=check_active, interactive=interactive,
         )
     except (LookupError, subtitle_tracks.SubtitleError) as exc:
         raise EnrichmentError("Subtitle stream could not be read") from exc
     return body.encode()
+
+
+def _extract_stream(db: Session, item: LibraryItem, stream_index: int) -> bytes:
+    """Interactive embedded-track extraction used by an on-demand subtitle request."""
+    return _read_stream(_stream_extraction(db, item), stream_index)
 
 
 def track_exists(db: Session, item: LibraryItem, track_id: str) -> bool:
@@ -521,23 +647,55 @@ def _work_translate(spec: JobSpec) -> dict[str, Any]:
     return {"transcript_id": transcript.id}
 
 
+def _caption_active(spec: JobSpec) -> None:
+    """Fail promptly on cancel/shutdown without waiting on an activity gate."""
+    if model_supervisor.supervisor.closed:
+        raise EnrichmentError("Caption extraction stopped for shutdown")
+    local_asr.check_canceled(spec.id)
+
+
+def _caption_interactive(spec: JobSpec) -> bool:
+    if not spec.background:
+        return True
+    with local_asr.jobs.lock:
+        return spec.id in _demanded_captions
+
+
+def _caption_checkpoint(spec: JobSpec) -> None:
+    """Background captions wait between stages; interactive caption jobs never enter this gate."""
+    _caption_active(spec)
+    while not _caption_interactive(spec) and (not background_work.backfill_allowed() if spec.backfill else background_work.busy()):
+        _caption_active(spec)
+        time.sleep(0.05)
+    _caption_active(spec)
+
+
 def _work_captions(spec: JobSpec) -> dict[str, Any]:
     """Ingest every embedded text subtitle stream as a ``source_caption`` transcript (``derived_from=stream:N``)."""
+    _caption_checkpoint(spec)
     with session_scope() as db:
         item = _item(db, spec.item_id)
         MediaProbeService(db).facts(item)  # refreshes a probe cached before streams were recorded
         streams = text_streams(db, item)
     for stream in streams:
-        local_asr.check_canceled(spec.id)
+        _caption_checkpoint(spec)
         try:
             with session_scope() as db:
-                data = _extract_stream(db, _item(db, spec.item_id), stream["index"])
+                extraction = _stream_extraction(db, _item(db, spec.item_id))
+            _caption_checkpoint(spec)
+            data = _read_stream(
+                extraction, stream["index"], background=spec.background, backfill=spec.backfill,
+                check_active=lambda: _caption_active(spec), interactive=lambda: _caption_interactive(spec),
+            )
         except EnrichmentError:
+            _caption_checkpoint(spec)
             continue  # an unreadable stream is skipped, not fatal
+        _caption_checkpoint(spec)
         try:
             cues = parse_caption(data, "vtt")
         except TranscriptError:
             continue  # an empty or malformed stream is skipped, not fatal
+        _caption_checkpoint(spec)
         with session_scope() as db:
             TranscriptService(db).store(
                 spec.item_id, language=normalize_language(stream.get("language") or "und"), source_kind="source_caption",

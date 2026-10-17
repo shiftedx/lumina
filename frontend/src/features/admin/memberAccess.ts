@@ -57,7 +57,7 @@ export const PRESETS: Record<PresetId, { label: string; hint: string; access: Om
 };
 export const applyPreset = (access: MemberAccess, preset: PresetId): MemberAccess => ({ ...structuredClone(PRESETS[preset].access), sections: access.sections });
 
-const SECTION_LABELS: Record<string, string> = { movies: 'Movies', shows: 'TV shows', anime: 'Anime', music: 'Music', vault: 'Videos and downloads' };
+const SECTION_LABELS: Record<string, string> = { movies: 'Movies', shows: 'TV shows', anime: 'Anime', music: 'Music', books: 'Books', vault: 'Videos and downloads' };
 export const sectionLabel = (id: string, sections?: readonly Section[] | null) => sections?.find((entry) => entry.id === id)?.label ?? SECTION_LABELS[id] ?? id;
 
 export function librariesSummary(access: MemberAccess, sections?: readonly Section[] | null): string {

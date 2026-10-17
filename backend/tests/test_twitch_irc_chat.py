@@ -20,6 +20,54 @@ def test_irc_lines_become_normalized_events() -> None:
     assert parse_irc_line("PING :tmi.twitch.tv") is None
 
 
+def test_repeated_twitch_emotes_use_codepoint_ranges_and_static_cdn_urls() -> None:
+    line = (
+        "@badges=;display-name=Ada;emotes=25:2-6,8-12;id=emotes-1;user-id=42 "
+        ":ada!ada@ada.tmi.twitch.tv PRIVMSG #wardogs :😀 Kappa Kappa"
+    )
+
+    event = parse_irc_line(line)
+
+    assert event is not None and event.text == "😀 Kappa Kappa"
+    assert [(emote.start, emote.end, emote.label) for emote in event.emotes] == [
+        (2, 7, "Kappa"),
+        (8, 13, "Kappa"),
+    ]
+    assert [emote.image_url for emote in event.emotes] == [
+        "https://static-cdn.jtvnw.net/emoticons/v2/25/static/light/1.0",
+        "https://static-cdn.jtvnw.net/emoticons/v2/25/static/light/1.0",
+    ]
+
+
+def test_twitch_emotes_reject_bad_ids_ranges_overlaps_and_clipped_text() -> None:
+    text = "x" * 495 + "Kappa"
+    line = (
+        "@badges=;display-name=Ada;"
+        "emotes=25:495-499/bad!:0-1/26:3-x/27:0-999/28:496-499;"
+        "id=emotes-2;user-id=42 "
+        f":ada!ada@ada.tmi.twitch.tv PRIVMSG #wardogs :{text}tail"
+    )
+
+    event = parse_irc_line(line)
+
+    assert event is not None and len(event.text) == 500
+    assert [(emote.start, emote.end, emote.label) for emote in event.emotes] == [
+        (495, 500, "Kappa"),
+    ]
+
+
+def test_twitch_emote_offsets_follow_sanitized_text() -> None:
+    line = (
+        "@badges=;display-name=Ada;emotes=25:4-8;id=emotes-3;user-id=42 "
+        ":ada!ada@ada.tmi.twitch.tv PRIVMSG #wardogs :a\u202eb Kappa"
+    )
+
+    event = parse_irc_line(line)
+
+    assert event is not None and event.text == "ab Kappa"
+    assert [(emote.start, emote.end, emote.label) for emote in event.emotes] == [(3, 8, "Kappa")]
+
+
 def test_channel_urls() -> None:
     assert twitch_channel("https://www.twitch.tv/WarDogs") == "wardogs"
     assert twitch_channel("https://twitch.tv/wardogs?ref=x") == "wardogs"

@@ -297,3 +297,24 @@ def test_live_captured_asset_takes_precedence_over_a_later_replay_load() -> None
         )
         assert ticket.build_id is None  # no rebuild launched
         assert [e.text for e in ticket.response.events] == ["live-captured"]
+
+
+def test_captured_chat_preserves_private_emote_metadata_for_replay() -> None:
+    factory = _factory()
+    action = _message("emote", "unused")
+    action["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]["message"] = {"runs": [
+        {"emoji": {"isCustomEmoji": True, "shortcuts": [":party:"], "image": {
+            "thumbnails": [{"url": "https://images.example.com/emote.png", "width": 32}]}}},
+    ]}
+    fetcher = _FakeFetcher(LiveChatBootstrap(continuation="edge", headers={}), [
+        LiveChatPage(actions=[action], continuation=None, status="ended"),
+    ])
+    capturer = GuardedLiveChatCapturer(fetcher=fetcher, poll_interval_seconds=0)
+    capturer.capture(_ctx(factory))
+    asset = _asset(factory)
+    assert asset.events_json[0]["emotes"][0]["image_url"] == "https://images.example.com/emote.png"
+    from app.services.timed_chat_asset import TimedChatAssetService
+    with factory() as session:
+        response = TimedChatAssetService(session, artwork_url_resolver=lambda url: "/api/artwork/emotes/opaque").serialize(asset)
+        assert response.events[0].emotes[0].artwork_url == "/api/artwork/emotes/opaque"
+        assert "images.example.com" not in response.model_dump_json()

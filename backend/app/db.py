@@ -232,6 +232,8 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     15: (),
     16: (),  # #164 household people editor: person_overrides comes from create_all; rollback = drop it, user_version = 15.
     17: ("ALTER TABLE app_settings ADD COLUMN local_address TEXT",),  # the local address beside the public one; additive
+    18: (),  # standalone Books tables come from create_all; rollback drops them and stamps schema 17.
+    19: ("ALTER TABLE users ADD COLUMN vault_setup_pending BOOLEAN NOT NULL DEFAULT 0",),
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
@@ -262,7 +264,7 @@ def init_storage() -> None:
 
 def init_db() -> None:
     """Create the schema on a fresh database, upgrade an older one, refuse a newer one."""
-    from app import models  # noqa: F401  (registers model metadata)
+    from app import book_models, models  # noqa: F401  (registers model metadata)
     from app.services.library_search import ensure_search_index
 
     if sqlite3.sqlite_version_info < (3, 33):  # UPDATE … FROM (CATEGORY_SQL)

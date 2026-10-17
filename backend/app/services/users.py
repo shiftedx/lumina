@@ -75,6 +75,7 @@ class UserService:
                 password_hash=hash_password(password),
                 role="admin",
                 is_active=True,
+                vault_setup_pending=True,
             )
             self.db.add(user)
             self.db.flush()
@@ -323,6 +324,7 @@ class UserService:
             role=user.role,
             is_active=user.is_active,
             onboarding_status=user.onboarding_status,
+            vault_setup_pending=user.vault_setup_pending,
             has_local_password=has_local_password(user.password_hash),
             bio=user.bio,
             can_edit_details=can_edit_details(user, app_settings := self.db.get(AppSettings, 1)),
@@ -331,6 +333,16 @@ class UserService:
             created_at=user.created_at,
             updated_at=user.updated_at,
         )
+
+    def complete_vault_setup(self, user_id: str) -> User:
+        """Clear first-owner media setup without changing personal onboarding."""
+        with write_transaction(self.db, name="complete_vault_setup"):
+            user = self.db.get(User, user_id, populate_existing=True)
+            if user is None:
+                raise ValueError("User not found")
+            user.vault_setup_pending = False
+            self.db.flush()
+            return user
 
     def serialize_settings(self, settings: AppSettings) -> AppSettingsResponse:
         return AppSettingsResponse(

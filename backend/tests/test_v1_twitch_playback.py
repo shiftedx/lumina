@@ -172,6 +172,20 @@ def test_twitch_gated_no_auth_prompt() -> None:
     assert YtDlpService.explain_download_error(str(error)) == detail["message"]
 
 
+def test_twitch_protected_broadcast_explains_the_website_only_restriction() -> None:
+    error = yt_dlp.utils.DownloadError(
+        "ERROR: [twitch:stream] luminafixture: no_cdm_specified: no_cdm_specified",
+    )
+    detail = main_module._download_error_http_exception(error).detail
+    assert isinstance(detail, dict)
+    assert detail["category"] == "unsupported"
+    assert detail["message"] == (
+        "This Twitch broadcast is DRM-protected and must be watched on the Twitch website. "
+        "Open the original link to watch it. Lumina cannot play, record or save this broadcast."
+    )
+    assert YtDlpService.explain_download_error(str(error)) == detail["message"]
+
+
 class _Cdn(BaseHTTPRequestHandler):
     """Loopback stand-in for the public CDN: the key request redirects into private space."""
 

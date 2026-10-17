@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -37,7 +37,7 @@ const suggestions: CategoryChannelSuggestions[] = [
 
 function renderStep(overrides: Partial<Parameters<typeof ChannelDiscoveryStep>[0]> = {}) {
   const onContinue = vi.fn();
-  render(
+  const view = render(
     <ChannelDiscoveryStep
       suggestions={suggestions}
       onSearch={vi.fn().mockResolvedValue([])}
@@ -47,10 +47,64 @@ function renderStep(overrides: Partial<Parameters<typeof ChannelDiscoveryStep>[0
       {...overrides}
     />,
   );
-  return { onContinue };
+  return { onContinue, ...view };
 }
 
 describe('channel discovery step', () => {
+  it('shows video previews through the artwork boundary and a branded cover when unavailable', () => {
+    const illustrated = candidate({ display_name: 'Visual Creator', channel_key: 'visual', preview_artwork_url: '/api/artwork/remote/preview', preview_title: 'Inside the studio' });
+    const { container } = renderStep({ suggestions: [{ key: 'music', label: 'Music', state: 'ranked', channels: [illustrated] }] });
+    const tile = screen.getByRole('button', { name: 'Follow Visual Creator' });
+    expect(within(tile).getByText('Inside the studio')).toBeTruthy();
+    const image = tile.querySelector<HTMLImageElement>('img.g-onboarding-channel-image');
+    expect(image?.getAttribute('src')).toContain('/api/artwork/remote/preview');
+    fireEvent.error(image!);
+    expect(tile.querySelector('.g-onboarding-channel-cover')).toBeTruthy();
+    expect(container.querySelector<HTMLButtonElement>('.g-onboarding-picks-trigger')?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('restores draft picks and lets the member remove them from their collection', async () => {
+    const browser = userEvent.setup();
+    const onSelectionChange = vi.fn();
+    const picked = suggestions[0].channels[1];
+    const { onContinue } = renderStep({ initialSelected: [picked], onSelectionChange });
+    expect(screen.getByRole('button', { name: 'Kurzgesagt — selected, deselect' }).getAttribute('aria-pressed')).toBe('true');
+    await browser.click(screen.getByRole('button', { name: 'Your chosen creators, 1 selected' }));
+    expect(within(screen.getByRole('list', { name: 'Your chosen creators' })).getByText('Kurzgesagt')).toBeTruthy();
+    await browser.click(screen.getByRole('button', { name: 'Remove Kurzgesagt from your picks' }));
+    expect(onSelectionChange).toHaveBeenCalledWith([]);
+    await browser.click(screen.getByRole('button', { name: 'Enter my Home' }));
+    expect(onContinue).toHaveBeenCalledWith([]);
+  });
+
+  it('keeps chosen creators when switching between interest shelves', async () => {
+    const browser = userEvent.setup();
+    renderStep();
+    await browser.click(screen.getByRole('button', { name: 'Follow Kurzgesagt' }));
+    await browser.click(within(screen.getByRole('group', { name: 'Browse interests' })).getByRole('button', { name: /^Music$/ }));
+    expect(screen.queryByRole('heading', { name: 'Popular in Science & Technology' })).toBeNull();
+    await browser.click(screen.getByRole('button', { name: 'Your chosen creators, 1 selected' }));
+    expect(within(screen.getByRole('list', { name: 'Your chosen creators' })).getByText('Kurzgesagt')).toBeTruthy();
+    await browser.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Your chosen creators' })).toBeNull();
+    await browser.click(screen.getByRole('button', { name: 'For you' }));
+    expect(screen.getByRole('button', { name: 'Kurzgesagt — selected, deselect' })).toBeTruthy();
+  });
+
+  it('explains an empty search and keeps earlier picks through a search failure', async () => {
+    const onSearch = vi.fn().mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('offline'));
+    renderStep({ onSearch, initialSelected: [suggestions[0].channels[1]] });
+    await userEvent.type(screen.getByRole('searchbox'), 'unknown');
+    await userEvent.click(screen.getByRole('button', { name: 'Find channels' }));
+    expect(await screen.findByText('No channels found for “unknown”')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Find channels' }));
+    expect(await screen.findByText(/Your picks are still safe/)).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Your chosen creators, 1 selected' }));
+    expect(within(screen.getByRole('list', { name: 'Your chosen creators' })).getByText('Kurzgesagt')).toBeTruthy();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Your chosen creators' })).toBeNull();
+  });
+
   it('presents category suggestions as "Popular in <category>", never trending', () => {
     renderStep();
     expect(screen.getByRole('heading', { name: 'Popular in Science & Technology' })).toBeTruthy();
@@ -77,7 +131,7 @@ describe('channel discovery step', () => {
     await browser.click(screen.getByRole('button', { name: 'Follow NPR Music' }));
     // Deselect NPR Music again.
     await browser.click(screen.getByRole('button', { name: 'NPR Music — selected, deselect' }));
-    await browser.click(screen.getByRole('button', { name: /^Continue/ }));
+    await browser.click(screen.getByRole('button', { name: 'Enter my Home with 1 channel' }));
 
     expect(onContinue).toHaveBeenCalledWith([
       { source_url: 'https://www.youtube.com/@kurzgesagt', display_name: 'Kurzgesagt' },
@@ -87,7 +141,7 @@ describe('channel discovery step', () => {
   it('lets a member complete without following any channel', async () => {
     const browser = userEvent.setup();
     const { onContinue } = renderStep();
-    await browser.click(screen.getByRole('button', { name: /^Continue/ }));
+    await browser.click(screen.getByRole('button', { name: 'Enter my Home' }));
     expect(onContinue).toHaveBeenCalledWith([]);
   });
 
@@ -117,7 +171,7 @@ describe('channel discovery step', () => {
     await browser.click(screen.getByRole('button', { name: 'Find channels' }));
 
     expect(onSearch).not.toHaveBeenCalled();
-    await browser.click(screen.getByRole('button', { name: /^Continue/ }));
+    await browser.click(screen.getByRole('button', { name: 'Enter my Home with 1 channel' }));
     expect(onContinue).toHaveBeenCalledWith([
       { source_url: 'https://www.youtube.com/@pastedchannel', display_name: 'pastedchannel' },
     ]);
@@ -138,8 +192,8 @@ describe('channel discovery step', () => {
     expect(screen.getByText('Loading channels…')).toBeTruthy();
     loading.unmount();
     const empty = render(<ChannelDiscoveryStep suggestions={[]} onSearch={vi.fn()} onResolveAddress={vi.fn()} onContinue={vi.fn()} onBack={vi.fn()} />);
-    expect(screen.getByText('No suggestions right now.')).toBeTruthy();
-    expect(screen.getByText('Search for a channel above.')).toBeTruthy();
+    expect(screen.getByText('Your favorites belong here')).toBeTruthy();
+    expect(screen.getByText('Search for a favorite creator above, or step inside and discover at your own pace.')).toBeTruthy();
     empty.unmount();
     render(<ChannelDiscoveryStep suggestions={[]} suggestionsError="x" onSearch={vi.fn()} onResolveAddress={vi.fn()} onContinue={vi.fn()} onBack={vi.fn()} />);
     expect(screen.getByRole('alert').textContent).toContain('Lumina could not load suggestions.');

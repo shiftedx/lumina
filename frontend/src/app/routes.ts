@@ -1,5 +1,6 @@
 import { resolveSettingsPage, type SettingsSpace } from '../features/settings/navigation';
 import { LIBRARY_LENSES, type LibraryLens, titleLens } from '../features/gallery/libraryLens';
+import { booksRouteFocusKey, booksRoutePath, parseBooksRoute, type BooksRoute } from '../features/books/routes';
 import type { LibraryPlace } from '../features/gallery/LibraryTabs';
 import type { TitleCategory, TitleType } from '../types';
 
@@ -12,7 +13,7 @@ export type StreamingView = 'home' | 'live' | 'search' | 'channels';
 export type StreamingProvider = 'youtube' | 'twitch' | 'kick';
 
 /** Signed-in surfaces. 'subscriptions' is only a follow or channel page now; the list is Streaming's channels view. Music is a Library lens (/library/music) since the library gallery. */
-export type Surface = 'home' | 'streaming' | 'requests' | 'subscriptions' | 'library' | 'downloads' | 'settings' | 'watch';
+export type Surface = 'home' | 'streaming' | 'requests' | 'subscriptions' | 'library' | 'books' | 'downloads' | 'settings' | 'watch';
 
 /** Requests: what a member can discover and ask the household's Sonarr/Radarr for. */
 export type RequestKind = 'movie' | 'show' | 'anime';
@@ -44,7 +45,8 @@ const ownKey = (record: object, key: string) => Object.prototype.hasOwnProperty.
 
 /** One canonical, bookmarkable app location. `watch` carries exactly one media reference; title pages are a Library lens. */
 export type AppRoute =
-  | { surface: Exclude<Surface, 'watch' | 'streaming' | 'settings' | 'subscriptions' | 'requests'> }
+  | { surface: Exclude<Surface, 'watch' | 'streaming' | 'settings' | 'subscriptions' | 'requests' | 'books'> }
+  | BooksRoute
   | RequestsRoute
   | { surface: 'streaming'; view: StreamingView; provider?: StreamingProvider; query?: string; rail?: string }
   | { surface: 'subscriptions'; youtubeChannelId: string; tab?: ChannelPageTab }
@@ -150,6 +152,8 @@ export function parseRoute(pathname: string, search: string): AppRoute {
   }
   const requests = parseRequests(path, params);
   if (requests) return requests;
+  const books = parseBooksRoute(path, params);
+  if (books) return books;
   const youtubeChannel = YOUTUBE_CHANNEL_PATH.exec(path);
   if (youtubeChannel) {
     const tab = CHANNEL_PAGE_TABS.find((value) => value === params.get('tab'));
@@ -235,6 +239,7 @@ export function parseRoute(pathname: string, search: string): AppRoute {
 
 export function routePath(route: AppRoute): string {
   if (route.surface === 'home') return '/';
+  if (route.surface === 'books') return booksRoutePath(route);
   if (route.surface === 'requests') {
     if (route.view === 'search') return `/requests/search?q=${encodeURIComponent(route.query)}`;
     if (route.view === 'title') return `/requests/title/${route.kind}/${route.id}`;
@@ -272,6 +277,7 @@ export function routePath(route: AppRoute): string {
 /** Identifies the page a route shows. A new key means a new page: the shell moves focus to its heading. Tabs, lenses, walls, rails, queries and Settings sections are in-page state and keep the key. */
 export function routeFocusKey(route: AppRoute | null): string {
   if (!route) return '';
+  if (route.surface === 'books') return booksRouteFocusKey(route);
   if (route.surface === 'subscriptions') {
     if ('youtubeChannelId' in route) return `subscriptions:youtube:${route.youtubeChannelId}`;
     if ('channelUrl' in route) return `subscriptions:url:${route.channelUrl}`;

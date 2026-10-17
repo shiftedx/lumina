@@ -11,4 +11,9 @@ describe('Lumina route icons', () => {
       expect(html).toContain('focusable="false"');
     }
   });
+
+  it('includes a Books icon for the independent Books destination', () => {
+    expect(luminaRouteIconNames).toContain('books');
+    expect(renderToStaticMarkup(<LuminaRouteIcon route="books" />)).toContain('<path');
+  });
 });

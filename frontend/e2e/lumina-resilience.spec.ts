@@ -415,7 +415,7 @@ test('navigation menu fits a narrow viewport and scrolls to every action', async
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused();
-  const more = page.getByRole('button', { name: /^More/ });
+  const more = page.getByRole('navigation', { name: 'Mobile primary navigation' }).getByRole('button', { name: /^More/ });
   await more.click();
   const anchor = await more.boundingBox();
   const bounds = await dialog.boundingBox();
@@ -541,7 +541,7 @@ test('a new member is guided through first-run onboarding into a prepared, perso
   // Gated into a focused full-screen surface: no primary navigation is offered.
   await expect(page.getByRole('button', { name: 'Personalize my Home' })).toBeVisible();
   await page.getByRole('button', { name: 'Personalize my Home' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0);
   // Reduced motion: the entry choreography does not run.
   const animation = await page.locator('.g-onboarding-panel').evaluate((element) => getComputedStyle(element).animationName);
@@ -551,9 +551,9 @@ test('a new member is guided through first-run onboarding into a prepared, perso
   await page.getByRole('button', { name: 'Continue' }).click();
 
   // Interest setup advances into channel discovery before Home.
-  await expect(page.getByRole('heading', { level: 1, name: 'Follow a few channels' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Meet your next favorites' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Popular in Music' })).toBeVisible();
-  await page.getByRole('button', { name: /^Continue/ }).click();
+  await page.getByRole('button', { name: 'Enter my Home' }).click();
 
   // Preparation resolves into Home, which immediately reflects the interest.
   await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
@@ -563,13 +563,13 @@ test('a new member is guided through first-run onboarding into a prepared, perso
   // Resume: reloading never re-gates a member who has completed setup.
   await page.reload();
   await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toHaveCount(0);
 });
 
 test('a pending member who reloads without acting stays gated in first-run setup', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending' });
   await page.getByRole('button', { name: 'Personalize my Home' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeVisible();
 
   await page.reload();
 
@@ -590,19 +590,19 @@ test('a new member can skip first-run onboarding and still reach a non-blocking 
 
   await page.reload();
   await expect(page.getByRole('heading', { level: 1, name: /Alexandria/ })).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toHaveCount(0);
 });
 
 test('onboarding still reaches Home with an honest degraded shelf when discovery warming fails', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending', discoveryHome: 'failing' });
   await page.getByRole('button', { name: 'Personalize my Home' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeVisible();
 
   await page.getByRole('checkbox', { name: 'Music' }).check();
   await page.getByRole('button', { name: 'Continue' }).click();
   // Pass through channel discovery without following anything.
-  await expect(page.getByRole('heading', { level: 1, name: 'Follow a few channels' })).toBeVisible();
-  await page.getByRole('button', { name: /^Continue/ }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Meet your next favorites' })).toBeVisible();
+  await page.getByRole('button', { name: 'Enter my Home' }).click();
 
   // Durable writes landed, so Home is entered even though warming did not, and
   // the personalized shelf keeps an honest degraded state instead of stalling.
@@ -643,12 +643,12 @@ test('a failed Up Next recommendation never breaks the Watch surface or blocks n
 test('a new member discovers, searches, and follows channels during onboarding with a curated fallback', async ({ page }) => {
   await openApp(page, 1280, 900, { onboarding: 'pending', channelSuggestions: 'degraded' });
   await page.getByRole('button', { name: 'Personalize my Home' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Music' }).check();
   await page.getByRole('button', { name: 'Continue' }).click();
 
   // The discovery step is keyboard-reachable and lands focus on its heading.
-  const discoverHeading = page.getByRole('heading', { level: 1, name: 'Follow a few channels' });
+  const discoverHeading = page.getByRole('heading', { level: 1, name: 'Meet your next favorites' });
   await expect(discoverHeading).toBeVisible();
   await expect(discoverHeading).toBeFocused();
 
@@ -662,7 +662,7 @@ test('a new member discovers, searches, and follows channels during onboarding w
   await page.getByRole('searchbox').fill('creator');
   await page.getByRole('button', { name: 'Find channels' }).click();
   await page.getByRole('button', { name: 'Follow Searched Creator' }).click();
-  await page.getByRole('button', { name: /^Continue with/ }).click();
+  await page.getByRole('button', { name: 'Enter my Home with 1 channel' }).click();
 
   // Home opens, then the durable follow appears in Subscriptions and warms
   // through the existing bounded, partial-outcome subscription feed.
@@ -1086,13 +1086,13 @@ test('onboarding setup and channel discovery surfaces pass the tagged Axe gate',
 
   // (a) The first-run onboarding interest-setup surface — deep-a11y-scanned here
   // for the first time (auditA11y previously only covered Home + bootstrap).
-  await expect(page.getByRole('heading', { level: 1, name: 'Set up your Home' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'What draws you in?' })).toBeVisible();
   expect((await auditA11y(page)).violations).toEqual([]);
 
   // (b) The channel discovery panel.
   await page.getByRole('checkbox', { name: 'Music' }).check();
   await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Follow a few channels' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Meet your next favorites' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Popular in Music' })).toBeVisible();
   expect((await auditA11y(page)).violations).toEqual([]);
 });

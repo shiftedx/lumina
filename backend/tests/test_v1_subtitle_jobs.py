@@ -176,11 +176,12 @@ def test_captions_job_ingests_embedded_text_streams(household: None, monkeypatch
     item_id = _item()
     extracted: list[int] = []
 
-    def fake_extract(db, item, stream_index):  # noqa: ANN001, ANN202
+    def fake_extract(extraction, stream_index, **kwargs):  # noqa: ANN001, ANN003, ANN202
         extracted.append(stream_index)
         return b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello there\n"
 
-    monkeypatch.setattr(enrichment, "_extract_stream", fake_extract)
+    monkeypatch.setattr(enrichment, "_read_stream", fake_extract)
+    monkeypatch.setattr(enrichment.background_work, "backfill_allowed", lambda: True)
     media = settings.library_root / "alice" / "episode.mkv"
     info = media.stat()
     with db_module.SessionLocal() as db:
@@ -276,7 +277,7 @@ def test_disabled_ai_features_are_409(household: None) -> None:
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")
-def test_embedded_captions_become_masked_transcript_tracks(household: None) -> None:
+def test_embedded_captions_become_masked_transcript_tracks(household: None, monkeypatch: pytest.MonkeyPatch) -> None:
     folder = settings.library_root / "alice"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "embedded.srt").write_text("1\n00:00:00,500 --> 00:00:01,500\nWhat the shit\n\n")
@@ -288,6 +289,9 @@ def test_embedded_captions_become_masked_transcript_tracks(household: None) -> N
     )
     item_id = _item("embedded.mkv")
     assert enrichment.queue_captions_after_import in library_import.after_import_hooks
+    monkeypatch.setattr(enrichment.background_work, "backfill_allowed", lambda: True)
+    monkeypatch.setattr(enrichment.background_work, "_busy", lambda: False)
+    monkeypatch.setattr(enrichment.background_work, "_in_window", lambda: True)
     with db_module.SessionLocal() as db:
         enrichment.queue_bulk(db, [item_id], ["captions"], None)
     assert enrichment.pump_pending() == 1

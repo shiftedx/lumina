@@ -38,6 +38,17 @@ def isolated_app_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app_data.mkdir()
     test_safety.check_root_isolation(app_data)
     monkeypatch.setattr(settings, "data_dir", app_data)
+    monkeypatch.setattr(settings, "playback_temp_dir", None)
+    monkeypatch.setattr(settings, "background_backfill_start_hour", None)
+    monkeypatch.setattr(settings, "background_backfill_end_hour", None)
+
+    from app.services.background_work import background_work
+
+    monkeypatch.setattr(background_work, "_active", 0)
+    monkeypatch.setattr(background_work, "_last_activity", float("-inf"))
+    monkeypatch.setattr(background_work, "_processes", {})
+    monkeypatch.setattr(background_work, "_interactive", set())
+    monkeypatch.setattr(background_work, "closed", False)
 
     from app.services import model_supervisor
 

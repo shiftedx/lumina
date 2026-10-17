@@ -10,7 +10,9 @@ describe('retired parts', () => {
     expect(grep('\\b(TitleCard|SearchBar|GlobalSearch)\\b')).toEqual([]);
   });
   it('the old card, its menu and the dead library surface are gone', () => {
-    expect(grep('\\b(MediaCard|LibraryCard|RecommendationControls|LibrarySurface|BrowseSurfaces|Shelf)\\b')).toEqual([]);
+    expect(grep('\\b(MediaCard|LibraryCard|RecommendationControls|LibrarySurface|BrowseSurfaces)\\b')).toEqual([]);
+    // Books uses shelf labels; the retired Shelf component must stay gone.
+    expect(grep('import.*\\bShelf\\b|<Shelf([[:space:]/>])')).toEqual([]);
     expect(grep('\\.(media-card|library-card|recommendation-controls|title-card|reco-menu-list|reco-undo)\\b')).toEqual([]);
   });
   it('the retired class families are gone', () => {

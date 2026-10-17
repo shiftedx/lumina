@@ -5,15 +5,16 @@ import { describe, expect, it, vi } from 'vitest';
 import { MobileTabs, navGroups, NavigationPopover } from './Navigation';
 
 describe('NavigationPopover', () => {
-  it('groups Watch and Vault, without Music or the profile', () => {
+  it('groups Watch and Vault, with Books separate from Library, Music and the profile', () => {
     expect(navGroups.map((group) => [group.label, group.items.map((item) => item.label)])).toEqual([
-      ['Watch', ['Home', 'Library', 'Streaming', 'Requests']],
+      ['Watch', ['Home', 'Library', 'Books', 'Streaming', 'Requests']],
       ['Vault', ['Downloads', 'My Settings']],
     ]);
     render(<NavigationPopover activeDownloads={2} onClose={vi.fn()} onNavigate={vi.fn()} open surface="library" />);
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     expect(within(nav).queryByRole('button', { name: /Music/ })).toBeNull();
     expect(within(nav).getByRole('button', { name: 'Library' }).getAttribute('aria-current')).toBe('page');
+    expect(within(nav).getByRole('button', { name: 'Books' })).toBeTruthy();
     expect(within(nav).getByRole('button', { name: 'Downloads, 2 active' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /settings$/ })).toBeNull();
   });

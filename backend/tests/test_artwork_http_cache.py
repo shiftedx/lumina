@@ -1,3 +1,6 @@
+import logging
+
+import pytest
 from starlette.requests import Request
 
 from app.main import _library_artwork_response, _remote_artwork_response
@@ -39,6 +42,88 @@ def test_remote_artwork_is_private_browser_cacheable_and_revalidates() -> None:
         b"cached-thumbnail",
     )
     assert wildcard.status_code == 304
+
+
+@pytest.mark.parametrize("upstream_status", [404, 410])
+def test_remote_provider_not_found_is_a_permanent_404(api_client, monkeypatch, upstream_status: int) -> None:  # noqa: ANN001
+    import app.main as main_module
+    from app.models import User
+    from app.services.artwork import ArtworkService, RemoteArtworkResponse
+    from app.services.network_policy import PublicSourcePolicy
+    from test_artwork import resolver_for
+
+    fetches = 0
+
+    class MissingFetcher:
+        def fetch(self, url, *, validate_redirect):  # noqa: ANN001
+            nonlocal fetches
+            validate_redirect(url)
+            fetches += 1
+            return RemoteArtworkResponse(content_type="text/html", body=[b"missing"], status_code=upstream_status)
+
+    service = ArtworkService(
+        remote_fetcher=MissingFetcher(),
+        public_source_policy=PublicSourcePolicy(resolver=resolver_for({"images.example": ["93.184.216.34"]})),
+        token_factory=lambda: "missing-artwork",
+    )
+    service.register_remote_artwork("https://images.example/missing.jpg")
+    monkeypatch.setattr(main_module, "artwork", service)
+    member = User(id="member-1", username="alice", display_name="Alice", role="viewer", is_active=True)
+
+    response = api_client(user=member, base_url="http://localhost").get("/api/artwork/remote/missing-artwork")
+
+    assert (response.status_code, response.json()) == (404, {"detail": "Artwork not found"})
+    assert fetches == 1
+
+
+def test_transient_remote_500_is_retryable_and_stale_artwork_stays_available(api_client, monkeypatch, caplog) -> None:  # noqa: ANN001
+    import app.main as main_module
+    from app.models import User
+    from app.services.artwork import ArtworkService, RemoteArtworkResponse
+    from app.services.network_policy import PublicSourcePolicy
+    from test_artwork import resolver_for
+
+    now = [100.0]
+    fetches = {"cold": 0, "stale": 0}
+
+    class StatusFetcher:
+        def fetch(self, url, *, validate_redirect):  # noqa: ANN001
+            validate_redirect(url)
+            kind = "cold" if "/cold" in url else "stale"
+            fetches[kind] += 1
+            if kind == "stale" and fetches[kind] == 1:
+                return RemoteArtworkResponse(content_type="image/jpeg", body=[b"cached-image"])
+            return RemoteArtworkResponse(content_type="text/plain", body=[b"secret-upstream-body"], status_code=500)
+
+    tokens = iter(["cold-artwork", "stale-artwork"])
+    secret_marker = "private-provider-token"
+    service = ArtworkService(
+        remote_fetcher=StatusFetcher(),
+        public_source_policy=PublicSourcePolicy(resolver=resolver_for({"images.example": ["93.184.216.34"]})),
+        token_factory=lambda: next(tokens),
+        clock=lambda: now[0],
+        cache_ttl_seconds=10,
+        stale_if_error_seconds=30,
+    )
+    service.register_remote_artwork(f"https://images.example/cold.jpg?token={secret_marker}")
+    service.register_remote_artwork(f"https://images.example/stale.jpg?token={secret_marker}")
+    monkeypatch.setattr(main_module, "artwork", service)
+    member = User(id="member-1", username="alice", display_name="Alice", role="viewer", is_active=True)
+    client = api_client(user=member, base_url="http://localhost")
+
+    with caplog.at_level(logging.WARNING, logger="lumina.artwork"):
+        cold = [client.get("/api/artwork/remote/cold-artwork") for _ in range(2)]
+        assert client.get("/api/artwork/remote/stale-artwork").status_code == 200
+        now[0] += 11
+        stale = client.get("/api/artwork/remote/stale-artwork")
+
+    assert [response.status_code for response in cold] == [502, 502]
+    assert (stale.status_code, stale.content) == (200, b"cached-image")
+    assert fetches == {"cold": 2, "stale": 2}
+    records = [record.getMessage() for record in caplog.records if record.name == "lumina.artwork"]
+    assert records == ["remote_fetch.failed code=upstream_http upstream_status=500 exception=none"] * 3
+    assert secret_marker not in caplog.text
+    assert "secret-upstream-body" not in caplog.text
 
 
 def test_library_artwork_is_stored_but_revalidates_authorization_on_every_reuse() -> None:

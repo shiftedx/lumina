@@ -146,6 +146,14 @@ export interface TimedChatAuthor {
   badges: string[];
 }
 
+export interface TimedChatEmote {
+  /** Unicode code-point offsets into the event's fallback text; end is exclusive. */
+  start: number;
+  end: number;
+  label: string;
+  artwork_url: string;
+}
+
 export interface TimedChatEvent {
   id: string;
   offset_ms: number | null;
@@ -154,6 +162,7 @@ export interface TimedChatEvent {
   author?: TimedChatAuthor | null;
   moderation: TimedChatModeration;
   amount?: string | null;
+  emotes?: TimedChatEmote[];
   /** Origin channel display name for a relayed (Twitch shared-chat) message. */
   source_channel?: string | null;
 }
@@ -413,6 +422,8 @@ export interface ChannelCandidate {
   source: string;
   source_label: string;
   artwork_url: string | null;
+  preview_artwork_url?: string | null;
+  preview_title?: string | null;
   category_keys: string[];
   following: boolean;
 }
@@ -1015,6 +1026,8 @@ export interface UserProfile {
   role: UserRole;
   is_active: boolean;
   onboarding_status?: OnboardingStatus;
+  /** Only the first vault owner is guided through connecting media after account creation. */
+  vault_setup_pending?: boolean;
   has_local_password?: boolean;
   two_factor_enabled?: boolean;
   /** Vault owner, the household requires two-step for owners, and they have not enrolled: admin calls answer 403 two_factor_setup_required. */

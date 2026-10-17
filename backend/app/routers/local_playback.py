@@ -21,7 +21,7 @@ from app.services.library import LibraryService
 from app.services.local_playback_sessions import ConversionError, PlaybackSession, SessionCapError, SupersededError, sessions
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService, loudness_gain_db, media_tool
-from app.services.media_response import MediaFileResponse
+from app.services.media_response import MediaFileResponse, pinned_media_file_response
 from app.services.playback_decision import RUNGS, ClientCaps, Limits, caps_from_browser_profiles, decide
 from app.services.playback_log import log_playback
 from app.services.probe_warming import probe_warming
@@ -206,14 +206,23 @@ def get_playback_session_file(session_id: str, name: str, current_user: User = D
         sessions.stop(session_id)  # access was revoked since the session started
         raise HTTPException(status_code=404, detail="Playback session not found")
     screen_time.enforce(db, current_user)
-    path = sessions.file(session, name)
-    if path is None:
-        raise HTTPException(status_code=404, detail="Playback segment not found")
     if name.endswith(".m3u8"):  # read whole: ffmpeg renames a new one over it, so a stat then open could mix two files
+        path = sessions.file(session, name)
+        if path is None:
+            raise HTTPException(status_code=404, detail="Playback segment not found")
         return Response(path.read_bytes(), media_type="application/vnd.apple.mpegurl", headers={"Cache-Control": "no-store"})
     if name == "init.mp4":  # small, and a restart may rewrite it: read it whole, never stat-then-open
+        path = sessions.file(session, name)
+        if path is None:
+            raise HTTPException(status_code=404, detail="Playback segment not found")
         return Response(path.read_bytes(), media_type="video/mp4", headers={"Cache-Control": "no-store"})
-    return MediaFileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
+    response = pinned_media_file_response(
+        lambda: sessions.file(session, name), session.seek_lock,
+        media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"},
+    )
+    if response is None:
+        raise HTTPException(status_code=404, detail="Playback segment not found")
+    return response
 
 
 def stop_playback_session(session_id: str, current_user: User = Depends(get_current_user)) -> None:

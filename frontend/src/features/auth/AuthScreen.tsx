@@ -35,7 +35,7 @@ export interface AuthScreenProps {
 const COPY = {
   loading: { kicker: undefined, title: 'Opening your vault', lede: undefined },
   login: { kicker: 'Sign in', title: 'Welcome home', lede: 'Sign in with your Lumina account.' },
-  setup: { kicker: 'First-run setup', title: 'Make Lumina yours', lede: 'Create the first household account. Technical setup can wait until you are inside.' },
+  setup: { kicker: 'Your household vault', title: 'Make Lumina yours', lede: 'Create your owner account. Next, we’ll help you connect your media and make your Home yours.' },
   invite: { kicker: 'Your invitation', title: 'Step inside the vault.', lede: 'Create your account, then make your Home yours. Your watch history stays private to you.' },
   reset: { kicker: 'Password reset', title: 'Choose a new password', lede: 'Choose a new password, then sign in with it.' },
 } as const;

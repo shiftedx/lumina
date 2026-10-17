@@ -16,6 +16,25 @@ def _action(n: int) -> dict:
     }}}}
 
 
+def test_live_chat_returns_native_emoji_instead_of_provider_shortcuts(monkeypatch) -> None:
+    action = _action(1)
+    action["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]["message"] = {
+        "runs": [
+            {"text": "Nice "},
+            {"emoji": {"emojiId": "❤️", "shortcuts": [":heart:"], "isCustomEmoji": False}},
+            {"text": " "},
+            {"emoji": {"emojiId": "👩🏽‍💻", "shortcuts": [":technologist:"], "isCustomEmoji": False}},
+        ],
+    }
+    fetcher = FakeFetcher()
+    monkeypatch.setattr(fetcher, "fetch_page", lambda *args, **kwargs: LiveChatPage([action], "next"))
+    viewer = LiveChatViewer(fetcher)
+
+    result = viewer.read("source", "member")
+
+    assert result["events"][0]["text"] == "Nice ❤️ 👩🏽‍💻"
+
+
 class FakeFetcher:
     def __init__(self, pages: list[list[int]] | None = None, available: bool = True) -> None:
         self.pages = pages or []
@@ -108,3 +127,17 @@ def test_fetcher_reads_the_popout_page_and_posts_the_continuation(monkeypatch) -
 def test_the_live_chat_route_needs_a_signed_in_member() -> None:
     client = TestClient(app, base_url="http://localhost")
     assert client.get("/api/live-chat", params={"source_url": "https://www.youtube.com/watch?v=IIMr8iqlF4M"}).status_code == 401
+
+
+def test_live_custom_emotes_use_opaque_artwork_addresses(monkeypatch) -> None:
+    action = _action(1)
+    action["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]["message"] = {"runs": [
+        {"emoji": {"isCustomEmoji": True, "emojiId": "custom-id", "shortcuts": [":party:"],
+                   "image": {"thumbnails": [{"url": "https://images.example.com/emote.png", "width": 32}]}}},
+    ]}
+    fetcher = FakeFetcher()
+    monkeypatch.setattr(fetcher, "fetch_page", lambda *args, **kwargs: LiveChatPage([action], "next"))
+    viewer = LiveChatViewer(fetcher, artwork_url_resolver=lambda url: "/api/artwork/remote/opaque")
+    result = viewer.read("source", "member")
+    assert result["events"][0]["emotes"] == [{"start": 0, "end": 7, "label": ":party:", "artwork_url": "/api/artwork/remote/opaque"}]
+    assert "images.example.com" not in json.dumps(result)

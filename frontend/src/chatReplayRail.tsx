@@ -11,7 +11,7 @@ import {
   type ChatEventFilter,
 } from './chatReplay';
 import { capturedChatIdentity, type CapturedChatIdentityInput } from './playbackModel';
-import type { ChatReplayAsset, TimedChatEvent, TimedChatEventKind } from './types';
+import type { ChatReplayAsset, TimedChatEmote, TimedChatEvent, TimedChatEventKind } from './types';
 
 /**
  * Synchronized, searchable replay chat rail. It is a deliberate member action:
@@ -22,6 +22,8 @@ import type { ChatReplayAsset, TimedChatEvent, TimedChatEventKind } from './type
 
 const MAX_FOLLOW_EVENTS = 200;
 const MAX_BROWSE_RESULTS = 300;
+const MAX_EVENT_EMOTES = 32;
+const EMOTE_ARTWORK_URL = /^\/api\/artwork\/(?:emotes|remote)\/[A-Za-z0-9_-]+$/;
 
 const KIND_FILTERS: { value: TimedChatEventKind | 'all'; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -322,9 +324,77 @@ export function ChatEventRow({
           ))}
           {event.amount ? <span className="chat-amount">{event.amount}</span> : null}
         </span>
-        <span className="chat-event-text">{visibleEventText(event)}</span>
+        <span className="chat-event-text"><ChatEventText event={event} /></span>
       </div>
     </li>
+  );
+}
+
+function validEventEmotes(event: TimedChatEvent, codePoints: string[]): TimedChatEmote[] {
+  if (event.moderation !== 'visible' || !Array.isArray(event.emotes) || event.emotes.length > MAX_EVENT_EMOTES) return [];
+  const emotes: TimedChatEmote[] = [];
+  for (const value of event.emotes as unknown[]) {
+    if (!value || typeof value !== 'object') return [];
+    const emote = value as Record<string, unknown>;
+    if (
+      typeof emote.start !== 'number' || typeof emote.end !== 'number'
+      || !Number.isInteger(emote.start) || !Number.isInteger(emote.end)
+      || emote.start < 0 || emote.end <= emote.start || emote.end > codePoints.length
+      || typeof emote.label !== 'string' || typeof emote.artwork_url !== 'string'
+      || !emote.label || Array.from(emote.label).length > 128
+      || emote.label !== codePoints.slice(emote.start, emote.end).join('')
+      || !EMOTE_ARTWORK_URL.test(emote.artwork_url)
+    ) return [];
+    emotes.push({
+      start: emote.start,
+      end: emote.end,
+      label: emote.label,
+      artwork_url: emote.artwork_url,
+    });
+  }
+  emotes.sort((left, right) => left.start - right.start || left.end - right.end);
+  let previousEnd = 0;
+  for (const emote of emotes) {
+    if (emote.start < previousEnd) return [];
+    previousEnd = emote.end;
+  }
+  return emotes;
+}
+
+function ChatEventText({ event }: { event: TimedChatEvent }) {
+  if (event.moderation !== 'visible') return visibleEventText(event);
+  const codePoints = Array.from(event.text);
+  const emotes = validEventEmotes(event, codePoints);
+  if (!emotes.length) return event.text;
+  const content: React.ReactNode[] = [];
+  let cursor = 0;
+  for (const emote of emotes) {
+    if (emote.start > cursor) content.push(codePoints.slice(cursor, emote.start).join(''));
+    content.push(
+      <ChatEmoteImage
+        emote={emote}
+        fallback={codePoints.slice(emote.start, emote.end).join('')}
+        key={`${emote.start}:${emote.end}:${emote.artwork_url}`}
+      />,
+    );
+    cursor = emote.end;
+  }
+  if (cursor < codePoints.length) content.push(codePoints.slice(cursor).join(''));
+  return content;
+}
+
+function ChatEmoteImage({ emote, fallback }: { emote: TimedChatEmote; fallback: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return fallback;
+  return (
+    <img
+      alt={emote.label}
+      className="chat-emote"
+      decoding="async"
+      loading="lazy"
+      onError={() => setFailed(true)}
+      src={emote.artwork_url}
+    />
   );
 }
 

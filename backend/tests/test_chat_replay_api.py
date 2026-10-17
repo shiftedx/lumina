@@ -265,3 +265,25 @@ def test_youtube_identity_with_twitch_url_never_invokes_a_provider_replay_downlo
     body = response.json()
     assert body["status"] == "unavailable"
     assert body["events"] == []
+
+
+def test_custom_emote_sources_stay_private_on_replay_post_and_get(harness) -> None:
+    client, _active, monkeypatch = harness
+    class EmoteArtwork:
+        def new_resolver(self):
+            return lambda url: "/api/artwork/emotes/opaque"
+    monkeypatch.setattr(main, "chat_emote_artwork", EmoteArtwork())
+    _stub_fetch(monkeypatch, ReplayChatFetch(status="available", lines=[_line(
+        1000, "emoji", "Ada", "unused", message={"runs": [
+            {"text": "❤️ "},
+            {"emoji": {"isCustomEmoji": True, "emojiId": "custom-id", "shortcuts": [":party:"],
+                       "image": {"thumbnails": [{"url": "https://images.example.com/emote.png", "width": 32}]}}},
+        ]},
+    )]))
+    loaded = client.post(ENDPOINT, json={"source_url": SOURCE_URL})
+    assert loaded.status_code == 200
+    for response in [loaded, client.get(ENDPOINT)]:
+        event = response.json()["events"][0]
+        assert event["text"] == "❤️ :party:"
+        assert event["emotes"] == [{"start": 3, "end": 10, "label": ":party:", "artwork_url": "/api/artwork/emotes/opaque"}]
+        assert "images.example.com" not in response.text

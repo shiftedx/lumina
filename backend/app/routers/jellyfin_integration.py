@@ -33,7 +33,7 @@ from app.services.library import LibraryService
 from app.services.local_playback_sessions import ConversionError, master_playlist, sessions, with_api_key
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService, loudness_gain_db, media_tool
-from app.services.media_response import MediaFileResponse
+from app.services.media_response import MediaFileResponse, pinned_media_file_response
 from app.services.media_segments import jellyfin_segments, segments_for
 from app.services.media_titles import jellyfin_id, parse_item_id, synthetic_id
 from app.services.transcripts import TranscriptService
@@ -150,24 +150,41 @@ def hls_file(
         if ffmpeg is None:
             raise HTTPException(status_code=503, detail="ffmpeg is not available on this server.")
         try:
-            path = rendition_file(session, name, ffmpeg)
+            if name.endswith("init.mp4"):
+                path = rendition_file(session, name, ffmpeg)
+                response = None
+            else:
+                path = None
+                response = pinned_media_file_response(
+                    lambda: rendition_file(session, name, ffmpeg), session.seek_lock,
+                    media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"},
+                )
         except ConversionError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
-        if path is None:
-            raise HTTPException(status_code=404, detail="Playback segment not found")
         if name.endswith("init.mp4"):
+            if path is None:
+                raise HTTPException(status_code=404, detail="Playback segment not found")
             return Response(path.read_bytes(), media_type="video/mp4", headers={"Cache-Control": "no-store"})
-        return MediaFileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
+        if response is None:
+            raise HTTPException(status_code=404, detail="Playback segment not found")
+        return response
     if name == "index.m3u8" and session.plan is not None:  # the whole file's timeline, not ffmpeg's growing list
         return Response(session.plan.playlist(caller.token), media_type=MPEGURL, headers={"Cache-Control": "no-store"})
-    path = sessions.segment(session, name)  # D: FILE_NAME allowlist, highest-segment record and throttling; seeks start runs
-    if path is None:
-        raise HTTPException(status_code=404, detail="Playback segment not found")
+    if name in {"index.m3u8", "init.mp4"}:
+        path = sessions.segment(session, name)  # D: FILE_NAME allowlist, highest-segment record and throttling; seeks start runs
+        if path is None:
+            raise HTTPException(status_code=404, detail="Playback segment not found")
     if name == "index.m3u8":
         return Response(with_api_key(path.read_text(encoding="utf-8"), caller.token), media_type=MPEGURL, headers={"Cache-Control": "no-store"})
     if name == "init.mp4":  # a seek's run rewrites it in place: read it whole, never stat-then-open (pp-encode's playlist race)
         return Response(path.read_bytes(), media_type="video/mp4", headers={"Cache-Control": "no-store"})
-    return MediaFileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
+    response = pinned_media_file_response(
+        lambda: sessions.segment(session, name), session.seek_lock,
+        media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"},
+    )
+    if response is None:
+        raise HTTPException(status_code=404, detail="Playback segment not found")
+    return response
 
 
 def stop_active_encodings(playsessionid: str = "", caller: JellyfinCaller = Depends(jellyfin_caller)) -> Response:

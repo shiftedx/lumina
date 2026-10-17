@@ -30,6 +30,7 @@ from app.security import DEVICE_TOKEN_IDLE_DAYS, MAX_BEARER_LENGTH, resolve_devi
 from app.services.rate_limit import grant_address
 from app.services.local_playback_sessions import sessions
 from app.services import member_access, two_factor
+from app.services.background_work import background_work
 from app.services.media_titles import parse_item_id
 from app.services.yt_dlp_service import YtDlpService
 
@@ -372,8 +373,10 @@ def jellyfin_stream_user(request: Request, item_id: str, db: Session, media_sour
         if resolved is None:
             raise HTTPException(status_code=401, detail="Authentication required")
         record, user = resolved
+        snapshot = _jellyfin_snapshot(db, request, record, user, presented, loaded_access=result.access, access_was_loaded=True)
+        background_work.begin_request(request.scope)
         return StreamCaller(
-            _jellyfin_snapshot(db, request, record, user, presented, loaded_access=result.access, access_was_loaded=True),
+            snapshot,
             resolution=result,
         )
 
@@ -396,7 +399,9 @@ def jellyfin_stream_user(request: Request, item_id: str, db: Session, media_sour
     if resolved is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     record, user = resolved
-    return StreamCaller(_jellyfin_snapshot(db, request, record, user, presented))
+    snapshot = _jellyfin_snapshot(db, request, record, user, presented)
+    background_work.begin_request(request.scope)
+    return StreamCaller(snapshot)
 
 
 def jellyfin_user(
@@ -415,4 +420,6 @@ def jellyfin_user(
     if resolved is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     record, user = resolved
-    return _jellyfin_snapshot(db, request, record, user, presented)
+    snapshot = _jellyfin_snapshot(db, request, record, user, presented)
+    background_work.begin_request(request.scope)
+    return snapshot

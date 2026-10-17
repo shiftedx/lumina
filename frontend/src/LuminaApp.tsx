@@ -23,6 +23,7 @@ import { buildAcquisitionFormatSelection, useMediaAcquisition } from './mediaAcq
 import { useSubscriptionAcquisitionFeed } from './subscriptionFeed';
 import { applyTheme } from './theme';
 import { type AppRoute, type RequestsRoute, type StreamingProvider, type StreamingView, type ChannelPageTab, type EditorTab, libraryBackRoute, parseRoute, routeFocusKey, routePath, type SettingsSectionId, type Surface } from './app/routes';
+import { type BooksRoute } from './features/books/routes';
 import { AppShell } from './app/AppShell';
 import { onCommand, openMemberPicker, PALETTE_EVENT, type PaletteMode, type PaletteRequest } from './app/commands';
 import type { PaletteContext } from './features/palette/actions';
@@ -54,6 +55,7 @@ import { cancelSpeculativeStart, claimSpeculativeStart, forgetPlaybackWarmup, pr
 import { AuthScreen, readAccountLink } from './features/auth/AuthScreen';
 import { resetDeviceRing, ringCall } from './features/auth/deviceRing';
 import { MemberPickerHost } from './features/auth/memberPicker';
+import { completeAdminMediaSetup } from './api';
 
 // Heavy, non-landing surfaces load on first use so the player stack (hls.js,
 // dash.js) and settings/onboarding code stay out of the initial bundle.
@@ -73,8 +75,10 @@ const SettingsSurface = preloadableSurface(() => import('./features/settings/Set
 const WelcomeSurface = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.WelcomeSurface })));
 const OnboardingSurface = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.OnboardingSurface })));
 const ChannelDiscoveryStep = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.ChannelDiscoveryStep })));
+const VaultSetup = lazy(() => import('./features/onboarding/VaultSetup').then((module) => ({ default: module.VaultSetup })));
 const TitleEditorPage = preloadableSurface(() => import('./features/titles/editor/EditorPage').then((module) => module.EditorPage));
 const RequestsSurface = preloadableSurface(() => import('./features/requests/RequestsSurface').then((module) => module.RequestsSurface));
+const BooksSurface = preloadableSurface(() => import('./features/books/BooksSurface').then((module) => module.BooksSurface));
 const TitleDetailPage = preloadableSurface(() => import('./features/gallery/GalleryTitlePage').then((module) => module.GalleryTitlePage));
 /** After the landing surface settles: the next likely surfaces, so opening one never shows the Suspense fallback. */
 /** Toasts a shell error. With `clear` the error is cleared once toasted so identical text toasts again; without it the error stays (inline surfaces keep reading it) and `identity` marks a new occurrence. */
@@ -223,6 +227,7 @@ export default function LuminaApp() {
   const [settingsPage, setSettingsPage] = useState<string | null>(initialRoute.surface === 'settings' && 'page' in initialRoute ? initialRoute.page ?? null : null);
   const [settingsMember, setSettingsMember] = useState<string | null>(initialRoute.surface === 'settings' && 'memberId' in initialRoute ? initialRoute.memberId : null);
   const [requestsRoute, setRequestsRoute] = useState<RequestsRoute>(initialRoute.surface === 'requests' ? initialRoute : { surface: 'requests', view: 'discover' });
+  const [booksRoute, setBooksRoute] = useState<BooksRoute>(initialRoute.surface === 'books' ? initialRoute : { surface: 'books', view: 'overview' });
   const [pendingRequests, setPendingRequests] = useState(0);
   const [requestsQueueGeneration, setRequestsQueueGeneration] = useState(0);
   const [libraryLocation, setLibraryLocation] = useState<LibraryLocation>(() => libraryLocationOf(initialRoute));
@@ -242,13 +247,18 @@ export default function LuminaApp() {
   const [liveDiscovery, setLiveDiscovery] = useState<LiveSnapshot | null>(null);
   const [liveDiscoveryError, setLiveDiscoveryError] = useState<string | null>(null);
   const [memberInterests, setMemberInterests] = useState<MemberInterests | null>(null);
+  const [memberInterestsLoading, setMemberInterestsLoading] = useState(true);
+  const [memberInterestsError, setMemberInterestsError] = useState<string | null>(null);
+  const memberInterestsRequestRef = useRef(0);
   const [homeRecommendations, setHomeRecommendations] = useState<MemberRecommendationSnapshot | null>(null);
   const [homeRecommendationsError, setHomeRecommendationsError] = useState<string | null>(null);
   const [homeRecommendationsLoading, setHomeRecommendationsLoading] = useState(false);
   const [suppressions, setSuppressions] = useState<SuppressionList>({ items: [], channels: [] });
   const [recoEpoch, setRecoEpoch] = useState(0);
-  const [onboarding, setOnboarding] = useState<{ phase: 'welcome' | 'setup' | 'discover' | 'preparing'; keys: string[] } | null>(null);
+  const [onboarding, setOnboarding] = useState<{ phase: 'welcome' | 'setup' | 'discover' | 'preparing'; keys: string[] | null } | null>(null);
+  const [onboardingPicks, setOnboardingPicks] = useState<ChannelCandidate[]>([]);
   const [channelSuggestions, setChannelSuggestions] = useState<CategoryChannelSuggestions[]>([]);
+  const channelSuggestionsRequestRef = useRef(0);
   const [channelSuggestionsLoading, setChannelSuggestionsLoading] = useState(false);
   const [channelSuggestionsError, setChannelSuggestionsError] = useState<string | null>(null);
   const [onboardingError, setOnboardingError] = useState<string | null>(null);
@@ -402,9 +412,12 @@ export default function LuminaApp() {
   const returnToSignIn = useStableCallback(() => { void handleLogout(); });
   const saveMemberInterests = useCallback(async (keys: string[]) => {
     const token = workspace.captureSessionToken();
+    ++memberInterestsRequestRef.current;
     const updated = await updateMemberInterests(keys);
     if (!workspace.isSessionTokenCurrent(token)) return;
     setMemberInterests(updated);
+    setMemberInterestsLoading(false);
+    setMemberInterestsError(null);
     setHomeRecommendations(null);
     setHomeRecommendationsError(null);
     reportMessage(updated.selected_keys.length ? 'Your Home interests were saved.' : 'Your Home interests were cleared.');
@@ -493,7 +506,8 @@ export default function LuminaApp() {
   }, [message, toast]);
   // The auth screens render `error` inline (role=alert), and Watch reads the acquisition failure inline, so neither is cleared by toasting.
   useShellErrorToast(state.authStage === 'ready' ? error : null, () => setError(null));
-  useShellErrorToast(acquisition.state.failure?.message ?? null, undefined, acquisition.state.failure);
+  const inlineSourceHandoff = surface === 'watch' && acquisition.state.failure?.phase === 'preview' && acquisition.state.failure.category === 'unsupported';
+  useShellErrorToast(inlineSourceHandoff ? null : acquisition.state.failure?.message ?? null, undefined, acquisition.state.failure);
   const offlineToasted = useRef<number | null>(null);
   useEffect(() => {
     if (state.jobsState === 'offline') {
@@ -545,23 +559,40 @@ export default function LuminaApp() {
     }
   }, [state.authStage, state.currentUser?.id]);
 
-  useEffect(() => {
-    if (state.authStage !== 'ready' || !state.currentUser) {
-      setMemberInterests(null);
-      return undefined;
-    }
-    let active = true;
+  const loadMemberInterests = useCallback(async () => {
+    if (state.authStage !== 'ready' || !state.currentUser) return;
     const token = workspace.captureSessionToken();
-    void getMemberInterests().then((interests) => {
-      if (active && workspace.isSessionTokenCurrent(token)) setMemberInterests({
+    const request = ++memberInterestsRequestRef.current;
+    const isCurrent = () => workspace.isSessionTokenCurrent(token) && request === memberInterestsRequestRef.current;
+    setMemberInterestsLoading(true);
+    setMemberInterestsError(null);
+    try {
+      const interests = await getMemberInterests();
+      if (!isCurrent()) return;
+      setMemberInterests({
         categories: Array.isArray(interests.categories) ? interests.categories : [],
         selected_keys: Array.isArray(interests.selected_keys) ? interests.selected_keys : [],
       });
-    }).catch(() => {
-      if (active && workspace.isSessionTokenCurrent(token)) setMemberInterests(null);
-    });
-    return () => { active = false; };
+      setMemberInterestsLoading(false);
+    } catch {
+      if (!isCurrent()) return;
+      setMemberInterests(null);
+      setMemberInterestsLoading(false);
+      setMemberInterestsError('Lumina could not load your interests.');
+    }
   }, [state.authStage, state.currentUser?.id, workspace.captureSessionToken, workspace.isSessionTokenCurrent]);
+
+  useEffect(() => {
+    if (state.authStage !== 'ready' || !state.currentUser) {
+      ++memberInterestsRequestRef.current;
+      setMemberInterests(null);
+      setMemberInterestsLoading(true);
+      setMemberInterestsError(null);
+      return undefined;
+    }
+    void loadMemberInterests();
+    return () => { ++memberInterestsRequestRef.current; };
+  }, [state.authStage, state.currentUser?.id, loadMemberInterests]);
 
   useEffect(() => {
     if (state.authStage !== 'ready' || !state.currentUser) {
@@ -586,7 +617,7 @@ export default function LuminaApp() {
   // until they complete or skip; the durable status closes the gate for good.
   useEffect(() => {
     if (state.authStage === 'ready' && state.currentUser?.onboarding_status === 'pending') {
-      setOnboarding((current) => current ?? { phase: 'welcome', keys: [] });
+      setOnboarding((current) => current ?? { phase: 'welcome', keys: null });
     }
   }, [state.authStage, state.currentUser?.id, state.currentUser?.onboarding_status]);
 
@@ -703,10 +734,14 @@ export default function LuminaApp() {
   /** Everything per-member the next member must not inherit (the workspace, acquisition, refs, surface, search). */
   function resetMemberState() {
     offlineToasted.current = null; toast.clear(); // the leaving member's toasts and their Undo must not reach the next member
+    ++memberInterestsRequestRef.current;
+    setMemberInterests(null); setMemberInterestsLoading(true); setMemberInterestsError(null);
     workspace.reset();
+    setOnboarding(null); setOnboardingPicks([]); setOnboardingError(null);
+    setChannelSuggestions([]); setChannelSuggestionsError(null); setChannelSuggestionsLoading(false);
     acquisition.resetSession();
     playbackMutationRef.current = Promise.resolve();
-    activeLibraryItemIdRef.current = null; setSurface('home'); setLibraryLocation({}); setLibraryWatchItem(null); setActivePlayback(null); closePalette();
+    activeLibraryItemIdRef.current = null; setSurface('home'); setLibraryLocation({}); setBooksRoute({ surface: 'books', view: 'overview' }); setLibraryWatchItem(null); setActivePlayback(null); closePalette();
   }
 
   async function handleLogout() {
@@ -755,7 +790,7 @@ export default function LuminaApp() {
   const leaveSettingsOk = () => confirmLeaveSettings();
   function resetWatch() { playbackLoadRequestRef.current += 1; curationMutationGenerationRef.current += 1; acquisition.reset(); setLibraryWatchItem(null); activeLibraryItemIdRef.current = null; setPlaybackLoading(false); }
   // Leaving Watch keeps the selection: its surface docks as the mini-player.
-  function navigate(next: Surface, confirmed = false) { navigationMarked.current = null; if (!confirmed && !confirmLeaveSettings()) return false; if (surface !== 'watch') setPreviousSurface(surface); if (surface === next) focusSurfaceHeading(); else window.scrollTo({ top: 0 }); setSurface(next); setStreamingView('home'); setStreamingProvider('youtube'); setChannelId(null); setChannelPage(null); setExploreRail(null); setLiveRail(null); setRequestsRoute({ surface: 'requests', view: 'discover' }); if (next !== 'watch') setLibraryLocation({}); closePalette(); setNavigationOpen(false); return true; }
+  function navigate(next: Surface, confirmed = false) { navigationMarked.current = null; if (!confirmed && !confirmLeaveSettings()) return false; if (surface !== 'watch') setPreviousSurface(surface); if (surface === next) focusSurfaceHeading(); else window.scrollTo({ top: 0 }); setSurface(next); setStreamingView('home'); setStreamingProvider('youtube'); setChannelId(null); setChannelPage(null); setExploreRail(null); setLiveRail(null); setRequestsRoute({ surface: 'requests', view: 'discover' }); if (next === 'books') setBooksRoute({ surface: 'books', view: 'overview' }); if (next !== 'watch') setLibraryLocation({}); closePalette(); setNavigationOpen(false); return true; }
   // Watch's Back returns where the member came from, including the title page and season.
   function leaveWatch() { const back = previousSurface === 'watch' ? 'home' : previousSurface; const location = libraryLocation; const page = channelPage; const view = streamingView; const provider = streamingProvider; navigate(back); if (back === 'streaming') { setStreamingView(view); setStreamingProvider(provider); } if (back === 'library') setLibraryLocation(location); if (back === 'subscriptions') setChannelPage(page); }
 
@@ -770,6 +805,7 @@ export default function LuminaApp() {
       }
       if (route.view === 'home') { setExploreQuery(''); setExploreResults(NO_EXPLORE_RESULTS); }
     }
+    if (route.surface === 'books' && surface === 'books') { setBooksRoute(route); return; }
     // Switching tabs inside the open editor keeps the draft: no unsaved-changes prompt.
     if (route.surface === 'library' && 'edit' in route && route.edit && surface === 'library' && libraryLocation.edit && libraryLocation.titleId === route.titleId) { setLibraryLocation(libraryLocationOf(route)); return; }
     if (route.surface !== 'watch') {
@@ -784,6 +820,7 @@ export default function LuminaApp() {
       }
       if (route.surface === 'library') setLibraryLocation(libraryLocationOf(route));
       if (route.surface === 'requests') setRequestsRoute(route);
+      if (route.surface === 'books') setBooksRoute(route);
       return;
     }
     if ('url' in route) { if (watchSelection?.kind === 'remote' && watchSelection.item.webpage_url === route.url) navigate('watch'); else void openRemote({ title: 'Loading video…', webpage_url: route.url }); return; }
@@ -816,6 +853,7 @@ export default function LuminaApp() {
   const openRouteStable = useStableCallback(openRoute);
   // In-tab Requests moves: no heading refocus; `replace` (search typing, chip changes) keeps one history entry.
   const requestsRouteStable = useStableCallback((route: RequestsRoute, replace?: boolean) => { if (replace) replaceHistoryRef.current = true; setRequestsRoute(route); });
+  const booksRouteStable = useStableCallback((route: BooksRoute, replace?: boolean) => { if (replace) replaceHistoryRef.current = true; setBooksRoute(route); });
   const requestsQueueChangedStable = useStableCallback(() => setRequestsQueueGeneration((value) => value + 1));
   // The admin's Requests badge: how many requests wait for a decision, every 30 s while signed in as an admin.
   usePolledSnapshot(state.currentUser?.role === 'admin' ? `requests-pending:${state.currentUser.id}:${requestsQueueGeneration}` : null, workspace, (isCurrent) => listRequests({ scope: 'all', status: 'pending' }).then((page) => {
@@ -968,6 +1006,7 @@ export default function LuminaApp() {
       : watchSelection?.item.webpage_url ? { surface: 'watch', url: watchSelection.item.webpage_url }
         : null
     : surface === 'library' ? libraryRoute
+      : surface === 'books' ? booksRoute
       : surface === 'streaming' ? streamingRoute
         : surface === 'settings' ? (settingsSection === 'members' && settingsMember ? { surface, section: 'members', memberId: settingsMember, ...(settingsSpace ? { space: settingsSpace } : {}) } : { surface, ...(settingsSection ? { section: settingsSection } : {}), ...(settingsPage ? { page: settingsPage } : {}), ...(settingsSpace ? { space: settingsSpace } : {}) })
         : surface === 'requests' ? requestsRoute
@@ -1000,10 +1039,30 @@ export default function LuminaApp() {
     syncedPathRef.current = currentPath;
   }, [currentPath]);
 
+  async function handleAdminMediaComplete() {
+    const token = workspace.captureSessionToken();
+    setOnboardingError(null);
+    try {
+      const user = await completeAdminMediaSetup();
+      if (!workspace.isSessionTokenCurrent(token)) return;
+      workspace.dispatch({ type: 'currentUser/replace', user });
+      setOnboarding(user.onboarding_status === 'pending' ? { phase: 'welcome', keys: null } : null);
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      void workspace.refreshLibraryCollection();
+    } catch (saveError) {
+      if (workspace.isSessionTokenCurrent(token)) setOnboardingError(saveError instanceof Error ? saveError.message : 'We could not save your media setup. Please try again.');
+      throw saveError;
+    }
+  }
+
   function revealHomeAfterOnboarding(status: OnboardingStatus, selectedKeys: string[]) {
+    ++memberInterestsRequestRef.current;
     if (state.currentUser) workspace.dispatch({ type: 'currentUser/replace', user: { ...state.currentUser, onboarding_status: status } });
     setMemberInterests((current) => ({ categories: current?.categories ?? [], selected_keys: selectedKeys }));
+    setMemberInterestsLoading(false);
+    setMemberInterestsError(null);
     setOnboarding(null);
+    setOnboardingPicks([]);
     setOnboardingError(null);
     setSurface('home');
     focusSurfaceHeading();
@@ -1011,16 +1070,18 @@ export default function LuminaApp() {
 
   async function loadChannelSuggestions(keys: string[]) {
     const token = workspace.captureSessionToken();
+    const request = ++channelSuggestionsRequestRef.current;
+    const isCurrent = () => workspace.isSessionTokenCurrent(token) && request === channelSuggestionsRequestRef.current;
     setChannelSuggestionsError(null);
-    if (!keys.length) { setChannelSuggestions([]); setChannelSuggestionsLoading(false); return; }
+    setChannelSuggestions([]);
     setChannelSuggestionsLoading(true);
     try {
-      const response = await getChannelSuggestions(keys);
-      if (workspace.isSessionTokenCurrent(token)) setChannelSuggestions(response.categories);
+      const response = await getChannelSuggestions(keys.length ? keys : ['music', 'documentaries', 'science-technology']);
+      if (isCurrent()) setChannelSuggestions(response.categories);
     } catch {
-      if (workspace.isSessionTokenCurrent(token)) { setChannelSuggestions([]); setChannelSuggestionsError('suggestions-unavailable'); }
+      if (isCurrent()) { setChannelSuggestions([]); setChannelSuggestionsError('suggestions-unavailable'); }
     } finally {
-      if (workspace.isSessionTokenCurrent(token)) setChannelSuggestionsLoading(false);
+      if (isCurrent()) setChannelSuggestionsLoading(false);
     }
   }
 
@@ -1028,11 +1089,13 @@ export default function LuminaApp() {
     // Setup advances to channel discovery; interests are held and saved together
     // with the follows when the member completes the discovery step.
     setOnboardingError(null);
+    window.scrollTo({ top: 0, behavior: 'instant' });
     setOnboarding({ phase: 'discover', keys });
     void loadChannelSuggestions(keys);
   }
 
   function handleDiscoveryBack(keys: string[]) {
+    window.scrollTo({ top: 0, behavior: 'instant' });
     setOnboarding({ phase: 'setup', keys });
   }
 
@@ -1324,13 +1387,14 @@ export default function LuminaApp() {
   if (accountLink) return <>{collectionAnnouncer}<AuthScreen busy={authBusy} error={error} onCancel={() => { setAccountLink(null); setError(null); }} onLogin={handleLogin} onRetrySession={handleRetrySession} onSetup={handleAccountLink} onSwitched={() => void handleSwitched()} sessionProblem={null} stage={accountLink.kind} /></>;
   if (state.authStage !== 'ready' || !state.currentUser) return <>{collectionAnnouncer}<AuthScreen busy={authBusy} error={error} onLogin={handleLogin} onRetrySession={handleRetrySession} onSetup={handleSetup} onSwitched={() => void handleSwitched()} sessionProblem={state.sessionProblem} stage={state.authStage === 'ready' ? 'loading' : state.authStage} twoFactor={twoFactor} /></>;
 
-  if (onboarding?.phase === 'welcome') return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><WelcomeSurface displayName={state.currentUser.display_name || state.currentUser.username} error={onboardingError} onBegin={() => setOnboarding({ phase: 'setup', keys: onboarding.keys })} onSkip={handleOnboardingSkip} reducedMotion={prefersReducedMotion} /></Suspense></>;
+  if (state.currentUser.role === 'admin' && state.currentUser.vault_setup_pending) return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><VaultSetup error={onboardingError} key={state.currentUser.id} onContinue={handleAdminMediaComplete} /></Suspense></>;
+  if (onboarding?.phase === 'welcome') return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><WelcomeSurface displayName={state.currentUser.display_name || state.currentUser.username} error={onboardingError} onBegin={() => { window.scrollTo({ top: 0, behavior: 'instant' }); setOnboarding({ phase: 'setup', keys: onboarding.keys }); }} onSkip={handleOnboardingSkip} reducedMotion={prefersReducedMotion} /></Suspense></>;
 
   if (onboarding?.phase === 'discover') {
     const followedIdentities = new Set(channelAutomations.map((channel) => normalizeChannelAddress(channel.source_url)).filter((value): value is string => Boolean(value)));
-    return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><ChannelDiscoveryStep error={onboardingError} onBack={() => handleDiscoveryBack(onboarding.keys)} onContinue={(follows) => void handleOnboardingComplete(onboarding.keys, follows)} onRetry={() => void loadChannelSuggestions(onboarding.keys)} onResolveAddress={(value) => resolveChannelAddressCandidate(value, followedIdentities)} onSearch={handleChannelSearch} reducedMotion={prefersReducedMotion} suggestions={channelSuggestions} suggestionsError={channelSuggestionsError} suggestionsLoading={channelSuggestionsLoading} /></Suspense></>;
+    return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><ChannelDiscoveryStep initialSelected={onboardingPicks} onSelectionChange={setOnboardingPicks} error={onboardingError} onBack={() => handleDiscoveryBack(onboarding.keys ?? [])} onContinue={(follows) => void handleOnboardingComplete(onboarding.keys ?? [], follows)} onRetry={() => void loadChannelSuggestions(onboarding.keys ?? [])} onResolveAddress={(value) => resolveChannelAddressCandidate(value, followedIdentities)} onSearch={handleChannelSearch} reducedMotion={prefersReducedMotion} suggestions={channelSuggestions} suggestionsError={channelSuggestionsError} suggestionsLoading={channelSuggestionsLoading} /></Suspense></>;
   }
-  if (onboarding) return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><OnboardingSurface busy={onboarding.phase === 'preparing'} categories={memberInterests?.categories ?? []} error={onboardingError} initialSelectedKeys={onboarding.keys.length ? onboarding.keys : memberInterests?.selected_keys ?? []} onContinue={handleInterestsContinue} onSkip={handleOnboardingSkip} phase={onboarding.phase} reducedMotion={prefersReducedMotion} /></Suspense></>;
+  if (onboarding) return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><OnboardingSurface key={memberInterests ? 'interests-ready' : 'interests-loading'} busy={onboarding.phase === 'preparing'} categories={memberInterests?.categories ?? []} error={onboardingError} initialSelectedKeys={onboarding.keys ?? memberInterests?.selected_keys ?? []} interestsError={memberInterestsError} interestsLoading={memberInterestsLoading} onContinue={handleInterestsContinue} onRetryInterests={() => void loadMemberInterests()} onSkip={handleOnboardingSkip} phase={onboarding.phase} previewChannels={onboardingPicks} reducedMotion={prefersReducedMotion} /></Suspense></>;
 
   const curationItem = watchSelection?.kind === 'library' ? watchSelection.item : null;
   const curationDataMatchesItem = Boolean(curationItem && curationDataItemId === curationItem.id);
@@ -1412,6 +1476,7 @@ export default function LuminaApp() {
           ? <TitleDetailPage backLabel={titleBackLabel()} id={libraryLocation.titleId} key={libraryLocation.titleId} onBack={titleBackStable} onEdit={(titleId) => paletteNavigate(`/title/${encodeURIComponent(titleId)}/edit`)} onOpenTitle={openTitleStable} onPlay={openLibraryIdStable} onSearch={runExploreStable} onSeason={(season) => setLibraryLocation((current) => ({ ...current, season }))} season={libraryLocation.season ?? null} user={state.currentUser} />
           : <LibraryBrowser collections={householdCollections} collectionsPage={collectionsPage} currentUser={state.currentUser} onItemChanged={libraryItemChangedStable} onOpenTitle={openTitleStable} onPlay={openLibraryStable} onPlayAt={(libraryId, startSeconds) => openRoute({ surface: 'watch', libraryId, startSeconds })} onViewChange={openPlaceStable} onWallChange={(wall) => setLibraryLocation((current) => (wall ? { view: current.view, wall } : { view: current.view }))} view={libraryLocation.collections ? 'collections' : libraryLocation.view ?? 'all'} wall={libraryLocation.wall} />)
             : surface === 'downloads' ? <DownloadsSurface hasMoreJobs={state.jobsNextCursor !== null} jobs={state.jobs} loadingMoreJobs={state.jobsLoadingMore} loadMoreJobsError={state.jobsLoadMoreError} loadState={state.jobsState} onCancel={handleCancelStable} onClear={handleClear} onLoadMoreJobs={loadMoreJobsStable} onOpenItem={openLibraryIdStable} onRetry={handleRetryStable} onRetryLoad={retryJobs} onSignIn={returnToSignIn} playlistActivity={playlistActivity} recordingActivity={<LiveRecordingActivity key={`recordings:${state.currentUser.id}`} onOpenItem={openLibraryIdStable} session={workspace} />} problem={state.jobsProblem} retryingLoad={state.jobsRetrying} />
+              : surface === 'books' ? <BooksSurface onRoute={booksRouteStable} route={booksRoute} user={state.currentUser} />
               : surface === 'requests' ? <RequestsSurface key={state.currentUser.id} onOpenRoute={openRouteStable} onQueueChanged={requestsQueueChangedStable} onRoute={requestsRouteStable} route={requestsRoute} session={workspace} user={state.currentUser} />
               : surface === 'settings' ? <SettingsSurface acquisitionDefaults={acquisitionDefaultsSettings} advanced={state.preferences.settingsAdvanced} onAdvancedChange={(settingsAdvanced) => workspace.dispatch({ type: 'preferences/patch', patch: { settingsAdvanced } })} captions={state.preferences.captions} onCaptionsChange={(captions) => workspace.dispatch({ type: 'preferences/patch', patch: { captions } })} autoplayUpNext={state.preferences.autoplayUpNext} onAutoplayUpNextChange={(autoplayUpNext) => workspace.dispatch({ type: 'preferences/patch', patch: { autoplayUpNext } })} playbackMaxHeight={state.preferences.playbackMaxHeight} onPlaybackMaxHeightChange={(playbackMaxHeight) => workspace.dispatch({ type: 'preferences/patch', patch: { playbackMaxHeight } })} onClearSearchHistory={clearSearchHistoryStable} onUpdateDisplayName={updateDisplayNameStable} searchHistory={searchHistory} onThemeChange={(theme) => workspace.dispatch({ type: 'preferences/patch', patch: { theme } })} theme={state.preferences.theme} formatPreset={acquisition.state.format} interests={memberInterests} onFormatChange={acquisition.chooseFormat} onLogout={handleLogout} playbackPrefs={playbackPrefs} onPlaybackPrefsChange={patchPlaybackPrefsStable} onRemotePlaybackCacheChange={handleRemotePlaybackCacheChange} onRestoreSuppression={restoreSuppressionStable} onSaveInterests={saveMemberInterests} remotePlaybackCache={state.userSettings?.remote_playback_cache || undefined} key={state.currentUser.id} onMessage={reportMessage} onLocation={(location) => { setSettingsSection(location.section); setSettingsPage(location.page); setSettingsSpace(location.space); }} space={settingsSpace} page={settingsPage} onSection={setSettingsSection} section={settingsSection} member={settingsMember} onMember={setSettingsMember} suppressions={suppressions} user={state.currentUser} />
                 : watchSelection ? null : surfaceLoading;
@@ -1430,6 +1495,7 @@ export default function LuminaApp() {
       activity={{ state: state.jobsState, retrying: state.jobsRetrying, active: activeDownloads }}
       announcer={collectionAnnouncer}
       compact={isCompact}
+      focused={surface === 'books' && booksRoute.view === 'read'}
       extraSkipLinks={watchSelection && surface !== 'watch' ? <a className="g-skip-link" href="#mini-player" onClick={() => document.getElementById('mini-player')?.focus()}>Skip to mini player</a> : null}
       mainRef={appMainRef}
       menuButtonRef={navigationTriggerRef}

@@ -22,7 +22,7 @@ def client(api_client):  # noqa: ANN001, ANN201
 def test_no_middleware_is_base_http_and_the_order_is_unchanged() -> None:
     assert BaseHTTPMiddleware not in {middleware.cls for middleware in app.user_middleware}
     assert [middleware.cls.__name__ for middleware in app.user_middleware] == [
-        "SecurityHeadersMiddleware", "FailedRequestLogMiddleware", "OriginCheckMiddleware", "JellyfinPathMiddleware",
+        "SecurityHeadersMiddleware", "AuthenticatedActivityMiddleware", "FailedRequestLogMiddleware", "OriginCheckMiddleware", "JellyfinPathMiddleware",
         "ResponseCompressionMiddleware", "RequestBodyLimitMiddleware", "CORSMiddleware", "SecureCookieMiddleware",
         "DynamicTrustedHostMiddleware",
     ]

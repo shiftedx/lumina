@@ -8,19 +8,20 @@ household-authored and never grants Library access).
 
 The normalized shape here is provider-neutral so later providers (e.g. Twitch)
 can populate the same events, but only the YouTube replay path is implemented.
-Everything the normalizer emits is safe to cross the public API: it retains no
-continuation tokens, request headers, cookies, author photo URLs, or other
-upstream addresses — only display text, safe author presentation, media
-offsets, event kind, and moderation state.
+Public serialization retains no continuation tokens, request headers, cookies,
+author photo URLs, or other upstream addresses. Custom-emote source images are
+kept only in storage metadata and must be mapped to Lumina artwork URLs before
+they can cross the public API.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
+from urllib.parse import urlsplit
 
 
 # Kinds are provider-neutral. A later provider maps its native item types onto
@@ -43,6 +44,11 @@ OUTCOME_EMPTY = "empty"
 OUTCOME_PARTIAL = "partial"
 OUTCOME_OVERSIZED = "oversized"
 OUTCOME_MALFORMED = "malformed"
+
+_MAX_EMOTES = 32
+_MAX_EMOTE_LABEL_CHARS = 128
+_MAX_EMOTE_IMAGE_URL_CHARS = 2048
+_PUBLIC_ARTWORK_URL = re.compile(r"/api/artwork/(?:emotes|remote)/[A-Za-z0-9_-]{1,256}")
 
 
 @dataclass(frozen=True)
@@ -73,6 +79,16 @@ class TimedChatAuthor:
 
 
 @dataclass(frozen=True)
+class TimedChatEmote:
+    """One custom emote span and its private provider image source."""
+
+    start: int
+    end: int
+    label: str
+    image_url: str
+
+
+@dataclass(frozen=True)
 class TimedChatEvent:
     """One normalized timed chat event with stable identity and a media offset.
 
@@ -92,8 +108,9 @@ class TimedChatEvent:
     # from another channel's chat (Twitch shared chat). ``None`` for an ordinary
     # message that originated in the channel being watched.
     source_channel: str | None = None
+    emotes: tuple[TimedChatEmote, ...] = ()
 
-    def to_public_dict(self) -> dict[str, Any]:
+    def _base_dict(self) -> dict[str, Any]:
         author = None
         if self.author is not None:
             author = {
@@ -111,6 +128,74 @@ class TimedChatEvent:
             "amount": self.amount,
             "source_channel": self.source_channel,
         }
+
+    def to_storage_dict(self) -> dict[str, Any]:
+        stored = self._base_dict()
+        emotes = _valid_event_emotes(self)
+        if emotes:
+            stored["emotes"] = [
+                {"start": emote.start, "end": emote.end, "label": emote.label, "image_url": emote.image_url}
+                for emote in emotes
+            ]
+        return stored
+
+    def to_public_dict(
+        self,
+        artwork_url_resolver: Callable[[str], str | None] | None = None,
+    ) -> dict[str, Any]:
+        public = self._base_dict()
+        if artwork_url_resolver is None:
+            return public
+        mapped: list[dict[str, Any]] = []
+        for emote in _valid_event_emotes(self):
+            try:
+                artwork_url = artwork_url_resolver(emote.image_url)
+            except Exception:
+                continue
+            if not isinstance(artwork_url, str) or _PUBLIC_ARTWORK_URL.fullmatch(artwork_url) is None:
+                continue
+            mapped.append({
+                "start": emote.start,
+                "end": emote.end,
+                "label": emote.label,
+                "artwork_url": artwork_url,
+            })
+        if mapped:
+            public["emotes"] = mapped
+        return public
+
+
+def _valid_event_emotes(event: TimedChatEvent) -> tuple[TimedChatEmote, ...]:
+    if event.moderation != MODERATION_VISIBLE:
+        return ()
+    valid: list[TimedChatEmote] = []
+    prior_end = 0
+    for emote in event.emotes[:_MAX_EMOTES]:
+        if not isinstance(emote, TimedChatEmote):
+            continue
+        if type(emote.start) is not int or type(emote.end) is not int:
+            continue
+        if not 0 <= emote.start < emote.end <= len(event.text) or emote.start < prior_end:
+            continue
+        if not isinstance(emote.label, str) or not 0 < len(emote.label) <= _MAX_EMOTE_LABEL_CHARS:
+            continue
+        if event.text[emote.start : emote.end] != emote.label or not _bounded_https_url(emote.image_url):
+            continue
+        valid.append(emote)
+        prior_end = emote.end
+    return tuple(valid)
+
+
+def _bounded_https_url(value: Any) -> bool:
+    if not isinstance(value, str) or not value or len(value) > _MAX_EMOTE_IMAGE_URL_CHARS:
+        return False
+    if any(character.isspace() or ord(character) < 32 for character in value):
+        return False
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and parsed.hostname is not None and parsed.username is None and parsed.password is None
 
 
 @dataclass(frozen=True)
@@ -346,14 +431,16 @@ def _handle_add(state: _BuildState, add: Mapping[str, Any], offset_ms: int | Non
 
     channel_id = _clean_channel(renderer.get("authorExternalChannelId"))
     author = _author(renderer, channel_id, state.budget)
+    text, emotes = _display_content(renderer, state.budget)
     event = TimedChatEvent(
         id=event_id,
         offset_ms=offset_ms,
         kind=_MESSAGE_RENDERERS[renderer_key],
-        text=_display_text(renderer, state.budget),
+        text=text,
         author=author,
         moderation=MODERATION_VISIBLE,
         amount=_amount(renderer, state.budget),
+        emotes=emotes,
     )
     admit_event(state, event)
 
@@ -428,7 +515,7 @@ def _handle_author_removed(state: _BuildState, removed: Mapping[str, Any]) -> No
 
 
 def _redact_event(event: TimedChatEvent, moderation: str) -> TimedChatEvent:
-    return replace(event, moderation=moderation, text="")
+    return replace(event, moderation=moderation, text="", emotes=())
 
 
 def _outcome(state: _BuildState, events: tuple[TimedChatEvent, ...]) -> str:
@@ -516,17 +603,105 @@ def _badge_kind(renderer: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _display_text(renderer: Mapping[str, Any], budget: TimedChatBudget) -> str:
-    text = _runs_to_text(renderer.get("message"))
+def _display_content(renderer: Mapping[str, Any], budget: TimedChatBudget) -> tuple[str, tuple[TimedChatEmote, ...]]:
+    text, emotes = _runs_content(renderer.get("message"), budget.max_text_chars)
+    if text:
+        return text, emotes
+    # Membership joins and some system events carry their text in a header.
+    text, _ = _runs_content(renderer.get("headerSubtext"), budget.max_text_chars)
     if not text:
-        # Membership joins and some system events carry their text in a header.
-        text = _runs_to_text(renderer.get("headerSubtext")) or _runs_to_text(renderer.get("headerPrimaryText"))
-    return text[: budget.max_text_chars]
+        text, _ = _runs_content(renderer.get("headerPrimaryText"), budget.max_text_chars)
+    return text, ()
 
 
 # Chat is untrusted text: drop C0/C1 controls (newlines included — a chat line
 # is one line) and bidi overrides that could visually spoof neighbouring text.
 _UNSAFE_CHARS = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+_KEYCAP_EMOJI = re.compile(r"[#*0-9]\ufe0f?\u20e3")
+_EMOJI_BASES = frozenset({
+    0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122, 0x2139, 0x2328, 0x23CF, 0x24C2,
+    0x2B50, 0x2B55, 0x3030, 0x303D, 0x3297, 0x3299,
+})
+_EMOJI_BASE_RANGES = (
+    (0x2194, 0x2199), (0x21A9, 0x21AA), (0x231A, 0x231B), (0x23E9, 0x23F3),
+    (0x23F8, 0x23FA), (0x25AA, 0x25AB), (0x25B6, 0x25B6), (0x25C0, 0x25C0),
+    (0x25FB, 0x25FE), (0x2600, 0x26FF), (0x2700, 0x27BF), (0x2934, 0x2935),
+    (0x2B05, 0x2B07), (0x2B1B, 0x2B1C), (0x1F000, 0x1FAFF),
+)
+
+
+def _runs_content(node: Any, max_text_chars: int) -> tuple[str, tuple[TimedChatEmote, ...]]:
+    if not isinstance(node, Mapping):
+        return "", ()
+    if isinstance(node.get("simpleText"), str):
+        return _UNSAFE_CHARS.sub("", node["simpleText"])[:max_text_chars], ()
+    runs = node.get("runs")
+    if not isinstance(runs, list):
+        return "", ()
+    parts: list[str] = []
+    emotes: list[TimedChatEmote] = []
+    length = 0
+    for run in runs:
+        if not isinstance(run, Mapping):
+            continue
+        emoji: Mapping[str, Any] | None = None
+        image_url: str | None = None
+        if isinstance(run.get("text"), str):
+            piece = run["text"]
+        elif isinstance(run.get("emoji"), Mapping):
+            emoji = run["emoji"]
+            if emoji.get("isCustomEmoji") is True:
+                image_url = _custom_emote_image_url(emoji)
+            shortcut = _emoji_shortcut(emoji)
+            piece = _custom_emote_label(emoji, shortcut) if image_url is not None else shortcut or ""
+        else:
+            continue
+        piece = _UNSAFE_CHARS.sub("", piece)
+        start = length
+        parts.append(piece)
+        length += len(piece)
+        if (
+            emoji is not None
+            and image_url is not None
+            and len(emotes) < _MAX_EMOTES
+            and piece
+        ):
+            emotes.append(TimedChatEmote(start=start, end=length, label=piece, image_url=image_url))
+    text = "".join(parts)[:max_text_chars]
+    return text, tuple(emote for emote in emotes if emote.end <= len(text))
+
+
+def _custom_emote_image_url(emoji: Mapping[str, Any]) -> str | None:
+    image = emoji.get("image")
+    thumbnails = image.get("thumbnails") if isinstance(image, Mapping) else None
+    if not isinstance(thumbnails, list):
+        return None
+    candidates: list[tuple[tuple[int, int, int], str]] = []
+    for index, thumbnail in enumerate(thumbnails):
+        if not isinstance(thumbnail, Mapping):
+            continue
+        url = thumbnail.get("url")
+        if not _bounded_https_url(url):
+            continue
+        width, height = thumbnail.get("width"), thumbnail.get("height")
+        if type(width) is int and type(height) is int and width > 0 and height > 0:
+            score = (0, width * height, index)
+        else:
+            score = (1, index, 0)
+        candidates.append((score, url))
+    return min(candidates, key=lambda candidate: candidate[0])[1] if candidates else None
+
+
+def _custom_emote_label(emoji: Mapping[str, Any], shortcut: str | None) -> str:
+    safe_shortcut = _UNSAFE_CHARS.sub("", shortcut or "")
+    if safe_shortcut:
+        return safe_shortcut[:_MAX_EMOTE_LABEL_CHARS]
+    image = emoji.get("image")
+    accessibility = image.get("accessibility") if isinstance(image, Mapping) else None
+    data = accessibility.get("accessibilityData") if isinstance(accessibility, Mapping) else None
+    label = data.get("label") if isinstance(data, Mapping) else None
+    safe_label = _UNSAFE_CHARS.sub("", label) if isinstance(label, str) else ""
+    return safe_label[:_MAX_EMOTE_LABEL_CHARS] or "[emote]"
 
 
 def _runs_to_text(node: Any) -> str:
@@ -555,15 +730,31 @@ def _raw_runs_text(node: Any) -> str:
     return ""
 
 
+def _unicode_emoji_id(value: Any) -> str | None:
+    if not isinstance(value, str) or not value or len(value) > 32:
+        return None
+    if _KEYCAP_EMOJI.fullmatch(value):
+        return value
+    has_base = False
+    for character in value:
+        codepoint = ord(character)
+        if codepoint in {0x200D, 0xFE0E, 0xFE0F} or 0x1F3FB <= codepoint <= 0x1F3FF or 0xE0020 <= codepoint <= 0xE007F:
+            continue
+        if codepoint in _EMOJI_BASES or any(start <= codepoint <= end for start, end in _EMOJI_BASE_RANGES):
+            has_base = True
+            continue
+        return None
+    return value if has_base else None
+
+
 def _emoji_shortcut(emoji: Mapping[str, Any]) -> str | None:
+    if not emoji.get("isCustomEmoji") and (emoji_id := _unicode_emoji_id(emoji.get("emojiId"))):
+        return emoji_id
     shortcuts = emoji.get("shortcuts")
     if isinstance(shortcuts, list):
         for shortcut in shortcuts:
             if isinstance(shortcut, str) and shortcut:
                 return shortcut
-    emoji_id = emoji.get("emojiId")
-    if isinstance(emoji_id, str) and emoji_id and not emoji.get("isCustomEmoji"):
-        return emoji_id
     return None
 
 

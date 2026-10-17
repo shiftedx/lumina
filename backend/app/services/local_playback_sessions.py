@@ -4,6 +4,7 @@ Each session is an opaque id owning one ffmpeg child and one disposable director
 """
 from __future__ import annotations
 
+import bisect
 import contextlib
 import functools
 import logging
@@ -44,6 +45,7 @@ MANIFEST_POLL_SECONDS = 0.025
 SEGMENTS_LISTED = 3
 FILE_NAME = re.compile(r"^(index\.m3u8|init\.mp4|seg\d{1,6}\.m4s)$")
 SEGMENT = re.compile(r"^seg(\d{1,6})\.m4s$")
+BUFFER_SEGMENT = re.compile(r"^(?:audio-|video-)?seg(\d{1,6})\.m4s$")
 OTHER_SESSIONS = 16  # remux/audio-only copies; max_playback_sessions caps video encodes
 # A seekable (Jellyfin) session starts a new ffmpeg run when a segment is requested this far past the one in progress:
 # Jellyfin's 24 s for encodes; copies run far faster than real time, so they wait longer.
@@ -51,6 +53,7 @@ RUN_GAP_SEGMENTS = 6
 RUN_GAP_COPY_SEGMENTS = 30
 THROTTLE_AHEAD_SECONDS = 120
 RESUME_AHEAD_SECONDS = 60
+RETAIN_BEHIND_SECONDS = 60
 ACTIVE_SECONDS = 30  # a session read this recently is never evicted for space
 LOG_LIMIT_BYTES = 64 * 1024  # Ffmpeg.log stays under 64 KB
 BUSY = "Every playback conversion slot is busy. Try again shortly."
@@ -121,7 +124,7 @@ on_session_end: Callable[[PlaybackSession], None] | None = None
 
 
 def session_root() -> Path:
-    return settings.data_dir / "playback-sessions"
+    return (settings.playback_temp_dir or settings.data_dir) / "playback-sessions"
 
 
 HW_DECODE = frozenset({"h264", "hevc", "av1", "vp9", "mpeg2video", "vc1"})
@@ -299,10 +302,15 @@ def _first_pts(ffprobe: str, directory: Path, fallback: float) -> float:
 
 def _tree_bytes(path: Path) -> int:
     total = 0
+    seen: set[tuple[int, int]] = set()
     for folder, _dirs, files in os.walk(path):
         for name in files:
             with contextlib.suppress(OSError):
-                total += os.lstat(os.path.join(folder, name)).st_size
+                stat = os.lstat(os.path.join(folder, name))
+                inode = (stat.st_dev, stat.st_ino)
+                if inode not in seen:
+                    seen.add(inode)
+                    total += stat.st_size
     return total
 
 
@@ -370,8 +378,12 @@ class LocalPlaybackSessions:
             others = [s for s in self._sessions.values() if s not in stale]
             if sum(s.kind.startswith("video") == encode for s in others) >= (cap if encode else OTHER_SESSIONS):
                 raise SessionCapError(BUSY)
-            session_root().mkdir(parents=True, exist_ok=True)
-            if min_free_bytes and shutil.disk_usage(session_root()).free < min_free_bytes:
+            root = session_root()
+            root.mkdir(parents=True, exist_ok=True)
+            free = shutil.disk_usage(root).free
+            if settings.playback_temp_dir is not None and free == 0:
+                raise SessionCapError("The server is low on temporary storage, so playback conversion is paused.")
+            if settings.playback_temp_dir is None and min_free_bytes and free < min_free_bytes:
                 raise SessionCapError("The server is low on disk space, so playback conversion is paused.")
             for old in stale:
                 self._sessions.pop(old.id)
@@ -512,6 +524,8 @@ class LocalPlaybackSessions:
         run, plan = session.run, session.plan
         if session.process.poll() is not None or index < run.index or index >= plan.run_end(run):
             return True
+        if 0 <= session.max_requested < len(plan.starts) and plan.starts[index] + plan.durations[index] < plan.starts[session.max_requested] - RETAIN_BEHIND_SECONDS:
+            return True  # pruned history is already behind a running encoder; it cannot write it again
         gap = RUN_GAP_SEGMENTS if session.kind.startswith("video") else RUN_GAP_COPY_SEGMENTS
         return index - gap > run.index and not (session.directory / f"seg{index - gap}.m4s").is_file()
 
@@ -521,8 +535,8 @@ class LocalPlaybackSessions:
             if self._sessions.get(session.id) is not session:
                 return
         _terminate(session.process)
-        for stale in session.directory.glob("seg*.m4s"):  # a run's files after its start are its own; older runs' are kept
-            if (match := SEGMENT.fullmatch(stale.name)) and int(match[1]) >= run.index:
+        for stale in session.directory.glob("*seg*.m4s"):  # split renditions must be invalidated with their source
+            if (match := BUFFER_SEGMENT.fullmatch(stale.name)) and int(match[1]) >= run.index:
                 with contextlib.suppress(OSError):
                     stale.unlink()
         run = replace(run, init="init-restart.mp4")
@@ -537,14 +551,46 @@ class LocalPlaybackSessions:
         """Pause ffmpeg > 120 s ahead of the player, resume under 60 s. ffmpeg renames segN into place only when complete."""
         if session.process.poll() is not None:
             return
-        ahead = session.directory / f"seg{session.max_requested + THROTTLE_AHEAD_SECONDS // SEGMENT_SECONDS}.m4s"
-        near = session.directory / f"seg{session.max_requested + RESUME_AHEAD_SECONDS // SEGMENT_SECONDS}.m4s"
-        if not session.throttled and ahead.exists():
+
+        def buffered(seconds: int) -> bool:
+            if session.plan is not None:
+                starts = session.plan.starts
+                current = min(max(0, session.max_requested, session.run.index if session.run else 0), len(starts) - 1)
+                index = bisect.bisect_left(starts, starts[current] + seconds)
+                if index >= len(starts):
+                    return False
+            else:
+                index = session.max_requested + seconds // SEGMENT_SECONDS
+            return (session.directory / f"seg{index}.m4s").exists()
+
+        if not session.throttled and buffered(THROTTLE_AHEAD_SECONDS):
             _signal(session.process, signal.SIGSTOP)
             session.throttled = True
-        elif session.throttled and not near.exists():
+        elif session.throttled and not buffered(RESUME_AHEAD_SECONDS):
             _signal(session.process, signal.SIGCONT)
             session.throttled = False
+
+    def maintain_buffers(self) -> None:
+        """Frequent producer checks, independent of slower library maintenance and client requests."""
+        for session in self.live():
+            if not session.seek_lock.acquire(blocking=False):
+                continue  # a seek or rendition copy owns these files
+            try:
+                self._throttle(session)
+                plan = session.plan
+                if plan is None or not 0 <= session.max_requested < len(plan.starts):
+                    continue  # growing web playlists still advertise their entire history
+                cutoff = plan.starts[session.max_requested] - RETAIN_BEHIND_SECONDS
+                for path in session.directory.glob("*seg*.m4s"):
+                    match = BUFFER_SEGMENT.fullmatch(path.name)
+                    if match is None:
+                        continue
+                    index = int(match[1])
+                    if index < len(plan.starts) and plan.starts[index] + plan.durations[index] < cutoff:
+                        with contextlib.suppress(OSError):
+                            path.unlink()
+            finally:
+                session.seek_lock.release()
 
     def stop(self, session_id: str, user_id: str | None = None) -> bool:
         with self._lock:
@@ -632,7 +678,8 @@ class LocalPlaybackSessions:
             self._sessions.clear()
         for session in sessions:
             _terminate(session.process)
-        shutil.rmtree(session_root(), ignore_errors=True)
+        for root in {session_root(), settings.data_dir / "playback-sessions"}:
+            shutil.rmtree(root, ignore_errors=True)  # includes disk derivatives left before a RAM-storage upgrade
 
     @staticmethod
     def _dispose(session: PlaybackSession) -> None:

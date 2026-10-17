@@ -19,13 +19,23 @@ from threading import Event, Lock, Thread
 from time import monotonic
 
 from app.services.live_chat_seam import LiveChatBootstrap, LiveChatPage
-from app.services.timed_chat import EVENT_KIND_MESSAGE, EVENT_KIND_PAID_MESSAGE, EVENT_KIND_SYSTEM, TimedChatAuthor, TimedChatEvent
+from app.services.timed_chat import (
+    EVENT_KIND_MESSAGE,
+    EVENT_KIND_PAID_MESSAGE,
+    EVENT_KIND_SYSTEM,
+    TimedChatAuthor,
+    TimedChatEmote,
+    TimedChatEvent,
+)
 
 IRC_HOST = "irc.chat.twitch.tv"
 IRC_PORT = 6697
 _CHANNEL = re.compile(r"^https?://(?:www\.|m\.)?twitch\.tv/([A-Za-z0-9_]{3,25})/?(?:[?#].*)?$")
 _NOT_CHANNELS = {"videos", "directory", "settings", "p", "downloads", "jobs", "search", "subscriptions", "inventory", "wallet"}
 _BADGES = {"broadcaster": "owner", "moderator": "moderator", "subscriber": "member", "founder": "member", "vip": "vip", "partner": "verified"}
+_EMOTE_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+_MAX_EMOTE_LABEL_CHARS = 128
+_UNSAFE_CHARS = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
 _BUFFER = 500
 _UNREAD_SECONDS = 120.0  # a reader nobody drains for this long disconnects itself (viewer gone, recording ended)
 
@@ -68,12 +78,63 @@ def parse_irc_line(line: str) -> TimedChatEvent | None:
     if command == "USERNOTICE":
         notice = tags.get("system-msg", "").strip()
         body = f"{notice} {text}".strip() if text else notice
-        return TimedChatEvent(id=f"twitch:{message_id}", offset_ms=None, kind=EVENT_KIND_SYSTEM, text=body[:500], author=author)
+        return TimedChatEvent(
+            id=f"twitch:{message_id}", offset_ms=None, kind=EVENT_KIND_SYSTEM,
+            text=_UNSAFE_CHARS.sub("", body)[:500], author=author,
+        )
     bits = tags.get("bits")
     kind = EVENT_KIND_PAID_MESSAGE if bits else EVENT_KIND_MESSAGE
     if text.startswith("\x01ACTION ") and text.endswith("\x01"):
         text = text[8:-1]
-    return TimedChatEvent(id=f"twitch:{message_id}", offset_ms=None, kind=kind, text=text[:500], author=author, amount=f"{bits} Bits" if bits else None)
+    display_text = _UNSAFE_CHARS.sub("", text)[:500]
+    return TimedChatEvent(
+        id=f"twitch:{message_id}", offset_ms=None, kind=kind, text=display_text,
+        author=author, amount=f"{bits} Bits" if bits else None,
+        emotes=_emotes(tags.get("emotes"), text, display_text),
+    )
+
+
+def _emotes(raw_tag: str | None, raw_text: str, display_text: str) -> tuple[TimedChatEmote, ...]:
+    if not raw_tag:
+        return ()
+    candidates: list[tuple[int, int, str]] = []
+    for group in raw_tag.split("/"):
+        emote_id, separator, raw_ranges = group.partition(":")
+        if not separator or _EMOTE_ID.fullmatch(emote_id) is None:
+            continue
+        for raw_range in raw_ranges.split(","):
+            start_text, dash, end_text = raw_range.partition("-")
+            if not dash:
+                continue
+            try:
+                start, inclusive_end = int(start_text), int(end_text)
+            except ValueError:
+                continue
+            if start < 0 or inclusive_end < start or inclusive_end >= len(raw_text):
+                continue
+            candidates.append((start, inclusive_end + 1, emote_id))
+
+    emotes: list[TimedChatEmote] = []
+    prior_end = 0
+    for source_start, source_end, emote_id in sorted(candidates):
+        label = raw_text[source_start:source_end]
+        safe_label = _UNSAFE_CHARS.sub("", label)
+        if safe_label != label or not 0 < len(label) <= _MAX_EMOTE_LABEL_CHARS:
+            continue
+        start = len(_UNSAFE_CHARS.sub("", raw_text[:source_start]))
+        end = start + len(label)
+        if start < prior_end or end > len(display_text) or display_text[start:end] != label:
+            continue
+        emotes.append(TimedChatEmote(
+            start=start,
+            end=end,
+            label=label,
+            image_url=f"https://static-cdn.jtvnw.net/emoticons/v2/{emote_id}/static/light/1.0",
+        ))
+        prior_end = end
+        if len(emotes) == 32:
+            break
+    return tuple(emotes)
 
 
 class _Reader:

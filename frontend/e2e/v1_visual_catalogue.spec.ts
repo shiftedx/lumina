@@ -230,7 +230,7 @@ const SCREENS: Shot[] = [
   { area: 'onboarding', state: 'channels', open: async (page) => { await onboard(page); await finishInterests(page); await expect(page.getByRole('button', { name: /^Follow Harbor Films/ })).toBeVisible(); } },
   { area: 'onboarding', state: 'preparing', open: async (page) => {
     await onboard(page); await over(page, '**/api/onboarding/complete', () => undefined); // never answers: the preparing screen stays up
-    await finishInterests(page); await press(page, 'Continue'); await expect(page.getByRole('heading', { name: 'Preparing your Home' })).toBeVisible(); await page.waitForTimeout(400); } },
+    await finishInterests(page); await press(page, 'Enter my Home'); await expect(page.getByRole('heading', { name: 'Preparing your Home' })).toBeVisible(); await page.waitForTimeout(400); } },
   { area: 'onboarding', state: 'error', open: async (page) => {
     await onboard(page); await over(page, '**/api/onboarding/skip', { detail: 'down' }, 500); // the Skip failure is the one onboarding error the app renders; a failed finish on step 2 shows none (see the d-int report)
     await press(page, 'Skip for now'); await expect(page.getByText(/could not update your setup/)).toBeVisible(); } },

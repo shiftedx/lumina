@@ -59,6 +59,9 @@
   --g-overlay-halo: #000;
   --g-overlay-hover: color-mix(in srgb, var(--g-overlay-ink) 14%, transparent);
   --g-art-paper: #f4f1ea;   --g-art-chip: rgb(21 19 15 / .86);   --g-scrim: linear-gradient(transparent, rgb(0 0 0 / .72));
+  --g-reader-dark-paper: #1a1814;
+  --g-reader-sepia-paper: #e8ddc7;
+  --g-reader-sepia-ink: #342b1c;
   --g-scrim-top: linear-gradient(rgb(0 0 0 / .6), transparent);
   --g-on-art: var(--g-overlay-ink);
   --g-progress-track: var(--g-overlay-track);

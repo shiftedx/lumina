@@ -486,7 +486,7 @@ export function selectRemoteRendition(streamId: string, renditionId: string, sig
 // keepalive writes (a player's last checkpoint, a stream release) are fire-and-forget for their callers; a member change
 // waits for them so the leaving member's last writes go out under their own cookie.
 const keepaliveWrites = new Set<Promise<unknown>>();
-function trackKeepalive<T>(request: Promise<T>): Promise<T> {
+export function trackKeepalive<T>(request: Promise<T>): Promise<T> {
   keepaliveWrites.add(request);
   void request.catch(() => undefined).finally(() => keepaliveWrites.delete(request));
   return request;
@@ -628,6 +628,8 @@ export interface StorageRuleSet { revision: number; default_root_id: string | nu
 export interface StorageDecision { rule_id: string | null; rule_revision: number; root_id: string; root_label: string; relative_path: string; reason: string; can_admit: boolean }
 
 const STORAGE = '/api/admin/storage';
+export const getAdminMediaSetup = (): Promise<{ mount_parents: string[] }> => requestJson('/api/admin/onboarding/media');
+export const completeAdminMediaSetup = (): Promise<UserProfile> => post('/api/admin/onboarding/media/complete');
 export const listStorageRoots = (): Promise<StorageRootRecord[]> => requestJson(`${STORAGE}/roots`);
 export const createStorageRoot = (payload: { label: string; container_path: string; mode: 'managed' | 'external'; minimum_free_bytes: number }): Promise<StorageRootRecord> => post(`${STORAGE}/roots`, payload);
 export const updateStorageRoot = (id: string, payload: { enabled?: boolean; label?: string; minimum_free_bytes?: number }): Promise<StorageRootRecord> => patch(`${STORAGE}/roots/${enc(id)}`, payload);

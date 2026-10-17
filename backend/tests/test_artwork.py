@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -154,6 +155,52 @@ def test_remote_artwork_closes_rejected_responses() -> None:
         service.load_remote_artwork(artwork_id)
 
     assert closed == [True]
+
+
+@pytest.mark.parametrize(
+    ("outcome", "error", "code", "error_type"),
+    [
+        (TimeoutError("secret-timeout-detail"), ArtworkUnavailableError, "transport_timeout", "TimeoutError"),
+        (OSError("secret-transport-detail"), ArtworkUnavailableError, "transport_error", "Exception"),
+        (ArtworkUnavailableError("secret-transport-detail"), ArtworkUnavailableError, "transport_error", "ArtworkUnavailableError"),
+        (PublicSourcePolicyError(), PublicSourcePolicyError, "policy", "PublicSourcePolicyError"),
+        (
+            RemoteArtworkResponse(content_type="text/html", body=[b"secret-response-body"]),
+            ArtworkContentError,
+            "content_validation",
+            "ArtworkContentError",
+        ),
+    ],
+)
+def test_remote_fetch_failure_telemetry_is_classified_and_content_free(
+    outcome, error, code: str, error_type: str, caplog,  # noqa: ANN001
+) -> None:
+    secret_url = "https://images.example/private.jpg?token=secret-url-marker"
+
+    class FailingFetcher:
+        def fetch(self, url, *, validate_redirect):  # noqa: ANN001
+            validate_redirect(url)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+    service = ArtworkService(
+        remote_fetcher=FailingFetcher(),
+        public_source_policy=PublicSourcePolicy(resolver=resolver_for({"images.example": ["93.184.216.34"]})),
+        token_factory=lambda: "failed-artwork",
+    )
+    artwork_id = service.register_remote_artwork(secret_url)
+
+    with caplog.at_level(logging.WARNING, logger="lumina.artwork"), pytest.raises(error):
+        service.load_remote_artwork(artwork_id)
+
+    records = [record.getMessage() for record in caplog.records if record.name == "lumina.artwork"]
+    assert records == [f"remote_fetch.failed code={code} upstream_status=none exception={error_type}"]
+    assert secret_url not in caplog.text
+    assert "secret-url-marker" not in caplog.text
+    assert "secret-timeout-detail" not in caplog.text
+    assert "secret-transport-detail" not in caplog.text
+    assert "secret-response-body" not in caplog.text
 
 
 def test_public_fetcher_closes_transport_on_open_and_final_url_validation_failures(monkeypatch) -> None:
@@ -345,7 +392,7 @@ def test_remote_artwork_disk_cache_sweeps_expired_entries_on_restart(tmp_path: P
     assert list(cache_root.iterdir()) == []
 
 
-def test_remote_fetches_and_duplicate_waiters_are_bounded() -> None:
+def test_remote_fetches_and_duplicate_waiters_are_bounded(caplog) -> None:  # noqa: ANN001
     entered = threading.Event()
     release = threading.Event()
 
@@ -368,7 +415,7 @@ def test_remote_fetches_and_duplicate_waiters_are_bounded() -> None:
     first_id = service.register_remote_artwork("https://images.example/first.jpg")
     second_id = service.register_remote_artwork("https://images.example/second.jpg")
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with caplog.at_level(logging.WARNING, logger="lumina.artwork"), ThreadPoolExecutor(max_workers=2) as executor:
         first = executor.submit(service.load_remote_artwork, first_id)
         assert entered.wait(timeout=2)
         with pytest.raises(ArtworkCapacityError):
@@ -377,6 +424,9 @@ def test_remote_fetches_and_duplicate_waiters_are_bounded() -> None:
             service.load_remote_artwork(first_id)
         release.set()
         assert first.result(timeout=2).content == b"artwork"
+
+    records = [record.getMessage() for record in caplog.records if record.name == "lumina.artwork"]
+    assert records == ["remote_fetch.failed code=capacity upstream_status=none exception=ArtworkCapacityError"]
 
 
 def test_remote_cache_evicts_lru_entries_without_exposing_provider_urls() -> None:

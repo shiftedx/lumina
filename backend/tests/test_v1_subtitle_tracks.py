@@ -90,6 +90,31 @@ def test_image_tracks_are_listed_as_burn_in_only() -> None:
     assert (track.id, track.format, track.url, track.forced, track.label) == ("i:3", "image", None, True, "ENG · Forced · Burned in")
 
 
+def test_cr_prefix_track_titles_are_clean_display_labels_without_touching_custom_titles() -> None:
+    titles = [
+        ("CR_English", False, False),
+        ("CR_Portuguese(Brazil)", False, False),
+        ("CR_Spanish(Latin_America)", False, False),
+        ("Director_Commentary", True, True),
+        ("CC_English", False, False),
+    ]
+    facts = {"streams": [
+        {
+            "index": index, "type": "subtitle", "codec": "subrip", "language": "eng", "title": title,
+            "forced": forced, "default": False, "hearing_impaired": hearing_impaired,
+        }
+        for index, (title, forced, hearing_impaired) in enumerate(titles)
+    ]}
+
+    assert [track.label for track in list_tracks(facts, LibraryItem(id="i1", metadata_json={}))] == [
+        "English",
+        "Portuguese (Brazil)",
+        "Spanish (Latin America)",
+        "Director_Commentary · Forced · SDH",
+        "CC_English",
+    ]
+
+
 def test_reap_prunes_the_subtitle_cache_oldest_first(monkeypatch: pytest.MonkeyPatch) -> None:
     root = subtitle_tracks.subtitle_cache_root()
     root.mkdir(parents=True)

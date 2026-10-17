@@ -7,6 +7,7 @@ import re
 from urllib.parse import ParseResult, urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, model_validator
 
 
 APP_VERSION = "0.3.2"
@@ -23,6 +24,17 @@ class EnvSettings(BaseSettings):
     database_filename: str = "app.db"
     library_dirname: str = "library"
     temp_dirname: str = "temp"
+    playback_temp_dir: Path | None = None
+    background_backfill_start_hour: int | None = Field(default=None, ge=0, le=23)
+    background_backfill_end_hour: int | None = Field(default=None, ge=0, le=23)
+
+    @model_validator(mode="after")
+    def validate_backfill_window(self) -> EnvSettings:
+        start, end = self.background_backfill_start_hour, self.background_backfill_end_hour
+        if (start is None) != (end is None) or start is not None and start == end:
+            raise ValueError("Backfill hours must be set together and define a nonempty window")
+        return self
+
     archive_filename: str = "archive.txt"
     host: str = "127.0.0.1"
     port: int = 8765

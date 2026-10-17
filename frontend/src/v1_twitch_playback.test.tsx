@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('hls.js', () => import('./test/fakeHls'));
 
 import { RemotePlayer } from './remotePlayer';
+import { watchSurface } from './test/watchSurface';
 import { hlsCalls as hls, resetHlsCalls } from './test/fakeHls';
 import type { RemotePlayback } from './types';
 
@@ -18,6 +19,21 @@ const live: RemotePlayback = {
 };
 
 describe('Twitch playback lifecycle', () => {
+  it('offers a direct Twitch handoff in the player when a protected stream cannot be inspected', () => {
+    const url = 'https://www.twitch.tv/luminafixture';
+    render(watchSurface({
+      selection: { kind: 'remote', item: { id: 'protected', title: 'Twitch live', webpage_url: url }, preview: null },
+      sourceProblem: 'This Twitch broadcast is DRM-protected and must be watched on the Twitch website.',
+    }));
+    const handoff = screen.getByRole('link', { name: 'Watch on Twitch (opens in a new tab)' });
+    expect(handoff.getAttribute('href')).toBe(url);
+    expect(handoff.getAttribute('target')).toBe('_blank');
+    expect(handoff.closest('.player-frame')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Save to library' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Record from now' })).toBeNull();
+    expect(document.querySelector('iframe')).toBeNull();
+  });
+
   it('test_twitch_live_edge_fixture: Live state, no seek or duration, then one refresh reports the end', async () => {
     vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('');
     const ended: RemotePlayback = {

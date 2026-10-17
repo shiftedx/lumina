@@ -21,16 +21,21 @@ REQUEST_TOO_LARGE_MESSAGE = "Request body is too large. The maximum request size
 UPLOAD_ROUTE = re.compile(r"/api/titles/[0-9a-f-]{36}/images/(?:Primary|Backdrop|Logo)/[0-4]|/api/metadata/people/[0-9a-f-]{36}/photo")
 MAX_UPLOAD_BODY_BYTES = 15 * 1024 * 1024
 UPLOAD_TOO_LARGE_MESSAGE = "Request body is too large. The maximum upload size is 15 MiB."
+BOOK_UPLOAD_ROUTE = re.compile(r"/api/books/import")
+MAX_BOOK_UPLOAD_BODY_BYTES = 256 * 1024 * 1024
+BOOK_UPLOAD_TOO_LARGE_MESSAGE = "Book upload is too large. The maximum upload size is 256 MiB."
 # An upload body that stops arriving (or trickles) is cut so it cannot hold a connection and a worker.
 UPLOAD_IDLE_TIMEOUT_SECONDS = 15
 UPLOAD_BODY_DEADLINE_SECONDS = 300
 
 
 def is_upload(scope: Scope) -> bool:
-    return scope["method"] == "PUT" and UPLOAD_ROUTE.fullmatch(scope["path"]) is not None
+    return scope["method"] == "PUT" and (UPLOAD_ROUTE.fullmatch(scope["path"]) is not None or BOOK_UPLOAD_ROUTE.fullmatch(scope["path"]) is not None)
 
 
 def body_limit(scope: Scope) -> int:
+    if scope["method"] == "PUT" and BOOK_UPLOAD_ROUTE.fullmatch(scope["path"]) is not None:
+        return MAX_BOOK_UPLOAD_BODY_BYTES
     return MAX_UPLOAD_BODY_BYTES if is_upload(scope) else MAX_REQUEST_BODY_BYTES
 
 SECURITY_HEADERS = {
@@ -120,8 +125,8 @@ class RequestBodyLimitMiddleware:
         except ValueError:
             content_length = None
         limit = body_limit(scope)
-        upload = limit == MAX_UPLOAD_BODY_BYTES
-        message = UPLOAD_TOO_LARGE_MESSAGE if upload else REQUEST_TOO_LARGE_MESSAGE
+        upload = limit in {MAX_UPLOAD_BODY_BYTES, MAX_BOOK_UPLOAD_BODY_BYTES}
+        message = BOOK_UPLOAD_TOO_LARGE_MESSAGE if limit == MAX_BOOK_UPLOAD_BODY_BYTES else (UPLOAD_TOO_LARGE_MESSAGE if upload else REQUEST_TOO_LARGE_MESSAGE)
         if content_length is not None and (content_length < 0 or content_length > limit):
             await JSONResponse(status_code=413, content={"detail": message})(scope, receive, send)
             return

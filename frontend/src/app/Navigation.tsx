@@ -8,11 +8,12 @@ import { moveFocus } from '../features/media/focusNav';
 import { type Surface } from './routes';
 
 type NavItem = { surface: Surface; label: string; icon: LuminaRouteIconName };
-/** Navigation only, grouped. Music lives under Library; Collections under the Library lens row. */
+/** Navigation only, grouped. Music lives under Library; Books is its own destination. */
 export const navGroups: ReadonlyArray<{ label: string; items: readonly NavItem[] }> = [
   { label: 'Watch', items: [
     { surface: 'home', label: 'Home', icon: 'home' },
     { surface: 'library', label: 'Library', icon: 'library' },
+    { surface: 'books', label: 'Books', icon: 'books' },
     { surface: 'streaming', label: 'Streaming', icon: 'live' },
     { surface: 'requests', label: 'Requests', icon: 'requests' },
   ] },

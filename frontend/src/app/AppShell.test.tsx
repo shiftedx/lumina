@@ -9,14 +9,22 @@ const libraryActivity = vi.hoisted(() => ({ useLibraryActivity: vi.fn(() => ({ s
 vi.mock('./useLibraryActivity', () => libraryActivity);
 
 const user = { id: 'u1', username: 'a', display_name: 'A', role: 'admin', is_active: true } as UserProfile;
-function Host({ onNavigate = vi.fn(), onManageServer = vi.fn() } = {}) {
+function Host({ focused = false, onNavigate = vi.fn(), onManageServer = vi.fn() } = {}) {
   const [open, setOpen] = useState(false);
-  return <AppShell activity={{ state: 'ready', retrying: false, active: 0 }} announcer={null} compact={false} mainRef={createRef()} menuButtonRef={createRef()} mobile={false}
+  return <AppShell activity={{ state: 'ready', retrying: false, active: 0 }} announcer={null} compact={false} focused={focused} mainRef={createRef()} menuButtonRef={createRef()} mobile={false}
     moreItems={null} navigationOpen={open} onAddLink={vi.fn()} onCloseNavigation={() => setOpen(false)} onMenu={() => setOpen((value) => !value)} onNavigate={onNavigate} onSearch={vi.fn()} onSettings={vi.fn()} onManageServer={onManageServer}
     onSignOut={vi.fn()} onTheme={vi.fn()} surface="home" theme="system" user={user}><h1>Page</h1></AppShell>;
 }
 
 describe('anchored navigation', () => {
+  it('lets a focused reader own its controls while retaining the skip link and main landmark', () => {
+    render(<Host focused />);
+    expect(screen.getByRole('link', { name: 'Skip to main content' })).toBeTruthy();
+    expect(screen.getByRole('main', { name: 'Main content' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Open navigation' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Mobile primary navigation' })).toBeNull();
+  });
+
   it('scopes library activity polling to the signed-in member', () => {
     render(<Host />);
     expect(libraryActivity.useLibraryActivity).toHaveBeenCalledWith('u1');

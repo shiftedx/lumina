@@ -1,10 +1,10 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ChatReplayRail, LibraryCapturedChatRail } from './chatReplayRail';
+import { ChatEventRow, ChatReplayRail, LibraryCapturedChatRail } from './chatReplayRail';
 import { getChatReplay, loadChatReplay } from './api';
-import type { ChatReplayAsset } from './types';
+import type { ChatReplayAsset, TimedChatEvent } from './types';
 
 vi.mock('./api', () => ({
   getChatReplay: vi.fn(),
@@ -43,6 +43,107 @@ function renderRail(props: Partial<React.ComponentProps<typeof ChatReplayRail>> 
 beforeEach(() => {
   vi.mocked(getChatReplay).mockReset().mockResolvedValue(null);
   vi.mocked(loadChatReplay).mockReset();
+});
+
+function renderEvent(emotes: unknown[], overrides: Partial<TimedChatEvent> = {}) {
+  const event = {
+    id: 'emotes', offset_ms: 1000, kind: 'message', text: '😀hi :wave: + :wave:!', moderation: 'visible',
+    author: { name: 'Ada', badges: [] }, emotes, ...overrides,
+  } as unknown as TimedChatEvent;
+  const rendered = render(<ChatEventRow active={false} durationSeconds={60} event={event} onSeek={vi.fn()} />);
+  return rendered.container.querySelector('.chat-event-text') as HTMLSpanElement;
+}
+
+describe('ChatEventRow custom emotes', () => {
+  it('renders sorted repeated emotes among Unicode code points and restores each original span when its image fails', () => {
+    const artworkUrl = '/api/artwork/emotes/emote_opaque-1';
+    const text = renderEvent([
+      { start: 13, end: 19, label: ':wave:', artwork_url: artworkUrl },
+      { start: 4, end: 10, label: ':wave:', artwork_url: artworkUrl },
+    ]);
+
+    const images = within(text).getAllByRole('img', { name: ':wave:' });
+    expect(images).toHaveLength(2);
+    expect(images.map((image) => image.getAttribute('src'))).toEqual([artworkUrl, artworkUrl]);
+    expect(images.every((image) => image.getAttribute('loading') === 'lazy')).toBe(true);
+    expect(text.textContent).toBe('😀hi  + !');
+
+    fireEvent.error(images[0]);
+    expect(text.textContent).toBe('😀hi :wave: + !');
+    fireEvent.error(images[1]);
+    expect(text.textContent).toBe('😀hi :wave: + :wave:!');
+  });
+
+  it.each([
+    ['external', [{ start: 4, end: 10, label: 'Wave', artwork_url: 'https://provider.example/emote.png' }]],
+    ['protocol-relative', [{ start: 4, end: 10, label: 'Wave', artwork_url: '//provider.example/emote.png' }]],
+    ['data', [{ start: 4, end: 10, label: 'Wave', artwork_url: 'data:image/png;base64,abc' }]],
+    ['overlapping', [
+      { start: 4, end: 10, label: 'Wave', artwork_url: '/api/artwork/remote/a' },
+      { start: 9, end: 12, label: 'Overlap', artwork_url: '/api/artwork/remote/b' },
+    ]],
+    ['fractional', [{ start: 4.5, end: 10, label: 'Wave', artwork_url: '/api/artwork/remote/a' }]],
+    ['out-of-range', [{ start: 4, end: 100, label: 'Wave', artwork_url: '/api/artwork/remote/a' }]],
+    ['null among spans', [{ start: 13, end: 19, label: 'Wave', artwork_url: '/api/artwork/remote/a' }, null]],
+    ['non-string URL', [{ start: 4, end: 10, label: 'Wave', artwork_url: 42 }]],
+  ])('rejects %s emote metadata and preserves the full fallback text', (_case, emotes) => {
+    const text = renderEvent(emotes);
+    expect(within(text).queryByRole('img')).toBeNull();
+    expect(text.textContent).toBe('😀hi :wave: + :wave:!');
+  });
+
+  it('rejects more than 32 emote spans', () => {
+    const fallback = ':x:'.repeat(33);
+    const emotes = Array.from({ length: 33 }, (_, index) => ({
+      start: index * 3, end: index * 3 + 3, label: 'x', artwork_url: `/api/artwork/remote/e${index}`,
+    }));
+    const text = renderEvent(emotes, { text: fallback });
+    expect(within(text).queryByRole('img')).toBeNull();
+    expect(text.textContent).toBe(fallback);
+  });
+
+  it('accepts the existing remote-artwork route for compatible stored events', () => {
+    const text = renderEvent([{ start: 4, end: 10, label: ':wave:', artwork_url: '/api/artwork/remote/legacy' }]);
+    expect(within(text).getByRole('img', { name: ':wave:' })).toBeTruthy();
+  });
+
+  it('retries a failed emote when the server remaps its span to a new opaque artwork URL', () => {
+    const base: TimedChatEvent = {
+      id: 'retry', offset_ms: 1000, kind: 'message', text: ':wave:', moderation: 'visible', author: { name: 'Ada', badges: [] },
+      emotes: [{ start: 0, end: 6, label: ':wave:', artwork_url: '/api/artwork/emotes/old' }],
+    };
+    const view = render(<ChatEventRow active={false} durationSeconds={60} event={base} onSeek={vi.fn()} />);
+    fireEvent.error(screen.getByRole('img', { name: ':wave:' }));
+    expect(screen.queryByRole('img', { name: ':wave:' })).toBeNull();
+
+    view.rerender(<ChatEventRow
+      active={false}
+      durationSeconds={60}
+      event={{ ...base, emotes: [{ start: 0, end: 6, label: ':wave:', artwork_url: '/api/artwork/emotes/new' }] }}
+      onSeek={vi.fn()}
+    />);
+    expect(screen.getByRole('img', { name: ':wave:' }).getAttribute('src')).toBe('/api/artwork/emotes/new');
+  });
+
+  it.each([
+    ['empty', ''],
+    ['oversized', '😀'.repeat(129)],
+    ['different from the fallback span', 'Wave'],
+  ])('rejects a %s emote label', (_case, label) => {
+    const text = renderEvent([{ start: 4, end: 10, label, artwork_url: '/api/artwork/emotes/a' }]);
+    expect(within(text).queryByRole('img')).toBeNull();
+    expect(text.textContent).toBe('😀hi :wave: + :wave:!');
+  });
+
+  it('never renders emotes or original text for a moderated message', () => {
+    const text = renderEvent(
+      [{ start: 4, end: 10, label: 'Wave', artwork_url: '/api/artwork/remote/a' }],
+      { moderation: 'deleted', text: 'secret :wave:' },
+    );
+    expect(within(text).queryByRole('img')).toBeNull();
+    expect(text.textContent).toBe('Message removed');
+    expect(text.textContent).not.toContain('secret');
+  });
 });
 
 describe('ChatReplayRail deliberate load', () => {
@@ -91,6 +192,22 @@ describe('ChatReplayRail search and moderation', () => {
     // A deleted message shows a placeholder, never its original text.
     await userEvent.click(screen.getByRole('button', { name: /^messages$/i }));
     expect(await screen.findByText('Message removed')).toBeTruthy();
+  });
+
+  it('searches the full fallback text even when a matching emote is rendered as an image', async () => {
+    vi.mocked(loadChatReplay).mockResolvedValue(asset({
+      event_count: 1,
+      events: [{
+        id: 'emote', offset_ms: 0, kind: 'message', text: 'hello :wave:', moderation: 'visible', author: { name: 'Ada', badges: [] },
+        emotes: [{ start: 6, end: 12, label: ':wave:', artwork_url: '/api/artwork/emotes/wave' }],
+      }],
+    }));
+    renderRail();
+    await userEvent.click(await screen.findByRole('button', { name: /load replay chat/i }));
+    expect(await screen.findByRole('img', { name: ':wave:' })).toBeTruthy();
+
+    await userEvent.type(screen.getByRole('searchbox', { name: /search replay chat/i }), ':wave:');
+    expect(screen.getByRole('img', { name: ':wave:' })).toBeTruthy();
   });
 });
 

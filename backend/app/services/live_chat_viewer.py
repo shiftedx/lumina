@@ -18,7 +18,7 @@ from time import monotonic
 from typing import Any
 
 from app.services.live_chat_seam import LiveChatFetcher
-from app.services.timed_chat import TimedChatBudget, apply_live_action, new_build_state
+from app.services.timed_chat import TimedChatBudget, TimedChatEvent, apply_live_action, new_build_state
 
 
 @dataclass
@@ -28,7 +28,7 @@ class _Source:
     continuation: str | None = None
     headers: dict[str, str] = field(default_factory=dict)
     state: Any = None
-    events: deque[tuple[int, dict[str, Any]]] = field(default_factory=deque)
+    events: deque[tuple[int, TimedChatEvent]] = field(default_factory=deque)
     seen: set[str] = field(default_factory=set)
     next_seq: int = 1
     fetched_at: float = float("-inf")
@@ -46,8 +46,12 @@ class LiveChatViewer:
         keep_events: int = 200,
         idle_seconds: float = 120.0,
         max_consecutive_failures: int = 4,
+        artwork_url_resolver: Callable[[str], str | None] | None = None,
+        artwork_url_resolver_factory: Callable[[], Callable[[str], str | None]] | None = None,
     ) -> None:
         self._fetcher = fetcher
+        self._artwork_url_resolver = artwork_url_resolver
+        self._artwork_url_resolver_factory = artwork_url_resolver_factory
         self._clock = clock
         self._poll = poll_interval_seconds
         self._keep = keep_events
@@ -70,7 +74,8 @@ class LiveChatViewer:
                 self._bootstrap(source, source_url, user_id)
             elif source.status == "active" and now - source.fetched_at >= self._poll:
                 self._fetch(source, now)
-            events = [event for seq, event in source.events if seq > after]
+            resolver = self._artwork_url_resolver_factory() if self._artwork_url_resolver_factory else self._artwork_url_resolver
+            events = [event.to_public_dict(resolver) for seq, event in source.events if seq > after]
             return {"status": source.status, "events": events, "cursor": source.next_seq - 1, "poll_after_ms": int(self._poll * 1000)}
 
     def _close(self, source: _Source) -> None:
@@ -112,7 +117,7 @@ class LiveChatViewer:
         # re-sending moderation updates by id is the upgrade if it matters.
         for event in source.state.events:
             if event.id not in source.seen:
-                source.events.append((source.next_seq, event.to_public_dict()))
+                source.events.append((source.next_seq, event))
                 source.next_seq += 1
         # The rolling state is the dedupe window: exactly the ids it still holds.
         source.seen = {event.id for event in source.state.events}

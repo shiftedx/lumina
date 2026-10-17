@@ -66,6 +66,8 @@ RATE_LIMIT_RULES: dict[str, RateLimitRule] = {
     # ceiling for serving warm cache hits and 304 revalidations.
     "artwork": RateLimitRule(max_requests=120, window_seconds=60),
     "artwork_serve": RateLimitRule(max_requests=600, window_seconds=60),
+    "chat_emote": RateLimitRule(max_requests=120, window_seconds=60),
+    "chat_emote_serve": RateLimitRule(max_requests=600, window_seconds=60),
     # Editor artwork uploads: each one runs an ffmpeg re-encode; per editor.
     "image_upload": RateLimitRule(max_requests=30, window_seconds=3600),
     # A TMDB round trip per preview; people typeahead is cheap but per keystroke burst.

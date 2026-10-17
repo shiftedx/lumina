@@ -303,7 +303,8 @@ class ChatReplayAsset(Base):
     ``building`` state with ``build_id``/``started_at`` for safe resume-or-
     replace, then a terminal status carrying the bounded normalized events.
     The stored events never include continuations, headers, cookies, or
-    upstream addresses.
+    media addresses. Custom emote image addresses are stored internally and
+    mapped to opaque authenticated artwork paths when serving chat.
     """
 
     __tablename__ = "chat_replay_assets"
@@ -751,6 +752,9 @@ class User(Base):
     onboarding_status: Mapped[str] = mapped_column(
         String(24), default="pending", server_default=text("'pending'"), nullable=False
     )
+    # Only the first bootstrap owner is guided through server media setup. The
+    # false database default keeps upgraded, invited, and promoted owners out.
+    vault_setup_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
     # 2.9.0 two-step verification (services/two_factor.py). The TOTP secret is AES-GCM encrypted under a key derived from
     # the app secret; it is a pending enrollment until totp_enabled_at is set. Recovery codes are stored as SHA-256 digests.
     totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)

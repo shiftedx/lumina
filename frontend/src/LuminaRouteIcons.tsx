@@ -7,6 +7,7 @@ export const luminaRouteIconNames = [
   'requests',
   'subscriptions',
   'library',
+  'books',
   'music',
   'downloads',
   'settings',
@@ -48,6 +49,11 @@ const routeGlyphs: Record<LuminaRouteIconName, ReactNode> = {
     <path d="M4 5.25A2.25 2.25 0 0 1 6.25 3H19a1 1 0 0 1 1 1v15.75a1.25 1.25 0 0 1-1.25 1.25H6.25A2.25 2.25 0 0 1 4 18.75Z" />
     <path d="M4 6.25A2.25 2.25 0 0 1 6.25 8.5H20M8.25 12h7.5M8.25 16h5" />
     <path d="M16.5 5.75v-1M14.65 6.45l-.7-.7M18.35 6.45l.7-.7" />
+  </>,
+  books: <>
+    <path d="M4 5.25A2.25 2.25 0 0 1 6.25 3H10.5v17.75H6.25A2.25 2.25 0 0 1 4 18.5Z" />
+    <path d="M20 5.25A2.25 2.25 0 0 0 17.75 3H13.5v17.75h4.25A2.25 2.25 0 0 0 20 18.5Z" />
+    <path d="M8 7h1.25M15 7h1.25M12 2.25v-1" />
   </>,
   music: <>
     <path d="M8 18.5V7.25l9-2.25v11.25" />

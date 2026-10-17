@@ -670,6 +670,7 @@ class AppSettings(Base):
     temp_root: Mapped[str] = mapped_column(Text, nullable=False)
     archive_path: Mapped[str] = mapped_column(Text, nullable=False)
     concurrency: Mapped[int] = mapped_column(Integer, default=1)
+    resource_policy: Mapped[dict] = mapped_column(JSON, default=dict, server_default=text("'{}'"), nullable=False)
     max_active_jobs_per_user: Mapped[int] = mapped_column(Integer, default=25)
     min_free_disk_mb: Mapped[int] = mapped_column(Integer, default=2048)
     max_playback_sessions: Mapped[int] = mapped_column(Integer, default=2)
@@ -742,6 +743,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    resource_overrides: Mapped[dict] = mapped_column(JSON, default=dict, server_default=text("'{}'"), nullable=False)
     username: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -84,6 +84,7 @@ _bulk: set[str] = set()  # ids admitted by the pump; guarded by local_asr.jobs.l
 _demanded_captions: set[str] = set()  # background caption ids promoted by an interactive request; same lock
 _caption_threads: set[threading.Thread] = set()  # background caption workers joined during graceful shutdown; same lock
 _pump_lock = threading.Lock()
+_last_bulk_member: str | None = None
 
 
 def model_for(db: Session, kind: str) -> str:
@@ -213,6 +214,25 @@ def _finish(job_id: str, **fields: Any) -> None:
 
 
 def run_job(job_id: str, *, background: bool = False, backfill: bool = False) -> None:
+    from app.services.ai_resources import execution
+    try:
+        with execution(AsrJob, job_id, local_asr.jobs) as allowed:
+            if allowed:
+                _run_job(job_id, background=background, backfill=backfill)
+            else:
+                _finish(job_id, state="canceled")
+    finally:
+        with local_asr.jobs.lock:
+            was_bulk = job_id in _bulk
+            _bulk.discard(job_id)
+            _demanded_captions.discard(job_id)
+            _caption_threads.discard(threading.current_thread())
+        local_asr.jobs.release(job_id)
+        if was_bulk:
+            pump_pending()
+
+
+def _run_job(job_id: str, *, background: bool = False, backfill: bool = False) -> None:
     """Worker thread body for every kind: mark running, dispatch on ``kind``, store the outcome."""
     worker = threading.current_thread()
     if background:
@@ -284,6 +304,7 @@ def pump_pending() -> int:
         # Another pump is admitting. A bulk job that ends while this lock is held waits for the next
         # reconcile tick (<= reconcile_interval_seconds); make the pump re-check on release if backlogs stall.
         return 0
+    global _last_bulk_member
     started = 0
     try:
         with session_scope() as db:
@@ -302,10 +323,16 @@ def pump_pending() -> int:
                     caption_eligible = or_(caption_eligible, AsrJob.requested_by.is_not(None))
                 if background_work.backfill_allowed():
                     caption_eligible = or_(caption_eligible, AsrJob.requested_by.is_(None))
-                job = (
+                candidates = (
                     db.query(AsrJob).filter(AsrJob.state == "pending", caption_eligible)
-                    .order_by(AsrJob.created_at, AsrJob.id).first()
+                    .order_by(AsrJob.created_at, AsrJob.id).all()
                 )
+                members = list(dict.fromkeys(job.requested_by for job in candidates))
+                if _last_bulk_member in members:
+                    at = members.index(_last_bulk_member) + 1
+                    members = members[at:] + members[:at]
+                chosen = members[0] if members else None
+                job = next((candidate for candidate in candidates if candidate.requested_by == chosen), None)
                 if job is None or not local_asr.jobs.admit(job.id):
                     return started
                 job_id = job.id
@@ -335,6 +362,7 @@ def pump_pending() -> int:
                             _bulk.discard(job_id)
                         local_asr.jobs.release(job_id)
             if admitted:
+                _last_bulk_member = job.requested_by
                 started += 1
     finally:
         _pump_lock.release()
@@ -416,6 +444,11 @@ def queue_bulk(db: Session, item_ids: list[str], kinds: list[str], requested_by:
     ]
     if rows:
         with write_transaction(db, name="enrichment_bulk"):
+            from app.services.ai_resources import AiCapacityError, admit
+            try:
+                admit(db, requested_by, len(rows))
+            except AiCapacityError as exc:
+                raise local_asr.AsrBusyError(str(exc)) from exc
             db.add_all(rows)
     return len(rows), len(wanted) - len(rows)
 

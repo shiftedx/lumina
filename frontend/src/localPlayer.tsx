@@ -1,6 +1,6 @@
 import { type ComponentProps, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import { apiBaseUrl, ApiRequestError, getLocalPlaybackOptions, libraryMediaUrl, markHevcFailed, startLocalPlaybackSession, stopLocalPlaybackSession } from './api';
+import { apiBaseUrl, ApiRequestError, getLocalPlaybackOptions, libraryMediaUrl, markHevcFailed, startLocalPlaybackSession, stopDirectPlayback, stopLocalPlaybackSession } from './api';
 import { accessStopCode, reportAccessStop } from './features/access/accessEvents';
 import { LuminaPlayer, type LuminaPlayerSource, type LuminaPlayerTrack } from './LuminaPlayer';
 import { releaseBackground } from './backgroundGate';
@@ -93,7 +93,8 @@ export function playbackFactsLabel(options: LocalPlaybackOptions | null): string
   const size = facts.height ? `${facts.height}p` : null;
   const codecs = [facts.video_codec, facts.audio_codec].filter((codec): codec is string => Boolean(codec)).map(codecLabel).join(' / ');
   const via = options.mode === 'remux' ? 'Remuxed' : options.mode === 'transcode' ? 'Transcoded' : 'Original';
-  return [size, codecs, via].filter(Boolean).join(' · ');
+  const bandwidth = options.reason?.includes('ContainerBitrateExceedsLimit') ? 'Household bandwidth limit' : null;
+  return [size, codecs, via, bandwidth].filter(Boolean).join(' · ');
 }
 
 /** Plays a Library item through the path its probed codecs and the member's choices actually need. */
@@ -102,6 +103,8 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   const key = requestKey(request);
   const [options, setOptions] = useState<LocalPlaybackOptions | null>(null);
   const [probeFailed, setProbeFailed] = useState(false);
+  const [decisionProblem, setDecisionProblem] = useState<string | null>(null);
+  useEffect(() => () => { void stopDirectPlayback(playId).catch(() => undefined); }, [playId]);
   const [sourceMissing, setSourceMissing] = useState(false);
   const [session, setSession] = useState<LocalPlaybackSession | null>(null);
   const [conversionProblem, setConversionProblem] = useState<string | null>(null);
@@ -163,13 +166,14 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
     let active = true;
     setOptions(null);
     setProbeFailed(false);
+    setDecisionProblem(null);
     setSourceMissing(false);
     setSession(null);
     ((decisionAttempt ? null : takePrefetchedOptions(playId)) ?? getLocalPlaybackOptions(playId)).then(
       (next) => { if (active) { setOptions(next); onOptionsRef.current?.(next); } },
       // An unreachable probe should not block a file the browser may still play. A definitive 404 must
       // not be hidden by that fallback: direct media would only repeat the same missing-source failure.
-      (error: unknown) => { if (active) { if (isMissingSourceProbe(error)) setSourceMissing(true); else setProbeFailed(true); onOptionsRef.current?.(null); } },
+      (error: unknown) => { if (active) { if (isMissingSourceProbe(error)) setSourceMissing(true); else if (error instanceof ApiRequestError && [409, 429].includes(error.status)) setDecisionProblem(error.message); else setProbeFailed(true); onOptionsRef.current?.(null); } },
     );
     return () => { active = false; };
   }, [playId, decisionAttempt]);
@@ -346,6 +350,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   };
   if (stoppedByAdmin) source = { ...base, id: `${playId}:stopped`, src: null, state: 'failed', message: STOPPED_BY_ADMIN_MESSAGE };
   else if (sourceMissing) source = { ...base, id: `${playId}:missing`, src: null, state: 'failed', message: MISSING_SOURCE_MESSAGE, onRefresh: refreshMissingSource };
+  else if (decisionProblem) source = { ...base, src: null, state: 'failed', message: decisionProblem, onRefresh: refreshMissingSource };
   else if (probeFailed || (options?.mode === 'direct' && !converts)) source = { ...base, src: `${libraryMediaUrl(playId)}${fragment}`, state: 'loading' };
   else if (options?.mode === 'unavailable') source = { ...base, src: null, state: 'unsupported', message: 'This file has no playable audio or video.' };
   else if (conversionProblem) source = { ...base, id: `${playId}:failed`, src: null, state: 'failed', message: conversionProblem };

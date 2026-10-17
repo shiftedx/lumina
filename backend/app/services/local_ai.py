@@ -204,18 +204,29 @@ class JobRegistry:
 
     def start(self, db: Session, make_row: Callable[[str], Any], target: Callable[[str], None], name: str) -> Any:
         """Reserve a slot, insert the queued row and start its worker thread after commit."""
-        with self.lock:
-            if len(self.running) >= self.limit:
-                raise self.busy_error()
-            job_id = str(uuid.uuid4())
-            self.running.add(job_id)
+        job_id = str(uuid.uuid4())
+        reserved = False
         try:
             with write_transaction(db, name=name):
                 row = make_row(job_id)
+                from app.services.ai_resources import AiCapacityError, admit, duplicate
+                existing = duplicate(db, row, self)
+                if existing is not None:
+                    return existing
+                try:
+                    admit(db, getattr(row, "requested_by", None))
+                except AiCapacityError as exc:
+                    raise self.busy_error(str(exc)) from exc
+                with self.lock:
+                    if len(self.running) >= self.limit:
+                        raise self.busy_error()
+                    self.running.add(job_id)
+                    reserved = True
                 db.add(row)
                 queue_after_commit(db, lambda: threading.Thread(target=target, args=(job_id,), daemon=True).start())
         except BaseException:
-            self.release(job_id)
+            if reserved:
+                self.release(job_id)
             raise
         return row
 

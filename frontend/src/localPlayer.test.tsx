@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('hls.js', () => import('./test/fakeHls'));
-const api = vi.hoisted(() => ({ getLocalPlaybackOptions: vi.fn(), startLocalPlaybackSession: vi.fn(), stopLocalPlaybackSession: vi.fn() }));
+const api = vi.hoisted(() => ({ getLocalPlaybackOptions: vi.fn(), startLocalPlaybackSession: vi.fn(), stopDirectPlayback: vi.fn(() => Promise.resolve(undefined)), stopLocalPlaybackSession: vi.fn() }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
 const prefetch = vi.hoisted(() => ({ adoptSpeculativeStart: vi.fn(), holdConversion: vi.fn(() => vi.fn()), takePrefetchedOptions: vi.fn() }));
 vi.mock('./playbackPrefetch', () => prefetch);
@@ -302,4 +302,15 @@ describe('LocalLibraryPlayer HEVC fallback', () => {
     await waitFor(() => expect(api.startLocalPlaybackSession).toHaveBeenCalledWith('borat', 600, undefined));
     expect(screen.queryByText(/failed|cannot/i)).toBeNull();
   });
+});
+
+
+it('shows a playback capacity reason and releases direct playback when leaving', async () => {
+  api.getLocalPlaybackOptions.mockRejectedValue(new ApiRequestError('Your playback session limit is reached.', 429));
+  api.stopDirectPlayback.mockResolvedValue(undefined);
+  const view = render(<LocalLibraryPlayer itemId="capacity-item" kind="video" poster={null} title="Film" />);
+  expect(await screen.findByText('Your playback session limit is reached.')).toBeTruthy();
+  expect(screen.queryByLabelText('Film video')).toBeNull();
+  view.unmount();
+  expect(api.stopDirectPlayback).toHaveBeenCalledWith('capacity-item');
 });

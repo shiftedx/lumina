@@ -61,6 +61,8 @@ from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService
 from app.services.media_response import MediaFileResponse
 from app.services.media_titles import from_ticks, parse_item_id
+from app.services.playback_decision import caps_from_device_profile
+from app.services.playback_resources import playback_resources
 from app.services.playback import PlaybackProgressService
 from app.services.title_metadata import load_person_image, person_visible
 from app.services.titles import EXTRA_BACKDROPS, TitleService, image_key, title_image_source
@@ -501,7 +503,7 @@ def playback_info(
         raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE)
     play_session_id = uuid.uuid4().hex
     stream_grants.put(grant_address(request), [parse_item_id(item_id), *(version.id for version in versions)], caller.token)
-    annotate_media_sources(db, caller.user, caller.token_id, caller.token, sources, wanted, play_session_id)
+    annotate_media_sources(db, caller.user, caller.token_id, caller.token, sources, wanted, play_session_id, request)
     for stream in (stream for source in sources for stream in source.get("MediaStreams") or []):
         if stream.get("DeliveryMethod") == "External" and stream.get("DeliveryUrl"):
             # Players fetch DeliveryUrl without auth headers; Jellyfin appends the caller's ApiKey the same way.
@@ -546,7 +548,29 @@ def media_file(
     if found is None:
         raise HTTPException(status_code=404, detail="Item not found")
     version_id, path = found
-    device = getattr(request.state, "connected_app_id", None) or "web"  # set by the Connected app token check
+    protected = playback_resources.enabled(db)
+    if protected:
+        from app.services.resource_policy import playback_device
+        device = playback_device(request)
+    else:
+        device = getattr(request.state, "connected_app_id", None) or "web"  # set by the Connected app token check
+    if request.method == "GET" and not attachment and protected:
+        item = LibraryService(db).get_item(version_id, user)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+        try:
+            admission = playback_resources.admit_direct(
+                db, user, request, version_id, device,
+                lambda: MediaProbeService(db).facts(item), caps_from_device_profile({"DirectPlayProfiles": [{"Type": "Video"}]}),
+            )
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from exc
+        if admission is not None and admission.decision.mode != "direct":
+            playback_resources.release(admission)
+            raise HTTPException(status_code=409, detail="Playback conversion is required by household resources.")
+        if admission is not None:
+            playback_resources.touch(admission)
+            request.state.playback_admission = admission
     screen_time.enforce(db, user)  # every Range request: at most one real check a minute
     activity.guard(user.id, version_id, device)  # an admin stop ends downloads too
     if request.method == "GET" and not attachment:  # a download is not a watch session

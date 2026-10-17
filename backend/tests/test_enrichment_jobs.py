@@ -625,6 +625,20 @@ def test_segments_redetect_after_the_file_changes(items, monkeypatch: pytest.Mon
         assert fresh.id != "s1" and fresh.state == "pending"  # the re-queued row, not the stale success
 
 
+def test_request_job_replaces_a_succeeded_segments_job_when_its_cached_output_is_gone(items, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    """The generic registry duplicate check must retain enrichment's stale-output guard."""
+    from app.services import media_segments
+
+    monkeypatch.setattr(media_segments, "current_analysis", lambda db, item_id: (None, "1:1", {}))
+    monkeypatch.setattr(threading.Thread, "start", lambda self: None)
+    with db_module.session_scope() as db:
+        db.add(_job("stale", state="succeeded"))
+    with db_module.session_scope() as db:
+        fresh, created = enrichment.request_job(db, "i0", "segments", {}, "owner")
+        assert created and fresh.id != "stale" and fresh.state == "queued"
+        local_asr.jobs.release(fresh.id)
+
+
 def test_a_failed_admit_commit_releases_the_pump_slot(items, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     """The admitted flag is set only after the write commits."""
     from contextlib import contextmanager

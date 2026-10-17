@@ -36,6 +36,7 @@ from app.services.media_probe import MediaProbeService, loudness_gain_db, media_
 from app.services.media_response import MediaFileResponse, pinned_media_file_response
 from app.services.media_segments import jellyfin_segments, segments_for
 from app.services.media_titles import jellyfin_id, parse_item_id, synthetic_id
+from app.services.playback_resources import playback_resources
 from app.services.transcripts import TranscriptService
 from app.services.user_settings import normalize_loudness
 
@@ -85,7 +86,7 @@ async def playback_body(request: Request) -> dict:
 
 
 def jellyfin_master_playlist(
-    item_id: str, mediasourceid: str | None = None, playsessionid: str = "",
+    request: Request, item_id: str, mediasourceid: str | None = None, playsessionid: str = "",
     caller: JellyfinCaller = Depends(jellyfin_caller), db: Session = Depends(get_db, scope="function"),
 ) -> Response:
     source_id = parse_item_id(mediasourceid) or parse_item_id(item_id)
@@ -103,15 +104,16 @@ def jellyfin_master_playlist(
             facts = MediaProbeService(db).facts(item)
         except OSError as exc:  # A vanished file is 404, never 500
             raise HTTPException(status_code=404, detail=NOT_FOUND) from exc
-        request = PlaybackSessionRequest(
+        payload = PlaybackSessionRequest(
             audio_index=pending.audio_index,
             subtitle=f"i:{pending.subtitle_index}" if pending.subtitle_index is not None else None,
         )
         session = open_session(  # raises 404/409/429/502/503 itself and closes db before waiting
-            db, caller.user, item, caps=pending.caps, request=request, start=pending.start_seconds, device=caller.token_id,
+            db, caller.user, item, caps=pending.caps, request=payload, start=pending.start_seconds, device=caller.token_id,
             play_session_id=playsessionid, max_bitrate=pending.max_bitrate, seekable=True,
-            audio_gain_db=loudness_gain_db(facts.get("loudness")) if normalize_loudness(db, caller.user.id) else None,
+            audio_gain_db=loudness_gain_db(facts.get("loudness")) if normalize_loudness(db, caller.user.id) else None, http_request=request,
         )
+    playback_resources.touch(session.resource_admission)
     separate_audio = separate_audio and bool(session.info.get("audio") and session.info.get("video"))
     base = f"hls/{playsessionid}/"
     key = f"?ApiKey={quote(caller.token, safe='')}"
@@ -130,6 +132,7 @@ def hls_file(
     session = sessions.find_play_session(caller.user.id, caller.token_id, play_session_id, source_id)
     if session is None:
         raise HTTPException(status_code=404, detail=NOT_FOUND)
+    playback_resources.touch(session.resource_admission)
     # Every request re-checks access: one indexed lookup (as the web route does).
     if LibraryService(db).get_item(session.item_id, caller.user) is None:
         sessions.stop_where(user_id=caller.user.id, device=caller.token_id, play_session_id=play_session_id)

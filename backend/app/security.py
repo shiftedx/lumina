@@ -450,6 +450,7 @@ def resolve_user_from_request(
         ):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=CSRF_REJECTED_DETAIL)
         request.state.via_session = True
+        request.state.resource_device_id = f"browser:{session_digest(session_token)}"
         return session_user
 
     scheme, _, bearer = request.headers.get("authorization", "").partition(" ")
@@ -482,6 +483,7 @@ def resolve_user_from_request(
         raise _unauthorized("Invalid username or password", advertise_basic=True)
     if getattr(request.state, "app_password_id", None) and not app_password_allows(request.method, request.url.path):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=APP_PASSWORD_SCOPE_DETAIL)
+    request.state.resource_device_id = f"app-password:{request.state.app_password_id}" if getattr(request.state, "app_password_id", None) else f"basic:{user.id}"
     return user
 
 
@@ -489,7 +491,7 @@ def resolve_user_from_request(
 APP_PASSWORD_SCOPE_DETAIL = "An app password only plays and browses media. Do this from a signed-in browser session."
 _APP_PASSWORD_NO_READ = ("/api/admin", "/api/connected-apps", "/api/me/two-factor", "/api/me/jellyfin-import")
 _APP_PASSWORD_WRITES = re.compile(
-    r"/api/(library/[^/]+/playback|library/[^/]+/playback-sessions|playback-sessions/[^/]+|playback/remote/.+|titles/[^/]+/watched)"
+    r"/api/(library/[^/]+/playback(?:/stop)?|library/[^/]+/playback-sessions|playback-sessions/[^/]+|playback/remote/.+|titles/[^/]+/watched)"
 )
 
 
@@ -505,6 +507,7 @@ def get_current_user(
     credentials: Annotated[HTTPBasicCredentials | None, Depends(basic_auth)] = None,
 ) -> User:
     user = resolve_user_from_request(db, request=request, credentials=credentials)
+    request.state.resource_user_id = user.id
     background_work.begin_request(request.scope)
     return user
 

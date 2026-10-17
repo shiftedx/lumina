@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import uuid
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.persistence import write_transaction
@@ -122,9 +123,26 @@ class JobManagerAcquisitionAdapter:
                     acquisition_batch_id=batch_id,
                     acquisition_entry_id=batch_entry_id,
                 )
-                with write_transaction(db, name="acquisition_job_stage"):
-                    db.add(job)
-            elif job.user_id != user_id or job.source_url != source_url:
+                try:
+                    with write_transaction(db, name="acquisition_job_stage"):
+                        # The outbox entry has already claimed its member/source
+                        # reservation. Admit the durable staged row before it can
+                        # occupy an otherwise invisible queue slot; a replay that
+                        # already has this deterministic id skips this path.
+                        self.manager.admit_staged(
+                            db, user_id=user_id, preview_snapshot=preview_snapshot,
+                            format_selection=format_selection,
+                        )
+                        db.add(job)
+                except IntegrityError:
+                    # A concurrent replay won the deterministic idempotency key.
+                    # Re-read it below instead of treating a full queue as a
+                    # reason to duplicate or abandon the durable reservation.
+                    db.rollback()
+                    job = db.get(DownloadJob, job_id)
+                    if job is None:
+                        raise
+            if job.user_id != user_id or job.source_url != source_url:
                 raise RedactedDispatchFailure("idempotency_conflict", "The acquisition job identity is unavailable.")
             return DispatchReceipt(download_job_id=job.id)
 

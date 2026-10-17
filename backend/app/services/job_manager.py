@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from bisect import bisect_right
 import logging
 import shutil
 import subprocess
@@ -12,7 +13,7 @@ from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from threading import Event, Lock
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import and_, or_, update
 from sqlalchemy.orm import Session
@@ -21,7 +22,7 @@ from yt_dlp.utils import Popen as YtDlpPopen
 from app.db import SessionLocal
 from app.events import EventBus
 from app.persistence import write_transaction
-from app.models import DownloadJob, LibraryItem, MediaArtifact, StorageRoot, User, utcnow
+from app.models import DownloadJob, LibraryItem, LiveRecording, MediaArtifact, StorageRoot, User, utcnow
 from app.schemas import FormatResolutionState, FormatSelection, JobCreateRequest, JobOutput, JobResponse, OutputProfile
 from app.services.hls_relay_support import derive_provider
 from app.services.library import (
@@ -38,8 +39,9 @@ from app.services.storage_routing import (
     publish_file,
     staging_dir,
 )
-from app.services.acquisition_batch import RedactedFailure
+from app.services.acquisition_batch import RedactedDispatchFailure, RedactedFailure
 from app.services.acquisition_job_manager import JobManagerAcquisitionAdapter
+from app.services.resource_policy import effective as effective_resources
 from app.services.transcripts import TranscriptService
 from app.services.redaction import redact
 from app.services.webhooks import WebhookService
@@ -94,11 +96,11 @@ class JobConflictError(ValueError):
     """The job exists but its current state does not allow the requested action."""
 
 
-class JobAdmissionError(ValueError):
+class JobAdmissionError(RedactedDispatchFailure):
     """Workload limits refuse new work; `reason` is a stable machine-readable code."""
 
     def __init__(self, reason: str, message: str, status_code: int) -> None:
-        super().__init__(message)
+        super().__init__(reason, message)
         self.reason = reason
         self.status_code = status_code
 
@@ -108,6 +110,10 @@ class StorageReserveExceeded(Exception):
 
 
 ACTIVE_STATUSES = ("queued", "running", "postprocessing")
+WAITING_STATUSES = ("staged", "queued")
+RUNNING_STATUSES = ("running", "postprocessing")
+RECORDING_WAITING_STATUSES = ("waiting", "queued")
+RECORDING_RUNNING_STATUSES = ("live", "stopping", "finalizing")
 # job id -> (progress %, bytes/s) of the latest yt-dlp hook, for the admin Activity page; readers drop ids that are no longer running.
 LIVE_PROGRESS: dict[str, tuple[float | None, float | None]] = {}
 DISK_CHECK_INTERVAL_SECONDS = 2.0
@@ -181,8 +187,15 @@ def _discard_staging(db: Session, job: DownloadJob) -> None:
         shutil.rmtree(staging_dir(root, job.id), ignore_errors=True)
 
 
-def _admit(db: Session, user_id: str, preview_snapshot: dict[str, Any] | None, format_selection: dict[str, Any] | None) -> None:
-    """Refuse work beyond the member's active-job cap or into an offline or full target root.
+def _admit(
+    db: Session,
+    user_id: str,
+    preview_snapshot: dict[str, Any] | None,
+    format_selection: dict[str, Any] | None,
+    *,
+    check_storage: bool = True,
+) -> None:
+    """Refuse work beyond durable member queue limits or into an offline or full target root.
 
     The reserve check subtracts other already-queued jobs' known/estimated
     sizes from free space, so several admissions in a row can't each see the
@@ -190,9 +203,29 @@ def _admit(db: Session, user_id: str, preview_snapshot: dict[str, Any] | None, f
     the rest once a download is actually writing bytes.
     """
     app_settings = YtDlpService(db).get_app_settings()
+    policy = effective_resources(db, user_id)
+    waiting = (
+        db.query(DownloadJob.id)
+        .filter(DownloadJob.user_id == user_id, DownloadJob.status.in_(WAITING_STATUSES))
+        .count()
+    )
+    waiting += (
+        db.query(LiveRecording.id)
+        .filter(LiveRecording.user_id == user_id, LiveRecording.status.in_(RECORDING_WAITING_STATUSES))
+        .count()
+    )
+    if policy.download_queued and waiting >= policy.download_queued:
+        raise JobAdmissionError(
+            "member_queue_full",
+            f"You already have {waiting} downloads waiting; wait for one to start or finish.",
+            429,
+        )
+    # Keep the older queued-plus-running setting as a compatibility ceiling.
+    # Staged acquisition-outbox rows count here too: their output link is not
+    # visible yet, but their owner and work reservation are already durable.
     active = (
         db.query(DownloadJob.id)
-        .filter(DownloadJob.user_id == user_id, DownloadJob.status.in_(ACTIVE_STATUSES))
+        .filter(DownloadJob.user_id == user_id, DownloadJob.status.in_((*WAITING_STATUSES, *RUNNING_STATUSES)))
         .count()
     )
     if active >= app_settings.max_active_jobs_per_user:
@@ -201,6 +234,8 @@ def _admit(db: Session, user_id: str, preview_snapshot: dict[str, Any] | None, f
             f"You already have {active} downloads queued or running; wait for some to finish.",
             429,
         )
+    if not check_storage:
+        return
     root = StorageRoutingService(db).writable_root(_requested_route(db, preview_snapshot, format_selection))
     if root is None:
         raise JobAdmissionError(
@@ -225,6 +260,8 @@ class JobManager:
         self._cancel_flags: dict[str, Event] = {}
         self._scheduled_job_ids: set[str] = set()
         self._scheduled_lock = Lock()
+        self._last_dispatched_user_id: str | None = None
+        self._capacity_waker: Callable[[], None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stopping = False
         # job id -> set when its blocking worker thread has fully exited.
@@ -313,6 +350,28 @@ class JobManager:
         db.flush()
         return job
 
+    def admit_staged(
+        self,
+        db: Session,
+        *,
+        user_id: str,
+        preview_snapshot: dict[str, Any] | None,
+        format_selection: dict[str, Any] | None,
+    ) -> None:
+        """Admit an acquisition outbox row while its writer transaction is held.
+
+        Acquisition dispatch historically stages its durable outbox job before a
+        storage route is needed. Keep that contract while sharing the durable
+        member counters with direct job admission.
+        """
+        _admit(
+            db,
+            user_id,
+            preview_snapshot,
+            format_selection,
+            check_storage=False,
+        )
+
     def dispatch_staged(self, job: DownloadJob) -> bool:
         """Make an already-committed staged job visible to the worker and observers."""
         self._cancel_flags.setdefault(job.id, Event())
@@ -320,6 +379,14 @@ class JobManager:
             return False
         self.events.publish("job_queued", self._job_event_payload(job))
         return True
+
+    def set_capacity_waker(self, waker: Callable[[], None] | None) -> None:
+        """Install the other acquisition lane's durable dispatcher wake-up."""
+        self._capacity_waker = waker
+
+    def wake_queued(self) -> None:
+        """Signal durable queued downloads after shared capacity becomes free."""
+        self._enqueue_queued_jobs()
 
     JOB_PAGE_DEFAULT_LIMIT = 50
     JOB_PAGE_MAX_LIMIT = 100
@@ -587,15 +654,86 @@ class JobManager:
                 .order_by(DownloadJob.created_at.asc())
             ]
         for job_id in queued_ids:
-            self._cancel_flags[job_id] = Event()
+            self._cancel_flags.setdefault(job_id, Event())
             self._enqueue_job_id(job_id)
+
+    def _claim_next_queued_job(self) -> str | None:
+        """Reserve one eligible queued job before a worker starts its attempt.
+
+        The writer transaction serializes competing workers. The chosen member
+        advances in a round robin among members with work that can run, while
+        the ordered query keeps each member's own jobs FIFO.
+        """
+        with SessionLocal() as db, write_transaction(db, name="job_dispatch"):
+            queued = (
+                db.query(DownloadJob)
+                .join(User, User.id == DownloadJob.user_id)
+                .filter(DownloadJob.status == "queued", User.is_active.is_(True))
+                .order_by(DownloadJob.created_at.asc(), DownloadJob.id.asc())
+                .all()
+            )
+            first_by_user: dict[str, DownloadJob] = {}
+            for job in queued:
+                if job.user_id:
+                    first_by_user.setdefault(job.user_id, job)
+            eligible_users: list[str] = []
+            for user_id in sorted(first_by_user):
+                policy = effective_resources(db, user_id)
+                running = (
+                    db.query(DownloadJob.id)
+                    .filter(DownloadJob.user_id == user_id, DownloadJob.status.in_(RUNNING_STATUSES))
+                    .count()
+                )
+                running += (
+                    db.query(LiveRecording.id)
+                    .filter(
+                        LiveRecording.user_id == user_id,
+                        LiveRecording.status.in_(RECORDING_RUNNING_STATUSES),
+                    )
+                    .count()
+                )
+                if not policy.download_running or running < policy.download_running:
+                    eligible_users.append(user_id)
+            if not eligible_users:
+                return None
+            position = bisect_right(eligible_users, self._last_dispatched_user_id or "")
+            user_id = eligible_users[position % len(eligible_users)]
+            job = first_by_user[user_id]
+            claimed = db.execute(
+                update(DownloadJob)
+                .where(DownloadJob.id == job.id, DownloadJob.status == "queued")
+                .values(status="running", started_at=utcnow(), error=None)
+            )
+            if claimed.rowcount != 1:
+                return None
+            self._last_dispatched_user_id = user_id
+            return job.id
+
+    @staticmethod
+    def _durable_job_exists(job_id: str) -> bool:
+        with SessionLocal() as db:
+            return db.get(DownloadJob, job_id) is not None
 
     async def _worker_loop(self) -> None:
         while True:
-            job_id = await self._queue.get()
+            wake_job_id = await self._queue.get()
             with self._scheduled_lock:
-                self._scheduled_job_ids.discard(job_id)
+                self._scheduled_job_ids.discard(wake_job_id)
             try:
+                # Tests and integrations can replace the narrow execution seam
+                # with a signal-only worker. Only the concrete downloader owns
+                # durable capacity reservation.
+                if getattr(self._run_job, "__func__", None) is JobManager._run_job:
+                    job_id = await asyncio.to_thread(self._claim_next_queued_job)
+                else:
+                    job_id = wake_job_id
+                # Several focused worker tests use the public-compatible queue
+                # as a bare signal without a durable row. Preserve that narrow
+                # behavior while all real work goes through durable claiming.
+                if job_id is None and not await asyncio.to_thread(self._durable_job_exists, wake_job_id):
+                    job_id = wake_job_id
+                if job_id is None:
+                    continue
                 try:
                     await asyncio.to_thread(self._run_job, job_id)
                 except Exception as exc:  # noqa: BLE001
@@ -637,11 +775,18 @@ class JobManager:
             finally:
                 del self._running[job_id]
                 done.set()
+                if self._worker_tasks and not self._stopping:
+                    self.wake_queued()
+                    if self._capacity_waker is not None:
+                        try:
+                            self._capacity_waker()
+                        except Exception:  # A wake-up must never alter job cleanup.
+                            logger.exception("live recording capacity wake failed")
 
     def _run_attempt(self, job_id: str) -> None:
         with SessionLocal() as db:
             job = db.get(DownloadJob, job_id)
-            if job is None or job.status != "queued":
+            if job is None or job.status not in {"queued", "running"}:
                 return
             owner = db.get(User, job.user_id) if job.user_id else None
             if owner is not None and not owner.is_active:
@@ -732,7 +877,7 @@ class JobManager:
 
             with write_transaction(db, name="job_status"):
                 job.status = "running"
-                job.started_at = utcnow()
+                job.started_at = job.started_at or utcnow()
                 job.error = None
                 # Stage on the root the request would route to; the actual output decides the final root.
                 provisional = _requested_route(db, job.preview_snapshot, job.format_selection)
@@ -743,6 +888,8 @@ class JobManager:
                 self._observe_acquisition(job.id, "running")
             terminal_status = "failed"
             try:
+                if cancel_flag.is_set():
+                    raise DownloadCancelled(f"Job {job_id} cancelled")
                 if not job.user_id:
                     raise ValueError("Download job has no Library owner.")
                 if staging_root is None:

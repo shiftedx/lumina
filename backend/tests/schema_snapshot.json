@@ -124,6 +124,7 @@
    "recording_max_gb",
    "requests_enabled",
    "require_owner_two_factor",
+   "resource_policy",
    "smtp_from",
    "smtp_host",
    "smtp_password",
@@ -944,6 +945,7 @@
    "is_active",
    "onboarding_status",
    "password_hash",
+   "resource_overrides",
    "role",
    "totp_enabled_at",
    "totp_failures",
@@ -974,5 +976,5 @@
    "user_id"
   ]
  },
- "version": 21
+ "version": 22
 }

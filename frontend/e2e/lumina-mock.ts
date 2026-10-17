@@ -20,6 +20,9 @@ export const LIBRARY_ACTIVITY_IDLE = {
 };
 /** GET /api/admin/members/{id}/access for a member with no limits (2.8.0). */
 const NO_LIMITS_ACCESS = { sections: null, movie_rating_max: null, tv_rating_max: null, unrated: 'allow', streaming: { youtube: true, twitch: true, kick: true, live: true, open_search: true, followed_only: false }, schedule: null, daily_limit_minutes: null, can_download: true };
+const RESOURCE_DEFAULTS = { remote_stream_bps: 8_000_000, remote_member_bps: 10_000_000, playback_sessions: 2, video_encodes: 1, download_running: 1, download_queued: 25, ai_running: 1, ai_queued: 10 };
+const HOUSEHOLD_RESOURCES = { upload_bps: 20_000_000, lan_networks: ['192.168.1.0/24'], defaults: RESOURCE_DEFAULTS };
+const ELEANOR_RESOURCES = { overrides: { remote_stream_bps: 4_000_000, remote_member_bps: 6_000_000 }, effective: { ...RESOURCE_DEFAULTS, remote_stream_bps: 4_000_000, remote_member_bps: 6_000_000 } };
 const formatSelection = { preset: 'best_1080p', custom_format: null, extract_audio: false, audio_format: null, embed_thumbnail: true, embed_metadata: true, subtitles: 'none', output_container: 'mp4' };
 const outputProfile = { base_path: null, subdir: '', template: '%(title)s.%(ext)s', organize_by: 'downloads' };
 const rules = { include_title: [], exclude_title: [], include_uploader: [], exclude_uploader: [], include_source: [], exclude_source: [], media_kind: 'video', min_duration: null, max_duration: null, max_age_days: null };
@@ -86,6 +89,8 @@ export async function mockApi(page: Page, uiPrefs: Record<string, unknown>) {
     if (path === '/api/discovery/live') return json({ ...empty, twitch_available: true, hero: [] });
     if (path === '/api/automations' || path === '/api/admin/users' || path === '/api/playback/continue') return json([]);
     if (path === '/api/me/access') return json(OPEN_ACCESS);
+    if (path === '/api/me/resources') return json({ overrides: {}, effective: RESOURCE_DEFAULTS });
+    if (path === '/api/me/resource-jobs') return json([]);
     if (path === '/api/admin/sections' || path === '/api/admin/invites') return json([]);
     if (path === '/api/admin/public-address') return json({ public_address: null });
     if (path === '/api/admin/local-address') return json({ local_address: null, lan_http: false });
@@ -202,12 +207,14 @@ export async function mockAdminFixtures(page: Page) {
     invites: [{ id: 'iv1', email: 'grandad.at.the.cottage@example.com', status: 'pending', created_at: at, expires_at: '2026-10-01T09:40:00Z', sent_at: at, libraries: ['Movies', 'TV shows'], access: { display_name: 'Grandad' } }],
     'public-address': { public_address: null },
     'local-address': { local_address: null, lan_http: false },
+    resources: HOUSEHOLD_RESOURCES,
     'members/m2/access': {
       sections: ['movies', 'anime'], movie_rating_max: 'G', tv_rating_max: 'TV-Y7', unrated: 'hide', streaming: { youtube: false, twitch: false, kick: false, live: false, open_search: false, followed_only: false },
       schedule: Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((day) => [day, [['07:00', '20:00']]])), daily_limit_minutes: 120, can_download: false, screen_time_today_seconds: 3900, bonus_minutes_today: 0,
     },
     'members/m2/follows': [{ id: 'f1', label: 'Bluey Official', source_url: 'https://www.youtube.com/@BlueyOfficial' }],
     'members/m2/activity': { screen_time_today_seconds: 3900, recent: [{ id: 'h1', source: 'library', user: { id: 'm2', name: 'Eleanor' }, title: 'Bluey', subtitle: 'Season 1 · Episode 3', item_id: null, client: { name: 'Lumina web', device: 'Living-room TV' }, method: 'direct', hardware: null, video: null, started_at: at, ended_at: at, watched_seconds: 420, stopped_by_admin: false }] },
+    'members/m2/resources': ELEANOR_RESOURCES,
     'requests/servers': [],
     'requests/settings': { requests_enabled: true, smtp: { host: null, port: null, security: 'starttls', username: null, from: null, password_set: false } },
     'requests/policies': {
@@ -223,7 +230,7 @@ export async function mockAdminFixtures(page: Page) {
     },
   };
   await page.route('**/api/admin/ai/models', (route) => route.fulfill({ json: { models: ['local-model', 'alternate-model'], error: null } }));
-  await page.route(/\/api\/admin\/(overview|diagnostics|ai\/config|models|tasks|users|invitations|storage\/roots|storage\/rules|library\/automation|backups|imports|media-server|metadata\/unmatched|artwork|settings|recording-retention|sections|invites|public-address|local-address|members\/m2\/access|members\/m2\/follows|members\/m2\/activity|requests\/(?:servers|settings|policies))(\?|$)/, (route) => {
+  await page.route(/\/api\/admin\/(overview|diagnostics|ai\/config|models|tasks|users|invitations|storage\/roots|storage\/rules|library\/automation|backups|imports|media-server|metadata\/unmatched|artwork|settings|recording-retention|sections|invites|public-address|local-address|resources|members\/m2\/access|members\/m2\/follows|members\/m2\/activity|members\/m2\/resources|requests\/(?:servers|settings|policies))(\?|$)/, (route) => {
     const key = new URL(route.request().url()).pathname.replace('/api/admin/', '');
     return route.request().method() === 'GET' ? route.fulfill({ contentType: 'application/json', body: JSON.stringify(ADMIN[key]) }) : route.fallback();
   });

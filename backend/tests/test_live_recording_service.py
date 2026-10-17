@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import LiveRecording, User
+from app.models import DownloadJob, LiveRecording, User
 from app.services.acquisition_batch import RedactedFailure
 from app.services.live_recording import (
     LiveRecordingLimitError,
@@ -24,6 +24,7 @@ from app.services.live_recording import (
     RecoveryDecision,
     compute_overall_status,
 )
+from support import seed_app_settings
 
 
 def _session_factory():
@@ -154,6 +155,56 @@ def test_duplicate_submission_at_limit_returns_existing_not_error() -> None:
         assert again.recording.id == first.recording.id
 
 
+def test_begin_counts_download_and_recording_waiters_together() -> None:
+    factory = _session_factory()
+    with factory() as session:
+        seed_app_settings(session, resource_policy={"defaults": {"download_queued": 1}})
+        session.add(DownloadJob(
+            id="staged-download", user_id="user-a", source_url="https://example.com/download",
+            status="staged", format_selection={}, output_profile={},
+        ))
+        session.commit()
+        with pytest.raises(LiveRecordingLimitError, match="acquisitions waiting"):
+            _begin(service=LiveRecordingService(session), session=session, user_id="user-a")
+
+
+def test_recording_start_stays_queued_while_member_download_is_running() -> None:
+    factory = _session_factory()
+    with factory() as session:
+        seed_app_settings(session, resource_policy={"defaults": {"download_running": 1}})
+        recording = _begin(LiveRecordingService(session), session, "user-a").recording
+        session.add(DownloadJob(
+            id="running-download", user_id="user-a", source_url="https://example.com/download",
+            status="running", format_selection={}, output_profile={},
+        ))
+        session.commit()
+        LiveRecordingService(session).mark_recording_started(recording.id)
+        session.commit()
+        session.refresh(recording)
+        assert recording.status == "queued"
+
+
+def test_capture_claims_members_round_robin_with_member_fifo() -> None:
+    factory = _session_factory()
+    with factory() as session:
+        seed_app_settings(session, resource_policy={"defaults": {"download_running": 0}})
+        service = LiveRecordingService(session, max_active_per_user=10, max_active_global=10)
+        rows = [
+            _begin(service, session, "user-a", identity="youtube:A1", url="https://example.com/a1").recording,
+            _begin(service, session, "user-a", identity="youtube:A2", url="https://example.com/a2").recording,
+            _begin(service, session, "user-b", identity="youtube:B1", url="https://example.com/b1").recording,
+            _begin(service, session, "user-b", identity="youtube:B2", url="https://example.com/b2").recording,
+        ]
+        last_user_id = None
+        claimed: list[str] = []
+        for _ in rows:
+            recording = service.claim_next_capture(last_user_id)
+            assert recording is not None
+            claimed.append(recording.id)
+            last_user_id = recording.user_id
+        assert claimed == [rows[0].id, rows[2].id, rows[1].id, rows[3].id]
+
+
 # -- lifecycle transitions --------------------------------------------------
 
 
@@ -196,6 +247,22 @@ def test_request_cancel_sets_cancel_intent() -> None:
         session.refresh(recording)
         assert recording.cancel_requested is True
         assert recording.stop_requested is False
+
+
+def test_cancelled_queued_recording_releases_its_waiting_allowance() -> None:
+    factory = _session_factory()
+    with factory() as session:
+        seed_app_settings(session, resource_policy={"defaults": {"download_queued": 1}})
+        service = LiveRecordingService(session)
+        recording = _begin(service, session, "user-a").recording
+        service.request_cancel(_user(session, "user-a"), recording.id)
+        session.commit()
+        session.refresh(recording)
+        assert recording.status == "cancelled"
+        replacement = _begin(
+            service, session, "user-a", identity="youtube:LIVE2", url="https://example.com/live2",
+        )
+        assert replacement.created is True
 
 
 def test_stop_and_cancel_reject_other_members() -> None:

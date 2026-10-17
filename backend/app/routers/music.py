@@ -19,7 +19,7 @@ from app.music_schemas import CastControl, CastRequest, LyricsEdit, MusicArtwork
 from app.persistence import write_transaction
 from app.routers.titles import visible_title_or_404
 from app.security import get_admin_user, get_current_user
-from app.services import music_audio, music_curation, music_library, music_playlists, music_providers, music_videos, public_address, screen_time
+from app.services import resource_policy, music_audio, music_curation, music_library, music_playlists, music_providers, music_videos, public_address, screen_time
 from app.services.library import LibraryService
 from app.services.media_response import MediaFileResponse
 from app.services.metadata_editor import Batch, can_edit_details, get_detail_editor, write_user_field
@@ -47,6 +47,29 @@ def _music_audio_response(playback, *, headers: dict[str, str]) -> MediaFileResp
         return _MusicAudioResponse(path, media_type=content_type, headers=headers, release=release)
     except BaseException:
         release()
+        raise
+
+
+def _guard_music_resources(db: Session, request: Request, user: User, item: LibraryItem, playback, device: str) -> None:
+    from app.services.media_probe import MediaProbeService
+    from app.services.playback_decision import ANY, ClientCaps, DirectProfile
+    from app.services.playback_resources import playback_resources
+    if not playback_resources.enabled(db):
+        return
+    try:
+        facts = dict(MediaProbeService(db).facts(item))
+        path, _content_type = playback
+        duration = facts.get("duration")
+        # Compatibility WAV/FLAC can be larger than the source. Budget the file actually sent.
+        facts["bit_rate"] = int(path.stat().st_size * 8 / duration) if duration and duration > 0 else None
+        caps = ClientCaps(direct=(DirectProfile(ANY, ANY, ANY),), video={}, audio=ANY)
+        admission = playback_resources.admit_direct(db, user, request, item.id, device, facts, caps)
+        if admission is not None and admission.decision.mode != "direct":
+            playback_resources.release(admission)
+            raise HTTPException(409, "This audio format cannot fit the household playback bandwidth. Choose a smaller format or download it first.")
+        request.state.playback_admission = admission
+    except BaseException:
+        getattr(playback, "release", lambda: None)()
         raise
 
 
@@ -78,7 +101,7 @@ def highlights(title_id: str, limit: int = Query(8, ge=1, le=50), user: User = D
     return music_library.manifests(db, user, items)
 
 
-def audio(item_id: str, format_: Literal["native", "flac", "wav"] = Query("native", alias="format"),
+def audio(item_id: str, request: Request, format_: Literal["native", "flac", "wav"] = Query("native", alias="format"),
           download: bool = False, user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> MediaFileResponse:
     item = music_library.visible_tracks(db, user, [item_id])[0]
     screen_time.enforce(db, user)
@@ -90,6 +113,8 @@ def audio(item_id: str, format_: Literal["native", "flac", "wav"] = Query("nativ
         playback = music_audio.playback_file(path, format_)
     except (FileNotFoundError, OSError) as error:
         raise HTTPException(404, "Track is unavailable") from error
+    if not download and request.method != "HEAD":
+        _guard_music_resources(db, request, user, item, playback, resource_policy.playback_device(request))
     return _music_audio_response(playback, headers={"Cache-Control": "private, max-age=600"})
 
 
@@ -302,13 +327,16 @@ def _cast_access(db: Session, ticket_id: str, item_id: str, token: str | None) -
     return ticket, user, item
 
 
-def cast_audio(ticket_id: str, item_id: str, token: str | None = Query(None, max_length=100), db: Session = Depends(get_db, scope="function")) -> MediaFileResponse:
+def cast_audio(ticket_id: str, item_id: str, request: Request, token: str | None = Query(None, max_length=100), db: Session = Depends(get_db, scope="function")) -> MediaFileResponse:
     ticket, user, item = _cast_access(db, ticket_id, item_id, token)
+    request.state.resource_user_id = user.id
     screen_time.enforce(db, user)
     try:
         playback = music_audio.playback_file(LibraryService(db).resolve_media_path(item), ticket.output_format)
     except (OSError, FileNotFoundError) as error:
         raise HTTPException(404, "Track is unavailable") from error
+    if request.method != "HEAD":
+        _guard_music_resources(db, request, user, item, playback, f"cast:{ticket.id}")
     return _music_audio_response(playback, headers={"Cache-Control": "no-store"})
 
 
@@ -420,9 +448,10 @@ def register(app: FastAPI, artwork=None) -> None:  # noqa: ANN001
     def file_writeback(body: MusicPlanApply, user: User = Depends(get_admin_user), db: Session = Depends(get_db, scope="function")) -> dict:
         return music_curation.apply_writeback(db, user, body.plan_id, artwork)
 
-    def cast_artwork(ticket_id: str, item_id: str, token: str | None = Query(None, max_length=100), db: Session = Depends(get_db, scope="function")) -> Response:
+    def cast_artwork(ticket_id: str, item_id: str, request: Request, token: str | None = Query(None, max_length=100), db: Session = Depends(get_db, scope="function")) -> Response:
         from app.services.titles import title_image_bytes
         _ticket, user, item = _cast_access(db, ticket_id, item_id, token)
+        request.state.resource_user_id = user.id
         title = visible_title_or_404(db, item.title_id, user) if item.title_id else None
         if title is None or title.type != "album":
             raise HTTPException(404, "Album artwork not found")

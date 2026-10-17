@@ -2301,3 +2301,23 @@ export interface ActivityHistoryRow {
   stopped_by_admin: boolean;
 }
 export interface ActivityHistoryPage { items: ActivityHistoryRow[]; next_before: string | null }
+
+/** Household resource budgets use integer bits/second; zero member values mean unlimited. */
+export interface ResourceAllowances {
+  remote_stream_bps: number;
+  remote_member_bps: number;
+  playback_sessions: number;
+  video_encodes: number;
+  download_running: number;
+  download_queued: number;
+  ai_running: number;
+  ai_queued: number;
+}
+export interface HouseholdResources {
+  upload_bps: number | null;
+  lan_networks: string[];
+  defaults: ResourceAllowances;
+}
+export type ResourceOverrides = Partial<ResourceAllowances>;
+export interface MemberResources { overrides: ResourceOverrides; effective: ResourceAllowances }
+export interface ResourceJob { id: string; kind: string; state: string }

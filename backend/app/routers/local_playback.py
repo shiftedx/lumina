@@ -23,6 +23,7 @@ from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService, loudness_gain_db, media_tool
 from app.services.media_response import MediaFileResponse, pinned_media_file_response
 from app.services.playback_decision import RUNGS, ClientCaps, Limits, caps_from_browser_profiles, decide
+from app.services.playback_resources import Admission, playback_resources
 from app.services.playback_log import log_playback
 from app.services.probe_warming import probe_warming
 from app.services.transcripts import TranscriptService
@@ -109,7 +110,15 @@ def _version(db: Session, user: User, item: LibraryItem, version_id: str | None)
     return other
 
 
-def get_local_playback(item_id: str, profiles: str | None = Query(None, max_length=2048), current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> LocalPlaybackResponse:
+def _playback_device(db: Session, request: Request) -> str:
+    """Use the credential-bound device only while household reservations apply."""
+    if playback_resources.enabled(db):
+        from app.services.resource_policy import playback_device
+        return playback_device(request)
+    return getattr(request.state, "connected_app_id", None) or "web"
+
+
+def get_local_playback(item_id: str, request: Request, profiles: str | None = Query(None, max_length=2048), current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> LocalPlaybackResponse:
     item = visible_item_or_404(db, item_id, current_user)
     screen_time.enforce(db, current_user, fresh=True)  # the web player asks this before every start, direct play too
     try:
@@ -121,7 +130,15 @@ def get_local_playback(item_id: str, profiles: str | None = Query(None, max_leng
     if "loudness" not in facts:
         probe_warming.prioritize(item.id)  # someone is about to watch it: measure it next
     limits = playback_limits(db, current_user.id, facts)
-    decision = decide(browser_caps(profiles), facts, limits)
+    caps = browser_caps(profiles)
+    decision = decide(caps, facts, limits)
+    if playback_resources.enabled(db):
+        device = _playback_device(db, request)
+        decision = playback_resources.preview(
+            db, current_user, request, item.id, device, facts, caps,
+            max_height=limits.max_height, max_bitrate=limits.max_bitrate,
+            logical_id=(f"web:{item.id}", "direct"),
+        ).decision
     return LocalPlaybackResponse(
         mode=decision.mode, reason=",".join(decision.reasons) or None, facts=MediaFacts(**facts),
         audio_tracks=audio_tracks(facts), quality_heights=quality_heights(facts, limits.max_height),
@@ -133,7 +150,7 @@ def get_local_playback(item_id: str, profiles: str | None = Query(None, max_leng
 def open_session(
     db: Session, user: User, item: LibraryItem, *, caps: ClientCaps, request: PlaybackSessionRequest | None = None, start: float = 0,
     device: str = "web", play_session_id: str | None = None, max_bitrate: int | None = None, audio_gain_db: float | None = None,
-    seekable: bool = False,
+    seekable: bool = False, http_request: Request | None = None,
 ) -> PlaybackSession:
     """Start or reuse the conversion of one visible item (web route and Jellyfin master.m3u8). Closes ``db`` before waiting.
 
@@ -152,13 +169,25 @@ def open_session(
         raise HTTPException(status_code=409, detail="This file has no playable audio or video.")
     subtitle = request.subtitle or ""
     subtitle_index = int(subtitle[2:]) if subtitle.startswith("i:") else None  # text tracks are sidecars, never burned in
-    decision = decide(caps, facts, playback_limits(db, user.id, facts, request.max_height, max_bitrate), request.audio_index, subtitle_index)
+    limits = playback_limits(db, user.id, facts, request.max_height, max_bitrate)
+    decision = decide(caps, facts, limits, request.audio_index, subtitle_index)
+    admission: Admission | None = None
+    if http_request is not None and playback_resources.enabled(db):
+        admission = playback_resources.admit(
+            db, user, http_request, item.id, device, play_session_id or f"web:{item.id}", facts, caps,
+            max_height=limits.max_height, max_bitrate=limits.max_bitrate,
+            audio_index=request.audio_index, subtitle_index=subtitle_index,
+        )
+        decision = admission.decision
     if decision.mode == "direct":
+        playback_resources.restore(admission)
         raise HTTPException(status_code=409, detail="This file does not need conversion.")
     if decision.mode == "unavailable":
+        playback_resources.restore(admission)
         raise HTTPException(status_code=409, detail="This file cannot be converted for playback on this server.")
     ffmpeg = media_tool(db, "ffmpeg")
     if not ffmpeg:
+        playback_resources.restore(admission)
         raise HTTPException(status_code=503, detail="ffmpeg is not available on this server.")
     ffprobe = media_tool(db, "ffprobe")
     record = db.get(AppSettings, 1)
@@ -175,14 +204,20 @@ def open_session(
             user_id=user_id, item_id=item_id, ffmpeg=ffmpeg, source=source, facts=facts, decision=decision, cap=cap,
             start=0 if seekable else start, plan=plan, resume=start if plan else 0,
             device=device, play_session_id=play_session_id, hwaccel_mode=hwaccel_mode, min_free_bytes=min_free,
-            cache_cap_bytes=cache_cap, audio_gain_db=audio_gain_db, ffprobe=ffprobe,
+            cache_cap_bytes=cache_cap, audio_gain_db=audio_gain_db, ffprobe=ffprobe, resource_admission=admission,
         )
     except SupersededError as exc:  # the member's newer request owns the device slot; this caller already moved on
+        playback_resources.restore(admission)
         log_playback("local_playback.start", "superseded", item=item_id, mode=decision.mode, duration_ms=round((time.monotonic() - started) * 1000))
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (SessionCapError, ConversionError) as exc:
+        playback_resources.restore(admission)
         log_playback("local_playback.start", "busy" if isinstance(exc, SessionCapError) else "failed", item=item_id, mode=decision.mode, duration_ms=round((time.monotonic() - started) * 1000), error=f'"{exc}"')
         raise HTTPException(status_code=429 if isinstance(exc, SessionCapError) else 502, detail=str(exc)) from exc
+    # A same-rendition seek can reuse this session or replace its predecessor.
+    # In both cases its cleanup must own the admission token just committed.
+    session.resource_admission = admission
+    playback_resources.commit(admission)
     log_playback("local_playback.start", "started", playback=session.id[:8], item=item_id, mode=session.mode, kind=session.kind, duration_ms=round((time.monotonic() - started) * 1000))
     return session
 
@@ -192,8 +227,8 @@ def start_playback_session(
     profiles: str | None = Query(None, max_length=2048), current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function"),
 ) -> PlaybackSessionResponse:
     item = visible_item_or_404(db, item_id, current_user)
-    device = getattr(request.state, "connected_app_id", None) or "web"  # Set for connected-app tokens
-    session = open_session(db, current_user, item, caps=browser_caps(profiles), request=payload, start=start, device=device)
+    device = _playback_device(db, request)
+    session = open_session(db, current_user, item, caps=browser_caps(profiles), request=payload, start=start, device=device, http_request=request)
     return PlaybackSessionResponse(session_id=session.id, mode=session.mode, playback_url=f"/api/playback-sessions/{session.id}/index.m3u8", start=session.media_start, kind=session.kind)
 
 
@@ -201,6 +236,7 @@ def get_playback_session_file(session_id: str, name: str, current_user: User = D
     session = sessions.get(session_id, current_user.id)
     if session is None:
         raise HTTPException(status_code=404, detail="Playback session not found")
+    playback_resources.touch(session.resource_admission)
     # Every file (not just the manifest) re-checks access: one indexed lookup.
     if LibraryService(db).get_item(session.item_id, current_user) is None:
         sessions.stop(session_id)  # access was revoked since the session started

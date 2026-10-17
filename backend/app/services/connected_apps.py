@@ -337,6 +337,7 @@ def _jellyfin_snapshot(
     if any(parse_item_id(value) != parse_item_id(user.id) for value in claimed):
         raise HTTPException(status_code=404, detail="Not Found")
     request.state.connected_app_id = record.id
+    request.state.resource_user_id = user.id
     if presented:
         image_grants.put(grant_address(request), [IMAGE_GRANT_KEY], presented)
     snapshot = User(id=user.id, username=user.username, display_name=user.display_name, role=user.role, is_active=user.is_active)

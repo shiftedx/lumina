@@ -100,6 +100,7 @@ class PlaybackSession:
     respawn: Callable[[HlsRun], subprocess.Popen] | None = None
     run: HlsRun | None = None  # what the current ffmpeg child writes
     seek_lock: threading.Lock = field(default_factory=threading.Lock)
+    resource_admission: Any = None
 
 
 def describe_decision(decision: Decision, facts: dict[str, Any]) -> dict[str, Any]:
@@ -348,7 +349,7 @@ class LocalPlaybackSessions:
         self, *, user_id: str, item_id: str, ffmpeg: str, source: Path, facts: dict[str, Any], decision: Decision, cap: int,
         start: float = 0, device: str = "web", play_session_id: str | None = None, hwaccel_mode: str = "auto",
         min_free_bytes: int = 0, cache_cap_bytes: int | None = None, audio_gain_db: float | None = None, ffprobe: str | None = None,
-        plan: Plan | None = None, resume: float = 0,
+        plan: Plan | None = None, resume: float = 0, resource_admission: Any = None,
     ) -> PlaybackSession:
         """``plan`` makes the session seekable (Jellyfin clients): ffmpeg starts at the segment holding ``resume`` seconds."""
         if decision.mode == "unavailable":  # nothing to map: ffmpeg would fail anyway
@@ -365,7 +366,7 @@ class LocalPlaybackSessions:
         spawn = functools.partial(
             self._spawn, user_id=user_id, item_id=item_id, device=device, play_session_id=play_session_id, ffmpeg=ffmpeg,
             source=source, facts=facts, decision=decision, start=start, audio_gain_db=audio_gain_db, key=key,
-            plan=plan, run=plan.run_for(plan.index_at(resume)) if plan else None,
+            plan=plan, run=plan.run_for(plan.index_at(resume)) if plan else None, resource_admission=resource_admission,
         )
         with self._lock:
             for session in self._sessions.values():
@@ -415,7 +416,7 @@ class LocalPlaybackSessions:
     def _spawn(
         self, *, user_id: str, item_id: str, device: str, play_session_id: str | None, ffmpeg: str, source: Path,
         facts: dict[str, Any], decision: Decision, start: float, audio_gain_db: float | None, key: tuple, hw: str, tonemap: str,
-        plan: Plan | None = None, run: HlsRun | None = None,
+        plan: Plan | None = None, run: HlsRun | None = None, resource_admission: Any = None,
     ) -> PlaybackSession:
         """Launch one ffmpeg child in a fresh directory. The caller holds the lock."""
         session_id = secrets.token_urlsafe(24)
@@ -437,6 +438,7 @@ class LocalPlaybackSessions:
             session_id, user_id, item_id, decision.mode, directory, process, start, start,
             device=device, play_session_id=play_session_id, kind=kind, key=key, bandwidth=bandwidth,
             hw=hw, info=describe_decision(decision, facts), plan=plan, run=run, respawn=launch if plan else None,
+            resource_admission=resource_admission,
         )
         self._sessions[session_id] = session
         return session
@@ -677,12 +679,18 @@ class LocalPlaybackSessions:
             sessions = list(self._sessions.values())
             self._sessions.clear()
         for session in sessions:
+            if session.resource_admission is not None:
+                from app.services.playback_resources import playback_resources
+                playback_resources.release(session.resource_admission)
             _terminate(session.process)
         for root in {session_root(), settings.data_dir / "playback-sessions"}:
             shutil.rmtree(root, ignore_errors=True)  # includes disk derivatives left before a RAM-storage upgrade
 
     @staticmethod
     def _dispose(session: PlaybackSession) -> None:
+        if session.resource_admission is not None:
+            from app.services.playback_resources import playback_resources
+            playback_resources.release(session.resource_admission)
         if on_session_end is not None:
             try:
                 on_session_end(session)

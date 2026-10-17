@@ -74,6 +74,8 @@ def _wall(utc_ts: float) -> datetime:
 def block(user_id: str, item_id: str, device: str) -> None:
     with _lock:
         _blocked[(user_id, item_id, device)] = _clock() + BLOCK_SECONDS
+    from app.services.playback_resources import playback_resources
+    playback_resources.release_direct(user_id, item_id, device)
 
 
 def guard(user_id: str, item_id: str, device: str) -> None:
@@ -91,6 +93,8 @@ def guard(user_id: str, item_id: str, device: str) -> None:
 
 def touch(user_id: str, item_id: str, device: str = WEB, *, position: float | None = None, duration: float | None = None) -> None:
     """A progress report or media request for (member, item, device) arrived."""
+    from app.services.playback_resources import playback_resources
+    playback_resources.touch_direct(user_id, item_id, device)
     key, now = (user_id, item_id, device), _clock()
     with _lock:
         if _blocked.get(key, 0) > now or now - _recent_end.get(key, 0) < RECENT_END_SECONDS:
@@ -111,6 +115,8 @@ def finish(user_id: str, item_id: str, device: str = WEB) -> None:
     """The player reported it stopped (Jellyfin /Sessions/Playing/Stopped)."""
     with _lock:
         entry = _direct.pop((user_id, item_id, device), None)
+    from app.services.playback_resources import playback_resources
+    playback_resources.release_direct(user_id, item_id, device)
     if entry is not None and sessions.for_device(user_id, device, item_id) is None:
         _record_direct(entry, ended=entry.last_seen, by_admin=False)
 
@@ -160,8 +166,8 @@ def _label(db: Session, item_id: str | None) -> dict[str, Any]:
 
 def _client(db: Session, device: str, cache: dict[str, dict]) -> dict[str, Any]:
     if device not in cache:
-        if device == WEB:
-            cache[device] = {"kind": "web", "name": "Lumina web", "device": None}
+        if device == WEB or device.startswith("browser:"):
+            cache[device] = {"kind": "web", "name": "Lumina web", "device": "Web" if device.startswith("browser:") else None}
         else:
             token = db.get(DeviceToken, device)
             cache[device] = {"kind": "app", "name": (token.client if token else None) or "App", "device": token.device_name if token else None}

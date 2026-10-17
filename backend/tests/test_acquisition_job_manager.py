@@ -19,9 +19,9 @@ from app.services.acquisition_batch import (
     RedactedDispatchFailure,
     SelectedSourceEntry,
 )
-from app.services.job_manager import JobManager
+from app.services.job_manager import JobAdmissionError, JobManager
 from app.services.yt_dlp_service import YtDlpService
-from support import memory_session_factory
+from support import memory_session_factory, seed_app_settings
 
 
 _factory = memory_session_factory
@@ -77,6 +77,28 @@ def test_adapter_rejects_deterministic_job_collision_without_dispatching() -> No
             format_selection={}, output_profile={}, preview_snapshot={},
         )
     assert manager._queue.empty()
+
+
+def test_adapter_replay_keeps_existing_link_when_member_waiting_capacity_is_full() -> None:
+    sessions = _factory()
+    manager = JobManager(EventBus())
+    manager.acquisition.session_factory = sessions
+    with sessions() as db:
+        seed_app_settings(db, resource_policy={"defaults": {"download_queued": 1}})
+        first = manager.acquisition.ensure_dispatched(
+            idempotency_key="first", batch_id="batch", batch_entry_id="first", user_id="member-a",
+            source_url="https://example.test/first", format_selection={}, output_profile={}, preview_snapshot={},
+        )
+        replay = manager.acquisition.ensure_dispatched(
+            idempotency_key="first", batch_id="batch", batch_entry_id="first", user_id="member-a",
+            source_url="https://example.test/first", format_selection={}, output_profile={}, preview_snapshot={},
+        )
+        assert replay.download_job_id == first.download_job_id
+        with pytest.raises(JobAdmissionError, match="downloads waiting"):
+            manager.acquisition.ensure_dispatched(
+                idempotency_key="second", batch_id="batch", batch_entry_id="second", user_id="member-a",
+                source_url="https://example.test/second", format_selection={}, output_profile={}, preview_snapshot={},
+            )
 
 
 def test_concurrent_activation_claims_and_enqueues_linked_job_once(tmp_path) -> None:  # noqa: ANN001

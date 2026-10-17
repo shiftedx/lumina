@@ -242,6 +242,10 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "CREATE INDEX IF NOT EXISTS ix_book_items_bundle_parent_id ON book_items (bundle_parent_id)",
         "CREATE INDEX IF NOT EXISTS ix_book_items_deleted_at ON book_items (deleted_at)",
     ),
+    22: (
+        "ALTER TABLE app_settings ADD COLUMN resource_policy JSON NOT NULL DEFAULT '{}'",
+        "ALTER TABLE users ADD COLUMN resource_overrides JSON NOT NULL DEFAULT '{}'",
+    ),
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

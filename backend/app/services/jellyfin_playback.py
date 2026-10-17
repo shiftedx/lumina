@@ -16,6 +16,7 @@ from typing import Any, Literal
 from urllib.parse import urlencode
 
 from sqlalchemy.orm import Session
+from fastapi import Request
 
 from app.models import DeviceToken, LibraryItem, User
 from app.routers.local_playback import playback_limits
@@ -25,6 +26,7 @@ from app.services.library import LibraryService
 from app.services.media_probe import MediaProbeService, media_tool
 from app.services.media_titles import from_ticks, jellyfin_id, parse_item_id
 from app.services.playback_decision import caps_from_device_profile, decide
+from app.services.playback_resources import playback_resources
 from app.services.transcripts import TranscriptService, jellyfin_subtitle_streams
 
 PLAY_SESSION_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -164,10 +166,10 @@ def external_subtitle_urls(sources: list[dict[str, Any]], profile: Mapping[str, 
 
 def annotate_media_sources(
     db: Session, user: User, device: str, api_key: str, sources: list[dict[str, Any]],
-    request: PlaybackRequest, play_session_id: str,
+    request: PlaybackRequest, play_session_id: str, http_request: Request | None = None,
 ) -> None:
     """Fill each MediaSource's direct/transcode fields from ``decide()`` and remember the transcodes."""
-    if request.profile is None and request.enable_direct_play:
+    if request.profile is None and request.enable_direct_play and not (http_request is not None and playback_resources.enabled(db)):
         return  # GET PlaybackInfo or no DeviceProfile: direct-play defaults stand
     external_subtitle_urls(sources, request.profile or {})
     caps = caps_from_device_profile(request.profile)  # D: never raises; unknown conditions are ignored
@@ -204,7 +206,17 @@ def annotate_media_sources(
         limits = playback_limits(db, user.id, facts, max_bitrate=request.max_bitrate)
         decision = decide(caps, facts, limits, audio, subtitle)
         if decision.mode in ("remux", "transcode") and hls_caps is not caps:
+            caps = hls_caps
             decision = decide(hls_caps, facts, limits, audio, subtitle)
+        if http_request is not None and playback_resources.enabled(db):
+            # This must run after the Roku/HLS fallback so PlaybackInfo advertises
+            # the same constrained rendition that master-playlist admission starts.
+            decision = playback_resources.preview(
+                db, user, http_request, item.id, device, facts, caps,
+                max_height=limits.max_height, max_bitrate=limits.max_bitrate,
+                audio_index=audio, subtitle_index=subtitle,
+                logical_id=(play_session_id, "direct"),
+            ).decision
         source.update(transcoding_fields(
             decision, item_id=jellyfin_id(item.id), play_session_id=play_session_id, api_key=api_key,
             audio_index=audio, subtitle_index=subtitle,

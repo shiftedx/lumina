@@ -125,6 +125,83 @@ def test_scheduling_starts_in_waiting_and_runs_the_waiter() -> None:
     assert recorder.calls[0]["from_start_supported"] is True
 
 
+def test_wait_all_joins_scheduled_work_while_it_starts(monkeypatch) -> None:
+    """The public lifecycle waits through a scheduled recording's worker launch."""
+    factory = _factory()
+    schedule_waiter = _FakeWaiter(WaitDecision(WaitOutcome.READY, from_start_supported=True))
+    recorder = _FromStartRecorder(
+        LiveMediaResult(
+            status="completed",
+            library_item_id="item",
+            capture_origin="source_beginning",
+            media_history_complete=True,
+            from_start_supported=True,
+        )
+    )
+    manager = _manager(
+        factory,
+        waiter=schedule_waiter,
+        recorder=recorder,
+        capturer=_FakeCapturer(LiveChatResult(status="completed", chat_asset_id="chat", covered_from_start=False)),
+    )
+    start_entered = threading.Event()
+    release_start = threading.Event()
+    wait_all_entered = threading.Event()
+    wait_all_finished = threading.Event()
+    start_lock_state: list[bool] = []  # controls the old/new interleaving only
+    errors: list[BaseException] = []
+    claims = []
+    original_start = threading.Thread.start
+
+    def gated_start(worker: threading.Thread) -> None:
+        if worker.name.startswith("live-rec-") and not start_entered.is_set():
+            # Hold the first managed worker at the publication/start boundary.
+            # The lock state only controls the deterministic test ordering.
+            start_lock_state.append(manager._lock.locked())
+            start_entered.set()
+            assert release_start.wait(timeout=5)
+        original_start(worker)
+
+    monkeypatch.setattr(threading.Thread, "start", gated_start)
+
+    def schedule() -> None:
+        try:
+            claims.append(_schedule(manager, factory))
+        except BaseException as exc:  # surfaced below from the helper thread
+            errors.append(exc)
+
+    launcher = threading.Thread(target=schedule, name="test-scheduler")
+    launcher.start()
+    assert start_entered.wait(timeout=5)
+
+    def wait_for_workers() -> None:
+        wait_all_entered.set()
+        try:
+            manager.wait_all(timeout=5)
+        except BaseException as exc:  # a pre-start join is the regression
+            errors.append(exc)
+        finally:
+            wait_all_finished.set()
+
+    wait_all_thread = threading.Thread(target=wait_for_workers, name="test-waiter")
+    wait_all_thread.start()
+    assert wait_all_entered.wait(timeout=5)
+    if start_lock_state == [False]:
+        # Old placement publishes an unstarted worker outside the manager lock;
+        # wait_all deterministically reaches Thread.join and fails before start.
+        assert wait_all_finished.wait(timeout=5)
+    release_start.set()
+    launcher.join(timeout=5)
+    wait_all_thread.join(timeout=5)
+    manager.wait_all(timeout=5)
+
+    assert not launcher.is_alive()
+    assert not wait_all_thread.is_alive()
+    assert errors == []
+    assert len(claims) == 1
+    assert _row(factory, claims[0].recording_id).status == "partial"
+
+
 def test_no_duplicate_waiter_for_the_same_member_and_source() -> None:
     factory = _factory()
     waiter = _FakeWaiter(WaitDecision(WaitOutcome.READY, from_start_supported=False))

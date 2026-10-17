@@ -322,3 +322,43 @@ def test_youtube_identity_with_a_twitch_url_refresh_still_never_backfills() -> N
             "youtube:FAKEVIDEO01", "https://www.twitch.tv/videos/123456789", _user(session, "user-a"), refresh=True
         )
         assert ticket.build_id is None
+
+
+def test_custom_emotes_survive_storage_and_remap_after_registry_restart() -> None:
+    factory = _session_factory()
+    line = json.loads(_add_line(1000, "emote", "unused"))
+    renderer = line["replayChatItemAction"]["actions"][0]["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]
+    renderer["message"] = {"runs": [
+        {"text": "😀 "},
+        {"emoji": {"isCustomEmoji": True, "emojiId": "custom-id", "shortcuts": [":party:"],
+                   "image": {"thumbnails": [{"url": "https://images.example.com/emote.png", "width": 32}]}}},
+    ]}
+    fetch = ReplayChatFetch(status="available", lines=[json.dumps(line).encode()])
+    with factory() as session:
+        service = TimedChatAssetService(session, artwork_url_resolver=lambda url: "/api/artwork/remote/first")
+        response = _build(service, session, "user-a", "youtube:vid", "https://youtu.be/vid", fetch)
+        assert response.events[0].text == "😀 :party:"
+        assert response.events[0].emotes[0].start == 2
+        assert response.events[0].emotes[0].artwork_url == "/api/artwork/remote/first"
+        asset = session.query(ChatReplayAsset).one()
+        assert asset.events_json[0]["emotes"][0]["image_url"] == "https://images.example.com/emote.png"
+        restarted = TimedChatAssetService(session, artwork_url_resolver=lambda url: "/api/artwork/remote/second")
+        response = restarted.serialize(asset)
+        assert response.events[0].emotes[0].artwork_url == "/api/artwork/remote/second"
+        assert "images.example.com" not in response.model_dump_json()
+        assert TimedChatAssetService(session).serialize(asset).events[0].emotes == []
+
+
+def test_stored_invalid_and_moderated_emotes_do_not_reach_artwork_resolver() -> None:
+    factory = _session_factory()
+    calls = []
+    with factory() as session:
+        service = TimedChatAssetService(session, artwork_url_resolver=lambda url: calls.append(url))
+        for metadata in [{"start": True, "end": 1, "label": "x", "image_url": "https://example.com/a.png"},
+                         {"start": 0, "end": 5000, "label": "x", "image_url": "https://example.com/a.png"}]:
+            event = service._event({"id": "m", "text": "x", "emotes": [metadata]})
+            assert event.emotes == []
+        event = service._event({"id": "m", "text": "x", "moderation": "deleted", "emotes": [
+            {"start": 0, "end": 1, "label": "x", "image_url": "https://example.com/a.png"}]})
+        assert event.emotes == []
+        assert calls == []

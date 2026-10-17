@@ -27,8 +27,8 @@ const pendingReleases = new Map<string, ReturnType<typeof globalThis.setTimeout>
 const playbackFailureMessage = 'The stream could not be played. You can still download it to the vault.';
 const AUTO = 'auto';
 const hlsPinUnavailableMessage = 'The selected quality is no longer available. Refresh the stream to try again.';
-/** A start estimate above any rung, so dash.js begins at the highest one (kb/s). */
-export const DASH_TOP_RUNG_KBPS = 1_000_000;
+/** Start conservatively, then let measured-throughput ABR ramp without a quality cap. */
+export const AUTO_START_BANDWIDTH_BPS = 1_000_000;
 // Streams whose Switch to Auto suggestion was already offered: at most once per video session.
 const autoSuggestedStreams = new Set<string>();
 // Set once hls.js has loaded; until then it drives no element, so native recovery applies.
@@ -343,8 +343,7 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
       }
       const player = new Hls({
         enableWorker: true,
-        // A home-LAN bandwidth guess (20 Mb/s) so ABR does not drop below the top rung before it has measured anything.
-        abrEwmaDefaultEstimate: 20_000_000,
+        abrEwmaDefaultEstimate: AUTO_START_BANDWIDTH_BPS,
         // With two segments buffered, judge a level by its segments' measured bitrate, not its declared peak: YouTube
         // live declares 1080p at 5.4 Mb/s for ~0.8 Mb/s of segments, whose slow small transfers then read as a shortfall.
         abrMaxWithRealBitrate: true,
@@ -356,7 +355,6 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
       hlsRef.current = player;
       player.loadSource(url);
       player.attachMedia(video);
-      // Owner rule: start at the highest fidelity and only step down on real bandwidth or buffering trouble (ABR).
       player.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
         globalThis.performance?.mark?.('lumina:manifest-parsed');
         // Levels come ordered by bitrate: the last one of each height is its best.
@@ -378,7 +376,6 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
         } else {
           hlsPinRef.current = null;
           hlsPickRef.current = null;
-          if (data.levels.length > 1) player.startLevel = data.levels.length - 1;
           setHlsChoice(AUTO);
         }
       });
@@ -443,10 +440,10 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
           setPreparing(false);
           setPlaybackProblem('This browser cannot decode the selected quality. Choose another quality to continue.');
         });
-        // Start at the top, then use measured segment throughput to recover without buffer-driven overshoots.
+        // Start conservatively, then use measured segment throughput to ramp without a permanent quality cap.
         // The corrected model excludes index probes and stale Resource Timing; the other safety rules stay active.
         if (autoMode) {
-          player.updateSettings({ streaming: { abr: { initialBitrate: { video: DASH_TOP_RUNG_KBPS }, rules: { throughputRule: { active: true }, bolaRule: { active: false }, droppedFramesRule: { active: true } } } } });
+          player.updateSettings({ streaming: { abr: { initialBitrate: { video: AUTO_START_BANDWIDTH_BPS / 1000 }, rules: { throughputRule: { active: true }, bolaRule: { active: false }, droppedFramesRule: { active: true } } } } });
         }
         const resume = resumeAfterSelectionRef.current;
         player.initialize(

@@ -1,7 +1,10 @@
 """File response tuned for video-sized local and cached playback bodies."""
+import os
+import tempfile
 from collections.abc import Callable, Iterable
 from contextvars import ContextVar
-from typing import BinaryIO
+from pathlib import Path
+from typing import Any, BinaryIO, ContextManager
 
 import anyio
 from fastapi.responses import FileResponse, StreamingResponse
@@ -87,6 +90,50 @@ class MediaFileResponse(FileResponse):
                     with anyio.CancelScope(shield=True):
                         await anyio.to_thread.run_sync(file.close)
             group.cancel_scope.cancel()
+
+
+class PinnedMediaFileResponse(MediaFileResponse):
+    """Stream a hard-linked playback segment that seek/reap cleanup cannot unlink mid-response."""
+
+    def __init__(self, path: Path, pin: tempfile.TemporaryDirectory[str], **kwargs: Any) -> None:
+        self._pin = pin
+        super().__init__(path, **kwargs)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            if "http.response.pathsend" in scope.get("extensions", {}):
+                scope = {**scope, "extensions": {
+                    name: value for name, value in scope["extensions"].items() if name != "http.response.pathsend"
+                }}
+            await super().__call__(scope, receive, send)
+        finally:
+            self._pin.cleanup()
+
+
+def pinned_media_file_response(
+    resolve: Callable[[], Path | None], lock: ContextManager[Any], **kwargs: Any,
+) -> PinnedMediaFileResponse | None:
+    """Resolve then pin a segment without calling a potentially locking resolver under ``lock``."""
+    for _ in range(2):
+        source = resolve()
+        if source is None:
+            return None
+        try:
+            pin = tempfile.TemporaryDirectory(prefix=".response-", dir=source.parent)
+        except FileNotFoundError:
+            continue
+        pinned = Path(pin.name) / source.name
+        try:
+            with lock:
+                os.link(source, pinned)
+        except FileNotFoundError:
+            pin.cleanup()
+            continue
+        except BaseException:
+            pin.cleanup()
+            raise
+        return PinnedMediaFileResponse(pinned, pin, **kwargs)
+    return None
 
 
 

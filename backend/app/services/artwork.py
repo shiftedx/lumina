@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import secrets
 import stat
@@ -18,6 +19,9 @@ from yt_dlp.networking.exceptions import HTTPError
 
 from app.persistence import atomic_write, read_regular_file
 from app.services.network_policy import PolicyYoutubeDL, PublicSourcePolicy, PublicSourcePolicyError
+
+
+logger = logging.getLogger("lumina.artwork")
 
 
 SUPPORTED_ARTWORK_CONTENT_TYPES = frozenset(
@@ -55,8 +59,53 @@ class ArtworkUnavailableError(ArtworkError):
     """An otherwise valid remote artwork source could not be reached."""
 
 
+class ArtworkCacheMissError(ArtworkUnavailableError):
+    """An offline reader has no cached copy; no upstream fetch was attempted."""
+
+
 class ArtworkCapacityError(ArtworkError):
     """The bounded remote artwork registry has no safe slot available."""
+
+
+def _failure_exception_name(error: BaseException | None) -> str:
+    if error is None:
+        return "none"
+    seen: set[int] = set()
+    current = error
+    while current is not None and id(current) not in seen:
+        if isinstance(current, TimeoutError):
+            return "TimeoutError"
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    for kind in (PublicSourcePolicyError, ArtworkContentError, ArtworkCapacityError, ArtworkNotFoundError, ArtworkUnavailableError):
+        if isinstance(error, kind):
+            return kind.__name__
+    return "Exception"
+
+
+def _log_remote_fetch_failure(
+    code: str,
+    *,
+    upstream_status: object = None,
+    error: BaseException | None = None,
+) -> None:
+    status = str(upstream_status) if type(upstream_status) is int and 100 <= upstream_status <= 599 else "none"
+    logger.warning(
+        "remote_fetch.failed code=%s upstream_status=%s exception=%s",
+        code,
+        status,
+        _failure_exception_name(error),
+    )
+
+
+def _artwork_error_code(error: ArtworkError) -> str:
+    if isinstance(error, ArtworkContentError):
+        return "content_validation"
+    if isinstance(error, ArtworkCapacityError):
+        return "capacity"
+    if isinstance(error, ArtworkNotFoundError):
+        return "not_found"
+    return "transport_timeout" if _failure_exception_name(error) == "TimeoutError" else "transport_error"
 
 
 @dataclass(frozen=True)
@@ -258,14 +307,23 @@ class ArtworkService:
         self._lock = threading.RLock()
         self._evict_disk_cache(preserve_key=None, now=self._clock())
 
-    def register_remote_artwork(self, provider_artwork_url: str) -> str:
+    def register_remote_artwork(
+        self,
+        provider_artwork_url: str,
+        *,
+        resolved: set[tuple[str, int]] | None = None,
+    ) -> str:
         """Return an opaque ID after validating a public provider artwork URL."""
 
         # Known sources were validated on first registration: skip the blocking DNS
         # lookup on repeat hits (validate_url only strips, so the key is stable).
         if (known_id := self._touch_known_source(provider_artwork_url.strip() if isinstance(provider_artwork_url, str) else "")) is not None:
             return known_id
-        source_url = self._public_source_policy.validate_url(provider_artwork_url)
+        source_url = (
+            self._public_source_policy.validate_url(provider_artwork_url)
+            if resolved is None
+            else self._public_source_policy.validate_url(provider_artwork_url, resolved=resolved)
+        )
         now = self._clock()
         with self._lock:
             if (known_id := self._touch_known_source(source_url)) is not None:
@@ -354,6 +412,7 @@ class ArtworkService:
         # concurrency pressure into a permanent thumbnail placeholder.
         if not self._fetch_slots.acquire(timeout=self._coalesced_wait_timeout_seconds):
             error = ArtworkCapacityError("Artwork is busy; try again shortly.")
+            _log_remote_fetch_failure("capacity", error=error)
             with self._lock:
                 flight.error = error
                 self._inflight.pop(artwork_id, None)
@@ -443,7 +502,9 @@ class ArtworkService:
         if before_upstream_fetch is not None:
             before_upstream_fetch()
         if not self._fetch_slots.acquire(timeout=self._coalesced_wait_timeout_seconds):
-            raise ArtworkCapacityError("Artwork is busy; try again shortly.")
+            error = ArtworkCapacityError("Artwork is busy; try again shortly.")
+            _log_remote_fetch_failure("capacity", error=error)
+            raise error
         try:
             result = self._fetch_remote(url, validate_redirect)
         finally:
@@ -463,16 +524,26 @@ class ArtworkService:
         validate = validate_redirect or self._public_source_policy.validate_url
         try:
             response = self._remote_fetcher.fetch(source_url, validate_redirect=validate)
-        except PublicSourcePolicyError:
+        except ArtworkCacheMissError:
             raise
-        except ArtworkError:
+        except PublicSourcePolicyError as exc:
+            _log_remote_fetch_failure("policy", error=exc)
+            raise
+        except ArtworkError as exc:
+            _log_remote_fetch_failure(_artwork_error_code(exc), error=exc)
             raise
         except Exception as exc:
+            code = "transport_timeout" if _failure_exception_name(exc) == "TimeoutError" else "transport_error"
+            _log_remote_fetch_failure(code, error=exc)
             raise ArtworkUnavailableError("Artwork is temporarily unavailable.") from exc
         try:
             if response.final_url is not None:
                 validate(response.final_url)
+            if response.status_code in (404, 410):
+                _log_remote_fetch_failure("upstream_http", upstream_status=response.status_code)
+                raise ArtworkNotFoundError("Artwork is unavailable.")
             if not isinstance(response.status_code, int) or not 200 <= response.status_code < 300:
+                _log_remote_fetch_failure("upstream_http", upstream_status=response.status_code)
                 raise ArtworkUnavailableError("Artwork is temporarily unavailable.")
             if not isinstance(response.content_type, str):
                 raise ArtworkContentError("Artwork must be a supported image type.")
@@ -486,9 +557,17 @@ class ArtworkService:
                 if len(content) + len(chunk) > self._max_artwork_bytes:
                     raise ArtworkContentError("Artwork exceeds the maximum allowed size.")
                 content.extend(chunk)
+        except PublicSourcePolicyError as exc:
+            _log_remote_fetch_failure("policy", error=exc)
+            raise
+        except ArtworkContentError as exc:
+            _log_remote_fetch_failure("content_validation", error=exc)
+            raise
         except ArtworkError:
             raise
         except Exception as exc:
+            code = "transport_timeout" if _failure_exception_name(exc) == "TimeoutError" else "transport_error"
+            _log_remote_fetch_failure(code, error=exc)
             raise ArtworkUnavailableError("Artwork is temporarily unavailable.") from exc
         finally:
             response.close()

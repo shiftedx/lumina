@@ -1,6 +1,8 @@
 """One Enrichment job pipeline (dispatch by kind, pending pump, restart recovery, bulk)."""
 from __future__ import annotations
 
+import signal
+import subprocess
 import threading
 import time
 from datetime import datetime, timedelta
@@ -30,12 +32,21 @@ def items():
         local_asr.jobs.running.clear()
         local_asr.jobs.canceled.clear()
         enrichment._bulk.clear()
+        enrichment._demanded_captions.clear()
+        enrichment._caption_threads.clear()
 
 
 def _job(job_id: str, item_id: str = "i0", state: str = "pending", error: str | None = None, at: int = 0) -> AsrJob:
     return AsrJob(
         id=job_id, library_item_id=item_id, kind="segments", params={}, model_id="segments-v1",
         state=state, error=error, created_at=T0 + timedelta(seconds=at),
+    )
+
+
+def _caption_job(job_id: str, *, requested_by: str | None = None, item_id: str = "i0", at: int = 0) -> AsrJob:
+    return AsrJob(
+        id=job_id, library_item_id=item_id, kind="captions", params={}, model_id="captions-v1",
+        state="pending", requested_by=requested_by, created_at=T0 + timedelta(seconds=at),
     )
 
 
@@ -94,17 +105,384 @@ def test_pump_runs_one_bulk_job_at_a_time(items, monkeypatch: pytest.MonkeyPatch
     assert ran == ["b0", "b1", "b2"] and peak[0] == 1  # each ending bulk job admitted the next
 
 
+def test_automatic_captions_stay_pending_until_the_backfill_window(items, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    ran: list[str] = []
+    monkeypatch.setitem(enrichment.WORKERS, "captions", lambda spec: ran.append(spec.id) or {})
+    with db_module.session_scope() as db:
+        db.add(_caption_job("automatic"))
+
+    assert enrichment.pump_pending() == 0
+    time.sleep(0.1)
+    assert ran == [] and _states()["automatic"] == ("pending", None)
+
+
+def test_caption_bulk_admission_respects_demand_and_activity(items, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    ran: list[tuple[str, bool, bool]] = []
+    busy, window = [True], [False]
+    monkeypatch.setattr(enrichment.background_work, "busy", lambda: busy[0])
+    monkeypatch.setattr(enrichment.background_work, "backfill_allowed", lambda: not busy[0] and window[0])
+    monkeypatch.setitem(enrichment.WORKERS, "captions", lambda spec: ran.append((spec.id, spec.background, spec.backfill)) or {})
+    monkeypatch.setitem(enrichment.WORKERS, "segments", lambda spec: {})
+    with db_module.session_scope() as db:
+        db.add_all([_caption_job("demanded", requested_by="admin"), _job("segments", item_id="i1", at=1)])
+
+    assert enrichment.pump_pending() == 1  # unrelated enrichment keeps its existing admission behavior
+    _wait(lambda: _states()["segments"][0] == "succeeded")
+    _wait(lambda: not enrichment._bulk and not enrichment._pump_lock.locked())
+    assert ran == [] and _states()["demanded"] == ("pending", None)
+
+    busy[0] = False
+    assert enrichment.pump_pending() == 1  # an owner-requested bulk caption job does not need a schedule
+    _wait(lambda: _states()["demanded"][0] == "succeeded")
+    assert ran == [("demanded", True, False)]
+
+    with db_module.session_scope() as db:
+        db.add(_caption_job("automatic", item_id="i2", at=2))
+    assert enrichment.pump_pending() == 0
+    window[0] = True
+    assert enrichment.pump_pending() == 1
+    _wait(lambda: _states()["automatic"][0] == "succeeded")
+    assert ran == [("demanded", True, False), ("automatic", True, True)]
+
+
+def test_explicit_request_promotes_a_matching_automatic_caption(items, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    ran: list[str] = []
+    monkeypatch.setitem(enrichment.WORKERS, "captions", lambda spec: ran.append(spec.id) or {})
+    with db_module.session_scope() as db:
+        db.add(_caption_job("automatic"))
+
+    with db_module.session_scope() as db:
+        job, created = enrichment.request_job(db, "i0", "captions", {}, "owner")
+
+    assert (job.id, created) == ("automatic", False)
+    _wait(lambda: _states()["automatic"][0] == "succeeded")
+    assert ran == ["automatic"]
+
+
+def test_explicit_request_promotes_a_caption_racing_pump_admission(items, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    admitted = threading.Event()
+    resume_pump = threading.Event()
+    ran: list[tuple[bool, bool]] = []
+    pump_thread: list[threading.Thread] = []
+    real_admit = local_asr.jobs.admit
+    monkeypatch.setattr(enrichment.background_work, "busy", lambda: False)
+    monkeypatch.setattr(enrichment.background_work, "backfill_allowed", lambda: True)
+
+    def admit(job_id: str) -> bool:
+        result = real_admit(job_id)
+        if threading.current_thread() is pump_thread[0]:
+            admitted.set()
+            assert resume_pump.wait(2)
+        return result
+
+    def worker(spec: enrichment.JobSpec) -> dict:
+        ran.append((spec.backfill, enrichment._caption_interactive(spec)))
+        return {}
+
+    monkeypatch.setattr(local_asr.jobs, "admit", admit)
+    monkeypatch.setitem(enrichment.WORKERS, "captions", worker)
+    with db_module.session_scope() as db:
+        db.add(_caption_job("automatic"))
+
+    pump = threading.Thread(target=enrichment.pump_pending)
+    pump_thread.append(pump)
+    pump.start()
+    assert admitted.wait(2)
+    with db_module.session_scope() as db:
+        job, created = enrichment.request_job(db, "i0", "captions", {}, "owner")
+    assert (job.id, created) == ("automatic", False)
+    resume_pump.set()
+    pump.join(2)
+    assert not pump.is_alive()
+    _wait(lambda: _states()["automatic"][0] == "succeeded")
+
+    with db_module.session_scope() as db:
+        jobs = db.query(AsrJob).filter_by(library_item_id="i0", kind="captions").all()
+        assert [(row.id, row.requested_by) for row in jobs] == [("automatic", "owner")]
+    assert ran == [(True, True)]  # pump captured backfill, but the already-admitted worker observed interactive demand
+
+
+def test_a_failed_promotion_commit_releases_the_interactive_slot(items, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    from contextlib import contextmanager
+
+    from sqlalchemy.exc import OperationalError
+
+    with db_module.session_scope() as db:
+        db.add(_caption_job("automatic"))
+    real = enrichment.write_transaction
+
+    @contextmanager
+    def failing_promotion(db, *, name: str):  # noqa: ANN001, ANN202
+        with real(db, name=name):
+            yield
+            if name == "enrichment_job_promote":
+                raise OperationalError("COMMIT", {}, Exception("disk I/O error"))
+
+    monkeypatch.setattr(enrichment, "write_transaction", failing_promotion)
+    with db_module.session_scope() as db, pytest.raises(OperationalError):
+        enrichment.request_job(db, "i0", "captions", {}, "owner")
+
+    assert not local_asr.jobs.is_active("automatic")
+    assert _states()["automatic"] == ("pending", None)
+
+
+def test_a_failed_racing_demand_commit_does_not_promote_the_admitted_worker(
+    items, monkeypatch: pytest.MonkeyPatch,
+) -> None:  # noqa: ANN001
+    from contextlib import contextmanager
+
+    from sqlalchemy.exc import OperationalError
+
+    with db_module.session_scope() as db:
+        db.add(_caption_job("automatic"))
+    assert local_asr.jobs.admit("automatic")
+    real = enrichment.write_transaction
+
+    @contextmanager
+    def failing_demand(db, *, name: str):  # noqa: ANN001, ANN202
+        with real(db, name=name):
+            yield
+            if name == "enrichment_caption_demand":
+                raise OperationalError("COMMIT", {}, Exception("disk I/O error"))
+
+    monkeypatch.setattr(enrichment, "write_transaction", failing_demand)
+    with db_module.session_scope() as db, pytest.raises(OperationalError):
+        enrichment.request_job(db, "i0", "captions", {}, "owner")
+
+    with db_module.session_scope() as db:
+        assert db.get(AsrJob, "automatic").requested_by is None
+    with local_asr.jobs.lock:
+        assert "automatic" not in enrichment._demanded_captions
+
+
 def test_request_job_dispatches_by_kind_and_reuses(items, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     calls: list[enrichment.JobSpec] = []
+    monkeypatch.setattr(enrichment.background_work, "busy", lambda: True)
+    monkeypatch.setattr(enrichment.background_work, "backfill_allowed", lambda: False)
     monkeypatch.setitem(enrichment.WORKERS, "captions", lambda spec: calls.append(spec) or {})
     with db_module.session_scope() as db:
         job, created = enrichment.request_job(db, "i0", "captions", {}, "owner")
     assert created and job.kind == "captions" and job.model_id == "captions-v1"
     _wait(lambda: _states()[job.id][0] == "succeeded")
     assert calls == [enrichment.JobSpec(job.id, "i0", "captions", "captions-v1", {})]
+    assert not calls[0].background and not calls[0].backfill
     with db_module.session_scope() as db:
         again, created_again = enrichment.request_job(db, "i0", "captions", {}, "owner")
     assert (again.id, created_again) == (job.id, False)
+
+
+def test_background_caption_worker_checkpoints_before_opening_an_extraction_stage(
+    items, monkeypatch: pytest.MonkeyPatch,
+) -> None:  # noqa: ANN001
+    busy = [True]
+    extracted: list[tuple[bool, bool]] = []
+    errors: list[BaseException] = []
+    monkeypatch.setattr(enrichment.background_work, "busy", lambda: busy[0])
+    monkeypatch.setattr(enrichment.MediaProbeService, "facts", lambda self, item: {})
+    monkeypatch.setattr(enrichment, "text_streams", lambda db, item: [{"index": 2, "language": "eng"}])
+    monkeypatch.setattr(enrichment, "_stream_extraction", lambda db, item: object())
+
+    def read_stream(  # noqa: ANN001, ANN202
+        extraction, stream_index, *, background=False, backfill=False, check_active=None, interactive=None,
+    ):
+        extracted.append((background, backfill))
+        return b"WEBVTT\n\n00:00.000 --> 00:01.000\nHello\n"
+
+    monkeypatch.setattr(enrichment, "_read_stream", read_stream)
+    spec = enrichment.JobSpec("job", "i0", "captions", "captions-v1", {}, background=True)
+
+    def work() -> None:
+        try:
+            enrichment._work_captions(spec)
+        except BaseException as exc:  # pragma: no cover - reported below with the original exception
+            errors.append(exc)
+
+    thread = threading.Thread(target=work)
+    thread.start()
+    time.sleep(0.15)
+    assert extracted == []
+    busy[0] = False
+    thread.join(2)
+
+    assert not thread.is_alive() and not errors
+    assert extracted == [(True, False)]
+
+
+def test_canceling_a_caption_waiting_at_an_activity_gate_finishes_canceled(
+    items, monkeypatch: pytest.MonkeyPatch,
+) -> None:  # noqa: ANN001
+    monkeypatch.setattr(enrichment.background_work, "busy", lambda: True)
+    with db_module.session_scope() as db:
+        row = _caption_job("caption", requested_by="admin")
+        row.state = "queued"
+        db.add(row)
+    assert local_asr.jobs.admit("caption")
+    with local_asr.jobs.lock:
+        enrichment._bulk.add("caption")
+
+    thread = threading.Thread(target=enrichment.run_job, args=("caption",), kwargs={"background": True})
+    thread.start()
+    _wait(lambda: _states()["caption"][0] == "running")
+    assert local_asr.cancel("caption")
+    thread.join(2)
+
+    assert not thread.is_alive()
+    assert _states()["caption"][0] == "canceled"
+    assert not local_asr.jobs.is_active("caption")
+
+
+def test_shutdown_leaves_a_scheduled_caption_durable_for_restart(
+    items, monkeypatch: pytest.MonkeyPatch,
+) -> None:  # noqa: ANN001
+    from app.services import model_supervisor
+
+    supervisor = model_supervisor.Supervisor()
+    monkeypatch.setattr(model_supervisor, "supervisor", supervisor)
+    monkeypatch.setattr(enrichment.background_work, "backfill_allowed", lambda: False)
+    with db_module.session_scope() as db:
+        row = _caption_job("caption")
+        row.state = "queued"
+        db.add(row)
+    assert local_asr.jobs.admit("caption")
+    with local_asr.jobs.lock:
+        enrichment._bulk.add("caption")
+
+    thread = threading.Thread(
+        target=enrichment.run_job, args=("caption",), kwargs={"background": True, "backfill": True},
+    )
+    thread.start()
+    _wait(lambda: _states()["caption"][0] == "running")
+    supervisor.close()
+    thread.join(2)
+
+    assert not thread.is_alive()
+    assert _states()["caption"] == ("running", None)
+    assert enrichment.recover_after_restart() == (1, 0)
+    assert _states()["caption"] == ("pending", "restarted")
+
+
+def test_native_shutdown_reaps_a_paused_caption_child_and_joins_its_worker(
+    items, monkeypatch: pytest.MonkeyPatch,
+) -> None:  # noqa: ANN001
+    from app.services import model_supervisor
+
+    class HungProcess:
+        def __init__(self, command: list[str]) -> None:
+            self.command = command
+            self.returncode: int | None = None
+            self.signals: list[int] = []
+            self.terminated = False
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            if self.returncode is not None:
+                return self.returncode
+            time.sleep(min(timeout or 0, 0.01))
+            raise subprocess.TimeoutExpired(self.command, timeout)
+
+        def send_signal(self, sig: int) -> None:
+            self.signals.append(sig)
+
+        def terminate(self) -> None:
+            self.terminated = True
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    supervisor = model_supervisor.Supervisor()
+    process: list[HungProcess] = []
+    monkeypatch.setattr(model_supervisor, "supervisor", supervisor)
+    monkeypatch.setattr(enrichment.background_work, "_in_window", lambda: True)
+    monkeypatch.setattr(
+        enrichment.subtitle_tracks.subprocess, "Popen",
+        lambda command, **kwargs: process.append(HungProcess(command)) or process[-1],
+    )
+    scope = {"type": "http", "state": {}}
+    enrichment.background_work.start()
+    try:
+        def extracting(spec: enrichment.JobSpec) -> dict:
+            returncode = enrichment.subtitle_tracks._run_background_extract(
+                ["ffmpeg"], backfill=True, check_active=lambda: enrichment._caption_active(spec),
+                interactive=lambda: enrichment._caption_interactive(spec),
+            )
+            if returncode:
+                raise enrichment.EnrichmentError("Caption extraction stopped")
+            return {}
+
+        monkeypatch.setitem(enrichment.WORKERS, "captions", extracting)
+        with db_module.session_scope() as db:
+            row = _caption_job("caption")
+            row.state = "queued"
+            db.add(row)
+        assert local_asr.jobs.admit("caption")
+        with local_asr.jobs.lock:
+            enrichment._bulk.add("caption")
+        threading.Thread(
+            target=enrichment.run_job, args=("caption",), kwargs={"background": True, "backfill": True}, daemon=True,
+        ).start()
+        _wait(lambda: _states()["caption"][0] == "running" and bool(process))
+
+        enrichment.background_work.begin_request(scope)
+        _wait(lambda: signal.SIGSTOP in process[0].signals)
+        supervisor.close()
+        enrichment.background_work.close()
+        enrichment.join_background_captions()  # the lifecycle uses this bounded join; the test never joins the worker directly
+
+        assert process[0].terminated and signal.SIGCONT in process[0].signals
+        assert _states()["caption"] == ("running", None)
+        with local_asr.jobs.lock:
+            assert not enrichment._caption_threads
+    finally:
+        enrichment.background_work.end_request(scope)
+        enrichment.background_work.start()
+
+
+def test_background_caption_start_after_shutdown_leaves_the_queued_row_durable(
+    items, monkeypatch: pytest.MonkeyPatch,
+) -> None:  # noqa: ANN001
+    from app.services import model_supervisor
+
+    supervisor = model_supervisor.Supervisor()
+    monkeypatch.setattr(model_supervisor, "supervisor", supervisor)
+    with db_module.session_scope() as db:
+        row = _caption_job("caption")
+        row.state = "queued"
+        db.add(row)
+    assert local_asr.jobs.admit("caption")
+    with local_asr.jobs.lock:
+        enrichment._bulk.add("caption")
+    supervisor.close()
+
+    enrichment.run_job("caption", background=True, backfill=True)
+
+    assert _states()["caption"] == ("queued", None)
+    assert not local_asr.jobs.is_active("caption")
+    with local_asr.jobs.lock:
+        assert not enrichment._caption_threads and "caption" not in enrichment._bulk
+
+
+def test_background_caption_join_reports_a_worker_that_misses_the_shutdown_deadline(
+    items, monkeypatch: pytest.MonkeyPatch,
+) -> None:  # noqa: ANN001
+    clock = [100.0]
+
+    class StuckWorker:
+        def is_alive(self) -> bool:
+            return True
+
+        def join(self, timeout: float) -> None:
+            clock[0] += timeout
+
+    worker = StuckWorker()
+    monkeypatch.setattr(enrichment.time, "monotonic", lambda: clock[0])
+    with local_asr.jobs.lock:
+        enrichment._caption_threads.add(worker)  # type: ignore[arg-type]
+
+    with pytest.raises(RuntimeError, match="Background caption workers did not stop during shutdown"):
+        enrichment.join_background_captions()
 
 
 def test_worker_failures_are_content_free(items, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:  # noqa: ANN001

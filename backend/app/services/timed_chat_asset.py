@@ -16,6 +16,7 @@ another's asset.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
@@ -30,7 +31,7 @@ from app.schemas import (
 )
 from app.services.remote_playback import RemotePlaybackProgressService
 from app.services.remote_streaming import _canonical_remote_source_url
-from app.services.timed_chat import TimedChatBudget, TimedChatNormalizationResult
+from app.services.timed_chat import TimedChatBudget, TimedChatEmote, TimedChatEvent, TimedChatNormalizationResult
 from app.services.yt_dlp_service import ReplayChatFetch
 
 
@@ -132,9 +133,15 @@ class BuildTicket:
 
 
 class TimedChatAssetService:
-    def __init__(self, db: Session, *, budget: TimedChatBudget | None = None):
+    def __init__(
+        self, db: Session, *, budget: TimedChatBudget | None = None,
+        artwork_url_resolver: Callable[[str], str | None] | None = None,
+        artwork_url_resolver_factory: Callable[[], Callable[[str], str | None]] | None = None,
+    ):
         self.db = db
         self.budget = budget or TimedChatBudget()
+        self._artwork_url_resolver = artwork_url_resolver
+        self._artwork_url_resolver_factory = artwork_url_resolver_factory
 
     def get(self, source_identity: str, user: User) -> ChatReplayAsset | None:
         canonical = RemotePlaybackProgressService.canonical_source_identity(source_identity)
@@ -235,7 +242,7 @@ class TimedChatAssetService:
         asset.bytes_processed = result.bytes_processed if fetch.status == "available" else 0
         asset.dropped_malformed = result.dropped_malformed if fetch.status == "available" else 0
         asset.truncated = bool(result.truncated) if fetch.status == "available" else False
-        asset.events_json = [event.to_public_dict() for event in events]
+        asset.events_json = [event.to_storage_dict() for event in events]
         asset.error = None
         asset.finished_at = now
         asset.updated_at = now
@@ -247,18 +254,18 @@ class TimedChatAssetService:
         return ChatReplayAssetResponse(source_identity=canonical, status="unavailable")
 
     def serialize(self, asset: ChatReplayAsset) -> ChatReplayAssetResponse:
+        resolver = self._artwork_url_resolver_factory() if self._artwork_url_resolver_factory else self._artwork_url_resolver
         return ChatReplayAssetResponse(
             source_identity=asset.source_identity,
             status=asset.status,  # type: ignore[arg-type]
             event_count=asset.event_count,
             truncated=asset.truncated,
             dropped_malformed=asset.dropped_malformed,
-            events=[self._event(entry) for entry in (asset.events_json or []) if isinstance(entry, dict)],
+            events=[self._event(entry, resolver=resolver) for entry in (asset.events_json or []) if isinstance(entry, dict)],
             updated_at=asset.updated_at,
         )
 
-    @staticmethod
-    def _event(entry: dict) -> TimedChatEventResponse:
+    def _event(self, entry: dict, *, resolver: Callable[[str], str | None] | None = None) -> TimedChatEventResponse:
         author_entry = entry.get("author")
         author = None
         if isinstance(author_entry, dict):
@@ -267,14 +274,32 @@ class TimedChatAssetService:
                 channel_id=author_entry.get("channel_id"),
                 badges=[str(badge) for badge in author_entry.get("badges") or []],
             )
+        text = str(entry.get("text") or "")
+        emotes = []
+        stored_emotes = entry.get("emotes")
+        if isinstance(stored_emotes, list):
+            for emote in stored_emotes[:32]:
+                if not isinstance(emote, dict):
+                    continue
+                if not all(type(emote.get(key)) is int for key in ("start", "end")):
+                    continue
+                if not all(isinstance(emote.get(key), str) for key in ("label", "image_url")):
+                    continue
+                emotes.append(TimedChatEmote(**{key: emote[key] for key in ("start", "end", "label", "image_url")}))
+        normalized = TimedChatEvent(
+            id=str(entry.get("id")), offset_ms=None, kind="message", text=text,
+            moderation=entry.get("moderation", "visible"), emotes=tuple(emotes),
+        ).to_public_dict(resolver or self._artwork_url_resolver)
         return TimedChatEventResponse(
             id=str(entry.get("id")),
             offset_ms=entry.get("offset_ms"),
             kind=entry.get("kind", "message"),
-            text=str(entry.get("text") or ""),
+            text=text,
+            emotes=normalized.get("emotes", []),
             author=author,
             moderation=entry.get("moderation", "visible"),
             amount=entry.get("amount"),
+            source_channel=entry.get("source_channel"),
         )
 
     @staticmethod

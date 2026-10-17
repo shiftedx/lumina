@@ -362,6 +362,13 @@ class TimedChatAuthorResponse(BaseModel):
     badges: list[str] = Field(default_factory=list)
 
 
+class TimedChatEmoteResponse(BaseModel):
+    start: int
+    end: int
+    label: str
+    artwork_url: str
+
+
 class TimedChatEventResponse(BaseModel):
     """One normalized timed chat event as exposed on the public API.
 
@@ -374,6 +381,7 @@ class TimedChatEventResponse(BaseModel):
     offset_ms: int | None = None
     kind: TimedChatEventKind
     text: str
+    emotes: list[TimedChatEmoteResponse] = Field(default_factory=list)
     author: TimedChatAuthorResponse | None = None
     moderation: TimedChatModeration = "visible"
     amount: str | None = None

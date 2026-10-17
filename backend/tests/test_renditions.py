@@ -362,13 +362,14 @@ def test_the_lifespan_starts_the_pass_off_the_event_loop(library, monkeypatch) -
     assert seen == [False]  # ffmpeg -encoders and the staging sweep never block the loop
 
 
-def test_tmdb_art_is_prepared_only_once_its_pinned_copy_is_on_disk(media, tmp_path, monkeypatch) -> None:  # noqa: ANN001
+def test_tmdb_art_is_prepared_only_once_its_pinned_copy_is_on_disk(media, tmp_path, monkeypatch, caplog) -> None:  # noqa: ANN001
     log = use_fake_ffmpeg(tmp_path, monkeypatch)
     with db_module.SessionLocal() as session:
         add_title(session, A, "movie", "Remote").images = {"Primary": {"tmdb": "/abc123.jpg"}}
         session.commit()
     worker = renditions.ArtworkRenditions()
     assert worker.run_once() is True and _row(A) is None and fake_calls(log) == []  # never fetched from the network
+    assert not [record for record in caplog.records if record.name == "lumina.artwork"]
     pinned = settings.data_dir / "metadata-art" / (hashlib.sha256(tmdb.image_url("/abc123.jpg", tmdb.IMAGE_SIZES["Primary"]).encode()).hexdigest() + ".jpg")
     pinned.parent.mkdir(parents=True)
     pinned.write_bytes(png_header(500, 750))

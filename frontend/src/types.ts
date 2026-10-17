@@ -146,6 +146,14 @@ export interface TimedChatAuthor {
   badges: string[];
 }
 
+export interface TimedChatEmote {
+  /** Unicode code-point offsets into the event's fallback text; end is exclusive. */
+  start: number;
+  end: number;
+  label: string;
+  artwork_url: string;
+}
+
 export interface TimedChatEvent {
   id: string;
   offset_ms: number | null;
@@ -154,6 +162,7 @@ export interface TimedChatEvent {
   author?: TimedChatAuthor | null;
   moderation: TimedChatModeration;
   amount?: string | null;
+  emotes?: TimedChatEmote[];
   /** Origin channel display name for a relayed (Twitch shared-chat) message. */
   source_channel?: string | null;
 }

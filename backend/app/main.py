@@ -6,7 +6,7 @@ import hashlib
 import logging
 import threading
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from app.http_activity import AuthenticatedActivityMiddleware
 from app.http_compression import ResponseCompressionMiddleware
 from app.services import invites as invite_service, network_policy, public_address, social_preview, two_factor
 from starlette.background import BackgroundTask
@@ -231,6 +232,7 @@ from app.services import smart_collections
 from app.services import backups
 from app.services import model_downloads, model_supervisor
 from app.services import enrichment as enrichment_jobs
+from app.services.background_work import background_work
 from app.services import music_cast_capabilities
 from app.services.redaction import install_log_redaction
 from app.services.watch_queue import RemoteRef
@@ -255,6 +257,7 @@ from app.services.library import (
     decode_library_cursor,
     encode_library_cursor,
 )
+from app.services.chat_emotes import ChatEmoteArtworkService
 from app.services.artwork import (
     ArtworkError,
     ArtworkNotFoundError,
@@ -393,6 +396,11 @@ artwork = ArtworkService(
 )
 
 
+chat_emote_artwork = ChatEmoteArtworkService(
+    remote_fetcher=PublicArtworkFetcher(artwork_policy), public_source_policy=artwork_policy,
+)
+
+
 _remote_stream_cache_policies: dict[str, StreamCachePolicy] = {}
 _remote_stream_cache_policies_lock = threading.Lock()
 
@@ -490,7 +498,7 @@ live_hls_relay = LiveHlsRelayService(
 # coordination and honesty authority are provider-agnostic.
 # Viewing live chat (2.1.2): shared, poll-driven, in memory; polls only while someone reads it.
 live_chat_fetcher = ProviderLiveChatFetcher(YtDlpLiveChatFetcher(request_timeout_seconds=settings.live_recording_chat_request_timeout_seconds), TwitchChatFetcher())
-live_chat_viewer = LiveChatViewer(live_chat_fetcher)
+live_chat_viewer = LiveChatViewer(live_chat_fetcher, artwork_url_resolver_factory=chat_emote_artwork.new_resolver)
 
 live_recording_manager = LiveRecordingManager(
     session_factory=SessionLocal,
@@ -783,6 +791,16 @@ def run_scheduled_backup() -> None:
         backups.run_scheduled(schedule.keep)
 
 
+async def playback_buffer_loop() -> None:
+    """Keep fast encoders bounded even when a paused client sends no requests."""
+    while True:
+        await asyncio.sleep(1)
+        try:
+            await asyncio.to_thread(local_playback_sessions.maintain_buffers)
+        except Exception:
+            logger.exception("Playback buffer maintenance failed; retrying next tick")
+
+
 async def reconcile_loop() -> None:
     while True:
         await asyncio.sleep(settings.reconcile_interval_seconds)
@@ -857,6 +875,7 @@ async def metadata_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    background_work.start()
     settings.validate_runtime_security()
     server_lock = backups.hold_server_lock()  # the offline restore refuses while this is held
     init_db()
@@ -897,6 +916,7 @@ async def lifespan(app: FastAPI):
     # so a long-running recording survives a process crash deterministically.
     await asyncio.to_thread(live_recording_manager.recover)
     reconcile_task = asyncio.create_task(reconcile_loop())
+    playback_buffer_task = asyncio.create_task(playback_buffer_loop())
     automation_task = asyncio.create_task(source_automation_loop())
     metadata_task = asyncio.create_task(metadata_loop())
     request_sync_task = asyncio.create_task(request_sync_loop())  # skips cleanly while Requests are off or no server is set
@@ -907,6 +927,9 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         reconcile_task.cancel()
+        playback_buffer_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await playback_buffer_task
         automation_task.cancel()
         metadata_task.cancel()
         request_sync_task.cancel()
@@ -944,6 +967,10 @@ async def lifespan(app: FastAPI):
             pass
         await asyncio.to_thread(model_downloads.manager.shutdown)  # partial files stay for the next start
         await asyncio.to_thread(model_supervisor.supervisor.close)
+        try:
+            await asyncio.to_thread(background_work.close)
+        finally:
+            await asyncio.to_thread(enrichment_jobs.join_background_captions)
         await asyncio.to_thread(client_metric_store.flush)  # keep the last minutes of client metrics
         await jobs.stop()
         server_lock.close()
@@ -1102,6 +1129,7 @@ app.add_middleware(OriginCheckMiddleware)  # pure ASGI: same place, so the order
 
 
 app.add_middleware(FailedRequestLogMiddleware)
+app.add_middleware(AuthenticatedActivityMiddleware)
 # Keep this outermost so framework, host, origin, upload, API, and static responses
 # all receive the same browser security policy, including early rejection paths.
 app.add_middleware(SecurityHeadersMiddleware)
@@ -1283,6 +1311,8 @@ def serialize_household_collection(
 def resolve_request_user_snapshot(
     request: Request,
     credentials: HTTPBasicCredentials | None = None,
+    *,
+    mark_activity: bool = True,
 ) -> User:
     with SessionLocal() as db:
         current_user = resolve_user_from_request(db, request=request, credentials=credentials)
@@ -1293,7 +1323,10 @@ def resolve_request_user_snapshot(
             role=current_user.role,
             is_active=current_user.is_active,
         )
-        return member_access.carry_access(db, snapshot, current_user)
+        snapshot = member_access.carry_access(db, snapshot, current_user)
+        if mark_activity:
+            background_work.begin_request(request.scope)
+        return snapshot
 
 
 def _gate_snapshot(user: User, kind: str | None = None, *, url: str | None = None, watch: bool = False, **kwargs: Any) -> None:
@@ -1668,7 +1701,9 @@ async def events_endpoint(
     async def still_authorized() -> bool:
         # Long-lived streams re-run full authentication so revoked sessions and deactivated accounts drop off.
         try:
-            user = await run_in_threadpool(resolve_request_user_snapshot, request, credentials)
+            user = await run_in_threadpool(
+                resolve_request_user_snapshot, request, credentials, mark_activity=False,
+            )
         except HTTPException:
             return False
         subscriber.restricted = member_access.snapshot_limits_library(user)
@@ -1701,6 +1736,26 @@ def remote_artwork(
         raise HTTPException(status_code=404, detail="Artwork not found") from exc
     except (ArtworkError, PublicSourcePolicyError) as exc:
         raise HTTPException(status_code=502, detail="Artwork is temporarily unavailable") from exc
+    return _remote_artwork_response(request, resolved.content_type, resolved.content)
+
+
+@app.get("/api/artwork/emotes/{artwork_id}")
+def chat_emote_artwork_image(
+    artwork_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    enforce_rate_limit("chat_emote_serve", request, user_id=current_user.id)
+
+    def charge_upstream_fetch() -> None:
+        enforce_rate_limit("chat_emote", request, user_id=current_user.id)
+
+    try:
+        resolved = chat_emote_artwork.load_remote_artwork(artwork_id, before_upstream_fetch=charge_upstream_fetch)
+    except ArtworkNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Emote not found") from exc
+    except (ArtworkError, PublicSourcePolicyError) as exc:
+        raise HTTPException(status_code=502, detail="Emote is temporarily unavailable") from exc
     return _remote_artwork_response(request, resolved.content_type, resolved.content)
 
 
@@ -3602,7 +3657,7 @@ def get_chat_replay_asset(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db, scope="function"),
 ) -> ChatReplayAssetResponse | None:
-    service = TimedChatAssetService(db)
+    service = TimedChatAssetService(db, artwork_url_resolver_factory=chat_emote_artwork.new_resolver)
     try:
         asset = service.get(source_identity, current_user)
     except ValueError as exc:
@@ -3624,7 +3679,7 @@ async def load_chat_replay_asset(
 
     def claim_build() -> BuildTicket:
         with SessionLocal() as db:
-            service = TimedChatAssetService(db)
+            service = TimedChatAssetService(db, artwork_url_resolver_factory=chat_emote_artwork.new_resolver)
             try:
                 with write_transaction(db, name="chat_replay_begin"):
                     return service.begin_build(
@@ -3648,7 +3703,7 @@ async def load_chat_replay_asset(
             fetch = YtDlpService(db).download_replay_chat(payload.source_url)
         result = normalize_youtube_replay_chat(fetch.lines, budget=TimedChatBudget())
         with SessionLocal() as db:
-            service = TimedChatAssetService(db)
+            service = TimedChatAssetService(db, artwork_url_resolver_factory=chat_emote_artwork.new_resolver)
             try:
                 with write_transaction(db, name="chat_replay_finalize"):
                     asset = service.store_result(

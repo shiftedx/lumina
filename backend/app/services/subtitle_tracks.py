@@ -11,8 +11,12 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import signal
 import subprocess
 import threading
+import time
+from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -20,9 +24,11 @@ from urllib.parse import quote
 from app.config import settings
 from app.media_schemas import SUBTITLE_TRACK_ID_PATTERN, SubtitleTrack
 from app.models import LibraryItem
+from app.services.background_work import background_work
 from app.services.media_artifacts import artifact_file
 from app.services.media_probe import LOCAL_INPUT_ARGS
 from app.services.playback_decision import IMAGE_SUBTITLE_CODECS
+from app.services.transcripts import language_name
 
 TEXT_CODECS = frozenset({"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"})
 SIDECAR_INPUT_ARGS = ["-protocol_whitelist", "file", "-format_whitelist", "srt,ass,webvtt"]
@@ -44,8 +50,17 @@ def _url(item_id: str, track_id: str) -> str:
     return f"/api/library/{quote(item_id, safe='')}/subtitle-tracks/{quote(track_id, safe='')}.vtt"
 
 
+def _display_name(name: str | None) -> str | None:
+    if not name or not name.startswith("CR_"):
+        return name
+    cleaned = re.sub(r"\s*\(", " (", name.removeprefix("CR_").replace("_", " "))
+    base, separator, region = cleaned.partition(" (")
+    base = language_name(base) or base
+    return f"{base} ({region}" if separator else base
+
+
 def _label(name: str | None, language: str | None, *, forced: bool = False, hearing_impaired: bool = False, image: bool = False) -> str:
-    parts = [name or (language.upper() if language else "Unknown")]
+    parts = [_display_name(name) or (language.upper() if language else "Unknown")]
     parts += ["Forced"] * forced + ["SDH"] * hearing_impaired + ["Burned in"] * image
     return " · ".join(parts)
 
@@ -90,7 +105,11 @@ def list_tracks(facts: dict[str, Any], item: LibraryItem) -> list[SubtitleTrack]
     return tracks  # transcript tracks (t:) are appended here
 
 
-def vtt_body(track_id: str, *, facts: dict[str, Any], sidecar_entries: list[dict[str, Any] | None], source: Path, root: Path, artifact_id: str, fingerprint: str, ffmpeg: str) -> str:
+def vtt_body(
+    track_id: str, *, facts: dict[str, Any], sidecar_entries: list[dict[str, Any] | None], source: Path, root: Path,
+    artifact_id: str, fingerprint: str, ffmpeg: str, background: bool = False, backfill: bool = False,
+    check_active: Callable[[], None] | None = None, interactive: Callable[[], bool] | None = None,
+) -> str:
     """WebVTT for one text track, extracted once per file version. LookupError when the id names nothing convertible."""
     if not re.fullmatch(SUBTITLE_TRACK_ID_PATTERN, track_id):
         raise LookupError(track_id)
@@ -114,21 +133,98 @@ def vtt_body(track_id: str, *, facts: dict[str, Any], sidecar_entries: list[dict
         raise LookupError(track_id)  # t: tracks are answered by the route; i: tracks are burned in, never VTT
     cache = subtitle_cache_root() / f"{artifact_id}-{version.replace(':', '-')}-{kind}{value}.vtt"
     if not cache.is_file():
-        _extract(ffmpeg, args, cache)
+        _extract(
+            ffmpeg, args, cache, background=background, backfill=backfill,
+            check_active=check_active, interactive=interactive,
+        )
     os.utime(cache)  # prune_cache() drops the least recently used first
     return cache.read_text(encoding="utf-8", errors="replace")
 
 
-def _extract(ffmpeg: str, args: list[str], cache: Path) -> None:
+def _resume_process(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    with suppress(ProcessLookupError):
+        process.send_signal(signal.SIGCONT)
+
+
+def _stop_process(process: subprocess.Popen) -> None:
+    """A stopped child must continue before terminate can be observed."""
+    if process.poll() is not None:
+        return
+    _resume_process(process)
+    with suppress(ProcessLookupError):
+        process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        with suppress(ProcessLookupError):
+            process.kill()
+        process.wait()
+
+
+def _run_background_extract(
+    command: list[str], *, backfill: bool, check_active: Callable[[], None] | None,
+    interactive: Callable[[], bool] | None,
+) -> int:
+    """Run ffmpeg while activity gates may stop it; the timeout counts only unpaused time."""
+    process = subprocess.Popen(
+        command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    active_seconds = 0.0
+    registered = False
+    promoted = False
+    try:
+        background_work.register(process, backfill=backfill)
+        registered = True
+        while process.poll() is None:
+            if not promoted and interactive is not None and interactive():
+                background_work.promote(process)
+                promoted = True
+                paused = False
+            elif promoted:
+                paused = False
+            else:
+                paused = background_work.sync(process, backfill=backfill)
+            if check_active is not None:
+                check_active()
+            started = time.monotonic()
+            try:
+                process.wait(timeout=0.1)
+            except subprocess.TimeoutExpired:
+                pass
+            if not paused:
+                active_seconds += time.monotonic() - started
+                if active_seconds >= EXTRACT_TIMEOUT_SECONDS and process.poll() is None:
+                    _stop_process(process)
+                    raise SubtitleError("subtitle_timeout")
+        return process.returncode or 0
+    except BaseException:
+        _stop_process(process)
+        raise
+    finally:
+        if registered:
+            background_work.unregister(process)
+
+
+def _extract(
+    ffmpeg: str, args: list[str], cache: Path, *, background: bool = False, backfill: bool = False,
+    check_active: Callable[[], None] | None = None, interactive: Callable[[], bool] | None = None,
+) -> None:
     cache.parent.mkdir(parents=True, exist_ok=True)
     partial = cache.with_name(f"{cache.name}.{secrets.token_hex(4)}.part")
     try:
         with _extract_slots:
-            result = subprocess.run(
-                [ffmpeg, "-nostdin", "-v", "error", *args, "-c:s", "webvtt", "-f", "webvtt", "-y", str(partial)],
-                capture_output=True, timeout=EXTRACT_TIMEOUT_SECONDS, check=False, stdin=subprocess.DEVNULL,
-            )
-        if result.returncode != 0 or not partial.is_file() or partial.stat().st_size > MAX_VTT_BYTES:
+            command = [ffmpeg, "-nostdin", "-v", "error", *args, "-c:s", "webvtt", "-f", "webvtt", "-y", str(partial)]
+            if background:
+                returncode = _run_background_extract(
+                    command, backfill=backfill, check_active=check_active, interactive=interactive,
+                )
+            else:
+                returncode = subprocess.run(
+                    command, capture_output=True, timeout=EXTRACT_TIMEOUT_SECONDS, check=False, stdin=subprocess.DEVNULL,
+                ).returncode
+        if returncode != 0 or not partial.is_file() or partial.stat().st_size > MAX_VTT_BYTES:
             raise SubtitleError("subtitle_failed")
         os.replace(partial, cache)
     except subprocess.TimeoutExpired as exc:

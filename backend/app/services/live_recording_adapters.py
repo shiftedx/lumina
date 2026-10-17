@@ -248,7 +248,7 @@ def _merge_chat_events(prior: list, new_events: list, cap: int) -> tuple[list, b
     for event in new_events:
         if event.id not in seen:
             seen.add(event.id)
-            merged.append(event.to_public_dict())
+            merged.append(event.to_storage_dict())
     truncated = len(merged) > cap
     if truncated:
         merged = merged[:cap]

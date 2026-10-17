@@ -14,6 +14,10 @@ import json
 
 from app.services.timed_chat import (
     TimedChatBudget,
+    TimedChatEmote,
+    TimedChatEvent,
+    apply_live_action,
+    new_build_state,
     normalize_youtube_replay_chat,
 )
 
@@ -341,6 +345,233 @@ def test_runs_with_emoji_flatten_to_shortcodes_and_text_is_bounded() -> None:
     event = result.events[0]
     assert event.text.startswith("love it :heart:")
     assert len(event.text) <= 64
+
+
+def test_unicode_emoji_ids_win_over_shortcuts_in_mixed_replay_text() -> None:
+    action = _add_text(10, "emoji", "Ada", "unused")
+    renderer = action["replayChatItemAction"]["actions"][0]["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]
+    renderer["message"] = {"runs": [
+        {"text": "love "},
+        {"emoji": {"emojiId": "❤️", "shortcuts": [":heart:"], "isCustomEmoji": False}},
+        {"text": " and "},
+        {"emoji": {"emojiId": "👩🏽‍💻", "shortcuts": [":woman_technologist:"], "isCustomEmoji": False}},
+    ]}
+
+    result = normalize_youtube_replay_chat(_lines(action), budget=TimedChatBudget())
+
+    assert result.events[0].text == "love ❤️ and 👩🏽‍💻"
+
+
+def test_live_chat_uses_unicode_zwj_and_skin_tone_sequences_too() -> None:
+    action = _add_text(10, "emoji", "Ada", "unused")["replayChatItemAction"]["actions"][0]
+    renderer = action["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]
+    renderer["message"] = {"runs": [
+        {"emoji": {"emojiId": "👍🏽", "shortcuts": [":thumbsup:"], "isCustomEmoji": False}},
+        {"text": " "},
+        {"emoji": {"emojiId": "🏳️‍🌈", "shortcuts": [":rainbow_flag:"], "isCustomEmoji": False}},
+    ]}
+    state = new_build_state()
+
+    apply_live_action(state, action)
+
+    assert state.events[0].text == "👍🏽 🏳️‍🌈"
+
+
+def test_custom_and_ascii_provider_emoji_ids_keep_safe_shortcut_fallbacks() -> None:
+    action = _add_text(10, "emoji", "Ada", "unused")
+    renderer = action["replayChatItemAction"]["actions"][0]["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]
+    renderer["message"] = {"runs": [
+        {"emoji": {"emojiId": "custom-provider-123", "shortcuts": [":party_blob:"], "isCustomEmoji": True}},
+        {"text": " "},
+        {"emoji": {"emojiId": "ascii-provider-456", "shortcuts": [":wave:"], "isCustomEmoji": False}},
+        {"emoji": {"emojiId": "ascii-provider-without-shortcut", "isCustomEmoji": False}},
+    ]}
+
+    result = normalize_youtube_replay_chat(_lines(action), budget=TimedChatBudget())
+
+    assert result.events[0].text == ":party_blob: :wave:"
+
+
+def test_malformed_emoji_id_falls_back_to_sanitized_bounded_shortcut() -> None:
+    action = _add_text(10, "emoji", "Ada", "unused")
+    renderer = action["replayChatItemAction"]["actions"][0]["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]
+    renderer["message"] = {"runs": [
+        {"emoji": {"emojiId": "‮😀", "shortcuts": [":safe:\n"], "isCustomEmoji": False}},
+        {"text": "x" * 100},
+    ]}
+
+    result = normalize_youtube_replay_chat(_lines(action), budget=TimedChatBudget(max_text_chars=12))
+
+    assert result.events[0].text == ":safe:xxxxxx"
+    assert len(result.events[0].text) == 12
+
+
+def test_oversized_emoji_id_uses_shortcut_without_unbounded_validation() -> None:
+    action = _add_text(10, "emoji", "Ada", "unused")
+    renderer = action["replayChatItemAction"]["actions"][0]["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]
+    renderer["message"] = {"runs": [
+        {"emoji": {"emojiId": "😀" * 33, "shortcuts": [":smile:"], "isCustomEmoji": False}},
+    ]}
+
+    result = normalize_youtube_replay_chat(_lines(action), budget=TimedChatBudget())
+
+    assert result.events[0].text == ":smile:"
+
+
+def test_youtube_custom_emote_keeps_label_and_private_thumbnail_with_codepoint_offsets() -> None:
+    action = _add_text(10, "custom", "Ada", "unused")
+    renderer = action["replayChatItemAction"]["actions"][0]["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]
+    renderer["message"] = {"runs": [
+        {"text": "😀 "},
+        {"emoji": {
+            "emojiId": "provider-custom-id",
+            "shortcuts": [":blob:"],
+            "isCustomEmoji": True,
+            "image": {"thumbnails": [
+                {"url": "https://img.example/blob-48.png", "width": 48, "height": 48},
+                {"url": "http://img.example/not-https.png", "width": 16, "height": 16},
+                {"url": "https://img.example/" + "x" * 2048, "width": 1, "height": 1},
+                {"url": "https://img.example/blob-24.png", "width": 24, "height": 24},
+            ]},
+        }},
+        {"text": " + ❤️"},
+    ]}
+
+    event = normalize_youtube_replay_chat(_lines(action), budget=TimedChatBudget()).events[0]
+
+    assert event.text == "😀 :blob: + ❤️"
+    assert event.emotes == (
+        TimedChatEmote(start=2, end=8, label=":blob:", image_url="https://img.example/blob-24.png"),
+    )
+    stored = event.to_storage_dict()
+    assert stored["emotes"] == [{
+        "start": 2,
+        "end": 8,
+        "label": ":blob:",
+        "image_url": "https://img.example/blob-24.png",
+    }]
+    assert "emotes" not in event.to_public_dict()
+    public = event.to_public_dict(lambda url: "/api/artwork/emotes/blob" if url.endswith("blob-24.png") else None)
+    assert public["emotes"] == [{"start": 2, "end": 8, "label": ":blob:", "artwork_url": "/api/artwork/emotes/blob"}]
+    assert "img.example" not in str(public)
+    assert "emotes" not in event.to_public_dict(lambda _url: "https://attacker.example/blob")
+
+
+def test_youtube_custom_emote_without_shortcut_uses_stable_fallback_not_provider_id() -> None:
+    action = _add_text(10, "custom-fallback", "Ada", "unused")
+    renderer = action["replayChatItemAction"]["actions"][0]["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]
+    renderer["message"] = {"runs": [
+        {"text": "look "},
+        {"emoji": {
+            "emojiId": "private-provider-id",
+            "isCustomEmoji": True,
+            "image": {"thumbnails": [{"url": "https://img.example/custom.png", "width": 24, "height": 24}]},
+        }},
+    ]}
+
+    event = normalize_youtube_replay_chat(_lines(action), budget=TimedChatBudget()).events[0]
+
+    assert event.text == "look [emote]"
+    assert event.emotes == (
+        TimedChatEmote(start=5, end=12, label="[emote]", image_url="https://img.example/custom.png"),
+    )
+    assert "private-provider-id" not in event.text
+
+
+def test_youtube_custom_emote_uses_sanitized_bounded_accessibility_label() -> None:
+    action = _add_text(10, "custom-accessibility", "Ada", "unused")
+    renderer = action["replayChatItemAction"]["actions"][0]["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]
+    renderer["message"] = {"runs": [{"emoji": {
+        "emojiId": "private-provider-id",
+        "shortcuts": ["\n"],
+        "isCustomEmoji": True,
+        "image": {
+            "accessibility": {"accessibilityData": {"label": "Party\nBlob" + "x" * 200}},
+            "thumbnails": [{"url": "https://img.example/party.png", "width": 24, "height": 24}],
+        },
+    }}]}
+
+    event = normalize_youtube_replay_chat(_lines(action), budget=TimedChatBudget()).events[0]
+
+    assert event.text.startswith("PartyBlob")
+    assert len(event.text) == 128
+    assert event.emotes == (
+        TimedChatEmote(start=0, end=128, label=event.text, image_url="https://img.example/party.png"),
+    )
+
+
+def test_custom_emotes_outside_text_bound_and_moderated_emotes_are_removed() -> None:
+    clipped = _add_text(10, "clipped", "Ada", "unused")
+    clipped_renderer = clipped["replayChatItemAction"]["actions"][0]["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]
+    clipped_renderer["message"] = {"runs": [
+        {"text": "1234"},
+        {"emoji": {
+            "shortcuts": [":blob:"],
+            "isCustomEmoji": True,
+            "image": {"thumbnails": [{"url": "https://img.example/blob.png", "width": 24, "height": 24}]},
+        }},
+    ]}
+    visible = _add_text(20, "gone", "Ada", "unused")
+    visible_renderer = visible["replayChatItemAction"]["actions"][0]["addChatItemAction"]["item"]["liveChatTextMessageRenderer"]
+    visible_renderer["message"] = clipped_renderer["message"]
+
+    clipped_event = normalize_youtube_replay_chat(
+        _lines(clipped), budget=TimedChatBudget(max_text_chars=5),
+    ).events[0]
+    moderated_event = normalize_youtube_replay_chat(
+        _lines(visible, _delete(30, "gone")), budget=TimedChatBudget(),
+    ).events[0]
+
+    assert clipped_event.text == "1234:"
+    assert clipped_event.emotes == ()
+    assert moderated_event.text == ""
+    assert moderated_event.emotes == ()
+    assert "emotes" not in moderated_event.to_storage_dict()
+
+
+def test_public_emotes_revalidate_field_types_bounds_order_overlap_and_labels() -> None:
+    source = "https://img.example/emote.png"
+    event = TimedChatEvent(
+        id="unsafe-emotes",
+        offset_ms=0,
+        kind="message",
+        text="one two",
+        emotes=(
+            TimedChatEmote(start=0, end=3, label="one", image_url=source),
+            TimedChatEmote(start=True, end=3, label="one", image_url=source),
+            TimedChatEmote(start=2, end=7, label="e two", image_url=source),
+            TimedChatEmote(start=4, end=7, label="wrong", image_url=source),
+            TimedChatEmote(start=4, end=99, label="two", image_url=source),
+        ),
+    )
+
+    public = event.to_public_dict(lambda _url: "/api/artwork/remote/safe_id")
+
+    assert public["emotes"] == [
+        {"start": 0, "end": 3, "label": "one", "artwork_url": "/api/artwork/remote/safe_id"},
+    ]
+
+
+def test_public_emotes_are_capped_and_reject_oversized_labels() -> None:
+    source = "https://img.example/emote.png"
+    capped = TimedChatEvent(
+        id="many-emotes",
+        offset_ms=0,
+        kind="message",
+        text="x" * 33,
+        emotes=tuple(TimedChatEmote(index, index + 1, "x", source) for index in range(33)),
+    )
+    oversized_label = TimedChatEvent(
+        id="long-label",
+        offset_ms=0,
+        kind="message",
+        text="x" * 129,
+        emotes=(TimedChatEmote(0, 129, "x" * 129, source),),
+    )
+    resolver = lambda _url: "/api/artwork/remote/safe"  # noqa: E731
+
+    assert len(capped.to_public_dict(resolver)["emotes"]) == 32
+    assert "emotes" not in oversized_label.to_public_dict(resolver)
 
 
 def test_duplicate_ids_are_deduplicated_keeping_first_occurrence() -> None:

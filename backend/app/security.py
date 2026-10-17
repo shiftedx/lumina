@@ -20,6 +20,7 @@ from app.db import get_db
 from app.persistence import write_transaction
 from app.models import AppSession, DeviceToken, User, utcnow
 from app.services import public_address, two_factor
+from app.services.background_work import background_work
 from app.services.public_address import arrived_over_https
 from app.services.rate_limit import rate_limiter, resolve_client_key
 
@@ -503,7 +504,9 @@ def get_current_user(
     db: Session = Depends(get_db, scope="function"),
     credentials: Annotated[HTTPBasicCredentials | None, Depends(basic_auth)] = None,
 ) -> User:
-    return resolve_user_from_request(db, request=request, credentials=credentials)
+    user = resolve_user_from_request(db, request=request, credentials=credentials)
+    background_work.begin_request(request.scope)
+    return user
 
 
 def _charge_member_job(current_user: User = Depends(get_current_user)) -> None:

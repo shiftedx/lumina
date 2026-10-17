@@ -303,7 +303,8 @@ class ChatReplayAsset(Base):
     ``building`` state with ``build_id``/``started_at`` for safe resume-or-
     replace, then a terminal status carrying the bounded normalized events.
     The stored events never include continuations, headers, cookies, or
-    upstream addresses.
+    media addresses. Custom emote image addresses are stored internally and
+    mapped to opaque authenticated artwork paths when serving chat.
     """
 
     __tablename__ = "chat_replay_assets"

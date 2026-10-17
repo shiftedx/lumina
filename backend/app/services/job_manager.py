@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 import subprocess
 import time
@@ -45,6 +46,7 @@ from app.services.webhooks import WebhookService
 from app.services.yt_dlp_service import DownloadCancelled, YtDlpService
 
 
+logger = logging.getLogger("lumina.download")
 RETRYABLE_STATUSES = frozenset({"failed", "cancelled", "interrupted"})
 SHUTDOWN_INTERRUPTION = "Interrupted by a server shutdown; retry to download it again."
 RESTART_INTERRUPTION = "Interrupted by a server restart; retry to download it again."
@@ -655,6 +657,14 @@ class JobManager:
             library = LibraryService(db, self.events)
             cancel_flag = self._cancel_flags.setdefault(job_id, Event())
             progress_state = {"phase": "download"}
+            timing: dict[str, float | None] = {
+                "acquisition_started": None,
+                "acquisition_finished": None,
+                "first_progress": None,
+                "first_postprocess": None,
+                "publication_started": None,
+                "publication_finished": None,
+            }
             app_settings = ytdlp.get_app_settings()
             routing = StorageRoutingService(db)
             reserve_bytes = app_settings.min_free_disk_mb * 1024 * 1024
@@ -667,9 +677,11 @@ class JobManager:
                     )
 
             def progress_hook(data: dict[str, Any]) -> None:
+                now = time.monotonic()
+                if timing["first_progress"] is None:
+                    timing["first_progress"] = now
                 if cancel_flag.is_set():
                     raise DownloadCancelled(f"Job {job_id} cancelled")
-                now = time.monotonic()
                 if now - disk_checked_at[0] >= DISK_CHECK_INTERVAL_SECONDS:
                     disk_checked_at[0] = now
                     expected = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
@@ -701,6 +713,8 @@ class JobManager:
                     self._observe_acquisition(job.id, "running", progress=round(progress))
 
             def postprocessor_hook(data: dict[str, Any]) -> None:
+                if timing["first_postprocess"] is None:
+                    timing["first_postprocess"] = time.monotonic()
                 if cancel_flag.is_set():
                     raise DownloadCancelled(f"Job {job_id} cancelled")
                 progress_state["phase"] = "postprocess"
@@ -727,6 +741,7 @@ class JobManager:
             self.events.publish("job_started", self._job_event_payload(job))
             if acquisition_linked:
                 self._observe_acquisition(job.id, "running")
+            terminal_status = "failed"
             try:
                 if not job.user_id:
                     raise ValueError("Download job has no Library owner.")
@@ -734,16 +749,21 @@ class JobManager:
                     raise StorageUnavailable("Stopped: the storage location for this download is offline. Ask an administrator to check it, then retry.")
                 ensure_storage()
                 staging = staging_dir(staging_root, job.id)
-                acquisition = ytdlp.download(
-                    job.source_url,
-                    format_selection=FormatSelection(**job.format_selection),
-                    output_profile=OutputProfile(**job.output_profile),
-                    owner_user_id=job.user_id,
-                    output_root=staging,
-                    progress_hooks=[progress_hook],
-                    postprocessor_hooks=[postprocessor_hook],
-                    previous_resolution=(job.preview_snapshot or {}).get("format_resolution"),
-                )
+                timing["acquisition_started"] = time.monotonic()
+                try:
+                    acquisition = ytdlp.download(
+                        job.source_url,
+                        format_selection=FormatSelection(**job.format_selection),
+                        output_profile=OutputProfile(**job.output_profile),
+                        owner_user_id=job.user_id,
+                        output_root=staging,
+                        progress_hooks=[progress_hook],
+                        postprocessor_hooks=[postprocessor_hook],
+                        previous_resolution=(job.preview_snapshot or {}).get("format_resolution"),
+                    )
+                finally:
+                    timing["acquisition_finished"] = time.monotonic()
+                timing["publication_started"] = timing["acquisition_finished"]
                 sanitized = acquisition.info
                 job.preview_snapshot = {
                     **(job.preview_snapshot or {}),
@@ -791,6 +811,8 @@ class JobManager:
                 with write_transaction(db, name="job_status"):
                     job.status = "completed"
                     job.finished_at = utcnow()
+                timing["publication_finished"] = time.monotonic()
+                terminal_status = "completed"
                 self.events.publish("job_completed", self._job_event_payload(job))
                 if acquisition_linked:
                     self._observe_acquisition(
@@ -800,6 +822,8 @@ class JobManager:
                         library_item_id=saved_items[0].id if saved_items else None,
                     )
             except Exception as exc:  # noqa: BLE001
+                if timing["publication_started"] is not None and timing["publication_finished"] is None:
+                    timing["publication_finished"] = time.monotonic()
                 if self._stopping:
                     # Shutdown (a cancel flag or a terminated child) ended this
                     # attempt; record it as retryable rather than user-cancelled.
@@ -807,6 +831,7 @@ class JobManager:
                         job.status = "interrupted"
                         job.finished_at = utcnow()
                         job.error = SHUTDOWN_INTERRUPTION
+                    terminal_status = "interrupted"
                     if acquisition_linked:
                         self._observe_acquisition(
                             job.id,
@@ -819,6 +844,7 @@ class JobManager:
                         job.status = "cancelled"
                         job.finished_at = utcnow()
                         job.error = str(exc)
+                    terminal_status = "cancelled"
                     self.events.publish("job_failed", self._job_event_payload(job))
                     if acquisition_linked:
                         self._observe_acquisition(
@@ -831,6 +857,7 @@ class JobManager:
                     job.status = "failed"
                     job.finished_at = utcnow()
                     job.error = str(exc) if isinstance(exc, (StorageReserveExceeded, StorageUnavailable)) else redact(YtDlpService.explain_download_error(str(exc)), paths=True)
+                terminal_status = "failed"
                 WebhookService(db).notify_job_failed(self._event_job_payload(job))
                 self.events.publish("job_failed", self._job_event_payload(job))
                 if acquisition_linked:
@@ -839,6 +866,21 @@ class JobManager:
                         "failed",
                         failure=RedactedFailure("job_failed", "The download job failed."),
                     )
+            finally:
+                acquisition_started = timing["acquisition_started"]
+
+                def elapsed(start: float | None, end: float | None) -> int:
+                    return -1 if start is None or end is None else round(max(0.0, end - start) * 1000)
+
+                logger.info(
+                    "attempt_timing status=%s acquisition_ms=%d first_progress_ms=%d "
+                    "first_postprocess_ms=%d publication_ms=%d",
+                    terminal_status,
+                    elapsed(acquisition_started, timing["acquisition_finished"]),
+                    elapsed(acquisition_started, timing["first_progress"]),
+                    elapsed(acquisition_started, timing["first_postprocess"]),
+                    elapsed(timing["publication_started"], timing["publication_finished"]),
+                )
 
     def _observe_acquisition(self, job_id: str, status: str, **options: Any) -> None:
         try:

@@ -80,6 +80,7 @@
 .chat-badge.badge-member, .chat-badge.badge-subscriber { color: var(--g-success); }
 .chat-amount { padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, var(--g-gold) 20%, transparent); color: var(--g-gold-ink); font-size: 11px; }
 .chat-event-text { color: var(--g-ink); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.chat-emote { display: inline-block; width: 1.25em; height: 1.25em; margin: 0 .08em; object-fit: contain; vertical-align: -.25em; }
 .chat-event.moderated .chat-event-text { font-style: italic; color: var(--g-ink-3); }
 /* Moments: one timeline, each entry labelled with its origin. */
 .moments-panel { display: grid; gap: 12px; }

@@ -35,7 +35,7 @@ from app.media_schemas import ArtServing, ArtworkProgress
 from app.models import LibraryItem, MediaTitle, NfoPerson, PlaybackProgress, StorageRoot, TitleArtwork, utcnow
 from app.persistence import read_regular_file, write_transaction
 from app.services import art_urls, cast_photos, library_import
-from app.services.artwork import ArtworkService, ArtworkUnavailableError
+from app.services.artwork import ArtworkCacheMissError, ArtworkService
 from app.services.local_playback_sessions import sessions
 from app.services.media_probe import media_tool
 from app.services.storage_roots import ONLINE_STATES, StorageRootService
@@ -482,7 +482,7 @@ class _Offline:
     """The pass never fetches: TMDB art is prepared only once its pinned copy is on disk."""
 
     def fetch(self, url: str, *, validate_redirect, headers=None):  # noqa: ANN001, ANN201, ARG002
-        raise ArtworkUnavailableError("The artwork pass does not fetch.")
+        raise ArtworkCacheMissError("The artwork pass does not fetch.")
 
 
 def offline_artwork() -> ArtworkService:

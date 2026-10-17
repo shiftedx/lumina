@@ -17,6 +17,7 @@ services:
       TZ: ${TZ:-UTC}
       LUMINA_HOST: 0.0.0.0
       LUMINA_DATA_DIR: /app/backend/.data
+      LUMINA_PLAYBACK_TEMP_DIR: /playback
       # Numeric host account that owns ./app-data (and any managed media mount). Never 0.
       LUMINA_RUNTIME_UID: ${LUMINA_RUNTIME_UID:-1000}
       LUMINA_RUNTIME_GID: ${LUMINA_RUNTIME_GID:-1000}
@@ -41,6 +42,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=512m
+      - /playback:rw,noexec,nosuid,nodev,size=${LUMINA_PLAYBACK_TMPFS_SIZE:-1g},mode=1777
     cap_drop:
       - ALL
     # Only the root entrypoint/init use these (chown the data dir, drop to the runtime account, forward

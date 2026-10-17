@@ -1,0 +1,9 @@
+.build/
+Core/.build/
+DerivedData/
+DeviceDerivedData/
+SignedDerivedData/
+*.xcuserstate
+xcuserdata/
+Tests/UITests/Fixture.json
+TestResults/

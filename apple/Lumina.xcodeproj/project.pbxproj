@@ -1,0 +1,742 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		018BCDC4C4249F4ADDA89769 /* LuminaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 91193C60B39E98FA6332ED6A /* LuminaCore */; };
+		11174E8432685EE26A18174F /* LuminaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */; };
+		256B066751245D56CA2F482F /* PlaybackScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */; };
+		3D9A96C5CA2959005785C51A /* LuminaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */; };
+		4EF0451490EA651843F91037 /* MobileRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 579E2238336BCFC991DB98C2 /* MobileRootView.swift */; };
+		612AF373518D002E141520EE /* LuminaProofApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */; };
+		6FF87874D2D2C10672F2A68E /* PlaybackScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */; };
+		71B5458C8B9AAF9AC7FFCD2A /* TVRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF579594D69A5C4AE1BC2F04 /* TVRootView.swift */; };
+		9229344A0A1CADBFB77AB753 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */; };
+		96DB4422EEADE5D883592A69 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */; };
+		B58C903FC35688BDA8AF2B0E /* LuminaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 132B0C8FC5C18B467CE10EEE /* LuminaCore */; };
+		B66CA5BFC0A18CF26EDB28B3 /* NativeProofTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60BC5C5F0113F2BAB1CBB46C /* NativeProofTests.swift */; };
+		C2E4D0D64204BA92A4770A5D /* NativeProofTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60BC5C5F0113F2BAB1CBB46C /* NativeProofTests.swift */; };
+		CE8AD71742A6E9BA9EAF9FF1 /* LuminaProofApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		120A9C06FEFD6DDD7EDDB6BF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7FFF60DE231DDF151176399C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A7B16B82A6FF385B91670FB2;
+			remoteInfo = "Lumina-tvOS";
+		};
+		FE951FE7ECF792E48BD88481 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7FFF60DE231DDF151176399C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1E681BFE4FC6A958B544FAB7;
+			remoteInfo = "Lumina-iOS";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		15A0B5445C7C3DAFCEF9B848 /* Lumina-iOS-UITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "Lumina-iOS-UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		498D77C6C2E6F8875A165336 /* Lumina-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Lumina-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		579E2238336BCFC991DB98C2 /* MobileRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRootView.swift; sourceTree = "<group>"; };
+		59710991D50763A6B5E76AE1 /* Lumina-tvOS-UITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "Lumina-tvOS-UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		60BC5C5F0113F2BAB1CBB46C /* NativeProofTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeProofTests.swift; sourceTree = "<group>"; };
+		8C6468BFA4B1AB57D0097FC4 /* Lumina-tvOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Lumina-tvOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaTheme.swift; sourceTree = "<group>"; };
+		C12B74A2009E288A90BCA744 /* Core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Core; path = Core; sourceTree = SOURCE_ROOT; };
+		CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackScreen.swift; sourceTree = "<group>"; };
+		E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaProofApp.swift; sourceTree = "<group>"; };
+		FF579594D69A5C4AE1BC2F04 /* TVRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVRootView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0997CE8601D2D5FEEC1A69F0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				018BCDC4C4249F4ADDA89769 /* LuminaCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		20402CCE5DC995AA5F7AB873 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B58C903FC35688BDA8AF2B0E /* LuminaCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0C084956839F9A46A2528779 /* tvOS */ = {
+			isa = PBXGroup;
+			children = (
+				FF579594D69A5C4AE1BC2F04 /* TVRootView.swift */,
+			);
+			name = tvOS;
+			path = App/tvOS;
+			sourceTree = "<group>";
+		};
+		141108036DE9CC099AD87480 = {
+			isa = PBXGroup;
+			children = (
+				46F4D5C4DE8639EC0EB7744A /* Config */,
+				CC169E5289CF31A0E56000A5 /* iOS */,
+				561B0D79C0D90DC81230A559 /* Packages */,
+				35D48A4E22DFA746CBEA2D3E /* Shared */,
+				0C084956839F9A46A2528779 /* tvOS */,
+				6FDEA1AA6CD5C2D1F1D1A890 /* UITests */,
+				463083206E6F3BD093827132 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		35D48A4E22DFA746CBEA2D3E /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */,
+				9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */,
+				CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */,
+			);
+			name = Shared;
+			path = App/Shared;
+			sourceTree = "<group>";
+		};
+		463083206E6F3BD093827132 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				15A0B5445C7C3DAFCEF9B848 /* Lumina-iOS-UITests.xctest */,
+				498D77C6C2E6F8875A165336 /* Lumina-iOS.app */,
+				59710991D50763A6B5E76AE1 /* Lumina-tvOS-UITests.xctest */,
+				8C6468BFA4B1AB57D0097FC4 /* Lumina-tvOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		46F4D5C4DE8639EC0EB7744A /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		561B0D79C0D90DC81230A559 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				C12B74A2009E288A90BCA744 /* Core */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		6FDEA1AA6CD5C2D1F1D1A890 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				60BC5C5F0113F2BAB1CBB46C /* NativeProofTests.swift */,
+			);
+			name = UITests;
+			path = Tests/UITests;
+			sourceTree = "<group>";
+		};
+		CC169E5289CF31A0E56000A5 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				579E2238336BCFC991DB98C2 /* MobileRootView.swift */,
+			);
+			name = iOS;
+			path = App/iOS;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		11AA285589B68F9E19830F21 /* Lumina-iOS-UITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9DA7FB67C81F27389F52A7BB /* Build configuration list for PBXNativeTarget "Lumina-iOS-UITests" */;
+			buildPhases = (
+				1222174A120A1914C8AF2EB7 /* Sources */,
+				C219E07674B9A62021890A76 /* Include optional disposable test fixture */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1686F7173987C6F86265303F /* PBXTargetDependency */,
+			);
+			name = "Lumina-iOS-UITests";
+			packageProductDependencies = (
+			);
+			productName = "Lumina-iOS-UITests";
+			productReference = 15A0B5445C7C3DAFCEF9B848 /* Lumina-iOS-UITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		1E681BFE4FC6A958B544FAB7 /* Lumina-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 81033A0D541FF844AA87F59E /* Build configuration list for PBXNativeTarget "Lumina-iOS" */;
+			buildPhases = (
+				A3AAAEB29CB7405598AD15BD /* Sources */,
+				6C64FF99687E52925D520E95 /* Resources */,
+				0997CE8601D2D5FEEC1A69F0 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Lumina-iOS";
+			packageProductDependencies = (
+				91193C60B39E98FA6332ED6A /* LuminaCore */,
+			);
+			productName = "Lumina-iOS";
+			productReference = 498D77C6C2E6F8875A165336 /* Lumina-iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A7B16B82A6FF385B91670FB2 /* Lumina-tvOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9B15A9DCE6D42B01312CE9DE /* Build configuration list for PBXNativeTarget "Lumina-tvOS" */;
+			buildPhases = (
+				9A2F066448302BF0F566582A /* Sources */,
+				A92872814BB728108503A055 /* Resources */,
+				20402CCE5DC995AA5F7AB873 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Lumina-tvOS";
+			packageProductDependencies = (
+				132B0C8FC5C18B467CE10EEE /* LuminaCore */,
+			);
+			productName = "Lumina-tvOS";
+			productReference = 8C6468BFA4B1AB57D0097FC4 /* Lumina-tvOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D5AB54EA3E38861FCD09BDAD /* Lumina-tvOS-UITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A83CC0446114FD5451578E9E /* Build configuration list for PBXNativeTarget "Lumina-tvOS-UITests" */;
+			buildPhases = (
+				EE87B9760FC9EFC5021F173B /* Sources */,
+				64792ADEC8E89D9D92E95237 /* Include optional disposable test fixture */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5A00DC5214AA89A2D6A4CF9F /* PBXTargetDependency */,
+			);
+			name = "Lumina-tvOS-UITests";
+			packageProductDependencies = (
+			);
+			productName = "Lumina-tvOS-UITests";
+			productReference = 59710991D50763A6B5E76AE1 /* Lumina-tvOS-UITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7FFF60DE231DDF151176399C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					11AA285589B68F9E19830F21 = {
+						ProvisioningStyle = Automatic;
+						TestTargetID = 1E681BFE4FC6A958B544FAB7;
+					};
+					1E681BFE4FC6A958B544FAB7 = {
+						ProvisioningStyle = Automatic;
+					};
+					A7B16B82A6FF385B91670FB2 = {
+						ProvisioningStyle = Automatic;
+					};
+					D5AB54EA3E38861FCD09BDAD = {
+						ProvisioningStyle = Automatic;
+						TestTargetID = A7B16B82A6FF385B91670FB2;
+					};
+				};
+			};
+			buildConfigurationList = 24FC4A5DE396D7CFFC98D2F5 /* Build configuration list for PBXProject "Lumina" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 141108036DE9CC099AD87480;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				26D0CA5130C0B70DBEE8341F /* XCLocalSwiftPackageReference "Core" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 463083206E6F3BD093827132 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1E681BFE4FC6A958B544FAB7 /* Lumina-iOS */,
+				11AA285589B68F9E19830F21 /* Lumina-iOS-UITests */,
+				A7B16B82A6FF385B91670FB2 /* Lumina-tvOS */,
+				D5AB54EA3E38861FCD09BDAD /* Lumina-tvOS-UITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		6C64FF99687E52925D520E95 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				96DB4422EEADE5D883592A69 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A92872814BB728108503A055 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9229344A0A1CADBFB77AB753 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		64792ADEC8E89D9D92E95237 /* Include optional disposable test fixture */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Include optional disposable test fixture";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/scripts/copy_test_fixture.sh\"";
+		};
+		C219E07674B9A62021890A76 /* Include optional disposable test fixture */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Include optional disposable test fixture";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/scripts/copy_test_fixture.sh\"";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1222174A120A1914C8AF2EB7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C2E4D0D64204BA92A4770A5D /* NativeProofTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A2F066448302BF0F566582A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CE8AD71742A6E9BA9EAF9FF1 /* LuminaProofApp.swift in Sources */,
+				11174E8432685EE26A18174F /* LuminaTheme.swift in Sources */,
+				256B066751245D56CA2F482F /* PlaybackScreen.swift in Sources */,
+				71B5458C8B9AAF9AC7FFCD2A /* TVRootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3AAAEB29CB7405598AD15BD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				612AF373518D002E141520EE /* LuminaProofApp.swift in Sources */,
+				3D9A96C5CA2959005785C51A /* LuminaTheme.swift in Sources */,
+				4EF0451490EA651843F91037 /* MobileRootView.swift in Sources */,
+				6FF87874D2D2C10672F2A68E /* PlaybackScreen.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE87B9760FC9EFC5021F173B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B66CA5BFC0A18CF26EDB28B3 /* NativeProofTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1686F7173987C6F86265303F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1E681BFE4FC6A958B544FAB7 /* Lumina-iOS */;
+			targetProxy = FE951FE7ECF792E48BD88481 /* PBXContainerItemProxy */;
+		};
+		5A00DC5214AA89A2D6A4CF9F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A7B16B82A6FF385B91670FB2 /* Lumina-tvOS */;
+			targetProxy = 120A9C06FEFD6DDD7EDDB6BF /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1DC4A056AF03C01AC3FE8D10 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.tvos;
+				SDKROOT = appletvos;
+				TARGETED_DEVICE_FAMILY = 3;
+			};
+			name = Debug;
+		};
+		219BA15531EB5AD2F2C2FDF1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.ios;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2E5B79231968A2F78D870085 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.ios;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		46645FE18ABB0BDE194F49AB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = Config/TestInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.tvos.tests;
+				SDKROOT = appletvos;
+				TARGETED_DEVICE_FAMILY = 3;
+				TEST_TARGET_NAME = "Lumina-tvOS";
+			};
+			name = Release;
+		};
+		86C62D97CECD04E82584A19B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = Config/TestInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.ios.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Lumina-iOS";
+			};
+			name = Release;
+		};
+		9CF642982327776FF4F914FC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = Config/TestInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.tvos.tests;
+				SDKROOT = appletvos;
+				TARGETED_DEVICE_FAMILY = 3;
+				TEST_TARGET_NAME = "Lumina-tvOS";
+			};
+			name = Debug;
+		};
+		CEF6C129E9DC9B564E397735 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Config/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
+			};
+			name = Debug;
+		};
+		EFCDD1996342829A13EA27A9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = Config/TestInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.ios.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Lumina-iOS";
+			};
+			name = Debug;
+		};
+		FB109BD7209C1DCEB2D6C343 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Config/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TVOS_DEPLOYMENT_TARGET = 18.0;
+			};
+			name = Release;
+		};
+		FF3FDF670A5A93B3D611D638 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.tvos;
+				SDKROOT = appletvos;
+				TARGETED_DEVICE_FAMILY = 3;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		24FC4A5DE396D7CFFC98D2F5 /* Build configuration list for PBXProject "Lumina" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CEF6C129E9DC9B564E397735 /* Debug */,
+				FB109BD7209C1DCEB2D6C343 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		81033A0D541FF844AA87F59E /* Build configuration list for PBXNativeTarget "Lumina-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				219BA15531EB5AD2F2C2FDF1 /* Debug */,
+				2E5B79231968A2F78D870085 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9B15A9DCE6D42B01312CE9DE /* Build configuration list for PBXNativeTarget "Lumina-tvOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1DC4A056AF03C01AC3FE8D10 /* Debug */,
+				FF3FDF670A5A93B3D611D638 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9DA7FB67C81F27389F52A7BB /* Build configuration list for PBXNativeTarget "Lumina-iOS-UITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EFCDD1996342829A13EA27A9 /* Debug */,
+				86C62D97CECD04E82584A19B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A83CC0446114FD5451578E9E /* Build configuration list for PBXNativeTarget "Lumina-tvOS-UITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9CF642982327776FF4F914FC /* Debug */,
+				46645FE18ABB0BDE194F49AB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		26D0CA5130C0B70DBEE8341F /* XCLocalSwiftPackageReference "Core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Core;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		132B0C8FC5C18B467CE10EEE /* LuminaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LuminaCore;
+		};
+		91193C60B39E98FA6332ED6A /* LuminaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LuminaCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 7FFF60DE231DDF151176399C /* Project object */;
+}

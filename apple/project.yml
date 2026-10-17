@@ -1,0 +1,100 @@
+name: Lumina
+options:
+  bundleIdPrefix: dev.lumina
+  deploymentTarget:
+    iOS: '18.0'
+    tvOS: '18.0'
+packages:
+  LuminaCore:
+    path: Core
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    CODE_SIGN_STYLE: Automatic
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_FILE: Config/Info.plist
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+targets:
+  Lumina-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/Shared
+      - path: App/iOS
+        excludes: [LuminaApp.swift]
+      - path: Config/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    dependencies:
+      - package: LuminaCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.lumina.proof.ios
+        TARGETED_DEVICE_FAMILY: '1,2'
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+  Lumina-tvOS:
+    type: application
+    platform: tvOS
+    sources:
+      - path: App/Shared
+      - path: App/tvOS
+      - path: Config/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    dependencies:
+      - package: LuminaCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.lumina.proof.tvos
+  Lumina-iOS-UITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/UITests
+        excludes: [Fixture.json]
+    postBuildScripts:
+      - name: Include optional disposable test fixture
+        script: '"$SRCROOT/scripts/copy_test_fixture.sh"'
+        basedOnDependencyAnalysis: false
+    dependencies:
+      - target: Lumina-iOS
+    settings:
+      base:
+        INFOPLIST_FILE: Config/TestInfo.plist
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        PRODUCT_BUNDLE_IDENTIFIER: dev.lumina.proof.ios.tests
+        TEST_TARGET_NAME: Lumina-iOS
+  Lumina-tvOS-UITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources:
+      - path: Tests/UITests
+        excludes: [Fixture.json]
+    postBuildScripts:
+      - name: Include optional disposable test fixture
+        script: '"$SRCROOT/scripts/copy_test_fixture.sh"'
+        basedOnDependencyAnalysis: false
+    dependencies:
+      - target: Lumina-tvOS
+    settings:
+      base:
+        INFOPLIST_FILE: Config/TestInfo.plist
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        PRODUCT_BUNDLE_IDENTIFIER: dev.lumina.proof.tvos.tests
+        TEST_TARGET_NAME: Lumina-tvOS
+schemes:
+  Lumina-iOS:
+    build:
+      targets:
+        Lumina-iOS: all
+    test:
+      targets: [Lumina-iOS-UITests]
+  Lumina-tvOS:
+    build:
+      targets:
+        Lumina-tvOS: all
+    test:
+      targets: [Lumina-tvOS-UITests]

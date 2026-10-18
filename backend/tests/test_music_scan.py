@@ -452,7 +452,11 @@ def test_shared_folder_uses_album_named_sidecars_instead_of_generic_cover(tmp_pa
 
 
 @needs_ffmpeg
-def test_rescan_removes_stale_shared_folder_cover_but_preserves_manual_art(admin, media: Path) -> None:  # noqa: ANN001
+def test_rescan_removes_stale_shared_folder_cover_but_preserves_manual_art(admin, media: Path, monkeypatch) -> None:  # noqa: ANN001
+    from datetime import timedelta
+    from app.models import MusicLookup, utcnow
+    from app.services import music_providers
+
     fixture = music_fixture()
     folder = media / 'Music' / 'Artist'
     for number, album in enumerate(('First', 'Second', 'Third'), 1):
@@ -466,9 +470,18 @@ def test_rescan_removes_stale_shared_folder_cover_but_preserves_manual_art(admin
         for album in albums:
             album.images = {'Primary': {'path': 'Music/Artist/cover.jpg', 'tag': 'old'}}
             album.field_sources = {**(album.field_sources or {}), 'images.Primary': 'user' if album.name == 'Third' else 'nfo'}
+            db.add(MusicLookup(key=music_providers.key_for('metadata', album.id), kind='metadata',
+                               payload={'identified': True}, refreshed_at=utcnow(), expires_at=utcnow() + timedelta(days=30)))
         db.commit()
     assert scan(admin)['state'] == 'succeeded'
     with db_module.SessionLocal() as db:
         albums = list(db.scalars(select(MediaTitle).where(MediaTitle.type == 'album')))
         for album in albums:
             assert ('Primary' in (album.images or {})) == (album.name == 'Third')
+        retired = {album.id for album in albums if album.name != 'Third'}
+        manual = next(album.id for album in albums if album.name == 'Third')
+    queued = []
+    monkeypatch.setattr(music_providers, 'request_enrichment', lambda title_id: queued.append(title_id))
+    music_providers.maintenance()
+    assert retired <= set(queued)  # A cached successful lookup must not postpone replacement artwork.
+    assert manual not in queued

@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 
 from app.db import session_scope
 from app.models import (
-    ImportEntry, ImportRun, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MusicTrackOverride, StorageRoot,
+    ImportEntry, ImportRun, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MusicLookup, MusicTrackOverride, StorageRoot,
     User, utcnow,
 )
 from app.persistence import queue_after_commit, write_transaction
@@ -949,6 +949,10 @@ class LibraryImportService:
                         title.images = {kind: value for kind, value in (title.images or {}).items() if kind != "Primary"}
                         title.field_sources = {field: value for field, value in (title.field_sources or {}).items() if field != "images.Primary"}
                         title.metadata_due_at = now
+                        from app.services.music_providers import key_for
+                        cached = self.db.get(MusicLookup, key_for("metadata", title.id))
+                        if cached is not None:
+                            self.db.delete(cached)
                 for source in ("path", "nfo", "musicbrainz"):
                     for field, value in spec["fields"].get(source, {}).items():
                         if foreign and field.startswith("images."):

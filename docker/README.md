@@ -543,6 +543,8 @@ Lumina 2.1.0 can keep an **external** storage root up to date by itself. Both op
 - **Nightly at** (Settings → Library & storage) sets the hour nightly scans start. It uses the **server's** time zone, shown next to the hour. Set `TZ` in `.env` (or the compose `environment:` block), for example `TZ=America/Chicago`, then recreate the container. Without it the server is on UTC. The image includes `tzdata`.
 - **Watch for new media** polls the folders' modification times and scans only the folders that changed. Interval: 1, 5 or 15 minutes for one full pass (5 is the default). It never reads file contents. A new file is indexed only after its size and time stop changing for about 90 seconds, so a copy in progress is not picked up half-written.
 
+Connected Sonarr, Radarr and Lidarr observers also reconcile their mapped folders independently of the root Watch and Scan schedule settings. Their import history uses **Manager** as the trigger. Changed upstream file identities receive priority; known unchanged folders become eligible for a slower safety check after six hours. Admission is limited to one folder per root per observation pass, so six hours is an eligibility interval rather than a completion deadline for a large inventory. Successful fingerprints and admission state survive restarts. Failed or busy imports remain retryable, and an upstream file flag alone never makes media playable.
+
 What the watcher sees: new, deleted and renamed files and folders. It does **not** see a file edited in place, such as an NFO rewritten by another tool, because that changes no folder time. The nightly scan catches those, which is why Watch plus Nightly is the recommended pairing.
 
 NAS notes:

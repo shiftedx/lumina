@@ -108,10 +108,13 @@ Scheduling/watch audit: 11 focused tests passed across registered inventory reco
 
 A deterministic unchanged one-candidate shallow scope used 22 SQL statements and affected five rows: one artifact update for `last_seen_run_id`, three run updates and one run insertion. It made two lstat calls, three directory listings and one metadata description, with no media hash/tag/probe calls. A synthetic unchanged 1,000-file/100-folder full scan made 322 directory listings, 1,000 metadata descriptions and 89 SQL statements; no hash/tag calls occurred. Unchanged imports still update artifact last-seen state. Existing fingerprint/tag caches therefore work; eliminating all safety scans or assuming every file count is a content read would be incorrect.
 
-The retained zero-I/O harness is `scripts/perf/audit_library_discovery.py`. It exercises the real walk against in-memory directory entries, counts enumeration across discovery/indexing, and supports an explicit budget:
+The original audit used a zero-I/O traversal harness, subsequently replaced at `scripts/perf/audit_library_discovery.py` by a real-service temporary-fixture harness during remediation. That original baseline exercised the real walk against in-memory directory entries and counted enumeration across discovery/indexing. Its optimization target was:
 
 ```sh
 mise exec -- backend/.venv/bin/python scripts/perf/audit_library_discovery.py --max-enumeration-factor 4
 ```
 
-Current baseline exits 1 with 12 listings / 12,000 enumerated entries / factor 12 at 1,000 candidates. This intentional red result establishes a repeatable optimization target; it is not a failed product test being concealed. The budget allows two passes plus bounded overhead and is an audit target, not an existing project gate. No broad suite was run for this audit.
+The pre-fix baseline exited 1 with 12 listings / 12,000 enumerated entries / factor 12 at 1,000 candidates. This intentional red result establishes a repeatable optimization target; it is not a failed product test being concealed. The budget allows two passes plus bounded overhead and is an audit target, not an existing project gate. No broad suite was run for this audit.
+
+
+Remediation is recorded in [the focused fixes report](library-discovery-io-fixes-2026-10-18.md). The retained harness now measures the real import service with isolated temporary filesystem/SQLite fixtures; it creates no production work. The measurements above remain the original audit evidence.

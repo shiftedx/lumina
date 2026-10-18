@@ -721,6 +721,8 @@ class LibraryAutomation:
             )
             if run is not None and (state == "unresponsive" or stale):
                 stalled.append(root)
+        represented_roots = {run.root_id for run in active if run.root_id is not None}
+        untracked_stalled = sum(root.id not in represented_roots for root in stalled)
         listed = sum(count(watch.stats.dirs_listed) for watch in preparing)
         directory_totals = [watch.stats.dirs_total for watch in preparing]
         directory_total = (
@@ -738,7 +740,7 @@ class LibraryAutomation:
         completed = min(sum(count(run.counters.get("candidate_completed")) for run in cohort), limit)
         progress = round(min(completed, total) / total * 100, 1) if total else None
         return {
-            "scanning_roots": min(len(active) + pending, limit),
+            "scanning_roots": min(len(active) + pending + untracked_stalled, limit),
             "discovering_roots": min(len(discovering), limit),
             "indexing_roots": min(len(indexing), limit),
             "preparing_roots": min(len(preparing), limit),

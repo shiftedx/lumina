@@ -274,7 +274,7 @@ def test_public_activity_is_a_bounded_identity_free_aggregate(env, monkeypatch):
     monkeypatch.setattr(env.automation, "_external", lambda: roots)
     monkeypatch.setattr(env.automation, "_state", lambda root: states[root.id])
     assert env.automation.public_activity() == {
-        "scanning_roots": 2,
+        "scanning_roots": 3,
         "discovering_roots": 0,
         "indexing_roots": 2,
         "preparing_roots": 2,

@@ -48,6 +48,12 @@ Device Hub is required for pose/orientation selection on this runtime: XCTest re
 
 The complete `mise exec -- make check` invocation exited successfully: 5,011 backend tests (11 skipped), 2,478 frontend unit tests, 47 real-stack/performance tests (4 skipped), and 592 mocked browser tests (2 skipped), plus bootstrap, typecheck, build, size and style gates.
 
+## PR merge validation, 2026-10-18
+
+After rebasing the native fixes onto the newer main branch, `mise exec -- make check` passed bootstrap, typecheck, build/size/style and 5,119 backend tests (11 skipped), then exposed an invalid AppShell activity mock. A separate one-line test fix uses the valid loading state. The full frontend suite passed all 2,547 tests with two workers; two default-concurrency timeouts passed without changing their assertions or timeouts.
+
+The real-stack/performance gate passed 46 cases (4 skipped) and exposed an existing Diagnostics bookmark regression after Updates became the section's first page. A minimal default-page fix retains Diagnostics bookmarks and explicit Updates navigation, covered by 46 focused navigation/route tests. The unchanged recommendation/Diagnostics journey then passed with fixture setup (2 tests). The rebuilt frontend passed size/style checks and all 605 mocked browser tests (2 skipped). This is combined coverage of all gate targets after the two small web repairs, rather than a second single successful `make check` invocation. The native app sources are unchanged from the six-layout and live-transition validation above.
+
 ## Repository regression checks
 
 Running `make check` exposed two existing regressions, fixed separately in [worker shutdown #66](https://github.com/shiftedx/lumina/pull/66) and [watch-tool selection #68](https://github.com/shiftedx/lumina/pull/68). The full backend suite passed 5,011 tests with 11 skips. After the web fix, the remaining check targets passed bootstrap, typecheck, production build, 2,478 frontend tests, and 47 real-stack/performance tests with 4 skips.

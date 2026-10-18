@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 import { mockGalleryWall } from './gallery-mock';
-import { mockApi, signIn } from './lumina-mock';
+import { mockApi, navigateApp, signIn } from './lumina-mock';
 import { mockMusic } from './music-mock';
 
 /**
@@ -40,7 +40,7 @@ test('album playback stays on its Audio page and Next updates the player and Med
   expect(Math.round(cover!.width)).toBe(Math.round(cover!.height));
   await page.getByRole('button', { name: 'Play 1. Song 1, 1:30' }).click();
   await expect(page).toHaveURL(/\/audio\/title\/album-1$/);
-  const player = page.getByRole('region', { name: 'Music player' });
+  const player = page.getByRole('region', { name: 'Music player', exact: true });
   await expect(player).toBeVisible();
   await expect(player.getByRole('button', { name: 'Open listening room for Song 1' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => navigator.mediaSession.metadata?.title)).toBe('Song 1');
@@ -56,26 +56,54 @@ test('album playback stays on its Audio page and Next updates the player and Med
   expect(errors).toEqual([]);
 });
 
-test('paused and dismissed music leaves the page clear and explicit playback restores the bar', async ({ page }) => {
-  await open(page, '/audio/title/album-1');
-  const playTrack = page.getByRole('button', { name: 'Play 1. Song 1, 1:30' });
-  const player = page.getByRole('region', { name: 'Music player' });
-  await playTrack.click();
-  await expect(player.getByRole('button', { name: 'Pause music' })).toBeVisible();
-  await player.getByRole('button', { name: 'Pause music' }).click();
-  await expect(player).toBeHidden();
-  await expect(page.getByRole('main')).toBeFocused();
-  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--music-dock-height'))).toBe('');
+for (const scheme of ['light', 'dark'] as const) {
+for (const viewport of [DESKTOP, PHONE]) {
+  test(`paused music collapses, expands and closes in ${scheme} at ${viewport.width}px`, async ({ page }) => {
+    await open(page, '/audio/title/album-1', viewport, scheme);
+    const playTrack = page.getByRole('button', { name: 'Play 1. Song 1, 1:30' });
+    const player = page.getByRole('region', { name: 'Music player', exact: true });
+    const mini = page.getByRole('region', { name: 'Mini music player', exact: true });
+    await playTrack.click();
+    await expect(player.getByRole('button', { name: 'Pause music' })).toBeVisible();
+    await player.getByRole('button', { name: 'Pause music' }).click();
+    await expect(player).toBeHidden();
+    await expect(mini).toBeVisible();
+    await expect(mini.getByRole('button', { name: 'Play music' })).toBeFocused();
+    await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--music-dock-height'))).toBe('');
+    const bounds = await mini.boundingBox();
+    expect(bounds!.x).toBeGreaterThan(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width);
+    expect(bounds!.y + bounds!.height).toBeLessThan(viewport.height - (viewport.width < 680 ? 56 : 0));
+    await noSeriousAxe(page, 'paused mini player');
+    await page.screenshot({ path: `../output/music-mini-${scheme}-${viewport.width}.png` });
 
-  await playTrack.click();
-  await expect(player.getByRole('button', { name: 'Pause music' })).toBeVisible();
-  await player.getByRole('button', { name: 'Dismiss music player' }).click();
-  await expect(player).toBeHidden();
-  await expect(page.getByRole('main')).toBeFocused();
-  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--music-dock-height'))).toBe('');
-  await playTrack.click();
-  await expect(player.getByRole('button', { name: 'Pause music' })).toBeVisible();
-});
+    await mini.getByRole('button', { name: /Expand music player/ }).click();
+    await expect(player.getByRole('button', { name: 'Play music' })).toBeFocused();
+    await expect(mini).toBeHidden();
+    await player.getByRole('button', { name: 'Collapse music player' }).click();
+    await expect(mini.getByRole('button', { name: 'Play music' })).toBeFocused();
+    await mini.getByRole('button', { name: 'Play music' }).click();
+    await expect(player.getByRole('button', { name: 'Pause music' })).toBeVisible();
+    await expect(player.getByRole('button', { name: 'Pause music' })).toBeFocused();
+
+    await player.getByRole('button', { name: 'Collapse music player' }).click();
+    await expect(mini.getByRole('button', { name: 'Pause music' })).toBeVisible();
+    await mini.getByRole('button', { name: 'Pause music' }).click();
+    await mini.getByRole('button', { name: 'Dismiss music player' }).click();
+    await expect(player).toBeHidden();
+    await expect(mini).toBeHidden();
+    await expect(page.getByRole('main')).toBeFocused();
+    await navigateApp(page, 'Video');
+    await expect(mini).toBeHidden();
+    await expect(player).toBeHidden();
+    await page.goBack();
+    await expect(page.getByRole('heading', { name: 'Album One', exact: true })).toBeVisible();
+    await expect(mini).toBeHidden();
+    await playTrack.click();
+    await expect(player.getByRole('button', { name: 'Pause music' })).toBeVisible();
+  });
+}
+}
 
 test('artist → album, and Shuffle plays from a shuffled order', async ({ page }) => {
   await open(page, '/title/artist-1');
@@ -86,7 +114,7 @@ test('artist → album, and Shuffle plays from a shuffled order', async ({ page 
   await expect(page.getByRole('heading', { level: 1, name: 'Album One' })).toBeVisible();
   await page.getByRole('button', { name: 'Shuffle' }).click();
   await expect(page).toHaveURL(/\/audio\/title\/album-1$/);
-  await expect(page.getByRole('region', { name: 'Music player' }).getByRole('button', { name: /Open listening room for Song [123]/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Music player', exact: true }).getByRole('button', { name: /Open listening room for Song [123]/ })).toBeVisible();
 });
 
 test('an album opened on its artist names the artist on Back, and goes there even after a track played', async ({ page }) => {
@@ -94,7 +122,7 @@ test('an album opened on its artist names the artist on Back, and goes there eve
   await page.getByRole('button', { name: 'Album One by Artist A, 2019, 3 tracks' }).click();
   await expect(page).toHaveURL(/\/audio\/title\/album-1$/);
   await page.getByRole('button', { name: 'Play 1. Song 1, 1:30' }).click();
-  const player = page.getByRole('region', { name: 'Music player' });
+  const player = page.getByRole('region', { name: 'Music player', exact: true });
   await expect(player.getByRole('button', { name: 'Open listening room for Song 1' })).toBeVisible();
   await page.getByRole('button', { name: 'Back to Artist A' }).click();
   await expect(page).toHaveURL(/\/audio\/title\/artist-1$/);
@@ -112,7 +140,7 @@ test('keyboard only: the tracklist is one column and Left reaches Play', async (
   await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/audio\/title\/album-1$/);
-  await expect(page.getByRole('region', { name: 'Music player' }).getByRole('button', { name: 'Open listening room for Song 1' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Music player', exact: true }).getByRole('button', { name: 'Open listening room for Song 1' })).toBeVisible();
 });
 
 for (const scheme of ['light', 'dark'] as const) {
@@ -131,7 +159,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.screenshot({ path: testInfo.outputPath(`artist-${scheme}-${viewport.width}.png`), fullPage: true });
       await page.goto('/watch/library/track-1');
       await expect(page).toHaveURL(/\/audio\/title\/album-1$/);
-      const player = page.getByRole('region', { name: 'Music player' });
+      const player = page.getByRole('region', { name: 'Music player', exact: true });
       await expect(player.getByRole('button', { name: 'Open listening room for Song 1' })).toBeVisible();
       await player.getByRole('button', { name: 'Open listening room for Song 1' }).click();
       await expect(page.getByRole('dialog', { name: 'Listening room' })).toBeVisible();

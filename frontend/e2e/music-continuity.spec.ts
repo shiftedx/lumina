@@ -31,7 +31,7 @@ test('a requested album remains paused until the member explicitly plays it afte
   await page.goto('/audio/title/album-1');
   await signIn(page);
 
-  const player = page.getByRole('region', { name: 'Music player' });
+  const player = page.getByRole('region', { name: 'Music player', exact: true });
   await expect(player.getByText('Waiting for requested album')).toBeVisible();
   await expect(player.getByRole('button', { name: 'Play music' })).toBeDisabled();
   await player.getByRole('button', { name: 'Open queue' }).click();

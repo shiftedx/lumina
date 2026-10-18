@@ -64,7 +64,7 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
   await expect(page.getByRole('heading', { level: 1, name: 'Album One' })).toBeVisible();
   if (process.env.MUSIC_VISUAL_DIR) await page.screenshot({ path: `${process.env.MUSIC_VISUAL_DIR}/album-page-desktop.png`, fullPage: true });
   await page.getByRole('button', { name: 'Play', exact: true }).click();
-  const player = page.getByRole('region', { name: 'Music player' });
+  const player = page.getByRole('region', { name: 'Music player', exact: true });
   await expect(player).toBeVisible();
   await expect(player.getByRole('button', { name: /Open listening room for Song [123]/ })).toBeVisible();
   if (process.env.MUSIC_VISUAL_DIR) {
@@ -98,6 +98,7 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
   await expect(page.getByRole('button', { name: 'Play all', exact: true })).toBeEnabled();
   // A full navigation restores the queue paused; only SPA navigation keeps audio playing.
   await expect(player).toBeHidden();
+  await expect(page.getByRole('region', { name: 'Mini music player' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'artist page overflow').toBeLessThanOrEqual(0);
   const artistAccessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
   expect(artistAccessibility.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical').map((violation) => violation.id)).toEqual([]);

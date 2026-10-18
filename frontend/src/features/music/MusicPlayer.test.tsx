@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -57,7 +57,7 @@ describe('MusicPlayer', () => {
     view.rerender(<MusicPlayer {...props} />);
     expect(screen.queryByRole('region', { name: 'Music player' })).toBeNull();
     expect(screen.getByRole('dialog', { name: 'Listening room' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Play music' })).toBeTruthy();
+    expect(within(screen.getByRole('dialog', { name: 'Listening room' })).getByRole('button', { name: 'Play music' })).toBeTruthy();
   });
 
   it('replaces a partial pending lyrics reply with the provider error', async () => {
@@ -131,7 +131,7 @@ describe('MusicPlayer', () => {
     expect(mocks.close).not.toHaveBeenCalled();
   });
 
-  it('hides the dock and releases its layout space when playback pauses', async () => {
+  it('collapses paused music, expands without playing, and can be closed without losing the queue', async () => {
     const view = render(<MusicPlayer {...props} />);
     expect(screen.getByRole('region', { name: 'Music player' })).toBeTruthy();
     expect(document.documentElement.style.getPropertyValue('--music-dock-height')).not.toBe('');
@@ -140,7 +140,15 @@ describe('MusicPlayer', () => {
     view.rerender(<MusicPlayer {...props} />);
 
     expect(screen.queryByRole('region', { name: 'Music player' })).toBeNull();
+    const mini = screen.getByRole('region', { name: 'Mini music player' });
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--music-dock-height')).toBe(''));
+    await userEvent.click(within(mini).getByRole('button', { name: /Expand music player/ }));
+    expect(screen.getByRole('region', { name: 'Music player' })).toBeTruthy();
+    expect(mocks.toggle).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse music player' }));
+    expect(screen.getByRole('region', { name: 'Mini music player' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss music player' }));
+    expect(screen.queryByRole('region', { name: 'Mini music player' })).toBeNull();
     expect(mocks.close).not.toHaveBeenCalled();
   });
 
@@ -167,7 +175,8 @@ describe('MusicPlayer', () => {
     mocks.control.mockRejectedValueOnce(new Error('Speaker unavailable'));
     render(<MusicPlayer {...props} />);
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Dismiss music player' }));
+    const player = await screen.findByRole('region', { name: 'Music player' });
+    await userEvent.click(within(player).getByRole('button', { name: 'Dismiss music player' }));
 
     expect(await screen.findByRole('region', { name: 'Music player' })).toBeTruthy();
     expect(await screen.findAllByText('Speaker unavailable')).not.toHaveLength(0);

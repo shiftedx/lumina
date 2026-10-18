@@ -11,15 +11,14 @@ import type { AlbumTrack, TitleDetail, TitleSummary } from '../../types';
 import { errorMessage, formatDuration } from '../../utils';
 import { setAlbumQueue, shuffled, trackLabel } from './albumQueue';
 import { GalleryArt } from './GalleryArt';
-import { cardColour, countNoun, type GalleryTheme } from './galleryModel';
-import { pageAccent } from './titlePageModel';
+import { cardColour, countNoun, type GalleryTheme, readableAccent, safeColour } from './galleryModel';
 import { useMediaQuery } from './WallGrid';
 import './music.css';
 import { MusicEnrichment, MusicVideoRail } from '../music/MusicExtras';
 import { MusicEditions } from '../music/MusicEditions';
 import { MusicTrackEditor } from '../music/MusicTrackEditor';
 
-const COVER_SIZES = '(max-width: 599px) min(100vw, 420px), 440px';
+const COVER_SIZES = '(max-width: 1023px) 280px, 360px';
 const galleryTheme = (): GalleryTheme => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
 
 export type AlbumPageProps = {
@@ -88,7 +87,7 @@ function TrackRow({ track, onPlay }: { track: AlbumTrack; onPlay: (track: AlbumT
   const time = left !== null ? (left < 60 ? '<1 min left' : `${Math.round(left / 60)} min left`) : track.duration_seconds ? formatDuration(track.duration_seconds) : '';
   return (
     <button aria-label={trackButtonLabel(track)} className="g-track" data-focus-item onClick={() => onPlay(track)} type="button">
-      <span aria-hidden="true" className="g-track-number"><span className="g-track-index">{track.number ?? '–'}</span><Play className="g-track-glyph" /></span>
+      <span aria-hidden="true" className="g-track-number"><span className="g-track-index">{track.number == null ? '–' : String(track.number).padStart(2, '0')}</span><Play className="g-track-glyph" /></span>
       <span aria-hidden="true" className="g-track-name">
         <span className="g-track-title">{track.name}</span>
         {track.artist ? <span className="g-label">{track.artist}</span> : null}
@@ -187,7 +186,7 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
   };
 
   return (
-    <div className={`gallery g-album-page soundstage-album${phone ? ' is-phone' : ''}`} onKeyDown={onKeyDown} style={{ '--g-accent': pageAccent(album, galleryTheme()) } as CSSProperties}>
+    <div className={`gallery g-album-page soundstage-album${phone ? ' is-phone' : ''}`} onKeyDown={onKeyDown} style={{ '--album-cover-colour': safeColour(album.poster?.dominant) ?? 'var(--g-paper-2)', '--g-accent': readableAccent(safeColour(album.poster?.accent) ?? safeColour(album.poster?.dominant), galleryTheme()) } as CSSProperties}>
       <button aria-label={`Back to ${backLabel}`} className="g-back g-label" data-focus-item onClick={onBack} type="button"><ChevronLeft aria-hidden="true" /> {backLabel}</button>
       <div className="g-album-layout">
         <div className="g-album-cover">
@@ -205,7 +204,7 @@ export function AlbumPage({ summary, detail, headingRef, backLabel, onBack, onKe
               if (resume) play(resume, tracks, resume.user_data.position_seconds);
               else play(tracks[0]);
             }} type="button">
-              <Play aria-hidden="true" /> {resume ? `Resume · ${trackLabel(resume)}` : 'Play'}
+              <Play aria-hidden="true" /> <span>{resume ? `Resume · ${trackLabel(resume)}` : 'Play'}</span>
             </button>
             {phone
               ? <button aria-label="Shuffle" className="g-icon-button" data-focus-item disabled={!playable} onClick={shuffle} type="button"><Shuffle aria-hidden="true" /></button>

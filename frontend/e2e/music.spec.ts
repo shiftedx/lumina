@@ -1,6 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
+import { albumDetail, albumSummary, albumTrack, userData } from '../src/test/galleryFixtures';
+import type { TitleDetail } from '../src/types';
+
 import { mockGalleryWall } from './gallery-mock';
 import { mockApi, navigateApp, signIn } from './lumina-mock';
 import { mockMusic } from './music-mock';
@@ -14,12 +17,16 @@ const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 320, height: 844 };
 type Viewport = typeof DESKTOP;
 
-async function open(page: Page, path: string, viewport: Viewport = DESKTOP, scheme: 'light' | 'dark' = 'light') {
+async function open(page: Page, path: string, viewport: Viewport = DESKTOP, scheme: 'light' | 'dark' = 'light', album?: TitleDetail) {
   await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
   await page.setViewportSize(viewport);
   await mockApi(page, { sidebar_collapsed: true });
   await mockGalleryWall(page);
   const calls = await mockMusic(page);
+  if (album) {
+    await page.route('**/api/titles/album-1', (route) => route.fulfill({ json: album }));
+    await page.route('**/api/artwork/remote/record-cover', (route) => route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600"><rect width="600" height="600" fill="${album.poster?.dominant}"/><circle cx="300" cy="300" r="200" fill="none" stroke="white" stroke-width="2"/><text x="300" y="300" text-anchor="middle" fill="white" font-size="28">THE EVENING PLAYERS</text></svg>` }));
+  }
   await page.goto(path);
   await signIn(page);
   return calls;
@@ -166,6 +173,47 @@ for (const scheme of ['light', 'dark'] as const) {
       await noSeriousAxe(page, `listening room ${scheme} ${viewport.width}`);
       expect(await sideways()).toBeLessThanOrEqual(0);
       await page.screenshot({ path: testInfo.outputPath(`listening-room-${scheme}-${viewport.width}.png`), fullPage: true });
+    });
+  }
+}
+
+
+for (const scheme of ['light', 'dark'] as const) {
+  for (const viewport of [DESKTOP, { width: 1920, height: 1080 }, PHONE]) {
+    test(`album sleeve layout with a long title and listening progress: ${scheme} ${viewport.width}px`, async ({ page }, testInfo) => {
+      const name = 'The Long Way Home — Twentieth Anniversary Expanded Edition';
+      const album = albumDetail(albumSummary('album-1', { name, poster: { url: '/api/artwork/remote/record-cover', widths: [], dominant: scheme === 'dark' ? '#21485a' : '#9a394a', accent: '#59879b' } }), [
+        albumTrack(1, { artist: 'The Evening Players', user_data: userData({ position_seconds: 30 }) }),
+        albumTrack(2),
+      ]);
+      await open(page, '/audio/title/album-1', viewport, scheme, album);
+      const heading = page.getByRole('heading', { level: 1, name });
+      await expect(heading).toBeVisible();
+      const fontSize = await heading.evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
+      expect(fontSize).toBeLessThanOrEqual(viewport.width === 320 ? 28 : 48);
+      const row = page.getByRole('button', { name: /^Play 1\. Song 1/ });
+      const title = (await row.locator('.g-track-title').boundingBox())!;
+      const artist = (await row.locator('.g-track-name .g-label').boundingBox())!;
+      const progress = (await row.locator('.g-track-progress').boundingBox())!;
+      const number = (await row.locator('.g-track-number').boundingBox())!;
+      expect(Math.abs(progress.x - title.x)).toBeLessThan(1);
+      expect(Math.abs(progress.x - artist.x)).toBeLessThan(1);
+      expect(number.width).toBeLessThanOrEqual(24);
+      await row.focus();
+      await page.keyboard.press('ArrowDown');
+      const second = page.getByRole('button', { name: /^Play 2\. Song 2/ });
+      await expect(second).toBeFocused();
+      await expect(second.locator('.g-track-glyph')).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      if (viewport.width === 320) {
+        const play = (await page.getByRole('button', { name: 'Resume · 1. Song 1' }).boundingBox())!;
+        const body = (await page.locator('.g-album-body').boundingBox())!;
+        expect(Math.abs(play.width - body.width)).toBeLessThan(1);
+      }
+      await noSeriousAxe(page, `album sleeve ${scheme} ${viewport.width}`);
+      await heading.focus();
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ path: testInfo.outputPath(`album-sleeve-${scheme}-${viewport.width}.png`), fullPage: true });
     });
   }
 }

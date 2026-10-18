@@ -86,7 +86,7 @@ test('discovery stays indeterminate and exposes only numeric aggregate API field
   const body = await (await responsePromise).json() as Record<string, unknown>;
   expect(Object.keys(body).sort()).toEqual(activityKeys);
   expect(Object.values(body).every((value) => value === null || typeof value === 'number')).toBe(true);
-  expect(JSON.stringify(body)).not.toMatch(/\/Volumes\/|\/mnt\/|root-|title-|error|label|path/i);
+  expect(JSON.stringify(body)).not.toMatch(/\/Volumes\/|\/mnt\/|root-|title-|label|path/i);
 
   await expect(trigger).toHaveAttribute('aria-label', 'Discovering files, 18 found');
   await expect(trigger.locator('.g-activity-ring')).toHaveClass(/is-indeterminate/);
@@ -139,4 +139,19 @@ test('activity API failure is explained without losing Downloads on a dark phone
   await expect(panel.getByRole('button', { name: 'Open Downloads' })).toBeVisible();
   await auditPopover(page, panel);
   await page.screenshot({ path: '../output/playwright/library-activity-failure-phone-dark.png' });
+});
+
+test('stalled scans and unreadable files show attention without an active spinner on a phone', async ({ page }) => {
+  const trigger = await openHome(page, {
+    scheme: 'dark', viewport: { width: 390, height: 844 },
+    activity: { ...LIBRARY_ACTIVITY_IDLE, scanning_roots: 1, indexing_roots: 1, stalled_roots: 1,
+      waiting_files: 2, waiting_error_files: 2 },
+  });
+  await expect(trigger).toHaveAttribute('aria-label', 'Library scan needs attention');
+  await expect(trigger.locator('.g-activity-ring')).not.toHaveClass(/is-indeterminate/);
+  const panel = await openActivity(page, trigger);
+  await expect(panel.getByText('Library scan needs attention')).toBeVisible();
+  await expect(panel.getByText('2 files could not be checked yet and will be retried.')).toBeVisible();
+  await expect(panel.getByText('Indexing library', { exact: true })).not.toBeVisible();
+  await auditPopover(page, panel);
 });

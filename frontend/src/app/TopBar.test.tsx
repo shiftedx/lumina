@@ -11,7 +11,7 @@ vi.mock('../features/auth/memberPicker', () => ({ useDeviceRingSize: () => 1 }))
 
 const user = { id: 'u1', username: 'dana', display_name: 'Dana Lee', role: 'admin', is_active: true } as UserProfile;
 const library = (patch: Partial<LibraryActivity> = {}): LibraryActivity => ({
-  scanning_roots: 0, discovering_roots: 0, indexing_roots: 0, preparing_roots: 0, waiting_files: 0,
+  scanning_roots: 0, discovering_roots: 0, indexing_roots: 0, preparing_roots: 0, stalled_roots: 0, waiting_files: 0, waiting_error_files: 0,
   discovered_files: 0, completed_files: 0, total_files: null, progress: null, inspected_files: 0, directories_listed: 0, directories_total: null, ...patch,
 });
 const props = (patch: Partial<TopBarProps> = {}): TopBarProps => ({
@@ -76,6 +76,28 @@ describe('TopBar', () => {
 
     rerender(<TopBar {...props({ activity: { state: 'ready', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: library({ scanning_roots: 1, discovering_roots: 1, discovered_files: 4 }) } })} />);
     expect(screen.getByRole('button', { name: 'Discovering files, 4 found' }).querySelector('.g-activity-ring')?.classList.contains('is-indeterminate')).toBe(true);
+
+    rerender(<TopBar {...props({ activity: { state: 'ready', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: library({ scanning_roots: 1, indexing_roots: 1, completed_files: 6380 }) } })} />);
+    expect(screen.getByRole('button', { name: 'Indexing library, 6380 files checked' }).querySelector('.g-activity-ring')?.classList.contains('is-indeterminate')).toBe(true);
+  });
+
+  it('shows waiting and failed file checks without running the scan spinner', async () => {
+    render(<TopBar {...props({ activity: { state: 'empty', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: library({ waiting_files: 3, waiting_error_files: 1 }) } })} />);
+    const trigger = screen.getByRole('button', { name: '1 file waiting to be checked' });
+    expect(trigger.querySelector('.g-activity-ring')?.classList.contains('is-indeterminate')).toBe(false);
+    await userEvent.click(trigger);
+    const panel = screen.getByRole('dialog', { hidden: true });
+    expect(panel.textContent).toContain('2 files are still copying or stabilizing');
+    expect(panel.textContent).toContain('1 file could not be checked yet and will be retried');
+    expect(panel.textContent).not.toContain('No library scan running');
+  });
+
+  it('replaces a stale scan spinner with a safe attention state', async () => {
+    render(<TopBar {...props({ activity: { state: 'empty', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: library({ scanning_roots: 1, stalled_roots: 1, discovered_files: 12 }) } })} />);
+    const trigger = screen.getByRole('button', { name: 'Library scan needs attention' });
+    expect(trigger.querySelector('.g-activity-ring')?.classList.contains('is-indeterminate')).toBe(false);
+    await userEvent.click(trigger);
+    expect(screen.getByRole('dialog', { hidden: true }).textContent).toContain('One scan has stopped reporting progress');
   });
 
   it('opens phase details with true indexing progress and discovery counts only', async () => {

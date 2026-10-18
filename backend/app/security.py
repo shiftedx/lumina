@@ -508,7 +508,9 @@ def get_current_user(
 ) -> User:
     user = resolve_user_from_request(db, request=request, credentials=credentials)
     request.state.resource_user_id = user.id
-    background_work.begin_request(request.scope)
+    # Passive progress polling must allow the server to become idle between real interactions.
+    if request.method != "GET" or request.url.path != "/api/library/activity":
+        background_work.begin_request(request.scope)
     return user
 
 

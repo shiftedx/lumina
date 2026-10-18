@@ -139,8 +139,14 @@ class ProbeWarming:
     def wake(self) -> None:
         self._wake.set()
 
-    def after_import(self, _run_id: str) -> None:
-        """Post-import hook: returns at once; the worker finds the new files itself."""
+    def after_import(self, run_id: str) -> None:
+        """Queue changed artifacts directly; only a restarted driver needs the broad fallback."""
+        changes = library_import.import_changes(run_id)
+        if changes is not None:
+            if changes.artifact_ids:
+                self._probe_ids.extend(changes.artifact_ids)
+                self._wake.set()
+            return
         self._probe_generation += 1
         self._probe_ids.clear()
         self._wake.set()

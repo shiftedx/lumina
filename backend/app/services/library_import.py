@@ -23,6 +23,7 @@ import os
 import stat
 import threading
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterator, Literal, TypedDict
@@ -57,12 +58,46 @@ HASH_PREFIX_BYTES = 64 * 1024
 after_import_hooks: list[Callable[[str], None]] = []
 
 
+@dataclass
+class ImportChanges:
+    """Changed subjects from one import, kept in memory only while its driver is alive.
+
+    A missing context means the run crossed a process boundary; consumers retain their
+    broad restart-safe fallback for that case.  A present empty context is an unchanged
+    run and must not wake catalog-wide maintenance.
+    """
+
+    artifact_ids: set[str] = field(default_factory=set)
+    item_ids: set[str] = field(default_factory=set)
+    title_ids: set[str] = field(default_factory=set)
+    art_title_ids: set[str] = field(default_factory=set)
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.artifact_ids or self.item_ids or self.title_ids or self.art_title_ids)
+
+
+_run_changes: dict[str, ImportChanges] = {}
+_hook_changes: dict[str, ImportChanges] = {}
+
+
+def import_changes(run_id: str) -> ImportChanges | None:
+    """Changes visible to a currently executing completion hook; None is restart fallback."""
+    return _hook_changes.get(run_id)
+
+
 def _after_import(run_id: str) -> None:
-    for hook in after_import_hooks:
-        try:
-            hook(run_id)
-        except Exception:  # noqa: BLE001 - one broken consumer never blocks the others or the scan
-            logger.exception("Post-import hook %s failed", getattr(hook, "__name__", hook))
+    changes = _run_changes.pop(run_id, None)
+    if changes is not None:
+        _hook_changes[run_id] = changes
+    try:
+        for hook in after_import_hooks:
+            try:
+                hook(run_id)
+            except Exception:  # noqa: BLE001 - one broken consumer never blocks the others or the scan
+                logger.exception("Post-import hook %s failed", getattr(hook, "__name__", hook))
+    finally:
+        _hook_changes.pop(run_id, None)
 
 
 def _wake_renditions(title_ids: list[str]) -> None:
@@ -175,6 +210,28 @@ def _step_lock(root_id: str) -> threading.Lock:
     return _step_locks.setdefault(root_id, threading.Lock())  # setdefault is atomic: one lock per root, ever
 
 Found = tuple[tuple[str, ...], "os.DirEntry | None", "str | None", frozenset[str]]
+
+
+@dataclass
+class _LiveWalk:
+    root_id: str
+    cursor: str
+    iterator: Iterator[Found]
+
+
+# One active import is allowed per root. Keeping its already-sorted DFS iterator avoids
+# reopening and re-enumerating wide directories every 200 files. The durable cursor is
+# still authoritative: a restart, resume, failed transaction or cache mismatch rebuilds
+# the iterator from it.
+_live_walks: dict[str, _LiveWalk] = {}
+
+
+def _clear_live_walk(run_id: str) -> None:
+    live = _live_walks.pop(run_id, None)
+    if live is not None:
+        close = getattr(live.iterator, "close", None)
+        if close is not None:
+            close()
 
 
 class ImportRunError(RuntimeError):
@@ -304,11 +361,16 @@ def _scope_filter(scope: list[ScopeEntry]):  # noqa: ANN202
         path = entry["dir"]
         n = len(path) + 1
         prefix = func.substr(col, 1, n) == path + "/" if path else None
+        # Keep the exact case-sensitive substr predicate, but give SQLite a
+        # sargable range on the unique (root_id, relative_path) index. '/' sorts
+        # immediately before '0', so every descendant is inside this half-open
+        # interval without LIKE's case-folding or wildcard semantics.
+        bounded = and_(col >= path + "/", col < path + "0", prefix) if path else None
         if entry["deep"]:
-            clauses.append(prefix)  # a deep "" never reaches here: normalize_scope makes it a full run
+            clauses.append(bounded)  # a deep "" never reaches here: normalize_scope makes it a full run
         else:
             rest = func.instr(func.substr(col, n + 1 if path else 1), "/") == 0
-            clauses.append(and_(prefix, rest) if path else rest)
+            clauses.append(and_(bounded, rest) if path else rest)
     return or_(*clauses)
 
 
@@ -352,14 +414,14 @@ class LibraryImportService:
 
     def start(
         self, root_id: str, user_id: str, visibility: str = "shared", *,
-        trigger: Literal["manual", "scheduled", "watch"] = "manual", scope: list[dict] | None = None,  # raw; normalize_scope validates
+        trigger: Literal["manual", "scheduled", "watch", "manager"] = "manual", scope: list[dict] | None = None,  # raw; normalize_scope validates
     ) -> ImportRun:
         root = self.db.get(StorageRoot, root_id)
         if root is None:
             raise LookupError("Storage root not found")
         if root.mode != "external":
             raise ImportRunError("Only external roots are imported; managed roots are Lumina's own library.")
-        if trigger not in {"manual", "scheduled", "watch"}:
+        if trigger not in {"manual", "scheduled", "watch", "manager"}:
             raise ImportRunError(f"Unknown import trigger: {trigger!r}")
         normalized = normalize_scope(scope) if scope is not None else None  # before db.add: a bad scope leaves no run
         run = ImportRun(
@@ -369,7 +431,9 @@ class LibraryImportService:
             visibility=visibility if visibility in {"private", "shared"} else "private",
             state="running",
             cursor="[]",
-            counters={"scan_phase": "discovering", "candidate_discovered": 0, "candidate_completed": 0},
+            # Candidate totals stay unknown until the bounded indexing walk finishes. A
+            # count-only pass doubled traversal and made wide directories superlinear.
+            counters={"scan_phase": "indexing", "candidate_discovered": 0, "candidate_completed": 0},
             trigger=trigger,
         )
         if normalized is not None:
@@ -377,6 +441,7 @@ class LibraryImportService:
         with write_transaction(self.db, name="import_start"):  # the idle check and the insert are one transaction
             self._require_idle(root_id)
             self.db.add(run)
+        _run_changes[run.id] = ImportChanges()
         return run
 
     def cancel(self, run: ImportRun) -> ImportRun:
@@ -393,6 +458,8 @@ class LibraryImportService:
             self._require_newest(run)
             self._require_idle(run.root_id)
             run.state, run.error, run.finished_at = "running", None, None
+        _clear_live_walk(run.id)
+        _run_changes.pop(run.id, None)  # completion consumers use their restart-safe fallback
         return run
 
     def confirm(self, run: ImportRun) -> ImportRun:
@@ -432,9 +499,17 @@ class LibraryImportService:
         """Advance one bounded batch; True once the run is terminal."""
         root_id = self.db.scalar(select(ImportRun.root_id).where(ImportRun.id == run_id))
         if root_id is None:
+            _clear_live_walk(run_id)
+            _run_changes.pop(run_id, None)
             return True
         with _step_lock(root_id):
-            return self._step(run_id)
+            try:
+                return self._step(run_id)
+            except Exception:
+                # The iterator may have advanced past the durable cursor. Rebuild from
+                # that cursor on retry instead of skipping the failed batch.
+                _clear_live_walk(run_id)
+                raise
 
     def advance_active(self) -> None:
         """Maintenance hook: one batch per active run, skipped while a driver holds that root's lock."""
@@ -442,7 +517,11 @@ class LibraryImportService:
             lock = _step_lock(root_id)
             if lock.acquire(blocking=False):
                 try:
-                    self._step(run_id)
+                    try:
+                        self._step(run_id)
+                    except Exception:
+                        _clear_live_walk(run_id)
+                        raise
                 finally:
                     lock.release()
 
@@ -450,10 +529,14 @@ class LibraryImportService:
         self.db.expire_all()
         run = self.db.get(ImportRun, run_id)
         if run is None or run.state not in ACTIVE_STATES:
+            _clear_live_walk(run_id)
+            _run_changes.pop(run_id, None)
             return True
         if run.state == "cancel_requested":
             with write_transaction(self.db, name="import_cancel"):
                 self._finish(run, "cancelled")
+            _clear_live_walk(run_id)
+            _run_changes.pop(run_id, None)
             return True
         root = self.db.get(StorageRoot, run.root_id)
         if root is None or not self._online(run, root):
@@ -462,17 +545,21 @@ class LibraryImportService:
                 run.coverage = "incomplete"
                 run.error = run.root_observation.get("state", "offline") if root else "root_removed"
                 self._finish(run, "failed")
+            _clear_live_walk(run_id)
+            _run_changes.pop(run_id, None)
             return True
 
         # Filesystem phase: no writer slot held.
         root_path = Path(root.path)
-        if (run.counters or {}).get("scan_phase") == "discovering":
-            return self._discover_step(run, root_path)
         after = tuple(json.loads(run.cursor or "[]"))
         batch: list[Found] = []
         exhausted = True
-        walking = walk_scope(root_path, after, run.scope) if run.scope else walk(root_path, after)
-        for item in walking:
+        live = _live_walks.get(run.id)
+        if live is None or live.root_id != root.id or live.cursor != run.cursor:
+            _clear_live_walk(run.id)
+            walking = walk_scope(root_path, after, run.scope) if run.scope else walk(root_path, after)
+            live = _live_walks[run.id] = _LiveWalk(root.id, run.cursor, walking)
+        for item in live.iterator:
             batch.append(item)
             if len(batch) >= BATCH_SIZE:
                 exhausted = False
@@ -483,7 +570,13 @@ class LibraryImportService:
             if error is not None:
                 continue
             try:
-                found.append((parts, entry.stat(follow_symlinks=False), siblings))
+                # DirEntry objects were captured when their directory was sorted and
+                # can live across batches. lstat the path now so the fingerprint is
+                # never a cached pre-batch DirEntry result.
+                status = os.lstat(root_path.joinpath(*parts))
+                if not stat.S_ISREG(status.st_mode):
+                    raise OSError
+                found.append((parts, status, siblings))
             except OSError:
                 errors.append((parts, "unreadable"))
         records: dict[str, dict] = {}
@@ -493,6 +586,25 @@ class LibraryImportService:
         for parts, status, siblings in found:
             relative = "/".join(parts)
             described = describe(root_path, parts, siblings, folder_nfos, audio_tags=audio_tags)
+            subtitles = described["metadata"].get("lumina_subtitles")
+            if subtitles:
+                # Subtitle files are siblings rather than walk candidates. Include
+                # their current filesystem identity in the imported metadata so an
+                # edit under the same filename is observable without opening it on
+                # every unchanged scan. The bounded reader below only runs when a
+                # fingerprint changes.
+                tagged = []
+                directory = root_path.joinpath(*parts[:-1])
+                for subtitle in subtitles:
+                    subtitle = dict(subtitle)
+                    try:
+                        sidecar_status = os.lstat(directory / subtitle["filename"])
+                        if stat.S_ISREG(sidecar_status.st_mode):
+                            subtitle["fingerprint"] = "{}:{}:{}".format(*_fingerprint(sidecar_status))
+                    except OSError:
+                        pass
+                    tagged.append(subtitle)
+                described["metadata"]["lumina_subtitles"] = tagged
             _add_audio_tag_metadata(described, AudioTags.from_record(records.get(relative, {})))
             if relative in records:  # The tags travel with the item under the file's fingerprint
                 described["metadata"]["lumina_audio_tags"] = records[relative]
@@ -519,11 +631,15 @@ class LibraryImportService:
         if exhausted and not failed and not self._online(run, root):
             errors.append(((), run.root_observation.get("state", "offline")))
 
+        batch_changes = ImportChanges()
         with write_transaction(self.db, name="import_batch"):
             counters = dict(run.counters or {})
+            if counters.get("scan_phase") == "discovering":  # a run created by the previous release
+                counters = {"scan_phase": "indexing", "candidate_discovered": 0, "candidate_completed": 0}
             counters["inspected"] = counters.get("inspected", 0) + len(files)
             completed = counters.get("candidate_completed", 0) + len(batch)
             counters["candidate_completed"] = completed
+            counters["candidate_discovered"] = completed
             if isinstance(counters.get("candidate_total"), int) and completed > counters["candidate_total"]:
                 counters["candidate_total"] = completed
             search = LibrarySearchService(self.db)
@@ -540,6 +656,8 @@ class LibraryImportService:
                 if artifact is None:
                     artifact, item = self._index_new(run, root, relative, status, described, search)
                     outcome = "indexed"
+                    batch_changes.artifact_ids.add(artifact.id)
+                    batch_changes.item_ids.add(item.id)
                     if relative in review:
                         self._entry(run, counters, relative, "review", "possible_move", item.id)
                     linked.append((item, described, False))
@@ -549,23 +667,31 @@ class LibraryImportService:
                     outcome = "relinked" if relative in moves else "updated" if relative in hashes or artifact.lifecycle != "available" else "unchanged"
                     # A positive stat is the retry signal for a path the background probe saw missing.
                     # Keep every other cached failure until the file fingerprint changes.
-                    if (artifact.probe or {}).get("error") == "missing":
+                    recovered_probe = (artifact.probe or {}).get("error") == "missing"
+                    if recovered_probe:
                         artifact.probe = None
+                        batch_changes.artifact_ids.add(artifact.id)
                     artifact.relative_path, artifact.lifecycle = relative, "available"
                     for item in items.get(artifact.id, []):
-                        # A sidecar edited in place under the same name is re-read only when its
-                        # video changes; add the sidecar's mtime to lumina_subtitles when that bites.
                         if text_tracks and (outcome != "unchanged" or (item.metadata_json or {}).get("lumina_subtitles") != subtitles):
                             sidecars.append((item.id, os.path.dirname(relative), text_tracks))
                         override = overrides.get(item.id)
                         music_fields = override.fields if override is not None and isinstance(override.fields, dict) else {}
-                        _apply(item, described, status, search, music_fields)
+                        item_changed = _apply(item, described, status, search, music_fields)
                         linked.append((item, described, relative in moves))
+                        if outcome != "unchanged" or item_changed:
+                            batch_changes.item_ids.add(item.id)
+                    if outcome != "unchanged":
+                        batch_changes.artifact_ids.add(artifact.id)
                 artifact.size, artifact.mtime_ns, artifact.inode = _fingerprint(status)
                 artifact.content_hash = hashes.get(relative, artifact.content_hash)
                 artifact.last_seen_run_id = run.id
                 counters[outcome] = counters.get(outcome, 0) + 1
-            self._link_titles(root, linked, run.created_at, overrides=overrides, destinations=destinations)
+            changed_titles, art_titles = self._link_titles(
+                root, linked, run.created_at, overrides=overrides, destinations=destinations
+            )
+            batch_changes.title_ids.update(changed_titles)
+            batch_changes.art_title_ids.update(art_titles)
             for parts, error in errors:
                 key = "skipped" if error in HARMLESS_SKIPS else "failed"
                 counters[key] = counters.get(key, 0) + 1
@@ -575,8 +701,7 @@ class LibraryImportService:
             if batch:
                 run.cursor = json.dumps(list(batch[-1][0]))
             if exhausted:
-                if "candidate_total" in counters:
-                    counters["candidate_total"] = completed
+                counters["candidate_total"] = completed
                 state = "succeeded"
                 if run.coverage == "complete":
                     missing = self._mark_unseen_missing(run, root, counters, scope_gone=scope_gone)
@@ -586,35 +711,19 @@ class LibraryImportService:
                         counters["missing"] = missing
                 self._finish(run, "partial" if run.coverage == "incomplete" else state)
             run.counters = counters
+        live.cursor = run.cursor
+        if (changes := _run_changes.get(run.id)) is not None:
+            changes.artifact_ids.update(batch_changes.artifact_ids)
+            changes.item_ids.update(batch_changes.item_ids)
+            changes.title_ids.update(batch_changes.title_ids)
+            changes.art_title_ids.update(batch_changes.art_title_ids)
+        if exhausted:
+            _clear_live_walk(run.id)
         # After the batch commit: transcript writes take their own short transactions.
         self._ingest_sidecars(root_path, sidecars)
         if exhausted:
             _after_import(run_id)
         return exhausted
-
-    def _discover_step(self, run: ImportRun, root_path: Path) -> bool:
-        """Count one bounded candidate batch before metadata work, keeping resume state in the run's JSON counters."""
-        counters = dict(run.counters or {})
-        raw_after = counters.get("_discovery_cursor", [])
-        after = tuple(raw_after) if isinstance(raw_after, list) and all(isinstance(part, str) for part in raw_after) else ()
-        batch: list[Found] = []
-        exhausted = True
-        walking = walk_scope(root_path, after, run.scope) if run.scope else walk(root_path, after)
-        for item in walking:
-            batch.append(item)
-            if len(batch) >= BATCH_SIZE:
-                exhausted = False
-                break
-        with write_transaction(self.db, name="import_discovery_batch"):
-            discovered = counters.get("candidate_discovered", 0) + len(batch)
-            counters["candidate_discovered"] = discovered
-            if exhausted:
-                counters.update({"scan_phase": "indexing", "candidate_total": discovered, "candidate_completed": 0})
-                counters.pop("_discovery_cursor", None)
-            elif batch:
-                counters["_discovery_cursor"] = list(batch[-1][0])
-            run.counters = counters
-        return False
 
     def _online(self, run: ImportRun, root: StorageRoot) -> bool:
         StorageRootService(self.db).probe(root)
@@ -741,7 +850,7 @@ class LibraryImportService:
     def _link_titles(
         self, root: StorageRoot, linked: list[tuple[LibraryItem, dict, bool]], since: datetime, *,
         overrides: dict[str, MusicTrackOverride] | None = None, destinations: dict[str, MediaTitle] | None = None,
-    ) -> None:
+    ) -> tuple[set[str], set[str]]:
         """Upsert each file's title chain outer→leaf and point the item at its leaf.
 
         One prefetch per batch. Fields go through ``apply_field`` (sources ``path``, ``nfo`` and
@@ -1000,6 +1109,7 @@ class LibraryImportService:
         changed = [title for title in touched.values() if before.get(title.id) != title_search_fields(title, lookup)]
         for title in changed:
             index_title(self.db, title)
+        return {title.id for title in changed}, set(art_changed)
 
     def _ingest_sidecars(self, root_path: Path, pending: list[tuple[str, str, list[dict]]]) -> None:
         """SRT/VTT sidecars become ``source_caption`` transcripts, so local TV gets moments and summaries.
@@ -1061,10 +1171,14 @@ class LibraryImportService:
             return 0
         if not confirmed:
             candidates = unseen.count()
+            if candidates == 0:
+                return 0
             available = self.db.query(MediaArtifact).filter(MediaArtifact.root_id == root.id, MediaArtifact.lifecycle == "available").count()
             if mass_missing(candidates, available):
                 counters["missing_candidates"], counters["available"] = candidates, available
                 return None
+        elif unseen.first() is None:
+            return 0
         missing = unseen.update({MediaArtifact.lifecycle: "missing"}, synchronize_session=False)
         self._flag_missing_items(root)
         return missing
@@ -1096,6 +1210,8 @@ class LibraryImportService:
             return 0
         candidates, gone = scope_gone
         self.db.flush()
+        if gone == []:
+            return 0
         available = self.db.query(MediaArtifact).filter(MediaArtifact.root_id == root.id, MediaArtifact.lifecycle == "available").count()
         if gone is None or (not confirmed and mass_missing(len(gone), available)):
             counters["missing_candidates"], counters["available"] = candidates if gone is None else len(gone), available
@@ -1157,17 +1273,18 @@ def _apply(
     status: os.stat_result,
     search: LibrarySearchService | None,
     music_fields: dict | None = None,
-) -> None:
+) -> bool:
     """Refresh import-owned fields; the FTS row is rewritten only when its text changed."""
     item.status = "available"
     item.file_size = status.st_size
     fields = (described["title"], described["uploader"], described["playlist_name"], described["metadata"])
     if (item.title, item.uploader, item.playlist_name, item.metadata_json) == fields:
-        return
+        return False
     item.title, item.uploader, item.playlist_name = fields[:3]
     LibraryService._set_metadata(item, described["metadata"])
     if search is not None:
         search.sync_item(item, music_fields)
+    return True
 
 
 def drive(run_id: str) -> None:

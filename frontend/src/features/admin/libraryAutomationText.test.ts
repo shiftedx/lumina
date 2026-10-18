@@ -34,6 +34,7 @@ describe('lastScanLine', () => {
   it('reads never, watched, yesterday, moved and stopped runs', () => {
     expect(lastScanLine(root(), NOW)).toBe('Last scan: never');
     expect(lastScanLine(root({ last_run: run({ trigger: 'watch', finished_at: at(2, 13, 58), scope_dirs: 2, counters: { indexed: 2, updated: 0, relinked: 0, missing: 0 } }) }), NOW)).toBe('Last scan: 2 min ago · 2 folders (watched) · 2 new');
+    expect(lastScanLine(root({ last_run: run({ trigger: 'manager', finished_at: at(2, 13, 58) }) }), NOW)).toBe('Last scan: 2 min ago · whole folder (manager) · 12 new');
     expect(lastScanLine(root({ last_run: run({ finished_at: at(1, 3) }) }), NOW)).toBe('Last scan: yesterday 03:00 · whole folder · 12 new');
     expect(lastScanLine(root({ last_run: run({ finished_at: at(2, 3) }) }), NOW)).toBe('Last scan: today 03:00 · whole folder · 12 new');
     expect(lastScanLine(root({ last_run: run({ counters: { indexed: 12, updated: 0, relinked: 1, missing: 0 } }) }), NOW)).toBe('Last scan: today 03:00 · whole folder · 12 new, 1 moved');

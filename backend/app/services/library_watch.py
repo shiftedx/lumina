@@ -132,6 +132,7 @@ class Obs:
     equal_count: int = 0
     last_read: float = -math.inf
     stable: bool = False
+    read_error: bool = False
 
 
 @dataclass
@@ -149,6 +150,7 @@ class DirtyDir:
 class WatchStats:
     dirs_watched: int = 0
     pending_files: int = 0
+    waiting_error_files: int = 0
     stats_last_pass: int = 0
     watch_errors_last_pass: int = 0
     last_pass_at: datetime | None = None
@@ -294,6 +296,9 @@ class RootWatch:
                     continue
                 if self._mono() >= deadline:
                     return
+                # Record every attempt, including a failed one. Otherwise an unreadable file is retried on every
+                # automation tick rather than at the bounded stability cadence.
+                obs.last_read = self._mono()
                 try:
                     size, mtime_ns = self.fs.read_file(_join(path, name))
                 except FileNotFoundError:
@@ -301,9 +306,13 @@ class RootWatch:
                     continue
                 except OSError:
                     self._errors += 1
+                    # A failed revalidation breaks the equality chain. A previously stable fingerprint must not
+                    # remain dispatchable while the file cannot be read.
+                    obs.read_error, obs.stable, obs.equal_count, obs.first_equal_at = True, False, 0, 0.0
                     continue
                 at = self._mono()
-                if (size, mtime_ns) == (obs.size, obs.mtime_ns):
+                obs.read_error = False
+                if obs.equal_count and (size, mtime_ns) == (obs.size, obs.mtime_ns):
                     obs.equal_count += 1
                 else:
                     obs.size, obs.mtime_ns, obs.equal_count, obs.first_equal_at = size, mtime_ns, 1, at
@@ -443,7 +452,8 @@ class RootWatch:
 
     def _publish(self) -> None:
         pending = sum(not obs.stable for d in self.dirty.values() for obs in d.files.values())
-        self.stats = replace(self.stats, dirs_watched=len(self.dirs), pending_files=pending,
+        errors = sum(not obs.stable and obs.read_error for d in self.dirty.values() for obs in d.files.values())
+        self.stats = replace(self.stats, dirs_watched=len(self.dirs), pending_files=pending, waiting_error_files=errors,
                              last_change_at=self._last_change, dirs_listed=self._listed)
 
     def pass_complete(self) -> bool:

@@ -1106,7 +1106,7 @@ class BackdropOrder(_Body):
 
 # ---- 2.1.0 library automation ------------------------
 ScanSchedule = Literal["off", "15m", "1h", "6h", "nightly"]
-ScanTrigger = Literal["manual", "scheduled", "watch"]
+ScanTrigger = Literal["manual", "scheduled", "watch", "manager"]
 AutomationState = Literal[
     "idle", "scanning", "preparing", "waiting_files", "waiting_confirmation", "offline", "unresponsive", "too_large", "needs_first_import",
 ]
@@ -1189,7 +1189,9 @@ class LibraryActivity(BaseModel):
     discovering_roots: ActivityCount = 0
     indexing_roots: ActivityCount = 0
     preparing_roots: ActivityCount = 0
+    stalled_roots: ActivityCount = 0
     waiting_files: ActivityCount = 0
+    waiting_error_files: ActivityCount = 0
     discovered_files: ActivityCount = 0
     completed_files: ActivityCount = 0
     total_files: ActivityCount | None = None

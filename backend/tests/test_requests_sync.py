@@ -8,7 +8,7 @@ import pytest
 from arr_fake import API_KEY, FakeArr, library_title
 from support import file_backed_session_factory, make_user, seed_app_settings
 
-from app.models import ArrServer, ImportRun, MediaRequest, StorageRoot
+from app.models import AppMaintenanceState, ArrServer, ImportRun, MediaRequest, StorageRoot, utcnow
 from app.services.requests import sync
 
 REAL_RESCAN = sync.rescan_folder  # the fixture replaces the module's
@@ -141,7 +141,7 @@ def test_rescan_folder_starts_a_scoped_run_on_the_root_holding_it(setup, monkeyp
     REAL_RESCAN("/media/movies/The Matrix (1999)")  # throttled
     REAL_RESCAN("/media/tv/Lost")  # never imported: waits for the admin's first import
     REAL_RESCAN("/media/held/Lost")  # a held confirmation never yields an automatic scoped import
-    assert started == [(("movies", "admin", "shared"), {"trigger": "watch", "scope": [{"dir": "The Matrix (1999)", "deep": True}]})]
+    assert started == [(("movies", "admin", "shared"), {"trigger": "manager", "scope": [{"dir": "The Matrix (1999)", "deep": True}]})]
     assert submitted == ["run-1"]
 
 
@@ -170,13 +170,138 @@ def test_inventory_rescans_do_not_starve_folders_when_a_root_only_accepts_one_pe
     monkeypatch.setattr(sync, "rescan_folder", REAL_RESCAN)
     monkeypatch.setattr(library_automation, "start_run_default", start)
     monkeypatch.setattr(library_automation.automation, "submit", lambda _: None)
+    sync.rescan_folders([
+        sync.RescanOffer("/media/movies/A", sync.reconciliation_digest({"name": "A"}), "arr:one"),
+        sync.RescanOffer("/media/movies/B", sync.reconciliation_digest({"name": "B"}), "arr:one"),
+        sync.RescanOffer("/media/movies/Z", sync.reconciliation_digest({"name": "Z"}), "arr:one", priority=0),
+    ])
+    assert accepted == ["Z"]  # a new pending import leads a large first-seen registered inventory
     folders = ["/media/movies/C", "/media/movies/A", "/media/movies/B", "/media/movies/A"]
     for _ in range(3):
         available[0] = True
         sync.rescan_folders(folders)
         # Even after the cooldown expires, older work must precede a repeated A.
         now[0] += sync.RESCAN_EVERY_SECONDS + 1
-    assert accepted == ["A", "B", "C"]
+    assert accepted == ["Z", "A", "B", "C"]
+
+
+def test_inventory_digest_is_durable_and_only_acknowledged_after_success(setup, monkeypatch) -> None:  # noqa: ANN001
+    factory, _, _ = setup
+    from app.services import library_automation
+
+    with factory.begin() as db:
+        db.add(StorageRoot(id="movies", label="Movies", path="/media/movies", mode="external", enabled=True))
+        db.add(ImportRun(id="baseline", root_id="movies", user_id="admin", visibility="shared", state="succeeded", cursor="[]", counters={}))
+    started: list[str] = []
+
+    def start(root_id, user_id, visibility, **kwargs):  # noqa: ANN001, ANN202
+        run_id = f"manager-{len(started)}"
+        started.append(kwargs["scope"][0]["dir"])
+        with factory.begin() as db:
+            db.add(ImportRun(id=run_id, root_id=root_id, user_id=user_id, visibility=visibility, state="running",
+                             trigger=kwargs["trigger"], scope=kwargs["scope"], cursor="[]", counters={}))
+        return run_id
+
+    clock = [utcnow()]
+    monkeypatch.setattr(sync, "utcnow", lambda: clock[0])
+    monkeypatch.setattr(sync, "_rescanned", {})
+    monkeypatch.setattr(sync, "rescan_folder", REAL_RESCAN)
+    monkeypatch.setattr(library_automation, "start_run_default", start)
+    monkeypatch.setattr(library_automation.automation, "submit", lambda _: None)
+    offer = sync.RescanOffer("/media/movies/Film", sync.reconciliation_digest({"file_id": 1}), "arr:one")
+    companion = sync.RescanOffer(offer.path, sync.reconciliation_digest({"file_id": 9}), offer.source)
+    snapshot = [offer, companion]
+
+    sync.rescan_folders(snapshot)
+    sync._rescanned.clear()  # a process restart must not lose the reconciliation admission
+    sync.rescan_folders(snapshot)
+    assert started == ["Film"]
+    with factory.begin() as db:
+        db.get(ImportRun, "manager-0").state = "succeeded"
+        db.get(ImportRun, "manager-0").finished_at = clock[0]
+    sync.rescan_folders(snapshot)
+    assert started == ["Film"]
+    with factory() as db:
+        unchanged_at = db.query(AppMaintenanceState).filter(AppMaintenanceState.key.like("manager_reconcile:%")).one().updated_at
+    sync.rescan_folders(snapshot)
+    with factory() as db:
+        assert db.query(AppMaintenanceState).filter(AppMaintenanceState.key.like("manager_reconcile:%")).one().updated_at == unchanged_at
+    clock[0] += sync.SAFETY_RECONCILE_AFTER
+    sync.rescan_folders(snapshot)
+    assert started == ["Film", "Film"]  # bounded safety reconciliation covers signals the manager cannot expose
+    with factory.begin() as db:
+        db.get(ImportRun, "manager-1").state = "failed"
+        db.get(ImportRun, "manager-1").finished_at = clock[0]
+    sync.rescan_folders(snapshot)
+    assert started == ["Film", "Film"]
+    clock[0] += sync.RETRY_AFTER
+    sync.rescan_folders(snapshot)
+    assert started == ["Film", "Film", "Film"]
+    with factory.begin() as db:
+        db.get(ImportRun, "manager-2").state = "succeeded"
+        db.get(ImportRun, "manager-2").finished_at = clock[0]
+    sync.rescan_folders([sync.RescanOffer(offer.path, offer.digest, "arr:two"),
+                         sync.RescanOffer(companion.path, companion.digest, "arr:two")])
+    assert started == ["Film", "Film", "Film", "Film"]  # managers sharing a mapped folder keep independent baselines
+    with factory() as db:
+        states = db.query(AppMaintenanceState).filter(AppMaintenanceState.key.like("manager_reconcile:%")).all()
+        assert len(states) == 2 and all("/media" not in state.key and "/media" not in state.value for state in states)
+
+    with factory.begin() as db:
+        db.get(ImportRun, "manager-3").state = "succeeded"
+        db.get(ImportRun, "manager-3").finished_at = clock[0]
+
+    changed = sync.RescanOffer(offer.path, sync.reconciliation_digest({"file_id": 2}), offer.source)
+    sync.rescan_folders([changed, companion])
+    assert started == ["Film", "Film", "Film", "Film", "Film"]
+    with factory.begin() as db:
+        db.get(ImportRun, "manager-4").state = "succeeded"
+        db.get(ImportRun, "manager-4").finished_at = clock[0]
+    sync.rescan_folders([
+        sync.RescanOffer(changed.path, sync.reconciliation_digest({"file_id": 3}), changed.source),
+        sync.RescanOffer("/media/movies/New", sync.reconciliation_digest({"file_id": 1}), changed.source, priority=0),
+    ])
+    assert started[-1] == "Film"  # a known change leads even a high-priority first-seen bootstrap folder
+
+
+def test_failed_reconciliation_is_retried_but_one_root_is_admitted_per_pass(setup, monkeypatch) -> None:  # noqa: ANN001
+    factory, _, _ = setup
+    from app.services import library_automation
+
+    with factory.begin() as db:
+        db.add(StorageRoot(id="movies", label="Movies", path="/media/movies", mode="external", enabled=True))
+        db.add(ImportRun(id="baseline", root_id="movies", user_id="admin", visibility="shared", state="succeeded", cursor="[]", counters={}))
+    started: list[str] = []
+
+    def start(root_id, user_id, visibility, **kwargs):  # noqa: ANN001, ANN202
+        run_id = f"attempt-{len(started)}"
+        started.append(kwargs["scope"][0]["dir"])
+        with factory.begin() as db:
+            db.add(ImportRun(id=run_id, root_id=root_id, user_id=user_id, visibility=visibility, state="running",
+                             trigger=kwargs["trigger"], scope=kwargs["scope"], cursor="[]", counters={}))
+        return run_id
+
+    clock = [utcnow()]
+    monkeypatch.setattr(sync, "utcnow", lambda: clock[0])
+    monkeypatch.setattr(sync, "_rescanned", {})
+    monkeypatch.setattr(sync, "rescan_folder", REAL_RESCAN)
+    monkeypatch.setattr(library_automation, "start_run_default", start)
+    monkeypatch.setattr(library_automation.automation, "submit", lambda _: None)
+    offers = [sync.RescanOffer(f"/media/movies/{name}", sync.reconciliation_digest({"name": name})) for name in ("A", "B")]
+
+    sync.rescan_folders(offers)
+    assert started == ["A"]
+    with factory.begin() as db:
+        db.get(ImportRun, "attempt-0").state = "failed"
+        db.get(ImportRun, "attempt-0").finished_at = clock[0]
+    sync.rescan_folders(offers)
+    assert started == ["A", "B"]  # A's retry cooldown lets the next folder make progress
+    with factory.begin() as db:
+        db.get(ImportRun, "attempt-1").state = "failed"
+        db.get(ImportRun, "attempt-1").finished_at = clock[0]
+    clock[0] += sync.RETRY_AFTER
+    sync.rescan_folders(offers)
+    assert started == ["A", "B", "A"]
 
 
 def test_an_item_removed_from_the_arr_fails_only_that_request(setup) -> None:  # noqa: ANN001

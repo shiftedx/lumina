@@ -493,7 +493,7 @@ def test_one_roots_error_does_not_abort_the_tick_for_other_roots(env, monkeypatc
     assert "Bad: OSError" in e.automation.diagnostics()["poller"]["last_error"]
 
 
-def test_completed_passes_refresh_row_age_so_a_restart_after_weeks_reuses_the_snapshot(env):
+def test_completed_passes_refresh_only_the_completion_marker_so_a_restart_reuses_the_snapshot(env):
     fs = library(FakeFs(FsClock()))
     e = env(fs_factory=lambda root: fs)
     root_id = watched(e)
@@ -505,7 +505,9 @@ def test_completed_passes_refresh_row_age_so_a_restart_after_weeks_reuses_the_sn
     tick(e, 3)  # inside the hour: no write
     tick(e, 2, advance=la.TOUCH_EVERY_S)
     with db_module.SessionLocal() as db:
-        assert all(r.updated_at > old + timedelta(days=29) for r in db.query(LibraryWatchDir))
+        rows = {row.path: row.updated_at for row in db.query(LibraryWatchDir)}
+        assert rows[""] > old + timedelta(days=29)
+        assert all(updated_at == old for path, updated_at in rows.items() if path)
     second = env(fs_factory=lambda root: fs)
     tick(second, 2)
     assert second.automation._watches[root_id].dirs == fs.dirs and not second.automation._roots[root_id].baselining

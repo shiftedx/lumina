@@ -369,11 +369,11 @@ def test_offline_root_marks_nothing_in_a_scoped_run(lib, monkeypatch: pytest.Mon
 
     def online(self, run, root_):  # noqa: ANN001, ANN202
         calls["n"] += 1
-        return calls["n"] < 3 and real(self, run, root_)  # discovery, then indexing start; offline after the lstats
+        return calls["n"] < 2 and real(self, run, root_)  # indexing start, then the terminal guard after the lstats
 
     monkeypatch.setattr(LibraryImportService, "_online", online)
     run = run_import(root_id, [{"dir": "A", "deep": True}], trigger="watch")
-    assert calls["n"] == 3  # discovery adds one probe; the indexing end probe still runs after the lstats
+    assert calls["n"] == 2
     assert (run.state, run.coverage) == ("partial", "incomplete") and lifecycles()["A/A0.mkv"] == "available"
 
 

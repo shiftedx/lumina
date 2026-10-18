@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { UserProfile } from '../types';
 import { AppShell } from './AppShell';
 
-const libraryActivity = vi.hoisted(() => ({ useLibraryActivity: vi.fn(() => ({ state: 'ready', activity: null })) }));
+const libraryActivity = vi.hoisted(() => ({ useLibraryActivity: vi.fn(() => ({ state: 'loading', activity: null })) }));
 vi.mock('./useLibraryActivity', () => libraryActivity);
 
 const user = { id: 'u1', username: 'a', display_name: 'A', role: 'admin', is_active: true } as UserProfile;

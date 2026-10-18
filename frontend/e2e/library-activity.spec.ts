@@ -9,7 +9,7 @@ type Activity = LibraryActivity;
 
 const activityKeys = [
   'completed_files', 'directories_listed', 'directories_total', 'discovered_files', 'discovering_roots', 'indexing_roots',
-  'inspected_files', 'preparing_roots', 'progress', 'scanning_roots', 'total_files', 'waiting_files',
+  'inspected_files', 'preparing_roots', 'progress', 'scanning_roots', 'stalled_roots', 'total_files', 'waiting_error_files', 'waiting_files',
 ];
 
 const discovery: Activity = {

@@ -12,7 +12,9 @@ const idle: LibraryActivity = {
   discovering_roots: 0,
   indexing_roots: 0,
   preparing_roots: 0,
+  stalled_roots: 0,
   waiting_files: 0,
+  waiting_error_files: 0,
   discovered_files: 0,
   completed_files: 0,
   total_files: null,
@@ -34,7 +36,7 @@ afterEach(() => {
 });
 
 describe('useLibraryActivity', () => {
-  it('polls every five seconds without overlapping requests', async () => {
+  it('polls every 15 seconds while active and every 60 seconds while idle without overlapping requests', async () => {
     vi.useFakeTimers();
     let finish!: (value: LibraryActivity) => void;
     api.getLibraryActivity.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; })).mockResolvedValue(idle);
@@ -47,8 +49,17 @@ describe('useLibraryActivity', () => {
 
     await act(async () => { finish(idle); await Promise.resolve(); });
     expect(result.current).toEqual({ state: 'ready', activity: idle });
-    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    await act(() => vi.advanceTimersByTimeAsync(59_999));
+    expect(api.getLibraryActivity).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(1));
     expect(api.getLibraryActivity).toHaveBeenCalledTimes(2);
+
+    const active = { ...idle, scanning_roots: 1, discovering_roots: 1 };
+    api.getLibraryActivity.mockResolvedValue(active);
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(api.getLibraryActivity).toHaveBeenCalledTimes(3);
+    await act(() => vi.advanceTimersByTimeAsync(15_000));
+    expect(api.getLibraryActivity).toHaveBeenCalledTimes(4);
   });
 
   it('waits while hidden, aborts hidden work, and catches up when visible', async () => {

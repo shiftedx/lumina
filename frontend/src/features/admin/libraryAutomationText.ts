@@ -61,7 +61,8 @@ export function lastScanLine(root: AutomationRoot, now: Date): string {
     parts.push(`stopped: ${(run.error && STOPPED[run.error]) || run.error || run.state}`);
   } else {
     const scope = run.scope_dirs === null ? 'whole folder' : plural(run.scope_dirs, 'folder', 'folders');
-    parts.push(`${scope}${run.trigger === 'watch' ? ' (watched)' : ''}`);
+    const source = run.trigger === 'watch' ? ' (watched)' : run.trigger === 'manager' ? ' (manager)' : '';
+    parts.push(`${scope}${source}`);
     const { indexed, relinked, missing } = run.counters;
     parts.push([`${count.format(indexed)} new`, relinked ? `${count.format(relinked)} moved` : '', missing ? `${count.format(missing)} missing` : ''].filter(Boolean).join(', '));
   }

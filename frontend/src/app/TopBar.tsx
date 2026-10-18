@@ -41,16 +41,23 @@ export function downloadActivityLabel({ state, retrying, active }: TopBarProps['
 }
 
 export function libraryIsActive(activity: LibraryActivity | null): boolean {
-  return Boolean(activity && (activity.scanning_roots || activity.discovering_roots || activity.indexing_roots || activity.preparing_roots || activity.waiting_files));
+  return Boolean(activity && (activity.scanning_roots > activity.stalled_roots || activity.preparing_roots));
 }
 
 function libraryButtonLabel(snapshot: LibraryActivitySnapshot): string | null {
   if (snapshot.state === 'loading') return 'Checking library activity';
   if (snapshot.state === 'failed') return 'Library activity unavailable';
-  if (!libraryIsActive(snapshot.activity)) return null;
   const activity = snapshot.activity!;
+  if (activity.stalled_roots) return 'Library scan needs attention';
+  if (!libraryIsActive(activity)) {
+    if (activity.waiting_error_files) return `${activity.waiting_error_files} ${activity.waiting_error_files === 1 ? 'file' : 'files'} waiting to be checked`;
+    if (activity.waiting_files) return `${activity.waiting_files} ${activity.waiting_files === 1 ? 'file' : 'files'} waiting to index`;
+    return null;
+  }
   if (activity.discovering_roots) return `Discovering files${activity.discovered_files ? `, ${activity.discovered_files} found` : ''}`;
-  if (activity.indexing_roots && activity.total_files !== null) return `Indexing library, ${activity.completed_files} of ${activity.total_files} checked`;
+  if (activity.indexing_roots) return activity.total_files !== null
+    ? `Indexing library, ${activity.completed_files} of ${activity.total_files} checked`
+    : `Indexing library${activity.completed_files || activity.inspected_files ? `, ${activity.completed_files || activity.inspected_files} files checked` : ''}`;
   if (activity.preparing_roots) return 'Preparing library scan';
   if (activity.waiting_files && !activity.scanning_roots) return `${activity.waiting_files} ${activity.waiting_files === 1 ? 'file' : 'files'} waiting to index`;
   return `Library scanning${activity.inspected_files ? `, ${activity.inspected_files} files checked` : ''}`;
@@ -72,6 +79,8 @@ export function TopBar(props: TopBarProps) {
   const label = activityLabel(activity, libraryActivity);
   const library = libraryActivity.state === 'ready' ? libraryActivity.activity : null;
   const scanning = libraryIsActive(library);
+  const stalled = Boolean(library?.stalled_roots);
+  const waiting = Boolean(library?.waiting_files);
   const indexingProgress = library?.indexing_roots && library.total_files !== null && library.progress !== null ? Math.max(0, Math.min(100, library.progress)) : null;
   const indeterminate = scanning && indexingProgress === null;
   const ringProgress = indexingProgress === null ? (active ? 360 : 0) : Math.round(indexingProgress * 3.6);
@@ -108,15 +117,17 @@ export function TopBar(props: TopBarProps) {
               <h2>Library</h2>
               {libraryActivity.state === 'loading' ? <StatusText tone="muted">Checking library activity</StatusText> : null}
               {libraryActivity.state === 'failed' ? <StatusText tone="attention">Library activity is unavailable</StatusText> : null}
-              {libraryActivity.state === 'ready' && !scanning ? <StatusText tone="muted">No library scan running</StatusText> : null}
-              {libraryActivity.state === 'ready' && scanning ? (
+              {libraryActivity.state === 'ready' && !scanning && !stalled && !waiting ? <StatusText tone="muted">No library scan running</StatusText> : null}
+              {libraryActivity.state === 'ready' && (scanning || stalled || waiting) ? (
                 <div className="g-library-activity">
-                  {library!.discovering_roots ? <><StatusText tone="attention">Discovering files</StatusText><p>{library!.discovered_files ? `${library!.discovered_files} ${library!.discovered_files === 1 ? 'file' : 'files'} found. ` : ''}Counting candidates before indexing begins.</p></> : null}
-                  {!library!.discovering_roots && library!.indexing_roots ? <><StatusText tone="attention">Indexing library</StatusText>{indexingProgress === null || library!.total_files === null ? <p>Checking files</p> : <><progress aria-label="Library indexing progress" max={100} value={indexingProgress} /><p>{library!.completed_files} of {library!.total_files} checked · {Math.round(indexingProgress)}%</p></>}</> : null}
-                  {!library!.discovering_roots && !library!.indexing_roots && library!.preparing_roots ? <StatusText tone="attention">Preparing library scan</StatusText> : null}
-                  {!library!.discovering_roots && !library!.indexing_roots && !library!.preparing_roots && library!.scanning_roots ? <><StatusText tone="attention">Scanning library</StatusText>{library!.inspected_files ? <p>{library!.inspected_files} files checked</p> : null}</> : null}
-                  {library!.waiting_files ? <p>{library!.waiting_files} {library!.waiting_files === 1 ? 'file is' : 'files are'} still copying or stabilizing. {library!.waiting_files === 1 ? 'It' : 'They'} will be indexed when ready.</p> : null}
-                  <p>New files appear in the library after indexing.</p>
+                  {stalled ? <><StatusText tone="danger">Library scan needs attention</StatusText><p>{library!.stalled_roots === 1 ? 'One scan has' : `${library!.stalled_roots} scans have`} stopped reporting progress. Lumina will keep retrying.</p></> : null}
+                  {scanning && library!.discovering_roots ? <><StatusText tone="attention">Discovering files</StatusText><p>{library!.discovered_files ? `${library!.discovered_files} ${library!.discovered_files === 1 ? 'file' : 'files'} found. ` : ''}Counting candidates before indexing begins.</p></> : null}
+                  {scanning && !library!.discovering_roots && library!.indexing_roots ? <><StatusText tone="attention">Indexing library</StatusText>{indexingProgress === null || library!.total_files === null ? <p>{library!.completed_files || library!.inspected_files ? `${library!.completed_files || library!.inspected_files} files checked` : 'Checking files'}</p> : <><progress aria-label="Library indexing progress" max={100} value={indexingProgress} /><p>{library!.completed_files} of {library!.total_files} checked · {Math.round(indexingProgress)}%</p></>}</> : null}
+                  {scanning && !library!.discovering_roots && !library!.indexing_roots && library!.preparing_roots ? <StatusText tone="attention">Preparing library scan</StatusText> : null}
+                  {scanning && !library!.discovering_roots && !library!.indexing_roots && !library!.preparing_roots && library!.scanning_roots ? <><StatusText tone="attention">Scanning library</StatusText>{library!.inspected_files ? <p>{library!.inspected_files} files checked</p> : null}</> : null}
+                  {library!.waiting_files > library!.waiting_error_files ? <p>{library!.waiting_files - library!.waiting_error_files} {library!.waiting_files - library!.waiting_error_files === 1 ? 'file is' : 'files are'} still copying or stabilizing. {library!.waiting_files - library!.waiting_error_files === 1 ? 'It' : 'They'} will be indexed when ready.</p> : null}
+                  {library!.waiting_error_files ? <p>{library!.waiting_error_files} {library!.waiting_error_files === 1 ? 'file could' : 'files could'} not be checked yet and will be retried.</p> : null}
+                  {scanning || waiting ? <p>New files appear in the library after indexing.</p> : null}
                 </div>
               ) : null}
             </section>

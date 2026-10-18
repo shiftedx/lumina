@@ -62,6 +62,7 @@ class FakeFs:
         self.files: dict[str, tuple[int, int]] = {}
         self.stat_calls = self.list_calls = self.read_calls = 0
         self.stat_errors: dict[str, OSError] = {}
+        self.read_errors: dict[str, OSError] = {}
 
     def _now(self) -> int:
         self.ns += 1
@@ -118,6 +119,8 @@ class FakeFs:
 
     def read_file(self, path: str) -> tuple[int, int]:
         self.read_calls += 1
+        if path in self.read_errors:
+            raise self.read_errors[path]
         if path not in self.files:
             raise FileNotFoundError(path)
         return self.files[path]
@@ -457,6 +460,28 @@ def test_stat_filenotfound_defers_to_the_parent_listing_and_other_errors_count_a
     del fs.stat_errors["Movie"]
     fs.add("Movie/extra.mkv")
     assert until_plan(watch, clock).scope == [e("Movie", S)]
+
+
+def test_file_read_error_uses_stability_backoff_and_recovers() -> None:
+    clock = FakeClock()
+    fs = library(clock)
+    watch = watching(fs, clock)
+    fs.add("Movie/extra.mkv")
+    fs.read_errors["Movie/extra.mkv"] = PermissionError("denied")
+
+    tick(watch, clock, 5)  # the 60 s directory pass notices it; the next batch attempts the file read
+    reads = fs.read_calls
+    assert watch.stats.waiting_error_files == 1
+    tick(watch, clock)
+    assert fs.read_calls == reads  # 15 s automation tick is below the 30 s file-read cadence
+
+    del fs.read_errors["Movie/extra.mkv"]
+    tick(watch, clock)
+    assert fs.read_calls == reads + 2  # both media files in the dirty directory are revalidated
+    assert watch.stats.waiting_error_files == 0
+    for _ in range(5):
+        assert tick(watch, clock) is None
+    assert tick(watch, clock).scope == [e("Movie", S)]  # 90 s of equal observations after recovery
 
 
 def test_a_directory_replaced_by_a_symlink_or_ignore_is_treated_as_removed(tmp_path: Path) -> None:

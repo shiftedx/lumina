@@ -4,7 +4,7 @@ from __future__ import annotations
 import inspect
 import threading
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -278,8 +278,10 @@ def test_public_activity_is_a_bounded_identity_free_aggregate(env, monkeypatch):
         "discovering_roots": 0,
         "indexing_roots": 2,
         "preparing_roots": 2,
+        "stalled_roots": 1,
         "waiting_files": 11,
-        "discovered_files": 50,
+        "waiting_error_files": 0,
+        "discovered_files": 0,
         "completed_files": 30,
         "total_files": 50,
         "progress": 60.0,
@@ -288,7 +290,7 @@ def test_public_activity_is_a_bounded_identity_free_aggregate(env, monkeypatch):
         "directories_total": 16,
     }
     assert set(env.automation.public_activity()) == {
-        "scanning_roots", "discovering_roots", "indexing_roots", "preparing_roots", "waiting_files", "discovered_files",
+        "scanning_roots", "discovering_roots", "indexing_roots", "preparing_roots", "stalled_roots", "waiting_files", "waiting_error_files", "discovered_files",
         "completed_files", "total_files", "progress", "inspected_files", "directories_listed", "directories_total",
     }
 
@@ -315,7 +317,9 @@ def test_public_activity_omits_unreliable_totals_and_clamps_malformed_counters(e
         "discovering_roots": 1,
         "indexing_roots": 0,
         "preparing_roots": 1,
+        "stalled_roots": 0,
         "waiting_files": limit,
+        "waiting_error_files": 0,
         "discovered_files": limit,
         "completed_files": 0,
         "total_files": None,
@@ -338,6 +342,22 @@ def test_public_activity_never_probes_a_root(env):
     activity = env.automation.public_activity()
     assert activity["scanning_roots"] == 0 and activity["preparing_roots"] >= 0 and root_id
     assert env.probe.calls == calls
+
+
+def test_public_activity_excludes_disabled_and_no_longer_watched_pending_work(env, monkeypatch):
+    roots = [
+        SimpleNamespace(id="disabled", enabled=False, watch=True, active_run=None, newest_run=None),
+        SimpleNamespace(id="not-watched", enabled=True, watch=False, active_run=None, newest_run=None),
+    ]
+    env.automation._watches = {
+        "disabled": SimpleNamespace(stats=SimpleNamespace(pending_files=2, waiting_error_files=1)),
+        "not-watched": SimpleNamespace(stats=SimpleNamespace(pending_files=3, waiting_error_files=1)),
+    }
+    env.automation._activity_pending.add("disabled")
+    monkeypatch.setattr(env.automation, "_external", lambda: roots)
+    monkeypatch.setattr(env.automation, "_state", lambda root: "waiting_files")
+    activity = env.automation.public_activity()
+    assert (activity["scanning_roots"], activity["waiting_files"], activity["waiting_error_files"]) == (0, 0, 0)
 
 
 def test_public_activity_retains_a_completed_root_until_the_concurrent_cohort_finishes(env, monkeypatch):
@@ -374,6 +394,60 @@ def test_public_activity_retains_a_completed_root_until_the_concurrent_cohort_fi
     assert env.automation.public_activity()["scanning_roots"] == 0
 
 
+def test_public_activity_keeps_only_the_current_run_per_root_behind_a_stalled_peer(env, monkeypatch):
+    def run(run_id, state, completed):  # noqa: ANN001, ANN202
+        return SimpleNamespace(id=run_id, state=state, counters={
+            "scan_phase": "indexing", "candidate_discovered": 100,
+            "candidate_completed": completed, "candidate_total": 100, "inspected": completed,
+        })
+
+    stuck = run("stuck", "running", 90)
+    current = run("other-0", "succeeded", 40)
+    roots = [SimpleNamespace(id="stuck-root", active_run=stuck, newest_run=stuck),
+             SimpleNamespace(id="other-root", active_run=None, newest_run=current)]
+    monkeypatch.setattr(env.automation, "_external", lambda: roots)
+    monkeypatch.setattr(env.automation, "_state", lambda root: "scanning" if root.active_run else "idle")
+
+    for index in range(6):
+        current = run(f"other-{index}", "succeeded", 40)
+        roots[1] = SimpleNamespace(id="other-root", active_run=None, newest_run=current)
+        env.automation._track_activity_run(current.id, "other-root", current.counters)
+        env.automation.public_activity()
+
+    activity = env.automation.public_activity()
+    assert len(env.automation._activity_runs) == 2
+    assert (activity["scanning_roots"], activity["completed_files"], activity["total_files"]) == (1, 130, 200)
+
+
+def test_watch_restore_trusts_marker_age_and_touch_updates_only_marker(env):
+    root_id = imported(env, "TV")
+    env.tick()
+    old = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=8)
+    fresh = datetime.now(UTC).replace(tzinfo=None)
+    with db_module.SessionLocal() as db:
+        db.add_all([
+            LibraryWatchDir(root_id=root_id, path="", mtime_ns=4, updated_at=fresh),
+            LibraryWatchDir(root_id=root_id, path="Show", mtime_ns=5, updated_at=old),
+        ])
+        db.commit()
+
+    root = env.automation._views[root_id]
+    watch = env.automation._new_watch(root)
+    assert watch.dirs == {"": 4, "Show": 5}
+    env.automation._roots[root_id].touched = None
+    env.automation._touch(root_id, env.automation._roots[root_id])
+    with db_module.SessionLocal() as db:
+        rows = {row.path: row.updated_at for row in db.query(LibraryWatchDir).filter_by(root_id=root_id)}
+    assert rows["Show"] == old
+    assert rows[""] > fresh
+
+    with db_module.SessionLocal() as db:
+        db.query(LibraryWatchDir).filter_by(root_id=root_id, path="").update({"updated_at": old})
+        db.query(LibraryWatchDir).filter_by(root_id=root_id, path="Show").update({"updated_at": fresh})
+        db.commit()
+    assert env.automation._new_watch(root).phase == "baseline"
+
+
 def test_roots_changed_starts_a_baseline_when_watch_turns_on_and_off_keeps_rows(env):
     root_id = imported(env, "TV")
     env.tick()
@@ -408,9 +482,21 @@ def test_roots_changed_starts_a_baseline_when_watch_turns_on_and_off_keeps_rows(
 def test_submit_runs_drive_on_the_manual_lane_tracked(env):
     seen = []
     env.automation._drive = lambda run_id: seen.append((run_id, run_id in env.automation._driving))
-    env.automation.submit("r1")
-    assert seen == [("r1", True)] and env.automation._driving == set()
-    assert env.automation._manual.labels == ["r1"]
+    root_id = env.root("TV")
+    run_id = env.run(root_id, state="running")
+    env.automation.submit(run_id)
+    assert seen == [(run_id, True)] and env.automation._driving == set()
+    assert env.automation._manual.labels == [run_id]
+
+
+def test_submit_routes_manager_runs_to_the_roots_automatic_lane_and_ignores_missing_runs(env):
+    root_id = env.root("TV")
+    run_id = env.run(root_id, state="running", trigger="manager")
+    env.automation.submit(run_id)
+    assert env.automation._auto[root_id].labels == [run_id]
+    assert env.automation._manual.labels == []
+    env.automation.submit("missing")
+    assert env.automation._auto[root_id].labels == [run_id]
 
 
 def test_facade_method_names_and_signatures_match_s3():

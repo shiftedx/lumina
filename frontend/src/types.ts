@@ -2107,7 +2107,7 @@ export interface MetadataErrorBody {
 }
 
 export type ScanSchedule = 'off' | '15m' | '1h' | '6h' | 'nightly';
-export type ScanTrigger = 'manual' | 'scheduled' | 'watch';
+export type ScanTrigger = 'manual' | 'scheduled' | 'watch' | 'manager';
 export type AutomationState = 'idle' | 'scanning' | 'preparing' | 'waiting_files' | 'waiting_confirmation' | 'offline' | 'unresponsive' | 'too_large' | 'needs_first_import';
 export type AutomationSkipReason = 'scanning' | 'offline' | 'unresponsive' | 'waiting_confirmation' | 'needs_first_import';
 export type ImportRunErrorCode = 'offline' | 'permission_denied' | 'identity_mismatch' | 'root_removed' | 'root_empty';
@@ -2181,7 +2181,9 @@ export interface LibraryActivity {
   discovering_roots: number;
   indexing_roots: number;
   preparing_roots: number;
+  stalled_roots: number;
   waiting_files: number;
+  waiting_error_files: number;
   discovered_files: number;
   completed_files: number;
   total_files: number | null;

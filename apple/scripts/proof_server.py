@@ -29,6 +29,9 @@ ORIGIN = f"http://127.0.0.1:{PORT}"
 FIXTURE_PATH = REPOSITORY_ROOT / "apple" / "Tests" / "UITests" / "Fixture.json"
 DEVICE_ID = f"apple-proof-{secrets.token_hex(8)}"
 AUTH_HEADER = f'MediaBrowser Client="Lumina Apple Proof", Device="Simulator", DeviceId="{DEVICE_ID}", Version="1.0"'
+DIRECT_TITLE = "The Lantern Keepers’ Extraordinary Midnight Voyage"
+CONVERTED_TITLE = "A Cartographer’s Long Road Beyond the Winter Mountains"
+MATRIX_TITLE = "The Patient Observatory at the Edge of Morning"
 
 
 def ffmpeg(*args: str | Path) -> None:
@@ -37,13 +40,13 @@ def ffmpeg(*args: str | Path) -> None:
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *map(str, args)], check=True)
 
 
-def make_movie(media_root: Path, title: str, year: int, extension: str) -> None:
+def make_movie(media_root: Path, title: str, year: int, extension: str, poster_size: str, duration: int = 90) -> None:
     folder = media_root / "Movies" / f"{title} ({year})"
     folder.mkdir(parents=True)
     output = folder / f"{title} ({year}){extension}"
     ffmpeg(
-        "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=90",
-        "-f", "lavfi", "-i", "sine=frequency=330:duration=90",
+        "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate=24:duration={duration}",
+        "-f", "lavfi", "-i", f"sine=frequency=330:duration={duration}",
         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-shortest",
         *( ("-movflags", "+faststart") if extension == ".mp4" else () ),
@@ -52,6 +55,10 @@ def make_movie(media_root: Path, title: str, year: int, extension: str) -> None:
     (folder / "movie.nfo").write_text(
         f"<movie><title>{title}</title><year>{year}</year><plot>Synthetic Apple proof fixture.</plot></movie>",
         encoding="utf-8",
+    )
+    ffmpeg(
+        "-f", "lavfi", "-i", f"testsrc2=size={poster_size}:rate=1:duration=1",
+        "-frames:v", "1", folder / "poster.jpg",
     )
 
 
@@ -112,8 +119,12 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, str]:
         items = {item.title: item.id for item in db.query(LibraryItem).all()}
     try:
         return {
-            "directItemID": items["Apple Proof Direct"],
-            "convertedItemID": items["Apple Proof Convert"],
+            "directItemID": items[DIRECT_TITLE],
+            "directItemTitle": DIRECT_TITLE,
+            "convertedItemID": items[CONVERTED_TITLE],
+            "convertedItemTitle": CONVERTED_TITLE,
+            "matrixItemID": items[MATRIX_TITLE],
+            "matrixItemTitle": MATRIX_TITLE,
         }
     except KeyError as error:
         raise RuntimeError("The production import did not index both proof videos.") from error
@@ -147,10 +158,19 @@ def verify_api(expected: dict[str, str], username: str, password: str) -> dict[s
 
     items = request_json("/Items?IncludeItemTypes=Movie,Episode,Video&Recursive=true&Fields=Overview,UserData,ImageTags&SortBy=SortName&StartIndex=0&Limit=50", token=token)
     by_name = {item.get("Name"): item for item in items.get("Items", [])}
-    direct = by_name.get("Apple Proof Direct")
-    converted = by_name.get("Apple Proof Convert")
-    if not isinstance(direct, dict) or not isinstance(converted, dict):
-        raise RuntimeError("The Jellyfin-compatible items endpoint did not expose both imported videos.")
+    direct = by_name.get(DIRECT_TITLE)
+    converted = by_name.get(CONVERTED_TITLE)
+    matrix = by_name.get(MATRIX_TITLE)
+    if not isinstance(direct, dict) or not isinstance(converted, dict) or not isinstance(matrix, dict):
+        raise RuntimeError("The Jellyfin-compatible items endpoint did not expose all imported videos.")
+    if any(not item.get("ImageTags", {}).get("Primary") for item in (direct, converted, matrix)):
+        raise RuntimeError("The Jellyfin-compatible items endpoint did not expose all synthetic posters.")
+
+    for item in (direct, converted, matrix):
+        artwork_url = ORIGIN + f"/Items/{item['Id']}/Images/Primary?" + urlencode({"maxWidth": "400", "ApiKey": token})
+        with urlopen(Request(artwork_url), timeout=10) as response:
+            if not response.headers.get_content_type().startswith("image/") or not response.read(1):
+                raise RuntimeError("A synthetic poster did not load through the authenticated artwork route.")
 
     profile = {
         "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264", "AudioCodec": "aac"}],
@@ -194,7 +214,14 @@ def verify_api(expected: dict[str, str], username: str, password: str) -> dict[s
     resume = request_json("/UserItems/Resume?IncludeItemTypes=Movie,Episode,Video&Recursive=true&Fields=Overview,UserData,ImageTags&Limit=50", token=token)
     if direct["Id"] not in {item.get("Id") for item in resume.get("Items", [])}:
         raise RuntimeError("Playback progress did not make the direct fixture resumable.")
-    return {"directItemID": str(direct["Id"]), "convertedItemID": str(converted["Id"])}
+    return {
+        "directItemID": str(direct["Id"]),
+        "directItemTitle": DIRECT_TITLE,
+        "convertedItemID": str(converted["Id"]),
+        "convertedItemTitle": CONVERTED_TITLE,
+        "matrixItemID": str(matrix["Id"]),
+        "matrixItemTitle": MATRIX_TITLE,
+    }
 
 
 def write_fixture(state_root: Path, username: str, password: str, items: dict[str, str]) -> None:
@@ -216,8 +243,12 @@ def main() -> None:
     thread: threading.Thread | None = None
     server: Any = None
     try:
-        make_movie(state_root / "media", "Apple Proof Direct", 2026, ".mp4")
-        make_movie(state_root / "media", "Apple Proof Convert", 2025, ".mkv")
+        # Exercise both ordinary poster art and a landscape source that the client
+        # must crop into the same library-card bounds. Both images are generated
+        # locally and require no downloaded fixture media.
+        make_movie(state_root / "media", DIRECT_TITLE, 2026, ".mp4", "360x540")
+        make_movie(state_root / "media", CONVERTED_TITLE, 2025, ".mkv", "960x540")
+        make_movie(state_root / "media", MATRIX_TITLE, 2024, ".mp4", "360x540", duration=40)
         configure_environment(state_root)
         install_loopback_guard()
         provisioned = provision(state_root, username, password)

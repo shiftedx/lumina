@@ -37,6 +37,8 @@ describe('separate settings spaces', () => {
     expect(parseRoute('/manage/members/u1', '')).toEqual({ surface: 'settings', space: 'server', section: 'members', memberId: 'u1' });
     expect(resolveSettingsPage('media').id).toBe('metadata');
     expect(resolveSettingsPage('requests').id).toBe('sonarr');
+    expect(resolveSettingsPage('diagnostics').id).toBe('diagnostics');
+    expect(resolveSettingsPage('diagnostics', 'updates').id).toBe('updates');
     expect(parseRoute('/admin/imports', '')).toEqual({ surface: 'settings', section: 'library', page: 'imports' });
     expect(parseRoute('/admin/ai', '')).toEqual({ surface: 'settings', section: 'ai' });
   });

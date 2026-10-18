@@ -158,7 +158,7 @@ let tickScale = 10_000_000.0
     private static func message(for error: Error, signingIn: Bool) -> String {
         if let error = error as? LuminaError {
             switch error {
-            case .http(404): return "Lumina’s connected-app API is disabled on this server."
+            case .http(404): return "The server returned HTTP 404 (not found). Check the server address and that Apps like Infuse is enabled in Lumina Settings."
             case .http(401): return signingIn ? "Sign-in failed. If this account uses two-factor authentication, use an app password from Lumina Settings → Connected apps." : "Your session expired. Sign in again."
             case .invalidOrigin: return "Enter a complete http:// or https:// server origin."
             case .unsafeURL: return "The server returned a URL outside the configured server origin."

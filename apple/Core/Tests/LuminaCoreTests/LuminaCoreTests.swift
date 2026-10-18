@@ -47,6 +47,18 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertNil(store.errorMessage)
     }
 
+    func testMissingSignInEndpointDoesNotClaimAPIIsDisabled() async throws {
+        let credentials = TestCredentials()
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials)
+        MockURLProtocol.handler = { request in response(request, status: 404) }
+
+        await store.connect(server: "https://lumina.example", username: "member", password: "test-password")
+
+        XCTAssertNil(store.session)
+        XCTAssertNil(credentials.stored)
+        XCTAssertEqual(store.errorMessage, "The server returned HTTP 404 (not found). Check the server address and that Apps like Infuse is enabled in Lumina Settings.")
+    }
+
     func testPlaybackInfoUsesOnlySameOriginHLSAndReportsPositions() async throws {
         let client = LuminaClient(configuration: mockConfiguration())
         let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))

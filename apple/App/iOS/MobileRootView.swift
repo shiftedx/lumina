@@ -53,29 +53,35 @@ private struct ConnectionView: View {
                     ConnectionField(title: "Server URL") {
                         TextField("https://lumina.example", text: $server)
                             .keyboardType(.URL)
+                            .textContentType(.URL)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .focused($focusedField, equals: .server)
                             .submitLabel(.next)
                             .onSubmit { focusedField = .username }
+                            .accessibilityLabel("Server URL")
                             .accessibilityIdentifier("serverURLField")
                     }
 
                     ConnectionField(title: "Username") {
                         TextField("Household account", text: $username)
+                            .textContentType(.username)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .focused($focusedField, equals: .username)
                             .submitLabel(.next)
                             .onSubmit { focusedField = .password }
+                            .accessibilityLabel("Username")
                             .accessibilityIdentifier("usernameField")
                     }
 
                     ConnectionField(title: "Password") {
                         SecureField("Password or app password", text: $password)
+                            .textContentType(.password)
                             .focused($focusedField, equals: .password)
                             .submitLabel(.go)
                             .onSubmit { connect() }
+                            .accessibilityLabel("Password")
                             .accessibilityIdentifier("passwordField")
                     }
                 }
@@ -91,6 +97,7 @@ private struct ConnectionView: View {
                         Text(store.isBusy ? "Connecting…" : "Connect")
                     }
                     .frame(maxWidth: .infinity)
+                    .foregroundStyle(LuminaTheme.paper)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -366,6 +373,8 @@ private struct LibraryGrid: View {
     let items: [MediaItem]
     let store: LuminaStore
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("All video")
@@ -374,15 +383,23 @@ private struct LibraryGrid: View {
                 .italic()
 
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 136, maximum: 220), spacing: 20)],
+                columns: libraryGridColumns(for: dynamicTypeSize),
                 alignment: .leading,
                 spacing: 28
             ) {
                 ForEach(items) { item in
                     NavigationLink(value: item) {
-                        MediaCard(item: item, imageURL: store.imageURL(for: item), width: nil)
+                        MediaCard(
+                            item: item,
+                            imageURL: store.imageURL(for: item),
+                            identifierPrefix: "library"
+                        )
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape([.interaction, .accessibility], Rectangle())
                     .buttonStyle(.plain)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityAddTraits(.isButton)
                     .accessibilityLabel(mediaAccessibilityLabel(for: item))
                     .accessibilityIdentifier("libraryItem-\(item.id)")
                 }
@@ -411,16 +428,25 @@ private struct MediaRail: View {
                 LazyHStack(alignment: .top, spacing: 16) {
                     ForEach(items) { item in
                         NavigationLink(value: item) {
-                            MediaCard(item: item, imageURL: store.imageURL(for: item), width: cardWidth)
+                            MediaCard(
+                                item: item,
+                                imageURL: store.imageURL(for: item),
+                                identifierPrefix: "resume"
+                            )
+                            .containerRelativeFrame(.horizontal) { availableWidth, _ in
+                                min(cardWidth, availableWidth)
+                            }
                         }
+                        .contentShape([.interaction, .accessibility], Rectangle())
                         .buttonStyle(.plain)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(mediaAccessibilityLabel(for: item))
                         .accessibilityIdentifier("\(identifierPrefix)-\(item.id)")
                     }
                 }
                 .padding(.horizontal, 1)
             }
-            .scrollClipDisabled()
         }
     }
 }
@@ -429,11 +455,12 @@ private struct MediaRail: View {
 private struct MediaCard: View {
     let item: MediaItem
     let imageURL: URL?
-    let width: CGFloat?
+    let identifierPrefix: String
 
     var body: some View {
         let content = VStack(alignment: .leading, spacing: 8) {
             ArtworkView(url: imageURL, name: item.name)
+                .accessibilityIdentifier("\(identifierPrefix)Artwork-\(item.id)")
                 .overlay(alignment: .bottom) {
                     if progressFraction > 0 {
                         ProgressView(value: progressFraction)
@@ -447,21 +474,26 @@ private struct MediaCard: View {
             Text(item.name)
                 .font(.system(.subheadline, design: .serif))
                 .fontWeight(.semibold)
-                .lineLimit(2)
+                .lineLimit(2, reservesSpace: true)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("\(identifierPrefix)Title-\(item.id)")
 
             if !item.displaySubtitle.isEmpty {
                 Text(item.displaySubtitle)
                     .font(.caption)
                     .foregroundStyle(LuminaTheme.muted)
                     .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
 
-        if let width {
-            content.frame(width: width, alignment: .leading)
-        } else {
-            content.frame(maxWidth: .infinity, alignment: .leading)
-        }
+        content
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .clipped()
     }
 
     private var progressFraction: Double {
@@ -476,40 +508,48 @@ private struct ArtworkView: View {
     let name: String
 
     var body: some View {
-        ZStack {
-            LuminaTheme.ink.opacity(0.08)
-
-            if let url {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .empty:
-                        ProgressView()
-                            .tint(LuminaTheme.gold)
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    case .failure:
+        Rectangle()
+            .fill(LuminaTheme.ink.opacity(0.08))
+            .aspectRatio(2 / 3, contentMode: .fit)
+            .overlay {
+                GeometryReader { geometry in
+                    if let url {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .empty:
+                                ProgressView()
+                                    .tint(LuminaTheme.gold)
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .clipped()
+                            case .failure:
+                                placeholder
+                            @unknown default:
+                                placeholder
+                            }
+                        }
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                    } else {
                         placeholder
-                    @unknown default:
-                        placeholder
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipped()
                     }
                 }
-            } else {
-                placeholder
             }
-
-            LinearGradient(
-                colors: [.clear, LuminaTheme.paper.opacity(0.35)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .allowsHitTesting(false)
-        }
-        .aspectRatio(2 / 3, contentMode: .fit)
-        .clipped()
-        .clipShape(.rect(cornerRadius: 12))
-        .accessibilityHidden(true)
+            .overlay {
+                LinearGradient(
+                    colors: [.clear, LuminaTheme.paper.opacity(0.35)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .allowsHitTesting(false)
+            }
+            .clipShape(.rect(cornerRadius: 12))
+            .accessibilityHidden(true)
     }
 
     private var placeholder: some View {
@@ -531,6 +571,8 @@ private struct TitleDetailView: View {
     let item: MediaItem
     @Bindable var store: LuminaStore
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @State private var playbackRequest: PlaybackRequest?
     @State private var isPreparingPlayback = false
     @State private var playbackError: String?
@@ -538,20 +580,7 @@ private struct TitleDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 24) {
-                        ArtworkView(url: store.imageURL(for: item, maxWidth: 600), name: item.name)
-                            .frame(width: 184)
-                        detailCopy
-                    }
-
-                    VStack(alignment: .leading, spacing: 20) {
-                        ArtworkView(url: store.imageURL(for: item, maxWidth: 600), name: item.name)
-                            .frame(maxWidth: 260)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                        detailCopy
-                    }
-                }
+                detailHeader
 
                 if let overview = item.overview, !overview.isEmpty {
                     Text(overview)
@@ -582,6 +611,32 @@ private struct TitleDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private var detailHeader: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            stackedDetailHeader
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 24) {
+                    ArtworkView(url: store.imageURL(for: item, maxWidth: 600), name: item.name)
+                        .frame(width: 184)
+                    detailCopy
+                }
+
+                stackedDetailHeader
+            }
+        }
+    }
+
+    private var stackedDetailHeader: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            ArtworkView(url: store.imageURL(for: item, maxWidth: 600), name: item.name)
+                .frame(maxWidth: 260)
+                .frame(maxWidth: .infinity, alignment: .center)
+            detailCopy
+        }
+    }
+
     private var detailCopy: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(item.name)
@@ -589,28 +644,44 @@ private struct TitleDetailView: View {
                 .fontWeight(.bold)
                 .italic()
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             if !item.displaySubtitle.isEmpty {
                 Text(item.displaySubtitle)
                     .font(.subheadline)
                     .foregroundStyle(LuminaTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if item.isPlayable {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 12) {
-                        playbackButton
-                        convertButton
-                    }
-                    VStack(alignment: .leading, spacing: 12) {
-                        playbackButton
-                        convertButton
-                    }
-                }
+                playbackActions
             } else {
                 Text("Playback is unavailable for this title.")
                     .font(.callout)
                     .foregroundStyle(LuminaTheme.muted)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var playbackActions: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 12) {
+                playbackButton
+                convertButton
+            }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    playbackButton
+                    convertButton
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    playbackButton
+                    convertButton
+                }
             }
         }
     }
@@ -626,6 +697,7 @@ private struct TitleDetailView: View {
                 Label(playLabel, systemImage: "play.fill")
             }
             .frame(minWidth: 132)
+            .foregroundStyle(LuminaTheme.paper)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
@@ -672,9 +744,11 @@ private struct TitleDetailView: View {
 private struct LibraryLoadingView: View {
     private let placeholders = [0, 1, 2, 3, 4, 5]
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
         LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 136, maximum: 220), spacing: 20)],
+            columns: libraryGridColumns(for: dynamicTypeSize),
             alignment: .leading,
             spacing: 28
         ) {
@@ -688,6 +762,13 @@ private struct LibraryLoadingView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Loading video library")
     }
+}
+
+private func libraryGridColumns(for dynamicTypeSize: DynamicTypeSize) -> [GridItem] {
+    if dynamicTypeSize.isAccessibilitySize {
+        return [GridItem(.flexible(minimum: 0, maximum: 220), spacing: 20)]
+    }
+    return [GridItem(.adaptive(minimum: 136, maximum: 220), spacing: 20)]
 }
 
 @MainActor

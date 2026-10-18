@@ -23,12 +23,8 @@ struct PlaybackScreen: View {
             NativePlayer(player: playback.player) { finish() }
                 .ignoresSafeArea()
                 .accessibilityIdentifier("nativeVideoPlayer")
+            #if os(tvOS)
             VStack(alignment: .leading, spacing: 8) {
-                #if !os(tvOS)
-                Button("Done", systemImage: "xmark.circle.fill") { finish() }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("closePlayerButton")
-                #endif
                 if let error = playback.errorMessage {
                     Text(error).padding().background(.black.opacity(0.8))
                     Button("Close player") { finish() }
@@ -48,13 +44,50 @@ struct PlaybackScreen: View {
             .foregroundStyle(.white)
             .padding()
             .background(.black.opacity(0.45))
+            #endif
         }
+        #if !os(tvOS)
+        .safeAreaInset(edge: .top, alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        playbackActions
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        playbackActions
+                    }
+                }
+                .padding(8)
+                .background(.black.opacity(0.75), in: .rect(cornerRadius: 12))
+                if let error = playback.errorMessage {
+                    Text(error)
+                        .padding()
+                        .background(.black.opacity(0.8), in: .rect(cornerRadius: 12))
+                }
+                if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .accessibilityElement()
+                        .accessibilityLabel("Playback seconds")
+                        .accessibilityIdentifier("playbackTime")
+                        .accessibilityValue(String(Int(playback.elapsedSeconds)))
+                }
+                if let syncError = playback.syncError {
+                    Text(syncError)
+                        .font(.caption)
+                        .padding(8)
+                        .background(.black.opacity(0.8), in: .rect(cornerRadius: 8))
+                }
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.top, 8)
+        }
+        #endif
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("playbackScreen")
         .task { await playback.start() }
-        .onChange(of: playback.hasFinished) { _, finished in
-            if finished { finish() }
-        }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { playback.pause() }
         }
@@ -62,6 +95,9 @@ struct PlaybackScreen: View {
             playback.pause()
         }
         #if os(tvOS)
+        .onChange(of: playback.hasFinished) { _, finished in
+            if finished { finish() }
+        }
         .onExitCommand { finish() }
         #endif
     }
@@ -70,26 +106,49 @@ struct PlaybackScreen: View {
         playback.close()
         dismiss()
     }
+
+    private func replay() {
+        Task { await playback.replay() }
+    }
+
+    @ViewBuilder private var playbackActions: some View {
+        Button("Done", systemImage: "xmark.circle.fill") { finish() }
+            .buttonStyle(.borderedProminent)
+            .tint(LuminaTheme.gold)
+            .foregroundStyle(LuminaTheme.paper)
+            .controlSize(.large)
+            .accessibilityIdentifier("closePlayerButton")
+        if playback.hasFinished {
+            Button("Replay", systemImage: "arrow.counterclockwise") { replay() }
+                .buttonStyle(.bordered)
+                .tint(.white)
+                .controlSize(.large)
+                .disabled(playback.isReplaying)
+                .accessibilityIdentifier("replayButton")
+        }
+    }
 }
 
 @MainActor @Observable
 private final class PlaybackModel {
     let player: AVPlayer
-    let request: PlaybackRequest
+    private(set) var request: PlaybackRequest
     private let store: LuminaStore
     var elapsedSeconds: Double
     var hasFinished = false
+    var isReplaying = false
     var errorMessage: String?
     var syncError: String?
     private var timeObserver: Any?
     private var controlObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var reportQueue: Task<Void, Never>?
-    private var pendingReports: [(event: PlaybackEvent, seconds: Double, paused: Bool)] = []
+    private var pendingReports: [(event: PlaybackEvent, request: PlaybackRequest, seconds: Double, paused: Bool)] = []
     private var didSeek = false
     private var started = false
     private var autoplayWhenReady = true
     private var closed = false
+    private var didReportCompletion = false
     private var lastReport: Double = -1
 
     init(request: PlaybackRequest, store: LuminaStore) {
@@ -138,7 +197,7 @@ private final class PlaybackModel {
         enqueue(.start, paused: !autoplayWhenReady)
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, !self.closed else { return }
+                guard let self, !self.closed, !self.hasFinished else { return }
                 self.updatePosition()
                 if abs(self.elapsedSeconds - self.lastReport) >= 5 {
                     self.enqueue(.progress, paused: self.player.timeControlStatus != .playing)
@@ -150,17 +209,12 @@ private final class PlaybackModel {
         }
         controlObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in
-                guard let self, !self.closed else { return }
+                guard let self, !self.closed, !self.hasFinished else { return }
                 self.updatePosition()
                 self.enqueue(.progress, paused: self.player.timeControlStatus != .playing)
             }
         }
-        endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.hasFinished = true
-                self?.close()
-            }
-        }
+        installEndObserver()
         if autoplayWhenReady { player.play() }
     }
 
@@ -169,8 +223,55 @@ private final class PlaybackModel {
         // Leaving during asset loading must also suppress the later autoplay.
         autoplayWhenReady = false
         player.pause()
+        guard !hasFinished else { return }
         updatePosition()
         enqueue(.progress, paused: true)
+    }
+
+    func replay() async {
+        guard hasFinished, !closed, !isReplaying else { return }
+        isReplaying = true
+        defer { isReplaying = false }
+        autoplayWhenReady = true
+        errorMessage = nil
+        let newRequest: PlaybackRequest
+        do {
+            newRequest = try await store.preparePlayback(for: request.item, forceTranscode: request.isTranscoding)
+        } catch {
+            errorMessage = "Replay could not start. Check the server connection and try again."
+            return
+        }
+        guard !closed, !Task.isCancelled else {
+            try? await store.reportPlayback(event: .stop, request: newRequest,
+                                            positionSeconds: 0, isPaused: true)
+            return
+        }
+        request = newRequest
+        elapsedSeconds = 0
+        didReportCompletion = false
+        player.replaceCurrentItem(with: AVPlayerItem(url: newRequest.url))
+        installEndObserver()
+        for _ in 0..<300 {
+            guard !Task.isCancelled, !closed else { return }
+            guard let item = player.currentItem else { return }
+            if item.status == .failed {
+                failReplay("Replay could not start. Check the server connection and try again.")
+                return
+            }
+            if item.status == .readyToPlay { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard !closed, !Task.isCancelled else { return }
+        guard player.currentItem?.status == .readyToPlay else {
+            failReplay("Replay did not become ready. Check the server connection.")
+            return
+        }
+        await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+        guard !closed, !Task.isCancelled else { return }
+        updatePosition()
+        hasFinished = false
+        enqueue(.start, paused: !autoplayWhenReady)
+        if autoplayWhenReady { player.play() }
     }
 
     func close() {
@@ -181,8 +282,49 @@ private final class PlaybackModel {
         if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
         controlObservation = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
-        enqueue(.stop, paused: true)
+        if !didReportCompletion {
+            enqueue(.stop, paused: true)
+        }
         player.replaceCurrentItem(with: nil)
+    }
+
+    private func finishPlayback() {
+        guard !closed, !hasFinished else { return }
+        updatePosition()
+        hasFinished = true
+        autoplayWhenReady = false
+        player.pause()
+        // The stopped server session is no longer a valid replay source (especially for HLS).
+        // Remove it so AVKit can't restart the obsolete item behind the fresh Replay action.
+        player.replaceCurrentItem(with: nil)
+        didReportCompletion = true
+        enqueue(.stop, paused: true)
+    }
+
+    private func failReplay(_ message: String) {
+        errorMessage = message
+        player.replaceCurrentItem(with: nil)
+        didReportCompletion = true
+        enqueue(.stop, paused: true)
+    }
+
+    private func installEndObserver() {
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+        guard let item = player.currentItem else {
+            endObserver = nil
+            return
+        }
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.finishPlayback()
+            }
+        }
     }
 
     private func updatePosition() {
@@ -202,13 +344,13 @@ private final class PlaybackModel {
         if case .stop = event {
             pendingReports.removeAll { if case .progress = $0.event { return true }; return false }
         }
-        pendingReports.append((event, elapsedSeconds, paused))
+        pendingReports.append((event, request, elapsedSeconds, paused))
         guard reportQueue == nil else { return }
         reportQueue = Task { [self] in
             while !pendingReports.isEmpty {
                 let report = pendingReports.removeFirst()
                 do {
-                    try await store.reportPlayback(event: report.event, request: request,
+                    try await store.reportPlayback(event: report.event, request: report.request,
                                                    positionSeconds: report.seconds, isPaused: report.paused)
                     syncError = nil
                     if case .stop = report.event { await store.refresh() }

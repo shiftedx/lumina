@@ -1,7 +1,7 @@
 import { openHomeEditor } from './home-edit-helper';
 import { expect, test, type Page } from '@playwright/test';
 
-import { episodeSummary } from '../src/test/galleryFixtures';
+import { albumSummary, episodeSummary, stillItem } from '../src/test/galleryFixtures';
 import { continueEntry, homeMovie, mockHome } from './home-mock';
 import { mockApi, signIn } from './lumina-mock';
 
@@ -32,16 +32,16 @@ test('keyboard reorder: Space on Next up, two ArrowDowns, Space; saved and kept 
   const { saved } = await openHome(page);
   await openHomeEditor(page, true);
   await expect(page.locator('.h-masthead button')).toHaveCount(0);
-  await expect(said(page)).toHaveText('Editing Home. 13 shelves.');
+  await expect(said(page)).toHaveText('Editing Home. 14 shelves.');
   await expect(handle(page, 'Continue watching')).toBeFocused();
   await handle(page, 'Next up').focus();
   await page.keyboard.press('Space');
-  await expect(said(page)).toHaveText('Next up picked up, position 3 of 13. Use Up and Down to move, Space to drop, Escape to cancel.');
+  await expect(said(page)).toHaveText('Next up picked up, position 3 of 14. Use Up and Down to move, Space to drop, Escape to cancel.');
   await page.keyboard.press('ArrowDown');
-  await expect(said(page)).toHaveText('Next up, position 4 of 13.');
+  await expect(said(page)).toHaveText('Next up, position 4 of 14.');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Space');
-  await expect(said(page)).toHaveText('Next up dropped at position 5 of 13.');
+  await expect(said(page)).toHaveText('Next up dropped at position 5 of 14.');
   await expect(handle(page, 'Next up')).toBeFocused();
   await expect.poll(() => lastLayout(saved)?.slice(0, 5).map((entry) => entry.id)).toEqual(['continue', 'live', 'watchlist', 'new_in_library', 'next_up']);
   await page.reload();
@@ -62,7 +62,7 @@ test('pointer drag two rows down drops there and saves; Escape mid-drag puts it 
   await page.mouse.move(x, y + 2 * pitch, { steps: 8 });
   await expect(page.locator('[data-shelf-row="next_up"]')).toHaveAttribute('data-dragging', '');
   await page.mouse.up();
-  await expect(said(page)).toHaveText('Next up dropped at position 5 of 13.');
+  await expect(said(page)).toHaveText('Next up dropped at position 5 of 14.');
   await expect.poll(() => lastLayout(saved)?.findIndex((entry) => entry.id === 'next_up')).toBe(4);
 
   const again = (await handle(page, 'Next up').boundingBox())!;
@@ -90,7 +90,7 @@ test.describe('touch', () => {
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
     for (let step = 1; step <= 8; step += 1) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: Math.round(y + (step * pitch) / 8) }] });
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    await expect(said(page)).toHaveText('Next up dropped at position 4 of 13.');
+    await expect(said(page)).toHaveText('Next up dropped at position 4 of 14.');
     await expect.poll(() => lastLayout(saved)?.findIndex((entry) => entry.id === 'next_up')).toBe(3);
   });
 });
@@ -145,7 +145,7 @@ test('TV remote at 1920×1080: arrows reach Resume and the shelves; edit with ar
   await expect(page.getByRole('switch', { name: 'Show Live now' })).toBeFocused();
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('Enter');
-  await expect(said(page)).toHaveText('Live now picked up, position 2 of 13. Use Up and Down to move, Space to drop, Escape to cancel.');
+  await expect(said(page)).toHaveText('Live now picked up, position 2 of 14. Use Up and Down to move, Space to drop, Escape to cancel.');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Escape');
   await expect(said(page)).toHaveText('Reorder cancelled. Live now is back at position 2.');
@@ -157,7 +157,7 @@ test('TV remote at 1920×1080: arrows reach Resume and the shelves; edit with ar
 test('TV remote reaches Reset to default and Done below the last row (E-I3)', async ({ page }) => {
   await openHome(page, {}, { width: 1920, height: 1080 });
   await openHomeEditor(page);
-  await handle(page, 'Recently added music').focus();
+  await handle(page, 'Continue listening').focus();
   await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('button', { name: 'Reset to default' })).toBeFocused();
   await page.keyboard.press('ArrowRight');
@@ -171,11 +171,11 @@ test('another browser signed in to a member without a saved layout sees the defa
   const { saved } = await openHome(page);
   await openHomeEditor(page);
   await page.getByRole('button', { name: 'Move Recently added music up' }).click();
-  await expect.poll(() => lastLayout(saved)?.at(-2)?.id).toBe('recent_music');
+  await expect.poll(() => lastLayout(saved)?.at(-3)?.id).toBe('recent_music');
   const other = await browser.newPage();
   await openHome(other);
   await openHomeEditor(other);
-  await expect(other.locator('.h-edit-row').last()).toHaveAttribute('data-shelf-row', 'recent_music');
+  await expect(other.locator('.h-edit-row').last()).toHaveAttribute('data-shelf-row', 'continue_listening');
   await other.close();
 });
 
@@ -210,3 +210,45 @@ for (const scheme of ['light', 'dark'] as const) {
     });
   }
 }
+
+
+test('Continue listening keeps music separate and can be hidden, restored and reordered after reload', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const saved = (await mockApi(page, { sidebar_collapsed: false })) as Saved;
+  const album = albumSummary();
+  await mockHome(page, { continueWatching: [
+    continueEntry(album, { item: stillItem('song-1', { kind: 'track' }) }),
+    continueEntry(episodeSummary(2, 4)),
+  ] });
+  await page.goto('/');
+  await signIn(page);
+  const watching = page.getByRole('region', { name: 'Continue watching' });
+  const listening = page.getByRole('region', { name: 'Continue listening' });
+  await expect(watching.getByRole('button', { name: /Harbor Lights/ }).first()).toBeVisible();
+  await expect(watching.getByRole('button', { name: /Album One/ })).toHaveCount(0);
+  await expect(page.locator('.h-hero-title')).toHaveText('Harbor Lights');
+  await listening.scrollIntoViewIfNeeded();
+  await expect(listening.getByRole('button', { name: /^Album One,/ })).toBeVisible();
+  await openHomeEditor(page);
+  await page.getByRole('switch', { name: 'Show Continue listening' }).click();
+  await expect.poll(() => lastLayout(saved)?.find((shelf) => shelf.id === 'continue_listening')?.visible).toBe(false);
+  await page.locator('.h-editor').getByRole('button', { name: 'Done' }).click();
+  await page.reload();
+  await expect(watching).toBeVisible();
+  await expect(listening).toHaveCount(0);
+  await openHomeEditor(page);
+  await expect(page.getByRole('switch', { name: 'Show Continue listening' })).toHaveAttribute('aria-checked', 'false');
+  await page.getByRole('switch', { name: 'Show Continue listening' }).click();
+  await handle(page, 'Continue listening').focus();
+  await page.keyboard.press('Space');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Space');
+  await page.locator('.h-editor').getByRole('button', { name: 'Done' }).click();
+  await page.reload();
+  await expect(listening).toBeVisible();
+  await expect(page.locator('[data-shelf-section]').first()).toHaveAttribute('data-shelf-section', 'continue_listening');
+  const art = listening.locator('.g-art-square').first();
+  const bounds = (await art.boundingBox())!;
+  expect(Math.abs(bounds.width - bounds.height)).toBeLessThan(1);
+});

@@ -119,14 +119,18 @@ test('web UI has no host-launch affordances after desktop removal', async ({ pag
   await expect(authCard).toBeHidden();
   await expect(page.locator('main[aria-label="Main content"]')).toBeVisible();
 
-  // Video surface: the item renders without any open/reveal OS-launch affordance.
+  // Video surface: the item renders without an OS-file-launch affordance.
+  // "Open" also names ordinary in-app controls (for example the persistent
+  // music dock's listening room and queue), so only match the concrete file
+  // manager verbs that the removed host surface used.
   await navigateApp(page, 'Video');
   await page.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'YouTube' }).click();
   await expect(page.getByRole('button', { name: new RegExp(`^${fixtureItem.title},`) })).toBeVisible();
   const main = page.locator('main[aria-label="Main content"]');
-  const launchButtons = main.getByRole('button', { name: /^(open|reveal)/i });
+  const hostLaunchName = /^(?:open|reveal|open file|reveal file|open in finder|reveal in finder|show in finder)$/i;
+  const launchButtons = main.getByRole('button', { name: hostLaunchName });
   await expect(launchButtons).toHaveCount(0);
-  const launchLinks = main.getByRole('link', { name: /^(open|reveal)/i });
+  const launchLinks = main.getByRole('link', { name: hostLaunchName });
   await expect(launchLinks).toHaveCount(0);
 
   expect(pageErrors, `page errors: ${pageErrors.join('\n')}`).toHaveLength(0);

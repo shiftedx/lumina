@@ -6,7 +6,7 @@ test('direct WebM plays from the original file', async ({ page }) => {
   const id = await libraryItemId(page, 'Realstack Direct');
   await page.goto('/library/movies');
   await page.getByRole('button', { name: /^Realstack Direct,/ }).first().click();
-  await page.getByRole('button', { name: /^(Play|Resume|Start)/ }).first().click();
+  await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
   await expect(page.getByRole('heading', { name: 'Realstack Direct', level: 1 })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Realstack Direct player' })).toContainText('VP9 / OPUS · Original');
   await expect.poll(() => videoTime(page)).toBeGreaterThan(0.5);
@@ -22,7 +22,7 @@ for (const { title, via, codecs } of [
     await page.goto('/library/movies');
     const manifest = page.waitForResponse((response) => SESSION_MANIFEST.test(new URL(response.url()).pathname));
     await page.getByRole('button', { name: new RegExp(`^${title},`) }).first().click();
-    await page.getByRole('button', { name: /^(Play|Resume|Start)/ }).first().click();
+    await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
     const response = await manifest;
     expect(response.status()).toBe(200);
     const body = await response.text();

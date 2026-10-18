@@ -52,6 +52,12 @@ from app.routers import library_sections  # library gallery sections
 from app.routers import requests as requests_routes  # 2.6.0 Requests (BE-B)
 from app.services.requests.catalog import warm_loop as catalog_warm_loop
 from app.services.requests.sync import request_sync_loop
+from app.routers import arr_observations
+from app.services.arr_observer import observer_loop
+from app.services.infrastructure_connectors import observer_loop as connector_observer_loop
+from app.routers import arr_operations, music_listening_session, service_connectors, listening_export, music_requests, chromecast
+from app.services.listening_export import run as listening_export_loop
+from app.services.arr_operations import reconcile_pending as reconcile_arr_operations
 from app.db import SessionLocal, get_db, init_db, session_scope
 from app.persistence import write_transaction
 from app.events import EventBus, sse_stream
@@ -922,11 +928,15 @@ async def lifespan(app: FastAPI):
     # Re-launch or finalize every live recording left non-terminal by a restart,
     # so a long-running recording survives a process crash deterministically.
     await asyncio.to_thread(live_recording_manager.recover)
+    await asyncio.to_thread(reconcile_arr_operations)
     reconcile_task = asyncio.create_task(reconcile_loop())
     playback_buffer_task = asyncio.create_task(playback_buffer_loop())
     automation_task = asyncio.create_task(source_automation_loop())
     metadata_task = asyncio.create_task(metadata_loop())
     request_sync_task = asyncio.create_task(request_sync_loop())  # skips cleanly while Requests are off or no server is set
+    arr_observer_task = asyncio.create_task(observer_loop())  # enabled connections are observed even with Requests off
+    connector_observer_task = asyncio.create_task(connector_observer_loop())
+    listening_export_task = asyncio.create_task(listening_export_loop())
     catalog_warm_task = asyncio.create_task(catalog_warm_loop())  # Requests catalog first-load warm-up; idle while Requests are off
     popular_discovery.start()
     live_discovery.start()
@@ -940,6 +950,9 @@ async def lifespan(app: FastAPI):
         automation_task.cancel()
         metadata_task.cancel()
         request_sync_task.cancel()
+        arr_observer_task.cancel()
+        connector_observer_task.cancel()
+        listening_export_task.cancel()
         catalog_warm_task.cancel()
         await asyncio.to_thread(library_automation.stop)
         import_stop_event.set()
@@ -972,6 +985,12 @@ async def lifespan(app: FastAPI):
             await request_sync_task
         except asyncio.CancelledError:
             pass
+        with suppress(asyncio.CancelledError):
+            await arr_observer_task
+        with suppress(asyncio.CancelledError):
+            await connector_observer_task
+        with suppress(asyncio.CancelledError):
+            await listening_export_task
         await asyncio.to_thread(model_downloads.manager.shutdown)  # partial files stay for the next start
         await asyncio.to_thread(model_supervisor.supervisor.close)
         try:
@@ -1056,6 +1075,13 @@ jellyfin_auth.register(app)  # before jellyfin.register(app, artwork) and its ca
 admin_media_server.register(app)
 library_sections.register(app)  # before main.py's /api/library/{item_id} routes below
 requests_routes.register(app)
+arr_observations.register(app)
+arr_operations.register(app)
+music_listening_session.register(app)
+service_connectors.register(app)
+listening_export.register(app)
+music_requests.register(app)
+chromecast.register(app)
 art.register(app)
 requests_catalog.register(app)
 showcase_routes.register(app)  # public: the sign-in showcase (test_unauthenticated_surface)

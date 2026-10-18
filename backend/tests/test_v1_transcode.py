@@ -166,7 +166,8 @@ def test_quality_choice_encodes_at_that_height(household: None, tmp_path: Path) 
     item_id = _download("alice", make_media(settings.library_root / "alice" / "hd.mp4", size="1280x720", seconds=4))
     with _client("alice") as client:
         assert client.post(f"/api/library/{item_id}/playback-sessions", json={"max_height": 720}).status_code == 409  # already fits
-        body = client.post(f"/api/library/{item_id}/playback-sessions", json={"max_height": 480}).json()
+        # The browser's advisory link budget is deliberately ignored once the member picked 480p.
+        body = client.post(f"/api/library/{item_id}/playback-sessions?bandwidth_bps=2000000", json={"max_height": 480}).json()
     video = next(s for s in _probe_concat(_finished(body["session_id"]), tmp_path)["streams"] if s["codec_type"] == "video")
     assert (video["codec_name"], video["height"]) == ("h264", 480)
 

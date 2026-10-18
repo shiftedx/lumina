@@ -187,7 +187,7 @@ export function OfflineListening() {
     setError(null);
     try {
       const predicted = predictedDecodedBytes(entry.track);
-      if (predicted !== null && predicted > MAX_DECODED_AUDIO_BYTES) {
+      if (predicted === null || predicted > MAX_DECODED_AUDIO_BYTES) {
         await playNative(index, position);
         return;
       }

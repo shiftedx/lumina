@@ -36,6 +36,7 @@
 .description-card dl div { display: grid; grid-template-columns: minmax(80px, 110px) minmax(0, 1fr); gap: 12px; padding: 5px 0; font: var(--g-type-small); }
 .description-card dt { color: var(--g-ink-3); }
 .description-card dd { margin: 0; overflow-wrap: anywhere; color: var(--g-ink-2); }
+.chromecast-panel > summary { display: flex; min-height: var(--g-control); align-items: center; cursor: pointer; }
 .share-feedback { display: grid; gap: 8px; margin-top: 10px; color: var(--g-ink-2); font-size: 11px; }
 .share-feedback.error { color: var(--g-danger); }
 .watch-curation { margin-top: 16px; }

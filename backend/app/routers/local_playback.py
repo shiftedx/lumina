@@ -100,6 +100,13 @@ def playback_limits(db: Session, user_id: str, facts: dict[str, Any], max_height
     return Limits(max_height=min(heights) if heights else None, max_bitrate=max_bitrate, dv5_reshape=dv5)
 
 
+def advisory_bandwidth_budget(db: Session, user_id: str, max_height: int | None, bandwidth_bps: int | None) -> int | None:
+    """Use the browser's transient link estimate only for an untouched automatic start."""
+    if bandwidth_bps is None or max_height is not None or playback_ceiling(db, user_id) is not None:
+        return None
+    return bandwidth_bps
+
+
 def _version(db: Session, user: User, item: LibraryItem, version_id: str | None) -> LibraryItem:
     """The item itself, or a visible sibling version of the same Media title."""
     if not version_id or version_id == item.id:
@@ -118,7 +125,7 @@ def _playback_device(db: Session, request: Request) -> str:
     return getattr(request.state, "connected_app_id", None) or "web"
 
 
-def get_local_playback(item_id: str, request: Request, profiles: str | None = Query(None, max_length=2048), current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> LocalPlaybackResponse:
+def get_local_playback(item_id: str, request: Request, profiles: str | None = Query(None, max_length=2048), bandwidth_bps: int | None = Query(None, ge=100_000, le=1_000_000_000), current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> LocalPlaybackResponse:
     item = visible_item_or_404(db, item_id, current_user)
     screen_time.enforce(db, current_user, fresh=True)  # the web player asks this before every start, direct play too
     try:
@@ -129,7 +136,7 @@ def get_local_playback(item_id: str, request: Request, profiles: str | None = Qu
         return LocalPlaybackResponse(mode="unavailable", reason=facts["error"])
     if "loudness" not in facts:
         probe_warming.prioritize(item.id)  # someone is about to watch it: measure it next
-    limits = playback_limits(db, current_user.id, facts)
+    limits = playback_limits(db, current_user.id, facts, max_bitrate=advisory_bandwidth_budget(db, current_user.id, None, bandwidth_bps))
     caps = browser_caps(profiles)
     decision = decide(caps, facts, limits)
     if playback_resources.enabled(db):
@@ -149,7 +156,7 @@ def get_local_playback(item_id: str, request: Request, profiles: str | None = Qu
 
 def open_session(
     db: Session, user: User, item: LibraryItem, *, caps: ClientCaps, request: PlaybackSessionRequest | None = None, start: float = 0,
-    device: str = "web", play_session_id: str | None = None, max_bitrate: int | None = None, audio_gain_db: float | None = None,
+    device: str = "web", play_session_id: str | None = None, max_bitrate: int | None = None, bandwidth_bps: int | None = None, audio_gain_db: float | None = None,
     seekable: bool = False, http_request: Request | None = None,
 ) -> PlaybackSession:
     """Start or reuse the conversion of one visible item (web route and Jellyfin master.m3u8). Closes ``db`` before waiting.
@@ -169,7 +176,8 @@ def open_session(
         raise HTTPException(status_code=409, detail="This file has no playable audio or video.")
     subtitle = request.subtitle or ""
     subtitle_index = int(subtitle[2:]) if subtitle.startswith("i:") else None  # text tracks are sidecars, never burned in
-    limits = playback_limits(db, user.id, facts, request.max_height, max_bitrate)
+    effective_bitrate = max_bitrate if max_bitrate is not None else advisory_bandwidth_budget(db, user.id, request.max_height, bandwidth_bps)
+    limits = playback_limits(db, user.id, facts, request.max_height, effective_bitrate)
     decision = decide(caps, facts, limits, request.audio_index, subtitle_index)
     admission: Admission | None = None
     if http_request is not None and playback_resources.enabled(db):
@@ -223,12 +231,12 @@ def open_session(
 
 
 def start_playback_session(
-    item_id: str, request: Request, payload: PlaybackSessionRequest | None = Body(None), start: float = Query(0, ge=0, le=86400 * 7),
+    item_id: str, request: Request, payload: PlaybackSessionRequest | None = Body(None), start: float = Query(0, ge=0, le=86400 * 7), bandwidth_bps: int | None = Query(None, ge=100_000, le=1_000_000_000),
     profiles: str | None = Query(None, max_length=2048), current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function"),
 ) -> PlaybackSessionResponse:
     item = visible_item_or_404(db, item_id, current_user)
     device = _playback_device(db, request)
-    session = open_session(db, current_user, item, caps=browser_caps(profiles), request=payload, start=start, device=device, http_request=request)
+    session = open_session(db, current_user, item, caps=browser_caps(profiles), request=payload, start=start, device=device, bandwidth_bps=bandwidth_bps, http_request=request)
     return PlaybackSessionResponse(session_id=session.id, mode=session.mode, playback_url=f"/api/playback-sessions/{session.id}/index.m3u8", start=session.media_start, kind=session.kind)
 
 

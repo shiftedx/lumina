@@ -52,6 +52,42 @@ describe('playback options prefetch', () => {
     prefetch.prefetchPlaybackOptions('i3');
     expect(api.getLocalPlaybackOptions).toHaveBeenCalledTimes(4);
   });
+
+  it('uses a conservative finite downlink hint and does not reuse a decision for a changed hint', async () => {
+    Object.defineProperty(navigator, 'connection', { configurable: true, value: { downlink: 2.5 } });
+    const prefetch = await fresh();
+    api.getLocalPlaybackOptions.mockResolvedValue(options());
+    prefetch.prefetchPlaybackOptions('i1');
+    await settle();
+    expect(prefetch.initialPlaybackBandwidthBps()).toBe(2_000_000);
+    expect(api.getLocalPlaybackOptions).toHaveBeenLastCalledWith('i1', 2_000_000);
+
+    // A later Network Information value must not make speculative start reuse the 2 Mbps decision.
+    Object.defineProperty(navigator, 'connection', { configurable: true, value: { downlink: 5 } });
+    prefetch.prefetchPlaybackOptions('i1');
+    await settle();
+    expect(api.getLocalPlaybackOptions).toHaveBeenLastCalledWith('i1', 4_000_000);
+    prefetch.speculativeStart('i1');
+    await settle();
+    expect(api.startLocalPlaybackSession).toHaveBeenLastCalledWith('i1', 754, undefined, 4_000_000);
+  });
+
+  it('omits unsupported, implausible, or Chromium-saturated Network Information hints', async () => {
+    const prefetch = await fresh();
+    Object.defineProperty(navigator, 'connection', { configurable: true, value: { downlink: Number.NaN } });
+    expect(prefetch.initialPlaybackBandwidthBps()).toBeUndefined();
+    api.getLocalPlaybackOptions.mockResolvedValue(options());
+    prefetch.prefetchPlaybackOptions('i1');
+    await settle();
+    expect(api.getLocalPlaybackOptions).toHaveBeenCalledWith('i1');
+
+    Object.defineProperty(navigator, 'connection', { configurable: true, value: { downlink: 0.01 } });
+    expect(prefetch.initialPlaybackBandwidthBps()).toBeUndefined();
+    Object.defineProperty(navigator, 'connection', { configurable: true, value: { downlink: 10 } });
+    expect(prefetch.initialPlaybackBandwidthBps()).toBeUndefined();
+    Object.defineProperty(navigator, 'connection', { configurable: true, value: { downlink: 100 } });
+    expect(prefetch.initialPlaybackBandwidthBps()).toBeUndefined();
+  });
 });
 
 describe('speculative start', () => {

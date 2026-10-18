@@ -1,7 +1,9 @@
-/** Caption style preferences, stored in ui_prefs.captions. */
+import { trackPreferences, type TrackPreferences } from './trackPreferences';
+
+/** Caption style and optional track defaults, stored in ui_prefs.captions. */
 export type CaptionSize = 'small' | 'medium' | 'large' | 'xlarge';
 export type CaptionBackground = 'none' | 'shadow' | 'box' | 'solid';
-export interface CaptionPrefs { size: CaptionSize; background: CaptionBackground }
+export interface CaptionPrefs { size: CaptionSize; background: CaptionBackground; tracks?: TrackPreferences }
 
 export const DEFAULT_CAPTIONS: CaptionPrefs = { size: 'medium', background: 'shadow' };
 export const CAPTION_SIZES: readonly { value: CaptionSize; label: string; scale: number }[] = [
@@ -20,10 +22,11 @@ export const CAPTION_BACKGROUNDS: readonly { value: CaptionBackground; label: st
 export function captionPrefsFromUiPrefs(uiPrefs: Record<string, unknown> | null | undefined): CaptionPrefs {
   const stored = uiPrefs?.captions;
   if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return DEFAULT_CAPTIONS;
-  const { size, background } = stored as Record<string, unknown>;
+  const { size, background, tracks } = stored as Record<string, unknown>;
   return {
     size: CAPTION_SIZES.find((option) => option.value === size)?.value ?? DEFAULT_CAPTIONS.size,
     background: CAPTION_BACKGROUNDS.find((option) => option.value === background)?.value ?? DEFAULT_CAPTIONS.background,
+    ...(tracks && typeof tracks === 'object' && !Array.isArray(tracks) ? { tracks: trackPreferences(tracks) } : {}),
   };
 }
 

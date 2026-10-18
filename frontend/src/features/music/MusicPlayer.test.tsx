@@ -10,7 +10,7 @@ import { MusicPlayer } from './MusicPlayer';
 const mocks = vi.hoisted(() => ({
   cast: vi.fn(), control: vi.fn(), speakers: vi.fn(), status: vi.fn(), lyrics: vi.fn(),
   shell: vi.fn(), cached: vi.fn(), save: vi.fn(), owner: vi.fn(), close: vi.fn(), pause: vi.fn(), playQueue: vi.fn(),
-  reorder: vi.fn(), repeat: vi.fn(), seek: vi.fn(), volume: vi.fn(), step: vi.fn(), stream: vi.fn(), toggle: vi.fn(),
+  reorder: vi.fn(), repeat: vi.fn(), seek: vi.fn(), volume: vi.fn(), step: vi.fn(), stream: vi.fn(), toggle: vi.fn(), crossfade: vi.fn(), sleep: vi.fn(), unavailablePolicy: vi.fn(), refreshShared: vi.fn(), useServer: vi.fn(), keepDevice: vi.fn(), acknowledgeBrowser: vi.fn(), resumeBrowser: vi.fn(), applyShared: vi.fn(),
 }));
 
 const track = (id: string, extra: Partial<MusicTrack> = {}): MusicTrack => ({ id, title: `Song ${id}`, artist: 'Mara Vale', album_artist: 'Mara Vale', album: 'Amber Rooms', album_id: 'album-1', artist_id: 'artist-1', number: 1, disc: 1, duration: 180, artwork_url: null, audio_url: `/api/music/tracks/${id}/audio`, codec: 'flac', sample_rate: 48000, bit_depth: 24, channels: 2, gain_db: -4, genres: ['Soul'], edited: false, ...extra });
@@ -22,7 +22,7 @@ vi.mock('./musicOffline', () => ({ enableOfflineShell: mocks.shell, offlineTrack
 vi.mock('./musicSession', () => ({
   useMusicSession: () => music, currentMusicSampleRate: () => 48000, setMusicOwner: mocks.owner, closeMusic: mocks.close,
   normalizeMusic: vi.fn(), pauseMusic: mocks.pause, playMusicQueue: mocks.playQueue, reorderMusic: mocks.reorder, repeatMusic: mocks.repeat,
-  seekMusic: mocks.seek, setMusicVolume: mocks.volume, stepMusic: mocks.step, streamMusicCurrent: mocks.stream, toggleMusic: mocks.toggle,
+  seekMusic: mocks.seek, setMusicVolume: mocks.volume, setMusicCrossfade: mocks.crossfade, setMusicSleepTimer: mocks.sleep, setMusicUnavailablePolicy: mocks.unavailablePolicy, refreshMusicSharedSession: mocks.refreshShared, stepMusic: mocks.step, streamMusicCurrent: mocks.stream, toggleMusic: mocks.toggle, useServerMusicSession: mocks.useServer, keepDeviceMusicSession: mocks.keepDevice, acknowledgeMusicBrowserOutput: mocks.acknowledgeBrowser, resumeMusicFromCast: mocks.resumeBrowser, applyMusicSharedSnapshot: mocks.applyShared,
 }));
 vi.mock('../gallery/WallGrid', () => ({ useMediaQuery: () => false }));
 vi.mock('./MusicExtras', () => ({ MusicVideoRail: () => <div>Performances</div> }));
@@ -32,11 +32,11 @@ const props = { owner: 'member-a', onWatchVideo: vi.fn(), onOpenAlbum: vi.fn(), 
 
 beforeEach(() => {
   vi.clearAllMocks(); setMusicCast(null); localStorage.clear();
-  music = { owner: 'member-a', queue, playback: { index: 0, position: 12, duration: 180, playing: true, loading: false, error: null }, mode: 'gapless', volume: .7, normalize: true, repeat: 'off', message: null };
+  music = { owner: 'member-a', queue, playback: { index: 0, position: 12, duration: 180, playing: true, loading: false, error: null }, mode: 'gapless', volume: .7, normalize: true, repeat: 'off', shuffle: false, sharedRevision: 1, sharedConflict: null, crossfadeSeconds: 0, sleepUntil: null, message: null, sharedEntries: [], sharedEntryIndex: 0, unavailablePolicy: 'skip' };
   mocks.control.mockResolvedValue({}); mocks.speakers.mockResolvedValue([{ id: 'speaker-1', name: 'Kitchen', model: 'One', coordinator_id: 'speaker-1' }]);
   mocks.status.mockResolvedValue({ transport_state: 'PLAYING', volume: 35, track: { track_number: 1, position_seconds: 12, duration_seconds: 180 } });
   mocks.lyrics.mockResolvedValue({ plain: 'Server lyric', cues: [], source: 'library', instrumental: false });
-  mocks.cached.mockResolvedValue(undefined); mocks.shell.mockResolvedValue(undefined); mocks.save.mockResolvedValue(undefined); mocks.cast.mockResolvedValue({ ticket_id: 'ticket-1', state: {} });
+  mocks.cached.mockResolvedValue(undefined); mocks.shell.mockResolvedValue(undefined); mocks.save.mockResolvedValue(undefined); mocks.cast.mockResolvedValue({ ticket_id: 'ticket-1', state: {}, requested_count: 3, queued_count: 3, excluded_count: 0, queue_indices: [0, 1, 2], current_index: 0, position_seconds: 12, session: {} }); mocks.resumeBrowser.mockResolvedValue(undefined); mocks.acknowledgeBrowser.mockResolvedValue(undefined);
 });
 
 afterEach(() => { vi.useRealTimers(); setMusicCast(null); delete (navigator as { mediaSession?: unknown }).mediaSession; vi.unstubAllGlobals(); });
@@ -126,6 +126,44 @@ describe('MusicPlayer', () => {
     expect(mocks.close).not.toHaveBeenCalled();
   });
 
+  it('offers explicit shared-session conflict choices', async () => {
+    music = { ...music, sharedConflict: { revision: 2, queue, current_index: 0, position_seconds: 12, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 } };
+    render(<MusicPlayer {...props} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Use server' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Keep this device' }));
+    expect(mocks.useServer).toHaveBeenCalledOnce();
+    expect(mocks.keepDevice).toHaveBeenCalledOnce();
+  });
+
+  it('offers browser-only crossfade and sleep controls', async () => {
+    render(<MusicPlayer {...props} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open listening room for Song one' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Crossfade' }), { target: { value: '3' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sleep timer' }), { target: { value: '30' } });
+    expect(mocks.crossfade).toHaveBeenCalledWith(3);
+    expect(mocks.sleep).toHaveBeenCalledWith(30);
+  });
+
+  it('shows pending acquisitions and lets the member choose the wait boundary', async () => {
+    music = { ...music, sharedEntries: [{ kind: 'track', item_id: 'one', state: 'playable', tracks: [queue[0]] }, { kind: 'acquisition', request_id: '11111111-1111-4111-8111-111111111111', state: 'awaiting_import', name: 'Requested album', message: 'Waiting for library import' }], unavailablePolicy: 'wait' };
+    render(<MusicPlayer {...props} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open queue' }));
+    expect(screen.getByText(/Requested album/)).toBeTruthy();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Unavailable queue policy' }), { target: { value: 'skip' } });
+    expect(mocks.unavailablePolicy).toHaveBeenCalledWith('skip');
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh requested albums' }));
+    expect(mocks.refreshShared).toHaveBeenCalledWith('member-a');
+  });
+
+  it('keeps a pending-only shared queue reachable without inventing playback', async () => {
+    music = { ...music, queue: [], playback: { ...music.playback, index: -1, playing: false }, sharedEntries: [{ kind: 'acquisition', request_id: '11111111-1111-4111-8111-111111111111', state: 'awaiting_import', name: 'Requested album', message: 'Waiting for library import' }] };
+    render(<MusicPlayer {...props} />);
+    expect(screen.getByText('Waiting for requested album')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Play music' }) as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Open queue' }));
+    expect(screen.getByRole('button', { name: 'Refresh requested albums' })).toBeTruthy();
+  });
+
   it('opens playlist management from the queue and explains bounded Sonos transfers', async () => {
     const many = Array.from({ length: 105 }, (_, index) => track(`t-${index}`));
     music = { ...music, queue: many };
@@ -135,22 +173,21 @@ describe('MusicPlayer', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save or manage playlists' }));
     expect(open).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByRole('button', { name: 'Choose audio output' }));
-    expect(await screen.findByText(/next 100 of 105 distinct queued tracks/)).toBeTruthy();
+    expect(await screen.findByText(/next 100 of 105 queued tracks/)).toBeTruthy();
     await userEvent.click(screen.getByRole('checkbox', { name: /Compatibility mode/ }));
     await userEvent.click(screen.getByRole('button', { name: /Kitchen/ }));
-    expect(mocks.cast).toHaveBeenCalledWith('speaker-1', many.slice(0, 100).map((entry) => entry.id), true);
-    expect(mocks.pause.mock.invocationCallOrder[0]).toBeLessThan(mocks.cast.mock.invocationCallOrder[0]);
+    expect(mocks.cast).toHaveBeenCalledWith('speaker-1', many.slice(0, 100).map((entry) => entry.id), true, expect.objectContaining({ base_revision: 1, current_index: 0, position_seconds: 12 }));
+    expect(mocks.cast.mock.invocationCallOrder[0]).toBeLessThan(mocks.pause.mock.invocationCallOrder[0]);
   });
 
-  it('pauses before starting a speaker and resumes the browser queue when casting fails', async () => {
+  it('keeps browser playback recoverable when speaker acknowledgement fails', async () => {
     mocks.cast.mockRejectedValueOnce(new Error('Speaker unavailable'));
     render(<MusicPlayer {...props} />);
     await userEvent.click(screen.getByRole('button', { name: 'Choose audio output' }));
     await userEvent.click(await screen.findByRole('button', { name: /Kitchen/ }));
 
-    expect(mocks.pause).toHaveBeenCalledOnce();
-    expect(mocks.pause.mock.invocationCallOrder[0]).toBeLessThan(mocks.cast.mock.invocationCallOrder[0]);
-    expect(mocks.toggle).toHaveBeenCalledOnce();
+    expect(mocks.pause).not.toHaveBeenCalled();
+    expect(mocks.toggle).not.toHaveBeenCalled();
     expect(await screen.findAllByText('Speaker unavailable')).not.toHaveLength(0);
   });
 
@@ -161,8 +198,9 @@ describe('MusicPlayer', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Choose audio output' }));
     await userEvent.click(await screen.findByRole('button', { name: /This browser/ }));
 
+    expect(mocks.resumeBrowser).toHaveBeenCalledWith(queue, 1, 40);
+    expect(mocks.acknowledgeBrowser).toHaveBeenCalledWith('ticket-1');
     expect(mocks.control).toHaveBeenCalledWith('ticket-1', 'stop');
-    expect(mocks.playQueue).toHaveBeenCalledWith(queue, 1, 40);
     expect(mocks.toggle).not.toHaveBeenCalled();
   });
 });

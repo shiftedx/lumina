@@ -1560,6 +1560,181 @@ class ArrServer(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class ArrObservationState(Base):
+    """Last complete observation, independent of request dispatch and its feature switch."""
+
+    __tablename__ = "arr_observation_states"
+
+    server_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    capabilities: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    last_ok_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    attempted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ArrObservedItem(Base):
+    """Upstream inventory identity; neither a request nor proof of a playable file."""
+
+    __tablename__ = "arr_observed_items"
+
+    server_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    upstream_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    media_type: Mapped[str] = mapped_column(String(8), nullable=False)
+    tmdb_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    tvdb_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    monitored: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_file: Mapped[bool] = mapped_column(Boolean, default=False)
+    import_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ArrObservedRecord(Base):
+    """Allowlisted queue/history/health/calendar/wanted records, paged from local storage."""
+
+    __tablename__ = "arr_observed_records"
+
+    server_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    dataset: Mapped[str] = mapped_column(String(16), primary_key=True)
+    record_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    item_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ArrOperation(Base):
+    """A permitted operation is recorded before any uncertain external write."""
+
+    __tablename__ = "arr_operations"
+    __table_args__ = (Index("ix_arr_operations_server_created", "server_id", "created_at"),
+                      Index("ix_arr_operations_status_updated", "status", "updated_at"))
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    actor_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    server_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    upstream_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    args: Mapped[dict] = mapped_column(JSON, default=dict)
+    resource_revision: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class MusicListeningSession(Base):
+    """A member's deliberate queue; its revisions are separate from per-item progress."""
+
+    __tablename__ = "music_listening_sessions"
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    item_ids: Mapped[list] = mapped_column(JSON, default=list)
+    queue_entries: Mapped[list] = mapped_column(JSON, default=list)
+    entry_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    unavailable_policy: Mapped[str] = mapped_column(String(8), default="skip", nullable=False)
+    current_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    position_seconds: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    repeat: Mapped[str] = mapped_column(String(8), default="off", nullable=False)
+    shuffle: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    active_output: Mapped[dict] = mapped_column(JSON, default=lambda: {"kind": "browser"})
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class ServiceConnector(Base):
+    """Explicit infrastructure connections; credentials are write-only and excluded from backups."""
+
+    __tablename__ = "service_connectors"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    base_url: Mapped[str] = mapped_column(Text, nullable=False)
+    api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    username: Mapped[str | None] = mapped_column(Text, nullable=True)
+    password: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_ok_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class MusicAcquisition(Base):
+    """Approved music acquisitions retain their own identities and uncertain dispatch history."""
+
+    __tablename__ = "music_acquisitions"
+    __table_args__ = (Index("ix_music_acquisitions_connector_album", "connector_id", "foreign_album_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    connector_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    foreign_artist_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    foreign_album_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    artist_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    album_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    artist_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    album_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    args: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class ListeningExportConnection(Base):
+    """Member opt-in credentials are write-only; generation binds pending plays to one account."""
+
+    __tablename__ = "listening_export_connections"
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(16), primary_key=True)
+    generation: Mapped[str] = mapped_column(String(36), nullable=False)
+    credentials: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    username: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class ListeningPlayEvent(Base):
+    """Stable logical plays and per-provider delivery claims survive reconnects and uncertain writes."""
+
+    __tablename__ = "listening_play_events"
+    __table_args__ = (UniqueConstraint("user_id", "item_id", "started_at", name="uq_listening_play_identity"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    item_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    started_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    listened_seconds: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    deliveries: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class MediaCastTicket(Base):
+    """A receiver can read one registered file, never a browser session or arbitrary URL."""
+
+    __tablename__ = "media_cast_tickets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    item_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    subtitle: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class RequestPolicy(Base):
     """A Request policy row: user_id NULL is the household default for the kind, else that member's override."""
 

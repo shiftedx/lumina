@@ -17,7 +17,15 @@ class FakeArr:
         self.catalog: dict[str, dict] = {}  # lookup term ("tvdb:1" / "tmdb:603") -> item
         self.library: dict[int, dict] = {}  # id -> added item
         self.queue: list[dict] = []
+        self.history: list[dict] = []
+        self.health: list[dict] = []
+        self.calendar: list[dict] = []
+        self.missing: list[dict] = []
+        self.cutoff: list[dict] = []
+        self.releases: dict[int, list[dict]] = {}
+        self.grabbed: list[dict] = []
         self.commands: list[dict] = []
+        self._command_records: list[dict] = []
         self.requests: list[tuple[str, str, dict | None]] = []
         self.custom_formats: list[dict] = []
         self.profiles: list[dict] = [
@@ -98,6 +106,8 @@ class FakeArr:
                 return 200, []
             added = next((i for i in self.library.values() if i["lookup_term"] == query["term"]), None)
             return 200, [added or {k: v for k, v in item.items()}]
+        if (method, path) == ("GET", res):
+            return 200, list(self.library.values())
         if (method, path) == ("POST", res):
             if any(i["lookup_term"] == body.get("lookup_term") for i in self.library.values()):
                 return 400, [{"errorMessage": "already added"}]
@@ -112,12 +122,46 @@ class FakeArr:
                 self.library[item_id] = {**body, "id": item_id}
                 return 202, self.library[item_id]
             return 200, self.library[item_id]
+        if (method, path) == ("GET", "release"):
+            key = "movieId" if self.kind == "radarr" else "seriesId"
+            try:
+                return 200, self.releases.get(int(query.get(key, "")), [])
+            except ValueError:
+                return 400, None
+        if (method, path) == ("POST", "release"):
+            if not isinstance(body, dict):
+                return 400, None
+            self.grabbed.append(body)
+            return 200, body
         if (method, path) == ("POST", "command"):
-            self.commands.append(body)
-            return 201, {**body, "id": self.new_id(), "status": "queued"}
+            command = {**(body or {}), "id": self.new_id(), "status": "queued"}
+            self.commands.append(body or {})
+            self._command_records.append(command)
+            return 201, command
+        if method == "GET" and path.startswith("command/") and path.split("/")[1].isdigit():
+            command_id = int(path.split("/")[1])
+            command = next((command for command in self._command_records if command["id"] == command_id), None)
+            return (200, command) if command else (404, None)
         if (method, path) == ("GET", "queue"):
-            return 200, {"page": 1, "pageSize": 1000, "totalRecords": len(self.queue), "records": self.queue}
+            return 200, self._page(self.queue, query)
+        if (method, path) == ("GET", "history"):
+            return 200, self._page(self.history, query)
+        if (method, path) == ("GET", "health"):
+            return 200, self.health
+        if (method, path) == ("GET", "calendar"):
+            return 200, self.calendar
+        if (method, path) == ("GET", "wanted/missing"):
+            return 200, self._page(self.missing, query)
+        if (method, path) == ("GET", "wanted/cutoff"):
+            return 200, self._page(self.cutoff, query)
         return 404, None
+
+    @staticmethod
+    def _page(records: list[dict], query: dict) -> dict:
+        page = int(query.get("page", 1))
+        page_size = int(query.get("pageSize", 1000))
+        start = (page - 1) * page_size
+        return {"page": page, "pageSize": page_size, "totalRecords": len(records), "records": records[start:start + page_size]}
 
     def add_lookup(self, term: str, title: str, **fields: object) -> None:
         """A lookup hit; a series gets seasons 0-2 unless ``seasons`` is given."""

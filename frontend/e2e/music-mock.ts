@@ -8,6 +8,7 @@ import type { Page } from '@playwright/test';
 import { albumDetail, albumSummary, albumTrack, artistSummary, FIXTURE_AT, stillItem, titleDetail } from '../src/test/galleryFixtures';
 import { user } from './lumina-mock';
 import { SYNTHETIC_MEDIA_BASE64, SYNTHETIC_MEDIA_TYPE } from './synthetic-media';
+import type { MusicSharedSnapshot, MusicSharedWrite } from '../src/features/music/musicSharedSession';
 
 export const musicTracks = [1, 2, 3].map((number) => albumTrack(number, { duration_seconds: 90 }));
 export const musicAlbum = albumDetail(albumSummary('album-1', { child_count: 3 }), musicTracks);
@@ -56,6 +57,24 @@ function trackItem(id: string) {
 
 export async function mockMusic(page: Page): Promise<string[]> {
   const calls: string[] = [];
+  let shared: MusicSharedSnapshot = { revision: 0, queue: [], current_index: null, position_seconds: 0, repeat: 'off', shuffle: false,
+    active_output: { kind: 'browser' }, updated_at: null, removed_count: 0, entries: [], entry_index: null, unavailable_policy: 'skip' };
+  await page.route((url) => url.pathname === '/api/me/music-session', async (route) => {
+    if (route.request().method() === 'PUT') {
+      const body = route.request().postDataJSON() as MusicSharedWrite;
+      if (body.base_revision !== shared.revision) return route.fulfill({ status: 409, contentType: 'application/json',
+        body: JSON.stringify({ detail: { code: 'music_session_conflict', session: shared } }) });
+      const queue = body.item_ids.flatMap((id) => {
+        const number = Number(/^track-(\d+)$/.exec(id)?.[1]);
+        return number >= 1 && number <= 3 ? [queueTrack(number)] : [];
+      });
+      shared = { ...shared, revision: shared.revision + 1, queue, current_index: queue.length ? body.current_index ?? 0 : null,
+        position_seconds: body.position_seconds, repeat: body.repeat, shuffle: body.shuffle,
+        entries: queue.map((track) => ({ kind: 'track', item_id: track.id, state: 'playable', tracks: [track] })),
+        entry_index: queue.length ? body.current_index ?? 0 : null, unavailable_policy: body.unavailable_policy ?? 'skip' };
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(shared) });
+  });
   await page.route((url) => url.pathname.startsWith('/api/music/'), async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;

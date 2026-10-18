@@ -288,17 +288,36 @@ def speakers(request: Request, user: User = Depends(get_current_user)) -> list[d
 
 def cast(body: CastRequest, request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
     from app.services.music_sonos import service, SonosError, SonosTrack
+    from app.services.music_listening_session import MusicListeningSessionConflict, MusicListeningSessionService
     tracks = music_library.manifests(db, user, music_library.visible_tracks(db, user, body.item_ids))
     enforce_rate_limit("music_cast", request, user_id=user.id)
     screen_time.enforce(db, user, fresh=True)
     origin = public_address.local_origin() or public_address.origin()
     if not origin:
         raise HTTPException(409, "Configure a server address reachable by your Sonos speakers")
+    sessions = MusicListeningSessionService(db)
+    shared = sessions.read(user)
+    revision = shared.revision if body.base_revision is None else body.base_revision
+    # Older callers have no revision. Seed only the validated, visible candidate IDs,
+    # then transfer against that durable revision; modern callers always send a CAS base.
+    if body.base_revision is None and shared.revision == 0 and not shared.queue:
+        shared = sessions.replace(user, base_revision=0, item_ids=[track.id for track in tracks], current_index=0,
+                                  position_seconds=body.position_seconds, repeat="off", shuffle=False)
+        revision = shared.revision
+    if body.base_revision is not None:
+        expected = [track.id for track in shared.queue[body.current_index:body.current_index + len(body.item_ids)]]
+        if body.current_index >= len(shared.queue) or expected != body.item_ids:
+            raise HTTPException(409, detail={"code": "music_session_conflict", "session": {
+                "revision": shared.revision, "queue": [track.model_dump() for track in shared.queue], "current_index": shared.current_index,
+                "position_seconds": shared.position_seconds, "repeat": shared.repeat, "shuffle": shared.shuffle,
+                "active_output": shared.active_output, "updated_at": shared.updated_at.isoformat() + "Z" if shared.updated_at else None, "removed_count": shared.removed_count,
+            }})
+    if not tracks:
+        raise HTTPException(422, "No requested tracks are currently available for Sonos")
+    queue_indices = [body.current_index + index for index, item_id in enumerate(body.item_ids) if any(track.id == item_id for track in tracks)]
     token, ticket_id = secrets.token_urlsafe(32), str(uuid.uuid4())
     with write_transaction(db, name="music_cast_ticket"):
         db.execute(delete(MusicCastTicket).where(MusicCastTicket.expires_at <= utcnow()))
-        # A member owns at most one active output, including abandoned browser sessions.
-        db.execute(delete(MusicCastTicket).where(MusicCastTicket.user_id == user.id))
         ticket = MusicCastTicket(id=ticket_id, user_id=user.id, speaker_id=body.speaker_id,
                                  token_hash=hashlib.sha256(token.encode()).hexdigest(), item_ids=[t.id for t in tracks],
                                  expires_at=utcnow() + timedelta(hours=24), output_format="sonos_s1" if body.compatibility else "sonos")
@@ -309,11 +328,38 @@ def cast(body: CastRequest, request: Request, user: User = Depends(get_current_u
                         content_type="audio/flac") for t in tracks]
     try:
         result = service.play_queue(body.speaker_id, queue)
+        if body.position_seconds:
+            service.control(body.speaker_id, "seek", int(body.position_seconds))
+        acknowledged = service.status(body.speaker_id)
+        if not acknowledged.get("playing") or (acknowledged.get("track") or {}).get("track_number") != 1:
+            raise SonosError("Sonos did not acknowledge the requested queue")
     except SonosError as error:
         with write_transaction(db, name="music_cast_revoke"):
             ticket.expires_at = utcnow()
         raise HTTPException(502, "Sonos playback could not start") from error
-    return {"ticket_id": ticket_id, "state": result}
+    output = {"kind": "sonos", "ticket_id": ticket_id, "speaker_id": body.speaker_id, "queue_indices": queue_indices}
+    try:
+        saved = sessions.acknowledge_sonos(user, base_revision=revision, output=output)
+    except MusicListeningSessionConflict:
+        try: service.control(body.speaker_id, "stop", None)
+        except SonosError: pass
+        with write_transaction(db, name="music_cast_revoke_conflict"):
+            ticket.expires_at = utcnow()
+        fresh = sessions.read(user)
+        raise HTTPException(409, detail={"code": "music_session_conflict", "session": {
+            "revision": fresh.revision, "queue": [track.model_dump() for track in fresh.queue], "current_index": fresh.current_index,
+            "position_seconds": fresh.position_seconds, "repeat": fresh.repeat, "shuffle": fresh.shuffle,
+            "active_output": fresh.active_output, "updated_at": fresh.updated_at.isoformat() + "Z" if fresh.updated_at else None, "removed_count": fresh.removed_count,
+        }}) from None
+    old_ticket = shared.active_output.get("ticket_id") if shared.active_output.get("kind") == "sonos" else None
+    if isinstance(old_ticket, str) and old_ticket != ticket_id:
+        old = db.get(MusicCastTicket, old_ticket)
+        if old:
+            try: service.control(old.speaker_id, "stop", None)
+            except SonosError: pass
+            with write_transaction(db, name="music_cast_revoke_source"):
+                old.expires_at = utcnow()
+    return {"ticket_id": ticket_id, "state": result, "requested_count": len(body.item_ids), "queued_count": len(tracks), "excluded_count": len(body.item_ids) - len(tracks), "queue_indices": queue_indices, "current_index": queue_indices[0], "position_seconds": body.position_seconds, "session": {"revision": saved.revision, "queue": [track.model_dump() for track in saved.queue], "current_index": saved.current_index, "position_seconds": saved.position_seconds, "repeat": saved.repeat, "shuffle": saved.shuffle, "active_output": saved.active_output, "updated_at": saved.updated_at.isoformat() + "Z" if saved.updated_at else None, "removed_count": saved.removed_count}}
 
 
 def _cast_access(db: Session, ticket_id: str, item_id: str, token: str | None) -> tuple[MusicCastTicket, User, LibraryItem]:

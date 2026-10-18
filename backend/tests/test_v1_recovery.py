@@ -13,7 +13,7 @@ from app import db as db_module
 from app.config import settings
 from app.db import init_db
 from app.main import app
-from app.models import ArrServer, LibraryItem, LibraryNote, MediaArtifact, StorageRoot, User
+from app.models import ArrServer, LibraryItem, LibraryNote, ListeningExportConnection, MediaArtifact, ServiceConnector, StorageRoot, User
 from app.restore import restore
 from app.security import CSRF_HEADER, hash_password, session_digest
 from app.services import backups
@@ -51,12 +51,18 @@ def test_backup_restore_isolated_roundtrip(admin, tmp_path) -> None:  # noqa: AN
         record = YtDlpService(db).ensure_app_settings()
         record.ai_api_key, record.smtp_password = "sk-test-secret-147", "smtp-secret-258"
         db.add(ArrServer(id="arr", kind="sonarr", name="Sonarr", base_url="http://sonarr.local", api_key="arr-secret-369", path_mappings=[]))
+        db.add(ServiceConnector(id="connector", kind="nzbget", name="NZBGet", base_url="http://nzbget.local", api_key="connector-key-741",
+                                username="connector-user-852", password="connector-password-963"))
+        db.add(ListeningExportConnection(user_id="u1", provider="listenbrainz", generation="test-generation", enabled=True,
+                                         credentials={"token": "listen-secret-159"}))
     created = client.post("/api/admin/backups", headers=headers)
     assert created.status_code == 201, created.text
     manifest = created.json()
     # The AI key is redacted from the copy (bytes included); a restore needs it re-entered.
     copy = (backups.backup_root() / f"{manifest['name']}.db").read_bytes()
     assert b"sk-test-secret-147" not in copy and b"smtp-secret-258" not in copy and b"arr-secret-369" not in copy
+    assert all(value not in copy for value in (b"connector-key-741", b"connector-user-852", b"connector-password-963"))
+    assert b"listen-secret-159" not in copy
     assert manifest["counts"]["users"] == 2 and manifest["counts"]["library_notes"] == 1
     assert manifest["schema_version"] == db_module.SCHEMA_VERSION and manifest["app_version"]
     listed = client.get("/api/admin/backups").json()

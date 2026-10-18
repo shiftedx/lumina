@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('hls.js', () => import('./test/fakeHls'));
 const api = vi.hoisted(() => ({ getLocalPlaybackOptions: vi.fn(), startLocalPlaybackSession: vi.fn(), stopDirectPlayback: vi.fn(() => Promise.resolve(undefined)), stopLocalPlaybackSession: vi.fn() }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
-const prefetch = vi.hoisted(() => ({ adoptSpeculativeStart: vi.fn(), holdConversion: vi.fn(() => vi.fn()), takePrefetchedOptions: vi.fn() }));
+const prefetch = vi.hoisted(() => ({ adoptSpeculativeStart: vi.fn(), holdConversion: vi.fn(() => vi.fn()), initialPlaybackBandwidthBps: vi.fn<() => number | undefined>(), takePrefetchedOptions: vi.fn() }));
 vi.mock('./playbackPrefetch', () => prefetch);
 
 const { LocalLibraryPlayer } = await import('./localPlayer');
@@ -18,6 +18,74 @@ const tracks = [{ id: 's:0', label: 'English', src: '/api/library/i1/subtitle-tr
 afterEach(() => { vi.resetAllMocks(); resetHlsCalls(); });
 
 describe('LocalLibraryPlayer tracks and probe', () => {
+  it('offers a lower rendition than the actual automatic stream after repeated stalls', async () => {
+    prefetch.initialPlaybackBandwidthBps.mockReturnValue(2_000_000);
+    api.getLocalPlaybackOptions.mockResolvedValue({ ...direct, mode: 'transcode', reason: 'ContainerBitrateExceedsLimit', quality_heights: [720, 480, 360] });
+    api.startLocalPlaybackSession.mockResolvedValue({ session_id: 'automatic-low', mode: 'transcode', playback_url: '/api/playback-sessions/automatic-low/index.m3u8', start: 0 });
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+    const onRequestChange = vi.fn();
+    render(<LocalLibraryPlayer itemId="i1" kind="video" poster={null} request={{}} onRequestChange={onRequestChange} title="Film" />);
+    await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
+    const media = screen.getByLabelText('Film video');
+    fireEvent.waiting(media);
+    fireEvent.waiting(media);
+    fireEvent.waiting(media);
+    expect(screen.queryByRole('button', { name: /Switch to/ })).toBeNull();
+    Object.defineProperty(media, 'videoHeight', { configurable: true, value: 480 });
+    fireEvent.loadedMetadata(media);
+    fireEvent.waiting(media);
+    fireEvent.waiting(media);
+    fireEvent.waiting(media);
+    const lower = await screen.findByRole('button', { name: 'Switch to 360p' });
+    fireEvent.click(lower);
+    expect(onRequestChange).toHaveBeenCalledWith({ max_height: 360 });
+  });
+
+  it('does not send a low-bandwidth hint when the member already chose a quality', async () => {
+    prefetch.initialPlaybackBandwidthBps.mockReturnValue(2_000_000);
+    api.getLocalPlaybackOptions.mockResolvedValue(direct);
+    api.startLocalPlaybackSession.mockResolvedValue({ session_id: 'low', mode: 'transcode', playback_url: '/api/playback-sessions/low/index.m3u8', start: 0 });
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+
+    render(<LocalLibraryPlayer itemId="i1" kind="video" poster={null} request={{ max_height: 720 }} title="Film" />);
+    await waitFor(() => expect(api.getLocalPlaybackOptions).toHaveBeenCalledWith('i1'));
+    await waitFor(() => expect(api.startLocalPlaybackSession).toHaveBeenCalledWith('i1', 0, { max_height: 720 }));
+  });
+
+  it('re-probes without the advisory cap when a member switches from automatic playback to Original', async () => {
+    prefetch.initialPlaybackBandwidthBps.mockReturnValue(2_000_000);
+    api.getLocalPlaybackOptions
+      .mockResolvedValueOnce({ ...direct, mode: 'transcode', reason: 'ContainerBitrateExceedsLimit' })
+      .mockResolvedValueOnce(direct);
+    api.startLocalPlaybackSession.mockResolvedValue({ session_id: 'automatic', mode: 'transcode', playback_url: '/api/playback-sessions/automatic/index.m3u8', start: 0 });
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+    const props = { itemId: 'i1', kind: 'video' as const, poster: null, title: 'Film' };
+    const view = render(<LocalLibraryPlayer {...props} request={{}} />);
+
+    await waitFor(() => expect(api.startLocalPlaybackSession).toHaveBeenCalledWith('i1', 0, undefined, 2_000_000));
+    await waitFor(() => expect(hlsCalls.sources).toHaveLength(1));
+    const converted = screen.getByLabelText('Film video') as HTMLVideoElement;
+    let at = 37;
+    const seek = vi.fn((value: number) => { at = value; });
+    Object.defineProperties(converted, {
+      currentTime: { configurable: true, get: () => at, set: seek },
+      paused: { configurable: true, value: true },
+    });
+    view.rerender(<LocalLibraryPlayer {...props} request={{ max_height: 1080 }} />);
+    await waitFor(() => expect(api.getLocalPlaybackOptions).toHaveBeenLastCalledWith('i1'));
+    const directMedia = await waitFor(() => {
+      const media = screen.getByLabelText('Film video') as HTMLVideoElement;
+      expect(media.getAttribute('src')).toBe('/api/library/i1/media');
+      return media;
+    });
+    let directAt = 0;
+    const directSeek = vi.fn((value: number) => { directAt = value; });
+    Object.defineProperty(directMedia, 'currentTime', { configurable: true, get: () => directAt, set: directSeek });
+    fireEvent.loadedMetadata(directMedia);
+    expect(directSeek).toHaveBeenCalledWith(37);
+    expect(api.startLocalPlaybackSession).toHaveBeenCalledTimes(1);
+  });
+
   it('reports the probe and keeps subtitle tracks through direct play and a converted session', async () => {
     api.getLocalPlaybackOptions.mockResolvedValue(direct);
     api.startLocalPlaybackSession.mockResolvedValue({ session_id: 's1', mode: 'transcode', playback_url: '/api/playback-sessions/s1/index.m3u8', start: 0 });

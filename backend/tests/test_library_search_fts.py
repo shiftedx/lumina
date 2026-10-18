@@ -856,6 +856,47 @@ def test_transcript_store_and_summary_index_moments_with_visibility() -> None:
     assert [(hit.item_id, hit.start_ms) for hit in summary_hits] == [("shared", None)]
 
 
+def test_transcript_moment_hits_keep_visibility_limits_and_tie_order() -> None:
+    """The bounded transcript join applies the same privacy rule as every other item surface."""
+    from app.services import member_access
+    from app.services.library_search import LibrarySearchService
+    from app.services.transcripts import TranscriptService
+
+    session, _engine = make_session()
+    owner = make_member("owner")
+    viewer = make_member("viewer")
+    restricted = make_member("restricted")
+    admin = make_member("admin", role="admin")
+    session.add_all([owner, viewer, restricted, admin])
+    for item_id, user_id, visibility in (
+        ("private-owner", owner.id, "private"),
+        ("shared-b", owner.id, "shared"),
+        ("shared-a", owner.id, "shared"),
+        ("legacy-ownerless", None, "private"),
+        ("private-restricted", restricted.id, "private"),
+    ):
+        add_item(session, item_id, user_id, visibility=visibility)
+    session.commit()
+    transcripts = TranscriptService(session)
+    for item_id in ("private-owner", "shared-b", "shared-a", "legacy-ownerless", "private-restricted"):
+        transcripts.store(item_id, language="en", source_kind="source_caption", cues=[(0, 900, "copper comet")])
+    session.commit()
+    member_access.save(session, restricted.id, {"sections": []})
+    session.commit()
+
+    search = LibrarySearchService(session)
+    assert [hit.item_id for hit in search.moment_hits(owner, "copper comet", limit=10)] == [
+        "private-owner", "shared-a", "shared-b",
+    ]
+    # Equal FTS ranks have a stable public tie-breaker by item id.
+    assert [hit.item_id for hit in search.moment_hits(viewer, "copper comet", limit=10)] == ["shared-a", "shared-b"]
+    assert [hit.item_id for hit in search.moment_hits(restricted, "copper comet", limit=10)] == ["private-restricted"]
+    # Legacy ownerless rows remain admin-visible, while neither private member row leaks.
+    assert [hit.item_id for hit in search.moment_hits(admin, "copper comet", limit=10)] == [
+        "legacy-ownerless", "shared-a", "shared-b",
+    ]
+
+
 def test_missing_item_hides_its_moments_and_bad_syntax_is_inert() -> None:
     from app.models import LibraryItem
     from app.services.library_search import LibrarySearchService

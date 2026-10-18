@@ -23,7 +23,7 @@ Household members want a Jellyseerr-class place to discover movies, shows and an
 
 - Requests work only as well as the household's Sonarr/Radarr; an unreachable arr marks a request failed with a reason and an admin retries it. Nothing is lost.
 - Availability lags the arr by up to a scan: the vault, not the arr, decides "available".
-- The sync loop's rescan throttle and the arr queue page size are per-process ceilings, commented in `services/requests/sync.py` and `arr.py`.
+- The sync loop's rescan throttle is per-process. Queue reads traverse every page; incomplete pagination is an error rather than a partial success. Independent inventory observation is defined by ADR 0025.
 
 ## Alternatives considered
 

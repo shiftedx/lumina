@@ -21,6 +21,7 @@ from fastapi import Request
 from app.models import DeviceToken, LibraryItem, User
 from app.routers.local_playback import playback_limits
 from app.services import jellyfin as jf
+from app.services import track_preferences
 from app.services.jellyfin_hls import keyframes
 from app.services.library import LibraryService
 from app.services.media_probe import MediaProbeService, media_tool
@@ -42,6 +43,7 @@ class PlaybackRequest:
     subtitle_index: int | None
     media_source_id: str | None  # dashed library item id
     enable_direct_play: bool = True
+    subtitle_explicit: bool = False  # includes the client's -1 (Off), which is not a stream index
 
 
 def _count(value: object) -> int | None:
@@ -73,6 +75,7 @@ def playback_request(body: Mapping[str, Any] | None, query: Mapping[str, str]) -
         subtitle_index=_count(pick("SubtitleStreamIndex")),
         media_source_id=parse_item_id(pick("MediaSourceId")),
         enable_direct_play=not (direct is False or isinstance(direct, str) and direct.lower() == "false"),
+        subtitle_explicit=pick("SubtitleStreamIndex") is not None,
     )
 
 
@@ -184,6 +187,7 @@ def annotate_media_sources(
     hls_caps = replace(caps, direct=(), audio=frozenset({"aac"}), max_channels=2,
                        encode_channels=2, channel_limits={"aac": 2}) if token is not None and "roku" in (token.client or "").lower() else caps
     start_seconds = from_ticks(request.start_ticks) or 0.0
+    track_defaults = track_preferences.preferences(db, user.id)
     library, probe = LibraryService(db), MediaProbeService(db)
     for source in sources:
         if not request.enable_direct_play:
@@ -201,8 +205,23 @@ def annotate_media_sources(
             continue  # unprobed or unreadable: keep the direct-play defaults
         chosen = request.media_source_id in (None, item.id)
         audio = request.audio_index if chosen else None
+        if audio is None and track_defaults is not None:
+            audio = track_preferences.audio_index(streams, track_defaults)
+        if audio is not None and any(stream.get("type") == "audio" and stream.get("index") == audio for stream in streams):
+            source["DefaultAudioStreamIndex"] = audio
+        selected_subtitle = request.subtitle_index if chosen else None
+        subtitle_chosen = chosen and (request.subtitle_explicit or request.subtitle_index is not None)
+        if track_defaults is not None and not subtitle_chosen:
+            subtitle_streams = [{"type": "subtitle", "index": stream["Index"], "language": stream.get("Language"),
+                                 "forced": stream.get("IsForced"), "hearing_impaired": stream.get("IsHearingImpaired"),
+                                 "default": stream.get("IsDefault")} for stream in source.get("MediaStreams") or []
+                                if stream.get("Type") == "Subtitle" and isinstance(stream.get("Index"), int)]
+            selected_subtitle = track_preferences.subtitle_index(subtitle_streams, track_defaults)
+            source["DefaultSubtitleStreamIndex"] = selected_subtitle
+        elif subtitle_chosen:
+            source["DefaultSubtitleStreamIndex"] = request.subtitle_index
         # External subtitles (sidecars, transcripts) index from sidecar_base up and are always delivered as sidecars.
-        subtitle = request.subtitle_index if chosen and request.subtitle_index is not None and request.subtitle_index < jf.sidecar_base(facts) else None
+        subtitle = selected_subtitle if selected_subtitle is not None and selected_subtitle < jf.sidecar_base(facts) else None
         limits = playback_limits(db, user.id, facts, max_bitrate=request.max_bitrate)
         decision = decide(caps, facts, limits, audio, subtitle)
         if decision.mode in ("remux", "transcode") and hls_caps is not caps:

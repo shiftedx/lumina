@@ -101,7 +101,7 @@ export function ArtistPage({ summary, detail, headingRef, backLabel, onBack, onK
         <MusicHighlights id={artist.id} onPlay={onPlay} />
         </div>
         <MusicVideoRail id={artist.id} onWatch={onWatchVideo} />
-        <MusicDiscography id={artist.id} music={detail?.music} />
+        <MusicDiscography artistId={detail?.provider_ids?.MusicBrainz ?? null} artistName={artist.name} id={artist.id} music={detail?.music} />
         <MusicEnrichment canEdit={canEdit} id={artist.id} onRefreshed={onRefreshed} />
         </div>
       </div>

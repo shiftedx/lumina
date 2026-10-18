@@ -123,7 +123,8 @@ def explain_plan(engine, session, run_query) -> str:  # noqa: ANN001
     connection = session.connection()
     details: list[str] = []
     for statement, parameters in captured:
-        if not statement.lstrip().upper().startswith("SELECT") or statement.lstrip().startswith("SELECT member_access."):
+        normalized = statement.lstrip()
+        if not normalized.upper().startswith(("SELECT", "WITH")) or normalized.startswith("SELECT member_access."):
             continue  # the session's one member access lookup (ADR 0019) is a primary-key read, not the query under test
         for row in connection.exec_driver_sql("EXPLAIN QUERY PLAN " + statement, parameters):
             details.append(str(row[-1]))
@@ -155,6 +156,27 @@ def test_library_page_seeks_the_grid_and_owner_indexes(plan_env) -> None:  # noq
 
     assert "ix_library_items_visibility_downloaded_created_id" in later_page
     assert_no_unindexed_scan(later_page, "library_items")
+
+
+def test_transcript_moments_stay_candidate_driven(plan_env) -> None:  # noqa: ANN001
+    """A bounded FTS hit pool must probe items by id, never enumerate visible rows."""
+    from app.services.library_search import LibrarySearchService
+    from app.services.transcripts import TranscriptService
+
+    engine, session, user = plan_env
+    session.add(LibraryItem(
+        id="moment-hit", user_id=user.id, visibility="shared", title="Moment hit", status="available", metadata_json={},
+    ))
+    session.commit()
+    TranscriptService(session).store("moment-hit", language="en", source_kind="source_caption", cues=[(0, 900, "plan comet")])
+    session.commit()
+
+    plan = explain_plan(engine, session, lambda: LibrarySearchService(session).moment_hits(user, "plan comet", limit=5))
+
+    assert "SCAN transcript_fts VIRTUAL TABLE INDEX" in plan, plan
+    assert "ix_library_items_visibility_downloaded_created_id" not in plan, plan
+    assert "ix_library_items_user_downloaded" not in plan, plan
+    assert "SEARCH li USING INDEX sqlite_autoindex_library_items_1" in plan, plan
 
 
 def test_continue_watching_seeks_the_progress_shelf_index(plan_env) -> None:  # noqa: ANN001

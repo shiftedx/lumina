@@ -86,6 +86,6 @@ export const SETTINGS_CATEGORIES: ReadonlyArray<{ id: SettingsCategory; space: S
 
 export const pageById = (id: string) => SETTINGS_PAGES.find((page) => page.id === id);
 export const pageForRow = (id: string) => SETTINGS_PAGES.find((page) => page.rows.includes(id));
-const SECTION_DEFAULTS: Partial<Record<SettingsSectionId, string>> = { media: 'metadata', requests: 'sonarr' };
+const SECTION_DEFAULTS: Partial<Record<SettingsSectionId, string>> = { media: 'metadata', requests: 'sonarr', diagnostics: 'diagnostics' };
 export const resolveSettingsPage = (section: SettingsSectionId, id?: string | null) => SETTINGS_PAGES.find((page) => page.section === section && page.id === id) ?? SETTINGS_PAGES.find((page) => page.section === section && (!SECTION_DEFAULTS[section] || page.id === SECTION_DEFAULTS[section]))!;
 export const categoryForPage = (page: SettingsPage) => SETTINGS_CATEGORIES.find((category) => category.id === page.category)!;

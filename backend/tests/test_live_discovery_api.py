@@ -21,7 +21,7 @@ def _item(item_id: str, category: str) -> PopularItem:
         thumbnail=f"https://thumb.example/{item_id}.jpg", artwork_url=None,
         webpage_url=f"https://www.youtube.com/watch?v={item_id}", view_count=10,
         availability=None, published_at=None, source="youtube", source_label="YouTube",
-        capabilities=None, category_keys=(category,),
+        capabilities=None, category_keys=(category,), language="en",
     )
 
 
@@ -84,3 +84,26 @@ def test_live_endpoint_requires_auth() -> None:
     client = TestClient(main.app, base_url="http://localhost")
     response = client.get("/api/discovery/live")
     assert response.status_code in (401, 403)
+
+
+def test_live_recommendations_filter_language_before_ranking_and_return_a_full_provider_pool(monkeypatch, api_client) -> None:
+    from dataclasses import replace
+    from app.schemas import PopularItemResponse
+    from app.services.media_capabilities import derive_media_capabilities
+
+    member = make_user('english-member')
+    def item(index, lang, views):
+        value = replace(_item(f'live{index}', 'gaming'), title='English gaming title', uploader=f'Creator {index}', view_count=views,
+                        capabilities=derive_media_capabilities({'extractor_key': 'youtube', 'is_live': True}))
+        return PopularItemResponse.model_validate(value).model_copy(update={'language': lang})
+    snapshot = main.LiveSnapshotResponse.model_validate(_snapshot()).model_copy(update={
+        'items': [item(0, 'hi', 9_000_000), item(1, None, 8_000_000), *[item(i, 'en-US', 1000-i) for i in range(2, 22)]]})
+    monkeypatch.setattr(main, 'live_discovery', type('D', (), {'get_snapshot': lambda self: snapshot})())
+    monkeypatch.setattr(main, 'followed_live_checker', FakeChecker([]))
+    response = api_client(user=member, base_url='http://localhost').get('/api/discovery/live')
+    assert response.status_code == 200, response.text
+    entries = response.json()['items']
+    assert len(entries) >= 16
+    assert not {'live0', 'live1'} & {entry['id'] for entry in entries}
+    assert all(entry.get('language') == 'en-US' for entry in entries)
+    assert response.json()['language_pending'] is True  # the selected provider may still have fewer choices

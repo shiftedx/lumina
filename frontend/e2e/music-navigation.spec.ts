@@ -88,8 +88,11 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
   await expect(player).toBeVisible();
   await expect(player.getByRole('button', { name: /Open listening room for Song [123]/ })).toBeVisible();
 
-  await page.getByRole('region', { name: 'A Title 0' }).getByRole('button', { name: 'Open artist' }).click();
-  await expect(page).toHaveURL(/\/audio\/title\/artist-0000$/);
+  const soundstage = page.getByRole('region', { name: 'A room full of records' });
+  await expect(soundstage.getByRole('button', { name: /A Title 0 by Artist 0/ })).toBeVisible();
+  await soundstage.getByRole('button', { name: /A Title 0 by Artist 0/ }).click();
+  await expect(page).toHaveURL(/\/audio\/title\/album-0000$/);
+  await page.goto('/audio/title/artist-0000');
   await expect(page.getByRole('heading', { level: 1, name: 'A Title 0' })).toBeVisible();
   await expect(page.getByRole('heading', { level: 2, name: /^Albums/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Play all', exact: true })).toBeEnabled();
@@ -112,9 +115,10 @@ for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: '
     await mockFirstClassMusic(page);
     await page.goto('/audio');
     await signIn(page);
-    const soundstage = page.getByRole('region', { name: 'A Title 0' });
+    const soundstage = page.getByRole('region', { name: 'A room full of records' });
     await expect(soundstage).toBeVisible();
-    await expect(soundstage.getByRole('button', { name: 'Play artist' })).toBeEnabled();
+    await expect(soundstage.getByRole('button', { name: /A Title 0 by Artist 0/ })).toBeVisible();
+    await expect(soundstage.getByRole('button', { name: /C Title 1 by Artist 1/ })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'page overflow').toBeLessThanOrEqual(0);
     if (viewport.width === 390) {
       const nav = page.getByRole('navigation', { name: 'Audio' });

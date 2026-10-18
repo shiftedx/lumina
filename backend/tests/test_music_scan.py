@@ -338,9 +338,13 @@ def test_same_named_releases_in_one_folder_use_their_own_cover(tmp_path: Path) -
     for name in ['a.flac', 'b.flac']:
         result = _music(root, ('Artist',), name, tags[('Artist', name)], cache, tags.get)
         assert result[0][1]['fields']['nfo']['images.Primary']['embedded'] == f'Artist/{name}'
+    (root / 'Artist' / 'c.flac').write_bytes(b'fixture')
+    tags[('Artist', 'c.flac')] = AudioTags(album='Shared title', album_artist='Artist')
+    ambiguous = _music(root, ('Artist',), 'c', tags[('Artist', 'c.flac')], {}, tags.get)
+    assert 'images.Primary' not in ambiguous[0][1]['fields']['nfo']
 
 
-def test_identified_release_does_not_borrow_a_picture_with_missing_release_id(tmp_path: Path) -> None:
+def test_unambiguous_partial_release_tags_share_the_member_track_cover(tmp_path: Path) -> None:
     from app.services.local_metadata import _music
 
     root = tmp_path / 'music'
@@ -353,7 +357,7 @@ def test_identified_release_does_not_borrow_a_picture_with_missing_release_id(tm
                                       musicbrainz_album_id='12345678-1234-4678-9234-123456789012'),
     }
     result = _music(root, ('Artist',), 'b', tags[('Artist', 'b.flac')], {}, tags.get)
-    assert 'images.Primary' not in result[0][1]['fields']['nfo']
+    assert result[0][1]['fields']['nfo']['images.Primary']['embedded'] == 'Artist/a.flac'
 
 
 def test_missing_album_tag_keeps_dedicated_folder_sidecar(tmp_path: Path) -> None:
@@ -436,3 +440,35 @@ def test_two_track_release_uses_feature_credit_lead_without_splitting_joint_name
     assert described(tmp_path, paths[1], paths[:1], tags)['metadata']['album_artist'] == 'Artist A'
     tags[paths[1]] = AudioTags(artist='Artist A & Artist B', album='Joint Release')
     assert described(tmp_path, paths[1], paths[:1], tags)['metadata']['album_artist'] == 'Artist A & Artist B'
+
+
+def test_shared_folder_uses_album_named_sidecars_instead_of_generic_cover(tmp_path: Path) -> None:
+    paths = ('Artist/01 One.flac', 'Artist/02 Two.flac')
+    tags = {paths[0]: AudioTags(album='First', album_artist='Artist'),
+            paths[1]: AudioTags(album='Second', album_artist='Artist')}
+    for path, album in zip(paths, ('First', 'Second')):
+        result = described(tmp_path, path, (*paths, 'Artist/cover.jpg', 'Artist/First.jpg', 'Artist/Second.jpg'), tags)
+        assert result['titles'][1]['fields']['nfo']['images.Primary']['path'] == f'Artist/{album}.jpg'
+
+
+@needs_ffmpeg
+def test_rescan_removes_stale_shared_folder_cover_but_preserves_manual_art(admin, media: Path) -> None:  # noqa: ANN001
+    fixture = music_fixture()
+    folder = media / 'Music' / 'Artist'
+    for number, album in enumerate(('First', 'Second', 'Third'), 1):
+        fixture.write_track(folder / f'0{number} Track.flac', {
+            'title': f'Track {number}', 'artist': 'Artist', 'album_artist': 'Artist', 'album': album,
+        })
+    fixture.cover_image(folder / 'cover.jpg', '200x200')
+    assert scan(admin)['state'] == 'succeeded'
+    with db_module.SessionLocal() as db:
+        albums = list(db.scalars(select(MediaTitle).where(MediaTitle.type == 'album')))
+        for album in albums:
+            album.images = {'Primary': {'path': 'Music/Artist/cover.jpg', 'tag': 'old'}}
+            album.field_sources = {**(album.field_sources or {}), 'images.Primary': 'user' if album.name == 'Third' else 'nfo'}
+        db.commit()
+    assert scan(admin)['state'] == 'succeeded'
+    with db_module.SessionLocal() as db:
+        albums = list(db.scalars(select(MediaTitle).where(MediaTitle.type == 'album')))
+        for album in albums:
+            assert ('Primary' in (album.images or {})) == (album.name == 'Third')

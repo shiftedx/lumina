@@ -218,6 +218,14 @@ subtitle enabled/forced/SDH defaults and caption appearance. Browser playback an
 compatible Jellyfin playback resolve defaults before making their playback decisions;
 explicit client or per-play audio choices and subtitle Off take priority.
 
+Streaming live recommendations use those audio languages, defaulting to English
+when none are selected. Provider audio metadata determines eligibility; an English
+title alone does not establish the spoken language. Unconfirmed public streams
+stay out while bounded background checks qualify more choices. Followed channels
+can appear with unknown language, but a known language mismatch is excluded.
+Browse shows up to 16 eligible streams per provider, prioritizes follows and the
+member's own interests and viewing signals, and updates as background results arrive.
+
 **My Settings → Playback → Listening history export** optionally connects a member's
 ListenBrainz user token or Last.fm application API key/secret followed by Last.fm
 account approval. These are separate from media-player credentials. Export uses
@@ -404,6 +412,36 @@ docker compose up -d --no-build lumina
 
 For a checkout-based install, first update the Compose file with `git fetch origin tag v0.3.4 && git checkout --detach v0.3.4`. When a release raises the schema version, Lumina first writes an automatic `pre-upgrade` backup (listed under Settings → Backups), then applies its additive upgrade steps in one transaction. It refuses to open a database from a newer release; to roll back, see "Rollback after a schema upgrade" below (the pre-upgrade backup is the last resort).
 
+### Retaining a rollback image
+
+Before replacing a running image, use the checkout's retention script to keep the
+previous image referenced by a stopped container:
+
+```bash
+previous_image=$(docker inspect lumina --format '{{.Image}}')
+rollback_name="lumina-rollback-$(date -u +%Y%m%dT%H%M%SZ)"
+sh scripts/preserve-rollback.sh "$previous_image" "$rollback_name"
+docker inspect "$rollback_name" --format '{{.State.Status}} {{json .Config.Healthcheck.Test}} {{.HostConfig.RestartPolicy.Name}}'
+# Expected: created ["NONE"] no
+```
+
+Keep this pin stopped: restore service by selecting its image in Compose, using
+the normal Lumina entrypoint and health check. The pin has health checks,
+automatic restart, networking, proxy discovery and automatic updates disabled.
+It retains the image without mounting application data. A sleeping container
+still runs health checks inherited from its image unless they are explicitly
+disabled; repeated checks can exhaust the host's `/run` inodes and cause the
+proxy to remove an otherwise working service.
+
+After each deployment, verify every retained rollback container is stopped;
+new pins must have `Healthcheck.Test` set to `["NONE"]`. Configure scheduled
+cleanup to exclude retained pins and their images. For `docker-gc`, put the
+container-name pattern `lumina-.*rollback` in its
+`/etc/docker-gc-exclude-containers` file (mounted from persistent host storage).
+It keeps images referenced by excluded containers. Keep database/key backups
+separately; an image pin is not a data backup. Retain pins until their rollback
+window ends and remove their cleanup exclusions when retiring them.
+
 ### Rollback after a schema upgrade
 
 Schema steps 6 to 18 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to:
@@ -482,6 +520,8 @@ Version 0.3.0 starts a new release baseline; earlier release tags and downloads 
 ## Automatic scans and folder watching
 
 The **Refresh** button beside the Library tabs reloads the current view. For vault owners, it also starts a full background rescan of eligible imported folders; the notification reports scans started or queued and folders unavailable. To scan one folder or review missing-file confirmation, use **Manage Server → Library & storage → Imports**. Other members can refresh their view without starting a server-wide scan.
+
+Music rescans also reconcile partial release tags: tracks in the same album folder use a unique matching MusicBrainz release/album-artist identity when only some files carry it. Already identified album fragments with the same release ID reuse one album; distinct explicit edition IDs remain separate, and manual track destinations stay in place. Album queues retain disc and track order. In folders containing several albums, use embedded covers or album-named images (`Album title.jpg`, `Album title-cover.jpg`, or `Album title-front.jpg`); a generic `cover.jpg` cannot identify each album. A rescan removes previously assigned local art that its own folder no longer supports and queues metadata lookup again, while preserving manual artwork and locked albums. Run a full music-root scan after upgrading to apply these repairs to existing entries.
 
 The header activity indicator combines downloads with library-wide scan work. Open it to see the current phase and progress. Scans first discover file paths, then check and index them in bounded batches; indexing shows completed files against the discovered total. Work completed by one folder stays in the overall total while other folders continue. Totals can adjust if the files change during a scan. A file still copying or settling is shown separately until it is ready to index. Idle means no scan is running; it does not certify that every folder has been scanned recently. Members see aggregate progress without storage paths, folder names, or private media details; scan controls remain owner-only.
 

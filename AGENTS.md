@@ -34,6 +34,7 @@ make check                                      # full gate, required before a P
 - Do not add one test per helper, CSS declaration, class name, or implementation detail. Prefer observable behavior; keep release/build contracts and trust-boundary edge cases.
 - Before deleting a test, name the retained contract that covers its useful behavior. Do not merge unrelated assertions merely to lower the reported count.
 - Schema changes: add a step to `MIGRATIONS` in `backend/app/db.py`, keep upgrades additive, document the rollback in `docker/README.md`.
+- Deployments: follow `docker/README.md#retaining-a-rollback-image`; create image pins with `scripts/preserve-rollback.sh`, keep rollback containers stopped, and preserve their cleanup exclusions.
 - Treat AI model output as untrusted input (ADR 0013).
 - Never write credentials, tokens, real hostnames or private media details into code, tests, docs or issues.
 - See [CONTRIBUTING.md](CONTRIBUTING.md) for PR and commit conventions.

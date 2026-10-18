@@ -247,3 +247,33 @@ def test_live_refresh_is_ten_minutes_serial_with_sixty_per_category() -> None:
     discovery = create_live_discovery(Path("/nonexistent/live.json"), lambda q, n: None)
     assert (discovery._category_ttl_seconds, discovery._per_category_limit, discovery._max_concurrency) == (600, 60, 1)
     assert discovery._feed_limit >= 60 * len(LIVE_CATEGORIES)
+
+
+def test_live_refresh_confirms_spoken_language_in_background_and_reuses_metadata(monkeypatch) -> None:
+    import threading
+    from app.services import provider_budget
+    from app.services.yt_dlp_service import YtDlpService
+
+    monkeypatch.setattr(provider_budget, 'youtube', provider_budget.fresh('youtube'))
+    raw = [YouTubeSearchResult(id=f'video{i}', title='English gaming title',
+                             webpage_url=f'https://www.youtube.com/watch?v=video{i}') for i in range(12)]
+    calls = []
+    def probe(url):
+        assert threading.current_thread().name.startswith('live-language')
+        assert provider_budget.current_priority() == 'background'
+        provider_budget.spend(provider_budget.youtube, provider_budget.PROBE_REQUESTS)
+        calls.append(url)
+        return YtDlpService.normalize_search_result({
+            'id': url.rsplit('=', 1)[1], 'title': 'English gaming title', 'is_live': True,
+            'formats': [{'acodec': 'aac', 'language': 'hi' if url.endswith('video0') else 'en', 'language_preference': 10},
+                        {'acodec': 'aac', 'language': 'fr', 'language_preference': 1}],
+        }, 'youtube')
+    search = LiveSearch(lambda q, n: YouTubeSearchResponse(query=q, items=raw), FakeDirectory(),
+                        youtube_directory=_none, youtube_probe=probe)
+    response = search(_query('news'), 24)
+    assert 0 < len(calls) <= 8
+    assert response.items[0].language == 'hin'  # the English title is not evidence
+    assert {entry.language for entry in response.items if entry.language} == {'hin', 'eng'}
+    first = set(calls)
+    search(_query('news'), 24)
+    assert all(calls.count(url) == 1 for url in first)

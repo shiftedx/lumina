@@ -38,6 +38,7 @@ _LOGIN = re.compile(r"[A-Za-z0-9_]{1,25}")
 _STREAM_NODE_FIELDS = """
         title
         viewersCount
+        language
         previewImageURL(width: 640, height: 360)
         broadcaster { login displayName }
         game { displayName }
@@ -97,6 +98,7 @@ class TwitchLiveStream:
     viewers_count: int | None
     preview_image_url: str | None
     category_name: str | None
+    language: str | None = None
 
 
 @dataclass(frozen=True)
@@ -253,6 +255,7 @@ class TwitchGqlDirectory:
                     viewers_count=viewers if isinstance(viewers, int) and not isinstance(viewers, bool) else None,
                     preview_image_url=_safe_preview_url(node.get("previewImageURL")),
                     category_name=_text(game.get("displayName")) if isinstance(game, dict) else None,
+                    language=_text(node.get("language")),
                 )
             )
         return streams

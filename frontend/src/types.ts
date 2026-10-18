@@ -215,6 +215,7 @@ export interface UpNextRequest {
 }
 
 export interface YouTubeSearchResult {
+  language?: string | null;
   id?: string | null;
   title?: string | null;
   uploader?: string | null;
@@ -321,6 +322,7 @@ export interface PopularSnapshot {
 }
 
 export interface LiveSnapshot extends PopularSnapshot {
+  language_pending?: boolean;
   twitch_available: boolean;
   /** Provider-reported live channels overall (2.4.0); null/absent when unknown. */
   live_total?: number | null;

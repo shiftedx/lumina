@@ -156,7 +156,7 @@ def _add_audio_tag_metadata(described: dict, tags: AudioTags | None) -> None:
         provider_id = source_ids.get(spec["type"])
         if provider_id is None:
             continue
-        spec.setdefault("fields", {}).setdefault("musicbrainz", {})["provider_ids"] = {"MusicBrainz": provider_id}
+        spec.setdefault("fields", {}).setdefault("musicbrainz", {}).setdefault("provider_ids", {"MusicBrainz": provider_id})
 
 
 def mass_missing(candidates: int, available: int) -> bool:
@@ -773,25 +773,27 @@ class LibraryImportService:
         )))) if keys else []
         titles = {title.key: title for title in candidates}
 
-        # A confirmed artist identity spans batches and releases. Requiring its
-        # entire discography in one batch creates another artist for every
-        # partial scan. Keep the oldest identity (and its edits/history), even
-        # when both the legacy and provider keys already exist. Album identities
-        # still use the stricter reconciliation below.
-        artists_by_provider: dict[str, list[MediaTitle]] = {}
+        # Confirmed identities span batches. Requiring every source track in
+        # one batch duplicates a previously identified album when only some
+        # files carry provider tags. Keep its oldest title, edits and history.
+        music_by_provider: dict[tuple[str, str], list[MediaTitle]] = {}
         for candidate in candidates:
             identity = (candidate.provider_ids or {}).get("MusicBrainz")
-            if candidate.type == "artist" and isinstance(identity, str) and identity:
-                artists_by_provider.setdefault(identity, []).append(candidate)
-        for identity, artists in artists_by_provider.items():
-            canonical = min(artists, key=lambda artist: (artist.created_at, artist.id))
-            for artist in artists:
-                titles[artist.key] = canonical
+            if candidate.type in ("artist", "album") and isinstance(identity, str) and identity:
+                music_by_provider.setdefault((candidate.type, identity), []).append(candidate)
+        for (kind, identity), matches in music_by_provider.items():
+            canonical = min(matches, key=lambda title: (title.created_at, title.id))
+            for title in matches:
+                titles[title.key] = canonical
             for spec in specs:
-                if spec["type"] == "artist" and (
+                if spec["type"] == kind and (
                     ((spec.get("fields") or {}).get("musicbrainz") or {}).get("provider_ids", {}).get("MusicBrainz") == identity
                 ):
-                    titles[full_key(spec)] = canonical
+                    key = full_key(spec)
+                    titles[key] = canonical
+                    if (kind == "album" and canonical.key not in keys and canonical.key != spec.get("legacy_key")
+                            and not any(title.key == key for title in candidates)):
+                        canonical.key = key
 
         # MusicBrainz identities supersede the old name-only keys. Adopt a
         # compatible title only when this batch accounts for its whole source
@@ -934,6 +936,19 @@ class LibraryImportService:
                 if spec["type"] == "movie" and parent is not None and parent.type == "boxset":
                     apply_field(title, "boxset_id", parent.id, "nfo")
                 foreign = spec["type"] in ("album", "artist") and title.root_id != root.id  # global keys; art resolves under root_id
+                if spec["type"] == "album" and not foreign and not title.locked and "art_scope" in spec:
+                    # None cannot erase a scan field through apply_field. Retire
+                    # a local sleeve only after rechecking its own folder, where
+                    # it no longer identifies this album. Keep user/provider art.
+                    image = (title.images or {}).get("Primary") or {}
+                    local = image.get("path") or image.get("embedded")
+                    scope = spec["art_scope"]
+                    if (local and local.rpartition("/")[0] == scope
+                            and (title.field_sources or {}).get("images.Primary") == "nfo"
+                            and "images.Primary" not in spec["fields"].get("nfo", {})):
+                        title.images = {kind: value for kind, value in (title.images or {}).items() if kind != "Primary"}
+                        title.field_sources = {field: value for field, value in (title.field_sources or {}).items() if field != "images.Primary"}
+                        title.metadata_due_at = now
                 for source in ("path", "nfo", "musicbrainz"):
                     for field, value in spec["fields"].get(source, {}).items():
                         if foreign and field.startswith("images."):

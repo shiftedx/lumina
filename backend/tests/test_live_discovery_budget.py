@@ -30,7 +30,7 @@ class Sync:
 
 
 def simulate(
-    tmp_path: Path, monkeypatch, *, minutes: float, poll_seconds: float, follows: int = 0, members: int = 1, clicks: int = 0,  # noqa: ANN001
+    tmp_path: Path, monkeypatch, *, minutes: float, poll_seconds: float, follows: int = 0, members: int = 1, clicks: int = 0, verify_language: bool = False,  # noqa: ANN001
 ) -> dict:
     """YouTube requests by priority while ``members`` each poll the live snapshot (and their ``follows`` followed
     channels) every ``poll_seconds`` for ``minutes``, and each clicks ``clicks`` videos an hour."""
@@ -58,7 +58,7 @@ def simulate(
             elif url.endswith("/live"):
                 cost, info = PROBE_REQUESTS, {"id": url, "title": "offline", "live_status": "not_live"}
             else:
-                cost, info = VIDEO_REQUESTS, {"id": url[-11:], "title": "v", "webpage_url": url, "formats": [
+                cost, info = VIDEO_REQUESTS, {"id": url[-11:], "title": "v", "webpage_url": url, **({"language": "en", "live_status": "is_live"} if verify_language else {}), "formats": [
                     {"format_id": "137", "height": 1080, "ext": "mp4", "vcodec": "avc1", "acodec": "none", "url": "https://rr1.googlevideo.com/v"}]}
             counts["youtube"] += cost
             counts["interactive" if provider_budget.current_priority() == "interactive" else "background"] += cost
@@ -85,7 +85,7 @@ def simulate(
     for name in ("youtube", "twitch"):  # a fresh, clock-driven budget per run
         monkeypatch.setattr(provider_budget, name, provider_budget.fresh(name, clock))
     directory = TwitchGqlDirectory(http_client=httpx.Client(transport=httpx.MockTransport(twitch)))
-    search = LiveSearch(service.youtube_live_search, directory, gaming=live_discovery.GamingDirectories(directory, clock=clock))
+    search = LiveSearch(service.youtube_live_search, directory, gaming=live_discovery.GamingDirectories(directory, clock=clock), youtube_probe=service.probe_live_source if verify_language else None)
     discovery = create_live_discovery(tmp_path / "live.json", search, clock=clock, executor=Sync(), random=lambda: 0.5)
     checker = FollowedLiveChecker(service.probe_live_source, clock=clock, executor=Sync())
     followed = [[f"https://www.youtube.com/@member{m}channel{i}" for i in range(follows)] for m in range(members)]
@@ -105,7 +105,7 @@ def simulate(
         elapsed += poll_seconds
     snapshot = discovery.get_snapshot()
     rows = {category.key: sum(category.key in (item.category_keys or ()) for item in snapshot.items) for category in snapshot.categories}
-    return {**counts, "clicks": clicked * members, "rows": rows, "pools": {key: len(search.youtube_pool(key)) for key in rows}}
+    return {**counts, "confirmed": sum(item.language is not None for item in snapshot.items), "clicks": clicked * members, "rows": rows, "pools": {key: len(search.youtube_pool(key)) for key in rows}}
 
 
 def _bound(name: str, minutes: float) -> float:
@@ -166,3 +166,10 @@ def test_a_rate_limit_answer_pauses_the_provider_for_every_caller_and_honours_re
     assert not budget.take()
     now[0] += 301
     assert budget.take() and budget.take(5, keep=4) and not budget.take(1, keep=5)
+
+
+def test_language_qualification_stays_inside_shared_budgets_and_produces_confirmed_choices(tmp_path, monkeypatch) -> None:
+    result = simulate(tmp_path, monkeypatch, minutes=60, poll_seconds=30, verify_language=True, clicks=15)
+    assert result['youtube'] <= _bound('youtube', 60)
+    assert result['confirmed'] >= 16
+    assert result['interactive'] >= result['clicks'] * VIDEO_REQUESTS

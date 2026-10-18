@@ -528,7 +528,8 @@ def _album_cover(root: Path, album_dirs: tuple[str, ...], cache: dict[str, Any],
     name order; else the first track, in the same order, with an embedded picture. Every track of an album computes the
     same cover, so it is memoized per release within the album folder for the batch.
     A shared folder's generic sidecar cannot identify which album it belongs to."""
-    identity = album_tags.musicbrainz_album_id or f"{music_key(album_artist)}/{music_key(album)}"
+    release_id, _artist_id = _release_ids(root, album_dirs, cache, audio_tags, album_tags, album, album_artist)
+    identity = release_id or f"{music_key(album_artist)}/{music_key(album)}"
     key = "/".join(album_dirs) + f"/<album cover:{identity}>"
     if key not in cache:
         tracks = _album_tracks(root, album_dirs, cache, audio_tags)
@@ -536,20 +537,27 @@ def _album_cover(root: Path, album_dirs: tuple[str, ...], cache: dict[str, Any],
         folders = [album_dirs, *((*album_dirs, disc) for disc in discs)]
 
         def belongs(tags: AudioTags) -> bool:
-            if album_tags.musicbrainz_album_id:
-                return tags.musicbrainz_album_id == album_tags.musicbrainz_album_id
+            if release_id and tags.musicbrainz_album_id:
+                return tags.musicbrainz_album_id == release_id
             if album_tags.album_artist and tags.album_artist and music_key(album_tags.album_artist) != music_key(tags.album_artist):
                 return False
-            return music_key(tags.album or album) == music_key(album)
+            return (music_key(tags.album or album) == music_key(album)
+                    and _release_ids(root, album_dirs, cache, audio_tags, tags, album, album_artist)[0] == release_id)
 
         def foreign(tags: AudioTags) -> bool:
-            if tags.musicbrainz_album_id and album_tags.musicbrainz_album_id:
-                return tags.musicbrainz_album_id != album_tags.musicbrainz_album_id
+            if (album_tags.musicbrainz_album_artist_id and tags.musicbrainz_album_artist_id
+                    and album_tags.musicbrainz_album_artist_id != tags.musicbrainz_album_artist_id):
+                return True
+            if tags.musicbrainz_album_id:
+                return tags.musicbrainz_album_id != release_id
             return bool((tags.album and music_key(tags.album) != music_key(album)) or
                         (tags.album_artist and music_key(tags.album_artist) != music_key(album_artist)))
 
         shared = any(tags is not None and foreign(tags) for _track, tags in tracks)
-        cover = {} if shared else next((art for folder in folders if (art := _art(root, folder, cache, {"Primary": ALBUM_ART}))), {})
+        # A named sleeve is meaningful even when several albums share a folder.
+        named = [album, f"{album}-cover", f"{album}-front"] if "/" not in album and "\\" not in album else []
+        cover = _art(root, album_dirs, cache, {"Primary": named}) if shared else next(
+            (art for folder in folders if (art := _art(root, folder, cache, {"Primary": ALBUM_ART}))), {})
         if not cover and audio_tags is not None:
             track = next((
                 track for track, tags in tracks if tags is not None and tags.has_picture and belongs(tags)
@@ -562,6 +570,29 @@ def _album_cover(root: Path, album_dirs: tuple[str, ...], cache: dict[str, Any],
                     pass
         cache[key] = cover
     return cache[key]
+
+
+def _release_ids(root: Path, dirs: tuple[str, ...], cache: dict[str, Any], audio_tags: AudioTagReader | None,
+                 tags: AudioTags, album: str, artist: str) -> tuple[str | None, str | None]:
+    """Fill partial identity tags only from one unambiguous release in this folder.
+
+    Explicit editions and album artists always win; matching names alone never
+    collapse two known release ids. The original file tags stay untouched.
+    """
+    key = "/".join(dirs) + f"/<release ids:{music_key(artist)}/{music_key(album)}:{tags.year}:{tags.musicbrainz_album_artist_id}>"
+    if key not in cache:
+        related = [other for _path, other in _album_tracks(root, dirs, cache, audio_tags)
+                   if other is not None and music_key(other.album or album) == music_key(album)
+                   and music_key(other.album_artist or (VARIOUS_ARTISTS if other.compilation else _main_performer(other.artist)) or artist) == music_key(artist)
+                   and not (tags.musicbrainz_album_artist_id and other.musicbrainz_album_artist_id
+                            and tags.musicbrainz_album_artist_id != other.musicbrainz_album_artist_id)
+                   and not (tags.year and other.year and tags.year != other.year)]
+        releases = {other.musicbrainz_album_id for other in related if other.musicbrainz_album_id}
+        artists = {other.musicbrainz_album_artist_id for other in related if other.musicbrainz_album_artist_id}
+        cache[key] = (next(iter(releases)) if len(releases) == 1 and len(artists) <= 1 else None,
+                      next(iter(artists)) if len(artists) == 1 and len(releases) <= 1 else None)
+    release_id, artist_id = cache[key]
+    return tags.musicbrainz_album_id or release_id, tags.musicbrainz_album_artist_id or artist_id
 
 
 def _music(root: Path, dirs: tuple[str, ...], stem: str, tags: AudioTags, cache: dict[str, Any],
@@ -594,7 +625,7 @@ def _music(root: Path, dirs: tuple[str, ...], stem: str, tags: AudioTags, cache:
     # adopted without changing its title ids. A track performer identifies the
     # album artist only when both displayed names agree; compilation performers
     # must never split the Various Artists container.
-    album_artist_id = tags.musicbrainz_album_artist_id
+    release_id, album_artist_id = _release_ids(root, album_dirs, cache, audio_tags, tags, album, album_artist)
     if not album_artist_id and tags.artist and music_key(album_artist) == music_key(tags.artist):
         album_artist_id = tags.musicbrainz_artist_id
     artist_name_key = f"artist:{music_key(album_artist)}"
@@ -603,11 +634,14 @@ def _music(root: Path, dirs: tuple[str, ...], stem: str, tags: AudioTags, cache:
                    "legacy_key": artist_name_key, "source_identity": bool(album_artist_id), "fields": {
         "path": {"name": album_artist}, "nfo": _art(root, artist_dirs, cache, {"Primary": ARTIST_ART, "Backdrop": ["fanart", "backdrop", "background"]}) if artist_dirs else {},
     }}
-    album_spec = {"type": "album", "key": f"album:musicbrainz:{tags.musicbrainz_album_id}" if tags.musicbrainz_album_id else album_name_key,
-                  "legacy_key": album_name_key, "source_identity": bool(tags.musicbrainz_album_id), "fields": {
+    album_spec = {"type": "album", "key": f"album:musicbrainz:{release_id}" if release_id else album_name_key,
+                  "legacy_key": album_name_key, "source_identity": bool(release_id), "art_scope": "/".join(album_dirs), "fields": {
         "path": _present(name=album, year=year),
         "nfo": {**({"genres": genres} if genres else {}), **_album_cover(root, album_dirs, cache, audio_tags, album, album_artist, tags)},
     }}
+    for spec, identity in ((artist_spec, album_artist_id), (album_spec, release_id)):
+        if identity:
+            spec["fields"]["musicbrainz"] = {"provider_ids": {"MusicBrainz": identity}}
     metadata = {
         "track": tags.title or (_clean(track.group("title")) if track else stem),
         "artist": tags.artist or album_artist, "album_artist": album_artist, "album": album,

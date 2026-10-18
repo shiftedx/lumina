@@ -588,7 +588,7 @@ popular_discovery = PopularDiscovery(settings.data_dir / "popular-discovery.json
 
 def _youtube_live_search(query: str, limit: int) -> YouTubeSearchResponse:
     with SessionLocal() as db:
-        return YtDlpService(db).youtube_live_search(query, limit)
+        return YtDlpService(db).youtube_live_search(f"{query} english live", limit)
 
 
 def _probe_followed_live(probe_url: str) -> YouTubeSearchResult | None:
@@ -597,7 +597,7 @@ def _probe_followed_live(probe_url: str) -> YouTubeSearchResult | None:
 
 
 twitch_directory = TwitchGqlDirectory()
-live_search = LiveSearch(_youtube_live_search, twitch_directory)
+live_search = LiveSearch(_youtube_live_search, twitch_directory, youtube_probe=_probe_followed_live)
 live_wall = LiveWall(twitch_directory, youtube_pool=live_search.youtube_pool, gaming=live_search.gaming)
 live_discovery = create_live_discovery(settings.data_dir / "live-discovery.json", live_search)
 followed_live_checker = FollowedLiveChecker(_probe_followed_live)
@@ -2284,6 +2284,7 @@ def live_now(
     ]
     unavailable = followed_live_checker.unavailable_sources(followed_urls)
     items = [item.model_copy(update={"artwork_url": _remote_artwork_url(item.thumbnail)}) for item in snapshot.items]
+    hero, items = _reco_policy(db).live(current_user, hero, items, personal=reco.enabled(db))
     annotated = annotate_remote_entries(db, current_user, [*hero, *items])  # one call: still two queries
     hero, items = annotated[: len(hero)], annotated[len(hero):]
     counts = live_search.counts
@@ -2293,6 +2294,7 @@ def live_now(
         update={
             "categories": categories,
             "live_total": sum(known) if known else None,
+            "language_pending": any(not entry.language for entry in snapshot.items),
             "twitch_available": live_search.health.available,
             "hero": hero,
             "followed_unavailable": [
@@ -2324,6 +2326,7 @@ def live_wall_page(
         PopularItemResponse.model_validate(entry).model_copy(update={"artwork_url": _remote_artwork_url(entry.thumbnail)})
         for entry in entries
     ]
+    _hero, items = _reco_policy(db).live(current_user, [], items, personal=reco.enabled(db), limit=limit)
     live_count = live_search.counts.get(category_key)
     return LiveWallResponse(
         items=annotate_remote_entries(db, current_user, items),

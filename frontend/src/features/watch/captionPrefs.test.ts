@@ -13,4 +13,8 @@ describe('caption preferences', () => {
     expect(captionStyle(DEFAULT_CAPTIONS)['--caption-scale']).toBe('1');
     expect(captionStyle({ size: 'medium', background: 'solid' })['--caption-bg']).toBe('var(--g-caption-solid)');
   });
+  it('restores bounded track defaults without changing caption style or trusting malformed preferences', () => {
+    expect(captionPrefsFromUiPrefs({ captions: { size: 'large', background: 'box', tracks: { audioLanguages: ['jpn', 'en-US', 3], subtitleLanguages: ['fre'], subtitlesEnabled: true, forcedOnly: true, preferSdh: true } } })).toEqual({ size: 'large', background: 'box', tracks: { audioLanguages: ['ja', 'en'], subtitleLanguages: ['fr'], subtitlesEnabled: true, forcedOnly: true, preferSdh: true } });
+    expect(captionPrefsFromUiPrefs({ captions: { tracks: 'broken' } })).toEqual(DEFAULT_CAPTIONS);
+  });
 });

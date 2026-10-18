@@ -348,13 +348,14 @@ def test_cast_ticket_is_owner_bound_expiring_revocable_and_rechecks_visibility(
     monkeypatch.setattr(public_address, "origin", lambda: None)
     monkeypatch.setattr(music_sonos.service, "play_queue", lambda speaker_id, tracks: queued.extend(tracks) or {"ok": True})
     monkeypatch.setattr(music_sonos.service, "control", lambda _speaker, action, _value: {"ok": True, "action": action})
+    monkeypatch.setattr(music_sonos.service, "status", lambda _speaker: {"playing": True, "track": {"track_number": 1}})
     converted = tmp_path / "sonos.flac"
     converted.write_bytes(b"fLaCfixture")
     monkeypatch.setattr(music_audio, "playback_file", lambda _path, format_: (converted, "audio/flac"))
 
     alice = client_for(ALICE)
     cast = alice.post("/api/music/cast", json={"speaker_id": "speaker-1", "item_ids": [TRACKS[0]]})
-    assert cast.status_code == 200 and set(cast.json()) == {"ticket_id", "state"}
+    assert cast.status_code == 200 and {"ticket_id", "state", "queue_indices", "session"} <= set(cast.json())
     ticket_id = cast.json()["ticket_id"]
     assert len(queued) == 1 and queued[0].content_type == "audio/flac"
     parsed = urlparse(queued[0].url)

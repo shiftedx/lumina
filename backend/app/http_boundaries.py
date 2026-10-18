@@ -41,7 +41,9 @@ def body_limit(scope: Scope) -> int:
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
-        "form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "form-action 'self'; script-src 'self' https://www.gstatic.com/cv/js/sender/ https://www.gstatic.com/cast/sdk/libs/sender/ "
+        "https://www.gstatic.com/eureka/clank/ chrome-extension://pkedcjkdefgpdelpbcmbmeomcjbeemfm/ "
+        "chrome-extension://enhhojjnijigcajfphajepfemndkmdlo/; style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: http: https:; media-src 'self' blob:; "
         "frame-src 'none'; connect-src 'self'; font-src 'self' data:"
     ),

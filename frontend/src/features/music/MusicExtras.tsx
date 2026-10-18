@@ -6,6 +6,7 @@ import { Artwork } from '../../Artwork';
 import { formatDuration } from '../../utils';
 import type { MusicTitleInfo, MusicTrack, MusicVideos } from './musicTypes';
 import { setAlbumQueue } from '../gallery/albumQueue';
+import { MusicReleaseRequest } from '../integrations/MusicRequestControls';
 import './music.css';
 
 const PERFORMANCE_LABEL = { official: 'Official upload', live: 'Live performance', cover: 'Cover', remix: 'Remix', performance: 'Performance' };
@@ -80,7 +81,7 @@ export function MusicEnrichment({ id, canEdit = false, onRefreshed }: { id: stri
   </div>;
 }
 
-export function MusicDiscography({ id, music }: { id?: string; music: MusicTitleInfo | null | undefined }) {
+export function MusicDiscography({ id, artistId, artistName, music }: { id?: string; artistId?: string | null; artistName: string; music: MusicTitleInfo | null | undefined }) {
   const [extra, setExtra] = useState<MusicTitleInfo['discography']>([]);
   const [next, setNext] = useState<number | null>(music?.discography?.length ? 100 : 0);
   const [loading, setLoading] = useState(false);
@@ -108,5 +109,5 @@ export function MusicDiscography({ id, music }: { id?: string; music: MusicTitle
   }
   const releases = [...new Map([...(music?.discography ?? []), ...extra].map((release) => [release.id, release])).values()].sort((a, b) => String(a.year).localeCompare(String(b.year)) || a.name.localeCompare(b.name));
   if (!releases.length && !music?.identified) return null;
-  return <section aria-labelledby="music-discography" className="music-discography"><header className="music-section-head"><h2 id="music-discography">The complete picture</h2><span>Discography · MusicBrainz</span></header><ul>{releases.map((release) => <li key={release.id}><span className="music-discography-year">{release.year || '—'}</span><span>{release.name}<small>{release.type}</small></span><a aria-label={`Explore ${release.name} on MusicBrainz`} className="g-icon-button" href={`https://musicbrainz.org/release-group/${encodeURIComponent(release.id)}`} rel="noreferrer noopener" target="_blank"><ExternalLink aria-hidden="true" /></a></li>)}</ul>{id && next !== null ? <button className="g-text-button" disabled={loading} onClick={() => void more()} type="button">{loading ? 'Loading releases…' : releases.length ? 'Explore more releases' : 'Explore discography'}</button> : null}{error ? <p className="music-note" role="status">{error}</p> : null}</section>;
+  return <section aria-labelledby="music-discography" className="music-discography"><header className="music-section-head"><h2 id="music-discography">The complete picture</h2><span>Discography · MusicBrainz</span></header><ul>{releases.map((release) => <li key={release.id}><span className="music-discography-year">{release.year || '—'}</span><span>{release.name}<small>{release.type}</small></span><span className="music-discography-actions"><MusicReleaseRequest artistId={artistId} artistName={artistName} release={release} /><a aria-label={`Explore ${release.name} on MusicBrainz`} className="g-icon-button" href={`https://musicbrainz.org/release-group/${encodeURIComponent(release.id)}`} rel="noreferrer noopener" target="_blank"><ExternalLink aria-hidden="true" /></a></span></li>)}</ul>{id && next !== null ? <button className="g-text-button" disabled={loading} onClick={() => void more()} type="button">{loading ? 'Loading releases…' : releases.length ? 'Explore more releases' : 'Explore discography'}</button> : null}{error ? <p className="music-note" role="status">{error}</p> : null}</section>;
 }

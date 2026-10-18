@@ -394,7 +394,7 @@ test('home makes at most 5 of its own requests before its first screen, lan cold
   expect(median(counts), JSON.stringify(seen)).toBeLessThanOrEqual(5);
 });
 
-test('home: no image fails and at most 2 long tasks across a scripted scroll to the bottom, lan cold', async ({ browser }) => {
+test('home: no image fails and at most 2 long tasks across a scripted scroll to the bottom, lan cold', async ({ browser }, testInfo) => {
   test.setTimeout(240_000);
   const longTasks: number[] = [];
   const failures: string[] = [];
@@ -412,7 +412,16 @@ test('home: no image fails and at most 2 long tasks across a scripted scroll to 
       w.__homeLongTasks = 0;
       new PerformanceObserver((list) => { w.__homeLongTasks! += list.getEntries().length; }).observe({ type: 'longtask' });
     });
+    // Opt-in diagnosis only: profiler overhead makes this trial unsuitable as a latency baseline.
+    const profiler = process.env.AUDIT_HOME_CPU_PROFILE === '1' && run === 0
+      ? await page.context().newCDPSession(page) : null;
+    if (profiler) { await profiler.send('Profiler.enable'); await profiler.send('Profiler.start'); }
     await scrollToEnd(page);
+    if (profiler) {
+      const { profile } = await profiler.send('Profiler.stop');
+      await testInfo.attach('home-scroll.cpuprofile', { body: Buffer.from(JSON.stringify(profile)), contentType: 'application/json' });
+      await profiler.detach();
+    }
     longTasks.push(await page.evaluate(() => (window as Window & { __homeLongTasks?: number }).__homeLongTasks ?? 0));
     expect((await appSamples(page)).filter((sample) => sample.metric === 'image_failed'), 'image_failed samples').toEqual([]);
     await page.context().close();

@@ -881,6 +881,7 @@ class LibraryImportService:
         art_before = {title.id: title.images for title in titles.values()}
         now = utcnow()
         photos: dict[str, dict] = {}  # person id -> nfo_people values
+        new_children: dict[str, MediaTitle] = {}
         for item, described, moved in linked:
             chain = described["titles"]
             override = overrides.get(item.id)
@@ -914,6 +915,16 @@ class LibraryImportService:
                     self.db.add(title)
                     titles[key] = title
                     titles_by_id[title.id] = title
+                    # The series may already be matched and sleeping for weeks.
+                    # New children need that same durable metadata job immediately.
+                    series = None
+                    if parent is not None:
+                        if spec["type"] == "season":
+                            series = parent
+                        elif spec["type"] == "episode":
+                            series = lookup(parent.parent_id)
+                    if series is not None and series.type == "series":
+                        new_children[series.id] = series
                 elif title.type != spec["type"]:
                     title.type = spec["type"]  # a folder that became a show (tvshow.nfo added) keeps its id
                 if spec["type"] == "episode" and parent is not None:
@@ -949,6 +960,10 @@ class LibraryImportService:
                 override.fields = {**override_fields, "_source_album_id": source_album_id}
             if item.extra_type != described["extra_type"]:
                 item.extra_type = described["extra_type"]
+        for series in new_children.values():
+            deliberate_unmatch = (series.field_sources or {}).get("provider_ids") == "user" and not (series.provider_ids or {}).get("Tmdb")
+            if not series.locked and not deliberate_unmatch:
+                series.metadata_due_at = now
         # Re-index only new titles or changed search text; index_title drops the
         # stored embedding, so an unchanged rescan must not call it (else the backfill re-embeds everything).
         touched = {title.id: title for _, described, _ in linked for spec in described["titles"] if (title := titles.get(full_key(spec)))}

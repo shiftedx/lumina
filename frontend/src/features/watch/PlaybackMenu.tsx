@@ -82,7 +82,15 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
     sync: off('sync') ? TURNED_OFF : textTrack ? null : 'Choose a subtitle track to sync it.',
     translate: off('translate') ? TURNED_OFF : !capabilities?.ai_summaries ? 'Needs the assistant server. Ask an admin to turn this on.' : textTrack ? null : 'Choose a subtitle track to translate it.',
   };
-  const quality = [{ value: null as number | null, label: options?.mode === 'direct' ? 'Original' : 'Auto' }, ...(options?.quality_heights ?? []).map((height) => ({ value: height as number | null, label: `${height}p` }))];
+  const sourceHeight = options?.facts?.height ?? null;
+  // A transient bitrate decision may have hidden the source height from the normal rung list. Keep Auto available,
+  // but make Original a real member choice so the player can re-probe without that advisory cap.
+  const offersOriginal = sourceHeight !== null && (options?.reason?.includes('ContainerBitrateExceedsLimit') || request.max_height === sourceHeight);
+  const quality = [
+    { value: null as number | null, label: options?.mode === 'direct' && !offersOriginal ? 'Original' : 'Auto' },
+    ...(offersOriginal ? [{ value: sourceHeight, label: 'Original' }] : []),
+    ...(options?.quality_heights ?? []).filter((height) => height !== sourceHeight).map((height) => ({ value: height as number | null, label: `${height}p` })),
+  ];
   const audio = options?.audio_tracks ?? [];
   const defaultAudio = audio.find((entry) => entry.default)?.index ?? audio[0]?.index ?? null;
   const playbackFacts = playbackFactsLabel(options);
@@ -138,7 +146,7 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
           ) : null}
           {audio.length > 1 ? (
             <fieldset><legend className="g-label">Audio</legend>
-              {audio.map((entry) => <label key={entry.index}><input checked={(request.audio_index ?? defaultAudio) === entry.index} name={`${id}-audio`} onChange={() => onRequestChange({ ...request, audio_index: entry.index === defaultAudio ? null : entry.index })} type="radio" /> {entry.label}</label>)}
+              {audio.map((entry) => <label key={entry.index}><input checked={(request.audio_index ?? defaultAudio) === entry.index} name={`${id}-audio`} onChange={() => onRequestChange({ ...request, audio_index: entry.index })} type="radio" /> {entry.label}</label>)}
             </fieldset>
           ) : null}
           <fieldset><legend className="g-label">Subtitles</legend>

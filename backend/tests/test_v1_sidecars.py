@@ -92,6 +92,18 @@ def test_nfo_movie_episode_album(admin: TestClient, tmp_path: Path) -> None:
     assert sorted((str(p), p.stat().st_mtime_ns, p.read_bytes()) for p in root.rglob("*") if p.is_file()) == before
 
 
+def test_filename_episode_labels_omit_release_suffixes_but_preserve_sidecar_titles(admin: TestClient, tmp_path: Path) -> None:
+    root = tmp_path / "mnt" / "media"
+    folder = root / "Series" / "Season 01"
+    write(folder / "Series - S01E02 - Part II [[Trash] Release Sources (Streaming Service) 2.0 AMZN WEBDL-1080p][EAC3 Atmos 5.1][h264]-Group.mkv")
+    write(folder / "Series - S01E03 - A Story [Part Two] [1080p][h264]-Group.mkv")
+    stem = folder / "Series - S01E04 - Other [1080p]"
+    write(stem.with_suffix(".mkv"))
+    write(stem.with_suffix(".nfo"), "<episodedetails><title>Our title [1080p]</title><season>1</season><episode>4</episode></episodedetails>")
+    items = scan(admin, root)
+    assert set(items) == {"Part II", "A Story [Part Two]", "Our title [1080p]"}
+
+
 def test_nfo_xxe_and_remote_url_blocked(admin: TestClient, tmp_path: Path) -> None:
     root = tmp_path / "mnt" / "media"
     secret = tmp_path / "secret.txt"

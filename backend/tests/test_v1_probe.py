@@ -30,9 +30,9 @@ def make_media(path: Path, vcodec: str = "libx264", acodec: str = "aac", fmt: st
     return path
 
 
-def _options(item_id: str, user: str = "alice", profiles: str | None = None):
+def _options(item_id: str, user: str = "alice", profiles: str | None = None, **params: object):
     with _client(user) as client:
-        return client.get(f"/api/library/{item_id}/playback-options", params={"profiles": profiles} if profiles else None)
+        return client.get(f"/api/library/{item_id}/playback-options", params=({"profiles": profiles} if profiles else {}) | params)
 
 
 def test_direct_mp4_range_seek(household: None) -> None:
@@ -134,3 +134,35 @@ def test_profiles_ceiling_audio_tracks_and_quality_rungs(household: None) -> Non
     hevc_id = _download("alice", make_media(settings.library_root / "alice" / "hevc.mp4", vcodec="libx265", size="320x240"), remote_id="hevc")
     assert _options(hevc_id).json()["mode"] == "transcode"
     assert _options(hevc_id, profiles="mp4-avc-aac,mp4-hevc-aac").json()["mode"] == "direct"
+
+
+def test_advisory_bandwidth_budget_changes_only_the_initial_automatic_decision(household: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    item_id = _download("alice", make_media(settings.library_root / "alice" / "budget.mp4"), remote_id="budget")
+    facts = {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2", "video_codec": "h264", "audio_codec": "aac", "width": 1920, "height": 1080,
+        "duration": 120.0, "bit_rate": 8_000_000,
+        "streams": [
+            {"index": 0, "type": "video", "codec": "h264", "width": 1920, "height": 1080},
+            {"index": 1, "type": "audio", "codec": "aac", "channels": 2, "default": True},
+        ],
+    }
+    monkeypatch.setattr(media_probe.MediaProbeService, "facts", lambda _self, _item: facts)
+
+    assert _options(item_id).json()["mode"] == "direct"
+    assert _options(item_id, bandwidth_bps=99_999).status_code == 422
+    constrained = _options(item_id, bandwidth_bps=2_000_000)
+    assert constrained.status_code == 200
+    assert constrained.json()["reason"] == "ContainerBitrateExceedsLimit"
+
+    # An explicit player height wins over the transient browser hint at the public session boundary.
+    with _client("alice") as client:
+        manual = client.post(f"/api/library/{item_id}/playback-sessions?bandwidth_bps=2000000", json={"max_height": 1080})
+    assert manual.status_code == 409 and "does not need conversion" in manual.json()["detail"]
+
+    with db_module.SessionLocal() as db:
+        record = UserSettingsService(db).ensure_for_user(db.get(User, "alice"))
+        record.ui_prefs = {"playback_max_height": 720}
+        db.commit()
+    # A saved member ceiling remains the authoritative choice; the transient network hint does not add a second cap.
+    saved_ceiling = _options(item_id, bandwidth_bps=2_000_000).json()
+    assert saved_ceiling["reason"] == "VideoResolutionNotSupported"

@@ -6,7 +6,7 @@ import { LuminaPlayer, type LuminaPlayerSource, type LuminaPlayerTrack } from '.
 import { releaseBackground } from './backgroundGate';
 import { onFirstFrame, recordMetric, takePlayIntent, type TtffLabel } from './perfMetrics';
 import { startPoint } from './playbackModel';
-import { adoptSpeculativeStart, holdConversion, takePrefetchedOptions } from './playbackPrefetch';
+import { adoptSpeculativeStart, holdConversion, initialPlaybackBandwidthBps, takePrefetchedOptions } from './playbackPrefetch';
 import type { LocalPlaybackOptions, LocalPlaybackSession, PlaybackSessionRequest } from './types';
 
 type LocalPlayerProps = Omit<ComponentProps<typeof LuminaPlayer>, 'source' | 'ref'> & {
@@ -93,20 +93,29 @@ export function playbackFactsLabel(options: LocalPlaybackOptions | null): string
   const size = facts.height ? `${facts.height}p` : null;
   const codecs = [facts.video_codec, facts.audio_codec].filter((codec): codec is string => Boolean(codec)).map(codecLabel).join(' / ');
   const via = options.mode === 'remux' ? 'Remuxed' : options.mode === 'transcode' ? 'Transcoded' : 'Original';
-  const bandwidth = options.reason?.includes('ContainerBitrateExceedsLimit') ? 'Household bandwidth limit' : null;
+  const bandwidth = options.reason?.includes('ContainerBitrateExceedsLimit') ? 'Bitrate limit' : null;
   return [size, codecs, via, bandwidth].filter(Boolean).join(' · ');
 }
 
 /** Plays a Library item through the path its probed codecs and the member's choices actually need. */
 export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedMetadata, request, onRequestChange, tracks, onOptions, startAt = 0, startKey, ...playerProps }: LocalPlayerProps) {
   const playId = request?.version_id ?? itemId;
+  const bandwidthRef = useRef<{ playId: string; value: number | undefined } | null>(null);
+  if (bandwidthRef.current?.playId !== playId) bandwidthRef.current = { playId, value: initialPlaybackBandwidthBps() };
+  const bandwidthBps = bandwidthRef.current.value;
+  // A member quality choice replaces the advisory initial decision. Do not reuse the capped prefetch for it.
+  const decisionBandwidthBps = request?.max_height == null ? bandwidthBps : undefined;
+  const decisionKey = `${playId}|${request?.max_height ?? 'automatic'}`;
   const key = requestKey(request);
   const [options, setOptions] = useState<LocalPlaybackOptions | null>(null);
+  const [optionsKey, setOptionsKey] = useState<string | null>(null);
+  const decisionOptions = optionsKey === decisionKey ? options : null;
   const [probeFailed, setProbeFailed] = useState(false);
   const [decisionProblem, setDecisionProblem] = useState<string | null>(null);
   useEffect(() => () => { void stopDirectPlayback(playId).catch(() => undefined); }, [playId]);
   const [sourceMissing, setSourceMissing] = useState(false);
   const [session, setSession] = useState<LocalPlaybackSession | null>(null);
+  const [decodedSize, setDecodedSize] = useState<{ key: string; height: number } | null>(null);
   const [conversionProblem, setConversionProblem] = useState<string | null>(null);
   const [stoppedByAdmin, setStoppedByAdmin] = useState(false);
   // What the server session plays: a start position and the member's choices, always changed together,
@@ -137,13 +146,13 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
     choiceStartRef.current = Math.floor(mediaRef.current?.currentTime ?? 0);
     resumePlayingRef.current = mediaRef.current ? !mediaRef.current.paused : true;
   }
-  const converts = needsSession(options, request);
-  const duration = options?.facts?.duration;
+  const converts = needsSession(decisionOptions, request);
+  const duration = decisionOptions?.facts?.duration;
   // Bumped by the HEVC fallback to ask for a new decision now that this browser no longer offers HEVC.
   const [decisionAttempt, setDecisionAttempt] = useState(0);
   const fellBackRef = useRef(false); // at most one automatic fallback per player
-  const copiesVideo = session ? (session.kind ? session.kind === 'remux' || session.kind === 'audio' : session.mode === 'remux') : options?.mode === 'direct' && !converts;
-  const hevcVideo = kind === 'video' && options?.facts?.video_codec === 'hevc' && copiesVideo;
+  const copiesVideo = session ? (session.kind ? session.kind === 'remux' || session.kind === 'audio' : session.mode === 'remux') : decisionOptions?.mode === 'direct' && !converts;
+  const hevcVideo = kind === 'video' && decisionOptions?.facts?.video_codec === 'hevc' && copiesVideo;
   const arrivingRef = useRef(false);
   // HEVC the browser claimed but cannot play: remember it, drop HEVC from the profiles and ask again at the
   // same position, so the server encodes H.264 instead. False when this is not that case (show the failure).
@@ -165,18 +174,20 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   useEffect(() => {
     let active = true;
     setOptions(null);
+    setOptionsKey(null);
     setProbeFailed(false);
     setDecisionProblem(null);
     setSourceMissing(false);
     setSession(null);
-    ((decisionAttempt ? null : takePrefetchedOptions(playId)) ?? getLocalPlaybackOptions(playId)).then(
-      (next) => { if (active) { setOptions(next); onOptionsRef.current?.(next); } },
+    ((decisionAttempt || request?.max_height != null ? null : takePrefetchedOptions(playId, decisionBandwidthBps))
+      ?? (decisionBandwidthBps === undefined ? getLocalPlaybackOptions(playId) : getLocalPlaybackOptions(playId, decisionBandwidthBps))).then(
+      (next) => { if (active) { setOptions(next); setOptionsKey(decisionKey); onOptionsRef.current?.(next); } },
       // An unreachable probe should not block a file the browser may still play. A definitive 404 must
       // not be hidden by that fallback: direct media would only repeat the same missing-source failure.
       (error: unknown) => { if (active) { if (isMissingSourceProbe(error)) setSourceMissing(true); else if (error instanceof ApiRequestError && [409, 429].includes(error.status)) setDecisionProblem(error.message); else setProbeFailed(true); onOptionsRef.current?.(null); } },
     );
     return () => { active = false; };
-  }, [playId, decisionAttempt]);
+  }, [playId, decisionAttempt, decisionBandwidthBps, decisionKey, request?.max_height]);
 
   // A new choice (version, audio, subtitle, quality) restarts at the current position, like a far seek.
   // A new item starts from the beginning and resets the choice memory.
@@ -213,7 +224,9 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
     // options (and so the duration) arrive in the same render that turns `converts` on.
     const from = restartedRef.current ? target.start : startPoint(target.start, duration);
     askedRef.current = from;
-    startLocalPlaybackSession(itemId, from, body).then(
+    (decisionBandwidthBps === undefined
+      ? startLocalPlaybackSession(itemId, from, body)
+      : startLocalPlaybackSession(itemId, from, body, decisionBandwidthBps)).then(
       (next) => {
         started = next.session_id;
         adoptSpeculativeStart(itemId, next.session_id); // the server returns the early session for the same start
@@ -233,7 +246,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
       release();
       if (started) void stopLocalPlaybackSession(started).catch(() => undefined);
     };
-  }, [converts, itemId, target]);
+  }, [decisionBandwidthBps, converts, itemId, target]);
 
   // A layout effect: hls.js detaches before the player hands its element on (picture-in-picture into the next item)
   // or loads the next source into it, so it never empties the element under the next item.
@@ -311,7 +324,12 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   }, [duration, session, mediaEpoch]);
 
   // A transcode that keeps pausing to buffer earns one lower-quality offer per session; it never changes by itself.
-  const nextLower = session?.mode === 'transcode' ? lowerQuality(options, request?.max_height) : null;
+  const sizeKey = `${playId}|${session?.session_id ?? ''}`;
+  const playingHeight = decodedSize?.key === sizeKey ? decodedSize.height : 0;
+  // A bitrate-capped automatic stream can already be below the first source rung.
+  // Wait for its dimensions rather than offering a higher rendition before metadata.
+  const currentHeight = playingHeight || (decisionOptions?.reason?.includes('ContainerBitrateExceedsLimit') ? 0 : request?.max_height);
+  const nextLower = session?.mode === 'transcode' ? lowerQuality(decisionOptions, currentHeight) : null;
   // Parents re-render on every timeupdate with fresh callbacks, so the stall count and the
   // offered-once memory live in refs that only a new session resets.
   const canOfferRef = useRef(false);
@@ -351,8 +369,8 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   if (stoppedByAdmin) source = { ...base, id: `${playId}:stopped`, src: null, state: 'failed', message: STOPPED_BY_ADMIN_MESSAGE };
   else if (sourceMissing) source = { ...base, id: `${playId}:missing`, src: null, state: 'failed', message: MISSING_SOURCE_MESSAGE, onRefresh: refreshMissingSource };
   else if (decisionProblem) source = { ...base, src: null, state: 'failed', message: decisionProblem, onRefresh: refreshMissingSource };
-  else if (probeFailed || (options?.mode === 'direct' && !converts)) source = { ...base, src: `${libraryMediaUrl(playId)}${fragment}`, state: 'loading' };
-  else if (options?.mode === 'unavailable') source = { ...base, src: null, state: 'unsupported', message: 'This file has no playable audio or video.' };
+  else if (probeFailed || (decisionOptions?.mode === 'direct' && !converts)) source = { ...base, src: `${libraryMediaUrl(playId)}${fragment}`, state: 'loading' };
+  else if (decisionOptions?.mode === 'unavailable') source = { ...base, src: null, state: 'unsupported', message: 'This file has no playable audio or video.' };
   else if (conversionProblem) source = { ...base, id: `${playId}:failed`, src: null, state: 'failed', message: conversionProblem };
   else if (session) source = { ...base, id: `${playId}:converted`, src: nativeHls() ? `${apiBaseUrl}${session.playback_url}` : null, state: 'loading' };
   else source = { ...base, src: null, state: 'loading' };
@@ -385,10 +403,10 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
     return () => { clearTimeout(timer); stopFirstFrame(); media.removeEventListener('progress', onData); };
   }, [hevcVideo, source.id, session]);
 
-  const label = playbackFactsLabel(options);
-  const compactLabel = options?.facts?.height ? `${options.facts.height}p` : label?.split(' · ').at(-1);
+  const label = playbackFactsLabel(decisionOptions);
+  const compactLabel = decisionOptions?.facts?.height ? `${decisionOptions.facts.height}p` : label?.split(' · ').at(-1);
   const quality = label ? (
-    <span className="quality-control quality-control-facts" data-playback-mode={options?.mode} title={label}>
+    <span className="quality-control quality-control-facts" data-playback-mode={decisionOptions?.mode} title={label}>
       <span className="sr-only">Playback details: {label}</span>
       <span aria-hidden="true" className="quality-control-copy" data-compact-label={compactLabel}>{label}</span>
     </span>
@@ -396,6 +414,7 @@ export function LocalLibraryPlayer({ itemId, kind, poster, extensions, onLoadedM
   // A restart reloads metadata; the caller's resume must not re-apply over the member's seek or choice.
   // A direct file reloaded by a new version resumes where the member was.
   const loaded = (media: HTMLMediaElement) => {
+    setDecodedSize({ key: sizeKey, height: media instanceof HTMLVideoElement ? media.videoHeight : 0 });
     if (!restartedRef.current) {
       onLoadedMetadata?.(media);
       // A browser that ignored the #t= fragment, or a failed probe, still starts at the start point.

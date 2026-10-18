@@ -119,7 +119,7 @@ def test_playback_request_reads_body_then_query_and_drops_garbage() -> None:
         {"DeviceProfile": "not-a-dict", "MaxStreamingBitrate": "8000000", "SubtitleStreamIndex": -1, "AudioStreamIndex": True},
         {"starttimeticks": "10", "mediasourceid": "../x"},
     )
-    assert parsed == PlaybackRequest(profile=None, max_bitrate=8_000_000, start_ticks=10, audio_index=None, subtitle_index=None, media_source_id=None)
+    assert parsed == PlaybackRequest(profile=None, max_bitrate=8_000_000, start_ticks=10, audio_index=None, subtitle_index=None, media_source_id=None, subtitle_explicit=True)
     assert playback_request(None, {}) == PlaybackRequest(None, None, None, None, None, None)
     dashed = "0f8fad5b-d9cb-469f-a165-70867728950e"
     assert playback_request({"MediaSourceId": dashed.replace("-", "").upper()}, {}).media_source_id == dashed

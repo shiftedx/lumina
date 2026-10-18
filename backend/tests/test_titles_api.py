@@ -143,6 +143,37 @@ def test_next_up_follows_the_last_watched_episode(library, api_client) -> None: 
     assert client.get("/api/titles/next-up", params={"limit": 0}).status_code == 422
 
 
+def test_next_up_uses_one_latest_checkpoint_across_versions(library, api_client) -> None:  # noqa: ANN001
+    factory, root = library
+    alternative = uid(0xAC0101)
+    with factory() as session:
+        add_file(session, root, "TV/Show/alternate.mkv", item_id=alternative, title_id=S1E1, owner=ALICE, title="Alternate")
+        session.add_all([
+            PlaybackProgress(id=uid(0xAC0102), user_id=ALICE, item_id=FILE[S1E1], completed=True,
+                             position_seconds=1500, last_watched_at=T0),
+            PlaybackProgress(id=uid(0xAC0103), user_id=ALICE, item_id=alternative, completed=False,
+                             position_seconds=300, last_watched_at=T0 + timedelta(hours=1)),
+        ])
+        session.commit()
+    client = member(api_client, factory, ALICE)
+    assert client.get("/api/titles/next-up").json() == []
+    with factory() as session:
+        session.get(PlaybackProgress, uid(0xAC0103)).completed = True
+        session.commit()
+    assert [item["id"] for item in client.get("/api/titles/next-up").json()] == [S1E2]
+
+
+def test_next_up_keeps_member_checkpoints_separate_across_repeated_requests(library, api_client) -> None:  # noqa: ANN001
+    factory, _root = library
+    alice = member(api_client, factory, ALICE)
+    assert alice.put(f"/api/titles/{S1E1}/watched", json={"watched": True}).status_code == 200
+    bob = member(api_client, factory, BOB)
+    assert bob.put(f"/api/titles/{S1E2}/watched", json={"watched": True}).status_code == 200
+    for user_id, expected in ((BOB, S2E1), (ALICE, S1E2), (BOB, S2E1)):
+        client = member(api_client, factory, user_id)
+        assert [item["id"] for item in client.get("/api/titles/next-up").json()] == [expected]
+
+
 def test_watched_fans_out_over_a_series_and_back(library, api_client) -> None:  # noqa: ANN001
     factory, _root = library
     client = member(api_client, factory, ALICE)

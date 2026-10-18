@@ -38,7 +38,9 @@ import { DEFAULT_AUTO_SKIP, DEFAULT_PROFANITY, type PlaybackPrefs } from '../../
 import { moveFocus } from '../media/focusNav';
 import { episodeCode, useFetched } from '../titles/titleModel';
 import type { CaptionPrefs } from './captionPrefs';
+import { preferredAudio, preferredSubtitle } from './trackPreferences';
 import { PlaybackMenu, subtitleTrackSources, useSubtitleTracks } from './PlaybackMenu';
+import { ChromecastPanel } from './ChromecastPanel';
 import { type UpNext, PlayerOverlays } from './PlayerOverlays';
 import { showTextTrack } from './playerSegments';
 import { stepFrom } from '../gallery/albumQueue';
@@ -311,6 +313,23 @@ export function WatchSurface({
   // The file that actually plays: tracks, segments and mute ranges belong to the chosen version.
   const playId = sessionRequest.version_id ?? local?.id ?? null;
   const { tracks: subtitleTracks, reload: reloadSubtitleTracks } = useSubtitleTracks(playId);
+  const trackChoices = useRef({ id: playId, audio: false, subtitle: false });
+  useEffect(() => {
+    if (trackChoices.current.id !== playId) trackChoices.current = { id: playId, audio: false, subtitle: false };
+    const defaults = captions?.tracks;
+    if (!defaults) return;
+    if (!trackChoices.current.audio && playbackOptions?.audio_tracks?.length) {
+      trackChoices.current.audio = true;
+      const index = preferredAudio(playbackOptions.audio_tracks, defaults);
+      if (index !== null) setSessionRequest((current) => ({ ...current, audio_index: index }));
+    }
+    if (!trackChoices.current.subtitle && (subtitleTracks.length || !defaults.subtitlesEnabled)) {
+      trackChoices.current.subtitle = true;
+      const selected = preferredSubtitle(subtitleTracks, defaults);
+      setSubtitle(selected?.id ?? null);
+      setSessionRequest((current) => ({ ...current, subtitle: selected?.format === 'image' ? selected.id : null }));
+    }
+  }, [playId, playbackOptions, subtitleTracks, captions?.tracks]);
   const selectedTextTrack = subtitleTracks.some((track) => track.id === subtitle && track.format === 'text') ? subtitle : null;
   // The chosen text track renders as <track default>, so a session restart's new media element keeps it.
   const playerTracks = useMemo(() => subtitleTrackSources(subtitleTracks).map((track) => ({ ...track, default: track.id === selectedTextTrack })), [subtitleTracks, selectedTextTrack]);
@@ -335,6 +354,7 @@ export function WatchSurface({
   useEffect(() => { showTextTrack(playerRef.current?.textTracks, selectedTextTrack); }, [selectedTextTrack, playerTracks, sessionRequest]);
 
   function chooseSubtitle(track: SubtitleTrack | null) {
+    trackChoices.current.subtitle = true;
     setSubtitle(track?.id ?? null);
     // Image subtitles are burned in by a session restart; text tracks switch in place.
     const burnedIn = track?.format === 'image' ? track.id : null;
@@ -343,9 +363,11 @@ export function WatchSurface({
 
   /** A version change drops the old file's subtitle choice (its stream ids belong to that file). */
   function changeSessionRequest(next: PlaybackSessionRequest) {
+    if (next.audio_index !== sessionRequest.audio_index) trackChoices.current.audio = true;
     if ((next.version_id ?? null) === (sessionRequest.version_id ?? null)) { setSessionRequest(next); return; }
     setSubtitle(null);
-    setSessionRequest({ ...next, subtitle: null });
+    setPlaybackOptions(null);
+    setSessionRequest({ ...next, audio_index: null, subtitle: null });
   }
 
   // Loudness × mute go through the one per-element audio graph, never a re-encode.
@@ -757,6 +779,7 @@ export function WatchSurface({
               {previewLoading ? <RemotePlayerLoading /> : local ? <LocalLibraryPlayer audio={playerAudio} extensions={playerExtensions} mediaRef={playerRef} onEnded={handlePlaybackEnded} onLoadedMetadata={(media) => { playerRef.current = media; if (Number.isFinite(media.duration)) setMediaDuration(media.duration); showTextTrack(media.textTracks, selectedTextTrack); }} onOptions={setPlaybackOptions} onRequestChange={changeSessionRequest} request={sessionRequest} startAt={startAt} startKey={startRef.current?.key} tracks={playerTracks} onPause={() => checkpointPlayer(true)} onSeeked={(media) => { resetAutoplayCycle(media); checkpointPlayer(true); }} onTimeUpdate={(media) => { resetAutoplayCycle(media); setCurrentTime(media.currentTime); checkpointPlayer(); }} itemId={local.id} kind={isAudioItem(local) ? 'audio' : 'video'} poster={thumbnail} title={title} /> : remote && !playUnavailable ? <RemotePlayer extensions={playerExtensions} onEnded={handlePlaybackEnded} onLiveEnded={() => setLiveEnded(true)} onMediaRef={(media) => { playerRef.current = media; }} onPause={() => checkpointPlayer(true)} onReacquire={onReacquireRemote ? () => onReacquireRemote(remote) : undefined} onSeeked={(media) => { resetAutoplayCycle(media); checkpointPlayer(true); }} onTimeUpdate={(media) => { resetAutoplayCycle(media); setCurrentTime(media.currentTime); checkpointPlayer(); }} playback={preview?.playback} poster={thumbnail} resumePosition={preview?.playback?.live ? null : remoteProgress && !remoteProgress.completed ? remoteProgress.position_seconds : null} title={title} /> : <LuminaPlayer extensions={{ ...playerExtensions, unavailableAction }} source={{ id: 'unavailable', kind: 'video', src: null, state: 'unsupported', message: playUnavailableCopy || 'You can still download this video to the vault.' }} title={title} />}
             </PlayerPreferencesContext.Provider>
           </div>
+          {local && !isAudioItem(local) && !mini ? <ChromecastPanel audioIndex={sessionRequest.audio_index ?? null} getMedia={() => playerRef.current} itemId={sessionRequest.version_id || local.id} key={sessionRequest.version_id || local.id} onProgress={(position, duration) => onPlaybackCheckpoint(local, position, duration, duration !== null && position >= duration - 1)} subtitle={subtitle} /> : null}
           {webVideo ? (
             <div className="gallery g-watch-body">
               <WatchInfoColumn
@@ -790,8 +813,9 @@ export function WatchSurface({
                 </details>
               </aside>
             </div>
-          ) : mediaTitle ? (
+          ) : (
             <>
+              {mediaTitle ? (
               <div className="watch-local-body" data-focus-row>
                 <section aria-labelledby={localTitleId} className={`watch-info watch-title watch-local-story is-${episode ? 'episode' : 'film'}`}>
                   {!episode ? <div aria-hidden="true" className="watch-local-poster"><Artwork alt="" sizes="144px" src={mediaTitle.poster?.url ?? mediaTitle.poster_url} /></div> : null}
@@ -813,11 +837,8 @@ export function WatchSurface({
                   {libraryUpNext ? <LibraryUpNextRail autoplay={autoplayUpNext} onAutoplayChange={onAutoplayUpNextChange} onOpenAll={episode ? () => onOpenTitle?.(episode) : undefined} onPlay={(itemId) => onOpenLibraryItem?.(itemId)} upNext={libraryUpNext} /> : null}
                 </aside>
               </div>
-              <div className="watch-local-tools"><WatchTools onSelectedChange={selectTool} selectedId={selectedToolId} tools={toolList} /></div>
-            </>
-          ) : (
-            <>
-              {/* Byline, Follow and the actions row are one arrow-key grid. */}
+              ) : (
+              // Byline, Follow and the actions row are one arrow-key grid.
               <section className="watch-info">
                 <h1>{title}</h1>
                 <div className="watch-byline">
@@ -829,7 +850,8 @@ export function WatchSurface({
                 {shareNote}
                 {recordingControls}
               </section>
-              <WatchTools onSelectedChange={selectTool} selectedId={selectedToolId} tools={toolList} />
+              )}
+              <div className={mediaTitle ? 'watch-local-tools' : undefined}><WatchTools onSelectedChange={selectTool} selectedId={selectedToolId} tools={toolList} /></div>
             </>
           )}
         </div>

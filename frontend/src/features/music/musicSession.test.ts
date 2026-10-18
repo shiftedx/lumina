@@ -6,12 +6,15 @@ import type { MusicEngineState, MusicSource } from './musicEngine';
 import type { MusicTrack } from './musicTypes';
 
 const mocks = vi.hoisted(() => ({
+  forgetCast: vi.fn(),
   queues: [] as MusicTrack[][],
   getQueue: vi.fn(),
   progress: vi.fn().mockResolvedValue(undefined),
   stopCast: vi.fn().mockResolvedValue(undefined),
   engines: [] as FakeController[],
   streams: [] as FakeController[],
+  getShared: vi.fn(),
+  putShared: vi.fn(),
 }));
 
 class FakeApiRequestError extends Error {
@@ -33,6 +36,7 @@ class FakeController {
   public readonly setVolume = vi.fn();
   public readonly setGain = vi.fn();
   public readonly setRepeat = vi.fn();
+  public readonly setCrossfade = vi.fn();
   public readonly replaceUpcoming = vi.fn((queue: MusicSource[]) => { this.queue = queue; });
   public readonly dispose = vi.fn();
 
@@ -61,7 +65,8 @@ vi.mock('../../api', () => ({
   updatePlaybackProgress: mocks.progress,
 }));
 vi.mock('./musicOffline', () => ({ offlineTrack: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('./musicCastSession', () => ({ stopMusicCast: mocks.stopCast }));
+vi.mock('./musicCastSession', () => ({ stopMusicCast: mocks.stopCast, forgetMusicCast: mocks.forgetCast, restoreSharedMusicCast: vi.fn() }));
+vi.mock('./musicSharedSession', () => ({ getMusicSharedSession: mocks.getShared, putMusicSharedSession: mocks.putShared }));
 vi.mock('./musicEngine', () => ({ MusicEngine: FakeEngine, MAX_AUDIO_BYTES: 8, MAX_DECODED_AUDIO_BYTES: 128 * 1024 * 1024 }));
 vi.mock('./musicStream', () => ({ MusicStream: FakeStream }));
 
@@ -97,8 +102,11 @@ beforeEach(() => {
   mocks.getQueue.mockReset();
   mocks.progress.mockReset().mockResolvedValue(undefined);
   mocks.stopCast.mockReset().mockResolvedValue(undefined);
+  mocks.forgetCast.mockReset();
   mocks.engines.length = 0;
   mocks.streams.length = 0;
+  mocks.getShared.mockResolvedValue({ revision: 0, queue: [], current_index: null, position_seconds: 0, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+  mocks.putShared.mockResolvedValue({ revision: 1, queue: [], current_index: null, position_seconds: 0, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
   vi.stubGlobal('AudioContext', FakeAudioContext);
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
 });
@@ -115,6 +123,29 @@ describe('musicSession', () => {
     localStorage.setItem('lumina:music:queue:member', JSON.stringify({ queue: [{ ...good, audio_url: 'https://example.test/private.flac' }], index: 0, position: Infinity }));
     session.setMusicOwner('member');
     expect(session.musicSession().queue).toEqual([]);
+  });
+
+  it('keeps an untouched cached queue provisional when the server has a canonical session', async () => {
+    const local = track('local');
+    const server = track('server');
+    localStorage.setItem('lumina:music:queue:member', JSON.stringify({ queue: [local], index: 0, position: 25, revision: 2, repeat: 'off', shuffle: false, dirty: false }));
+    mocks.getShared.mockResolvedValue({ revision: 3, queue: [server], current_index: 0, position_seconds: 4, repeat: 'all', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+    const session = await loadSession();
+    session.setMusicOwner('member');
+    await vi.waitFor(() => expect(session.musicSession().queue).toEqual([server]));
+    expect(session.musicSession().playback.playing).toBe(false);
+    expect(mocks.putShared).not.toHaveBeenCalled();
+  });
+
+  it('preserves a local rewind when its session revision still matches', async () => {
+    const local = track('local');
+    localStorage.setItem('lumina:music:queue:member', JSON.stringify({ queue: [local], index: 0, position: 12, revision: 3, repeat: 'off', shuffle: false, dirty: true }));
+    mocks.getShared.mockResolvedValue({ revision: 3, queue: [local], current_index: 0, position_seconds: 40, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+    mocks.putShared.mockResolvedValue({ revision: 4, queue: [local], current_index: 0, position_seconds: 12, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+    const session = await loadSession();
+    session.setMusicOwner('member');
+    await vi.waitFor(() => expect(mocks.putShared).toHaveBeenCalledWith(expect.objectContaining({ base_revision: 3, position_seconds: 12, item_ids: ['local'] })));
+    expect(session.musicSession().sharedRevision).toBe(4);
   });
 
   it('never autoplays an async queue that returns after the member changes', async () => {
@@ -242,6 +273,16 @@ describe('musicSession', () => {
     expect(session.musicSession().mode).toBe('streaming');
   });
 
+  it.each(['duration', 'sample_rate', 'channels'] as const)('streams unprobed audio with missing %s instead of decoding it', async (field) => {
+    const session = await loadSession();
+    session.setMusicOwner('member');
+    await session.playMusicQueue([track('unprobed', { [field]: null })], 0, 60);
+
+    expect(mocks.engines).toHaveLength(0);
+    expect(mocks.streams[0].play).toHaveBeenCalledWith([expect.objectContaining({ id: 'unprobed' })], 0, 60);
+    expect(session.musicSession().mode).toBe('streaming');
+  });
+
   it('cancels oversized and aborted gapless response streams', async () => {
     const session = await loadSession();
     const oversizedCancel = vi.fn();
@@ -298,3 +339,86 @@ describe('musicSession', () => {
     expect(session.musicSession().message).toBe('Speaker stop failed');
   });
 });
+
+  it('adopts a refreshed canonical queue paused and never resumes the old controller', async () => {
+    const session = await loadSession();
+    session.setMusicOwner('member');
+    await session.playMusicQueue([track('old')]);
+    const old = mocks.engines[0];
+    mocks.getShared.mockResolvedValue({ revision: 4, queue: [track('new')], current_index: 0, position_seconds: 0, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+    await session.refreshMusicSharedSession('member');
+
+    expect(old.dispose).toHaveBeenCalled();
+    expect(session.musicSession()).toMatchObject({ queue: [track('new')], playback: { playing: false } });
+    await session.toggleMusic();
+    expect(old.resume).not.toHaveBeenCalled();
+    expect(mocks.engines.at(-1)?.play).toHaveBeenCalledWith([expect.objectContaining({ id: 'new' })], 0, 0);
+  });
+
+  it('replaces a preloaded successor when canonical wait resolution truncates the queue', async () => {
+    const session = await loadSession();
+    mocks.putShared.mockResolvedValue({ revision: 1, queue: [track('a'), track('b')], current_index: 0, position_seconds: 0, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+    session.setMusicOwner('member');
+    await vi.waitFor(() => expect(session.musicSession().sharedRevision).toBe(0));
+    await session.playMusicQueue([track('a'), track('b')]);
+    const controller = mocks.engines[0];
+    await vi.waitFor(() => expect(mocks.putShared).toHaveBeenCalled());
+    controller.replaceUpcoming.mockClear();
+    mocks.putShared.mockResolvedValue({ revision: 2, queue: [track('a')], current_index: 0, position_seconds: 0, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0,
+      entries: [{ kind: 'track', item_id: 'a', state: 'playable', tracks: [track('a')] }, { kind: 'acquisition', request_id: '11111111-1111-4111-8111-111111111111', state: 'awaiting_import', name: 'Album', message: 'Waiting for library import' }], entry_index: 0, unavailable_policy: 'wait' });
+    session.setMusicUnavailablePolicy('wait');
+    await session.syncMusicSharedSession();
+    expect(session.musicSession().queue.map((entry) => entry.id)).toEqual(['a']);
+    await vi.waitFor(() => expect(controller.replaceUpcoming).toHaveBeenCalledWith([expect.objectContaining({ id: 'a' })]));
+    expect(session.musicSession().queue.map((entry) => entry.id)).toEqual(['a']);
+  });
+
+
+  it('serializes a durable clear behind an in-flight checkpoint', async () => {
+    const session = await loadSession();
+    session.setMusicOwner("member");
+    await vi.waitFor(() => expect(session.musicSession().sharedRevision).toBe(0));
+    mocks.putShared.mockClear();
+    let finish: ((value: object) => void) | undefined;
+    mocks.putShared.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    await session.playMusicQueue([track('a')]);
+    await vi.waitFor(() => expect(mocks.putShared).toHaveBeenCalledTimes(1));
+    const closing = session.closeMusic();
+    finish?.({ revision: 1, queue: [track('a')], current_index: 0, position_seconds: 0, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+    await closing;
+    await vi.waitFor(() => expect(mocks.putShared.mock.calls.some(([body]) => Array.isArray(body.item_ids) && body.item_ids.length === 0 && body.current_index === null)).toBe(true));
+    expect(session.musicSession().queue).toEqual([]);
+  });
+
+
+  it('stops the old controller when a sync removes its current track', async () => {
+    const session = await loadSession();
+    mocks.putShared.mockResolvedValue({ revision: 1, queue: [track('a')], current_index: 0, position_seconds: 0, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+    session.setMusicOwner('member');
+    await vi.waitFor(() => expect(session.musicSession().sharedRevision).toBe(0));
+    await session.playMusicQueue([track('a')]);
+    const old = mocks.engines[0];
+    await vi.waitFor(() => expect(mocks.putShared).toHaveBeenCalled());
+    mocks.putShared.mockResolvedValue({ revision: 2, queue: [track('b')], current_index: 0, position_seconds: 0, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 1 });
+    session.setMusicUnavailablePolicy('wait');
+    await session.syncMusicSharedSession();
+    expect(old.dispose).toHaveBeenCalled();
+    expect(session.musicSession()).toMatchObject({ queue: [track('b')], playback: { playing: false } });
+  });
+
+
+  it('maps an engine advance from a direct track into the resolved acquisition entry', async () => {
+    const session = await loadSession();
+    session.setMusicOwner('member');
+    const snapshot = { revision: 3, queue: [track('direct'), track('album-one'), track('album-two')], current_index: 0, position_seconds: 0,
+      repeat: 'off' as const, shuffle: false, active_output: { kind: 'browser' as const }, updated_at: null, removed_count: 0,
+      entries: [
+        { kind: 'track' as const, item_id: 'direct', state: 'playable' as const, tracks: [track('direct')] },
+        { kind: 'acquisition' as const, request_id: '11111111-1111-4111-8111-111111111111', state: 'playable' as const, name: 'Album', tracks: [track('album-one'), track('album-two')] },
+      ], entry_index: 0, unavailable_policy: 'skip' as const };
+    session.applyMusicSharedSnapshot(snapshot);
+    mocks.putShared.mockResolvedValue({ ...snapshot, revision: 4 });
+    await session.toggleMusic();
+    mocks.engines.at(-1)?.emit({ index: 1, position: 0, playing: true });
+    expect(session.musicSession().sharedEntryIndex).toBe(1);
+  });

@@ -1,0 +1,26 @@
+# ADR 0026: Member-owned music sessions use revisions
+
+- Status: Accepted
+- Date: 2026-10-17
+
+## Context
+
+Per-item playback progress does not describe the member's deliberate listening queue. Browser-local queues cannot restore across browsers and can overwrite intentional rewinds if reconnect merges choose the furthest position. Output capabilities and offline copies have different authority from the current shared queue.
+
+## Decision
+
+Keep one server listening-session row per member, with an ordered list of item IDs (including duplicates), selected index, finite position, repeat/shuffle state, a credential-free output descriptor and a revision. A whole-session update requires the current base revision; creation requires revision zero. Concurrent edits return a conflict with the current server snapshot. Queue revisions remain separate from per-item progress.
+
+The server revalidates IDs using current member visibility and rebuilds manifests from registered music data. It prunes stale/hidden items without returning their old metadata, adjusts cursor/position and reports a removal count. Browser storage supplies only provisional offline state and IDs for initial migration; its URLs, manifests and metadata never establish server authority.
+
+Logical queue entries may name either a registered track or the member's own approved/pending music request. They remain distinct from playable track manifests. A request resolves only through a matching music release group and visible registered files in an enabled root; upstream download flags cannot resolve it. Keep logical order/cursor beside the resolved playback queue. Skip advances to the next playable entry; Wait places a hard playback/prefetch boundary at the unresolved entry. Restoration stays paused, and only an already active explicit wait intention may continue when import resolves the entry.
+
+On reconnect, unchanged revisions can accept the local snapshot, including a lower intentional position. A diverged revision requires an explicit choice to use the server session or keep this device's snapshot against the new revision; a second race returns another conflict. There is no furthest-position merge. Restoring a queue does not automatically start audio or recreate a remote output capability.
+
+Remote output transfer must acknowledge the target queue/item/position before stopping or revoking the source. Sonos/Chromecast credentials and media capability lifecycles remain separate from the session row. A credential-free output descriptor alone never claims an output is still playing.
+
+An acknowledged transfer performs one serialized session transition and adopts its returned revision before ordinary checkpoints resume. Exact queue-index mappings preserve duplicate tracks and filtered output queues. A remote descriptor requires a live owner-bound ticket/status; visibility pruning also invalidates an output whose granted items were removed.
+
+## Consequences
+
+Schema 25 adds `music_listening_sessions`. Rollback preserves the table and stamps schema 24; older releases ignore shared queue state while retaining per-item progress. Two-client API/browser workflow checks accompany persistence. Offline saved audio remains member-scoped. Current visibility, capability revocation, decoding memory limits and household resource admission still apply at playback time.

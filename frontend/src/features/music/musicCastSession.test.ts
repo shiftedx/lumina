@@ -35,6 +35,18 @@ describe('persisted music cast controller', () => {
     expect(reloaded.musicCast()).toMatchObject({ owner: 'member-a', playing: true, index: 3, position: 44, duration: 200, volume: .45 });
   });
 
+  it('does not install a deferred shared descriptor after its owner is invalidated', async () => {
+    const cast = await import('./musicCastSession');
+    let resolve: ((value: object) => void) | undefined;
+    api.status.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    const restoring = cast.restoreSharedMusicCast(session('member-a'));
+    cast.forgetMusicCast('member-a');
+    resolve?.({ transport_state: 'PLAYING', track: { track_number: 1, position_seconds: 4, duration_seconds: 180 } });
+    await restoring;
+    expect(cast.musicCast()).toBeNull();
+    expect(localStorage.getItem('lumina:music:cast:member-a')).toBeNull();
+  });
+
   it('keeps persisted controllers isolated by owner', async () => {
     const first = await import('./musicCastSession');
     first.setMusicCast(session('member-a'));

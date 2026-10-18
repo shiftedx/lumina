@@ -9,6 +9,7 @@ export interface MusicCastSession {
   playing: boolean;
   /** Index in the full browser queue represented by Sonos track number 1. */
   baseIndex: number;
+  queueIndices?: number[];
   index: number;
   position: number;
   duration: number;
@@ -41,12 +42,12 @@ function validSession(value: unknown, owner?: string): value is MusicCastSession
     && typeof cast.name === 'string' && cast.name.length > 0 && cast.name.length <= 120
     && typeof cast.playing === 'boolean'
     && boundedInteger(cast.baseIndex, 0, 5000)
-    && boundedInteger(cast.index, cast.baseIndex, 5000)
+    && boundedInteger(cast.index, 0, 5000)
     && typeof cast.position === 'number' && Number.isFinite(cast.position) && cast.position >= 0 && cast.position <= 7 * 24 * 60 * 60
     && typeof cast.duration === 'number' && Number.isFinite(cast.duration) && cast.duration >= 0 && cast.duration <= 7 * 24 * 60 * 60
     && (cast.volume === null || typeof cast.volume === 'number' && Number.isFinite(cast.volume) && cast.volume >= 0 && cast.volume <= 1)
     && boundedInteger(cast.queued, 1, 100)
-    && cast.index < cast.baseIndex + cast.queued;
+    && (!cast.queueIndices || Array.isArray(cast.queueIndices) && cast.queueIndices.length === cast.queued && cast.queueIndices.every((value) => boundedInteger(value, 0, 5000)));
 }
 
 function readStored(owner: string): StoredCast | null {
@@ -98,13 +99,13 @@ function statusSession(session: MusicCastSession, raw: unknown): MusicCastSessio
   const status = (raw && typeof raw === 'object' ? raw : {}) as CastStatus;
   const trackNumber = finite(status.track?.track_number);
   const relative = trackNumber !== null && Number.isInteger(trackNumber) && trackNumber >= 1
-    ? Math.min(session.queued - 1, trackNumber - 1) : session.index - session.baseIndex;
+    ? Math.min(session.queued - 1, trackNumber - 1) : session.queueIndices?.indexOf(session.index) ?? session.index - session.baseIndex;
   const position = finite(status.track?.position_seconds) ?? finite(status.position_seconds) ?? session.position;
   const duration = finite(status.track?.duration_seconds) ?? session.duration;
   const volume = finite(status.volume);
   return {
     ...session,
-    index: session.baseIndex + Math.max(0, relative),
+    index: session.queueIndices?.[Math.max(0, relative)] ?? session.baseIndex + Math.max(0, relative),
     position: Math.max(0, position),
     duration: Math.max(0, duration),
     volume: volume === null ? session.volume : Math.max(0, Math.min(1, volume > 1 ? volume / 100 : volume)),
@@ -144,6 +145,21 @@ export function handleMusicCastStatusError(ticket: string, error: unknown): bool
   if (!terminalStatusError(error) || current?.ticket !== ticket) return false;
   forgetMusicCast(current.owner);
   return true;
+}
+
+/** Validate a server-restored descriptor before publishing speaker controls. */
+export async function restoreSharedMusicCast(value: MusicCastSession): Promise<void> {
+  if (!validSession(value)) return;
+  const generation = ++restoreGeneration;
+  try {
+    const status = await getMusicCastStatus(value.ticket);
+    if (generation !== restoreGeneration) return;
+    const expiresAt = Date.now() + CAST_TTL_MS;
+    replaceCurrent(statusSession(value, status), expiresAt, true);
+  } catch {
+    // The server already rejected stale/revoked tickets. Transient failures do
+    // not manufacture a controller from a descriptor alone.
+  }
 }
 
 export async function restoreMusicCast(owner: string): Promise<void> {

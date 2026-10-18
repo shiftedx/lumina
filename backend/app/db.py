@@ -246,6 +246,17 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE app_settings ADD COLUMN resource_policy JSON NOT NULL DEFAULT '{}'",
         "ALTER TABLE users ADD COLUMN resource_overrides JSON NOT NULL DEFAULT '{}'",
     ),
+    23: (),  # Arr observation tables come from create_all; rollback preserves disposable snapshots.
+    24: (),  # Arr operation ledger; create_all adds the table, rollback preserves the audit.
+    25: (),  # Member music listening sessions; create_all adds the table, independent of per-item progress.
+    26: (),  # Infrastructure connectors and separately approved music acquisitions; additive tables.
+    27: (),  # Member-owned listening export credentials and replay-safe event ledger.
+    28: (),  # Revocable, item-scoped Chromecast direct-media capabilities.
+    29: (
+        "ALTER TABLE music_listening_sessions ADD COLUMN queue_entries JSON DEFAULT '[]' NOT NULL",
+        "ALTER TABLE music_listening_sessions ADD COLUMN entry_index INTEGER",
+        "ALTER TABLE music_listening_sessions ADD COLUMN unavailable_policy VARCHAR(8) DEFAULT 'skip' NOT NULL",
+    ),
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

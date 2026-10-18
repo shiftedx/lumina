@@ -1,6 +1,8 @@
 """Request sync: queue progress, file stats, path mapping, targeted rescan, available only once the vault has the title."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from arr_fake import API_KEY, FakeArr, library_title
@@ -129,14 +131,52 @@ def test_rescan_folder_starts_a_scoped_run_on_the_root_holding_it(setup, monkeyp
         session.add_all([
             StorageRoot(id="tv", label="TV", path="/media/tv", mode="external", enabled=True),
             StorageRoot(id="movies", label="Movies", path="/media/movies", mode="external", enabled=True),
+            StorageRoot(id="held", label="Held", path="/media/held", mode="external", enabled=True),
             ImportRun(id="old", root_id="movies", user_id="admin", visibility="shared", state="succeeded", cursor="[]", counters={}),
+            ImportRun(id="failed", root_id="tv", user_id="admin", visibility="shared", state="failed", cursor="[]", counters={}),
+            ImportRun(id="hold", root_id="held", user_id="admin", visibility="shared", state="needs_confirmation", cursor="[]", counters={}),
         ])
         session.commit()
     REAL_RESCAN("/media/movies/The Matrix (1999)")
     REAL_RESCAN("/media/movies/The Matrix (1999)")  # throttled
     REAL_RESCAN("/media/tv/Lost")  # never imported: waits for the admin's first import
+    REAL_RESCAN("/media/held/Lost")  # a held confirmation never yields an automatic scoped import
     assert started == [(("movies", "admin", "shared"), {"trigger": "watch", "scope": [{"dir": "The Matrix (1999)", "deep": True}]})]
     assert submitted == ["run-1"]
+
+
+def test_inventory_rescans_do_not_starve_folders_when_a_root_only_accepts_one_per_poll(setup, monkeypatch) -> None:  # noqa: ANN001
+    factory, _, _ = setup
+    from app.services import library_automation
+    from app.services.library_import import ImportRunError
+
+    with factory() as db:
+        db.add(StorageRoot(id="movies", label="Movies", path="/media/movies", mode="external", enabled=True))
+        db.add(ImportRun(id="baseline", root_id="movies", user_id="admin", visibility="shared", state="succeeded", cursor="[]", counters={}))
+        db.commit()
+    now = [1000.0]
+    accepted: list[str] = []
+    available = [True]
+
+    def start(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        if not available[0]:
+            raise ImportRunError("Root is busy")
+        available[0] = False
+        accepted.append(kwargs["scope"][0]["dir"])
+        return "run"
+
+    monkeypatch.setattr(sync, "_rescanned", {})
+    monkeypatch.setattr(sync, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    monkeypatch.setattr(sync, "rescan_folder", REAL_RESCAN)
+    monkeypatch.setattr(library_automation, "start_run_default", start)
+    monkeypatch.setattr(library_automation.automation, "submit", lambda _: None)
+    folders = ["/media/movies/C", "/media/movies/A", "/media/movies/B", "/media/movies/A"]
+    for _ in range(3):
+        available[0] = True
+        sync.rescan_folders(folders)
+        # Even after the cooldown expires, older work must precede a repeated A.
+        now[0] += sync.RESCAN_EVERY_SECONDS + 1
+    assert accepted == ["A", "B", "C"]
 
 
 def test_an_item_removed_from_the_arr_fails_only_that_request(setup) -> None:  # noqa: ANN001

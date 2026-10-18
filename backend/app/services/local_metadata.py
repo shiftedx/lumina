@@ -59,6 +59,12 @@ SEASON_DIR_PATTERN = re.compile(r"^(?:season|series|staffel|saison)[ ._-]*(\d{1,
 TRACK_PATTERN = re.compile(r"^(?P<number>\d{1,3})(?:[ ._-]+|\s*-\s*)(?P<title>.+)$")
 # S01E01-E02 / S01E01E02 / S01E01-02 continue a match at its end. "- 1080p" and "-720p" never do.
 MULTI_EPISODE_PATTERN = re.compile(r"-?[Ee](\d{1,3})(?!\d)|-(\d{1,3})(?![\dA-Za-z])")
+# Filename fallback only: preserve ordinary bracketed title text and every NFO/user title.
+EPISODE_RELEASE_SUFFIX = re.compile(
+    r"\s*\[(?=\[?Trash\]|[^\]\r\n]*(?:\b(?:480|720|1080|2160)[pi]\b|"
+    r"\b(?:WEB[- .]?DL|WEBRip|BluRay|HDTV|[hx][ .]?26[45]|HEVC|AVC|EAC3|DDP|DTS|AAC)\b))[^\r\n]*$",
+    re.IGNORECASE,
+)
 EXTRA_DIRS = {
     "trailers": "trailer", "featurettes": "featurette", "behind the scenes": "behindthescenes",
     "deleted scenes": "deletedscene", "interviews": "interview", "scenes": "scene", "shorts": "short",
@@ -694,7 +700,7 @@ def describe(root: Path, parts: tuple[str, ...], siblings: frozenset[str], cache
             series = prefix
         if not series and series_dirs:
             series = strip_provider_tags(series_dirs[-1])[0]
-        episode_title = _clean(clean_stem[rest:]) if episode and not title else None
+        episode_title = _clean(EPISODE_RELEASE_SUFFIX.sub("", clean_stem[rest:])) if episode and not title else None
         if not title:
             title = episode_title or (f"{series} S{season:02d}E{number:02d}" if series and season is not None and number is not None else stem)
         metadata.update(series=series, season_number=season, episode_number=number, episode_number_end=end, episode=title)

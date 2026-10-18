@@ -1,6 +1,6 @@
 /* Split from lumina.css. Owner: */
 .watch-tools { min-width: 0; margin-top: 20px; }
-.watch-tools .watch-tools-tabs.g-tabs { min-height: 0; flex-wrap: wrap; margin-bottom: 0; }
+.watch-tools .watch-tools-tabs.g-tabs { min-height: 0; max-width: 100%; flex-wrap: wrap; margin-bottom: 0; }
 .watch-tools-tabs [role='tab'] { flex: none; margin-bottom: -1px; }
 .watch-tools-panel > .description-card, .watch-tools-panel > .watch-curation, .watch-tools-panel > .chapter-navigation { margin-top: 16px; }
 .chat-rail { display: grid; gap: 12px; margin-top: 18px; padding: 16px; border-radius: var(--g-radius-sheet); background: var(--g-wash); }

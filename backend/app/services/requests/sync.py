@@ -61,6 +61,15 @@ def map_path(path: str | None, mappings: list[dict[str, str]] | None) -> str | N
     return None
 
 
+def rescan_folders(folders: list[str]) -> None:
+    """Offer the longest-waiting folders first; a busy root must not starve its later titles."""
+    for local in sorted(set(folders), key=lambda path: (_rescanned.get(path, -RESCAN_EVERY_SECONDS), path)):
+        try:
+            rescan_folder(local)
+        except Exception as exc:  # noqa: BLE001 - one folder never stops the next poll's reconciliation
+            logger.warning("Arr folder rescan failed: %s", type(exc).__name__)
+
+
 def rescan_folder(local: str) -> None:
     """A targeted, deep scan of ``local`` in the external storage root holding it (the watcher's own kind of run)."""
     from app.services.library_automation import automation, start_run_default
@@ -77,9 +86,13 @@ def rescan_folder(local: str) -> None:
             return
         root = max(roots, key=lambda r: len(r.path))
         newest = db.scalars(select(ImportRun).where(ImportRun.root_id == root.id).order_by(ImportRun.created_at.desc())).first()
-        if newest is None:  # a root never imported waits for the admin's first import
+        baseline = db.scalars(select(ImportRun).where(
+            ImportRun.root_id == root.id, ImportRun.state == "succeeded", ImportRun.coverage == "complete", ImportRun.scope.is_(None),
+        ).order_by(ImportRun.created_at.desc())).first()
+        if newest is None or newest.state == "needs_confirmation" or baseline is None:
+            # A root needs one complete full baseline; never bypass a held confirmation with an automatic scoped run.
             return
-        root_id, user_id, visibility = root.id, newest.user_id, newest.visibility
+        root_id, user_id, visibility = root.id, baseline.user_id, baseline.visibility
         relative = folder.relative_to(PurePosixPath(root.path)).as_posix()
     try:
         run_id = start_run_default(root_id, user_id, visibility, trigger="watch", scope=[{"dir": "" if relative == "." else relative, "deep": True}])

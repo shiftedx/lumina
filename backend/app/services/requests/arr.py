@@ -6,6 +6,7 @@ content-free ``ArrError`` that is safe to store on a request or show an admin.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.models import ArrServer
@@ -13,6 +14,8 @@ from app.services.local_ai import LocalAiError, bounded_json_request
 
 TIMEOUT_SECONDS = 15.0
 MAX_BYTES = 16 * 1024 * 1024  # a big Sonarr's /series/{id} or queue page
+MAX_PAGED_RECORDS = 100_000
+MAX_PAGED_BYTES = 64 * 1024 * 1024
 OK = (200, 201, 202)
 LABELS = {"sonarr": "Sonarr", "radarr": "Radarr"}
 
@@ -68,9 +71,78 @@ class ArrClient:
         return found[0]
 
     def queue(self) -> list[dict[str, Any]]:
-        # One page of 1000 queue records; page through when a household queue outgrows it.
-        page = self.call("GET", "queue", params={"page": 1, "pageSize": 1000})
-        return [r for r in page.get("records") or [] if isinstance(r, dict)]
+        return self.paged("queue")
+
+    def paged(self, path: str, *, page_size: int = 1000) -> list[dict[str, Any]]:
+        """Read every page of an arr collection, rejecting incomplete or malformed pagination.
+
+        A partial queue/history/wanted reply must never look like a successful
+        observation: callers retain their previous snapshot instead.
+        """
+        records: list[dict[str, Any]] = []
+        page_number = 1
+        expected_total: int | None = None
+        seen: set[str] = set()
+        collected_bytes = 0
+        while True:
+            page = self.call("GET", path, params={"page": page_number, "pageSize": page_size})
+            page_records, total = page.get("records"), page.get("totalRecords")
+            if (
+                not isinstance(page_records, list)
+                or isinstance(total, bool)
+                or not isinstance(total, int)
+                or total < 0
+                or page.get("page") != page_number
+            ):
+                raise ArrError(f"{LABELS.get(self.kind, 'Server')} sent malformed pagination")
+            if total > MAX_PAGED_RECORDS or expected_total is not None and total != expected_total:
+                raise ArrError(f"{LABELS.get(self.kind, 'Server')} sent malformed pagination")
+            expected_total = total
+            if len(page_records) > page_size or any(not isinstance(record, dict) for record in page_records):
+                raise ArrError(f"{LABELS.get(self.kind, 'Server')} sent malformed pagination")
+            identities = {_page_identity(record) for record in page_records}
+            if len(identities) != len(page_records) or seen.intersection(identities):
+                raise ArrError(f"{LABELS.get(self.kind, 'Server')} sent malformed pagination")
+            seen.update(identities)
+            collected_bytes += sum(len(json.dumps(record, sort_keys=True, default=str, separators=(",", ":")).encode()) for record in page_records)
+            if collected_bytes > MAX_PAGED_BYTES:
+                raise ArrError(f"{LABELS.get(self.kind, 'Server')} sent too many records")
+            records.extend(page_records)
+            if len(records) >= total:
+                if len(records) != total:
+                    raise ArrError(f"{LABELS.get(self.kind, 'Server')} sent malformed pagination")
+                return records
+            if not page_records:
+                raise ArrError(f"{LABELS.get(self.kind, 'Server')} sent malformed pagination")
+            page_number += 1
+
+    def observation(self) -> dict[str, Any]:
+        """Read a complete, bounded observation set for an enabled integration."""
+        resource = "movie" if self.kind == "radarr" else "series"
+        status = self.call("GET", "system/status")
+        inventory = self.call("GET", resource, array=True)
+        if not isinstance(status.get("version"), (str, int, float)) or any(not isinstance(item, dict) for item in inventory):
+            raise ArrError(f"{LABELS.get(self.kind, 'Server')} sent an unexpected reply")
+        return {
+            "version": str(status["version"]),
+            "inventory": inventory,
+            "records": {
+                "queue": self.paged("queue"),
+                "history": self.paged("history"),
+                "health": self.call("GET", "health", array=True),
+                "calendar": self.call("GET", "calendar", array=True),
+                "missing": self.paged("wanted/missing"),
+                "cutoff": self.paged("wanted/cutoff"),
+            },
+        }
+
+
+def _page_identity(record: dict[str, Any]) -> str:
+    """A stable upstream id catches a mutable duplicate record across pages."""
+    value = record.get("id")
+    if isinstance(value, (str, int)) and not isinstance(value, bool):
+        return f"id:{value}"
+    return json.dumps(record, sort_keys=True, default=str, separators=(",", ":"))
 
 
 def add_movie(client: ArrClient, server: ArrServer, tmdb_id: int) -> int:

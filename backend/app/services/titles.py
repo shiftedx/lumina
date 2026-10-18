@@ -34,6 +34,9 @@ from app.services.playback import PlaybackProgressService
 from app.services.title_metadata import title_people
 from app.services import art_urls, member_access, tmdb
 
+# Reuse SQL aliases so repeated Next Up reads do not rebuild their column adapters.
+_PROGRESS_SEASON, _PROGRESS_EPISODE = aliased(MediaTitle), aliased(MediaTitle)
+
 UNNUMBERED = 1_000_000  # a season/episode without a number sorts after every numbered one
 
 
@@ -736,15 +739,15 @@ class TitleService:
         """Each series' visible episodes in (season, episode) order with the member's latest progress: one query."""
         if not series_ids:
             return {}
-        season, episode = aliased(MediaTitle), aliased(MediaTitle)
+        season, episode = _PROGRESS_SEASON, _PROGRESS_EPISODE
+        progress = aliased(PlaybackProgress)
         rows = self.db.execute(
             select(
                 season.parent_id, episode.id, season.index_number, episode.index_number,
-                latest_progress(user, PlaybackProgress.last_watched_at, episode),
-                latest_progress(user, PlaybackProgress.completed, episode),
-                latest_progress(user, PlaybackProgress.position_seconds, episode),
+                progress.last_watched_at, progress.completed, progress.position_seconds,
             )
             .select_from(episode).join(season, season.id == episode.parent_id)
+            .outerjoin(progress, progress.id == latest_progress(user, PlaybackProgress.id, episode))
             .where(episode.type == "episode", season.parent_id.in_(series_ids), playable_exists(user, episode))
             .order_by(season.parent_id, func.coalesce(season.index_number, UNNUMBERED), func.coalesce(episode.index_number, UNNUMBERED), episode.id)
         ).all()
@@ -909,7 +912,7 @@ class TitleService:
 
         Walks every watched series' episode index in Python; move to SQL window functions if slow.
         """
-        season, episode = aliased(MediaTitle), aliased(MediaTitle)
+        season, episode = _PROGRESS_SEASON, _PROGRESS_EPISODE
         last_watched = func.max(PlaybackProgress.last_watched_at)
         watched = (
             select(season.parent_id).select_from(PlaybackProgress)
@@ -942,7 +945,7 @@ class TitleService:
         """Series whose anchor row (the same row ``dismiss_next_up`` marks) the member dismissed: one query."""
         if not series_ids:
             return set()
-        season, episode = aliased(MediaTitle), aliased(MediaTitle)
+        season, episode = _PROGRESS_SEASON, _PROGRESS_EPISODE
         rows = self.db.execute(
             select(season.parent_id, PlaybackProgress.dismissed_at).select_from(PlaybackProgress)
             .join(LibraryItem, LibraryItem.id == PlaybackProgress.item_id)

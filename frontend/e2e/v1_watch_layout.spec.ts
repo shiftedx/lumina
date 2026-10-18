@@ -45,16 +45,21 @@ test('test_watch_geometry', async ({ page }) => {
 });
 
 test('test_watch_small_layout', async ({ page }) => {
-  await openWatch(page, { width: 390, height: 844 });
-  const player = await box(page, '.player-frame');
-  expect(player.x).toBe(0);
-  expect(player.width).toBe(390);
-  const column = await box(page, '.g-watch-column');
-  const side = await box(page, '.g-watch-side');
-  expect(side.y).toBeGreaterThanOrEqual(column.y + column.height);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
-  await expect(page.getByRole('tab', { name: 'Notes', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Share' })).toBeVisible();
+  for (const width of [390, 320]) {
+    await openWatch(page, { width, height: 844 });
+    const player = await box(page, '.player-frame');
+    expect(player.x).toBe(0);
+    expect(player.width).toBe(width);
+    const column = await box(page, '.g-watch-column');
+    const side = await box(page, '.g-watch-side');
+    expect(side.y).toBeGreaterThanOrEqual(column.y + column.height);
+    const tabs = page.getByRole('tablist', { name: 'Video tools' });
+    const tabBox = await tabs.boundingBox();
+    expect(tabBox && tabBox.x + tabBox.width).toBeLessThanOrEqual(width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    await expect(page.getByRole('tab', { name: 'Notes', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Share' })).toBeVisible();
+  }
 });
 
 test('test_watch_preserves_current_play', async ({ page }) => {

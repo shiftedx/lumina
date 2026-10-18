@@ -2,7 +2,7 @@ export type MusicSource = {
   id: string;
   url: string;
   fallbackUrl?: string;
-  /** Optional manifest hints used to refuse unsafe PCM allocations before decoding. */
+  /** Buffered playback needs a size estimate; native streaming also accepts unknown facts. */
   expectedDecodedBytes?: number;
   duration?: number;
   sampleRate?: number;
@@ -41,6 +41,7 @@ const POSITION_UPDATE_MS = 250;
 
 type Playback = {
   node: AudioBufferSourceNode;
+  fade: GainNode;
   buffer: AudioBuffer;
   mode: MusicPlaybackMode;
   index: number;
@@ -273,6 +274,7 @@ export class MusicEngine {
   private volumeNode: GainNode | null = null;
   private volume = 1;
   private gain = 1;
+  private crossfadeSeconds = 0;
 
   private queue: readonly MusicSource[] = [];
   private state: MusicEngineState = { ...INITIAL_STATE };
@@ -423,6 +425,20 @@ export class MusicEngine {
     if (!Number.isFinite(gain) || gain < 0) return;
     this.gain = gain;
     if (this.context && this.gainNode) setParamValue(this.gainNode.gain, this.gain, this.context.currentTime);
+  }
+
+  /** Crossfade is opt-in and only affects the two already-bounded decoded buffers. */
+  public setCrossfade(seconds: number): void {
+    const next = Number.isFinite(seconds) ? Math.max(0, Math.min(12, seconds)) : 0;
+    if (next === this.crossfadeSeconds) return;
+    this.crossfadeSeconds = next;
+    this.successorRevision += 1;
+    this.cancelScheduledSuccessor();
+    if (this.currentPlayback && this.context) {
+      try { this.currentPlayback.fade.gain.cancelScheduledValues(this.context.currentTime); } catch { /* minimal contexts */ }
+      setParamValue(this.currentPlayback.fade.gain, 1, this.context.currentTime);
+    }
+    if (this.currentPlayback) this.prefetchNext(this.currentPlayback.generation, this.successorRevision);
   }
 
   public setRepeat(mode: MusicRepeatMode): void {
@@ -590,7 +606,8 @@ export class MusicEngine {
   private async decodeSource(source: MusicSource, signal: AbortSignal, generation: number, availableDecodedBytes: number): Promise<DecodedAudio> {
     const expected = expectedDecodedBytes(source);
     const sourceBudget = Math.min(MAX_DECODED_AUDIO_BYTES, availableDecodedBytes);
-    if (expected !== null && expected > sourceBudget) throw new DecodedMemoryError(source, sourceBudget);
+    if (expected === null) throw new Error('Audio size is not known yet. Choose streaming playback.');
+    if (expected > sourceBudget) throw new DecodedMemoryError(source, sourceBudget);
     let bytes: ArrayBuffer;
     try {
       const loaded = await this.getAudio(source, signal);
@@ -660,8 +677,9 @@ export class MusicEngine {
     this.scheduledNext = null;
     this.currentBuffer = buffer;
     try {
-      node = this.createSource(buffer, generation);
-      playback = { node, buffer, mode: audio.mode, index, startTime, offset, generation };
+      const created = this.createSource(buffer, generation);
+      node = created.node;
+      playback = { ...created, buffer, mode: audio.mode, index, startTime, offset, generation };
       this.currentPlayback = playback;
       node.start(startTime, offset);
     } catch (error) {
@@ -676,18 +694,21 @@ export class MusicEngine {
     this.prefetchNext(generation);
   }
 
-  private createSource(buffer: AudioBuffer, generation: number): AudioBufferSourceNode {
+  private createSource(buffer: AudioBuffer, generation: number): Pick<Playback, 'node' | 'fade'> {
     const context = this.context;
     const gainNode = this.gainNode;
     if (!context || !gainNode) throw new Error('Web Audio is unavailable.');
     const node = context.createBufferSource();
+    const fade = context.createGain();
     try {
       node.buffer = buffer;
-      node.connect(gainNode);
+      node.connect(fade);
+      fade.connect(gainNode);
+      setParamValue(fade.gain, 1, context.currentTime);
       node.onended = () => this.handleSourceEnded(node, generation);
-      return node;
+      return { node, fade };
     } catch (error) {
-      this.releaseNode(node, false);
+      this.releaseNode({ node, fade } as Playback, false);
       throw error;
     }
   }
@@ -753,10 +774,17 @@ export class MusicEngine {
 
     let node: AudioBufferSourceNode | null = null;
     try {
-      node = this.createSource(next.audio.buffer, generation);
-      const playback: Playback = { node, buffer: next.audio.buffer, mode: next.audio.mode, index: next.index, startTime: boundary, offset: 0, generation };
+      const overlap = Math.min(this.crossfadeSeconds, Math.max(0, current.buffer.duration - current.offset) / 2, next.audio.buffer.duration / 2);
+      const startTime = boundary - overlap;
+      const created = this.createSource(next.audio.buffer, generation);
+      node = created.node;
+      const playback: Playback = { ...created, buffer: next.audio.buffer, mode: next.audio.mode, index: next.index, startTime, offset: 0, generation };
+      if (overlap > 0) {
+        this.ramp(current.fade.gain, 1, 0, startTime, boundary);
+        this.ramp(playback.fade.gain, 0, 1, startTime, boundary);
+      }
       this.scheduledNext = playback;
-      node.start(boundary, 0);
+      node.start(startTime, 0);
     } catch (error) {
       this.scheduledNext = null;
       if (node) this.releaseNode(node, false);
@@ -792,7 +820,7 @@ export class MusicEngine {
 
     this.currentPlayback = null;
     this.scheduledNext = null;
-    this.releaseNode(current.node, false);
+    this.releaseNode(current, false);
     this.currentBuffer = null;
     this.stopPositionTimer();
     const nextIndex = this.successorIndex(current.index);
@@ -827,11 +855,11 @@ export class MusicEngine {
     const old = this.currentPlayback;
     this.currentPlayback = null;
     this.scheduledNext = null;
-    if (old) this.releaseNode(old.node, false);
+    if (old) this.releaseNode(old, false);
     this.currentBuffer = next.buffer;
     this.prefetched = null;
     this.currentPlayback = next;
-    this.setState({ index: next.index, position: 0, duration: next.buffer.duration, playing: true, loading: false, error: null, playbackMode: next.mode });
+    this.setState({ index: next.index, position: Math.max(0, this.now() - next.startTime), duration: next.buffer.duration, playing: true, loading: false, error: null, playbackMode: next.mode });
     if (!this.isActive(generation) || this.currentPlayback !== next) return;
     this.startPositionTimer();
     this.prefetchNext(generation);
@@ -891,7 +919,7 @@ export class MusicEngine {
   private cancelScheduledSuccessor(): void {
     const scheduled = this.scheduledNext;
     this.scheduledNext = null;
-    if (scheduled) this.releaseNode(scheduled.node, true);
+    if (scheduled) this.releaseNode(scheduled, true);
   }
 
   private abortFutureLoads(): void {
@@ -927,11 +955,13 @@ export class MusicEngine {
     const next = this.scheduledNext;
     this.currentPlayback = null;
     this.scheduledNext = null;
-    if (current) this.releaseNode(current.node, true);
-    if (next && next.node !== current?.node) this.releaseNode(next.node, true);
+    if (current) this.releaseNode(current, true);
+    if (next && next.node !== current?.node) this.releaseNode(next, true);
   }
 
-  private releaseNode(node: AudioBufferSourceNode, stop: boolean): void {
+  private releaseNode(playback: Pick<Playback, 'node' | 'fade'> | AudioBufferSourceNode, stop: boolean): void {
+    const node = 'node' in playback ? playback.node : playback;
+    const fade = 'node' in playback ? playback.fade : null;
     node.onended = null;
     if (stop) {
       try {
@@ -945,6 +975,16 @@ export class MusicEngine {
     } catch {
       // Browser-native disconnect is idempotent; minimal test nodes may omit it.
     }
+    try { fade?.disconnect(); } catch { /* best effort */ }
+  }
+
+  private ramp(param: AudioParam, from: number, to: number, start: number, end: number): void {
+    try { param.cancelScheduledValues(start); } catch { /* minimal contexts may not implement it */ }
+    setParamValue(param, from, start);
+    if (typeof param.linearRampToValueAtTime === 'function') {
+      try { param.linearRampToValueAtTime(to, end); return; } catch { /* fall through */ }
+    }
+    setParamValue(param, to, end);
   }
 
   private isActive(generation: number): boolean {

@@ -717,7 +717,11 @@ class LibrarySearchService:
         match, fetch = self._fetch(query, limit, extra_terms)
         if match is None:
             return []
-        visibility_sql, params = _visibility_clause(self.db, user)
+        # ``hits`` is already a bounded FTS candidate set.  Keep the outer join
+        # candidate-driven rather than letting SQLite expand the visibility OR
+        # over the library's visibility indexes (the same shape as
+        # ``LibraryService.visible_predicate(..., driving=False)``).
+        visibility_sql, params = _visibility_clause(self.db, user, candidate_driven=True)
         params.update({"match": match, "fetch": fetch, "limit": max(1, limit)})
         rows = self.db.execute(
             text(
@@ -741,9 +745,14 @@ class LibrarySearchService:
         return [MomentHit(item_id=row[0], start_ms=row[1], text=row[2], rank=row[3]) for row in rows]
 
 
-def _visibility_clause(db: Session, user: User) -> tuple[str, dict]:
+def _visibility_clause(db: Session, user: User, *, candidate_driven: bool = False) -> tuple[str, dict]:
     """LibraryService.visible_predicate for raw FTS SQL over ``library_items li``, member access included (ADR 0019)."""
     shared, owner = "li.visibility = 'shared'", "li.user_id = :owner_id"
+    if candidate_driven:
+        # NULL never compared equal here before either.  The wrappers preserve
+        # that result while preventing a MULTI-INDEX OR from driving this
+        # bounded id join through every visible item.
+        shared, owner = "coalesce(li.visibility, '') = 'shared'", "coalesce(li.user_id, '') = :owner_id"
     row = aliased(LibraryItem, name="access_li")
     if (limits := member_access.item_clause(user, row)) is not None:
         allowed = select(row.id).where(row.id == literal_column("li.id"), limits).exists()

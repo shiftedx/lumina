@@ -11,7 +11,7 @@ import { mockMusic } from './music-mock';
  */
 
 const DESKTOP = { width: 1440, height: 900 };
-const PHONE = { width: 390, height: 844 };
+const PHONE = { width: 320, height: 844 };
 type Viewport = typeof DESKTOP;
 
 async function open(page: Page, path: string, viewport: Viewport = DESKTOP, scheme: 'light' | 'dark' = 'light') {

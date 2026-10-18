@@ -24,6 +24,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (url.includes('/api/admin/arr/observations')) return reply({ servers: [], items: [], page: 1, page_size: 50, total: 0, total_pages: 1 });
     if (url.endsWith('/servers/test')) return reply(TEST);
     if (url.endsWith('/servers')) return reply(method === 'GET' ? servers : SERVER);
     if (url.includes('/servers/')) return reply(SERVER);
@@ -133,6 +134,7 @@ describe('Requests settings', () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET';
       calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (url.includes('/api/admin/arr/observations')) return reply({ servers: [], items: [], page: 1, page_size: 50, total: 0, total_pages: 1 });
       if (url.endsWith('/servers')) return reply({ servers: [] });
       if (url.endsWith('/settings')) return reply({ requests_enabled: true, smtp: { host: null, port: null, security: 'starttls', username: null, from: null, password_set: false } });
       if (url.endsWith('/policies')) return reply(POLICIES);

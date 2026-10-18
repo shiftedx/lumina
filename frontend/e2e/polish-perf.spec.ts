@@ -75,7 +75,9 @@ test('opening the palette, a dialog, a menu, a toast, the reco menu and the mini
     await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('[data-shelf-section][aria-busy="true"]')].filter((node) => node.getBoundingClientRect().top < innerHeight).length)).toBe(0);
     await page.evaluate(OBSERVE);
     await open();
-    expect(await shift(page), name).toBeLessThanOrEqual(0.01);
+    const observed = await page.evaluate(() => ({ cls: (window as unknown as Shifts).__cls, sources: (window as unknown as Shifts).__src }));
+    console.log(`overlay CLS ${name}: ${JSON.stringify(observed)}`);
+    expect(observed.cls, `${name}: ${observed.sources.join(' | ')}`).toBeLessThanOrEqual(0.01);
   }
 });
 

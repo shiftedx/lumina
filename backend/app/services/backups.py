@@ -98,6 +98,10 @@ def create_backup(kind: str = "manual") -> dict[str, Any]:
                     if "smtp_password" in columns:  # 2.6.0 Requests: the SMTP password and Sonarr/Radarr keys too
                         destination.execute("UPDATE app_settings SET smtp_password = NULL")
                         destination.execute("UPDATE arr_servers SET api_key = NULL")
+                    if destination.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='service_connectors'").fetchone():
+                        destination.execute("UPDATE service_connectors SET api_key = NULL, username = NULL, password = NULL")
+                    if destination.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='listening_export_connections'").fetchone():
+                        destination.execute("UPDATE listening_export_connections SET credentials = NULL, enabled = 0")
                 counts = {table: destination.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in COUNTED_TABLES}  # noqa: S608
                 schema_version = destination.execute("PRAGMA user_version").fetchone()[0]
             finally:

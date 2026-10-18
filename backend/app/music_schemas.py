@@ -65,6 +65,9 @@ class CastRequest(MusicBody):
     speaker_id: str = Field(min_length=1, max_length=128)
     item_ids: list[str] = Field(min_length=1, max_length=100)
     compatibility: bool = False
+    base_revision: int | None = Field(default=None, ge=0)
+    current_index: int = Field(default=0, ge=0, le=5000)
+    position_seconds: float = Field(default=0, ge=0, le=604800)
 
 
 class CastControl(MusicBody):

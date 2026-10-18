@@ -95,7 +95,7 @@ Playback, Display, Discovery & streaming, Downloads, and Privacy & connected app
 Household, Library & storage, Connections, AI features, and Maintenance.
 
 Each category has focused subpages. Request approval and limits are under Household →
-Request rules; Sonarr, Radarr and Email are separate pages under Connections. AI features,
+Request rules; Sonarr, Radarr, Integrations and Email are separate pages under Connections. AI features,
 local models, assistant setup and speech setup each have their own page. Server addresses
 are under Connections → Addresses; backups, tasks, diagnostics and video conversion are
 under Maintenance. Advanced tuning expands within the relevant page, without a global switch.
@@ -107,6 +107,150 @@ manual entry remains available when the catalog is unavailable. A saved key is u
 for its saved endpoint, never forwarded to a different draft address.
 
 Search covers every setting you can access and opens its page, including advanced options.
+
+### Arr observations
+
+Configure Sonarr and Radarr under **Manage Server → Connections**, using the existing
+write-only API keys and path mappings. Enabled integrations are polled independently
+of **Household → Request rules → Allow requests**. Turning Requests off stops new
+member requests; it does not stop observation. Disabling an individual integration
+stops its observation and request dispatch.
+
+**Connections → Integrations** shows upstream-added inventory and paginated queue,
+history, health, calendar, missing and quality-cutoff observations. A complete poll
+replaces the saved snapshot; an outage or incomplete reply retains the previous
+snapshot with a stale label. Refresh performs another read without issuing an
+acquisition command. Concurrent refreshes for the same server are rejected. A
+timeout in the browser may leave the read running; review the next snapshot before
+trying again. Failed reads never establish a new successful observation.
+
+Each paginated collection is limited to 100,000 records and 64 MiB across its
+pages, with a 16 MiB limit per response. Exceeding a limit or detecting changing
+pagination fails the poll and retains the stale snapshot; records are never
+silently truncated. A later complete poll reconciles missed changes.
+
+An unmapped folder needs a matching remote/local path mapping. A mapped folder
+outside an enabled external storage root needs that root configured. A root awaiting
+its first import needs an owner's initial import under **Library & storage → Imports**;
+subsequent observations may request the existing throttled scoped import. An upstream
+file or title does not make media playable: the normal import must register a file
+visible to the member. Upstream-only inventory is owner-only; member title explanations
+contain no upstream paths, identifiers, keys or diagnostic bodies.
+
+The automated connector fixtures exercise Sonarr/Radarr v3 contracts. Installed
+versions and real-device/provider behavior require separate qualification; discovery
+of other connectors does not enable their controls.
+
+### Acquisition controls and supporting services
+
+An owner can open **Manage** on a Sonarr/Radarr inventory item to change monitoring
+(including a Sonarr season), choose an existing quality profile, search releases,
+explicitly grab an approved release, or request search/rescan recovery. Each operation
+uses a fresh revision and a durable intent ID. Reloading or retrying an uncertain
+operation does not resend it. **Reconcile** only reads upstream evidence; an outcome
+that cannot be proved remains uncertain and blocks competing work. Resolve that work
+upstream before changing connections or rolling back. Root moves, bulk rename,
+file deletion, transfer cancellation and retention are outside these controls.
+
+Under **Connections → Integrations → Infrastructure connectors**, add Lidarr,
+Prowlarr, qBittorrent or NZBGet. Saving disables observation until **Test connection**
+completes the minimal read contract; enabled connections are then polled every minute.
+Credentials are write-only. Changing the endpoint requires new credentials; removing
+credentials disables the connector. Backups omit these credentials, so re-enter and
+test them after restoring. A failed refresh keeps the previous snapshot stale.
+
+Lidarr uses `/api/v1` and an API key. Choose a root folder, quality profile and
+metadata profile for new artists, plus remote/local path mappings. Members request
+albums by MusicBrainz artist and release-group identity; every acquisition requires
+owner approval. Edition/release IDs are separate from release-group IDs. A mapped
+artist folder with upstream files may trigger the existing throttled scoped import,
+after the root's first complete owner import. A request becomes playable only when
+its release group has visible linked tracks in an enabled root. Uncertain add/search
+outcomes are retained and never automatically dispatched again.
+
+Prowlarr observation is read-only; it retains indexer configuration and credentials.
+qBittorrent uses WebUI cookie login and a complete `sync/maindata` snapshot; NZBGet uses
+Basic-authenticated JSON-RPC reads. To correlate transfers, bind an arr server and
+its exact configured download-client name, then require matching native download IDs.
+Unmatched and ambiguous jobs stay labeled and owner-only. These views expose reduced
+state/progress diagnostics and an upstream administration link, without transfer,
+seeding, cancellation or retention controls. File-list browsing is not implemented.
+
+The [connector matrix](../docs/research/arr-connector-contracts-2026-10-17.md)
+separates source-contract evidence from real installed-version qualification. Bazarr
+is conditional: no instance/authentication/identity mapping has been qualified, so
+subtitle search/download controls are absent. Existing local subtitles remain usable.
+
+### Listening continuity and defaults
+
+The member's queue, cursor, repeat and shuffle settings restore across browsers without
+starting audio. Older local queues migrate by IDs and are revalidated. Offline edits
+retain their base revision; reconnect can preserve an intentional rewind when that
+revision still matches. Concurrent edits offer **Use server** or **Keep this device**;
+another race returns another conflict. Hidden/removed entries are pruned safely.
+Acquisition entries remain distinct from playable tracks, with an explicit Skip/Wait
+policy. Wait stops playback and prefetch before an unresolved entry. In the queue,
+**Refresh requested albums** checks for imported visible tracks; choose Play after
+they appear. Restoring, refreshing or reconnecting does not start audio automatically.
+
+For a constrained connection, **My Settings → Playback → Streaming quality** can
+lower the starting ceiling while a quality chosen in the player still takes priority.
+On an untouched browser start, Lumina may use a finite Network Information downlink
+hint as a transient conservative bitrate cap. Missing, invalid, and Chromium's
+saturated 10 Mbps-or-higher value are treated as unknown. The hint is never saved,
+does not alter audio, subtitles, or resume position, and never creates an adaptive
+bitrate ladder; saved and explicit member quality choices remain authoritative.
+In the [synthetic 2.5 Mbps experiment](../docs/research/local-conversion-network-2026-10-17.md),
+480p software conversion substantially reduced stalls compared with an 8 Mbps
+1080p remux. That result is specific to the measured source/link; local conversion
+keeps the existing resource limits and does not launch an adaptive rendition ladder.
+
+Browser decoded-audio crossfade defaults to zero and supports up to 12 seconds.
+Large-file native streaming and remote outputs keep their own capabilities; crossfade
+is unavailable there. The sleep timer pauses browser output and does not follow a
+speaker. Sonos transfer retains the recoverable browser queue until the speaker
+acknowledges the admitted queue, position and exact index mapping. Return-to-browser
+acknowledges browser playback before stopping the speaker. Output tickets are still
+revoked by account/policy changes; a saved descriptor never grants playback access.
+
+Under **My Settings → Playback → Subtitles**, choose ordered audio/subtitle languages,
+subtitle enabled/forced/SDH defaults and caption appearance. Browser playback and
+compatible Jellyfin playback resolve defaults before making their playback decisions;
+explicit client or per-play audio choices and subtitle Off take priority.
+
+**My Settings → Playback → Listening history export** optionally connects a member's
+ListenBrainz user token or Last.fm application API key/secret followed by Last.fm
+account approval. These are separate from media-player credentials. Export uses
+structured track tags/manual metadata, elapsed browser listening, tracks longer than
+30 seconds and half the track or four minutes heard. Seeking and previews do not
+count. Offline replay keeps the same logical play ID. Outcomes are sent, ignored,
+pending, failed, revoked or uncertain; **Check provider history** reconciles uncertain
+outcomes without sending them again. Disconnecting stops future pending exports.
+Sonos and Chromecast listening export is not advertised by the browser-only tracker.
+
+### Chromecast preview
+
+The video watch page offers a first-party Web Sender based on Google's current
+[Web Sender integration](https://developers.google.com/cast/docs/web_sender/integrate)
+and Default Media Receiver. Open Lumina over HTTPS in a Cast-supported browser and
+configure a public/local server address reachable by the receiver. **Enable Chromecast**
+loads Google's SDK in that tab; then select a receiver. Browser audio pauses only
+after the receiver acknowledges the media and position. Pause, seek, resume and
+**Return playback here** retain a recoverable source on failure.
+
+The initial profile is direct MP4 H.264, 8-bit SDR up to 1080p with stereo AAC and
+optional selected text/VTT subtitles. Non-default audio, image subtitles and files
+needing conversion stay in browser playback; arbitrary remote media URLs are never
+sent to the receiver. Each receiver URL is an item-scoped, revocable 15-minute ticket,
+renewed every minute by the signed-in sender. Keep the page open; after disconnection
+the ticket expires without renewal. Each Range/VTT request rechecks current access
+and playback policy. Logout/member changes revoke receiver tickets. Media already
+buffered on a disconnected receiver may finish playing.
+
+The household has no Chromecast device, so hardware discovery/start/control/subtitle
+interoperability is explicitly unqualified. Contract fixtures and browser SDK mocks
+establish implementation behavior, not physical-device compatibility. Apple TV's
+existing Infuse/Jellyfin-compatible route remains available.
 
 ### Household resources
 
@@ -266,6 +410,13 @@ Schema steps 6 to 18 only add tables, columns and indexes that older releases ig
 
 | Rolling back to | Stamp |
 | --- | --- |
+| Before acquisition-aware music queues (schema 28) | `PRAGMA user_version = 28` (keep the additive `queue_entries`, `entry_index` and `unavailable_policy` columns; older releases use only the resolved playable queue) |
+| Before Chromecast media tickets (schema 27) | `DELETE FROM media_cast_tickets; PRAGMA user_version = 27` (revoke receiver access; keep the additive table) |
+| Before listening history exports (schema 26) | `PRAGMA user_version = 26` (keep `listening_export_connections` and `listening_play_events`; preserve uncertain delivery records to prevent duplicate exports) |
+| Before infrastructure connectors and music acquisitions (schema 25) | `PRAGMA user_version = 25` (keep `service_connectors` and `music_acquisitions`; reconcile uncertain Lidarr work before issuing another acquisition in an older release) |
+| Before shared music listening sessions (schema 24) | `PRAGMA user_version = 24` (keep `music_listening_sessions`; older releases ignore shared queues and continue per-item playback progress and browser-local restoration) |
+| Before arr operation history (schema 23) | `PRAGMA user_version = 23` (keep `arr_operations` as the acquisition audit, especially uncertain outcomes; verify unresolved work upstream before submitting another command through an older release) |
+| Before independent arr observations (schema 22) | `PRAGMA user_version = 22` (keep `arr_observation_states`, `arr_observed_items` and `arr_observed_records`; older releases ignore these disposable snapshots. Requests and saved connections remain.) |
 | Before the dedicated music experience (schema 17, step 18) | `PRAGMA user_version = 17` (the older release ignores `music_lookups`, `music_track_overrides`, `music_edit_batches`, `music_cast_tickets`, `music_file_writebacks`, and `music_playlists`. Track overrides and new navigation are unavailable, and its scans may regroup tracks from their source tags. Provider portraits need this release to render. Keep `music-file-backups` and all six tables; upgrading again restores their controls. Explicit audio-file writeback remains in the files across rollback; restore chosen files before rolling back if desired.) |
 | Before first-owner media onboarding (schema 19) | `PRAGMA user_version = 19` (`users.vault_setup_pending` remains and is ignored by the older release) |
 | Before household resource budgets (schema 21) | `ALTER TABLE app_settings DROP COLUMN resource_policy; ALTER TABLE users DROP COLUMN resource_overrides; PRAGMA user_version = 21` (removes resource settings and overrides; existing media and work remain) |
@@ -363,7 +514,7 @@ MusicBrainz, Cover Art Archive, Wikimedia and LRCLIB provide useful metadata wit
 
 **Manage music** previews edits or a shared artwork replacement for up to 500 selected titles. Album **Manage tracks** edits titles, artists, genres, disc/track order, lyrics and loudness, or groups selected tracks into a distinct release. These database edits survive rescans and have conflict-aware undo. Owners can separately preview **Write tags to files** for up to 100 tracks. Supported writeback formats are MP3, FLAC, Vorbis, Opus and MP4 audio. Originals are backed up under `music-file-backups`; restore refuses to overwrite a file changed since writeback. Keep this directory with database backups. Writeback needs a writable media mount and backup space; read-only mounts remain fully usable for database curation. Backups are capped at 10 GiB, and each apply requires free space for three times the selected original file size.
 
-The browser keeps a persistent queue, supports repeat/shuffle and uses ReplayGain or existing server loudness analysis for optional normalization. The gapless engine schedules the current and next decoded track on the audio clock. Very large tracks use **Streaming source** because decoded audio memory is bounded; native streaming does not promise gapless transitions. The player reports source codec/rate/depth separately from browser output and compatibility conversion.
+The browser keeps a persistent queue, supports repeat/shuffle and uses ReplayGain or existing server loudness analysis for optional normalization. The gapless engine schedules the current and next decoded track on the audio clock. Very large tracks and tracks whose duration, sample rate or channel count have not been probed use **Browser streaming** before buffered decoding. Native streaming does not promise gapless transitions or decoded-audio crossfade; known short tracks retain those capabilities. The same conservative choice applies to saved offline tracks. The player reports source codec/rate/depth separately from browser output and compatibility conversion.
 
 ### Desktop offline listening
 

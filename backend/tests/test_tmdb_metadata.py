@@ -714,6 +714,23 @@ def test_series_attaches_seasons_and_episodes_by_index(library) -> None:  # noqa
     assert run(returning) == "matched" and load(returning).metadata_due_at == NOW + timedelta(days=7)
 
 
+@pytest.mark.parametrize("provider_fails", [False, True])
+def test_new_episode_wakeup_survives_an_inflight_metadata_refresh(library, provider_fails) -> None:  # noqa: ANN001
+    series = add_title(type="series", key="root:TV/Series", name="Series", provider_ids={"Tmdb": "1396"})
+    wakeup = NOW + timedelta(seconds=1)
+
+    def import_then_answer() -> dict:
+        with db_module.session_scope() as db, write_transaction(db, name="test_import_during_metadata"):
+            db.get(MediaTitle, series).metadata_due_at = wakeup
+        if provider_fails:
+            raise RuntimeError("Provider unavailable")
+        return fixture("tv_1396")
+
+    library({"/3/tv/1396": import_then_answer})
+    assert run(series) == ("failed" if provider_fails else "matched")
+    assert load(series).metadata_due_at == wakeup, "a completed fetch or failure backoff must not discard newer imported children"
+
+
 def test_edits_made_while_a_refresh_is_in_flight_win(library) -> None:  # noqa: ANN001
     renamed = add_title(**NFO_IDS)
 

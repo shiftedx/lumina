@@ -929,3 +929,36 @@ def test_root_form_serves_items_and_streams_with_the_same_auth(jf: TestClient, c
     assert get(jf, "/Items/0123456789ABCDEF0123456789ABCDEF/Some/Probe").status_code == 404
     assert "jellyfin.unhandled GET /jellyfin/items/{id}/{id}/{id}" in caplog.text
     assert jf.get("/api/health").json()["status"] == "ok"  # /api is never the Jellyfin surface
+
+
+def test_member_track_defaults_resolve_languages_forced_sdh_and_keep_client_overrides(jf, monkeypatch) -> None:  # noqa: ANN001
+    from copy import deepcopy
+    from sqlalchemy import select
+    from app.db import session_scope
+    from app.models import UserSettings
+    from title_support import MOVIE_4K_PROBE
+
+    facts = deepcopy(MOVIE_4K_PROBE)
+    facts['streams'] += [
+        {'index': 4, 'type': 'audio', 'codec': 'aac', 'language': 'jpn', 'channels': 2},
+        {'index': 5, 'type': 'subtitle', 'codec': 'subrip', 'language': 'fra', 'forced': True},
+        {'index': 6, 'type': 'subtitle', 'codec': 'subrip', 'language': 'fre', 'forced': True, 'hearing_impaired': True},
+    ]
+    monkeypatch.setattr(media_probe.MediaProbeService, 'facts', lambda self, item: facts)
+    with session_scope() as db:
+        prefs = db.scalar(select(UserSettings).where(UserSettings.user_id == ALICE))
+        if prefs is None:
+            prefs = UserSettings(id='track-prefs', user_id=ALICE)
+            db.add(prefs)
+        prefs.ui_prefs = {'captions': {'tracks': {'audioLanguages': ['ja', 'en'], 'subtitleLanguages': ['fr', 'en'],
+                                                 'subtitlesEnabled': True, 'forcedOnly': True, 'preferSdh': True}}}
+    body = {'MediaSourceId': HEX(MOVIE_4K), 'DeviceProfile': {}}
+    path = f'/Items/{HEX(MOVIE)}/PlaybackInfo'
+    response = jf.post(path, json=body, headers=mediabrowser(ALICE_TOKEN))
+    assert response.status_code == 200, response.text
+    source = response.json()['MediaSources'][0]
+    assert (source['DefaultAudioStreamIndex'], source['DefaultSubtitleStreamIndex']) == (4, 6)
+    explicit = jf.post(path, json={**body, 'AudioStreamIndex': 1, 'SubtitleStreamIndex': -1}, headers=mediabrowser(ALICE_TOKEN))
+    assert explicit.status_code == 200, explicit.text
+    source = explicit.json()['MediaSources'][0]
+    assert (source['DefaultAudioStreamIndex'], source['DefaultSubtitleStreamIndex']) == (1, None)

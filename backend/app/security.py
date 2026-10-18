@@ -489,7 +489,7 @@ def resolve_user_from_request(
 
 # App passwords are for media apps: browse and play, never manage an account (2.9.0 security review).
 APP_PASSWORD_SCOPE_DETAIL = "An app password only plays and browses media. Do this from a signed-in browser session."
-_APP_PASSWORD_NO_READ = ("/api/admin", "/api/connected-apps", "/api/me/two-factor", "/api/me/jellyfin-import")
+_APP_PASSWORD_NO_READ = ("/api/admin", "/api/connected-apps", "/api/me/two-factor", "/api/me/jellyfin-import", "/api/me/listening-export", "/api/me/listening-events")
 _APP_PASSWORD_WRITES = re.compile(
     r"/api/(library/[^/]+/playback(?:/stop)?|library/[^/]+/playback-sessions|playback-sessions/[^/]+|playback/remote/.+|titles/[^/]+/watched)"
 )

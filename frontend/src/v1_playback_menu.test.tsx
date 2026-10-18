@@ -23,8 +23,8 @@ function menu(overrides: Partial<Parameters<typeof PlaybackMenu>[0]> = {}) {
     itemId: 'i1', options, versions: [], currentVersionId: 'i1', tracks: [track('s:0'), track('i:3', { label: 'English', format: 'image', origin: 'embedded', url: null })],
     subtitle: null, onSubtitle: vi.fn(), request: {}, onRequestChange: vi.fn(), prefs, onPrefs: vi.fn(), capabilities: { ai_summaries: false, asr: false }, onTracksChanged: vi.fn(), ...overrides,
   };
-  render(<PlaybackMenu {...props} />);
-  return props;
+  const view = render(<PlaybackMenu {...props} />);
+  return { ...props, view };
 }
 
 describe('PlaybackMenu', () => {
@@ -50,6 +50,26 @@ describe('PlaybackMenu', () => {
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('group', { name: 'Playback settings' })).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Playback settings' }));
+  });
+
+  it('offers an explicit Original choice for a transient bitrate cap and keeps it selected after the uncapped refresh', async () => {
+    const capped: LocalPlaybackOptions = {
+      ...options,
+      mode: 'transcode',
+      reason: 'ContainerBitrateExceedsLimit',
+      facts: { container: 'mov,mp4', video_codec: 'h264', audio_codec: 'aac', width: 1920, height: 1080, duration: 120 },
+      quality_heights: [720, 480],
+    };
+    const props = menu({ options: capped });
+    await userEvent.click(screen.getByRole('button', { name: 'Playback settings' }));
+    expect(screen.getAllByRole('radio', { name: /Auto|Original|720p|480p/ }).map((radio) => radio.closest('label')?.textContent?.trim())).toEqual(['Auto', 'Original', '720p', '480p']);
+    await userEvent.click(screen.getByRole('radio', { name: 'Original' }));
+    expect(props.onRequestChange).toHaveBeenLastCalledWith({ max_height: 1080 });
+
+    const { view, ...nextProps } = props;
+    view.rerender(<PlaybackMenu {...nextProps} options={{ ...capped, mode: 'direct', reason: null }} request={{ max_height: 1080 }} />);
+    expect((screen.getByRole('radio', { name: 'Original' }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('radio', { name: 'Auto' }) as HTMLInputElement).checked).toBe(false);
   });
 
   it('shows unavailable subtitle actions disabled with the reason', async () => {

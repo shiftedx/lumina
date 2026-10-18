@@ -107,7 +107,7 @@ def test_app_password_scope() -> None:
     assert allows("GET", "/api/library") and allows("GET", "/api/session/me") and allows("HEAD", "/api/art/x")
     assert allows("PUT", "/api/library/abc/playback") and allows("POST", "/api/library/abc/playback-sessions")
     assert allows("DELETE", "/api/playback-sessions/abc") and allows("PUT", "/api/titles/abc/watched")
-    for method, path in (("GET", "/api/admin/users"), ("GET", "/api/connected-apps"), ("GET", "/api/me/two-factor"),
+    for method, path in (("GET", "/api/admin/users"), ("GET", "/api/connected-apps"), ("GET", "/api/me/two-factor"), ("GET", "/api/me/listening-export"), ("GET", "/api/me/listening-events"),
                          ("POST", "/api/session/logout"), ("POST", "/api/connected-apps"), ("POST", "/api/me/password"),
                          ("PUT", "/api/settings/me"), ("POST", "/api/requests"), ("POST", "/api/library/abc/playback/x")):
         assert not allows(method, path), (method, path)

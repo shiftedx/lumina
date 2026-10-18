@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from app import db as db_module
 from app.config import settings
 from app.main import app
-from app.models import ImportRun, LibraryItem, MediaArtifact, User
+from app.models import ImportRun, LibraryItem, MediaArtifact, MediaTitle, User, utcnow
 from app.routers.admin_imports import _serialize
 from app.security import hash_password
 from app.services import library_import
@@ -66,6 +66,51 @@ def register_root(admin: TestClient, root: Path) -> str:
     response = admin.post("/api/admin/storage/roots", json={"label": "Media", "container_path": str(root), "mode": "external"})
     assert response.status_code == 201, response.text
     return response.json()["id"]
+
+
+@pytest.mark.parametrize("protection", [None, "locked", "unmatched"])
+def test_later_episode_import_wakes_series_metadata_without_overriding_owner_choices(library: Path, protection: str | None) -> None:
+    from datetime import timedelta
+
+    folder = library / "Series"
+    write(folder / "tvshow.nfo", b'<tvshow><title>Series</title><uniqueid type="tmdb">1396</uniqueid></tvshow>')
+    write(folder / "Season 01" / "Series - S01E01 - Pilot.mkv")
+    with client_for("admin") as admin:
+        root_id = register_root(admin, library)
+
+        def rescan():
+            result = admin.post("/api/admin/imports", json={"root_id": root_id})
+            assert result.status_code == 202, result.text
+            assert admin.get(result.json()["status_url"]).json()["state"] == "succeeded"
+
+        rescan()
+        with db_module.session_scope() as db:
+            series = db.scalar(select(MediaTitle).where(MediaTitle.type == "series"))
+            series_id = series.id
+            future = utcnow() + timedelta(days=90)
+            series.metadata_due_at = future
+            if protection == "locked":
+                series.locked = True
+            elif protection == "unmatched":
+                series.provider_ids = {}
+                series.field_sources = {**series.field_sources, "provider_ids": "user"}
+                series.metadata_due_at = None
+        before = utcnow()
+        write(folder / "Season 01" / "Series - S01E02 - Return.mkv")
+        write(folder / "Season 02" / "Series - S02E01 - New Season.mkv")
+        rescan()
+        with db_module.session_scope() as db:
+            series = db.get(MediaTitle, series_id)
+            due = series.metadata_due_at
+            if protection == "locked":
+                assert due == future
+            elif protection == "unmatched":
+                assert due is None and series.provider_ids == {}
+            else:
+                assert due is not None and before <= due <= utcnow(), "new episodes must not wait for the weekly/90-day series refresh"
+        rescan()
+        with db_module.session_scope() as db:
+            assert db.get(MediaTitle, series_id).metadata_due_at == due, "an unchanged scan must not keep requeueing metadata"
 
 
 def test_external_scan_zero_mutation(library: Path) -> None:

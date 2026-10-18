@@ -461,10 +461,10 @@ export const searchLibrary = (query: string, limit = 12, scope?: SearchScope, op
 
 export const libraryMediaUrl = (id: string): string => `${apiBaseUrl}/api/library/${enc(id)}/media`;
 const localPlaybackProfiles = (): string | undefined => browserSupportedPlaybackProfiles().join(',') || undefined;
-export const getLocalPlaybackOptions = (id: string): Promise<LocalPlaybackOptions> =>
-  requestJson(`/api/library/${enc(id)}/playback-options${qs({ profiles: localPlaybackProfiles() })}`, undefined, { timeoutMs: 30000 });
-export const startLocalPlaybackSession = (id: string, start = 0, request?: PlaybackSessionRequest): Promise<LocalPlaybackSession> =>
-  post(`/api/library/${enc(id)}/playback-sessions${qs({ start: start || undefined, profiles: localPlaybackProfiles() })}`, request, { timeoutMs: 30000 });
+export const getLocalPlaybackOptions = (id: string, bandwidthBps?: number): Promise<LocalPlaybackOptions> =>
+  requestJson(`/api/library/${enc(id)}/playback-options${qs({ profiles: localPlaybackProfiles(), bandwidth_bps: bandwidthBps })}`, undefined, { timeoutMs: 30000 });
+export const startLocalPlaybackSession = (id: string, start = 0, request?: PlaybackSessionRequest, bandwidthBps?: number): Promise<LocalPlaybackSession> =>
+  post(`/api/library/${enc(id)}/playback-sessions${qs({ start: start || undefined, profiles: localPlaybackProfiles(), bandwidth_bps: bandwidthBps })}`, request, { timeoutMs: 30000 });
 export const stopLocalPlaybackSession = (sessionId: string): Promise<void> => del(`/api/playback-sessions/${enc(sessionId)}`);
 export const stopDirectPlayback = (itemId: string): Promise<void> => requestJson(`/api/library/${enc(itemId)}/playback/stop`, { method: 'POST', keepalive: true });
 
@@ -1001,7 +1001,8 @@ export const editMusicTracks = (request: { item_ids: string[]; changes: Record<s
 export const createMusicRelease = (body: { item_ids: string[]; name: string; artist_id?: string; artist_name?: string; year?: number | null; edition?: string; base?: Record<string, Record<string, unknown>> }): Promise<{ batch_id: string | null; applied: number; tracks: import('./features/music/musicTypes').MusicTrack[]; album_id: string }> => post('/api/music/albums', body);
 export const undoMusicEdit = (id: string): Promise<{ applied: number; skipped: string[] }> => post(`/api/music/edits/${enc(id)}/undo`, {});
 export const discoverSonos = (): Promise<import('./features/music/musicTypes').SonosSpeaker[]> => requestJson('/api/music/sonos');
-export const castMusic = (speaker_id: string, item_ids: string[], compatibility = false): Promise<{ ticket_id: string; state: Record<string, unknown> }> => post('/api/music/cast', { speaker_id, item_ids, compatibility }, { timeoutMs: 60_000 });
+export type MusicCastTransfer = { ticket_id: string; state: Record<string, unknown>; requested_count: number; queued_count: number; excluded_count: number; queue_indices: number[]; current_index: number; position_seconds: number; session: Record<string, unknown> };
+export const castMusic = (speaker_id: string, item_ids: string[], compatibility = false, transfer?: { base_revision: number; current_index: number; position_seconds: number }): Promise<MusicCastTransfer> => post('/api/music/cast', { speaker_id, item_ids, compatibility, ...(transfer ?? {}) }, { timeoutMs: 60_000 });
 export const controlMusicCast = (id: string, action: 'play' | 'pause' | 'stop' | 'next' | 'previous' | 'volume' | 'seek', value?: number): Promise<Record<string, unknown>> => post(`/api/music/cast/${enc(id)}/control`, { action, ...(value === undefined ? {} : { value }) });
 export const getMusicCastStatus = (id: string): Promise<Record<string, unknown>> => requestJson(`/api/music/cast/${enc(id)}/status`);
 export const uploadMusicArtwork = async (titleIds: string[], image: Blob, base: Record<string, string | null>, imageType: 'Primary' | 'Backdrop' = 'Primary'): Promise<{ batch_id: string | null; applied: number; skipped: { title_id: string; reason: string }[] }> => {

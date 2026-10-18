@@ -36,8 +36,7 @@ export function trustedReleaseUrl(value: string | null | undefined): string | nu
 function statusCopy(update: AdminUpdateStatus): { tone: StatusTone; text: string } {
   if (update.checking) return { tone: 'attention', text: 'Checking for the latest release…' };
   if (update.status === 'update_available' && update.latest_release) return { tone: 'attention', text: `Lumina ${update.latest_release.version} is available.` };
-  if (update.status === 'up_to_date' && update.error) return { tone: 'muted', text: 'The last successful check found no newer release.' };
-  if (update.status === 'up_to_date') return { tone: 'ok', text: 'Lumina is up to date.' };
+  if (update.status === 'up_to_date') return { tone: update.error ? 'muted' : 'ok', text: 'The last successful check found no newer release.' };
   if (update.error) return { tone: 'muted', text: 'No successful update check has completed yet.' };
   return { tone: 'muted', text: 'Lumina has not checked for updates yet.' };
 }

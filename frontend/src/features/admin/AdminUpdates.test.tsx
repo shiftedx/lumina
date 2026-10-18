@@ -95,13 +95,15 @@ describe('AdminUpdates', () => {
     expect(screen.getByRole('link', { name: 'Read 3.2.0 release notes' })).toBeTruthy();
   });
 
-  it('qualifies a cached up-to-date result when a later check failed', async () => {
+  it.each(['provider', 'transport'])('qualifies cached success after a %s failure', async (failure) => {
     api.getAdminUpdateStatus.mockResolvedValue(status({
-      status: 'up_to_date', checked_at: '2026-10-18T12:05:00Z', error: 'The latest check timed out.',
+      status: 'up_to_date', checked_at: '2026-10-18T12:05:00Z', error: failure === 'provider' ? 'The latest check timed out.' : null,
     }));
+    api.checkAdminUpdates.mockRejectedValue(new Error('The latest check timed out.'));
     render(<AdminUpdates />);
 
     expect(await screen.findByText('The last successful check found no newer release.')).toBeTruthy();
+    if (failure === 'transport') await userEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
     expect(screen.queryByText('Lumina is up to date.')).toBeNull();
     expect(screen.getByRole('alert').textContent).toContain('The latest check timed out.');
     expect(screen.getByText(/Last checked/).textContent).toContain('2026');
@@ -113,7 +115,7 @@ describe('AdminUpdates', () => {
     render(<StrictMode><AdminUpdates /></StrictMode>);
 
     await userEvent.click(await screen.findByRole('button', { name: 'Check for updates' }));
-    expect(await screen.findByText('Lumina is up to date.')).toBeTruthy();
+    expect(await screen.findByText('The last successful check found no newer release.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Check for updates' }).getAttribute('aria-busy')).toBeNull();
   });
 

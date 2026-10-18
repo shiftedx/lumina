@@ -777,3 +777,31 @@ def test_a_restricted_members_walls_and_grid_keep_their_indexes(plan_env) -> Non
     assert "ix_library_items_visibility_downloaded_created_id" in grid and "sqlite_autoindex_media_titles_1" in grid, grid
     assert_no_unindexed_scan(grid, "library_items")
     assert_no_unindexed_scan(grid, "media_titles")
+
+
+def test_import_move_lookup_seeks_matching_sizes_in_its_root(plan_env, tmp_path) -> None:  # noqa: ANN001
+    from app.models import ImportRun
+    from app.services.library_import import LibraryImportService
+
+    engine, session, _ = plan_env
+    incoming = tmp_path / "renamed.mp4"
+    incoming.write_bytes(b"x")
+    status = incoming.stat()
+    session.add_all([
+        MediaArtifact(id=f"move-seed-{index}", root_id="external-root", relative_path=f"old-{index}.mp4",
+                      ownership="external", size=index + 2, lifecycle="available")
+        for index in range(1000)
+    ])
+    original = MediaArtifact(id="original", root_id="external-root", relative_path="old.mp4", ownership="external",
+                             size=1, inode=status.st_ino, lifecycle="available")
+    session.add(original)
+    session.add(MediaArtifact(id="other-root", root_id="elsewhere", relative_path="old.mp4", ownership="external",
+                              size=1, inode=status.st_ino, lifecycle="available"))
+    session.commit()
+    run = ImportRun(id="moving-run", root_id="external-root")
+    result = []
+    plan = explain_plan(engine, session, lambda: result.append(
+        LibraryImportService(session)._find_moves(run, tmp_path, [("renamed.mp4", status)], {})))
+    assert result == [({"renamed.mp4": original}, set())]
+    assert "SEARCH media_artifacts USING INDEX ix_media_artifacts_root_size" in plan
+    assert_no_unindexed_scan(plan, "media_artifacts")

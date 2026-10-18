@@ -116,7 +116,7 @@ describe('GalleryTitlePage: hero, headline and states', () => {
     expect(hero.contains(heading)).toBe(true);
     expect(hero.style.backgroundColor).toBe('rgb(42, 59, 76)');
     expect(art.props.some((props) => props.kind === 'backdrop')).toBe(false);
-    expect(metrics.recordMetric).toHaveBeenCalledWith('detail_hero_ms', 'deep_link', 420);
+    await waitFor(() => expect(metrics.recordMetric).toHaveBeenCalledWith('detail_hero_ms', 'deep_link', 420));
   });
 
   it('sets a long name in its logo art, and falls back to the words when the logo fails', async () => {

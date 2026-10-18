@@ -24,9 +24,9 @@ const key = (target: Element, name: string) => fireEvent.keyDown(target, { key: 
 describe('HomeEditor', () => {
   it('announces the shelves and focuses the first handle on entry', () => {
     renderEditor();
-    expect(said()).toBe('Editing Home. 13 shelves.');
+    expect(said()).toBe('Editing Home. 14 shelves.');
     expect(document.activeElement).toBe(handle('Continue watching'));
-    expect(screen.getByRole('list', { name: 'Home shelves' }).children).toHaveLength(13);
+    expect(screen.getByRole('list', { name: 'Home shelves' }).children).toHaveLength(14);
     expect(handle('Next up').getAttribute('aria-describedby')).toBe('h-edit-hint');
     expect(document.getElementById('h-edit-hint')?.textContent).toBe('Drag, or use Move up and Move down, to reorder. Switch a shelf off to hide it.');
   });
@@ -37,15 +37,15 @@ describe('HomeEditor', () => {
     next.focus();
     key(next, ' ');
     expect(next.getAttribute('aria-pressed')).toBe('true');
-    expect(said()).toBe('Next up picked up, position 3 of 13. Use Up and Down to move, Space to drop, Escape to cancel.');
+    expect(said()).toBe('Next up picked up, position 3 of 14. Use Up and Down to move, Space to drop, Escape to cancel.');
     key(next, 'ArrowDown');
-    expect(said()).toBe('Next up, position 4 of 13.');
+    expect(said()).toBe('Next up, position 4 of 14.');
     key(handle('Next up'), 'ArrowDown');
     expect(order().slice(0, 5)).toEqual(['continue', 'live', 'watchlist', 'new_in_library', 'next_up']);
     expect(document.activeElement).toBe(handle('Next up'));
     expect(onChange).toHaveBeenCalledTimes(2);
     key(handle('Next up'), ' ');
-    expect(said()).toBe('Next up dropped at position 5 of 13.');
+    expect(said()).toBe('Next up dropped at position 5 of 14.');
     expect(handle('Next up').getAttribute('aria-pressed')).toBe('false');
   });
 
@@ -54,10 +54,10 @@ describe('HomeEditor', () => {
     key(handle('Next up'), 'Enter');
     key(handle('Next up'), 'End');
     expect(order().at(-1)).toBe('next_up');
-    expect(said()).toBe('Next up, position 13 of 13.');
+    expect(said()).toBe('Next up, position 14 of 14.');
     key(handle('Next up'), 'Home');
     expect(order()[0]).toBe('next_up');
-    expect(said()).toBe('Next up, position 1 of 13.');
+    expect(said()).toBe('Next up, position 1 of 14.');
   });
 
   it('Tab drops the shelf where it is', () => {
@@ -65,7 +65,7 @@ describe('HomeEditor', () => {
     key(handle('Next up'), ' ');
     key(handle('Next up'), 'ArrowUp');
     key(handle('Next up'), 'Tab');
-    expect(said()).toBe('Next up dropped at position 2 of 13.');
+    expect(said()).toBe('Next up dropped at position 2 of 14.');
     expect(handle('Next up').getAttribute('aria-pressed')).toBe('false');
   });
 
@@ -97,12 +97,12 @@ describe('HomeEditor', () => {
     const up = screen.getByRole('button', { name: 'Move Live now up' });
     fireEvent.click(up);
     expect(order()[0]).toBe('live');
-    expect(said()).toBe('Live now, position 1 of 13.');
+    expect(said()).toBe('Live now, position 1 of 14.');
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move Live now up' }));
     expect(screen.getByRole('button', { name: 'Move Live now up' }).getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'Move Live now up' }));
     expect(onChange).toHaveBeenCalledTimes(1);
-    const down = screen.getByRole('button', { name: 'Move Recently added music down' });
+    const down = screen.getByRole('button', { name: 'Move Continue listening down' });
     expect(down.getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'Move Continue watching down' }));
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move Continue watching down' }));
@@ -148,7 +148,7 @@ describe('HomeEditor pointer drag', () => {
   /** Rows 64 px apart under a list whose top is at 100 px; the dragged row's own transform is ignored, like a layout box. */
   function stubGeometry() {
     return vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-      if (this.matches('ol.h-edit')) return box(TOP, PITCH * 13);
+      if (this.matches('ol.h-edit')) return box(TOP, PITCH * 14);
       if (this.matches('[data-shelf-row]')) {
         const index = [...(this.parentElement?.children ?? [])].indexOf(this);
         return box(TOP + index * PITCH, PITCH);
@@ -176,7 +176,7 @@ describe('HomeEditor pointer drag', () => {
     expect(onChange).not.toHaveBeenCalled(); // nothing is saved until the drop
     pointer('pointerup', grip, rowY(4));
     expect(order().slice(0, 5)).toEqual(['continue', 'live', 'watchlist', 'new_in_library', 'next_up']);
-    expect(said()).toBe('Next up dropped at position 5 of 13.');
+    expect(said()).toBe('Next up dropped at position 5 of 14.');
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(document.querySelector('[data-dragging]')).toBeNull();
     geometry.mockRestore();
@@ -214,7 +214,7 @@ describe('HomeEditor pointer drag', () => {
     pointer('pointerup', handle('Next up'), rowY(2) + 3);
     fireEvent.click(handle('Next up'));
     expect(onChange).not.toHaveBeenCalled();
-    expect(said()).toBe('Editing Home. 13 shelves.');
+    expect(said()).toBe('Editing Home. 14 shelves.');
     expect(handle('Next up').getAttribute('aria-pressed')).toBe('false');
     geometry.mockRestore();
   });

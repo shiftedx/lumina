@@ -2,8 +2,12 @@
  * Home's pure rules: the masthead text, the hero's pick, art and meta line, and the captions and
  * accessible names of Home's 16:9 title cards.
  */
+import { isAudioItem } from '../../luminaModel';
 import type { PlaybackProgress, TitleArt, TitleDetail, TitleRow, TitleSummary } from '../../types';
 import { episodeCode, formatRuntime } from '../titles/titleModel';
+
+/** Audio history belongs to Continue listening, including albums attached to track progress. */
+export const isListeningEntry = (entry: PlaybackProgress): boolean => isAudioItem(entry.item) || entry.title?.type === 'album' || entry.title?.type === 'artist';
 
 export function greeting(now = new Date()): string {
   const hour = now.getHours();
@@ -29,7 +33,7 @@ export const NEWEST_SCAN = 10;
  * first of the newest 10 with a backdrop, else the newest; else no hero.
  */
 export function pickHero(continueWatching: readonly PlaybackProgress[], newest: readonly TitleSummary[] | null): HeroPick | null {
-  const entry = continueWatching.find((candidate) => candidate.title);
+  const entry = continueWatching.find((candidate) => candidate.title && !isListeningEntry(candidate));
   if (entry?.title) return { kind: 'continue', entry, title: entry.title };
   const title = newest?.slice(0, NEWEST_SCAN).find((candidate) => candidate.backdrop) ?? newest?.[0];
   return title ? { kind: 'newest', title } : null;
@@ -48,7 +52,7 @@ export const heroKey = (pick: HeroPick): string => (pick.kind === 'continue' ? p
  * (the Recommended row, then Because you watched with its row title as the reason), one slide per anchor.
  */
 export function heroSlides(continueWatching: readonly PlaybackProgress[], rows: readonly TitleRow[] | null, newest: readonly TitleSummary[] | null): HeroPick[] {
-  const resume = continueWatching.flatMap((entry): HeroPick[] => (entry.title ? [{ kind: 'continue', entry, title: entry.title }] : [])).slice(0, HERO_CONTINUE);
+  const resume = continueWatching.flatMap((entry): HeroPick[] => (entry.title && !isListeningEntry(entry) ? [{ kind: 'continue', entry, title: entry.title }] : [])).slice(0, HERO_CONTINUE);
   const fallback = resume.length ? null : pickHero([], newest);
   const slides = fallback ? [fallback] : resume;
   const seen = new Set(slides.map((pick) => heroAnchor(pick.title)));

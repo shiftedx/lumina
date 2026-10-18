@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { episodeSummary, movieSummary, seriesSummary, stillItem, titleArt, titleDetail } from '../../test/galleryFixtures';
+import { albumSummary, episodeSummary, movieSummary, seriesSummary, stillItem, titleArt, titleDetail } from '../../test/galleryFixtures';
 import type { PlaybackProgress, TitleSummary } from '../../types';
 import { captionLabel, entryPercent, greeting, HERO_CONTINUE, HERO_SLIDES, heroAnchor, heroArt, heroMeta, heroSlides, pickHero, timeLeft, titleCaption } from './homeModel';
 
@@ -11,6 +11,15 @@ const entry = (title: TitleSummary | null, patch: Partial<PlaybackProgress> = {}
 });
 
 describe('pickHero', () => {
+  it('keeps album and ungrouped audio progress out of the watching hero', () => {
+    const album = entry(albumSummary());
+    const audio = entry(null, { item: stillItem('audio', { kind: 'audio' }) });
+    const video = entry(episodeSummary(2, 4));
+    expect(pickHero([album, audio, video], null)?.title).toEqual(video.title);
+    expect(heroSlides([album, audio, video], null, null).map((pick) => pick.title)).toEqual([video.title]);
+    expect(pickHero([album, audio], [movieSummary('new')])?.title.id).toBe('new');
+  });
+
   it('anchors on the first Continue entry with a title, skipping remote and YouTube entries', () => {
     const episode = episodeSummary(2, 4);
     const pick = pickHero([entry(null), entry(episode)], null);

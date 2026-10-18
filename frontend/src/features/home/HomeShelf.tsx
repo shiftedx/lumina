@@ -230,14 +230,14 @@ function titleCard(title: TitleSummary, shape: ShelfShape, slot: CardSlot, actio
   );
 }
 
-/** A 16:9 title card: an episode shows its still, a movie its backdrop; Continue passes its position. */
-export function titleStill(title: TitleSummary, slot: CardSlot, onActivate: () => void, progress: { left: string | null; percent: number | null } | null = null): ReactNode {
+/** A title card: episodes use stills, movies backdrops, and listening entries square covers. */
+export function titleStill(title: TitleSummary, slot: CardSlot, onActivate: () => void, progress: { left: string | null; percent: number | null } | null = null, shape: 'still' | 'square' = 'still'): ReactNode {
   const caption = titleCaption(title, progress?.left ?? null);
   const episode = title.type === 'episode';
   return (
     <StillFrame
       {...slot}
-      art={(episode ? title.poster : title.backdrop ?? title.poster) ?? null}
+      art={(shape === 'square' || episode ? title.poster : title.backdrop ?? title.poster) ?? null}
       colour={cardColour(title, episode ? 'still' : 'backdrop')}
       data-focus-item
       label={captionLabel(caption)}
@@ -246,7 +246,7 @@ export function titleStill(title: TitleSummary, slot: CardSlot, onActivate: () =
       name={caption.name}
       onActivate={onActivate}
       percent={progress?.percent ?? null}
-      shape="still"
+      shape={shape}
     />
   );
 }

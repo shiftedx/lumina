@@ -454,11 +454,11 @@ window ends and remove their cleanup exclusions when retiring them.
 
 ### Rollback after a schema upgrade
 
-Schema steps 6 to 18 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to:
+Schema steps 6 to 18 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to. Before any rollback to an image predating the discovery I/O fixes, normalize the new manager trigger so its older API can read run history: `UPDATE import_runs SET trigger = 'watch' WHERE trigger = 'manager';`. Manager reconciliation cursors may remain; older images ignore them:
 
 | Rolling back to | Stamp |
 | --- | --- |
-| Before discovery I/O fixes (schema 30) | `PRAGMA user_version = 30` (keep the additive `ix_media_artifacts_root_size` index; older releases ignore manager reconciliation cursors in `app_maintenance_state`) |
+| Before discovery I/O fixes (schema 30) | `UPDATE import_runs SET trigger = 'watch' WHERE trigger = 'manager'; PRAGMA user_version = 30` (keep the additive `ix_media_artifacts_root_size` index; older releases ignore manager reconciliation cursors in `app_maintenance_state`) |
 | Before release update checks (schema 29) | `PRAGMA user_version = 29` (keep the additive `app_settings.update_settings` column; older releases ignore cached release status and notification preferences) |
 | Before acquisition-aware music queues (schema 28) | `PRAGMA user_version = 28` (keep the additive `queue_entries`, `entry_index` and `unavailable_policy` columns; older releases use only the resolved playable queue) |
 | Before Chromecast media tickets (schema 27) | `DELETE FROM media_cast_tickets; PRAGMA user_version = 27` (revoke receiver access; keep the additive table) |

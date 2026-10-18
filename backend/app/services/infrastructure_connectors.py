@@ -154,7 +154,7 @@ def observe(connector: ServiceConnector) -> tuple[str, dict]:
         return _nzbget(connector)
     if connector.kind == "lidarr":
         from app.services.lidarr import LidarrClient, LidarrError
-        from app.services.requests.sync import map_path
+        from app.services.requests.sync import RescanOffer, map_path, reconciliation_digest
         client = LidarrClient.of(connector)
         try:
             result = client.test()
@@ -168,7 +168,14 @@ def observe(connector: ServiceConnector) -> tuple[str, dict]:
             if (_number(stats.get("trackFileCount")) or 0) > 0 and isinstance(artist.get("path"), str):
                 local = map_path(artist["path"], (connector.settings or {}).get("path_mappings", []))
                 if local:
-                    paths.append(local)
+                    artist_id = _id(artist.get("id"))
+                    artist_albums = [] if artist_id is None else [album for album in albums if _id(album.get("artistId")) == artist_id]
+                    album_ids = {identity for album in artist_albums if (identity := _id(album.get("id"))) is not None}
+                    artist_history = [] if artist_id is None else [row for row in history
+                                                                  if _id(row.get("artistId")) == artist_id
+                                                                  or _id(row.get("albumId")) in album_ids]
+                    paths.append(RescanOffer(local, reconciliation_digest(_lidarr_file_identity(artist, artist_albums, artist_history)),
+                                             f"lidarr:{connector.id}", priority=0))
         return _version(result.pop("version")), {**result,
             "artists": [{"id": _id(row.get("id")), "foreign_artist_id": _uuid(row.get("foreignArtistId")), "name": _name(row.get("artistName")), "monitored": row.get("monitored") is True} for row in artists],
             "albums": [{"id": _id(row.get("id")), "foreign_album_id": _uuid(row.get("foreignAlbumId")), "artist_id": _id(row.get("artistId")), "title": _name(row.get("title")), "monitored": row.get("monitored") is True} for row in albums],
@@ -254,16 +261,30 @@ def refresh(db: Session, connector_id: str) -> ServiceConnector:
                 row.last_error = error
         # Reuse the scoped scanner's completed-first-import gate, mount checks and throttle.
         if error is None:
-            from app.services.requests.sync import rescan_folder
-            for path in dict.fromkeys(paths):
-                try:
-                    rescan_folder(path)
-                except (OSError, ValueError, RuntimeError):
-                    pass  # A later observation retries import; upstream file flags never establish Play.
+            from app.services.requests.sync import rescan_folders
+            try:
+                rescan_folders(paths)
+            except (OSError, ValueError, RuntimeError):
+                pass  # A later observation retries import; upstream file flags never establish Play.
         return row
     finally:
         with _refresh_lock:
             _refreshing.discard(connector_id)
+
+
+def _lidarr_file_identity(artist: dict[str, Any], albums: list[dict[str, Any]], history: list[dict[str, Any]]) -> dict[str, Any]:
+    def stats(row: dict[str, Any]) -> dict[str, Any]:
+        value = row.get("statistics") if isinstance(row.get("statistics"), dict) else {}
+        return {key: value[key] for key in ("trackFileCount", "sizeOnDisk")
+                if value.get(key) is not None}
+
+    album_values = [{"id": row.get("id"), "foreignAlbumId": row.get("foreignAlbumId"), "statistics": stats(row)} for row in albums]
+    history_values = [{key: row[key] for key in ("id", "eventType", "date", "artistId", "albumId", "trackFileId", "downloadId")
+                       if row.get(key) is not None} for row in history]
+    history_values.sort(key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":"), default=str))
+    return {"artist": {"id": artist.get("id"), "statistics": stats(artist)},
+            "albums": sorted(album_values, key=lambda row: (row.get("id") or -1, row.get("foreignAlbumId") or "")),
+            "history": history_values[:64]}
 
 
 def _music_observations(db: Session, connector: ServiceConnector, snapshot: dict) -> None:

@@ -165,10 +165,12 @@ def test_lidarr_observation_drives_request_status_and_mapped_import_without_fake
     client, fake, current, factory = music
     from app.services.requests import sync
     scans = []
-    monkeypatch.setattr(sync, "rescan_folder", scans.append)
+    monkeypatch.setattr(sync, "rescan_folders", lambda values: scans.extend(values))
     fake.artists[10] = {"id": 10, "foreignArtistId": ARTIST, "artistName": "Artist", "path": "/music/Artist", "statistics": {"trackFileCount": 2}}
     fake.albums[12] = {"id": 12, "foreignAlbumId": ALBUM, "artistId": 10, "title": "Album", "artist": fake.artists[10]}
     fake.queue = [{"id": 1, "albumId": 12, "status": "downloading", "downloadUrl": "https://private.invalid", "outputPath": "/private"}]
+    fake.history = [{"id": 7, "artistId": 10, "albumId": 12, "eventType": "grabbed", "date": "2026-01-01T00:00:00Z"},
+                    {"id": 8, "artistId": 10, "albumId": 12, "eventType": "trackFileImported", "date": "2026-01-01T01:00:00Z"}]
     with factory.begin() as db:
         db.get(ServiceConnector, "lidarr").settings = {"path_mappings": [{"remote": "/music", "local": "/media/music"}]}
         db.add(MusicAcquisition(id="77777777-7777-4777-8777-777777777777", user_id="alice", connector_id="lidarr", foreign_artist_id=ARTIST,
@@ -177,7 +179,15 @@ def test_lidarr_observation_drives_request_status_and_mapped_import_without_fake
     current["id"] = "admin"
     response = client.post("/api/admin/connectors/lidarr/refresh")
     assert response.status_code == 200 and response.json()["stale"] is False, response.text
-    assert scans == ["/media/music/Artist"]
+    assert [offer.path for offer in scans] == ["/media/music/Artist"]
+    first_digest = scans[0].digest
+    fake.history.reverse()
+    assert client.post("/api/admin/connectors/lidarr/refresh").status_code == 200
+    assert scans[-1].digest == first_digest
+    fake.history.append({"id": 9, "artistId": 10, "albumId": 12, "eventType": "trackFileImported", "date": "2026-01-02T00:00:00Z",
+                         "trackFileId": 99})
+    assert client.post("/api/admin/connectors/lidarr/refresh").status_code == 200
+    assert scans[-1].digest != first_digest
     observed = client.get("/api/admin/connectors/lidarr?dataset=queue")
     assert observed.json()["items"][0]["album_id"] == 12
     assert "/private" not in observed.text and "private.invalid" not in observed.text

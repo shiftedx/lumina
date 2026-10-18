@@ -54,7 +54,7 @@ def test_observation_runs_when_requests_are_disabled_paginates_and_starts_a_scop
         assert state and state.last_ok_at and state.last_error is None and state.summary["queue_count"] == 1001
         assert item and item.import_state == "pending_import" and item.details == {}
         assert db.query(ArrObservedRecord).filter_by(server_id="radarr", dataset="queue").count() == 1001
-    assert rescans == ["/media/movies/The Matrix (1999)"]
+    assert [offer.path for offer in rescans] == ["/media/movies/The Matrix (1999)"]
     assert [path for method, path, _ in fake.requests if method == "GET" and path.endswith("/queue")] == ["/api/v3/queue", "/api/v3/queue"]
 
 
@@ -86,9 +86,41 @@ def test_registered_titles_keep_reconciling_new_seasons_and_replacements(observe
     # file replacements need the ordinary scoped scanner too, without a Request row.
     raw["seasons"].append({"seasonNumber": 2, "statistics": {"episodeFileCount": 2}})
     arr_observer.sync_once("radarr")
-    assert rescans == [folder]
+    assert [offer.path for offer in rescans] == [folder]
     with factory() as db:
         assert db.get(ArrObservedItem, ("radarr", 101)).import_state == "registered"
+
+
+@pytest.mark.parametrize("kind", ["sonarr", "radarr"])
+def test_reconciliation_fingerprint_ignores_unchanged_polls_and_detects_file_changes(observed, monkeypatch, kind) -> None:  # noqa: ANN001
+    factory, fake = observed
+    fake.kind = kind
+    fake.resource = "series" if kind == "sonarr" else "movie"
+    raw = {"id": 101, "title": "Title", "tmdbId": 603, "hasFile": kind == "radarr", "path": "/movies/Title",
+           "movieFile": {"id": 10, "relativePath": "Title.mkv", "size": 100, "dateAdded": "2026-01-01T00:00:00Z"},
+           "seasons": [{"seasonNumber": 1, "statistics": {"episodeFileCount": 1, "sizeOnDisk": 100}}]}
+    fake.library[101] = raw
+    id_field = "seriesId" if kind == "sonarr" else "movieId"
+    fake.history = [{"id": 41, id_field: 101, "eventType": "downloadFolderImported", "date": "2026-01-01T00:00:00Z"},
+                    {"id": 42, id_field: 101, "eventType": "grabbed", "date": "2025-12-31T00:00:00Z"}]
+    with factory.begin() as db:
+        db.get(ArrServer, "radarr").kind = kind
+    offered = []
+    monkeypatch.setattr(arr_observer, "rescan_folders", lambda values: offered.append(list(values)))
+
+    arr_observer.sync_once("radarr")
+    fake.history.reverse()
+    arr_observer.sync_once("radarr")
+    assert offered[0][0].digest == offered[1][0].digest
+
+    fake.history.append({"id": 44, id_field: 101, "eventType": "downloadFolderImported", "date": "2026-01-02T00:00:00Z",
+                         "episodeFileId" if kind == "sonarr" else "movieFileId": 11})
+    arr_observer.sync_once("radarr")
+    assert offered[2][0].digest != offered[1][0].digest
+    if kind == "sonarr":
+        raw["seasons"].append({"seasonNumber": 2, "statistics": {"episodeFileCount": 1, "sizeOnDisk": 200}})
+        arr_observer.sync_once("radarr")
+        assert offered[3][0].digest != offered[2][0].digest
 
 
 def test_failed_or_malformed_refresh_retains_last_complete_snapshot_and_marks_it_stale(observed) -> None:  # noqa: ANN001

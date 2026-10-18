@@ -21,7 +21,7 @@ from app.persistence import write_transaction
 from app.services.library import LibraryService
 from app.services.redaction import redact
 from app.services.requests.arr import ArrClient, ArrError
-from app.services.requests.sync import map_path, rescan_folders
+from app.services.requests.sync import RescanOffer, map_path, reconciliation_digest, rescan_folders
 
 logger = logging.getLogger(__name__)
 OBSERVATION_INTERVAL_SECONDS = 60
@@ -120,14 +120,15 @@ def _record_failure(server_id: str, signature: tuple[Any, ...], error: str) -> N
 
 def _replace_success(server_id: str, signature: tuple[Any, ...], observed: dict[str, Any]) -> None:
     now = utcnow()
-    rescans: list[str] = []
+    rescans: list[RescanOffer] = []
     # Correlation is read-only and can be relatively expensive for a whole library. It deliberately happens before
     # writer admission; the signature is checked again inside the short replacement transaction below.
     with session_scope() as db:
         server = db.get(ArrServer, server_id)
         if server is None or not server.enabled or _signature(server) != signature:
             return
-        rows = [_inventory_row(db, server, raw, now) for raw in observed["inventory"]]
+        inventory = observed["inventory"]
+        rows = [_inventory_row(db, server, raw, now) for raw in inventory]
         records = [
             _record_row(server_id, dataset, raw, index, now)
             for dataset, values in observed["records"].items()
@@ -136,7 +137,13 @@ def _replace_success(server_id: str, signature: tuple[Any, ...], observed: dict[
         # Playable is not fully synchronized: registered series gain seasons and
         # movies gain replacements. The shared helper throttles each folder and
         # retries busy roots without bypassing first-import/confirmation guards.
-        rescans = [local for row, local in rows if row.has_file and row.import_state in ("pending_import", "registered") and local is not None]
+        history = _history_by_item(observed["records"].get("history", []))
+        rescans = [
+            RescanOffer(local, _inventory_digest(server.kind, raw, history.get(row.upstream_id, [])), f"arr:{server.id}",
+                        priority=0 if row.import_state == "pending_import" else 1)
+            for (row, local), raw in zip(rows, inventory, strict=True)
+            if row.has_file and row.import_state in ("pending_import", "registered") and local is not None
+        ]
         items = [row for row, _ in rows]
     with session_scope() as db:
         with write_transaction(db, name="arr_observation_success"):
@@ -154,6 +161,53 @@ def _replace_success(server_id: str, signature: tuple[Any, ...], observed: dict[
             state.attempted_at = state.last_ok_at = now
             state.last_error = None
     rescan_folders(rescans)
+
+
+def _history_by_item(records: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for record in records:
+        identity = _int(record.get("movieId")) or _int(record.get("seriesId"))
+        movie = record.get("movie")
+        identity = identity or _int(movie.get("id")) if isinstance(movie, dict) else identity
+        if identity is not None:
+            grouped.setdefault(identity, []).append(record)
+    return grouped
+
+
+def _history_identity(record: dict[str, Any]) -> dict[str, Any]:
+    keys = ("id", "eventType", "date", "movieId", "seriesId", "episodeId", "movieFileId", "episodeFileId", "downloadId")
+    value = {key: record[key] for key in keys if record.get(key) is not None}
+    data = record.get("data")
+    if isinstance(data, dict):
+        stable = ("movieFileId", "episodeFileId", "episodeFileIds", "droppedPath", "importedPath", "downloadClient")
+        value["data"] = {key: data[key] for key in stable if data.get(key) is not None}
+    return value
+
+
+def _inventory_digest(kind: str, raw: dict[str, Any], history: list[dict[str, Any]]) -> str:
+    base = {key: raw[key] for key in ("id", "hasFile", "sizeOnDisk") if raw.get(key) is not None}
+    if kind == "radarr":
+        movie_file = raw.get("movieFile")
+        if isinstance(movie_file, dict):
+            keys = ("id", "relativePath", "size", "dateAdded", "edition", "releaseGroup")
+            base["movie_file"] = {key: movie_file[key] for key in keys if movie_file.get(key) is not None}
+    else:
+        seasons = []
+        for season in raw.get("seasons") if isinstance(raw.get("seasons"), list) else []:
+            if not isinstance(season, dict):
+                continue
+            stats = season.get("statistics") if isinstance(season.get("statistics"), dict) else {}
+            seasons.append({
+                **{key: season[key] for key in ("id", "seasonNumber", "monitored") if season.get(key) is not None},
+                "statistics": {key: stats[key] for key in ("episodeFileCount", "sizeOnDisk")
+                               if stats.get(key) is not None},
+            })
+        base["seasons"] = sorted(seasons, key=lambda value: (value.get("seasonNumber", -1), value.get("id", -1)))
+    identities = [_history_identity(record) for record in history]
+    base["history"] = sorted(
+        identities, key=lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    )[:64]
+    return reconciliation_digest(base)
 
 
 def _inventory_row(db: Session, server: ArrServer, raw: dict[str, Any], now: Any) -> tuple[ArrObservedItem, str | None]:

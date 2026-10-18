@@ -3,7 +3,8 @@ import { RefreshCw } from 'lucide-react';
 
 import { getAdminOverview } from '../../api';
 import { formatBytes, formatDateTime as time, parseServerTime } from '../../utils';
-import { Button, StatusText, type StatusTone } from '../../ui';
+import { Button, ButtonLink, StatusText, type StatusTone } from '../../ui';
+import { trustedReleaseUrl } from './AdminUpdates';
 import { STATES } from './AdminStorage';
 import { useAdminResource } from './useAdminResource';
 
@@ -11,13 +12,15 @@ const ACTIVE = ['queued', 'running', 'postprocessing'];
 const rootTone = (state: string | null): StatusTone => (state === 'available' ? 'ok' : state === 'low_space' ? 'attention' : state ? 'danger' : 'muted');
 const sum = (values: Record<string, number>, keys?: string[]) => Object.entries(values).reduce((total, [key, count]) => total + (!keys || keys.includes(key) ? count : 0), 0);
 
-export function AdminOverview({ refreshKey = 0 }: { refreshKey?: number }) {
+export function AdminOverview({ refreshKey = 0, onOpenUpdates }: { refreshKey?: number; onOpenUpdates?: () => void }) {
   const { data: overview, error, loading, reload: load } = useAdminResource(getAdminOverview, 'Unable to load the overview.');
   // A saved download-limit change (the Overview Save form) refreshes these numbers.
   useEffect(() => { if (refreshKey) load(); }, [refreshKey, load]);
 
   const managedBytes = overview?.roots.filter((root) => root.mode === 'managed').reduce((total, root) => total + root.artifact_bytes, 0) ?? 0;
   const db = overview ? Object.values(overview.persistence) : [];
+  const updateRelease = overview?.updates?.status === 'update_available' ? overview.updates.latest_release : null;
+  const updateUrl = trustedReleaseUrl(updateRelease?.url);
 
   return (
     <div aria-busy={loading} className="admin-overview">
@@ -29,6 +32,10 @@ export function AdminOverview({ refreshKey = 0 }: { refreshKey?: number }) {
 
       {overview ? (
         <>
+          {updateRelease ? <div className="admin-update-notice" role="status">
+            <div><StatusText tone="attention">Lumina {updateRelease.version} is available.</StatusText><p>Review the release notes and upgrade steps when you are ready.</p></div>
+            {onOpenUpdates ? <Button onClick={onOpenUpdates} variant="quiet">Review update</Button> : updateUrl ? <ButtonLink href={updateUrl} rel="noreferrer noopener" target="_blank" variant="quiet">Read release notes</ButtonLink> : null}
+          </div> : null}
           <dl className="g-stat-strip">
             <div className="g-stat"><dt className="g-label">Library items</dt><dd className="g-stat-figure">{sum(overview.library_items_by_status)}</dd><dd className="g-stat-note">{overview.library_items_by_status.missing ? `${overview.library_items_by_status.missing} missing on disk` : 'All present'}</dd></div>
             <div className="g-stat"><dt className="g-label">Managed media</dt><dd className="g-stat-figure">{formatBytes(managedBytes)}</dd><dd className="g-stat-note">Unique files in managed roots</dd></div>

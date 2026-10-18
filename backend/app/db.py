@@ -257,6 +257,9 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE music_listening_sessions ADD COLUMN entry_index INTEGER",
         "ALTER TABLE music_listening_sessions ADD COLUMN unavailable_policy VARCHAR(8) DEFAULT 'skip' NOT NULL",
     ),
+    30: (
+        "ALTER TABLE app_settings ADD COLUMN update_settings JSON NOT NULL DEFAULT '{}'",
+    ),
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

@@ -48,6 +48,7 @@ def test_metrics_counts_real_scope(client: TestClient, factory) -> None:
     assert (roots["root-b"]["artifact_count"], roots["root-b"]["artifact_bytes"]) == (0, 0)
     assert body["event_streams"] == 0
     assert isinstance(body["persistence"], dict)
+    assert body["updates"]["status"] == "not_checked"
     assert (body["concurrency"], body["max_active_jobs_per_user"]) == (1, 25)
 
 

@@ -428,3 +428,9 @@ def test_v13_adds_member_access(tmp_path, monkeypatch) -> None:  # noqa: ANN001
     assert {"rating", "rating_rank"} <= set(columns["media_titles"])
     assert {"email", "access", "sent_at", "revoked_at"} <= set(columns["account_tokens"])
     assert {"public_address", "invite_permissions"} <= set(columns["app_settings"])
+
+
+def test_v30_adds_durable_release_update_settings(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    columns = _columns(_init(tmp_path, monkeypatch))
+    assert db_module.SCHEMA_VERSION >= 30
+    assert "update_settings" in columns["app_settings"]

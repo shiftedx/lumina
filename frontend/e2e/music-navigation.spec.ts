@@ -96,7 +96,8 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
   await expect(page.getByRole('heading', { level: 1, name: 'A Title 0' })).toBeVisible();
   await expect(page.getByRole('heading', { level: 2, name: /^Albums/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Play all', exact: true })).toBeEnabled();
-  await expect(player).toBeVisible();
+  // A full navigation restores the queue paused; only SPA navigation keeps audio playing.
+  await expect(player).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'artist page overflow').toBeLessThanOrEqual(0);
   const artistAccessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
   expect(artistAccessibility.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical').map((violation) => violation.id)).toEqual([]);

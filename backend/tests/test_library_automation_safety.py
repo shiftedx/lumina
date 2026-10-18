@@ -95,6 +95,39 @@ def baselined(env: Env, fs: FakeFs, root_id: str) -> None:
     assert env.automation._watches[root_id].phase == "watching" and rows(root_id) == fs.dirs
 
 
+def test_file_read_failure_recovers_through_the_public_activity_contract(env):
+    fs = library(FakeFs(FsClock()))
+    e = env(fs_factory=lambda root: fs)
+    root_id = watched(e)
+    baselined(e, fs, root_id)
+    fs.add("Movie/extra.mkv")
+    fs.read_errors["Movie/extra.mkv"] = OSError("transient read failure")
+
+    for _ in range(12):
+        tick(e)
+        if e.automation.public_activity()["waiting_error_files"]:
+            break
+    assert e.automation.public_activity()["waiting_files"] == 2
+    assert e.automation.public_activity()["waiting_error_files"] == 1
+
+    del fs.read_errors["Movie/extra.mkv"]
+    recovered_at = e.fake_clock._mono
+    for _ in range(12):
+        tick(e)
+        if not e.automation.public_activity()["waiting_error_files"]:
+            break
+    assert e.automation.public_activity()["waiting_files"] == 2
+    assert watch_starts(e) == []
+
+    for _ in range(12):
+        tick(e)
+        if watch_starts(e):
+            break
+    assert e.fake_clock._mono - recovered_at >= library_watch.STABLE_SPAN_S
+    assert watch_starts(e) == [[{"dir": "Movie", "deep": False}]]
+    assert e.automation.public_activity()["waiting_files"] == 0
+
+
 # --- 9.4-M: mass-missing is held, never confirmed by automation --------------------------------------------------
 
 def test_mass_missing_is_never_auto_confirmed_9_4_M(env, tmp_path):

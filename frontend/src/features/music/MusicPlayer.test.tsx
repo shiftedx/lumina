@@ -45,7 +45,7 @@ describe('MusicPlayer', () => {
   it('keeps the player usable when lyrics return only a provider error', async () => {
     mocks.lyrics.mockResolvedValue({ error: 'Music provider is temporarily unavailable', refreshing: false });
 
-    render(<MusicPlayer {...props} />);
+    const view = render(<MusicPlayer {...props} />);
     await waitFor(() => expect(mocks.lyrics).toHaveBeenCalledWith('one'));
     await userEvent.click(screen.getByRole('button', { name: 'Open listening room for Song one' }));
 
@@ -53,6 +53,11 @@ describe('MusicPlayer', () => {
     expect(screen.getByRole('dialog', { name: 'Listening room' })).toBeTruthy();
     await userEvent.click(screen.getAllByRole('button', { name: 'Pause music' })[0]);
     expect(mocks.pause).toHaveBeenCalledOnce();
+    music = { ...music, playback: { ...music.playback, playing: false } };
+    view.rerender(<MusicPlayer {...props} />);
+    expect(screen.queryByRole('region', { name: 'Music player' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Listening room' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Play music' })).toBeTruthy();
   });
 
   it('replaces a partial pending lyrics reply with the provider error', async () => {
@@ -126,6 +131,59 @@ describe('MusicPlayer', () => {
     expect(mocks.close).not.toHaveBeenCalled();
   });
 
+  it('hides the dock and releases its layout space when playback pauses', async () => {
+    const view = render(<MusicPlayer {...props} />);
+    expect(screen.getByRole('region', { name: 'Music player' })).toBeTruthy();
+    expect(document.documentElement.style.getPropertyValue('--music-dock-height')).not.toBe('');
+
+    music = { ...music, playback: { ...music.playback, playing: false } };
+    view.rerender(<MusicPlayer {...props} />);
+
+    expect(screen.queryByRole('region', { name: 'Music player' })).toBeNull();
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue('--music-dock-height')).toBe(''));
+    expect(mocks.close).not.toHaveBeenCalled();
+  });
+
+  it('dismisses playback without clearing the queue and returns on the next play', async () => {
+    const view = render(<><main id="main-content" tabIndex={-1} /><MusicPlayer {...props} /></>);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss music player' }));
+
+    expect(mocks.pause).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('region', { name: 'Music player' })).toBeNull();
+    expect(mocks.close).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(document.getElementById('main-content'));
+
+    music = { ...music, playback: { ...music.playback, playing: false } };
+    view.rerender(<><main id="main-content" tabIndex={-1} /><MusicPlayer {...props} /></>);
+    music = { ...music, playback: { ...music.playback, playing: true } };
+    view.rerender(<><main id="main-content" tabIndex={-1} /><MusicPlayer {...props} /></>);
+
+    expect(await screen.findByRole('region', { name: 'Music player' })).toBeTruthy();
+  });
+
+  it('keeps Sonos playback visible when dismiss is not acknowledged and hides it after retry', async () => {
+    setMusicCast({ owner: 'member-a', ticket: 'ticket-1', name: 'Kitchen', playing: true, baseIndex: 0, index: 0, position: 12, duration: 180, volume: .4, queued: 3 });
+    mocks.control.mockRejectedValueOnce(new Error('Speaker unavailable'));
+    render(<MusicPlayer {...props} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Dismiss music player' }));
+
+    expect(await screen.findByRole('region', { name: 'Music player' })).toBeTruthy();
+    expect(await screen.findAllByText('Speaker unavailable')).not.toHaveLength(0);
+    expect(mocks.pause).not.toHaveBeenCalled();
+    expect(mocks.close).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss music player' }));
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Music player' })).toBeNull());
+    expect(mocks.control).toHaveBeenCalledTimes(2);
+    expect(mocks.control).toHaveBeenNthCalledWith(1, 'ticket-1', 'pause', undefined);
+    expect(mocks.control).toHaveBeenNthCalledWith(2, 'ticket-1', 'pause', undefined);
+    expect(mocks.pause).not.toHaveBeenCalled();
+    expect(mocks.close).not.toHaveBeenCalled();
+  });
+
   it('offers explicit shared-session conflict choices', async () => {
     music = { ...music, sharedConflict: { revision: 2, queue, current_index: 0, position_seconds: 12, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 } };
     render(<MusicPlayer {...props} />);
@@ -195,7 +253,7 @@ describe('MusicPlayer', () => {
     setMusicCast({ owner: 'member-a', ticket: 'ticket-1', name: 'Kitchen', playing: true, baseIndex: 0, index: 1, position: 40, duration: 180, volume: .4, queued: 3 });
     mocks.status.mockResolvedValue({ transport_state: 'PLAYING', track: { track_number: 2, position_seconds: 40, duration_seconds: 180 } });
     render(<MusicPlayer {...props} />);
-    await userEvent.click(screen.getByRole('button', { name: 'Choose audio output' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Choose audio output' }));
     await userEvent.click(await screen.findByRole('button', { name: /This browser/ }));
 
     expect(mocks.resumeBrowser).toHaveBeenCalledWith(queue, 1, 40);

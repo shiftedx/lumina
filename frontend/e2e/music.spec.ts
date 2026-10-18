@@ -56,6 +56,27 @@ test('album playback stays on its Audio page and Next updates the player and Med
   expect(errors).toEqual([]);
 });
 
+test('paused and dismissed music leaves the page clear and explicit playback restores the bar', async ({ page }) => {
+  await open(page, '/audio/title/album-1');
+  const playTrack = page.getByRole('button', { name: 'Play 1. Song 1, 1:30' });
+  const player = page.getByRole('region', { name: 'Music player' });
+  await playTrack.click();
+  await expect(player.getByRole('button', { name: 'Pause music' })).toBeVisible();
+  await player.getByRole('button', { name: 'Pause music' }).click();
+  await expect(player).toBeHidden();
+  await expect(page.getByRole('main')).toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--music-dock-height'))).toBe('');
+
+  await playTrack.click();
+  await expect(player.getByRole('button', { name: 'Pause music' })).toBeVisible();
+  await player.getByRole('button', { name: 'Dismiss music player' }).click();
+  await expect(player).toBeHidden();
+  await expect(page.getByRole('main')).toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--music-dock-height'))).toBe('');
+  await playTrack.click();
+  await expect(player.getByRole('button', { name: 'Pause music' })).toBeVisible();
+});
+
 test('artist → album, and Shuffle plays from a shuffled order', async ({ page }) => {
   await open(page, '/title/artist-1');
   await expect(page.getByRole('heading', { level: 1, name: 'Artist A' })).toBeVisible();

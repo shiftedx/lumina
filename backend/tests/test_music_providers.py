@@ -135,6 +135,37 @@ def test_ambiguous_releases_wait_for_review(db_factory, monkeypatch):  # noqa: A
         assert not db.get(MediaTitle, RELEASE).provider_ids
 
 
+@pytest.mark.parametrize(('group_count', 'group_total'), [(1, 1), (2, 2), (1, 2)])
+def test_album_cover_can_resolve_without_selecting_an_edition(db_factory, monkeypatch, group_count, group_total):
+    import uuid
+    group = str(uuid.UUID(int=70))
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    with db_factory() as db:
+        db.add_all([MediaTitle(id=ARTIST, type='artist', key='artist:a', name='Artist A'),
+                    MediaTitle(id=RELEASE, type='album', key='album:a/one', name='Album One', parent_id=ARTIST, year=2001)])
+        db.commit()
+    def fetch(url):
+        if '/release-group/' in url:
+            return {'count': group_total, 'release-groups': [
+                {'id': str(uuid.UUID(int=70+i)), 'title': 'Album One', 'score': 100,
+                 'artist-credit': [{'name': 'Artist A'}]} for i in range(group_count)]}
+        return {'count': 2, 'releases': [
+            {'id': str(uuid.UUID(int=80+i)), 'title': 'Album One', 'score': 100,
+             'artist-credit': [{'name': 'Artist A'}], 'release-group': {'id': group}} for i in range(2)]}
+    monkeypatch.setattr(music, 'fetch_json', fetch)
+    monkeypatch.setattr(music, '_artwork', SimpleNamespace(load_pinned=lambda *_args, **_kwargs: SimpleNamespace(content=b'album-cover')))
+    result = music.enrich_title(RELEASE)
+    assert len(result['candidates']) == 2
+    with db_factory() as db:
+        album = db.get(MediaTitle, RELEASE)
+        assert not album.provider_ids and album.year == 2001
+        if group_count == group_total == 1:
+            assert album.images['Primary']['music'] == f'https://coverartarchive.org/release-group/{group}/front-1200'
+            assert album.metadata_json['release_group_id'] == group
+        else:
+            assert not album.images
+
+
 def test_enrichment_protects_manual_fields_and_rejects_invalid_provider_values(db_factory, monkeypatch):  # noqa: ANN001, ANN201
     monkeypatch.setattr(music, "session_scope", db_factory)
     monkeypatch.setattr(music, "import_art", lambda *_args: None)

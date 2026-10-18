@@ -230,13 +230,13 @@ def video_lookup(artist: str, track: str | None = None) -> dict:
 
 
 def candidates_for(kind: str, name: str, artist: str | None = None) -> list[dict]:
-    entity = "artist" if kind == "artist" else "release"
+    entity = "artist" if kind == "artist" else "release-group" if kind == "release-group" else "release"
     escaped = name.replace('"', " ").replace("\\", " ")[:300]
-    query = f'{entity}:"{escaped}"'
+    query = f'{entity.replace("-", "")}:"{escaped}"'
     if artist:
         query += f' AND artist:"{artist.replace(chr(34), " ")[:300]}"'
     value = fetch_json(f"https://musicbrainz.org/ws/2/{entity}/?" + urlencode({"query": query, "fmt": "json", "limit": 10}))
-    results = value.get("artists" if kind == "artist" else "releases", [])
+    results = value.get("artists" if kind == "artist" else "release-groups" if kind == "release-group" else "releases", [])
     rows = []
     for entry in results[:10]:
         try:
@@ -400,11 +400,31 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
     exact = [c for c in candidates if c["exact"] and c["score"] >= 95 and (not release_group or c.get("release_group_id") == release_group)]
     chosen = provider_id or existing_id or (exact[0]["id"] if len(exact) == 1 else None)
     if not chosen:
+        group = release_group
+        if kind == "album" and not group:
+            groups = [c for c in candidates_for("release-group", name, artist) if c["exact"] and c["score"] >= 95]
+            group = groups[0]["id"] if len(groups) == 1 else None
+        group = str(uuid.UUID(group)) if group else None
+        current = False
         with session_scope() as db, write_transaction(db, name="music_candidates"):
             title = db.get(MediaTitle, title_id)
-            if title and not title.locked and title.name == name and (title.provider_ids or {}) == identity_before:
+            if title and not title.locked and title.name == name and title.parent_id == parent_before and (title.provider_ids or {}) == identity_before:
+                current = True
                 title.metadata_json = {**(title.metadata_json or {}), "music_candidates": candidates}
+                if group:
+                    apply_field(title, "release_group_id", group, "musicbrainz")
                 title.metadata_due_at = utcnow() + timedelta(days=30)
+        if group and current:
+            try:
+                import_art(title_id, f"https://coverartarchive.org/release-group/{group}/front-1200", release_group_id=group)
+            except Exception as error:  # artwork availability does not establish an edition identity
+                from app.services.artwork import ArtworkNotFoundError
+                if not isinstance(error, ArtworkNotFoundError):
+                    with session_scope() as db, write_transaction(db, name="music_art_retry"):
+                        title = db.get(MediaTitle, title_id)
+                        if title and (title.metadata_json or {}).get("release_group_id") == group:
+                            title.metadata_due_at = utcnow() + timedelta(hours=1)
+                    return {"candidates": candidates, "artwork_error": "Album artwork is temporarily unavailable"}
         return {"candidates": candidates}
     chosen = str(uuid.UUID(chosen))
     entity = "artist" if kind == "artist" else "release"
@@ -493,14 +513,16 @@ def request_enrichment(title_id: str, provider_id: str | None = None, *, force: 
     return enqueue(key_for("metadata", title_id), "metadata", lambda: enrich_title(title_id, provider_id), ttl_days=30, force=force)
 
 
-def import_art(title_id: str, url: str | None, *, identity: str | None = None, image_type: str = "Primary", credit: dict | None = None) -> None:
+def import_art(title_id: str, url: str | None, *, identity: str | None = None, image_type: str = "Primary", credit: dict | None = None,
+               release_group_id: str | None = None) -> None:
     if not url or _artwork is None:
         return
     response = _artwork.load_pinned(url, bucket="music", max_bytes=2 * 1024**3, validate_redirect=validate_art_url)
     tag = hashlib.sha256(response.content).hexdigest()
     with session_scope() as db, write_transaction(db, name="music_art"):
         title = db.get(MediaTitle, title_id)
-        if title is not None and (identity is None or (title.provider_ids or {}).get("MusicBrainz") == identity):
+        if (title is not None and (identity is None or (title.provider_ids or {}).get("MusicBrainz") == identity)
+                and (release_group_id is None or (title.metadata_json or {}).get("release_group_id") == release_group_id)):
             from app.services.media_titles import write_outcome
             field = f"images.{image_type}"
             image = {"music": url, "tag": tag}

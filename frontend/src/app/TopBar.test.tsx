@@ -44,6 +44,18 @@ describe('TopBar', () => {
     expect(p.onActivity).toHaveBeenCalledOnce();
   });
 
+  it('keeps the shell usable while a ready activity snapshot is empty or from an older server', () => {
+    const base = props({ activity: { state: 'empty', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: null } });
+    const { rerender } = render(<TopBar {...base} />);
+    expect(screen.getByRole('button', { name: 'No active downloads' })).toBeTruthy();
+
+    const legacy: Partial<LibraryActivity> = library({ scanning_roots: 1 });
+    delete legacy.stalled_roots;
+    delete legacy.waiting_error_files;
+    rerender(<TopBar {...props({ activity: base.activity, libraryActivity: { state: 'ready', activity: legacy as LibraryActivity } })} />);
+    expect(screen.getByRole('button', { name: 'Library scanning' }).querySelector('.g-activity-ring')?.classList.contains('is-indeterminate')).toBe(true);
+  });
+
   it('explains stale activity in a popover', async () => {
     const onActivity = vi.fn();
     render(<TopBar {...props({ activity: { state: 'stale', retrying: false, active: 0 }, onActivity })} />);

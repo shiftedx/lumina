@@ -386,3 +386,27 @@ def test_person_lifespan_is_not_a_career_and_manual_active_years_stay_protected(
         artist = db.get(MediaTitle, ARTIST)
         assert artist.metadata_json.get('active_since') == ('1987-03-12' if protected else None)
         assert artist.metadata_json['birth_date'] == '1987-03-12'
+
+
+def test_lyrics_outage_cache_recovers_soon_without_discarding_saved_words(db_factory, monkeypatch):
+    from datetime import timedelta
+    from app.models import MusicLookup, utcnow
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    tasks = []
+    monkeypatch.setattr(music, '_pool', SimpleNamespace(submit=lambda callback: tasks.append(callback)))
+    key = music.key_for('lyrics', 'outage-recovery')
+    def outage():
+        raise TimeoutError('provider timeout')
+    assert music.enqueue(key, 'lyrics', outage)
+    assert not music.enqueue(key, 'lyrics', outage, force=True)
+    tasks.pop()()
+    with db_factory() as db:
+        row = db.get(MusicLookup, key)
+        assert row.payload.get('error')
+        assert row.expires_at <= utcnow() + timedelta(minutes=1)
+    assert music.enqueue(key, 'lyrics', lambda: {'plain': 'Saved words', 'cues': []}, force=True)
+    tasks.pop()()
+    assert music.enqueue(key, 'lyrics', outage, force=True)
+    tasks.pop()()
+    with db_factory() as db:
+        assert db.get(MusicLookup, key).payload['plain'] == 'Saved words'

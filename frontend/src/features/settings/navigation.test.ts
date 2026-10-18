@@ -55,5 +55,6 @@ describe('separate settings spaces', () => {
     expect(pageForRow('requests.policies')?.category).toBe('household');
     expect(pageForRow('members.public-address')?.category).toBe('connections');
     expect(pageForRow('diagnostics.updates')?.id).toBe('updates');
+    expect(resolveSettingsPage('diagnostics').id).toBe('diagnostics');
   });
 });

@@ -160,7 +160,10 @@ def _replace_success(server_id: str, signature: tuple[Any, ...], observed: dict[
             state.summary = _summary(items, records)
             state.attempted_at = state.last_ok_at = now
             state.last_error = None
-    rescan_folders(rescans)
+    try:
+        rescan_folders(rescans)
+    except Exception as exc:  # noqa: BLE001 - observation is durable; a later poll retries reconciliation
+        logger.warning("Arr inventory reconciliation failed: %s", type(exc).__name__)
 
 
 def _history_by_item(records: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
@@ -204,10 +207,14 @@ def _inventory_digest(kind: str, raw: dict[str, Any], history: list[dict[str, An
             })
         base["seasons"] = sorted(seasons, key=lambda value: (value.get("seasonNumber", -1), value.get("id", -1)))
     identities = [_history_identity(record) for record in history]
-    base["history"] = sorted(
-        identities, key=lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
-    )[:64]
+    newest = sorted(identities, key=_history_newness, reverse=True)[:64]
+    base["history"] = sorted(newest, key=lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), default=str))
     return reconciliation_digest(base)
+
+
+def _history_newness(value: dict[str, Any]) -> tuple[str, int, str]:
+    identity = value.get("id")
+    return str(value.get("date") or ""), identity if isinstance(identity, int) else -1, str(identity or "")
 
 
 def _inventory_row(db: Session, server: ArrServer, raw: dict[str, Any], now: Any) -> tuple[ArrObservedItem, str | None]:

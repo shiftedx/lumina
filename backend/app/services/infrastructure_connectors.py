@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 from uuid import UUID
 import math
@@ -16,6 +17,8 @@ from app.models import ArrServer, MusicAcquisition, ServiceConnector, utcnow
 from app.persistence import write_transaction
 from app.services.local_ai import LocalAiError, bounded_json_request
 from app.services.requests.arr import ArrClient, ArrError, MAX_BYTES
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectorError(RuntimeError):
@@ -264,8 +267,8 @@ def refresh(db: Session, connector_id: str) -> ServiceConnector:
             from app.services.requests.sync import rescan_folders
             try:
                 rescan_folders(paths)
-            except (OSError, ValueError, RuntimeError):
-                pass  # A later observation retries import; upstream file flags never establish Play.
+            except Exception as exc:  # noqa: BLE001 - observation is durable; a later poll retries reconciliation
+                logger.warning("Lidarr inventory reconciliation failed: %s", type(exc).__name__)
         return row
     finally:
         with _refresh_lock:
@@ -281,10 +284,16 @@ def _lidarr_file_identity(artist: dict[str, Any], albums: list[dict[str, Any]], 
     album_values = [{"id": row.get("id"), "foreignAlbumId": row.get("foreignAlbumId"), "statistics": stats(row)} for row in albums]
     history_values = [{key: row[key] for key in ("id", "eventType", "date", "artistId", "albumId", "trackFileId", "downloadId")
                        if row.get(key) is not None} for row in history]
+    history_values = sorted(history_values, key=_history_newness, reverse=True)[:64]
     history_values.sort(key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":"), default=str))
     return {"artist": {"id": artist.get("id"), "statistics": stats(artist)},
             "albums": sorted(album_values, key=lambda row: (row.get("id") or -1, row.get("foreignAlbumId") or "")),
-            "history": history_values[:64]}
+            "history": history_values}
+
+
+def _history_newness(value: dict[str, Any]) -> tuple[str, int, str]:
+    identity = value.get("id")
+    return str(value.get("date") or ""), identity if isinstance(identity, int) else -1, str(identity or "")
 
 
 def _music_observations(db: Session, connector: ServiceConnector, snapshot: dict) -> None:

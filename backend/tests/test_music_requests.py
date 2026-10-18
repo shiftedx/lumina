@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from lidarr_fake import API_KEY, FakeLidarr
 from support import make_user
@@ -169,8 +170,8 @@ def test_lidarr_observation_drives_request_status_and_mapped_import_without_fake
     fake.artists[10] = {"id": 10, "foreignArtistId": ARTIST, "artistName": "Artist", "path": "/music/Artist", "statistics": {"trackFileCount": 2}}
     fake.albums[12] = {"id": 12, "foreignAlbumId": ALBUM, "artistId": 10, "title": "Album", "artist": fake.artists[10]}
     fake.queue = [{"id": 1, "albumId": 12, "status": "downloading", "downloadUrl": "https://private.invalid", "outputPath": "/private"}]
-    fake.history = [{"id": 7, "artistId": 10, "albumId": 12, "eventType": "grabbed", "date": "2026-01-01T00:00:00Z"},
-                    {"id": 8, "artistId": 10, "albumId": 12, "eventType": "trackFileImported", "date": "2026-01-01T01:00:00Z"}]
+    fake.history = [{"id": number, "artistId": 10, "albumId": 12, "eventType": "grabbed", "date": "2026-01-01T00:00:00Z"}
+                    for number in range(1, 71)]
     with factory.begin() as db:
         db.get(ServiceConnector, "lidarr").settings = {"path_mappings": [{"remote": "/music", "local": "/media/music"}]}
         db.add(MusicAcquisition(id="77777777-7777-4777-8777-777777777777", user_id="alice", connector_id="lidarr", foreign_artist_id=ARTIST,
@@ -184,7 +185,7 @@ def test_lidarr_observation_drives_request_status_and_mapped_import_without_fake
     fake.history.reverse()
     assert client.post("/api/admin/connectors/lidarr/refresh").status_code == 200
     assert scans[-1].digest == first_digest
-    fake.history.append({"id": 9, "artistId": 10, "albumId": 12, "eventType": "trackFileImported", "date": "2026-01-02T00:00:00Z",
+    fake.history.append({"id": 1000, "artistId": 10, "albumId": 12, "eventType": "trackFileImported", "date": "2026-01-02T00:00:00Z",
                          "trackFileId": 99})
     assert client.post("/api/admin/connectors/lidarr/refresh").status_code == 200
     assert scans[-1].digest != first_digest
@@ -196,6 +197,16 @@ def test_lidarr_observation_drives_request_status_and_mapped_import_without_fake
     assert request["result"]["observation"]["state"] == "downloading"
     assert request["availability"] == {"state": "awaiting_import"}
     current["id"] = "admin"
+
+    def unavailable(_offers) -> None:  # noqa: ANN001
+        raise OperationalError("SELECT", {}, RuntimeError("database is locked"))
+
+    monkeypatch.setattr(sync, "rescan_folders", unavailable)
+    reconciler_down = client.post("/api/admin/connectors/lidarr/refresh")
+    assert reconciler_down.status_code == 200 and reconciler_down.json()["stale"] is False
+    with factory() as db:
+        connector = db.get(ServiceConnector, "lidarr")
+        assert connector.last_ok_at is not None and connector.last_error is None
     fake.down = True
     assert client.post("/api/admin/connectors/lidarr/refresh").json()["stale"] is True
     assert client.get("/api/admin/connectors/lidarr?dataset=queue").json()["total"] == 1

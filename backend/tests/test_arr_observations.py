@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from arr_fake import API_KEY, FakeArr, library_title
 from support import file_backed_session_factory, make_user, seed_app_settings
@@ -101,8 +102,8 @@ def test_reconciliation_fingerprint_ignores_unchanged_polls_and_detects_file_cha
            "seasons": [{"seasonNumber": 1, "statistics": {"episodeFileCount": 1, "sizeOnDisk": 100}}]}
     fake.library[101] = raw
     id_field = "seriesId" if kind == "sonarr" else "movieId"
-    fake.history = [{"id": 41, id_field: 101, "eventType": "downloadFolderImported", "date": "2026-01-01T00:00:00Z"},
-                    {"id": 42, id_field: 101, "eventType": "grabbed", "date": "2025-12-31T00:00:00Z"}]
+    fake.history = [{"id": number, id_field: 101, "eventType": "grabbed", "date": "2025-12-31T00:00:00Z"}
+                    for number in range(1, 71)]
     with factory.begin() as db:
         db.get(ArrServer, "radarr").kind = kind
     offered = []
@@ -113,7 +114,7 @@ def test_reconciliation_fingerprint_ignores_unchanged_polls_and_detects_file_cha
     arr_observer.sync_once("radarr")
     assert offered[0][0].digest == offered[1][0].digest
 
-    fake.history.append({"id": 44, id_field: 101, "eventType": "downloadFolderImported", "date": "2026-01-02T00:00:00Z",
+    fake.history.append({"id": 1000, id_field: 101, "eventType": "downloadFolderImported", "date": "2026-01-02T00:00:00Z",
                          "episodeFileId" if kind == "sonarr" else "movieFileId": 11})
     arr_observer.sync_once("radarr")
     assert offered[2][0].digest != offered[1][0].digest
@@ -121,6 +122,21 @@ def test_reconciliation_fingerprint_ignores_unchanged_polls_and_detects_file_cha
         raw["seasons"].append({"seasonNumber": 2, "statistics": {"episodeFileCount": 1, "sizeOnDisk": 200}})
         arr_observer.sync_once("radarr")
         assert offered[3][0].digest != offered[2][0].digest
+
+
+def test_reconciliation_failure_does_not_turn_a_valid_observation_into_upstream_failure(observed, monkeypatch) -> None:  # noqa: ANN001
+    factory, fake = observed
+    _movie(fake)
+
+    def unavailable(_offers) -> None:  # noqa: ANN001
+        raise OperationalError("SELECT", {}, RuntimeError("database is locked"))
+
+    monkeypatch.setattr(arr_observer, "rescan_folders", unavailable)
+    assert arr_observer.sync_once("radarr") is True
+    with factory() as db:
+        state = db.get(ArrObservationState, "radarr")
+        assert state and state.last_ok_at is not None and state.last_error is None
+        assert db.get(ArrObservedItem, ("radarr", 101)) is not None
 
 
 def test_failed_or_malformed_refresh_retains_last_complete_snapshot_and_marks_it_stale(observed) -> None:  # noqa: ANN001

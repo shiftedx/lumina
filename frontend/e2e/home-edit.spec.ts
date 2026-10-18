@@ -244,6 +244,7 @@ test('Continue listening keeps music separate and can be hidden, restored and re
   await page.keyboard.press('Space');
   await page.keyboard.press('Home');
   await page.keyboard.press('Space');
+  await expect.poll(() => lastLayout(saved)?.[0]).toEqual({ id: 'continue_listening', visible: true });
   await page.locator('.h-editor').getByRole('button', { name: 'Done' }).click();
   await page.reload();
   await expect(listening).toBeVisible();

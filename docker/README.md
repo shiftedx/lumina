@@ -397,6 +397,16 @@ The command refuses while a server holds the data directory, verifies the backup
 
 ## Upgrades
 
+### Checking for a release
+
+Manage Server → Maintenance → Updates shows the installed version and the latest stable [GitHub Release](https://github.com/shiftedx/lumina/releases). Lumina checks once a day by default; **Check for updates** requests a check sooner. Checks contact GitHub's public API without credentials or library information. Drafts, prereleases and unpublished commits do not count as updates. Disable automatic checks on the same page to stop scheduled requests; manual checks remain available.
+
+When a newer version is available, the Manage Server overview keeps an update notice visible. Optional email notifications use the configured SMTP server and active admins' saved notification email addresses. Email is off by default and best effort: each release is queued once, including across restarts, so a crash or mail failure can lose that email. The overview notice remains available. GitHub failures preserve the last successful result and show an error; scheduled failures retry after an hour. Manual checks share a one-minute cooldown.
+
+Checking never downloads or installs an image or restarts the server. Follow the upgrade and rollback instructions below after reviewing the release notes. A private/source build reports its declared application version; this check does not compare untagged source commits.
+
+### Installing a release
+
 To update, set or replace the image line in `.env` with the exact release you want, then pull and restart only Lumina. These commands leave `app-data/` and every media mount in place:
 
 Set this line in `.env` (replace an existing `LUMINA_DOCKER_IMAGE` line):
@@ -448,6 +458,7 @@ Schema steps 6 to 18 only add tables, columns and indexes that older releases ig
 
 | Rolling back to | Stamp |
 | --- | --- |
+| Before release update checks (schema 29) | `PRAGMA user_version = 29` (keep the additive `app_settings.update_settings` column; older releases ignore cached release status and notification preferences) |
 | Before acquisition-aware music queues (schema 28) | `PRAGMA user_version = 28` (keep the additive `queue_entries`, `entry_index` and `unavailable_policy` columns; older releases use only the resolved playable queue) |
 | Before Chromecast media tickets (schema 27) | `DELETE FROM media_cast_tickets; PRAGMA user_version = 27` (revoke receiver access; keep the additive table) |
 | Before listening history exports (schema 26) | `PRAGMA user_version = 26` (keep `listening_export_connections` and `listening_play_events`; preserve uncertain delivery records to prevent duplicate exports) |

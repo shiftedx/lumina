@@ -54,5 +54,6 @@ describe('separate settings spaces', () => {
     expect(pageForRow('requests.smtp')?.id).toBe('email');
     expect(pageForRow('requests.policies')?.category).toBe('household');
     expect(pageForRow('members.public-address')?.category).toBe('connections');
+    expect(pageForRow('diagnostics.updates')?.id).toBe('updates');
   });
 });

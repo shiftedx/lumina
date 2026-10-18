@@ -1078,6 +1078,22 @@ export interface AdminSettings {
   updated_at?: string | null;
 }
 
+export interface AdminUpdateStatus {
+  current_version: string;
+  latest_release: {
+    version: string;
+    url: string;
+    published_at: string | null;
+  } | null;
+  status: 'not_checked' | 'up_to_date' | 'update_available';
+  checked_at: string | null;
+  error: string | null;
+  checking: boolean;
+  automatic_checks: boolean;
+  email_notifications: boolean;
+  email_configured: boolean;
+}
+
 /** GET /api/admin/overview: aggregates only; `null` means the sensor is unavailable, not zero. */
 export interface AdminOverview {
   generated_at: string;
@@ -1102,6 +1118,7 @@ export interface AdminOverview {
     artifact_count: number;
     artifact_bytes: number;
   }[];
+  updates?: AdminUpdateStatus;
   event_streams: number;
   persistence: Record<string, { count: number; errors: number; busy_timeouts: number; total_ms: number; max_wait_ms: number }>;
 }

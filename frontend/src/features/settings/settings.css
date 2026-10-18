@@ -136,6 +136,12 @@
 .admin-toolbar p { margin: 0; color: var(--g-ink-3); font-size: 12px; }
 .admin-toolbar .g-button svg { width: 15px; }
 .admin-panel { min-width: 0; }
+.admin-update-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 12px 0; border-block: var(--g-rule); }
+.admin-update-notice p { margin: 4px 0 0 22px; color: var(--g-ink-2); font: var(--g-type-small); }
+.admin-update-versions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.admin-update-release { justify-content: flex-start; }
+.admin-update-install { padding-top: 4px; border-top: var(--g-rule); }
+.admin-update-install .g-actions { justify-content: flex-start; margin-top: 12px; }
 .admin-panel h2 { margin: 0 0 6px; color: var(--g-ink); font-family: 'Newsreader', serif; font-size: 22px; font-weight: 400; }
 .admin-panel h3 { margin: 20px 0 8px; color: var(--g-ink-2); font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
 .admin-table small, .admin-failures small { display: block; color: var(--g-ink-3); font-family: inherit; font-size: 11px; }

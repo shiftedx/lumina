@@ -6,6 +6,7 @@ import { errorMessage } from '../../../utils';
 import { AdminOverview } from '../../admin/AdminOverview';
 import { useAdminResource } from '../../admin/useAdminResource';
 import { type FormStatus, SectionForm } from '../SectionForm';
+import { useSettingsHost } from '../settingsHost';
 import type { SettingsSectionDef } from '../settingsTypes';
 
 type Limits = Record<'concurrency' | 'max_active_jobs_per_user' | 'min_free_disk_mb' | 'extra_source_ports', string>;
@@ -68,7 +69,8 @@ function DownloadLimitsForm({ children }: { children: ReactNode }) {
 
 function Status() {
   const { savedAt } = useLimits();
-  return <AdminOverview refreshKey={savedAt} />;
+  const { onOpenSetting } = useSettingsHost();
+  return <AdminOverview onOpenUpdates={onOpenSetting ? () => { onOpenSetting('diagnostics.updates'); } : undefined} refreshKey={savedAt} />;
 }
 
 function LimitField({ name, label, min, max }: { name: keyof Limits; label: string; min: number; max: number }) {

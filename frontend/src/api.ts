@@ -13,6 +13,7 @@ import type {
   AcquisitionBatchCreateRequest,
   AdminOverview,
   AdminSettings,
+  AdminUpdateStatus,
   ChatReplayAsset,
   TimedChatEvent,
   AutomationRun,
@@ -626,6 +627,9 @@ export const changePassword = (currentPassword: string, newPassword: string): Pr
 export const getAdminSettings = (): Promise<AdminSettings> => requestJson('/api/admin/settings');
 export const updateAdminSettings = (payload: Partial<Pick<AdminSettings, 'concurrency' | 'max_active_jobs_per_user' | 'min_free_disk_mb' | 'extra_source_ports' | 'require_owner_two_factor'>>): Promise<AdminSettings> => put('/api/admin/settings', payload);
 export const getAdminOverview = (): Promise<AdminOverview> => requestJson('/api/admin/overview');
+export const getAdminUpdateStatus = (): Promise<AdminUpdateStatus> => requestJson('/api/admin/updates');
+export const checkAdminUpdates = (): Promise<AdminUpdateStatus> => post('/api/admin/updates/check');
+export const updateAdminUpdateSettings = (payload: Partial<Pick<AdminUpdateStatus, 'automatic_checks' | 'email_notifications'>>): Promise<AdminUpdateStatus> => patch('/api/admin/updates', payload);
 
 export type StorageSource = 'youtube' | 'twitch' | 'kick' | 'soundcloud' | 'generic';
 export type StorageMediaKind = 'video' | 'audio' | 'recording';

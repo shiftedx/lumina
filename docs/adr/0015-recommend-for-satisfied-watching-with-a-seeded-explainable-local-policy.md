@@ -47,6 +47,17 @@ Determinism is part of the problem: a list that never changes cannot explore, an
 
 ## Consequences
 
+Live discovery uses the same member-local ranking weights, suppression rules and
+explanations, with a separate ranked allowance per provider so another provider
+cannot crowd out the selected one. Followed live channels remain first. Candidate
+language must match the member's audio-language preferences (English by default);
+unknown public streams are withheld, while explicitly followed channels may have
+unknown language. Known mismatches are excluded in both cases. Provider audio
+metadata, including original audio/caption language, establishes language rather
+than the title's script. Bounded background probes share the existing provider
+budget and never run on request threads. Cached snapshots retain language, and
+Browse follows the shared refreshed snapshot. No ranking constants change.
+
 - ADR 0007 is amended: its status line reads "Accepted; amended by ADR 0011 and ADR 0015".
 - ADR 0011 is amended: its status line reads "Accepted; amended by ADR 0015". Its exploration share is now set per surface.
 - Members are never hard-deleted. Deactivation plus Clear recommendation history satisfies the deletion invariant.

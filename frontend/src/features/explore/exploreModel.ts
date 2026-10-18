@@ -6,7 +6,7 @@ export type GroupKey = 'channels' | 'live' | 'videos' | 'shorts' | 'playlists';
 export const GROUP_ORDER: ReadonlyArray<readonly [GroupKey, string, string]> = [
   ['channels', 'Channels', 'Channels'], ['live', 'Live now', 'Live'], ['videos', 'Videos', 'Videos'], ['shorts', 'Shorts', 'Shorts'], ['playlists', 'Playlists', 'Playlists'],
 ];
-export const LIVE_TEASER = 8;
+export const LIVE_TEASER = 16;
 export const LIBRARY_GROUP_MAX = 12;
 
 export function exploreGroups(results: readonly RemoteEntry[]): Record<GroupKey, RemoteEntry[]> {
@@ -21,10 +21,19 @@ export function exploreGroups(results: readonly RemoteEntry[]): Record<GroupKey,
   return groups;
 }
 
-/** The top 8 live entries by viewers, follows included, each once. */
-export function liveTeaser(snapshot: LiveSnapshot | null): RemoteEntry[] {
-  const all = [...new Map([...(snapshot?.hero ?? []), ...(snapshot?.items ?? [])].filter((item) => item.capabilities?.lifecycle === 'live').map((item) => [item.webpage_url || item.id, item])).values()];
-  return all.sort((a, b) => (b.view_count ?? -1) - (a.view_count ?? -1)).slice(0, LIVE_TEASER);
+/** Followed live entries first, then the backend-ranked live entries, each once. */
+export function liveTeaser(snapshot: LiveSnapshot | null, visible: (item: RemoteEntry) => boolean = () => true): RemoteEntry[] {
+  const seen = new Set<string | null | undefined>();
+  const teaser: RemoteEntry[] = [];
+  for (const item of [...(snapshot?.hero ?? []), ...(snapshot?.items ?? [])]) {
+    if (item.capabilities?.lifecycle !== 'live' || !visible(item)) continue;
+    const key = item.webpage_url || item.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    teaser.push(item);
+    if (teaser.length === LIVE_TEASER) break;
+  }
+  return teaser;
 }
 
 /** One rail per ready (or stale, with its notice) popular category, in snapshot order. */

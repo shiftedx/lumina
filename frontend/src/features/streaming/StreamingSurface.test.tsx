@@ -82,6 +82,36 @@ describe('Streaming page', () => {
     expect(screen.queryByText('Twitch only stream')).toBeNull();
   });
 
+  it('keeps a followed YouTube stream first and fills Browse Live now from the selected provider', async () => {
+    const followed = liveEntry('followed-youtube', { title: 'Followed YouTube', view_count: 1 });
+    const twitch = Array.from({ length: 18 }, (_, index) => liveEntry(`twitch-${index}`, {
+      source: 'twitch', source_label: 'Twitch', title: `Twitch ${index}`, view_count: 100_000 - index,
+      webpage_url: `https://www.twitch.tv/twitch-${index}`, uploader_id: null, uploader_url: null,
+    }));
+    const youtube = Array.from({ length: 15 }, (_, index) => liveEntry(`youtube-${index}`, { title: `YouTube ${index}`, view_count: 10_000 - index }));
+    const base = setup().props.live;
+    cleanup();
+    setup({ providers: ['youtube', 'twitch'], live: { ...base, snapshot: liveSnapshot({ hero: [followed], items: [...twitch, ...youtube], language_pending: true }) } });
+
+    await waitFor(() => expect(document.querySelectorAll('section[data-rail-key="live-now"] .g-remote-card')).toHaveLength(16));
+    const cards = [...document.querySelectorAll<HTMLElement>('section[data-rail-key="live-now"] .g-still-title')].map((card) => card.textContent);
+    expect(cards).toEqual(['Followed YouTube', ...youtube.map((entry) => entry.title)]);
+    expect(screen.queryByText('Finding more live streams in your language…')).toBeNull();
+  });
+
+  it('updates Browse from the shared live snapshot without an independent one-shot request', async () => {
+    const view = setup();
+    await screen.findByRole('heading', { level: 2, name: 'Live now' });
+    const entry = liveEntry('fresh', { title: 'Freshly verified live choice' });
+    view.rerender(<StreamingSurface {...view.props} live={{ ...view.props.live, snapshot: liveSnapshot({ items: [entry, ...Array.from({ length: 20 }, (_, i) => ({ ...twitchLive, id: `twitch-${i}` }))], language_pending: true }) }} />);
+    expect(await screen.findByText('Freshly verified live choice')).toBeTruthy();
+    expect(screen.getByText('Finding more live streams in your language…')).toBeTruthy();
+    expect(api.getLiveDiscovery).not.toHaveBeenCalled();
+    view.rerender(<StreamingSurface {...view.props} live={{ ...view.props.live, snapshot: null, error: 'Live discovery is temporarily unavailable.' }} />);
+    expect(screen.getByText('Live discovery is temporarily unavailable.')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Loading Live now' })).toBeNull();
+  });
+
   it('with only YouTube on, no Twitch or Kick card renders in the home or live views', async () => {
     const kick = liveEntry('k1', { source: 'kick', title: 'Kick only stream', webpage_url: 'https://kick.com/k1' });
     const snapshot = liveSnapshot({ hero: [twitchLive, kick], items: [...liveSnapshot().items, twitchLive, kick] });

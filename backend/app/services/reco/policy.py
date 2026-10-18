@@ -13,7 +13,7 @@ import secrets
 from array import array
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
-from itertools import batched
+from itertools import batched, zip_longest
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -39,6 +39,7 @@ from app.services.reco import (
     CONSTANTS,
     SOURCE_CURRENT_CHANNEL,
     SOURCE_FOLLOW,
+    SOURCE_POPULAR,
     SURFACE_K,
     Candidate,
     MemberProfile,
@@ -296,6 +297,55 @@ class RecommendationPolicy:
             and not _channel_hidden(item, profile)  # rank() never saw these, so apply its channel veto here
         )
         return ranked + rest
+
+    def live(self, member: User, hero: list[PopularItemResponse], items: list[PopularItemResponse], *, personal: bool = True, limit: int = 24
+             ) -> tuple[list[PopularItemResponse], list[PopularItemResponse]]:
+        """Rank live candidates per provider, without spending a request on one.
+
+        A followed channel can keep its place when language is unknown; public
+        recommendations need a confirmed matching spoken language. Each provider
+        gets a full list before the browser chooses its provider and shelf limit.
+        """
+        from app.services.track_preferences import language, preferences
+        from app.services.reco.profile import remote_tokens
+
+        wanted = (preferences(self._db, member.id) or {}).get("audioLanguages") or ["eng"]
+        now = self._now()
+        profile = profiles.get(self._db, member.id, now=now)
+        entries = {key: entry for entry in [*items, *hero]
+                   if (key := remote_key(entry.source, entry.id, entry.webpage_url))}
+        hidden = self._hidden_items(member, entries)
+
+        def allowed(entry: PopularItemResponse, *, followed: bool = False) -> bool:
+            known = language(entry.language)
+            key = remote_key(entry.source, entry.id, entry.webpage_url)
+            return ((known in wanted if known else followed) and key not in hidden
+                    and not _channel_hidden(entry, profile))
+
+        followed = [entry for entry in hero if allowed(entry, followed=True)]
+        if not personal:
+            return followed, [entry for entry in items if allowed(entry)]
+        candidates: dict[str, list[Candidate]] = {}
+        for key, entry in entries.items():
+            if not allowed(entry):
+                continue
+            channel = channel_key(entry.source, entry.uploader_id, entry.uploader_url, entry.uploader)
+            candidates.setdefault(entry.source, []).append(Candidate(
+                key=key, target_kind="remote", title=entry.title or "", channel_key=channel, channel_name=entry.uploader,
+                tokens=remote_tokens(entry.title, channel, entry.category_keys), published_at=entry.published_at,
+                sources=SOURCE_POPULAR, category_keys=tuple(entry.category_keys), views=entry.view_count,
+            ))
+        groups = []
+        for provider, pool in candidates.items():
+            ctx = SurfaceContext(surface="explore_for_you", k=limit, local_date=local_date(now), context_key=f"live:{provider}")
+            ranked = rank(pool, profile, ctx, now=now)
+            served = ServedList(list_id=secrets.token_hex(8), user_id=member.id, surface="explore_for_you",
+                                context_key=ctx.context_key, created_at=now, items=tuple(ranked))
+            served_lists.put(served)
+            groups.append([entries[value.candidate.key].model_copy(update={"reco": annotation(served, value)}) for value in ranked])
+        # Keep every provider's personalized order while interleaving providers
+        # for consumers which show them together.
+        return followed, [entry for row in zip_longest(*groups) for entry in row if entry is not None]
 
     def remote_entries(self, served: ServedList, snapshot: PopularSnapshot, *, channel_id: str | None = None
                        ) -> list[PopularItemResponse]:

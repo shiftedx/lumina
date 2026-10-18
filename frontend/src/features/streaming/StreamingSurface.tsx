@@ -76,7 +76,7 @@ export function StreamingSurface({ view: requestedView, provider: requested, pro
   if (view === 'live' && liveBlocked) body = <BlockedSurface what="Live" />;
   else if (view === 'channels') body = channelsView;
   else if (view === 'live' || (provider !== 'youtube' && view === 'home')) body = <LiveSurface {...liveProps} embedded onRailChange={(next) => onNavigate({ view: 'live', provider, rail: next ?? undefined })} provider={provider} rail={rail ?? null} />;
-  else body = <ExploreSurface {...explore} {...results} popular={popularProp} embedded fromChannels={fromChannels} onSeeAllChannels={() => onNavigate({ view: 'channels', provider })} onSeeAllLive={goLive} provider={provider} query={view === 'search' ? query : ''} />;
+  else body = <ExploreSurface {...explore} {...results} popular={popularProp} liveSnapshot={liveProps.snapshot} liveError={liveProps.error} embedded fromChannels={fromChannels} onSeeAllChannels={() => onNavigate({ view: 'channels', provider })} onSeeAllLive={goLive} provider={provider} query={view === 'search' ? query : ''} />;
 
   return (
     // The shell parks focus on the h1 when a See all wall opens, outside the embedded screen's own Back handler (the screens preventDefault theirs) and its arrow handler, so the h1 routes arrows itself.

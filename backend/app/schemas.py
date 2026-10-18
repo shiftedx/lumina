@@ -231,6 +231,7 @@ ChannelTab = Literal["videos", "streams", "shorts", "playlists"]
 
 
 class YouTubeSearchResult(BaseModel):
+    language: str | None = Field(default=None, max_length=32)
     id: str | None = None
     title: str | None = None
     uploader: str | None = None
@@ -614,6 +615,7 @@ class LiveSnapshotResponse(PopularSnapshotResponse):
     categories: list[LiveCategoryResponse] = Field(default_factory=list)
     live_total: int | None = None
 
+    language_pending: bool = False
     twitch_available: bool = True
     hero: list[PopularItemResponse] = Field(default_factory=list)
     # Followed channels whose live status could not be checked (e.g. Kick refused the

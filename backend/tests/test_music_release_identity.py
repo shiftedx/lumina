@@ -232,3 +232,92 @@ def test_confirmed_artist_identity_survives_partial_batches_and_consolidates_dup
             user = db.scalar(select(User).where(User.role == "admin"))
             assert user is not None
             assert TitleService(db).get_visible(alias_id, user).id == artist_id
+
+
+@needs_ffmpeg
+def test_partial_release_tags_merge_existing_album_fragments_in_track_order(admin, media: Path, monkeypatch) -> None:  # noqa: ANN001
+    from app.services import library_import
+
+    folder = media / "Music" / "Same Artist" / "Shared Album"
+    paths = []
+    cover = music_fixture().cover_image(media.parent / "partial-cover.jpg", "200x200")
+    for number in (1, 2, 3):
+        paths.append(music_fixture().write_track(folder / f"0{number} Track.flac", {
+            "title": f"Track {number}", "artist": "Same Artist", "album_artist": "Same Artist",
+            "album": "Shared Album" if number != 2 else "Shared album", "track": str(number),
+        }, cover=cover if number == 1 else None))
+    assert scan(admin)["state"] == "succeeded"
+    # Only part of a release was identified/tagged. The rest must remain on it,
+    # including when source tracks are processed in separate scanner batches.
+    audio = FLAC(paths[-1])
+    audio["musicbrainz_albumid"] = [RELEASE_A]
+    audio["musicbrainz_albumartistid"] = [ARTIST_A]
+    audio.save()
+    monkeypatch.setattr(library_import, "BATCH_SIZE", 1)
+    with db_module.SessionLocal() as db:
+        source = _title(db, "album:same artist/shared album")
+        fragment = MediaTitle(id="legacy-fragment", type="album", root_id=source.root_id, key=f"album:musicbrainz:{RELEASE_A}",
+                              name="Shared Album", parent_id=_title(db, "artist:same artist").id,
+                              provider_ids={"MusicBrainz": RELEASE_A})
+        db.add(fragment)
+        db.flush()
+        track = db.scalar(select(LibraryItem).where(LibraryItem.title == "Track 3"))
+        track.title_id = fragment.id
+        item_ids = set(db.scalars(select(LibraryItem.id)))
+        db.commit()
+    merged_id = None
+    for _ in range(2):
+        assert scan(admin)["state"] == "succeeded"
+        albums = admin.get("/api/titles", params={"type": "album"}).json()["items"]
+        assert len(albums) == 1
+        assert merged_id in (None, albums[0]["id"])
+        merged_id = albums[0]["id"]
+        with db_module.SessionLocal() as db:
+            assert db.get(MediaTitle, merged_id).images["Primary"]["embedded"].endswith("01 Track.flac")
+        queue = admin.post("/api/music/queue", json={"title_id": merged_id})
+        assert queue.status_code == 200, queue.text
+        assert [track["title"] for track in queue.json()] == ["Track 1", "Track 2", "Track 3"]
+        assert {track["id"] for track in queue.json()} == item_ids
+
+
+@needs_ffmpeg
+def test_confirmed_album_identity_reuses_enriched_title_across_partial_batches(admin, media: Path, monkeypatch) -> None:  # noqa: ANN001
+    from app.services import library_import
+
+    folder = media / 'Music' / 'Same Artist' / 'Shared Album'
+    first = music_fixture().write_track(folder / '01 One.flac', {
+        'title': 'One', 'artist': 'Same Artist', 'album_artist': 'Same Artist', 'album': 'Shared Album', 'track': '1',
+    })
+    assert first.exists() and scan(admin)['state'] == 'succeeded'
+    with db_module.SessionLocal() as db:
+        album = _title(db, 'album:same artist/shared album')
+        album_id = album.id
+        album.provider_ids = {'MusicBrainz': RELEASE_A}
+        album.name = 'Household album name'
+        album.images = {'Primary': {'upload': 'household-sleeve'}}
+        album.field_sources = {'name': 'user', 'images.Primary': 'user'}
+        db.commit()
+    _write(media / 'Music' / 'Another folder' / '02 Two.flac', title='Two', album='Shared Album')
+    monkeypatch.setattr(library_import, 'BATCH_SIZE', 1)
+    assert scan(admin)['state'] == 'succeeded'
+    albums = admin.get('/api/titles', params={'type': 'album'}).json()['items']
+    assert [(album['id'], album['name']) for album in albums] == [(album_id, 'Household album name')]
+    with db_module.SessionLocal() as db:
+        assert db.get(MediaTitle, album_id).images['Primary'] == {'upload': 'household-sleeve'}
+    assert {track['title'] for track in admin.post('/api/music/queue', json={'title_id': album_id}).json()} == {'One', 'Two'}
+
+
+@needs_ffmpeg
+def test_partial_tags_do_not_merge_homonymous_artists_in_a_shared_folder(admin, media: Path) -> None:  # noqa: ANN001
+    folder = media / 'Music' / 'Shared'
+    _write(folder / '01 First.flac', title='First', album='Shared Name', artist_id=ARTIST_A)
+    other = _write(folder / '02 Second.flac', title='Second', album='Shared Name', artist_id=ARTIST_B)
+    audio = FLAC(other)
+    del audio['musicbrainz_albumid']
+    audio.save()
+    assert scan(admin)['state'] == 'succeeded'
+    with db_module.SessionLocal() as db:
+        items = list(db.scalars(select(LibraryItem).order_by(LibraryItem.title)))
+        assert len({item.title_id for item in items}) == 2
+        parents = {db.get(MediaTitle, item.title_id).parent_id for item in items}
+        assert parents == {_title(db, f'artist:musicbrainz:{identity}').id for identity in (ARTIST_A, ARTIST_B)}

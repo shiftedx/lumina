@@ -294,6 +294,10 @@ def start_backfill(_run_id: str | None = None) -> None:
     success, an admin model change, a search model becoming ready, and every maintenance tick (restart-safe
     catch-up). A second trigger while one drain runs is a no-op, and so is one with no target.
     """
+    if _run_id is not None:
+        changes = library_import.import_changes(_run_id)
+        if changes is not None and not (changes.item_ids or changes.title_ids):
+            return
     with session_scope() as db:
         if target(db) is None:
             return

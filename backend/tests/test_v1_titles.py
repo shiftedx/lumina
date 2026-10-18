@@ -548,6 +548,14 @@ def test_sidecar_subtitles_become_transcripts(admin: TestClient, media: Path, tm
         f"{stem}.de.vtt", f"{stem}.en.srt", f"{stem}.es.srt", f"{stem}.fr.ass"]
     assert "lumina_subtitles" not in admin.get(f"/api/library/{item.id}").json()["metadata_json"]  # filenames never reach members
     assert scan(admin)["state"] == "succeeded" and rows() == first  # a no-op rescan stores nothing new
+    write(folder / f"{stem}.en.srt", SRT.replace("General Kenobi.", "A changed caption."))
+    assert scan(admin)["state"] == "succeeded"
+    with db_module.SessionLocal() as db:
+        revisions = db.query(Transcript).filter(
+            Transcript.library_item_id == item.id,
+            Transcript.derived_from == f"sidecar:{stem}.en.srt",
+        ).order_by(Transcript.revision).all()
+        assert [transcript.revision for transcript in revisions] == [1, 2]
 
 
 def test_skipped_sidecar_log_names_the_error_type_only(
@@ -577,6 +585,37 @@ def test_after_import_hooks_run_once_per_finished_run(admin: TestClient, media: 
     write(media / "Heat (1995).mkv")
     run = scan(admin)
     assert run["state"] == "succeeded" and calls == [run["id"]]
+
+
+def test_after_import_hooks_distinguish_changed_and_unchanged_runs(
+    admin: TestClient, media: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[tuple[set[str], set[str], set[str], set[str]]] = []
+
+    def capture(run_id: str) -> None:
+        changes = library_import.import_changes(run_id)
+        assert changes is not None
+        observed.append((
+            set(changes.artifact_ids), set(changes.item_ids),
+            set(changes.title_ids), set(changes.art_title_ids),
+        ))
+
+    monkeypatch.setattr(library_import, "after_import_hooks", [capture])
+    write(media / "Heat (1995).mkv")
+    assert scan(admin)["state"] == "succeeded"
+    statements: list[str] = []
+
+    def record(_connection, _cursor, statement, _parameters, _context, _executemany):  # noqa: ANN001
+        statements.append(statement)
+
+    event.listen(db_module.engine, "before_cursor_execute", record)
+    try:
+        assert scan(admin)["state"] == "succeeded"
+    finally:
+        event.remove(db_module.engine, "before_cursor_execute", record)
+    assert all(observed[0][:3])
+    assert observed[1] == (set(), set(), set(), set())
+    assert not any(statement.startswith("UPDATE library_items SET status") for statement in statements)
 
 
 @pytest.mark.parametrize(("candidates", "available", "held"), [

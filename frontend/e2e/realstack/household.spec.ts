@@ -69,7 +69,7 @@ test('Home layout: the owner reorders and hides shelves, the layout holds in a n
   const { context, member } = await inviteMember(page, browser, 'juniper', 'Quiet-harbour-2026');
   await member.goto('/');
   await openHomeEditor(member);
-  await expect(member.locator('.h-edit-row').last()).toHaveAttribute('data-shelf-row', 'recent_music');
+  await expect(member.locator('.h-edit-row').last()).toHaveAttribute('data-shelf-row', 'continue_listening');
   await expect(member.getByRole('switch', { name: 'Show Next up' })).toHaveAttribute('aria-checked', 'true');
   await context.close();
 

@@ -101,7 +101,7 @@ def enqueue(key: str, kind: str, load: Callable[[], dict], *, ttl_days: int = 7,
             return False
     with _lock:
         if key in _pending:
-            if force:
+            if force and kind != "lyrics":
                 _rerun[key] = (kind, load, ttl_days)
                 return True
             return False
@@ -115,7 +115,7 @@ def enqueue(key: str, kind: str, load: Callable[[], dict], *, ttl_days: int = 7,
                 payload = load()
                 expiry = utcnow() if payload.get("changed") else utcnow() + (timedelta(hours=1) if payload.get("artwork_error") else timedelta(days=ttl_days))
             except Exception:  # noqa: BLE001 - availability is reported without private provider details
-                payload, expiry = {"error": "Music provider is temporarily unavailable"}, utcnow() + timedelta(hours=1)
+                payload, expiry = {"error": "Music provider is temporarily unavailable"}, utcnow() + (timedelta(minutes=1) if kind == "lyrics" else timedelta(hours=1))
             with session_scope() as db, write_transaction(db, name="music_lookup"):
                 row = db.get(MusicLookup, key)
                 if row is None:

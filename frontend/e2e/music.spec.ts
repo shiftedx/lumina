@@ -217,3 +217,41 @@ for (const scheme of ['light', 'dark'] as const) {
     });
   }
 }
+
+
+for (const viewport of [DESKTOP, PHONE]) {
+  test(`listening room adapts to lyrics availability and uses branded choices at ${viewport.width}px`, async ({ page }, testInfo) => {
+    await open(page, '/audio/title/album-1', viewport);
+    let retry = false;
+    await page.route('**/api/music/tracks/*/lyrics*', (route) => {
+      retry ||= new URL(route.request().url()).searchParams.get('retry') === 'true';
+      return route.fulfill({ json: retry
+        ? { plain: 'Opening line\nClosing line', cues: [{ start: 0, text: 'Opening line' }, { start: 10, text: 'Closing line' }], instrumental: false, source: 'LRCLIB', refreshing: false }
+        : { error: 'Music provider is temporarily unavailable', plain: null, cues: [], instrumental: false, refreshing: false } });
+    });
+    await page.getByRole('button', { name: 'Play 1. Song 1, 1:30' }).click();
+    await page.getByRole('region', { name: 'Music player', exact: true }).getByRole('button', { name: 'Open listening room for Song 1' }).click();
+    const room = page.getByRole('dialog', { name: 'Listening room' });
+    await expect(room.getByText('Music provider is temporarily unavailable')).toBeVisible();
+    await expect(room).toHaveClass(/is-compact/);
+    const compact = (await room.boundingBox())!;
+    await expect(room.locator('select')).toHaveCount(0);
+    await room.getByRole('button', { name: 'Crossfade', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: '3 seconds' }).click();
+    await expect(room.getByRole('button', { name: 'Crossfade', exact: true })).toHaveText('3 seconds');
+    await room.getByRole('button', { name: 'Sleep timer', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: '30 minutes' }).click();
+    await expect(room.getByRole('button', { name: 'Sleep timer', exact: true })).toHaveText('30 min left');
+    await noSeriousAxe(page, `compact room ${viewport.width}`);
+    await page.screenshot({ path: testInfo.outputPath(`room-no-lyrics-${viewport.width}.png`) });
+    await room.getByRole('button', { name: 'Retry lyrics' }).click();
+    await expect(room.getByRole('button', { name: 'Opening line' })).toBeVisible();
+    await expect(room).toHaveClass(/has-lyrics/);
+    if (viewport.width > 680) expect((await room.boundingBox())!.width).toBeGreaterThan(compact.width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await noSeriousAxe(page, `room with lyrics ${viewport.width}`);
+    await page.screenshot({ path: testInfo.outputPath(`room-with-lyrics-${viewport.width}.png`) });
+    await room.getByRole('button', { name: 'Close listening room' }).click();
+    await expect(room).not.toBeVisible();
+  });
+}

@@ -50,6 +50,12 @@ describe('MusicPlayer', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open listening room for Song one' }));
 
     expect(await screen.findByText('Music provider is temporarily unavailable')).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Listening room' }).classList.contains('has-lyrics')).toBe(false);
+    mocks.lyrics.mockResolvedValueOnce({ plain: 'Recovered words', cues: [], source: 'LRCLIB', instrumental: false });
+    await userEvent.click(screen.getByRole('button', { name: 'Retry lyrics' }));
+    expect(await screen.findByText('Recovered words')).toBeTruthy();
+    expect(mocks.lyrics).toHaveBeenLastCalledWith('one', true);
+    expect(screen.getByRole('dialog', { name: 'Listening room' }).classList.contains('has-lyrics')).toBe(true);
     expect(screen.getByRole('dialog', { name: 'Listening room' })).toBeTruthy();
     await userEvent.click(screen.getAllByRole('button', { name: 'Pause music' })[0]);
     expect(mocks.pause).toHaveBeenCalledOnce();
@@ -205,8 +211,10 @@ describe('MusicPlayer', () => {
   it('offers browser-only crossfade and sleep controls', async () => {
     render(<MusicPlayer {...props} />);
     await userEvent.click(screen.getByRole('button', { name: 'Open listening room for Song one' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Crossfade' }), { target: { value: '3' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Sleep timer' }), { target: { value: '30' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Crossfade' }));
+    await userEvent.click(screen.getByRole('menuitemradio', { name: '3 seconds' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Sleep timer' }));
+    await userEvent.click(screen.getByRole('menuitemradio', { name: '30 minutes' }));
     expect(mocks.crossfade).toHaveBeenCalledWith(3);
     expect(mocks.sleep).toHaveBeenCalledWith(30);
   });
@@ -216,7 +224,8 @@ describe('MusicPlayer', () => {
     render(<MusicPlayer {...props} />);
     await userEvent.click(screen.getByRole('button', { name: 'Open queue' }));
     expect(screen.getByText(/Requested album/)).toBeTruthy();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Unavailable queue policy' }), { target: { value: 'skip' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Unavailable queue policy' }));
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Skip it and continue' }));
     expect(mocks.unavailablePolicy).toHaveBeenCalledWith('skip');
     await userEvent.click(screen.getByRole('button', { name: 'Refresh requested albums' }));
     expect(mocks.refreshShared).toHaveBeenCalledWith('member-a');

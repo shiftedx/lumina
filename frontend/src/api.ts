@@ -997,7 +997,7 @@ export const getMusicQueue = (request: { item_ids?: string[]; title_id?: string 
 export const getMusicTrack = (id: string): Promise<import('./features/music/musicTypes').MusicTrack> => requestJson(`/api/music/tracks/${enc(id)}`);
 export const getMusicTrackMetadata = (id: string): Promise<{ fields: Record<string, unknown>; overridden: string[] }> => requestJson(`/api/music/tracks/${enc(id)}/metadata`);
 export const getMusicHighlights = (id: string): Promise<import('./features/music/musicTypes').MusicTrack[]> => requestJson(`/api/music/titles/${enc(id)}/tracks`);
-export const getMusicLyrics = (id: string): Promise<import('./features/music/musicTypes').MusicLyrics> => requestJson(`/api/music/tracks/${enc(id)}/lyrics`);
+export const getMusicLyrics = (id: string, retry = false): Promise<import('./features/music/musicTypes').MusicLyrics> => requestJson(`/api/music/tracks/${enc(id)}/lyrics${retry ? '?retry=true' : ''}`);
 export const getMusicVideos = (id: string, kind: 'track' | 'title' = 'track'): Promise<import('./features/music/musicTypes').MusicVideos> => requestJson(`/api/music/${kind === 'track' ? 'tracks' : 'titles'}/${enc(id)}/videos`);
 export const getMusicEnrichment = (id: string): Promise<{ refreshing: boolean; identified: boolean; error: string | null; candidates: import('./features/music/musicTypes').MusicTitleInfo['candidates'] }> => requestJson(`/api/music/titles/${enc(id)}/enrichment`);
 export const identifyMusic = (id: string, providerId?: string): Promise<{ queued: boolean }> => post(`/api/music/titles/${enc(id)}/identify`, { ...(providerId ? { provider_id: providerId } : {}), refresh: true });

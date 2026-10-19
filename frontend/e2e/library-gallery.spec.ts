@@ -5,6 +5,7 @@ import { mockGalleryWall, mockLibrarySections } from './gallery-mock';
 import { type LibraryItemsMock, mockLibraryItems, mockTitleDetails } from './library-mock';
 import { mockApi, signIn } from './lumina-mock';
 import { librarySections } from '../src/test/galleryFixtures';
+import { chooseSelect } from './select-helper';
 
 /** The Library shell over the mocked API. */
 
@@ -150,12 +151,12 @@ test('tabs, See all, the /music address and Back to the All landing where it was
 test('YouTube: sort and source live in the address, pages load ahead, and a delete undoes', async ({ page }) => {
   const { library } = await openLibrary(page, '/library/youtube');
   await expect(page.locator('.g-still-wall .g-kicker')).toHaveText('318 videos · Sorted by recently added');
-  await page.getByRole('combobox', { name: 'Sort' }).selectOption('title');
+  await chooseSelect(page, page.getByRole('combobox', { name: 'Sort' }), 'Title A–Z');
   await expect(page).toHaveURL(/\/video\/youtube\?sort=title$/);
-  await page.getByRole('combobox', { name: 'Source' }).selectOption('twitch');
+  await chooseSelect(page, page.getByRole('combobox', { name: 'Source' }), 'Twitch');
   await expect(page).toHaveURL(/\/video\/youtube\?sort=title&source=twitch$/);
   await page.reload();
-  await expect(page.getByRole('combobox', { name: 'Source' })).toHaveValue('twitch');
+  await expect(page.getByRole('combobox', { name: 'Source' })).toHaveText('Twitch');
   await page.goto('/library/youtube');
   await expect(page.getByRole('button', { name: /^Video 0, / })).toBeVisible(); // a wheel before the wall renders scrolls nothing
   await page.mouse.wheel(0, 20_000);

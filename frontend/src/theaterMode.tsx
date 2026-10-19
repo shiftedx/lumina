@@ -60,7 +60,7 @@ export function withTheaterModePreference(uiPrefs: unknown, theaterMode: boolean
 function isEditableTarget(target: EventTarget | null): boolean {
   if (typeof Element === 'undefined' || !(target instanceof Element)) return false;
   if ((target as HTMLElement).isContentEditable || (target as HTMLElement).contentEditable === 'true') return true;
-  const editable = target.closest('input, textarea, select, [contenteditable]');
+  const editable = target.closest('input, textarea, select, [role="combobox"], [role="listbox"], [contenteditable]');
   return Boolean(editable && editable.getAttribute('contenteditable') !== 'false');
 }
 

@@ -1,3 +1,4 @@
+import { chooseSelect, selectLabels } from '../../test/selectChoice';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -100,7 +101,7 @@ describe('MusicCuration', () => {
     renderPage([album]);
     await screen.findByText('Album album-1');
     await userEvent.click(screen.getByRole('checkbox', { name: 'Select Album album-1' }));
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Field' }), 'label');
+    chooseSelect(screen.getByRole('combobox', { name: 'Field' }), 'Label');
     await userEvent.type(screen.getByRole('textbox', { name: 'New label' }), 'Night Records');
     api.getTitleMetadata.mockResolvedValue(metadata(album));
     await userEvent.click(screen.getByRole('button', { name: 'Preview changes' }));
@@ -142,6 +143,6 @@ describe('MusicCuration', () => {
     await screen.findByRole('checkbox', { name: 'Select Artist artist-1' });
     await userEvent.click(screen.getByRole('checkbox', { name: 'Select Artist artist-1' }));
     const field = screen.getByRole('combobox', { name: 'Field' });
-    expect([...field.querySelectorAll('option')].map((option) => option.value)).toEqual(['genres', 'tags', 'styles', 'mood']);
+    expect(selectLabels(field)).toEqual(['Genres', 'Tags', 'Styles', 'Mood']);
   });
 });

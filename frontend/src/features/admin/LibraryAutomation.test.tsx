@@ -1,3 +1,4 @@
+import { chooseSelect, selectLabels } from '../../test/selectChoice';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import axe from 'axe-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -44,18 +45,18 @@ describe('LibraryAutomation', () => {
     draw();
     await screen.findByRole('heading', { name: 'TV' });
     const select = within(card('TV')).getByLabelText('Scheduled scan') as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: 'nightly' } });
+    chooseSelect(select, 'Nightly');
     await waitFor(() => expect(updateRootAutomation).toHaveBeenCalledWith('r1', { schedule: 'nightly' }));
-    await waitFor(() => expect((within(card('TV')).getByLabelText('Scheduled scan') as HTMLSelectElement).value).toBe('nightly'));
+    await waitFor(() => expect(within(card('TV')).getByLabelText('Scheduled scan').textContent).toContain('Nightly'));
   });
 
   it("a failed save reverts the control and shows the server's message", async () => {
     vi.mocked(updateRootAutomation).mockRejectedValue(new Error('Import this folder once before scheduling it'));
     draw();
     await screen.findByRole('heading', { name: 'TV' });
-    fireEvent.change(within(card('TV')).getByLabelText('Scheduled scan'), { target: { value: 'nightly' } });
+    chooseSelect(within(card('TV')).getByLabelText('Scheduled scan'), 'Nightly');
     expect((await within(card('TV')).findByText('Import this folder once before scheduling it'))).toBeTruthy();
-    expect((within(card('TV')).getByLabelText('Scheduled scan') as HTMLSelectElement).value).toBe('off');
+    expect(within(card('TV')).getByLabelText('Scheduled scan').textContent).toContain('Off');
   });
 
   it('the Watch switch reveals Check every and saves the interval', async () => {
@@ -119,9 +120,10 @@ describe('LibraryAutomation', () => {
     vi.mocked(setNightHour).mockResolvedValue(snapshot(undefined, { night_hour: 4 }));
     draw();
     const select = await screen.findByLabelText('Nightly scans start at') as HTMLSelectElement;
-    expect(select.options).toHaveLength(24);
-    expect([select.options[0].text, select.options[23].text]).toEqual(['00:00', '23:00']);
-    fireEvent.change(select, { target: { value: '4' } });
+    const labels = selectLabels(select);
+    expect(labels).toHaveLength(24);
+    expect([labels[0], labels[23]]).toEqual(['00:00', '23:00']);
+    chooseSelect(select, '04:00');
     await waitFor(() => expect(setNightHour).toHaveBeenCalledWith(4));
     expect(screen.getByText('Server time (UTC)')).toBeTruthy();
   });

@@ -5,6 +5,7 @@ import { configureDashThroughput } from './dashThroughput';
 import { ApiRequestError, apiBaseUrl, refreshRemoteStream, releaseRemoteStream, selectRemoteRendition } from './api';
 import type { RemotePlayback } from './types';
 import { LuminaPlayer, type LuminaPlayerExtensions, type LuminaPlayerSource } from './LuminaPlayer';
+import { Select } from './ui';
 
 type RemotePlayerProps = {
   playback: RemotePlayback | null | undefined;
@@ -554,13 +555,13 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
   const activeLabel = activeHeight ? descriptor?.renditions?.find((rendition) => rendition.height === activeHeight)?.display_label || `${activeHeight}p` : null;
   const recoveryChoiceRequired = !descriptor?.selected_rendition_id;
   const quality = descriptor?.renditions && descriptor.renditions.length > 0 ? (
-    <div className="quality-control"><Settings aria-hidden="true" /><label><span className="sr-only">Quality</span>
-      <select aria-describedby={hasOneRendition ? qualityAvailabilityId : undefined} aria-label="Remote playback quality" disabled={preparing || (hasOneRendition && !recoveryChoiceRequired)} onChange={(event) => void chooseRendition(event.currentTarget.value)} value={descriptor.selected_rendition_id || ''}>
+    <div className="quality-control"><Settings aria-hidden="true" /><span className="quality-select"><span className="sr-only">Quality</span>
+      <Select aria-describedby={hasOneRendition ? qualityAvailabilityId : undefined} aria-label="Remote playback quality" disabled={preparing || (hasOneRendition && !recoveryChoiceRequired)} onChange={(event) => void chooseRendition(event.currentTarget.value)} value={descriptor.selected_rendition_id || ''}>
         {!descriptor.selected_rendition_id ? <option disabled value="">Choose quality</option> : null}
         {descriptor.auto_available || autoMode ? <option value={AUTO}>{autoMode && activeLabel ? `Auto (${activeLabel})` : 'Auto'}</option> : null}
         {descriptor.renditions.map((rendition) => <option key={rendition.rendition_id} value={rendition.rendition_id}>{rendition.display_label}</option>)}
-      </select>
-    </label>{hasOneRendition ? <span className="sr-only" id={qualityAvailabilityId}>{recoveryChoiceRequired ? `${descriptor.renditions[0].display_label} is available. Choose it to resume.` : `Only ${descriptor.renditions[0].display_label} is available from this source.`}</span> : null}{qualityProblem ? <span aria-live="polite" className="quality-problem">{qualityProblem}</span> : null}</div>
+      </Select>
+    </span>{hasOneRendition ? <span className="sr-only" id={qualityAvailabilityId}>{recoveryChoiceRequired ? `${descriptor.renditions[0].display_label} is available. Choose it to resume.` : `Only ${descriptor.renditions[0].display_label} is available from this source.`}</span> : null}{qualityProblem ? <span aria-live="polite" className="quality-problem">{qualityProblem}</span> : null}</div>
   ) : hlsPinUnavailable ? (
     <button onClick={() => {
       snapshotResume();
@@ -569,12 +570,12 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
       setAttempt((value) => value + 1);
     }} type="button">Switch to Auto</button>
   ) : hlsLadder.length > 1 ? (
-    <div className="quality-control"><Settings aria-hidden="true" /><label><span className="sr-only">Quality</span>
-      <select aria-label="Remote playback quality" onChange={(event) => chooseHlsLevel(event.currentTarget.value)} value={hlsChoice}>
+    <div className="quality-control"><Settings aria-hidden="true" /><span className="quality-select"><span className="sr-only">Quality</span>
+      <Select aria-label="Remote playback quality" onChange={(event) => chooseHlsLevel(event.currentTarget.value)} value={hlsChoice}>
         <option value={AUTO}>{hlsAuto && activeHeight ? `Auto (${activeHeight}p)` : 'Auto'}</option>
         {hlsLadder.map((level) => <option key={level.index} value={String(level.index)}>{`${level.height}p`}</option>)}
-      </select>
-    </label></div>
+      </Select>
+    </span></div>
   ) : null;
   return <><LuminaPlayer extensions={{ ...extensions, quality: quality || extensions?.quality }} mediaRef={(media) => { videoRef.current = media instanceof HTMLVideoElement ? media : null; onMediaRef?.(media); }} onCanPlay={(media) => { globalThis.performance?.mark?.('lumina:can-play'); setPreparing(false); const resume = resumeAfterSelectionRef.current; if (resume) { media.currentTime = Math.min(resume.currentTime, Number.isFinite(media.duration) ? media.duration : resume.currentTime); if (resume.playing) void media.play().catch(() => undefined); else media.pause(); resumeAfterSelectionRef.current = null; } else applyPendingInitialResume(media); }} onEnded={onEnded} onMediaReplaced={() => { snapshotResume(); setAttempt((value) => value + 1); }} onError={() => { if (descriptor?.transport === 'hls') recoverVideoElement(); else if (descriptor?.transport === 'dash') recoverDash(); else recoverNative(); return true; }} onLoadedMetadata={applyPendingInitialResume} onPause={onPause} onSeeked={onSeeked} onTimeUpdate={onTimeUpdate} source={source} title={title} />{suggestAuto && pinnedWithAuto ? <div className="quality-suggestion" role="status"><span>{pinnedLabel} keeps pausing to buffer.</span><button onClick={() => { setSuggestAuto(false); void chooseRendition(AUTO); }} type="button">Switch to Auto</button><button onClick={() => setSuggestAuto(false)} type="button">Keep {pinnedLabel}</button></div> : null}{preparing && !unsupported && !playbackProblem ? <div aria-live="polite" className="player-loading remote-player-preparing"><LoaderCircle className="spin" /><strong>Preparing the remote stream</strong><span>Finding the selected browser-compatible version…</span></div> : null}</>;
 }

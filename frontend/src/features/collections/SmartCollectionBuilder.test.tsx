@@ -1,3 +1,4 @@
+import { chooseSelect } from '../../test/selectChoice';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -37,7 +38,7 @@ describe('Smart collection builder', () => {
     const u = user();
     render(<SmartCollectionBuilder {...props} />);
     await u.type(within(dialog()).getByLabelText('Name'), 'Long films');
-    await u.selectOptions(within(dialog()).getByRole('combobox', { name: 'Field 1' }), 'runtime');
+    chooseSelect(within(dialog()).getByRole('combobox', { name: 'Field 1' }), 'Runtime (minutes)');
     await u.type(within(dialog()).getByLabelText('Value 1'), 'long');
     await u.click(within(dialog()).getByRole('button', { name: 'Save' }));
     expect(within(dialog()).getByLabelText('Value 1').getAttribute('aria-invalid')).toBe('true');

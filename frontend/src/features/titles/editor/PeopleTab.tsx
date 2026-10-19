@@ -1,9 +1,9 @@
 import { ArrowDown, ArrowUp, GripVertical, Lock, LockOpen, Trash2, UserPen } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { searchMetadataPeople } from '../../../api';
 import type { PersonRef, PersonSuggestion, PersonType } from '../../../types';
-import { Button, IconButton, Input, Select } from '../../../ui';
+import { Button, IconButton, AutocompleteInput, Input, Select } from '../../../ui';
 import { forgetTitle } from '../../gallery/titleCache';
 import type { TabProps } from './editorModel';
 import { PersonDialog } from './PersonDialog';
@@ -33,7 +33,6 @@ export default function PeopleTab({ doc, draft, setField, togglePin, reload }: T
   const keyed = (list: PersonRef[]) => list.map((person) => ({ ...person, key: nextKey.current++ }));
   const [people, setPeople] = useState<KeyedPerson[]>(() => keyed((entry?.changes.people?.value as PersonRef[] | undefined) ?? base));
   const locked = entry?.pin.includes('people') ? !doc.fields.people?.locked : Boolean(doc.fields.people?.locked);
-  const listId = useId();
   const [found, setFound] = useState<PersonSuggestion[]>([]);
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
@@ -97,7 +96,6 @@ export default function PeopleTab({ doc, draft, setField, togglePin, reload }: T
           pressed={locked}
         />
       </div>
-      <datalist id={listId}>{[...known.keys()].map((name) => <option key={name} value={name} />)}</datalist>
       <ul ref={list}>
         {people.map((person, index) => (
           <li
@@ -107,9 +105,9 @@ export default function PeopleTab({ doc, draft, setField, togglePin, reload }: T
             onDrop={() => { if (drag.current >= 0) move(drag.current, index); drag.current = -1; }}
           >
             <button aria-hidden="true" aria-label={`Drag ${person.name || 'person'}`} className="ed-people-grip" draggable onDragStart={() => { drag.current = index; }} tabIndex={-1} type="button"><GripVertical aria-hidden="true" /></button>
-            <Input
+            <AutocompleteInput
               aria-label={`Name ${index + 1}`}
-              list={listId}
+              options={[...known.keys()]}
               onChange={(event) => {
                 const name = event.target.value;
                 search(name);

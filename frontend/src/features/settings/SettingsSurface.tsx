@@ -24,9 +24,9 @@ export type SettingsShellProps = SettingsSurfaceProps & {
 };
 
 const NAV_TARGETS = '.g-settings-search input, .g-settings-link';
-const PANE_TARGETS = ['.g-settings-page-link', '.g-settings-page-select select', '.g-settings-local-advanced summary', '.g-settings-result-link', '.g-member-nav .g-button', '.g-member-nav [aria-selected="true"]', ...['button', 'a[href]', 'input', 'select', 'textarea', 'summary'].map((tag) => `.setting-row ${tag}:not(:disabled)`), '.setting-form-bar button:not(:disabled)', '.g-save-bar button:not(:disabled)'].join(', ');
+const PANE_TARGETS = ['.g-settings-page-link', '.g-settings-page-select .g-select-trigger', '.g-settings-local-advanced summary', '.g-settings-result-link', '.g-member-nav .g-button', '.g-member-nav [aria-selected="true"]', ...['button', 'a[href]', 'input', 'select', 'textarea', 'summary'].map((tag) => `.setting-row ${tag}:not(:disabled)`), '.setting-form-bar button:not(:disabled)', '.g-save-bar button:not(:disabled)'].join(', ');
 const VERTICAL_EXIT = 'input:not([type="checkbox"]):not([type="radio"]), select';
-const OWNS_LEFT = 'input:not([type="checkbox"]), textarea, select, [role="radiogroup"], [role="tablist"]';
+const OWNS_LEFT = 'input:not([type="checkbox"]), textarea, select, [role="combobox"], [role="radiogroup"], [role="tablist"]';
 
 /** Two spaces, six categories each. Every registry row has a searchable, bookmarkable subpage. */
 export function SettingsSurface({ section = null, page = null, space, onLocation, onSection = () => undefined, member = null, onMember = () => undefined, ...host }: SettingsShellProps) {
@@ -91,7 +91,7 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
       const details = target.closest('details');
       if (details) details.open = true;
       const controls = target.querySelector('.g-setting-control') ?? target;
-      const control = controls.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), textarea:not(:disabled)') ?? controls.querySelector<HTMLElement>('button:not(:disabled), a[href]');
+      const control = controls.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled):not([hidden]), textarea:not(:disabled)') ?? controls.querySelector<HTMLElement>('button:not(:disabled), a[href]');
       (control ?? target).focus();
       target.scrollIntoView?.({ block: 'nearest' });
       pendingFocus.current = null;
@@ -109,23 +109,23 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
     moveFocus(event, { targets: NAV_TARGETS, verticalExit: VERTICAL_EXIT });
     if (event.defaultPrevented || event.key !== 'ArrowRight' || target.matches('input')) return;
     const phone = window.matchMedia?.('(max-width: 680px)').matches ?? false;
-    const first = paneRef.current?.querySelector<HTMLElement>(phone ? '.g-settings-page-select select' : '.g-settings-page-link[aria-current="page"]') ?? paneRef.current?.querySelector<HTMLElement>(PANE_TARGETS);
+    const first = paneRef.current?.querySelector<HTMLElement>(phone ? '.g-settings-page-select .g-select-trigger' : '.g-settings-page-link[aria-current="page"]') ?? paneRef.current?.querySelector<HTMLElement>(PANE_TARGETS);
     if (first) { event.preventDefault(); first.focus(); }
   }
   function onPaneKeyDown(event: KeyboardEvent<HTMLElement>) {
     const target = event.target as HTMLElement;
-    if (!paneRef.current?.contains(target)) return;
+    if (!paneRef.current?.contains(target) || event.defaultPrevented || target.closest('[role="listbox"]')) return;
     if (event.key === 'Enter' && target.matches('input[type="checkbox"], input[type="radio"]')) { event.preventDefault(); target.click(); return; }
     const row = target.closest('.setting-row');
     if (row && (!row.classList.contains('is-block') || !target.closest('.g-setting-control')) && (event.key === 'ArrowDown' || event.key === 'ArrowUp') && !target.closest('textarea')) {
       const rows = [...paneRef.current.querySelectorAll<HTMLElement>('.setting-row')].filter((entry) => !entry.closest('[hidden], details:not([open]) > :not(summary)'));
       const next = rows[rows.indexOf(row as HTMLElement) + (event.key === 'ArrowDown' ? 1 : -1)];
-      const selector = target.closest('.g-setting-control') ? '.g-setting-control input:not(:disabled), .g-setting-control select:not(:disabled), .g-setting-control button:not(:disabled), .g-setting-control a[href]' : '.g-info-button';
+      const selector = target.closest('.g-setting-control') ? '.g-setting-control input:not(:disabled), .g-setting-control select:not(:disabled):not([hidden]), .g-setting-control button:not(:disabled), .g-setting-control a[href]' : '.g-info-button';
       const control = next?.querySelector<HTMLElement>(selector) ?? next?.querySelector<HTMLElement>('.g-info-button');
       if (control) { event.preventDefault(); control.focus(); control.scrollIntoView?.({ block: 'nearest' }); return; }
     }
     const phone = window.matchMedia?.('(max-width: 680px)').matches ?? false;
-    const targets = PANE_TARGETS.replace(phone ? '.g-settings-page-link,' : '.g-settings-page-select select,', '');
+    const targets = PANE_TARGETS.replace(phone ? '.g-settings-page-link,' : '.g-settings-page-select .g-select-trigger,', '');
     moveFocus(event, { targets, verticalExit: VERTICAL_EXIT });
     if (event.defaultPrevented || event.key !== 'ArrowLeft' || target.closest(OWNS_LEFT)) return;
     const link = navRef.current?.querySelector<HTMLElement>('.g-settings-link[aria-current="page"]') ?? navRef.current?.querySelector<HTMLElement>('.g-settings-link');

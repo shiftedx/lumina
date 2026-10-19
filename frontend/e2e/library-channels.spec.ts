@@ -6,6 +6,7 @@ import { mockGalleryWall, mockLibrarySections } from './gallery-mock';
 import { mockLibraryItems } from './library-mock';
 import { mockChannelPage, mockLibraryChannels, mockRemoteArtwork } from './live-youtube-mock';
 import { mockApi, signIn } from './lumina-mock';
+import { chooseSelect } from './select-helper';
 
 async function open(page: Page, path = '/library/youtube', { width = 1440, height = 900, theme = 'light' as 'light' | 'dark' } = {}) {
   await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
@@ -42,7 +43,7 @@ test('Channels lists 12 tiles with unwatched badges, sorts by name, and a tile w
   await expect(page.getByRole('link', { name: /^Channel B1, .*1 unwatched/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /^Channel A0, / })).not.toContainText('unwatched');
   await expect(page.getByRole('link', { name: /^Channel A0, / }).locator('.g-art-marker, .g-marker')).toHaveCount(0);
-  await page.getByRole('combobox', { name: 'Sort' }).selectOption('name');
+  await chooseSelect(page, page.getByRole('combobox', { name: 'Sort' }), 'Name A–Z');
   await expect(page).toHaveURL(/\/video\/youtube\?view=channels&sort=name$/);
   await page.getByRole('link', { name: /^Channel A0, / }).click();
   await expect(page).toHaveURL(/\/video\/youtube\?channel=Channel(\+|%20)A0$/);

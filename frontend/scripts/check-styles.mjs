@@ -8,12 +8,13 @@ import { gzipSync } from 'node:zlib';
 const KB = 1024;
 // Aggregate includes lazy routes and the separate offline entry. Audio's soundstage,
 // listening room, collector tools and offline shell bring the measured build to
-// 57 KB gzip. Shared core and JavaScript chunk limits remain fixed.
+// 57 KB gzip. The shared CSS core retains its original limit.
 // Books adds 4.7 KB gzip of lazy catalog/reader CSS.
 // Creator discovery and first-owner media setup add 2.4 KB gzip of lazy CSS.
 export const CSS_BUDGET = 68 * KB;
 export const CORE_BUDGET = 7 * KB; // tokens.css + ui.css (spec 1.8)
-export const CHUNK_BUDGETS = { ui: 8 * KB, palette: 12 * KB, BooksSurface: 15 * KB };
+// Branded select and editable suggestion controls replace browser-native popups: UI now measures 10.0 KB gzip.
+export const CHUNK_BUDGETS = { ui: 10.5 * KB, palette: 12 * KB, BooksSurface: 15 * KB };
 const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b/gi;
 const FUNC = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\((?!\s*var\()/gi; // `color-mix(` is not `color(`; the retired galleryColours lint's superset
 const NAMED = /\b(white|black|red|green|blue|gray|grey|silver|orange|yellow|purple|pink|maroon|navy|teal|olive|lime|aqua|fuchsia|gold)\b/i;

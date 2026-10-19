@@ -1,3 +1,4 @@
+import { chooseSelect } from './test/selectChoice';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -127,7 +128,7 @@ describe('Invitations', () => {
     await userEvent.type(within(dialog).getByLabelText(/Email/), 'ana@example.com');
     await userEvent.type(within(dialog).getByLabelText('Name'), 'Ana');
     await userEvent.click(await within(dialog).findByRole('checkbox', { name: 'Movies' }));
-    await userEvent.selectOptions(within(dialog).getByLabelText('Limits'), 'kids');
+    chooseSelect(within(dialog).getByLabelText('Limits'), /^Kids/);
     await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Request movies and shows' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Send email' }));
     expect(api.post).toHaveBeenCalledWith('/api/admin/invites', { email: 'ana@example.com', display_name: 'Ana', send: true, access: inviteAccess('kids', ['movies'], false, true) });
@@ -277,7 +278,7 @@ describe('Member page', () => {
     await tab('Streaming');
     await userEvent.click(screen.getByRole('switch', { name: 'YouTube' }));
     await tab('Schedule');
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Daily limit' }), '90');
+    chooseSelect(screen.getByRole('combobox', { name: 'Daily limit' }), '1 h 30 min a day');
     await tab('Permissions');
     await userEvent.click(screen.getByRole('switch', { name: 'Downloads' }));
     api.put.mockImplementation(async (_path: string, body: object) => ({ ...accessState, ...body }));
@@ -397,10 +398,10 @@ describe('Member page', () => {
     expect(api.put).not.toHaveBeenCalled();
 
     api.updateUser.mockRejectedValueOnce(new Error('At least one active vault owner is required'));
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Role for Mia R' }), 'admin');
+    chooseSelect(screen.getByRole('combobox', { name: 'Role for Mia R' }), 'Vault owner');
     await userEvent.click(within(screen.getByRole('dialog', { name: 'Make Mia R a vault owner?' })).getByRole('button', { name: 'Make Mia R a vault owner' }));
     expect(await screen.findByText('At least one active vault owner is required')).not.toBeNull();
-    expect((screen.getByRole('combobox', { name: 'Role for Mia R' }) as HTMLSelectElement).value).toBe('viewer');
+    expect(screen.getByRole('combobox', { name: 'Role for Mia R' }).textContent).toContain('Household member');
 
     await userEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
     const dialog = screen.getByRole('dialog', { name: 'Deactivate Mia R?' });

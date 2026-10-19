@@ -1,3 +1,4 @@
+import { chooseSelect } from '../../../test/selectChoice';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -67,14 +68,14 @@ describe('FieldRow move and order controls', () => {
   it('moves an episode by picking another season', async () => {
     const setField = vi.fn();
     render(<ToastProvider><FieldRow discardField={vi.fn()} draft={undefined} fieldKey="parent_id" itemLocked={false} onReverted={vi.fn()} seasons={seasons} setField={setField} state={fieldState('s1', null)} titleId="e1" togglePin={vi.fn()} /></ToastProvider>);
-    await userEvent.selectOptions(screen.getByLabelText('Season'), 'Specials');
+    chooseSelect(screen.getByLabelText('Season'), 'Specials');
     expect(setField).toHaveBeenCalledWith('e1', 'parent_id', 's0', 's1');
   });
   it('sets a series episode order, aired by default', async () => {
     const setField = vi.fn();
     render(<ToastProvider><FieldRow discardField={vi.fn()} draft={undefined} fieldKey="display_order" itemLocked={false} onReverted={vi.fn()} setField={setField} state={fieldState(null, null)} titleId="t1" togglePin={vi.fn()} /></ToastProvider>);
-    expect((screen.getByLabelText('Episode order') as HTMLSelectElement).value).toBe('aired');
-    await userEvent.selectOptions(screen.getByLabelText('Episode order'), 'DVD');
+    expect(screen.getByLabelText('Episode order').textContent).toContain('Aired');
+    chooseSelect(screen.getByLabelText('Episode order'), 'DVD');
     expect(setField).toHaveBeenCalledWith('t1', 'display_order', 'dvd', null);
   });
 });

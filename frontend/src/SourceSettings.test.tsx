@@ -1,3 +1,4 @@
+import { chooseSelect } from './test/selectChoice';
 /* @vitest-environment jsdom */
 
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -29,9 +30,9 @@ describe('SourceSettings', () => {
     // Nothing hides behind a disclosure: every choice is one row away.
     expect(document.querySelector('details')).toBeNull();
     expect(screen.getByRole('combobox', { name: 'Container' })).not.toBeNull();
-    await browser.selectOptions(screen.getByRole('combobox', { name: 'Default quality' }), 'best_1080p');
+    chooseSelect(screen.getByRole('combobox', { name: 'Default quality' }), 'Video · 1080p');
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ formatPreset: 'best_1080p' }));
-    await browser.selectOptions(screen.getByRole('combobox', { name: 'Default quality' }), 'Editable (H.264)');
+    chooseSelect(screen.getByRole('combobox', { name: 'Default quality' }), 'Editable (H.264)');
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ formatPreset: 'best_editable' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Folder inside the Library' }), { target: { value: 'channels/mars' } });
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ outputFolder: 'channels/mars' }));

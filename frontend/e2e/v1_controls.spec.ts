@@ -6,6 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { item, mockApi, signIn } from './lumina-mock';
 import { redOrPinkInMain } from './red-check';
 import { SYNTHETIC_MEDIA_BASE64, SYNTHETIC_MEDIA_TYPE } from './synthetic-media';
+import { chooseSelect } from './select-helper';
 
 /** Player controls: keyboard-only flow, slider semantics, focus rings, live edge. */
 
@@ -64,8 +65,7 @@ test('test_keyboard_only_player_flow', async ({ page }) => {
   await expect.poll(() => video.evaluate((m: HTMLVideoElement) => m.muted)).toBe(true);
   await page.keyboard.press('m');
   await tabTo(page, 'Playback speed');
-  // A native select opens its popup on arrows in Chromium/macOS; choose the option directly.
-  await page.getByLabel('Playback speed').selectOption('1.25');
+  await chooseSelect(page, page.getByLabel('Playback speed'), '1.25×');
   await expect.poll(() => video.evaluate((m: HTMLVideoElement) => m.playbackRate)).toBe(1.25);
 
   // Typing in search never drives the player.

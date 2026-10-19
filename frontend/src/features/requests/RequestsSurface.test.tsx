@@ -1,3 +1,4 @@
+import { chooseSelect, selectLabels } from '../../test/selectChoice';
 import axe from 'axe-core';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -219,10 +220,10 @@ describe('Manage', () => {
     api.listRequests.mockResolvedValue({ items: [], page: 1, total_pages: 1, counts: { approved: 2, failed: 1 } });
     renderSurface({ surface: 'requests', view: 'manage' }, admin);
     const status = await screen.findByRole('combobox', { name: 'Status' });
-    expect(within(status).getAllByRole('option').map((option) => option.textContent)).toEqual([
+    expect(selectLabels(status)).toEqual([
       'All requests', 'Approved · 2', 'Downloading', 'Partly in', 'In your vault', 'Declined', 'Needs attention · 1',
     ]);
-    await userEvent.selectOptions(status, 'failed');
+    chooseSelect(status, 'Needs attention · 1');
     await waitFor(() => expect(api.listRequests).toHaveBeenCalledWith({ scope: 'all', status: 'failed' }));
   });
 });

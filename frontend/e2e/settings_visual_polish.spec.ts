@@ -1,3 +1,4 @@
+import { chooseSelect } from './select-helper';
 import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -27,11 +28,9 @@ if (QUALITY_OUT) {
         const memberTabs = page.locator('.g-member-tabs [role="tab"]');
         const memberPages = page.getByRole('combobox', { name: 'Member settings page' });
         await expect(viewport.name === 'phone' ? memberPages : memberTabs.first()).toBeVisible();
-        const ids = viewport.name === 'phone'
-          ? await memberPages.locator('option').evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value))
-          : await memberTabs.evaluateAll((tabs) => tabs.map((tab) => tab.id.replace('member-tab-', '')));
-        for (const id of ids) {
-          if (viewport.name === 'phone') await memberPages.selectOption(id);
+        const choices = await memberTabs.evaluateAll((tabs) => tabs.map((tab) => ({ id: tab.id.replace('member-tab-', ''), label: tab.textContent!.trim() })));
+        for (const { id, label } of choices) {
+          if (viewport.name === 'phone') await chooseSelect(page, memberPages, label);
           else await page.locator(`#member-tab-${id}`).click();
           await page.screenshot({ fullPage: true, path: join(QUALITY_OUT, `member-${id}-${viewport.name}-${scheme}.png`) });
         }
@@ -78,11 +77,13 @@ test('assistant model dropdown discovers draft endpoints without saving configur
   });
   await page.goto('/settings/ai?page=assistant'); await signIn(page);
   const model = page.getByRole('combobox', { name: 'Model', exact: true });
-  await expect(model.getByRole('option', { name: 'available-model', exact: true })).toHaveCount(1);
-  await expect(model).toHaveValue('local-model');
+  await model.click();
+  await expect(page.getByRole('option', { name: 'available-model', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(model).toContainText('local-model');
   await page.getByLabel('Server address', { exact: true }).fill('http://assistant.home.arpa/v1');
   await expect.poll(() => lookups).toContainEqual({ base_url: 'http://assistant.home.arpa/v1' });
-  await model.selectOption('available-model');
+  await chooseSelect(page, model, 'available-model');
   expect(saves).toBe(0);
   await expect(page.getByRole('button', { name: 'Save AI settings' })).toBeEnabled();
 });
@@ -190,12 +191,13 @@ test('member settings expose every page in a labeled phone selector', async ({ p
   const pages = page.getByRole('combobox', { name: 'Member settings page' });
   await expect(pages).toBeVisible();
   await expect(page.getByRole('tablist', { name: /settings/ })).toBeHidden();
-  await expect(pages.getByRole('option')).toHaveCount(8);
-  await pages.selectOption('schedule');
+  await pages.click();
+  await expect(page.getByRole('listbox').getByRole('option')).toHaveCount(8);
+  await page.getByRole('option', { name: 'Schedule', exact: true }).click();
   const monday = page.getByRole('group', { name: 'Monday' });
   const [dayBox, fromBox] = await Promise.all([monday.locator('.g-day-name').boundingBox(), monday.getByRole('textbox', { name: 'Monday from' }).boundingBox()]);
   expect(dayBox!.y + dayBox!.height).toBeLessThanOrEqual(fromBox!.y);
-  await pages.selectOption('activity');
+  await chooseSelect(page, pages, 'Activity');
   await expect(page.getByText('Screen time today', { exact: true })).toBeVisible();
 });
 

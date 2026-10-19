@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { expect, test, type Page, type Route } from '@playwright/test';
 
 import { mockApi, signIn } from './lumina-mock';
+import { chooseSelect } from './select-helper';
 
 /** Real dash.js, MSE and VP9/Opus prove Auto starts below a slow top rung, then ramps on measured throughput. */
 
@@ -169,10 +170,10 @@ test('DASH Auto renders the small rung before a slow top rung, then ramps and ho
   await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.videoHeight), { timeout: 20_000 }).toBe(360);
 
   const quality = page.getByLabel('Remote playback quality');
-  await expect(quality).toHaveValue('auto');
+  await expect(quality).toHaveText(/^Auto/);
   await video.evaluate((element: HTMLVideoElement) => element.pause());
-  await quality.selectOption('r180');
-  await expect(quality).toHaveValue('r180');
+  await chooseSelect(page, quality, '180p');
+  await expect(quality).toHaveText('180p');
   await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.videoHeight), { timeout: 20_000 }).toBe(180);
   await expect.poll(() => requests.some((request) => request.generation === 2 && request.name === 'low.webm'
     && request.kind === 'media')).toBe(true);

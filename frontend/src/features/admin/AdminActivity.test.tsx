@@ -1,3 +1,4 @@
+import { chooseSelect } from '../../test/selectChoice';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -104,7 +105,7 @@ describe('Activity: history', () => {
     expect(api.getActivityHistory).toHaveBeenLastCalledWith(expect.objectContaining({ before: '2026-10-02T11:00:00Z' }));
     expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
 
-    fireEvent.change(await screen.findByLabelText('Member'), { target: { value: 'u2' } });
+    chooseSelect(await screen.findByLabelText('Member'), 'Sam');
     await waitFor(() => expect(api.getActivityHistory).toHaveBeenLastCalledWith(expect.objectContaining({ userId: 'u2', before: null })));
     vi.useFakeTimers();
     const calls = api.getActivityHistory.mock.calls.length;

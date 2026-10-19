@@ -57,7 +57,7 @@
 .g-settings-spaces a { padding: 0 14px; }
 .g-settings-search { grid-area: search; }
 
-:is(.g-settings, .g-invite-form) :is(.g-input, .g-select select) { min-width: 0; padding-left: 12px; }
+:is(.g-settings, .g-invite-form) :is(.g-input, .g-select-trigger) { min-width: 0; padding-left: 12px; }
 .g-settings textarea.g-input { padding: 12px; }
 .g-settings-search .g-input { padding: 0 12px; }
 .g-settings-sidebar { grid-area: side; align-self: start; display: grid; gap: 16px; }
@@ -101,7 +101,7 @@
   .g-settings-pages { display: none; }
   .g-settings-page-select { display: block; margin-bottom: 24px; }
   .g-settings-rows, .g-settings-local-advanced { padding-inline: 16px; }
-  .g-settings .g-input, .g-settings .g-select select { font-size: 16px; }
+  .g-settings .g-input, .g-settings .g-select-trigger { font-size: 16px; }
 }
 
 /* AI & models. */

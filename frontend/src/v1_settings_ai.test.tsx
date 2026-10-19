@@ -1,3 +1,4 @@
+import { chooseSelect, selectLabels } from './test/selectChoice';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
@@ -292,8 +293,8 @@ describe('on-device model rows', () => {
     api.updateAiConfig.mockImplementation(async (update) => ({ ...config, model_threads: update.model_threads || null }));
     renderAi();
     const threads = await screen.findByRole('combobox', { name: 'Model threads' });
-    expect([...(threads as HTMLSelectElement).options].map((option) => option.textContent)).toEqual(['Automatic (3)', '1', '2', '3']);
-    await userEvent.selectOptions(threads, '2');
+    expect(selectLabels(threads)).toEqual(['Automatic (3)', '1', '2', '3']);
+    chooseSelect(threads, '2');
     await userEvent.click(saveButton());
     await waitFor(() => expect(api.updateAiConfig).toHaveBeenCalledWith({ model_threads: 2 }));
   });
@@ -503,11 +504,12 @@ describe('automatic assistant model discovery', () => {
     api.updateAiConfig.mockImplementation(async (update) => ({ ...config, ...update }));
     renderAi();
     const select = await screen.findByRole('combobox', { name: 'Model' });
+    await userEvent.click(select);
     await screen.findByRole('option', { name: 'qwen3' });
     expect(api.discoverAiModels).toHaveBeenCalledWith({ base_url: config.base_url });
-    expect(select).toHaveProperty('value', config.model);
+    expect(select.textContent).toContain(config.model);
     expect(api.updateAiConfig).not.toHaveBeenCalled();
-    await userEvent.selectOptions(select, 'qwen3');
+    await userEvent.click(screen.getByRole('option', { name: 'qwen3' }));
     await userEvent.click(saveButton());
     await waitFor(() => expect(api.updateAiConfig).toHaveBeenCalledWith({ model: 'qwen3' }));
   });

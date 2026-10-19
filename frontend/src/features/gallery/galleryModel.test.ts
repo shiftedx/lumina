@@ -16,10 +16,18 @@ describe('gallery helpers', () => {
     expect(renditionUrl({ ...art, rendition: null }, 240)).toBeNull();
   });
 
-  it('builds srcset from widths, adding the original only for wide stills', () => {
+  it('builds srcset only from bounded rendition widths', () => {
     const still = titleArt('ep-1-1', 'Primary', { width: 1280 }, true);
-    expect(artSrcSet(still, 'still')).toBe(`${renditionUrl(still, 400)} 400w, ${still.url} 1280w`);
-    expect(artSrcSet({ ...still, width: 320 }, 'still')).toBe(`${renditionUrl(still, 400)} 400w`);
+    expect(artSrcSet(still, 'still')).toBe(
+      `${renditionUrl(still, 400)} 400w, ${renditionUrl(still, 800)} 800w, ${renditionUrl(still, 1200)} 1200w`,
+    );
+    expect(artSrcSet({ ...still, width: 500 }, 'still')).toBe(
+      `${renditionUrl(still, 400)} 400w, ${renditionUrl(still, 800)} 500w`,
+    );
+    expect(artSrcSet({ ...still, width: 320 }, 'still')).toBe(`${renditionUrl(still, 400)} 320w`);
+    expect(artSrcSet({ ...still, width: 500 }, 'still')).not.toContain(still.url);
+    const poster = titleArt('movie-1', 'Primary', { width: 100 });
+    expect(artSrcSet(poster, 'poster')).toBe(`${renditionUrl(poster, 240)} 240w, ${renditionUrl(poster, 480)} 480w`);
     expect(artSrcSet({ ...still, rendition: null, widths: [] }, 'still')).toBeNull();
   });
 

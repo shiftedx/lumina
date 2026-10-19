@@ -96,12 +96,17 @@ export function renditionUrl(art: TitleArt | null | undefined, width: number): s
   return art.rendition.replace('{w}', String(width));
 }
 
-/** `srcset` for an image: every rendition width; stills add the original at its source width. */
+/** `srcset` for an image: only the server's bounded rendition widths. */
 export function artSrcSet(art: TitleArt | null | undefined, kind: ArtKind): string | null {
   if (!art?.rendition || !art.widths.length) return null;
-  const entries = art.widths.map((width) => `${renditionUrl(art, width)} ${width}w`);
-  const largest = Math.max(...art.widths);
-  if (kind === 'still' && art.width && art.width > largest) entries.push(`${art.url} ${art.width}w`);
+  const entries: string[] = [];
+  const described = new Set<number>();
+  for (const nominalWidth of art.widths) {
+    const width = kind === 'still' && art.width && art.width > 0 ? Math.min(art.width, nominalWidth) : nominalWidth;
+    if (described.has(width)) continue;
+    described.add(width);
+    entries.push(`${renditionUrl(art, nominalWidth)} ${width}w`);
+  }
   return entries.join(', ');
 }
 

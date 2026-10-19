@@ -2,7 +2,7 @@
  * One gallery image: colour, blurred preview, deferred sharp image, typographic card.
  *
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type SyntheticEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { resolveArtworkUrl } from '../../Artwork';
 import { imageFailedLabel, imageLoadLabel, recordMetric } from '../../perfMetrics';
@@ -18,6 +18,8 @@ export type GalleryArtProps = {
   alt: string;
   sizes: string;
   priority: LoadPriority;
+  /** False keeps the painted preview/colour/card but does not ask the shared loader for sharp art. */
+  enabled?: boolean;
   position?: number;
   /** Slot background and card colour: galleryModel.cardColour(title, kind). */
   colour: { colour: string; fromPalette: boolean };
@@ -66,7 +68,7 @@ function sources(art: TitleArt | null | undefined, kind: ArtKind): { src: string
   return { src, srcSet: srcSet || undefined };
 }
 
-export function GalleryArt({ art, kind, alt, sizes, priority, position = 0, colour, card, className, onSettled, onFail }: GalleryArtProps) {
+export function GalleryArt({ art, kind, alt, sizes, priority, enabled = true, position = 0, colour, card, className, onSettled, onFail }: GalleryArtProps) {
   const { src, srcSet } = sources(art, kind);
   const [phase, setPhase] = useState<Phase>(() => startPhase(src));
   // A new URL starts clean during render (store-previous-prop pattern), so no effect can race the load.
@@ -75,10 +77,20 @@ export function GalleryArt({ art, kind, alt, sizes, priority, position = 0, colo
   const image = useRef<HTMLImageElement | null>(null);
   const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAt = useRef(0);
-  const slot = useImageSlot(current.state === 'loading' && src ? `${src}#${current.attempt}` : null, priority, position);
+  const slot = useImageSlot(enabled && current.state === 'loading' && src ? `${src}#${current.attempt}` : null, priority, position);
   // Each attempt mounts a fresh <img> (keyed on the attempt); the clock starts as it attaches, before any load event.
   const attach = useCallback((node: HTMLImageElement | null) => {
+    const detached = image.current;
     image.current = node;
+    // Removing an admitted image does not reliably cancel its browser request. Clear its candidates before the
+    // passive slot cleanup, except when Strict Mode's ref replay synchronously reattaches the same live element.
+    if (!node && detached) {
+      queueMicrotask(() => {
+        if (image.current === detached) return;
+        detached.removeAttribute('srcset');
+        detached.removeAttribute('src');
+      });
+    }
     if (node) startedAt.current = performance.now();
   }, []);
   useEffect(() => () => { if (retry.current !== null) clearTimeout(retry.current); }, [src]);
@@ -96,7 +108,8 @@ export function GalleryArt({ art, kind, alt, sizes, priority, position = 0, colo
     onFail?.();
     onSettled?.('card');
   };
-  const onError = () => {
+  const onError = (event: SyntheticEvent<HTMLImageElement>) => {
+    if (image.current !== event.currentTarget) return;
     slot.settle();
     if (!src) return;
     const status = timing(image.current?.currentSrc || src)?.responseStatus;
@@ -111,9 +124,11 @@ export function GalleryArt({ art, kind, alt, sizes, priority, position = 0, colo
     update((value) => ({ ...value, state: 'waiting' }));
     retry.current = setTimeout(() => update((value) => ({ ...value, attempt: value.attempt + 1, state: 'loading' })), GALLERY_RETRY_DELAYS_MS[current.attempt]);
   };
-  const onLoad = () => {
-    const element = image.current;
+  const onLoad = (event: SyntheticEvent<HTMLImageElement>) => {
+    const element = event.currentTarget;
+    if (image.current !== element) return;
     const reveal = () => {
+      if (image.current !== element) return;
       slot.settle();
       if (src) {
         exhaustedAt.delete(src);

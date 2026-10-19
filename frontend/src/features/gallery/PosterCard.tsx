@@ -17,6 +17,7 @@ export type PosterCardProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'chi
   title: TitleSummary;
   onOpen: (title: TitleSummary, event?: MouseEvent<HTMLButtonElement>) => void;
   priority: LoadPriority;
+  enabled?: boolean;
   /** Queue order inside the priority class: row * 1000 + column. */
   position?: number;
   /** `sizes` for the poster srcset, matching the rendered column width. */
@@ -58,7 +59,7 @@ export function useIntentPrefetch(title: TitleSummary) {
   return { start, cancel };
 }
 
-export function PosterCard({ title, onOpen, priority, position = 0, sizes, caption = true, selectable, selected, className, onFocus, onBlur, onPointerEnter, onPointerLeave, ...button }: PosterCardProps) {
+export function PosterCard({ title, onOpen, priority, enabled = true, position = 0, sizes, caption = true, selectable, selected, className, onFocus, onBlur, onPointerEnter, onPointerLeave, ...button }: PosterCardProps) {
   const intent = useIntentPrefetch(title);
   return (
     <ArtHost>
@@ -75,7 +76,7 @@ export function PosterCard({ title, onOpen, priority, position = 0, sizes, capti
       type="button"
     >
       <span className="g-poster-frame">
-        <GalleryArt alt="" art={title.poster} card={{ name: title.name, year: title.year }} colour={cardColour(title, 'poster')} kind="poster" position={position} priority={priority} sizes={sizes} />
+        <GalleryArt alt="" art={title.poster} card={{ name: title.name, year: title.year }} colour={cardColour(title, 'poster')} enabled={enabled} kind="poster" position={position} priority={priority} sizes={sizes} />
         <ArtMarker marker={posterMarker(title)} />
         {selectable ? <span aria-hidden="true" className={`g-select-box${selected ? ' is-on' : ''}`}>{selected ? <Check /> : null}</span> : null}
       </span>

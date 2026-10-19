@@ -19,6 +19,7 @@ export type RemoteStillCardProps = {
   item: RemoteEntry;
   onOpen: (item: RemoteEntry) => void;
   priority: LoadPriority;
+  enabled?: boolean;
   /** Queue order inside the priority class: row * 1000 + column. */
   position?: number;
   sizes: string;
@@ -39,7 +40,7 @@ export type RemoteStillCardProps = {
   onFocus?: () => void;
 };
 
-export function RemoteStillCard({ item, onOpen, priority, position = 0, sizes, caption = true, shape = 'still', showProvider = false, actions, describedBy, ended = false, tabIndex, onFocus }: RemoteStillCardProps) {
+export function RemoteStillCard({ item, onOpen, priority, enabled = true, position = 0, sizes, caption = true, shape = 'still', showProvider = false, actions, describedBy, ended = false, tabIndex, onFocus }: RemoteStillCardProps) {
   const badge = liveBadgeState(item.capabilities?.lifecycle, ended);
   const scrim = remoteScrim(item, ended);
   const line = remoteLine(item);
@@ -50,7 +51,7 @@ export function RemoteStillCard({ item, onOpen, priority, position = 0, sizes, c
     <div className={`g-still-card g-remote-card is-${shape}${item.kind === 'playlist' ? ' is-playlist' : ''}${badge ? ' has-badge' : ''}`} data-remote-key={item.webpage_url || item.id || undefined} {...intent}>
       <button aria-describedby={describedBy} aria-label={remoteLabel(item, ended)} className="g-still" data-focus-item onClick={() => onOpen(item)} onFocus={onFocus} tabIndex={tabIndex} type="button">
         <span className="g-still-frame">
-          <GalleryArt alt="" art={remoteArt(item.artwork_url)} card={{ name: title }} colour={remoteColour(item)} kind="still" position={position} priority={priority} sizes={sizes} />
+          <GalleryArt alt="" art={remoteArt(item.artwork_url)} card={{ name: title }} colour={remoteColour(item)} enabled={enabled} kind="still" position={position} priority={priority} sizes={sizes} />
           {badge ? <LiveBadge className="is-corner" startsAt={item.capabilities?.scheduled_start} state={badge} surface="art" /> : null}
           <ArtMarker marker={remoteMarker(item, ended)} small />
           {scrim || showProvider ? (

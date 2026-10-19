@@ -24,6 +24,7 @@ export type StillCardProps = {
   shape: 'still' | 'square';
   onPlay: (item: LibraryItem) => void;
   priority: LoadPriority;
+  enabled?: boolean;
   position?: number;
   sizes: string;
   caption?: boolean;
@@ -89,6 +90,7 @@ export type StillFrameProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'chi
   menu?: ReactNode;
   onActivate: () => void;
   priority: LoadPriority;
+  enabled?: boolean;
   position?: number;
   sizes: string;
   caption?: boolean;
@@ -98,12 +100,12 @@ export type StillFrameProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'chi
  * The still card's body: art, badge, progress bar and an editorial caption in one button. StillCard
  * renders it for Library items; Home renders it for titles, remote entries and live streams.
  */
-export function StillFrame({ art, colour, shape, name, line, kicker, label, percent = null, badge, menu, onActivate, priority, position = 0, sizes, caption = true, className, ...button }: StillFrameProps) {
+export function StillFrame({ art, colour, shape, name, line, kicker, label, percent = null, badge, menu, onActivate, priority, enabled = true, position = 0, sizes, caption = true, className, ...button }: StillFrameProps) {
   return (
     <ArtHost hasBadge={Boolean(badge)}>
     <button {...button} aria-label={label} className={`g-still${className ? ` ${className}` : ''}`} onClick={onActivate} type="button">
       <span className="g-still-frame">
-        <GalleryArt alt="" art={art} card={{ name }} colour={colour} kind={shape === 'square' ? 'square' : 'still'} position={position} priority={priority} sizes={sizes} />
+        <GalleryArt alt="" art={art} card={{ name }} colour={colour} enabled={enabled} kind={shape === 'square' ? 'square' : 'still'} position={position} priority={priority} sizes={sizes} />
         {badge}
         {percent === null ? null : <ArtMarker marker={{ kind: 'progress', percent }} />}
       </span>
@@ -120,7 +122,7 @@ export function StillFrame({ art, colour, shape, name, line, kicker, label, perc
   );
 }
 
-export function StillCard({ item, kind, shape, onPlay, priority, position = 0, sizes, caption = true, onQueue, onDelete }: StillCardProps) {
+export function StillCard({ item, kind, shape, onPlay, priority, enabled = true, position = 0, sizes, caption = true, onQueue, onDelete }: StillCardProps) {
   const thumbnail = libraryThumbnail(item);
   const progress = stillProgress(item);
   const line = stillLine(item, kind);
@@ -137,6 +139,7 @@ export function StillCard({ item, kind, shape, onPlay, priority, position = 0, s
         name={item.title}
         onActivate={() => onPlay(item)}
         percent={progress}
+        enabled={enabled}
         position={position}
         priority={priority}
         shape={shape}

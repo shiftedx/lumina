@@ -30,6 +30,13 @@ async function alignment(scope: Locator) {
       const fields = [...rows.querySelectorAll<HTMLElement>(':scope > .g-field .g-input, :scope > .g-field .g-select-trigger')].filter(visible);
       if (fields.length > 1 && fields.some((field) => Math.abs(rect(field).right - rect(fields[0]).right) > 1 || Math.abs(rect(field).left - rect(fields[0]).left) > 1)) problems.push('Nested fields do not share column edges');
     }
+    const meters = [...pane.querySelectorAll('.activity-stats > .g-stat')].filter((meter) => meter.querySelector('.g-stat-figure'));
+    for (const meter of meters) {
+      const value = meter.querySelector('.g-stat-figure')!;
+      for (const other of meters.filter((other) => other !== meter && Math.abs(rect(other).top - rect(meter).top) <= 1)) {
+        if (Math.abs(rect(value).top - rect(other.querySelector('.g-stat-figure')!).top) > 1) problems.push('Server meter values do not share a baseline');
+      }
+    }
     for (const group of pane.querySelectorAll('.admin-test-form, .admin-rule-fields, .g-req-map-row, .g-day-range')) {
       const fields = [...group.querySelectorAll<HTMLElement>('.g-input, .g-select-trigger')].filter(visible);
       for (const field of fields) {

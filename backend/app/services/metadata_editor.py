@@ -460,7 +460,7 @@ def image_slots(title: MediaTitle, uploads: dict[str, TitleUpload] | None = None
         else:
             tag = hashlib.sha256(f"{title.id}:{key}:{source}".encode()).hexdigest()[:16]
             url = f"/api/titles/{title.id}/images/{kind}?index={n}&tag={tag}"
-        origin = "upload" if "upload" in entry else "musicbrainz" if "music" in entry else "tmdb" if "tmdb" in entry else "local" if "path" in entry else "embedded"
+        origin = "generated" if "frame" in entry else "upload" if "upload" in entry else "musicbrainz" if "music" in entry else "tmdb" if "tmdb" in entry else "local" if "path" in entry else "embedded"
         row = (uploads or {}).get(str(entry.get("upload")))
         src = (title.field_sources or {}).get(f"images.{key}")
         out.append({"type": kind, "index": n, "url": url, "tag": str(source), "origin": origin, "source": src,

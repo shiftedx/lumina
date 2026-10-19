@@ -104,6 +104,30 @@ describe('TopBar', () => {
     expect(panel.textContent).not.toContain('No library scan running');
   });
 
+  it('keeps thumbnail preparation visible when file scanning is idle', async () => {
+    render(<TopBar {...props({ activity: { state: 'empty', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: library({ artwork_pending: 3, artwork_missing: 2, artwork_failed: 1 }) } })} />);
+    const trigger = screen.getByRole('button', { name: 'Preparing 3 thumbnails' });
+    expect(trigger.querySelector('.g-activity-ring')?.classList.contains('is-indeterminate')).toBe(true);
+    await userEvent.click(trigger);
+    const panel = screen.getByRole('dialog', { hidden: true });
+    expect(panel.textContent).toContain('No library scan running');
+    expect(panel.textContent).toContain('Preparing thumbnails');
+    expect(panel.textContent).toContain('3 thumbnails are queued for preparation.');
+    expect(panel.textContent).toContain('2 images still need a thumbnail.');
+    expect(panel.textContent).toContain('1 thumbnail could not be prepared.');
+    expect(panel.textContent).not.toContain('Artwork needs attention');
+  });
+
+  it('reports paused thumbnail work without a spinner', async () => {
+    render(<TopBar {...props({ activity: { state: 'empty', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: library({ artwork_pending: 1, artwork_missing: 0, artwork_failed: 0, artwork_paused: true }) } })} />);
+    const trigger = screen.getByRole('button', { name: '1 thumbnail queued' });
+    expect(trigger.querySelector('.g-activity-ring')?.classList.contains('is-indeterminate')).toBe(false);
+    await userEvent.click(trigger);
+    const panel = screen.getByRole('dialog', { hidden: true });
+    expect(panel.textContent).toContain('Thumbnail preparation paused');
+    expect(panel.textContent).toContain('Paused while a video is being converted.');
+  });
+
   it('replaces a stale scan spinner with a safe attention state', async () => {
     render(<TopBar {...props({ activity: { state: 'empty', retrying: false, active: 0 }, libraryActivity: { state: 'ready', activity: library({ scanning_roots: 1, stalled_roots: 1, discovered_files: 12 }) } })} />);
     const trigger = screen.getByRole('button', { name: 'Library scan needs attention' });

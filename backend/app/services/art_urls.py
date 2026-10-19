@@ -72,6 +72,8 @@ def supported(entry: Any) -> bool:
     renditions. An embedded picture is JPEG or PNG, or titles.title_image_bytes refuses it and the pass records that."""
     if not isinstance(entry, dict):
         return False
+    if isinstance(entry.get("frame"), str) and isinstance(entry.get("tag"), str):
+        return True  # a bounded JPEG extracted by the background artwork pass
     if isinstance(entry.get("upload"), str):  # re-encoded by title_images to JPEG, PNG or WebP
         return True
     if isinstance(entry.get("embedded"), str) and not entry.get("path"):

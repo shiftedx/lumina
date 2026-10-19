@@ -22,10 +22,11 @@ from collections import Counter, deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -34,7 +35,7 @@ from app.db import SessionLocal
 from app.media_schemas import ArtServing, ArtworkProgress
 from app.models import LibraryItem, MediaTitle, NfoPerson, PlaybackProgress, StorageRoot, TitleArtwork, utcnow
 from app.persistence import read_regular_file, write_transaction
-from app.services import art_urls, cast_photos, library_import, raster_images
+from app.services import art_urls, cast_photos, episode_stills, library_import, raster_images
 from app.services.artwork import ArtworkCacheMissError, ArtworkService
 from app.services.local_playback_sessions import sessions
 from app.services.media_probe import media_tool
@@ -374,7 +375,9 @@ class Scan:
     """One read of every title's art against title_artwork: the pass's work order and the admin counters."""
 
     order: list[tuple[str, str]] = field(default_factory=list)  # (title_id, image_type) needing preparation
-    total: int = 0  # (title, image type) pairs with a supported source
+    missing_episode_stills: int = 0
+    pending_episode_stills: int = 0
+    total: int = 0  # source images plus eligible episode-frame fallbacks
     prepared: int = 0  # ... whose current row is ready
     failed: int = 0
     unsupported: int = 0
@@ -384,8 +387,8 @@ class Scan:
 def scan(db: Session, skipped: Iterable[str] = frozenset()) -> Scan:
     """Titles in id-keyset batches of 500; rows loaded once. ``skipped`` source keys stay out of the order only."""
     skipped = set(skipped)
-    rows = {(title_id, image_type): (key, state, error) for title_id, image_type, key, state, error in db.execute(
-        select(TitleArtwork.title_id, TitleArtwork.image_type, TitleArtwork.source_key, TitleArtwork.state, TitleArtwork.error)
+    rows = {(title_id, image_type): (key, state, error, updated_at) for title_id, image_type, key, state, error, updated_at in db.execute(
+        select(TitleArtwork.title_id, TitleArtwork.image_type, TitleArtwork.source_key, TitleArtwork.state, TitleArtwork.error, TitleArtwork.updated_at)
     )}
     series_of = dict(db.execute(select(MediaTitle.id, MediaTitle.parent_id).where(MediaTitle.type == "season")).all())
     watched_seasons = db.scalars(
@@ -398,6 +401,7 @@ def scan(db: Session, skipped: Iterable[str] = frozenset()) -> Scan:
     # Movie and series art, album covers, stills of shows being watched, other stills, the rest; people's photos
     # last.
     buckets: list[list[tuple[tuple, tuple[str, str]]]] = [[], [], [], [], [], []]
+    retry_before = utcnow() - timedelta(hours=1)
     last = ""
     while batch := db.execute(
         select(MediaTitle.id, MediaTitle.type, MediaTitle.images, MediaTitle.created_at, MediaTitle.parent_id, MediaTitle.root_id)
@@ -419,7 +423,13 @@ def scan(db: Session, skipped: Iterable[str] = frozenset()) -> Scan:
                         found.failed += row[1] == "failed"
                         found.unsupported += row[1] == "unsupported"
                         found.failure_reasons[row[2] or "unknown"] = found.failure_reasons.get(row[2] or "unknown", 0) + 1
-                    continue
+                    # Generated episode stills retry their rendition after the same bounded backoff as extraction.
+                    generated_retry = (
+                        title_type == "episode" and image_type == "Primary" and isinstance((images or {}).get("Primary"), dict)
+                        and "frame" in images["Primary"] and row[1] == "failed" and row[3] is not None and row[3] <= retry_before
+                    )
+                    if not generated_retry:
+                        continue
                 if root_id is None and art_urls.local(images[image_type]):
                     found.failure_reasons["no_storage_root"] = found.failure_reasons.get("no_storage_root", 0) + 1
                 if key in skipped:
@@ -434,6 +444,29 @@ def scan(db: Session, skipped: Iterable[str] = frozenset()) -> Scan:
                     buckets[2 if series_of.get(parent_id) in busy_series else 3].append(((newest,), pair))
                 else:
                     buckets[4].append(((newest,), pair))
+    # Source-less episodes belong to the same bounded worker, not the request path.
+    found.missing_episode_stills = db.scalar(select(func.count()).select_from(MediaTitle).where(
+        MediaTitle.type == "episode", MediaTitle.locked.is_(False),
+        func.json_extract(MediaTitle.images, "$.Primary").is_(None),
+        func.coalesce(func.json_extract(MediaTitle.field_sources, '$."images.Primary"'), "").not_in(("user", "nfo")),
+        exists(select(LibraryItem.id).where(LibraryItem.title_id == MediaTitle.id, LibraryItem.status == "available")),
+    )) or 0
+    for candidate in episode_stills.scan(db, include_deferred=True):
+        row = rows.get((candidate.title_id, "Primary"))
+        if candidate.missing:
+            found.total += 1
+        if row is not None and row[0] == candidate.source_key:
+            if row[1] == "failed" and row[3] and row[3] > retry_before:
+                if candidate.missing:
+                    found.failed += 1
+                    found.failure_reasons[row[2] or "frame_unavailable"] = found.failure_reasons.get(row[2] or "frame_unavailable", 0) + 1
+                continue
+            if row[1] == "ready" and all(art_urls.rendition_file(candidate.source_key, width, art_urls.extension()).is_file()
+                                          for width in art_urls.widths("episode", "Primary")):
+                continue  # Evicting the intermediate JPEG must not re-extract usable stills.
+        if candidate.source_key not in skipped:
+            found.pending_episode_stills += 1
+            buckets[3].append(((0,), (candidate.title_id, "Primary")))
     # People last, only local photos (the pass never fetches), only while the folder is mounted; not in the counters,
     # which report title art. A person no title credits any more keeps a row and is still prepared.
     last = ""
@@ -448,7 +481,7 @@ def scan(db: Session, skipped: Iterable[str] = frozenset()) -> Scan:
             row = rows.get((person_id, "Primary"))
             if (row is None or row[0] != key) and key not in skipped:
                 buckets[5].append(((), (person_id, "Primary")))
-    found.order = [pair for bucket in buckets for _, pair in sorted(bucket)]
+    found.order = list(dict.fromkeys(pair for bucket in buckets for _, pair in sorted(bucket)))
     return found
 
 
@@ -586,6 +619,15 @@ class ArtworkRenditions:
         """Render one image if it still needs it. Every outcome is a row, except a source it cannot reach right now."""
         failure: str | None = None
         with SessionLocal() as db:
+            title = db.get(MediaTitle, title_id)
+            entry = (title.images or {}).get(image_type) if title else None
+            fallback = bool(title and title.type == "episode" and image_type == "Primary"
+                            and (entry is None or isinstance(entry, dict) and "frame" in entry))
+        if fallback and not episode_stills.ensure(title_id, stop=self._stop.is_set, on_process=self._set_child):
+            if (key := episode_stills.candidate_key(title_id)) is not None:
+                self._skipped.add(key)
+            return
+        with SessionLocal() as db:
             title = _subject(db, title_id)
             if title is None or image_type not in art_urls.ART_TYPES:
                 return
@@ -651,7 +693,8 @@ class ArtworkRenditions:
 
     def _record(self, found: Scan) -> None:
         self._progress = ArtworkProgress(
-            total=found.total, prepared=found.prepared, failed=found.failed, unsupported=found.unsupported,
+            pending=len(found.order), missing_episode_stills=found.missing_episode_stills,
+            pending_episode_stills=found.pending_episode_stills, total=found.total, prepared=found.prepared, failed=found.failed, unsupported=found.unsupported,
             failure_reasons=dict(found.failure_reasons), cache_bytes=cache_bytes(), updated_at=utcnow(),
         )
         self._progress_at = time.monotonic()
@@ -706,6 +749,7 @@ class ArtworkRenditions:
             with SessionLocal() as db, write_transaction(db, name="renditions_sweep"):
                 db.execute(delete(TitleArtwork).where(TitleArtwork.source_key.in_(keys[start:start + SCAN_BATCH])))
         sweep_staging()
+        episode_stills.sweep()
         self._swept_at = time.monotonic()
 
     def _housekeeping(self) -> None:

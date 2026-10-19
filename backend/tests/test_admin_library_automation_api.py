@@ -95,8 +95,14 @@ def test_every_route_is_admin_only(client: TestClient, factory, seeded) -> None:
 
 
 def test_library_activity_requires_a_session_but_is_available_to_members_without_private_fields(
-    client: TestClient, factory, seeded, fake: FakeAutomation,
+    client: TestClient, factory, seeded, fake: FakeAutomation, monkeypatch,
 ) -> None:
+    from app.media_schemas import ArtworkProgress
+    from app.services.renditions import renditions
+    monkeypatch.setattr(renditions, "progress", lambda: ArtworkProgress(
+        pending=7, failed=1, missing_episode_stills=8, paused_for_playback=True,
+        failure_reasons={"private failure": 1},
+    ))
     assert client.get(ACTIVITY_URL).status_code == 401
     assert fake.calls == []
     with factory.begin() as db:
@@ -105,6 +111,7 @@ def test_library_activity_requires_a_session_but_is_available_to_members_without
     response = client.get(ACTIVITY_URL)
     assert response.status_code == 200
     assert response.json() == {
+        "artwork_pending": 7, "artwork_failed": 1, "artwork_missing": 8, "artwork_paused": True,
         "scanning_roots": 1,
         "discovering_roots": 1,
         "indexing_roots": 0,

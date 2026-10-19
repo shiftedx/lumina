@@ -1485,6 +1485,8 @@ export interface ArtworkProgress {
   failure_reasons: Record<string, number>;
   serving: ArtServing;
   updated_at?: string | null;
+  pending_episode_stills?: number;
+  missing_episode_stills?: number;
 }
 
 export interface ClientMetricSample {
@@ -1824,7 +1826,7 @@ export interface ProfanityPref {
 // ── 2.1.0: media_schemas.py mirrors every type below except PersonRef, MetadataErrorBody, WatchIntervalS ──
 export type EditKind = 'edit' | 'lock' | 'revert' | 'bulk' | 'undo' | 'item_lock' | 'image';
 export type EditableImageType = 'Primary' | 'Backdrop' | 'Logo';
-export type ImageOrigin = 'tmdb' | 'musicbrainz' | 'upload' | 'local' | 'embedded';
+export type ImageOrigin = 'tmdb' | 'musicbrainz' | 'upload' | 'local' | 'embedded' | 'generated';
 export type RefreshOutcome = 'update' | 'same' | 'kept_edit' | 'kept_lock' | 'kept_higher_source' | 'new';
 export type BulkOpName = 'add' | 'remove' | 'set' | 'lock' | 'unlock' | 'lock_item' | 'unlock_item';
 export type BulkSkipReason = 'not_found' | 'locked_item' | 'wrong_type';
@@ -2191,6 +2193,10 @@ export interface LibraryActivity {
   inspected_files: number;
   directories_listed: number;
   directories_total: number | null;
+  artwork_pending?: number;
+  artwork_failed?: number;
+  artwork_missing?: number;
+  artwork_paused?: boolean;
 }
 
 export interface AutomationRootPatch {

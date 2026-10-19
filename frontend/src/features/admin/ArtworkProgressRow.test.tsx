@@ -40,6 +40,13 @@ describe('ArtworkProgressRow', () => {
     expect(await screen.findByText('Paused while a video is being converted')).toBeTruthy();
   });
 
+  it('shows queued and missing episode frame counts when supplied', async () => {
+    vi.mocked(getArtworkProgress).mockResolvedValue(progress({ pending_episode_stills: 2, missing_episode_stills: 1 }));
+    render(<ArtworkProgressRow />);
+    expect(await screen.findByText('2 episode frames are queued for preparation')).toBeTruthy();
+    expect(screen.getByText('1 episode frame is still missing')).toBeTruthy();
+  });
+
   it('shows a plain error with Try again that reloads', async () => {
     vi.mocked(getArtworkProgress).mockRejectedValueOnce({}).mockResolvedValue(progress());  // not an Error: the fixed copy shows
     render(<ArtworkProgressRow />);

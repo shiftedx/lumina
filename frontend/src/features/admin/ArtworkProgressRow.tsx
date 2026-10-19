@@ -16,6 +16,8 @@ export function ArtworkProgressRow() {
       <p>Artwork prepared <span className="g-tabular">{counts.format(data.prepared)} / {counts.format(data.total)}</span></p>
       <ProgressBar label="Artwork prepared" value={data.total ? Math.floor((data.prepared / data.total) * 100) : null} />
       {data.paused_for_playback ? <p className="admin-note">Paused while a video is being converted</p> : null}
+      {data.pending_episode_stills ? <p className="admin-note">{counts.format(data.pending_episode_stills)} {data.pending_episode_stills === 1 ? 'episode frame is' : 'episode frames are'} queued for preparation</p> : null}
+      {data.missing_episode_stills ? <p className="admin-note">{counts.format(data.missing_episode_stills)} {data.missing_episode_stills === 1 ? 'episode frame is' : 'episode frames are'} still missing</p> : null}
     </div>
   );
 }

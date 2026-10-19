@@ -4,7 +4,7 @@
 .ed-people-grip { background: none; border: 0; color: inherit; cursor: grab; }
 @media (max-width: 640px) {
   .ed-people li { grid-template-columns: minmax(0, 1fr) repeat(4, var(--g-control)); }
-  .ed-people li > .g-input { grid-column: 1 / -1; }
+  .ed-people li > :is(.g-input, .g-autocomplete) { grid-column: 1 / -1; }
   .ed-people-grip { display: none; }
 }
 .ed-person { display: grid; grid-template-columns: auto 1fr; gap: var(--g-space-3); align-items: start; }

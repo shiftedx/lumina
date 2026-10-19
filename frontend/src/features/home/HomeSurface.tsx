@@ -7,7 +7,7 @@
 import { Fragment, type KeyboardEvent, memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { dismissNextUp } from '../../api';
-import { EDIT_HOME_EVENT, onCommand } from '../../app/commands';
+import { onHomeEdit } from '../../app/commands';
 import type { AppRoute, Surface } from '../../app/routes';
 import { recordMetric, sinceNavigation } from '../../perfMetrics';
 import type { SubscriptionChannelOutcome } from '../../subscriptionFeed';
@@ -286,7 +286,7 @@ function HomeSurfaceView({
     && !pickedSignal && !channels.length && !recent.length && !subscriptionVideos.length && !followFailures.length && !followsLoading && titlesEmpty && (libraryState === 'empty' || libraryState === 'ready');
 
   // Account menu and palette share the command; the editor can also customize a fresh Home.
-  useEffect(() => onCommand(EDIT_HOME_EVENT, () => { if (!editing) { setAnnouncement(''); setEditing(true); } }), [editing]);
+  useEffect(() => onHomeEdit(() => { if (!editing) { setAnnouncement(''); setEditing(true); } }), [editing]);
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     // From the greeting, Down reaches the first control below the masthead and Up reaches the account menu,

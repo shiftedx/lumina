@@ -264,7 +264,9 @@ for (const scheme of SCHEMES) {
       if (viewport.name === 'phone') {
         const status = page.getByRole('combobox', { name: 'Status' });
         await expect(status).toBeVisible();
-        await expect(status.locator('option')).toHaveText(['All requests', 'Approved · 1', 'Downloading', 'Partly in', 'In your vault', 'Declined', 'Needs attention · 1']);
+        await status.click();
+        await expect(page.getByRole('listbox').getByRole('option')).toHaveText(['All requests', 'Approved · 1', 'Downloading', 'Partly in', 'In your vault', 'Declined', 'Needs attention · 1']);
+        await page.keyboard.press('Escape');
       } else {
         await expect(page.getByRole('group', { name: 'Status' })).toBeVisible();
       }

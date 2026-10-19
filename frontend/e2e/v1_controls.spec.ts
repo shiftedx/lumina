@@ -94,7 +94,7 @@ test('controls focused and hover 390', async ({ page }) => {
   await tabTo(page, 'Seek');
   await expect(page.locator('[data-controls-visible="true"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Mute' }).hover();
-  for (const control of await page.locator('.player-controls button, .player-controls select').all()) {
+  for (const control of await page.locator('.player-controls button:visible, .player-controls select:not([aria-hidden="true"]):visible').all()) {
     const box = await control.boundingBox();
     expect(box && box.height).toBeGreaterThanOrEqual(44);
   }

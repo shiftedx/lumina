@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { Button, Skeleton } from '../../ui';
 import { HeroFrame } from '../gallery/HeroFrame';
+import { distinctCastCredits } from '../titles/castCredits';
 import { type CatalogDetail, getCatalogTitle, type Kind } from './requestsApi';
 import { useLoad, useNow, useRequests } from './requestsContext';
 import { canAskFor, countdown, formatLabel, metaLine, stateLabel, unrequestableCopy } from './requestsModel';
@@ -45,6 +46,7 @@ export function TitlePage({ kind, id }: { kind: Kind; id: number }) {
   const shown = { ...detail, status };
   const director = detail.crew.find((person) => person.job === 'Director' || person.job === 'Creator');
   const seasons = detail.seasons.filter((season) => season.number > 0);
+  const cast = distinctCastCredits(detail.cast.map((person) => ({ ...person, role: person.character, image_url: person.profile_url })));
   return (
     <article className="rq-title">
       <div className="rq-title-hero">
@@ -96,13 +98,13 @@ export function TitlePage({ kind, id }: { kind: Kind; id: number }) {
           })}
         </Rail>
       ) : null}
-      {detail.cast.length ? (
-        <Rail count={detail.cast.length} id="cast" title="Cast">
-          {detail.cast.slice(0, 24).map((person) => (
-            <li className="rq-person" key={`${person.name}:${person.character ?? ''}`}>
-              <span className="rq-person-photo"><Art fallback={person.name.split(' ').map((part) => part[0]).slice(0, 2).join('')} src={person.profile_url} /></span>
-              <span className="rq-card-title">{person.name}</span>
-              {person.character ? <span className="rq-card-meta">{person.character}</span> : null}
+      {cast.length ? (
+        <Rail count={cast.length} id="cast" title="Cast">
+          {cast.slice(0, 24).map((person, index) => (
+            <li className="rq-person" key={`${person.id ?? person.name}:${index}`}>
+              <span className="rq-person-photo"><Art fallback={person.name.split(' ').map((part) => part[0]).slice(0, 2).join('')} src={person.image_url} /></span>
+              <span className="rq-card-title" title={person.name}>{person.name}</span>
+              {person.role ? <span className="rq-card-meta" title={person.role}>{person.role}</span> : null}
             </li>
           ))}
         </Rail>

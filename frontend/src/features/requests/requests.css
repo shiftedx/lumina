@@ -125,10 +125,12 @@
 .rq-season { width: var(--rq-poster); }
 .rq-season .rq-frame { margin-bottom: 8px; }
 .rq-season-state { display: block; margin-top: 4px; color: var(--g-gold-ink); font: var(--g-type-label); letter-spacing: var(--g-track-label); text-transform: uppercase; }
-.rq-person { width: 120px; text-align: center; }
-.rq-person .rq-card-title { white-space: normal; }
-.rq-person-photo { display: block; width: 96px; height: 96px; margin: 0 auto 8px; overflow: hidden; border-radius: 50%; background: var(--g-paper-2); }
-.rq-person-photo .rq-art-fallback { align-items: center; justify-content: center; padding: 0; font-size: 24px; }
+.rq-person { width: 120px; text-align: start; }
+.rq-person .rq-card-title { display: -webkit-box; min-height: 2.6em; margin-bottom: var(--g-space-2); font: 500 17px / 1.3 var(--g-serif); white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.rq-person .rq-card-meta { display: -webkit-box; overflow: hidden; color: var(--g-ink-2); -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.rq-person-photo { display: block; width: 100%; aspect-ratio: 2 / 3; margin-bottom: var(--g-space-2); overflow: hidden; border-radius: var(--g-radius-sheet); background: var(--g-paper-2); }
+.rq-person-photo .rq-img { object-position: 50% 20%; }
+.rq-person-photo .rq-art-fallback { align-items: center; justify-content: center; padding: 0; background: var(--g-paper-2); font: italic 600 40px / 1 var(--g-serif); }
 
 /* Anime */
 .rq-season-switch { display: flex; align-items: center; justify-content: center; gap: var(--g-space-4); margin: var(--g-space-5) 0; }

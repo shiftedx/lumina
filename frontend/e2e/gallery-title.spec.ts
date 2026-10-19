@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { episodeSummary, FIXTURE_AT, keyScenes, movieSummary, seriesSummary, titleDetail, userData } from '../src/test/galleryFixtures';
 import type { TitleSummary } from '../src/types';
+import { showDetail } from '../src/features/requests/requestsFixtures';
 import { type GalleryTitleOptions, mockGalleryTitle } from './gallery-title-mock';
 import { mockApi, mockTitles, signIn } from './lumina-mock';
 
@@ -298,3 +299,63 @@ test('cold hero analysis never shifts already displayed artwork and is used on t
   await expect(image).toBeVisible();
   expect(await image.evaluate((element) => getComputedStyle(element).objectPosition)).not.toBe(originalCrop);
 });
+
+for (const scheme of ['light', 'dark'] as const) {
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    test(`cast portraits ${viewport.width} ${scheme}: readable credits, stable photo fallbacks and a contained keyboard rail`, async ({ page }) => {
+      const people = Array.from({ length: 12 }, (_, index) => ({
+        name: index === 0 ? 'Alexandra María Delacroix' : index === 1 ? 'Mara Quill' : `Performer ${index + 1}`,
+        role: index === 0 ? 'Captain of the Northern Lighthouse and Keeper of the Signal' : index === 1 ? 'Keeper' : 'Harbor resident',
+        type: 'Actor' as const,
+        image_url: index === 1 ? null : `/api/cast-layout/${index}.jpg`,
+      }));
+      const credits = [...people, { ...people[0], role: '  captain of the northern lighthouse and keeper of the signal  ' }, { ...people[0], role: 'Narrator' }];
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+      await page.setViewportSize(viewport);
+      await mockApi(page, { sidebar_collapsed: false });
+      await mockTitles(page);
+      await mockGalleryTitle(page, { ...movieOptions, detail: { ...movieOptions.detail, people: credits } });
+      await page.route('**/api/cast-layout/*.jpg', (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="360"><rect width="240" height="360" fill="#455565"/><ellipse cx="120" cy="290" rx="96" ry="130" fill="#29333d"/><ellipse cx="120" cy="110" rx="62" ry="78" fill="#ceb59c"/></svg>' }));
+      await page.goto('/title/movie-1');
+      await signIn(page);
+      const cast = page.getByRole('region', { name: 'Cast' });
+      await cast.scrollIntoViewIfNeeded();
+      const performers = cast.getByRole('button');
+      await expect(performers).toHaveCount(13);
+      await expect(performers.last()).toHaveAccessibleName(`${people[0].name} Narrator`);
+      await expect(performers.first()).toHaveAccessibleName(`${people[0].name} ${people[0].role}`);
+      const photos = cast.locator('.t-portrait');
+      const image = await photos.nth(0).boundingBox();
+      const missing = await photos.nth(1).boundingBox();
+      expect(image!.width).toBeGreaterThanOrEqual(120);
+      expect(image!.height).toBeCloseTo(image!.width * 1.5, 0);
+      expect(missing!.width).toBeCloseTo(image!.width, 0);
+      expect(missing!.height).toBeCloseTo(image!.height, 0);
+      expect(await cast.locator('.t-person-role').first().evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
+      await cast.screenshot({ path: `../output/cast-portrait-layout/layout-${viewport.width}-${scheme}.png` });
+      await performers.first().focus();
+      await page.keyboard.press('ArrowRight');
+      await expect(performers.nth(1)).toBeFocused();
+      await performers.last().focus();
+      expect(await cast.locator('.t-row').evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+      const results = await new AxeBuilder({ page }).include('[aria-labelledby="t-cast-heading"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+      expect(results.violations).toEqual([]);
+      await page.route('**/api/requests/catalog/title/**', (route) => route.fulfill({ json: {
+        ...showDetail, title: 'Harbor Lights', poster_url: null, backdrop_url: null, seasons: [], trailers: [], recommendations: [], similar: [],
+        cast: credits.map((person) => ({ name: person.name, character: person.role, profile_url: person.image_url })),
+      } }));
+      await page.goto('/requests/title/show/1399');
+      const catalogCast = page.getByRole('region', { name: 'Cast' });
+      await catalogCast.scrollIntoViewIfNeeded();
+      await catalogCast.evaluate((element) => element.scrollIntoView({ block: 'start' }));
+      await expect(catalogCast.locator('.rq-person')).toHaveCount(13);
+      const catalogPhoto = await catalogCast.locator('.rq-person-photo').first().boundingBox();
+      expect(catalogPhoto!.width).toBeCloseTo(image!.width, 0);
+      expect(catalogPhoto!.height).toBeCloseTo(image!.height, 0);
+      await expect(catalogCast.getByText(people[0].name, { exact: true }).first()).toBeVisible();
+      await catalogCast.screenshot({ path: `../output/cast-portrait-layout/catalog-${viewport.width}-${scheme}.png` });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    });
+  }
+}

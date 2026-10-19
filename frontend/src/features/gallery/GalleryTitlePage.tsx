@@ -16,6 +16,7 @@ import { RecoCard, useRecoFilter, useRecoGeneration } from '../reco/recoFeedback
 import { titleTarget } from '../reco/recoModel';
 import { RecoImpressionScope, useRecoImpressions } from '../reco/useRecoImpressions';
 import { Menu } from '../../ui';
+import { initials } from '../../ui/initials';
 import { orderSeasons, seasonLabel, useFetched } from '../titles/titleModel';
 import { AlbumPage } from './AlbumPage';
 import { ArtistPage } from './ArtistPage';
@@ -125,9 +126,9 @@ function Cast({ people, onSearch }: { people: TitlePerson[]; onSearch: (query: s
         {people.slice(0, 20).map((person, index) => (
           <li key={`${person.name}-${index}`}>
             <button className="t-person" data-focus-item onClick={() => onSearch(person.name)} type="button">
-              <Artwork alt="" className="t-portrait" fallback={<span aria-hidden="true" className="t-monogram">{person.name.charAt(0)}</span>} src={person.image_url} />
-              <span className="t-person-name">{person.name}</span>
-              {person.role ? <span className="t-person-role g-label">{person.role}</span> : null}
+              <Artwork alt="" className="t-portrait" fallback={<span aria-hidden="true" className="t-monogram">{initials(person.name)}</span>} src={person.image_url} />
+              <span className="t-person-name" title={person.name}>{person.name}</span>
+              {person.role ? <span className="t-person-role" title={person.role}>{person.role}</span> : null}
             </button>
           </li>
         ))}

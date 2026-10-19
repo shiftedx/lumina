@@ -49,6 +49,7 @@
 .t-actions { display: flex; flex-wrap: wrap; gap: var(--g-space-3); margin: var(--g-space-5) 0 var(--g-space-3); }
 
 @media (hover: hover) {
+  .t-person:hover .t-person-name { text-decoration: underline; text-underline-offset: 3px; }
   .t-episode:hover .t-episode-title { text-decoration: underline; text-underline-offset: 3px; }
 }
 .t-actions .g-button:disabled { cursor: not-allowed; }
@@ -101,13 +102,13 @@
 /* Cast and poster rows. */
 .t-row { display: flex; gap: var(--g-space-5); overflow-x: auto; margin: 0 calc(-1 * var(--g-gutter)); padding: 0 var(--g-gutter) var(--g-space-3); list-style: none; scroll-padding-inline: var(--g-gutter); overscroll-behavior-x: contain; }
 .t-row > li { flex: none; }
-.t-person { display: grid; width: 112px; justify-items: center; gap: var(--g-space-2); padding: var(--g-space-1); border: 0; border-radius: var(--g-radius-sheet); background: none; color: inherit; cursor: pointer; text-align: center; }
-.t-portrait { width: 64px; height: 64px; overflow: hidden; border-radius: 50%; object-fit: cover; object-position: 50% 20%; }
+.t-person { display: grid; width: 120px; align-content: start; justify-items: stretch; gap: var(--g-space-2); padding: 0; border: 0; border-radius: var(--g-radius-sheet); background: none; color: inherit; cursor: pointer; text-align: start; }
+.t-portrait { display: block; width: 100%; height: auto; aspect-ratio: 2 / 3; overflow: hidden; border-radius: var(--g-radius-sheet); object-fit: cover; object-position: 50% 20%; }
 .t-portrait.artwork-placeholder { display: grid; place-items: center; background: var(--g-paper-2); }
 .gallery img.t-portrait[data-artwork-loading='true'] { opacity: 1; background: var(--g-paper-2); }
-.t-monogram { color: var(--g-ink-2); font: italic 700 26px / 1 var(--g-serif); }
-.t-person-name { font: 400 15px / 1.3 var(--g-serif); }
-.gallery.t-page .t-person-role { color: var(--g-ink-3); }
+.t-monogram { color: var(--g-ink-2); font: italic 600 40px / 1 var(--g-serif); }
+.t-person-name { display: -webkit-box; min-height: 2.6em; overflow: hidden; font: 500 17px / 1.3 var(--g-serif); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.gallery.t-page .t-person-role { display: -webkit-box; overflow: hidden; color: var(--g-ink-2); font: var(--g-type-small); letter-spacing: normal; text-transform: none; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .gallery.t-page .t-row-poster { width: 168px; }
 
 /* Extras: serif rows with labels. */

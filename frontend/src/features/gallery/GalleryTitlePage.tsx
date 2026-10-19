@@ -21,6 +21,7 @@ import { AlbumPage } from './AlbumPage';
 import { ArtistPage } from './ArtistPage';
 import { EpisodeRow } from './EpisodeRow';
 import { GalleryArt } from './GalleryArt';
+import { HeroFrame } from './HeroFrame';
 import { backdropWidthFor, cardColour, cardTextColour, type GalleryTheme, renditionUrl } from './galleryModel';
 import { prefetchImage } from './imageLoader';
 import { KeyScenes } from './KeyScenes';
@@ -281,7 +282,7 @@ export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, 
   return (
     <div className={`gallery t-page${plain ? ' is-plain' : ''}`} onKeyDown={onKeyDown} style={{ '--g-accent': pageAccent(shown, galleryTheme()) } as CSSProperties}>
       <div className="t-hero" style={{ backgroundColor: colour.colour, color: plain ? cardTextColour(colour.colour, colour.fromPalette) : undefined }}>
-        {plain ? null : <GalleryArt alt="" art={shown.backdrop} card={null} className="t-hero-art" colour={colour} kind="backdrop" onSettled={heroSettled} priority={1} sizes="100vw" />}
+        {plain ? null : <HeroFrame className="t-hero-art" src={shown.backdrop?.url}><GalleryArt alt="" art={shown.backdrop} card={null} className="hero-frame-art" colour={colour} kind="backdrop" onSettled={heroSettled} priority={1} sizes="100vw" /></HeroFrame>}
         {plain ? null : <div aria-hidden="true" className="t-hero-fade" />}
         <button aria-label={`Back to ${backLabel ?? lensLabel(shown)}`} className="t-back g-label" data-focus-item onClick={back} type="button"><ChevronLeft aria-hidden="true" /> {backLabel ?? lensLabel(shown)}</button>
         {plain ? headline : null}

@@ -11,7 +11,8 @@ const KB = 1024;
 // 57 KB gzip. The shared CSS core retains its original limit.
 // Books adds 4.7 KB gzip of lazy catalog/reader CSS.
 // Creator discovery and first-owner media setup add 2.4 KB gzip of lazy CSS.
-export const CSS_BUDGET = 68 * KB;
+// Shared adaptive hero framing adds less than 0.5 KB gzip across the lazy route styles.
+export const CSS_BUDGET = 68.5 * KB;
 export const CORE_BUDGET = 7 * KB; // tokens.css + ui.css (spec 1.8)
 // Branded select and editable suggestion controls replace browser-native popups: UI now measures 10.0 KB gzip.
 export const CHUNK_BUDGETS = { ui: 10.5 * KB, palette: 12 * KB, BooksSurface: 15 * KB };

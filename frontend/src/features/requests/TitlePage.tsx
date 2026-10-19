@@ -3,6 +3,7 @@ import { ArrowLeft, Clapperboard, Library, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Button, Skeleton } from '../../ui';
+import { HeroFrame } from '../gallery/HeroFrame';
 import { type CatalogDetail, getCatalogTitle, type Kind } from './requestsApi';
 import { useLoad, useNow, useRequests } from './requestsContext';
 import { canAskFor, countdown, formatLabel, metaLine, stateLabel, unrequestableCopy } from './requestsModel';
@@ -49,7 +50,7 @@ export function TitlePage({ kind, id }: { kind: Kind; id: number }) {
       <div className="rq-title-hero">
         {trailer ? <TrailerStage onClose={() => setTrailer(false)} poster={detail.backdrop_url} title={detail.title} trailers={detail.trailers} /> : (
           <>
-            <span className="rq-hero-art is-still"><Art eager src={detail.backdrop_url} /></span>
+            <HeroFrame className="rq-hero-art is-still" src={detail.backdrop_url}><Art eager src={detail.backdrop_url} /></HeroFrame>
             <span aria-hidden="true" className="rq-hero-scrim" />
           </>
         )}

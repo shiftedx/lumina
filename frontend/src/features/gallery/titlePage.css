@@ -9,10 +9,8 @@
 /* The story arrives after the page; it fades in the same way rather than popping into the column. */
 @media (prefers-reduced-motion: no-preference) { .t-page, .t-story { animation: t-page-in var(--g-page); } }
 /* Hero: full-bleed backdrop fading into paper; a colour field when there is none. */
-.t-hero { position: relative; display: flex; height: max(420px, min(70vh, 680px)); align-items: flex-end; overflow: hidden; padding: 0 max(var(--g-gutter), (100% - var(--g-page-width)) / 2) var(--g-space-6); background: var(--g-paper-2); }
+.t-hero { position: relative; display: flex; height: max(420px, min(70vh, 680px), min(42vw, 82vh, 800px)); align-items: flex-end; overflow: hidden; padding: 0 max(var(--g-gutter), (100% - var(--g-page-width)) / 2) var(--g-space-6); background: var(--g-paper-2); }
 .gallery.t-page .t-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
-.gallery.t-page .t-hero-art .g-art-image,
-.gallery.t-page .t-hero-art .g-art-preview { object-position: center 15%; }
 .t-hero-fade { position: absolute; inset: auto 0 0; height: 55%; background: linear-gradient(transparent 0%, color-mix(in srgb, var(--g-paper) 45%, transparent) 50%, var(--g-paper) 100%); pointer-events: none; }
 /* A top scrim keeps the white Back label legible on bright art. */
 .t-page:not(.is-plain) .t-hero::before { content: ''; position: absolute; inset: 0 0 auto; z-index: 1; height: 140px; background: linear-gradient(color-mix(in srgb, var(--g-overlay-halo) 50%, transparent), color-mix(in srgb, var(--g-overlay-halo) 30%, transparent) 35%, color-mix(in srgb, var(--g-overlay-halo) 12%, transparent) 70%, transparent); pointer-events: none; }
@@ -125,7 +123,7 @@
 
 /* Phone (< 600 px): one column, the side column after the actions, snapping rows. */
 @media (max-width: 599px) {
-  .t-hero { height: min(75vw, 420px); padding-bottom: var(--g-space-4); }
+  .t-hero { height: min(56.25vw, 420px); padding-bottom: var(--g-space-4); }
   .t-body { margin-top: -46px; grid-template-areas: 'heading' 'main' 'side'; grid-template-columns: minmax(0, 1fr); }
   .t-page.is-plain .t-body { margin-top: var(--g-space-5); }
   .t-side { margin-top: var(--g-space-5); padding: var(--g-space-5) 0 0; border-top: var(--g-rule); border-left: 0; }

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import User
 from app.security import get_current_user
-from app.services import tmdb
+from app.services import hero_framing, tmdb
 from app.services.requests import anilist, catalog
 from app.services.yt_dlp_service import YtDlpService
 
@@ -29,7 +29,9 @@ def _serve(db: Session, user: User, build: Callable[[tmdb.TmdbClient | None], di
         raise HTTPException(status_code=exc.status, detail=exc.code) from None
     except (tmdb.TmdbError, anilist.AniListError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
-    return catalog.annotate(response, db, user)
+    annotated = catalog.annotate(response, db, user)
+    hero_framing.catalog_sources.register(annotated)
+    return annotated
 
 
 def register(app: FastAPI) -> None:

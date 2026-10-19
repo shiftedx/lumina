@@ -6,6 +6,7 @@ import { useAdminResource } from './features/admin/useAdminResource';
 import { SummaryPanel } from './features/watch/SummaryPanel';
 import { TranscriptPanel } from './features/watch/TranscriptPanel';
 import { pollDelay } from './features/watch/usePollJob';
+import { chooseSelect } from './test/selectChoice';
 import {
   type AdminTaskPage, ApiRequestError, cancelAdminTask, getLatestAsrJob, getLatestSummary, listAdminTasks, requestAsrTranscript, retryAdminTask, type Transcript,
 } from './api';
@@ -42,7 +43,7 @@ it('test_admin_task_cancel_owner_semantics', async () => {
   vi.mocked(cancelAdminTask).mockResolvedValue({ status: 'canceling' });
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   await waitFor(() => expect(cancelAdminTask).toHaveBeenCalledWith('asr', 'a1'));
-  fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'failed' } });
+  chooseSelect(screen.getByRole('combobox', { name: 'Show' }), 'Failed or stopped');
   await waitFor(() => expect(listAdminTasks).toHaveBeenLastCalledWith('asr', 'failed', undefined));
 });
 

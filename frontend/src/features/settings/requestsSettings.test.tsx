@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { sectionById, SETTINGS_SECTIONS, searchSettings, visibleSections } from './registry';
 import { SectionRows } from './SettingRow';
 import { SettingsHostContext } from './settingsHost';
+import { selectLabels } from '../../test/selectChoice';
 
 const SERVER = { id: 's1', kind: 'sonarr', name: 'Sonarr', base_url: 'http://sonarr.lan', api_key_set: true, root_folder: '/tv/Shows/', quality_profile_id: 1, anime_root_folder: '/tv/Anime/', anime_quality_profile_id: 1, dub_profile_id: null, sub_profile_id: null, path_mappings: [{ remote: '/tv', local: '/media/tv' }], enabled: true, last_ok_at: null, last_error: 'boom' };
 const TEST = { ok: true, version: '4.0.1', root_folders: [{ path: '/tv/Shows/' }, { path: '/tv/Anime/' }], quality_profiles: [{ id: 1, name: 'Any' }, { id: 7, name: 'HD-1080p' }] };
@@ -72,9 +73,9 @@ describe('Requests settings', () => {
     expect((key as HTMLInputElement).placeholder).toBe('Saved key hidden');
     await userEvent.click(screen.getByRole('button', { name: 'Test Sonarr connection' }));
     await screen.findByText('Connected to Sonarr 4.0.1.');
-    const profile = screen.getByLabelText('Sonarr quality profile') as HTMLSelectElement;
-    await waitFor(() => expect(within(profile).getByRole('option', { name: 'HD-1080p' })).toBeTruthy());
-    expect(within(screen.getByLabelText('Sonarr root folder')).getByRole('option', { name: '/tv/Anime/' })).toBeTruthy();
+    const profile = screen.getByRole('combobox', { name: 'Sonarr quality profile' });
+    await waitFor(() => expect(selectLabels(profile)).toContain('HD-1080p'));
+    expect(selectLabels(screen.getByRole('combobox', { name: 'Sonarr root folder' }))).toContain('/tv/Anime/');
     expect(document.body.innerHTML).not.toContain('api_key');
   });
 

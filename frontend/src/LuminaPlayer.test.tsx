@@ -207,7 +207,7 @@ describe('the live line', () => {
   });
 
   it('renders the same control set for a local video, a remote video on demand and a remote live source, apart from the seek bar and the live line', () => {
-    const controls = (element: HTMLElement) => [...element.querySelectorAll('.player-controls button, .player-controls select')].map((control) => control.getAttribute('aria-label') || control.textContent?.trim()).filter((name) => name && !/^(Go live|Seek)$/.test(name));
+    const controls = (element: HTMLElement) => [...element.querySelectorAll('.player-controls button')].map((control) => control.getAttribute('aria-label') || control.textContent?.trim()).filter((name) => name && !/^(Go live|Seek)$/.test(name));
     const local = controls(renderLocalSource().container);
     document.body.innerHTML = '';
     const vod = controls(renderRemoteVodSource().container);

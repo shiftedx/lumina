@@ -23,6 +23,8 @@ describe('hero framing geometry', () => {
     expect(geometry.mode).toBe('cover');
     // Tight framing has no room for more zoom without clipping the protected headroom.
     expect(geometry.zoom).toBe(1);
+    expect(geometry.parallax).toBe(0);
+    expect(geometry.parallaxScale).toBe(1);
   });
 
   it('brings a lower subject into view without adding borders', () => {
@@ -31,6 +33,8 @@ describe('hero framing geometry', () => {
     expect(framing.y).toBeGreaterThan(80);
     expect(framing.zoom).toBeGreaterThan(1);
     expect(framing.zoom).toBeLessThanOrEqual(1.06);
+    expect(framing.parallax).toBeGreaterThan(0);
+    expect(framing.zoom * framing.parallaxScale).toBeLessThanOrEqual(1.06);
   });
 
   it('rejects malformed model output before it reaches layout', () => {

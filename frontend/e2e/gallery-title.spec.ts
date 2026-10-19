@@ -294,10 +294,38 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844
       expect(position.subject).toBeGreaterThan(.2);
       expect(position.subject).toBeLessThan(.9);
     }
+    // Scroll parallax must remain safe at both ends of the independent camera zoom.
+    const hero = page.locator('.t-hero');
+    const heroBox = (await hero.boundingBox())!;
+    for (const time of [0, 20_000]) {
+      await layer.evaluate((element, time) => { const animation = element.getAnimations()[0]; animation.pause(); animation.currentTime = time; }, time);
+      const offsets: number[] = [];
+      for (const progress of [0, .25, .65, 0]) {
+        await page.evaluate(({ top, height, progress }) => window.scrollTo({ top: progress ? top + height * progress : 0, behavior: 'instant' }), { top: heroBox.y, height: heroBox.height, progress });
+        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const position = await page.locator('.t-hero .g-art-image').evaluate((image: HTMLImageElement) => {
+          const frame = image.closest('.t-hero')!.getBoundingClientRect();
+          const box = image.getBoundingClientRect();
+          const scale = Math.max(box.width / image.naturalWidth, box.height / image.naturalHeight);
+          const y = parseFloat(getComputedStyle(image).objectPosition.split(' ')[1]) / 100;
+          return { offset: box.top - frame.top, subject: (box.y + (box.height - image.naturalHeight * scale) * y + 842 * scale - frame.y) / frame.height,
+            fills: box.left <= frame.left + 1 && box.right >= frame.right - 1 && box.top <= frame.top + 1 && box.bottom >= frame.bottom - 1 };
+        });
+        offsets.push(position.offset);
+        expect(position.fills).toBe(true);
+        expect(position.subject).toBeGreaterThan(.2);
+        expect(position.subject).toBeLessThan(.9);
+      }
+      expect(offsets[1]).toBeGreaterThan(offsets[0] + .1);
+      expect(offsets[2]).toBeGreaterThan(offsets[1] + .1);
+      expect(offsets[3]).toBeCloseTo(offsets[0], 0);
+    }
     await page.getByRole('region', { name: 'Cast' }).scrollIntoViewIfNeeded();
     await expect(layer).toHaveCSS('animation-play-state', 'paused');
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await expect(layer).toHaveCSS('animation-name', 'none');
+    await expect(layer).toHaveCSS('translate', 'none');
+    await expect(layer).toHaveCSS('scale', 'none');
   });
 }
 

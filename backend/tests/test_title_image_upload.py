@@ -424,14 +424,14 @@ def test_a_png_with_over_65536_chunks_is_refused_fast_and_bounded(monkeypatch) -
             crcs[0] += 1
             return zlib.crc32(view)
 
-    monkeypatch.setattr(ti, "zlib", CountingZlib)
+    monkeypatch.setattr(renditions.raster_images, "zlib", CountingZlib)
     tracemalloc.start()
     with pytest.raises(ti.UploadError) as raised:
         ti.strip_png(data)
     peak = tracemalloc.get_traced_memory()[1]
     tracemalloc.stop()
     assert (raised.value.status, raised.value.detail) == (415, "unsupported_image")
-    assert peak < 32 * 1024 * 1024 and crcs[0] <= ti.MAX_PNG_CHUNKS
+    assert peak < 32 * 1024 * 1024 and crcs[0] <= renditions.raster_images.MAX_PNG_CHUNKS
 
 
 def test_a_png_at_the_chunk_cap_is_still_rebuilt() -> None:

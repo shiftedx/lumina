@@ -17,6 +17,15 @@ export const getBookSeries = (id: string, signal?: AbortSignal) => requestJson<{
 export const getBookReader = (id: string, signal?: AbortSignal) => requestJson<BookReaderManifest>(`/api/books/${enc(id)}/reader`, undefined, { signal });
 export const getBookChapter = (id: string, index: number, signal?: AbortSignal) => requestJson<{ nodes: BookNode[] }>(`/api/books/${enc(id)}/chapters/${index}`, undefined, { signal });
 export const bookPageUrl = (id: string, index: number) => `${apiBaseUrl}/api/books/${enc(id)}/pages/${index}`;
+/** Private, bounded encoded page data for the mounted reader's current/next-page window. */
+export async function getBookPageBytes(id: string, index: number, signal: AbortSignal, speculative = false): Promise<Blob> {
+  const response = await fetch(bookPageUrl(id, index), { credentials: 'include', cache: 'no-store', signal, priority: speculative ? 'low' : 'high' });
+  if (!response.ok) throw new Error('The page image could not be loaded.');
+  if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(response.headers.get('Content-Type')?.split(';')[0] ?? '')) throw new Error('The page image type is unsupported.');
+  const blob = await response.blob();
+  if (!blob.size || blob.size > 24 * 1024 * 1024) throw new Error('The page image exceeds the allowed size.');
+  return blob;
+}
 export const bookResourceUrl = (id: string, member: string) => `${apiBaseUrl}/api/books/${enc(id)}/resources?member=${enc(member)}`;
 export const bookCoverUrl = (url: string | null) => url?.startsWith('/api/books/') ? `${apiBaseUrl}${url}` : null;
 export const importBook = (file: File) => requestJson<Book>(`/api/books/import?filename=${enc(file.name)}`, { method: 'PUT', body: file, headers: { 'Content-Type': 'application/octet-stream' } }, { timeoutMs: 300_000 });

@@ -1,13 +1,17 @@
 import { ArrowLeft, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, List, Maximize, Minus, Plus, Settings2, X } from 'lucide-react';
 import { createElement, type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
-import { getSessionUserId, trackKeepalive } from '../../api';
+import { getSessionUserId } from '../../api';
 import { BrandMark, Button, ErrorState, IconButton, Skeleton } from '../../ui';
-import { bookCoverUrl, bookPageUrl, bookResourceUrl, getBookChapter, getBookReader, updateBookState } from './booksApi';
+import { bookCoverUrl, bookResourceUrl, getBookChapter, getBookReader, updateBookState } from './booksApi';
+import { BookPages } from './BookPages';
 import type { Book, BookNode, BookReaderManifest } from './types';
 
 type Appearance = { size: number; line: number; theme: 'system' | 'dark' | 'light' | 'sepia'; layout: 'single' | 'spread'; fit: 'height' | 'width' };
+type CheckpointPayload = { unit_index: number; offset: number; completed?: boolean };
+type SaveBatch = { bookId: string; userId: string; scope: string; revision: number; payload: CheckpointPayload; waiters: Array<(saved: boolean) => void> };
 const DEFAULT_APPEARANCE: Appearance = { size: 19, line: 1.7, theme: 'system', layout: 'single', fit: 'height' };
+const CHECKPOINT_DELAY_MS = 500;
 const ALLOWED_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'ul', 'ol', 'li', 'em', 'strong', 'span', 'br', 'hr']);
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const fragmentId = (anchor: string) => `book-fragment-${encodeURIComponent(anchor)}`;
@@ -54,6 +58,7 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
   const [unit, setUnit] = useState(0);
   const [pageDraft, setPageDraft] = useState('1');
   const [nodes, setNodes] = useState<BookNode[] | null>(null);
+  const [prefetchedChapter, setPrefetchedChapter] = useState<{ bookId: string; index: number; nodes: BookNode[] } | null>(null);
   const [chapterError, setChapterError] = useState<string | null>(null);
   const [chapterRetry, setChapterRetry] = useState(0);
   const [contentsOpen, setContentsOpen] = useState(false);
@@ -69,64 +74,129 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
   const turnPageRef = useRef<(forward: boolean) => void>(() => undefined);
   const restore = useRef<number | string>(0);
   const checkpoint = useRef({ unit_index: 0, offset: 0 });
+  const readableCheckpoint = useRef({ unit_index: 0, offset: 0 });
+  const checkpointDirty = useRef(false);
+  const checkpointRevision = useRef(0);
+  const readableRevision = useRef(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const writeQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const activeWrite = useRef<SaveBatch | null>(null);
+  const pendingWrite = useRef<SaveBatch | null>(null);
+  const runNextWrite = useRef<() => void>(() => undefined);
+  const scope = `${userId}:${bookId}`;
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
   const alive = useRef(true);
   const book = manifest?.book;
   const count = Math.max(1, book?.format !== 'epub' ? manifest?.page_count ?? 0 : manifest?.chapters.length ?? 0);
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoadError(null); setManifest(null); ready.current = false; pendingTurn.current = null;
+    setLoadError(null); setManifest(null); setPrefetchedChapter(null); ready.current = false; pendingTurn.current = null;
     getBookReader(bookId, controller.signal).then((next) => {
       const total = next.book.format !== 'epub' ? next.page_count : next.chapters.length;
       const first = clamp(next.book.progress.unit_index, 0, Math.max(0, total - 1));
       checkpoint.current = { unit_index: first, offset: clamp(next.book.progress.offset, 0, 1) };
+      // Opening a reader is itself reading activity: the checkpoint refresh also updates last_read_at.
+      // Debounce it so the first navigation can coalesce into the same write.
+      checkpointDirty.current = true; checkpointRevision.current = 1;
+      readableCheckpoint.current = checkpoint.current; readableRevision.current = checkpointRevision.current;
       restore.current = checkpoint.current.offset;
       setUnit(first); setManifest(next); setContentsOpen(window.innerWidth >= 1400 && next.book.format === 'epub');
     }).catch((error: unknown) => { if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : 'The book could not be opened.'); });
     return () => controller.abort();
-  }, [bookId, retry]);
+  }, [bookId, retry, userId]);
 
   useEffect(() => setPageDraft(String(unit + 1)), [unit]);
 
-  const persist = useCallback((keepalive = false, completed?: boolean) => {
-    if (!ready.current || getSessionUserId() !== userId) return Promise.resolve(false);
+  const persist = useCallback((_keepalive = false, completed?: boolean) => {
+    if (completed === undefined && !checkpointDirty.current) return Promise.resolve(true);
+    if (getSessionUserId() !== userId) return Promise.resolve(false);
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
-    const payload = { ...checkpoint.current, ...(completed === undefined ? {} : { completed }) };
-    const send = () => getSessionUserId() === userId ? updateBookState(bookId, payload, keepalive) : Promise.resolve(null);
-    const request = writeQueue.current.catch(() => undefined).then(send);
-    writeQueue.current = request;
-    if (keepalive) trackKeepalive(request);
-    return request.then((updated) => {
-      if (updated && alive.current) { setSaveError(null); setManifest((value) => value ? { ...value, book: updated } : value); onBookChange(updated); }
-      return Boolean(updated);
-    }).catch((error: unknown) => { if (alive.current) setSaveError(error instanceof Error ? error.message : 'Reading progress could not be saved.'); return false; });
-  }, [bookId, onBookChange, userId]);
+    const revision = ready.current ? checkpointRevision.current : readableRevision.current;
+    const payload = { ...(ready.current ? checkpoint.current : readableCheckpoint.current), ...(completed === undefined ? {} : { completed }) };
+    return new Promise<boolean>((resolve) => {
+      const current = activeWrite.current;
+      if (current && current.scope === scope && current.revision === revision
+        && current.payload.unit_index === payload.unit_index && current.payload.offset === payload.offset
+        && current.payload.completed === payload.completed) {
+        current.waiters.push(resolve); return;
+      }
+      const waiting = pendingWrite.current;
+      if (waiting && waiting.scope === scope) {
+        waiting.revision = revision;
+        waiting.payload = completed === undefined && waiting.payload.completed !== undefined
+          ? { ...payload, completed: waiting.payload.completed }
+          : payload;
+        waiting.waiters.push(resolve);
+      } else {
+        if (waiting) for (const waiter of waiting.waiters) waiter(false);
+        pendingWrite.current = { bookId, userId, scope, revision, payload, waiters: [resolve] };
+      }
+      runNextWrite.current();
+    });
+  }, [bookId, scope, userId]);
   const persistRef = useRef(persist);
   persistRef.current = persist;
 
+  runNextWrite.current = () => {
+    if (activeWrite.current || !pendingWrite.current) return;
+    const batch = pendingWrite.current;
+    pendingWrite.current = null; activeWrite.current = batch;
+    // Checkpoints are small, so the active write is eligible to continue through pagehide. The one coalesced pending write still needs this request to settle and can be lost if the browser process terminates.
+    const request = getSessionUserId() === batch.userId ? updateBookState(batch.bookId, batch.payload, true) : Promise.resolve(null);
+    void request.then((updated) => {
+      const currentScope = scopeRef.current === batch.scope;
+      if (updated && currentScope) {
+        if (checkpointRevision.current === batch.revision) checkpointDirty.current = false;
+        if (alive.current) { setSaveError(null); setManifest((value) => value ? { ...value, book: updated } : value); onBookChange(updated); }
+      }
+      for (const waiter of batch.waiters) waiter(Boolean(updated));
+    }).catch((error: unknown) => {
+      if (alive.current && scopeRef.current === batch.scope) setSaveError(error instanceof Error ? error.message : 'Reading progress could not be saved.');
+      for (const waiter of batch.waiters) waiter(false);
+    }).finally(() => { activeWrite.current = null; runNextWrite.current(); });
+  };
+  const schedulePersist = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => { saveTimer.current = null; void persistRef.current(); }, CHECKPOINT_DELAY_MS);
+  }, []);
+
   useEffect(() => {
     alive.current = true;
-    const leave = () => { void persistRef.current(true); };
+    const scopedPersist = persistRef.current;
+    const leave = () => { void scopedPersist(true); };
     window.addEventListener('pagehide', leave);
     return () => { leave(); alive.current = false; if (saveTimer.current) clearTimeout(saveTimer.current); window.removeEventListener('pagehide', leave); };
-  }, [bookId]);
+  }, [bookId, userId]);
 
   useEffect(() => {
     if (!manifest) return;
     ready.current = false; setImageError(false); setChapterError(null); setNodes(null);
     if (manifest.book.format !== 'epub') {
       checkpoint.current = { unit_index: unit, offset: 0 };
-      ready.current = true; void persistRef.current();
+      readableCheckpoint.current = checkpoint.current; readableRevision.current = checkpointRevision.current;
+      ready.current = true;
+      if (checkpointDirty.current) schedulePersist();
       return;
     }
+    const cached = prefetchedChapter?.bookId === bookId && prefetchedChapter.index === unit ? prefetchedChapter.nodes : null;
+    if (cached) { setNodes(cached); return; }
     const controller = new AbortController();
     getBookChapter(bookId, unit, controller.signal).then((chapter) => setNodes(chapter.nodes)).catch((error: unknown) => {
       if (!controller.signal.aborted) setChapterError(error instanceof Error ? error.message : 'This chapter could not be loaded.');
     });
     return () => controller.abort();
-  }, [bookId, manifest?.book.format, unit, chapterRetry]);
+  }, [bookId, manifest?.book.format, unit, chapterRetry, schedulePersist]);
+
+  useEffect(() => {
+    const target = unit + 1;
+    if (!nodes || manifest?.book.format !== 'epub' || target >= count || (prefetchedChapter?.bookId === bookId && prefetchedChapter.index === target)) return;
+    const controller = new AbortController();
+    getBookChapter(bookId, target, controller.signal).then((chapter) => {
+      if (!controller.signal.aborted) setPrefetchedChapter({ bookId, index: target, nodes: chapter.nodes });
+    }).catch(() => { /* A lookahead failure must not interrupt the current chapter. */ });
+    return () => controller.abort();
+  }, [bookId, count, manifest?.book.format, nodes, prefetchedChapter, unit]);
 
   useEffect(() => {
     if (manifest?.book.id) reading.current?.focus({ preventScroll: true });
@@ -140,13 +210,15 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
       if (typeof restore.current === 'string') document.getElementById(fragmentId(restore.current))?.scrollIntoView({ block: 'start' });
       else panel.scrollTop = Math.max(0, panel.scrollHeight - panel.clientHeight) * restore.current;
       checkpoint.current = { unit_index: unit, offset: typeof restore.current === 'number' ? restore.current : 0 };
-      restore.current = 0; ready.current = true; void persistRef.current();
+      readableCheckpoint.current = checkpoint.current; readableRevision.current = checkpointRevision.current;
+      restore.current = 0; ready.current = true;
+      if (checkpointDirty.current) schedulePersist();
       const pending = pendingTurn.current;
       pendingTurn.current = null;
       if (pending !== null) turnPageRef.current(pending);
     });
     return () => cancelAnimationFrame(handle);
-  }, [nodes, unit]);
+  }, [nodes, schedulePersist, unit]);
 
   useEffect(() => { try { localStorage.setItem(`lumina.books.appearance.${userId}`, JSON.stringify(appearance)); } catch { /* Reading works when browser storage is unavailable. */ } }, [appearance, userId]);
 
@@ -154,8 +226,9 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
     if (!ready.current || book?.format !== 'epub' || !reading.current) return;
     const panel = reading.current;
     checkpoint.current = { unit_index: unit, offset: panel.scrollHeight > panel.clientHeight ? clamp(panel.scrollTop / (panel.scrollHeight - panel.clientHeight), 0, 1) : 0 };
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { void persistRef.current(); }, 1000);
+    checkpointDirty.current = true; checkpointRevision.current += 1;
+    readableCheckpoint.current = checkpoint.current; readableRevision.current = checkpointRevision.current;
+    schedulePersist();
   }
 
   function turnPage(forward: boolean) {
@@ -177,23 +250,22 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
 
   turnPageRef.current = turnPage;
 
-  async function go(next: number, anchor?: string, offset = 0, focusPage = true) {
-    if (!manifest || next < 0 || next >= count || busy) return;
-    setBusy(true);
-    try {
-      if (ready.current && !await persist()) return;
-      restore.current = anchor ?? offset;
-      checkpoint.current = { unit_index: next, offset };
-      if (next === unit) {
-        if (anchor) document.getElementById(fragmentId(anchor))?.scrollIntoView({ block: 'start' });
-        else if (reading.current) reading.current.scrollTop = 0;
-      }
-      else setUnit(next);
-      if (focusPage) {
-        if (window.innerWidth < 1000) setContentsOpen(false);
-        reading.current?.focus({ preventScroll: true });
-      }
-    } finally { setBusy(false); }
+  function go(next: number, anchor?: string, offset = 0, focusPage = true) {
+    if (!manifest || next < 0 || next >= count || busy || getSessionUserId() !== userId) return;
+    restore.current = anchor ?? offset;
+    checkpoint.current = { unit_index: next, offset };
+    checkpointDirty.current = true; checkpointRevision.current += 1;
+    if (next === unit) {
+      readableCheckpoint.current = checkpoint.current; readableRevision.current = checkpointRevision.current;
+      if (anchor) document.getElementById(fragmentId(anchor))?.scrollIntoView({ block: 'start' });
+      else if (reading.current) reading.current.scrollTop = 0;
+      schedulePersist();
+    }
+    else setUnit(next);
+    if (focusPage) {
+      if (window.innerWidth < 1000) setContentsOpen(false);
+      reading.current?.focus({ preventScroll: true });
+    }
   }
   const spread = book?.format !== 'epub' && appearance.layout === 'spread';
   const spreadStart = spread && unit > 0 && unit % 2 === 0 ? unit - 1 : unit;
@@ -233,7 +305,7 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
       </aside> : null}
       <div aria-label={book.format === 'epub' ? 'Book chapter' : book.kind === 'manga' ? 'Manga pages' : 'Book pages'} className={`books-reader-page is-${appearance.fit}`} onScroll={recordScroll} ref={reading} tabIndex={0}>
         {book.format === 'epub' ? chapterError ? <ErrorState body={chapterError} onRetry={() => setChapterRetry((value) => value + 1)} title="This chapter could not be loaded" /> : !nodes ? <Skeleton count={6} label="Loading chapter…" shape="row" /> : <article className={`books-prose${appearance.layout === 'spread' ? ' is-spread' : ''}`} id="book-prose"><p className="books-chapter-label">Chapter {unit + 1} of {count}</p>{unit === 0 && !hasChapterContent(nodes) && bookCoverUrl(book.cover_url) ? <img alt={`Cover of ${book.title}`} className="books-prose-cover" src={bookCoverUrl(book.cover_url)!} /> : null}<BookProse bookId={bookId} nodes={nodes} onLink={(chapter, anchor) => { void go(chapter ?? unit, anchor); }} /></article>
-          : imageError ? <ErrorState body="The page image could not be loaded." onRetry={() => { setImageError(false); setChapterRetry((value) => value + 1); }} title="Page unavailable" /> : <div className={`books-manga-pages${displayedPages.length === 2 ? ' is-spread' : ''}`} dir={manifest.reading_direction}>{displayedPages.map((page) => <img alt={`Page ${page + 1} of ${count}`} decoding="async" key={`${page}:${chapterRetry}`} onError={() => setImageError(true)} src={bookPageUrl(bookId, page)} />)}</div>}
+          : imageError ? <ErrorState body="The page image could not be loaded." onRetry={() => { setImageError(false); setChapterRetry((value) => value + 1); }} title="Page unavailable" /> : <BookPages bookId={bookId} count={count} direction={manifest.reading_direction} key={`${scope}:${chapterRetry}`} onError={() => setImageError(true)} pages={displayedPages} userId={userId} />}
       </div>
       {appearanceOpen ? <aside aria-label="Reading appearance" className="books-reader-aside books-reader-appearance" id="book-appearance">
         <header><h2>Reading appearance</h2><IconButton icon={<X />} label="Close reading appearance" onClick={() => { setAppearanceOpen(false); reading.current?.focus({ preventScroll: true }); }} /></header>
@@ -250,9 +322,9 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
         setBusy(true);
         void persist(false, !book.progress.completed).then((saved) => {
           if (saved && book.progress.completed) {
-            checkpoint.current = { unit_index: 0, offset: 0 }; restore.current = 0; setUnit(0);
+            checkpoint.current = { unit_index: 0, offset: 0 }; checkpointDirty.current = true; checkpointRevision.current += 1; restore.current = 0; setUnit(0);
             if (reading.current) reading.current.scrollTop = 0;
-            void persist(false, false);
+            return persist(false, false);
           }
         }).finally(() => setBusy(false));
       }} variant="primary">{book.progress.completed ? 'Read again' : 'Finish book'}</Button> : <Button disabled={busy} iconEnd={<ChevronRight />} onClick={() => { void go(next); }} variant="quiet">Next</Button>}

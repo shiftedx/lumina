@@ -43,7 +43,7 @@ def _pdf(path: Path, member: str) -> dict | bytes:
         return data
 
 
-def _cbr(path: Path, member: str) -> dict | bytes:
+def _cbr(path: Path, member: str, validated: bool = False) -> dict | bytes:
     import libarchive
 
     with path.open("rb") as handle:
@@ -65,6 +65,11 @@ def _cbr(path: Path, member: str) -> dict | bytes:
             if entry.size < 0 or entry.size > MAX_IMAGE_BYTES:
                 raise BookArchiveError("Book archive has an oversized member")
             info[name] = entry
+            if validated and member and name != member:
+                # The earlier full validation is tied to this exact file identity. Let
+                # libarchive skip non-target data; solid RARs may still decode their
+                # prefix internally, while ordinary RARs can seek to the next header.
+                continue
             # Consume every member to validate real decompressed sizes, including solid RARs.
             capture = name == member or name.casefold() == "comicinfo.xml"
             limit = MAX_METADATA_BYTES if name.casefold() == "comicinfo.xml" else MAX_IMAGE_BYTES
@@ -80,6 +85,11 @@ def _cbr(path: Path, member: str) -> dict | bytes:
                 data = b"".join(chunks)
                 if name == member:
                     result = data
+                    if validated:
+                        mime = _image_type(member)
+                        if mime is None or not _is_image(result, mime):
+                            raise BookArchiveError("Book image is unavailable")
+                        return result
                 if name.casefold() == "comicinfo.xml":
                     comic[name] = data
     if member:
@@ -105,8 +115,9 @@ def main() -> None:
     resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_IMAGE_BYTES, MAX_IMAGE_BYTES))
     if sys.platform == "linux":
         resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, 1024 * 1024 * 1024))
-    path, format_, member = sys.argv[1:]
-    result = _pdf(Path(path), member) if format_ == "pdf" else _cbr(Path(path), member)
+    path, format_, member, *flags = sys.argv[1:]
+    validated = flags == ["1"]
+    result = _pdf(Path(path), member) if format_ == "pdf" else _cbr(Path(path), member, validated)
     sys.stdout.buffer.write(result if isinstance(result, bytes) else json.dumps(result).encode())
 
 

@@ -38,3 +38,53 @@ Native parsing runs in short-lived subprocesses with a 30-second wall timeout, 2
 CBR retains the existing member, path, image, and 512 MiB uncompressed limits and rejects links;
 PDF is limited to 2,500 pages and renders at most 2,400 pixels on the longest edge. Encrypted files
 are rejected. This is additive format support and does not alter database schema or existing checkpoints.
+
+### Bounded reader work reuse (2026-10-18)
+
+Encoded raster resources share an in-process LRU bounded by 64 MiB and 128 entries.
+Concurrent identical reads share one result; at most four uncached raster reads run at once. Keys include device, inode, size, and nanosecond
+modification/change times; replacement or edits invalidate reuse. Routes retain visibility
+checks and `private, no-store`, including cache hits. No raw archive or active content is cached
+for browser delivery. The cache stores encoded response bytes, not browser-decoded pixels.
+
+A separate 128-entry native validation registry remembers exact file identities and formats.
+An unchanged validated CBR may stop after reading its requested member rather than validating
+the remainder again. The first read after restart still validates the complete archive, and
+solid archives may still decode preceding members. Persisted manifests alone never authorize
+skipping validation. Existing native worker counts and resource limits remain in force.
+Archive inspection during asynchronous import runs in the thread pool so a native parser wait
+does not block unrelated ASGI requests.
+
+### Bounded catalog hydration (2026-10-18)
+
+Catalog, series, and overview classification use scalar root and per-user state rows. The default
+added-date catalog applies count, ordering, offset, and limit in SQLite; exact NFKC/casefold search
+and title/author ordering continue to scan scalar visible rows in Python. Only the selected catalog
+page and series detail volumes become full `BookItem` objects. Series pages read descriptions and
+cover presence for their selected first volumes without loading manifests for every manga volume.
+
+Overview scans visible scalar metadata to preserve deterministic totals, affinity, and ordering,
+then serializes at most 36 unique cards across Continue reading, Recently added, and Discover.
+Available Continue-reading checkpoints are tested newest first and stop after the complete
+twelfth-place timestamp tie. When fewer than 12 roots have an available active member, all active
+members must still be tested to preserve the existing unavailable-last fallback. Shelf responses
+scan their visible memberships because they return every ordered book ID, but select only the
+cover-member scalar rather than each book's full manifest. Visibility remains enforced before any
+full row is returned.
+
+### Bounded static covers and raster delivery (2026-10-18)
+
+Book covers are disposable static JPEG renditions, at most 600 pixels on the longest edge and
+1 MiB. Exact file-identity keys include device, inode, size, nanosecond modification/change times,
+format, and archive member, then are hashed before disk storage. One background cover worker admits
+at most 32 identities and enters the two-slot native parser pool only after owning its cover lane,
+leaving one parser available for reader pages. Pending requests return `202` with `Retry-After`;
+the client keeps a placeholder and retries only while mounted. The private disk cache is bounded by
+256 MiB and 2,048 files. It is derived data and uses least-recently-used eviction.
+
+Raster delivery validates encoded structure without decoding pixels: canvas size is capped at
+40 million pixels, animation at 256 frames and 80 million aggregate canvas pixels, and GIF, APNG,
+and WebP frame extents must fit their canvas. Compressed PNG color/text metadata must be valid zlib
+and expands to at most 1 MiB in total. Animated covers become a JPEG of their first frame; reader
+resources retain a bounded animation. The shared parser uses only the Python standard library so
+short-lived PDF/CBR workers do not load the database or title-metadata service graph.

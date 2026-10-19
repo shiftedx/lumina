@@ -29,7 +29,6 @@ import { onCommand, openMemberPicker, PALETTE_EVENT, type PaletteMode, type Pale
 import type { PaletteContext } from './features/palette/actions';
 import { EmptyState, Skeleton, useToast } from './ui';
 import { usePolledSnapshot } from './app/usePolledSnapshot';
-import { HomeSurface } from './features/home/HomeSurface';
 import { forgetHomeCache } from './features/home/homeCache';
 import { normalizeHomeShelves, type HomeShelfPref } from './features/home/homeShelves';
 import { DownloadsSurface, LiveRecordingActivity } from './features/downloads/DownloadsSurface';
@@ -96,8 +95,11 @@ function preloadableSurface<P extends object>(load: () => Promise<ComponentType<
   return Object.assign(Surface, { preload: () => { void preload().catch(() => undefined); } });
 }
 const WatchSurface = preloadableSurface(() => import('./features/watch/WatchSurface').then((module) => module.WatchSurface));
+const HomeSurface = preloadableSurface(() => import('./features/home/HomeSurface').then((module) => module.HomeSurface));
 // A watch link opened cold loads its chunk beside the sign-in requests, so the route renders without a Suspense fallback.
 if (typeof window !== 'undefined' && window.location.pathname.startsWith('/watch')) WatchSurface.preload();
+// Home remains the common landing route; preloading it preserves that path while other direct routes avoid its gallery code.
+if (typeof window !== 'undefined' && window.location.pathname === '/') HomeSurface.preload();
 const SettingsSurface = preloadableSurface(() => import('./features/settings/SettingsSurface').then((module) => module.SettingsSurface));
 const WelcomeSurface = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.WelcomeSurface })));
 const OnboardingSurface = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.OnboardingSurface })));
@@ -105,6 +107,12 @@ const ChannelDiscoveryStep = lazy(() => import('./features/onboarding/Onboarding
 const VaultSetup = lazy(() => import('./features/onboarding/VaultSetup').then((module) => ({ default: module.VaultSetup })));
 const TitleEditorPage = preloadableSurface(() => import('./features/titles/editor/EditorPage').then((module) => module.EditorPage));
 const BooksSurface = preloadableSurface(() => import('./features/books/BooksSurface').then((module) => module.BooksSurface));
+// A cold Books link overlaps its route chunks with sign-in and workspace loading. Direct reader links start the
+// nested reader chunk beside BooksSurface instead of discovering it only after the surface renders.
+if (typeof window !== 'undefined' && window.location.pathname.startsWith('/books')) {
+  BooksSurface.preload();
+  if (window.location.pathname.startsWith('/books/read/')) void import('./features/books/BookReader').catch(() => undefined);
+}
 const RequestsSurface = preloadableSurface(() => import('./features/requests/RequestsSurface').then((module) => module.RequestsSurface));
 const TitleDetailPage = preloadableSurface(() => import('./features/gallery/GalleryTitlePage').then((module) => module.GalleryTitlePage));
 const AudioSurface = preloadableSurface(() => import('./features/music/AudioSurface').then((module) => module.AudioSurface));
@@ -122,7 +130,8 @@ export function useShellErrorToast(error: string | null, clear?: () => void, ide
   }, [error, identity, toast]);
 }
 
-export function preloadLikelySurfaces(): void {
+export function preloadLikelySurfaces(pathname = window.location.pathname): void {
+  if (pathname.startsWith('/books')) return;
   WatchSurface.preload();
   SettingsSurface.preload();
   TitleDetailPage.preload();
@@ -230,6 +239,9 @@ export default function LuminaApp() {
   const signedInRole = state.currentUser?.role;
   useEffect(() => {
     if (!signedInRole) return undefined;
+    // A direct reader already overlaps its own route chunks with session startup. Keep unrelated
+    // surfaces off that critical network path; their first deliberate navigation still imports them.
+    if (window.location.pathname.startsWith('/books')) return undefined;
     // After the landing surface settles, fetch the next likely surfaces so opening them never waits on a chunk.
     // The Watch chunk goes at once: a Play inside the first second or two used to wait on it and then on React's ~300 ms fallback hold.
     WatchSurface.preload();
@@ -400,7 +412,7 @@ export default function LuminaApp() {
   useEffect(() => onCommand<PaletteRequest | undefined>(PALETTE_EVENT, (request) => openPaletteMode(request?.mode ?? 'search')), [openPaletteMode]);
   // Prefetch the palette chunk once the member is in.
   useEffect(() => {
-    if (!state.currentUser) return undefined;
+    if (!state.currentUser || window.location.pathname.startsWith('/books')) return undefined;
     const idle = window.requestIdleCallback ?? ((callback: () => void) => window.setTimeout(callback, 1));
     const handle = idle(() => CommandPalette.preload());
     return () => (window.cancelIdleCallback ?? window.clearTimeout)(handle as number);

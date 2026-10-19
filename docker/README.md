@@ -8,6 +8,19 @@ Books imports accept EPUB and PDF ebooks and CBZ and CBR comics, up to 256 MiB p
 Imports create private managed copies under `app-data/books/`; back up that directory as well as the database.
 PDF uses raster page navigation rather than reflowable text. CBR reads RAR members without extraction.
 Encrypted files, linked archive members, oversized archives, and files exceeding native parser limits are rejected.
+The in-process encoded-response cache retains at most 64 MiB / 128 page entries; concurrent
+requests for the same file version and image share work. At most four uncached image reads and two native
+parsers run concurrently. In-flight response bodies and native worker memory are outside the cache cap.
+The cache is ephemeral and checks file identity on every read; restarting clears it. The first CBR
+read after restart validates the whole archive, and solid RAR files may still require decoding
+earlier members to reach a later page. Authorization is checked before cached delivery; browser
+responses remain private and are not stored.
+Static book covers are prepared once at up to 600 pixels / 1 MiB and kept under
+`app-data/book-cache/covers/`. One cover worker queues at most 32 distinct covers, so a cold
+grid cannot occupy both native parser slots. While a cover is pending the API returns `202` and the
+web app shows a placeholder and retries; the server never substitutes the full original. The cache
+is capped at 256 MiB / 2,048 files with oldest-use eviction. It is safe to delete while Lumina is
+stopped; missing covers are prepared again on demand.
 The Docker image includes PyMuPDF and libarchive. Source installs need the libarchive shared library
 (`brew install libarchive` on macOS, `apt-get install libarchive13t64` on Debian trixie).
 Rollback to an older image preserves files and database rows but cannot read PDF/CBR entries; retain the updated image
@@ -223,6 +236,7 @@ Email artwork uses versioned public assets from the configured public address. K
 - **Music:** bind-mount the music folder read-only under a mount parent (`- /srv/music:/media/music:ro`), register it as an **external** root and import it (shared with the household). Lumina reads the `Artist/Album/01 Track.flac` layout, with disc folders such as `CD1`; embedded tags win over folder names, a `cover.jpg` or `folder.jpg` in the album folder wins over embedded art, and a compilation is one "Various Artists" album. Tags are read once per file and again only when the file changes. `theme.mp3` files and `theme-music` folders stay out of the Library. The first import reads every track's tags and art and does not pause for video transcodes, so run it off-hours on a large library over a network share. If a compose override replaces `volumes:` with `!override`, add this mount (and the cast photos mount below) there.
 - Deleting a Library file moves managed media to `.lumina-quarantine/` on its root; it is purged after `LUMINA_QUARANTINE_RETENTION_HOURS` (168). External files are never touched.
 - `app-data/artwork-cache/` and `app-data/stream-cache/` are disposable, bounded caches (20 GiB global stream-cache ceiling by default).
+- `app-data/book-cache/covers/` is the disposable book-cover cache described under **Books formats**. Delete it only while Lumina is stopped; it is rebuilt lazily.
 - `app-data/metadata-art/` keeps TMDB posters, backdrops and photos once fetched. Past 4 GiB, Lumina deletes the oldest images no title or person uses any more, about once an hour; images in use are always kept, and a deleted one is fetched again when next asked for. Animated WebP uploads are refused ("Animated images are not supported"): upload a still JPEG, PNG or WebP.
 - `app-data/artwork-cache/renditions/` holds artwork renditions: small copies of posters, backdrops, logos and episode stills. Lumina prepares them in the background with one low-priority ffmpeg at a time, and pauses while any video is being converted. The web app and Jellyfin apps load them instead of the originals. The folder is capped at 5 GiB, with the least recently used copies removed first; a removed copy is prepared again in the background. It is safe to delete, and missing copies are made again on demand. Progress shows under **Settings → Library & storage → Artwork preparation**. `app-data/art-secret` signs the artwork URLs. To rotate it, delete the file **and** restart the container (the running app keeps the key in memory); this only changes every artwork URL. Set `LUMINA_ARTWORK_PASS=off` to stop the background pass entirely (renditions are still made on demand).
 - YouTube channel pages are cached in memory only (at most 256 headers, 256 tab pages and 512 resolved handle addresses); a restart empties the cache and needs no volume or setting.

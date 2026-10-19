@@ -72,7 +72,8 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   const isShelfList = route.view === 'shelves' && (Boolean(route.shelfId) || Boolean(route.status));
   const listActive = route.view === 'ebooks' || route.view === 'discover' || isShelfList;
   const query: BooksQuery = filters ? { q: filters.q, sort: filters.sort ?? (route.view === 'shelves' && route.shelfId ? 'custom' : undefined), status: route.view === 'discover' ? filters.status ?? 'unread' : filters.status, ...(route.view === 'ebooks' ? { kind: 'ebook' } : {}), ...(route.view === 'shelves' ? { shelf_id: route.shelfId, ...(shelfFormat === 'all' ? {} : { kind: shelfFormat }) } : {}), limit: 48 } : {};
-  const overview = useFetched(route.view === 'read' ? null : `${user.id}:books-overview`, getBooksOverview, revision);
+  const overviewActive = route.view === 'overview' || route.view === 'shelves' || shelfIds !== null;
+  const overview = useFetched(overviewActive ? `${user.id}:books-overview` : null, getBooksOverview, revision);
   const books = useFetched(listActive ? `${user.id}:${routeKey}:${shelfFormat}` : null, () => listBooks(query), revision);
   const series = useFetched(route.view === 'manga' ? `${user.id}:${routeKey}:series` : null, () => listBookSeries({ q: filters?.q, sort: filters?.sort, status: filters?.status, limit: 48 }), revision);
   const detail = useFetched(route.view === 'title' ? `${user.id}:book:${route.bookId}` : null, () => getBook(route.view === 'title' ? route.bookId : ''), revision);

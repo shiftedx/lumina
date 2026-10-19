@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.book_models import BookItem, BookShelf, BookShelfMembership, BookState
@@ -265,15 +265,29 @@ class BookService:
         chapters, pages = BookService._counts(book)
         return chapters if book.format == "epub" else pages
 
-    def _logical_info(self, root: BookItem, user: User, *, members: list[BookItem] | None = None, states: dict[str, BookState] | None = None) -> dict[str, Any]:
-        members = members if members is not None else self._bundle_members(root)
-        states = states if states is not None else self._states_for_members(user, members)
+    @staticmethod
+    def _state_flags(members: list[BookItem], states: dict[str, BookState]) -> dict[str, Any]:
         state_rows = [(member, states[member.id]) for member in members if member.id in states]
         checkpoints = [(member, state) for member, state in state_rows if state.last_read_at is not None]
         active = [(member, state) for member, state in checkpoints if not state.completed]
+        return {
+            "states": state_rows,
+            "checkpoints": checkpoints,
+            "active": active,
+            "completed": bool(not active and any(state.completed for _member, state in state_rows)),
+            "favorite": any(state.favorite for _member, state in state_rows),
+            "reading_list": any(state.reading_list for _member, state in state_rows),
+            "has_checkpoint": bool(checkpoints),
+            "reading": bool(active),
+        }
+
+    def _logical_info(self, root: BookItem, user: User, *, members: list[BookItem] | None = None, states: dict[str, BookState] | None = None) -> dict[str, Any]:
+        members = members if members is not None else self._bundle_members(root)
+        states = states if states is not None else self._states_for_members(user, members)
+        flags = self._state_flags(members, states)
         available_members = [member for member in members if member.available and self._available(member)]
         available_ids = {member.id for member in available_members}
-        selectable = [(member, state) for member, state in (active or checkpoints) if member.id in available_ids]
+        selectable = [(member, state) for member, state in (flags["active"] or flags["checkpoints"]) if member.id in available_ids]
         selected_book: BookItem | None = None
         selected_state: BookState | None = None
         if selectable:
@@ -285,15 +299,10 @@ class BookService:
         if reading_book is None:
             reading_book = next((member for member in eligible if member.id == root.id), None) or (eligible[0] if eligible else root)
         return {
-            "states": state_rows,
+            **flags,
             "selected_book": selected_book,
             "selected_state": selected_state,
             "reading_file_id": reading_book.id,
-            "completed": bool(not active and any(state.completed for _member, state in state_rows)),
-            "favorite": any(state.favorite for _member, state in state_rows),
-            "reading_list": any(state.reading_list for _member, state in state_rows),
-            "has_checkpoint": bool(checkpoints),
-            "reading": bool(active),
         }
 
     def _filename(self, book: BookItem) -> str:
@@ -369,6 +378,39 @@ class BookService:
         return [self.serialize(book, user, members=members[self._canonical(book).id], states=states,
                                shelf_ids=shelves.get(self._canonical(book).id, [])) for book in books]
 
+    def _state_summaries(self, user: User) -> dict[str, dict[str, bool]]:
+        root_id = func.coalesce(BookItem.bundle_parent_id, BookItem.id)
+        rows = self.db.execute(select(
+            root_id.label("root_id"),
+            func.max(case((BookState.last_read_at.is_not(None), 1), else_=0)).label("has_checkpoint"),
+            func.max(case((and_(BookState.last_read_at.is_not(None), BookState.completed.is_(False)), 1), else_=0)).label("reading"),
+            func.max(case((BookState.completed.is_(True), 1), else_=0)).label("any_completed"),
+            func.max(case((BookState.favorite.is_(True), 1), else_=0)).label("favorite"),
+            func.max(case((BookState.reading_list.is_(True), 1), else_=0)).label("reading_list"),
+        ).join(BookState, and_(BookState.book_id == BookItem.id, BookState.user_id == user.id)).where(
+            BookItem.deleted_at.is_(None)
+        ).group_by(root_id))
+        return {row.root_id: self._summary_flags(row) for row in rows}
+
+    @staticmethod
+    def _summary_flags(row) -> dict[str, bool]:  # noqa: ANN001
+        reading = bool(row and row.reading)
+        return {
+            "completed": bool(row and row.any_completed) and not reading,
+            "favorite": bool(row and row.favorite),
+            "reading_list": bool(row and row.reading_list),
+            "has_checkpoint": bool(row and row.has_checkpoint),
+            "reading": reading,
+        }
+
+    def _books_by_id(self, user: User, book_ids: list[str]) -> list[BookItem]:
+        if not book_ids:
+            return []
+        books = {book.id: book for book in self.db.scalars(
+            select(BookItem).where(BookItem.id.in_(book_ids), self.catalog_predicate(user))
+        )}
+        return [books[book_id] for book_id in book_ids if book_id in books]
+
     def _catalog_roots(self, user: User) -> list[BookItem]:
         return list(self.db.scalars(select(BookItem).where(self.catalog_predicate(user))))
 
@@ -386,29 +428,53 @@ class BookService:
         return members_by_root, self.state_for(user, [member.id for member in rows])
 
     def list_books(self, user: User, *, kind: str | None, q: str | None, sort: str, status: str, shelf_id: str | None, offset: int, limit: int) -> tuple[list[BookItem], int, str | None]:
-        roots = self._catalog_roots(user)
-        if kind in {"ebook", "manga"}:
-            roots = [root for root in roots if root.kind == kind]
-        if q:
-            needle = _normalized(q[:200])
-            roots = [root for root in roots if any(needle in _normalized(value) for value in (root.title, root.author, root.series_name))]
         shelf_positions: dict[str, int] = {}
         if shelf_id:
             shelf = self.db.get(BookShelf, shelf_id)
             if shelf is None or (shelf.owner_user_id != user.id and shelf.visibility != "shared"):
                 return [], 0, None
-            entries = list(self.db.scalars(select(BookShelfMembership).where(BookShelfMembership.shelf_id == shelf_id).order_by(BookShelfMembership.position, BookShelfMembership.id)))
-            for entry in entries:
-                asset = self.db.get(BookItem, entry.book_id)
-                if asset is None:
-                    continue
-                root_id = self._canonical(asset).id
-                shelf_positions.setdefault(root_id, entry.position)
-            roots = [root for root in roots if root.id in shelf_positions]
-        members_by_root, states = self._state_map_for_roots(user, roots)
-        filtered: list[BookItem] = []
-        for root in roots:
-            info = self._logical_info(root, user, members=members_by_root[root.id], states=states)
+            entries = self.db.execute(
+                select(BookShelfMembership.position, BookItem.id, BookItem.bundle_parent_id)
+                .join(BookItem, BookItem.id == BookShelfMembership.book_id)
+                .where(BookShelfMembership.shelf_id == shelf_id)
+                .order_by(BookShelfMembership.position, BookShelfMembership.id)
+            )
+            for position, asset_id, parent_id in entries:
+                shelf_positions.setdefault(parent_id or asset_id, position)
+
+        predicate = [self.catalog_predicate(user)]
+        if kind in {"ebook", "manga"}:
+            predicate.append(BookItem.kind == kind)
+        if shelf_id:
+            if not shelf_positions:
+                return [], 0, None
+            predicate.append(BookItem.id.in_(shelf_positions))
+
+        if not q and status == "all" and (sort == "added" or (sort == "custom" and not shelf_id)):
+            total = int(self.db.scalar(select(func.count()).select_from(BookItem).where(*predicate)) or 0)
+            page = list(self.db.scalars(
+                select(BookItem).where(*predicate)
+                .order_by(BookItem.created_at.desc(), BookItem.id).offset(offset).limit(limit)
+            ))
+            return page, total, str(offset + limit) if offset + limit < total else None
+
+        columns = (BookItem.id, BookItem.title, BookItem.author, BookItem.series_name, BookItem.created_at)
+        if status == "all":
+            statement = select(*columns).where(*predicate)
+            summaries = {}
+        else:
+            summaries = self._state_summaries(user)
+            statement = select(*columns).where(*predicate)
+        rows = list(self.db.execute(statement))
+        if q:
+            needle = _normalized(q[:200])
+            rows = [row for row in rows if any(needle in _normalized(value) for value in (row.title, row.author, row.series_name))]
+        filtered = []
+        for row in rows:
+            if status == "all":
+                filtered.append(row)
+                continue
+            info = summaries.get(row.id, self._summary_flags(None))
             matches = {
                 "unread": not info["completed"] and not info["has_checkpoint"],
                 "reading": info["reading"],
@@ -416,19 +482,20 @@ class BookService:
                 "favorites": info["favorite"],
                 "reading_list": info["reading_list"],
             }
-            if status == "all" or matches.get(status, False):
-                filtered.append(root)
+            if matches.get(status, False):
+                filtered.append(row)
         if sort == "custom" and shelf_id:
-            filtered.sort(key=lambda root: (shelf_positions.get(root.id, MAX_SHELF_ENTRIES + 1), root.id))
+            filtered.sort(key=lambda row: (shelf_positions.get(row.id, MAX_SHELF_ENTRIES + 1), row.id))
         elif sort == "title":
-            filtered.sort(key=lambda root: (_normalized(root.title), root.id))
+            filtered.sort(key=lambda row: (_normalized(row.title), row.id))
         elif sort == "author":
-            filtered.sort(key=lambda root: (_normalized(root.author), _normalized(root.title), root.id))
+            filtered.sort(key=lambda row: (_normalized(row.author), _normalized(row.title), row.id))
         else:
-            filtered.sort(key=lambda root: (-(root.created_at or datetime.min).timestamp(), root.id))
+            filtered.sort(key=lambda row: (-(row.created_at or datetime.min).timestamp(), row.id))
         total = len(filtered)
         page = filtered[offset:offset + limit + 1]
-        return page[:limit], total, str(offset + limit) if len(page) > limit else None
+        books = self._books_by_id(user, [row.id for row in page[:limit]])
+        return books, total, str(offset + limit) if len(page) > limit else None
 
     def _new_state(self, user: User, book_id: str) -> BookState:
         state = BookState(id=str(uuid.uuid4()), user_id=user.id, book_id=book_id, unit_index=0, offset=0, completed=False, favorite=False, reading_list=False)
@@ -524,6 +591,15 @@ class BookService:
             raise BookNotFound("Resource not found")
         from app.services.book_archives import read_resource
         return read_resource(stored_path(book.storage_key), member)
+
+    def cover(self, book: BookItem) -> tuple[bytes, str]:
+        member = (book.manifest or {}).get("cover_member")
+        if not isinstance(member, str) or len(member) > 1024:
+            raise BookNotFound("Cover not found")
+        from app.services.book_covers import read_cover
+        from app.services.media_probe import media_tool
+
+        return read_cover(stored_path(book.storage_key), book.format, member, media_tool(self.db, "ffmpeg"))
 
     def _auto_names(self, root: BookItem) -> set[str]:
         return {_normalized(_filename_stem(member.filename)) for member in self._bundle_members(root) if member.filename}
@@ -726,13 +802,26 @@ class BookService:
 
     def shelves(self, user: User) -> list[dict[str, Any]]:
         shelves = list(self.db.scalars(select(BookShelf).where(or_(BookShelf.owner_user_id == user.id, BookShelf.visibility == "shared")).order_by(BookShelf.created_at, BookShelf.id)))
+        entries_by_shelf: dict[str, list[Any]] = {shelf.id: [] for shelf in shelves}
+        if shelves:
+            rows = self.db.execute(
+                select(
+                    BookShelfMembership.shelf_id, BookShelfMembership.book_id,
+                    func.json_extract(BookItem.manifest, "$.cover_member").label("cover_member"),
+                )
+                .join(BookItem, BookItem.id == BookShelfMembership.book_id)
+                .join(BookShelf, BookShelf.id == BookShelfMembership.shelf_id)
+                .where(or_(BookShelf.owner_user_id == user.id, BookShelf.visibility == "shared"), self.catalog_predicate(user))
+                .order_by(BookShelfMembership.shelf_id, BookShelfMembership.position, BookShelfMembership.id)
+            )
+            for row in rows:
+                entries_by_shelf[row.shelf_id].append(row)
         result = []
         for shelf in shelves:
-            entries = list(self.db.scalars(select(BookShelfMembership).join(BookItem, BookItem.id == BookShelfMembership.book_id).where(BookShelfMembership.shelf_id == shelf.id, self.catalog_predicate(user)).order_by(BookShelfMembership.position, BookShelfMembership.id)))
+            entries = entries_by_shelf[shelf.id]
             if shelf.owner_user_id != user.id and not entries:
                 continue
-            books = {book.id: book for book in self.db.scalars(select(BookItem).where(BookItem.id.in_([entry.book_id for entry in entries])))} if entries else {}
-            result.append({"id": shelf.id, "name": shelf.name, "description": shelf.description or "", "visibility": shelf.visibility, "can_edit": shelf.owner_user_id == user.id, "book_ids": [entry.book_id for entry in entries], "count": len(entries), "covers": [f"/api/books/{entry.book_id}/cover" for entry in entries if (books.get(entry.book_id).manifest or {}).get("cover_member")][:4]})
+            result.append({"id": shelf.id, "name": shelf.name, "description": shelf.description or "", "visibility": shelf.visibility, "can_edit": shelf.owner_user_id == user.id, "book_ids": [entry.book_id for entry in entries], "count": len(entries), "covers": [f"/api/books/{entry.book_id}/cover" for entry in entries if entry.cover_member][:4]})
         return result
 
     def create_shelf(self, user: User, values: dict[str, Any]) -> BookShelf:
@@ -785,8 +874,18 @@ class BookService:
             raise BookNotFound("Shelf not found")
         return shelf
 
-    def series(self, user: User, query: str | None = None, status: str = "all") -> list[dict[str, Any]]:
-        books = list(self.db.scalars(select(BookItem).where(self.catalog_predicate(user), BookItem.kind == "manga").order_by(BookItem.series_name.collate("NOCASE"), BookItem.volume_number.nulls_last(), BookItem.title, BookItem.id)))
+    def series(self, user: User, query: str | None = None, status: str = "all", *, series_id: str | None = None, series_ids: list[str] | None = None) -> list[dict[str, Any]]:
+        if series_ids == []:
+            return []
+        statement = select(BookItem).where(self.catalog_predicate(user), BookItem.kind == "manga")
+        if series_id is not None:
+            statement = statement.where(BookItem.series_id == series_id)
+        elif series_ids is not None:
+            statement = statement.where(BookItem.series_id.in_(series_ids))
+        books = list(self.db.scalars(statement.order_by(BookItem.series_name.collate("NOCASE"), BookItem.volume_number.nulls_last(), BookItem.title, BookItem.id)))
+        return self._series_summaries(user, books, query, status)
+
+    def _series_summaries(self, user: User, books: list[BookItem], query: str | None, status: str) -> list[dict[str, Any]]:
         groups: dict[str, list[BookItem]] = {}
         for book in books:
             if book.series_id:
@@ -798,7 +897,7 @@ class BookService:
                 needle = _normalized(query)
                 if not any(needle in _normalized(field) for book in entries for field in (book.title, book.author, book.series_name)):
                     continue
-            info_by_id = {book.id: self._logical_info(book, user, members=members_by_root[book.id], states=states) for book in entries}
+            info_by_id = {book.id: self._state_flags(members_by_root[book.id], states) for book in entries}
             read = sum(bool(info_by_id[book.id]["completed"]) for book in entries)
             unread = all(not info_by_id[book.id]["completed"] and not info_by_id[book.id]["has_checkpoint"] for book in entries)
             reading = any(info_by_id[book.id]["reading"] for book in entries)
@@ -821,23 +920,140 @@ class BookService:
             result.append({"id": sid, "title": first.series_name or first.title, "author": first.author or "", "description": clean_synopsis(first.description) or "", "cover_url": f"/api/books/{first.id}/cover" if (first.manifest or {}).get("cover_member") else None, "volume_count": len(entries), "read_volume_count": read, "next_book_id": next_book, "created_at": max(book.created_at for book in entries)})
         return result
 
+    def series_detail(self, user: User, series_id: str) -> tuple[dict[str, Any] | None, list[BookItem]]:
+        books = list(self.db.scalars(
+            select(BookItem).where(
+                BookItem.series_id == series_id, BookItem.kind == "manga", self.catalog_predicate(user),
+            ).order_by(BookItem.volume_number.nulls_last(), BookItem.title.collate("NOCASE"), BookItem.id)
+        ))
+        summaries = self._series_summaries(user, books, None, "all")
+        return (summaries[0] if summaries else None), books
+
+    def series_page(self, user: User, query: str | None, status: str, sort: str, offset: int, limit: int) -> tuple[list[dict[str, Any]], int, str | None]:
+        summaries = self._state_summaries(user)
+        rows = list(self.db.execute(
+            select(
+                BookItem.id, BookItem.title, BookItem.author, BookItem.series_id, BookItem.series_name,
+                BookItem.volume_number, BookItem.created_at,
+            )
+            .where(self.catalog_predicate(user), BookItem.kind == "manga")
+            .order_by(BookItem.series_name.collate("NOCASE"), BookItem.volume_number.nulls_last(), BookItem.title, BookItem.id)
+        ))
+        groups: dict[str, list[Any]] = {}
+        for row in rows:
+            if row.series_id:
+                groups.setdefault(row.series_id, []).append(row)
+
+        needle = _normalized(query) if query else None
+        metadata: list[dict[str, Any]] = []
+        for sid, entries in groups.items():
+            if needle and not any(needle in _normalized(field) for row in entries for field in (row.title, row.author, row.series_name)):
+                continue
+            flags = {row.id: summaries.get(row.id, self._summary_flags(None)) for row in entries}
+            read = sum(info["completed"] for info in flags.values())
+            matches = {
+                "read": read == len(entries),
+                "unread": all(not info["completed"] and not info["has_checkpoint"] for info in flags.values()),
+                "reading": any(info["reading"] for info in flags.values()),
+                "favorites": any(info["favorite"] for info in flags.values()),
+                "reading_list": any(info["reading_list"] for info in flags.values()),
+            }
+            if status != "all" and not matches.get(status, False):
+                continue
+            first = entries[0]
+            next_book = next((row.id for row in entries if flags[row.id]["reading"]), None)
+            if next_book is None:
+                next_book = next((row.id for row in entries if not flags[row.id]["completed"]), None)
+            metadata.append({
+                "id": sid, "title": first.series_name or first.title, "author": first.author or "",
+                "first_book_id": first.id, "volume_count": len(entries), "read_volume_count": read,
+                "next_book_id": next_book, "created_at": max(row.created_at for row in entries),
+            })
+        if sort == "title":
+            metadata.sort(key=lambda item: (item["title"].casefold(), item["id"]))
+        elif sort == "author":
+            metadata.sort(key=lambda item: (item["author"].casefold(), item["title"].casefold(), item["id"]))
+        else:
+            metadata.sort(key=lambda item: (-item["created_at"].timestamp(), item["id"]))
+        total = len(metadata)
+        page = metadata[offset:offset + limit + 1]
+        selected = page[:limit]
+        first_ids = [item["first_book_id"] for item in selected]
+        details = {row.id: row for row in self.db.execute(
+            select(
+                BookItem.id, BookItem.description,
+                func.json_extract(BookItem.manifest, "$.cover_member").label("cover_member"),
+            ).where(BookItem.id.in_(first_ids), self.catalog_predicate(user))
+        )} if first_ids else {}
+        items = []
+        for item in selected:
+            detail = details.get(item["first_book_id"])
+            if detail is None:
+                continue
+            items.append({
+                "id": item["id"], "title": item["title"], "author": item["author"],
+                "description": clean_synopsis(detail.description) or "",
+                "cover_url": f"/api/books/{detail.id}/cover" if detail.cover_member else None,
+                "volume_count": item["volume_count"], "read_volume_count": item["read_volume_count"],
+                "next_book_id": item["next_book_id"], "created_at": item["created_at"],
+            })
+        return items, total, str(offset + limit) if len(page) > limit else None
+
     def overview(self, user: User) -> dict[str, Any]:
-        books = self._catalog_roots(user)
-        members_by_root, states = self._state_map_for_roots(user, books)
-        info_by_id = {book.id: self._logical_info(book, user, members=members_by_root[book.id], states=states) for book in books}
-        ebooks = sum(book.kind == "ebook" for book in books)
-        volumes = sum(book.kind == "manga" for book in books)
-        manga_series = len({book.series_id for book in books if book.kind == "manga" and book.series_id is not None})
-        recent = sorted(books, key=lambda book: (-(book.created_at or datetime.min).timestamp(), book.id))[:12]
-        reading = [book for book in books if info_by_id[book.id]["reading"]]
-        reading.sort(key=lambda book: (-(info_by_id[book.id]["selected_state"].last_read_at or datetime.min).timestamp() if info_by_id[book.id]["selected_state"] else 0, book.id))
-        favorites = [book for book in books if info_by_id[book.id]["favorite"]]
-        favorite_authors = {_normalized(book.author) for book in favorites if _known_author(book.author)}
-        favorite_genres = {_normalized(genre) for book in favorites for genre in (book.genres or []) if isinstance(genre, str)}
-        candidates = [book for book in books if not info_by_id[book.id]["completed"] and not info_by_id[book.id]["has_checkpoint"]]
+        summaries = self._state_summaries(user)
+        rows = list(self.db.execute(
+            select(
+                BookItem.id, BookItem.kind, BookItem.series_id, BookItem.author, BookItem.genres,
+                BookItem.created_at,
+            ).where(self.catalog_predicate(user))
+        ))
+        flags = {row.id: summaries.get(row.id, self._summary_flags(None)) for row in rows}
+        ebooks = sum(row.kind == "ebook" for row in rows)
+        volumes = sum(row.kind == "manga" for row in rows)
+        manga_series = len({row.series_id for row in rows if row.kind == "manga" and row.series_id is not None})
+        recent_ids = [row.id for row in sorted(rows, key=lambda row: (-(row.created_at or datetime.min).timestamp(), row.id))[:12]]
+        favorite_rows = [row for row in rows if flags[row.id]["favorite"]]
+        favorite_authors = {_normalized(row.author) for row in favorite_rows if _known_author(row.author)}
+        favorite_genres = {_normalized(genre) for row in favorite_rows for genre in (row.genres or []) if isinstance(genre, str)}
+        candidates = [row for row in rows if not flags[row.id]["completed"] and not flags[row.id]["has_checkpoint"]]
 
-        def affinity(book: BookItem) -> int:
-            return int(bool(book.author and _normalized(book.author) in favorite_authors)) + int(any(isinstance(genre, str) and _normalized(genre) in favorite_genres for genre in (book.genres or [])))
+        def affinity(row) -> int:  # noqa: ANN001
+            return int(bool(row.author and _normalized(row.author) in favorite_authors)) + int(any(isinstance(genre, str) and _normalized(genre) in favorite_genres for genre in (row.genres or [])))
 
-        discover = sorted(candidates, key=lambda book: (-affinity(book), -(book.created_at or datetime.min).timestamp(), book.id))[:12]
-        return {"totals": {"ebooks": ebooks, "manga_series": manga_series, "volumes": volumes}, "continue_reading": self.serialize_many(reading[:12], user), "recently_added": self.serialize_many(recent, user), "shelves": self.shelves(user), "discover": self.serialize_many(discover, user)}
+        discover_ids = [row.id for row in sorted(candidates, key=lambda row: (-affinity(row), -(row.created_at or datetime.min).timestamp(), row.id))[:12]]
+        reading_ids = {row.id for row in rows if flags[row.id]["reading"]}
+        recency: dict[str, datetime] = {}
+        if reading_ids:
+            active = self.db.execute(
+                select(
+                    func.coalesce(BookItem.bundle_parent_id, BookItem.id).label("root_id"),
+                    BookItem.id, BookItem.storage_key, BookItem.available, BookItem.created_at,
+                    BookState.last_read_at,
+                )
+                .join(BookState, and_(BookState.book_id == BookItem.id, BookState.user_id == user.id))
+                .where(BookItem.deleted_at.is_(None), BookState.last_read_at.is_not(None), BookState.completed.is_(False))
+                .order_by(BookState.last_read_at.desc(), BookItem.created_at.desc(), BookItem.id.desc())
+            )
+            selected: dict[str, tuple[Any, ...]] = {}
+            cutoff: datetime | None = None
+            for row in active:
+                if cutoff is not None and row.last_read_at < cutoff:
+                    break
+                if row.root_id not in reading_ids or row.root_id in selected or not row.available or not self._available(row):
+                    continue
+                candidate = (row.last_read_at or datetime.min, row.created_at or datetime.min, row.id)
+                selected[row.root_id] = candidate
+                if len(selected) == 12 and candidate[0].timestamp() > 0:
+                    cutoff = candidate[0]
+            recency = {root_id: value[0] for root_id, value in selected.items()}
+        continue_ids = sorted(reading_ids, key=lambda book_id: (-recency[book_id].timestamp() if book_id in recency else 0, book_id))[:12]
+        selected_ids = list(dict.fromkeys([*continue_ids, *recent_ids, *discover_ids]))
+        selected_books = self._books_by_id(user, selected_ids)
+        payloads = {payload["id"]: payload for payload in self.serialize_many(selected_books, user)}
+        return {
+            "totals": {"ebooks": ebooks, "manga_series": manga_series, "volumes": volumes},
+            "continue_reading": [payloads[book_id] for book_id in continue_ids if book_id in payloads],
+            "recently_added": [payloads[book_id] for book_id in recent_ids if book_id in payloads],
+            "shelves": self.shelves(user),
+            "discover": [payloads[book_id] for book_id in discover_ids if book_id in payloads],
+        }

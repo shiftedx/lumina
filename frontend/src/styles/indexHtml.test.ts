@@ -4,12 +4,26 @@ import { describe, expect, it } from 'vitest';
 
 const html = readFileSync('index.html', 'utf8');
 const favicon = readFileSync('public/favicon.svg', 'utf8');
+const base = readFileSync('src/styles/base.css', 'utf8');
 
 describe('index.html and the brand assets', () => {
-  it('preloads both Newsreader faces', () => {
-    for (const face of ['Newsreader-variable.woff2', 'Newsreader-Italic-variable.woff2']) {
-      expect(html).toContain(`<link rel="preload" href="/fonts/${face}" as="font" type="font/woff2" crossorigin />`);
+  it('loads common Newsreader glyphs from smaller split files without forcing fonts ahead of the app', () => {
+    const faces = ['Newsreader-variable.woff2', 'Newsreader-Italic-variable.woff2', 'Newsreader-Latin-variable.woff2', 'Newsreader-Italic-Latin-variable.woff2'];
+    for (const face of faces) {
+      expect(html).not.toContain(`href="/fonts/${face}"`);
+      expect(base).toContain(`url('/fonts/${face}')`);
     }
+    expect(readFileSync('public/fonts/Newsreader-Latin-variable.woff2').length).toBeLessThan(readFileSync('public/fonts/Newsreader-variable.woff2').length);
+    expect(readFileSync('public/fonts/Newsreader-Italic-Latin-variable.woff2').length).toBeLessThan(readFileSync('public/fonts/Newsreader-Italic-variable.woff2').length);
+    expect(readFileSync('public/fonts/OFL.txt', 'utf8')).toContain('Copyright 2020 The Newsreader Project Authors');
+    expect(base.match(/font-display: swap/g)).toHaveLength(4);
+    expect(base.match(/unicode-range: U\+0000-00FF, U\+2000-206F, U\+20AC, U\+2122/g)).toHaveLength(2);
+    for (const character of '“Hello”—she said… €™') {
+      const point = character.codePointAt(0)!;
+      expect(point <= 0xff || (point >= 0x2000 && point <= 0x206f) || point === 0x20ac || point === 0x2122).toBe(true);
+    }
+    expect(base).not.toContain('U+0100-10FFFF');
+    expect(base).toContain("font-family: 'Newsreader Fallback'");
   });
   it('declares a paper theme-color per scheme and busts the favicon cache', () => {
     expect(html).toContain('<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f1ea" />');

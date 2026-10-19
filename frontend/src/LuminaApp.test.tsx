@@ -41,6 +41,12 @@ vi.mock('./features/gallery/GalleryTitlePage', async (importOriginal) => {
 const noop = vi.fn();
 
 describe('surface preload', () => {
+  it('keeps unrelated surface chunks off a direct Books startup', async () => {
+    preloadLikelySurfaces('/books/read/book-1');
+    await Promise.resolve();
+    expect(chunks.titlePage).not.toHaveBeenCalled();
+  });
+
   it('fetches the title page chunk at idle with Watch and Settings, so the first poster click never shows the fallback', async () => {
     expect(chunks.titlePage).not.toHaveBeenCalled();
     preloadLikelySurfaces();

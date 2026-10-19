@@ -1,14 +1,33 @@
 import { BookOpen, Check, Ellipsis, Heart } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { IconButton, Menu, type MenuEntry } from '../../ui';
 import { bookCoverUrl } from './booksApi';
 import type { Book, BookSeries, BookShelf, BookStateUpdate } from './types';
 
+const COVER_RETRY_DELAYS_MS = [1_000, 1_500, 2_500, 4_000, 6_000, 8_000, 10_000];
+
 export function BookCover({ title, author = '', url, compact = false }: { title: string; author?: string; url: string | null; compact?: boolean }) {
-  const [failed, setFailed] = useState<string | null>(null);
   const source = bookCoverUrl(url);
-  return <span className={`books-cover${compact ? ' is-compact' : ''}`}>
-    {source && source !== failed ? <img alt="" decoding="async" loading="lazy" onError={() => setFailed(source)} src={source} /> : <span className="books-cover-fallback"><BookOpen aria-hidden="true" /><strong>{title}</strong>{author ? <span>{author}</span> : null}</span>}
+  const root = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined');
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setAttempt(0); setFailed(false); }, [source]);
+  useEffect(() => {
+    const element = root.current;
+    if (!source || !element || typeof IntersectionObserver === 'undefined') { setVisible(true); return undefined; }
+    const observer = new IntersectionObserver((entries) => setVisible(entries.some((entry) => entry.isIntersecting)), { rootMargin: '100px' });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [source]);
+  useEffect(() => {
+    if (!failed || !visible || attempt >= COVER_RETRY_DELAYS_MS.length) return undefined;
+    const timer = window.setTimeout(() => { setAttempt((value) => value + 1); setFailed(false); }, COVER_RETRY_DELAYS_MS[attempt]);
+    return () => window.clearTimeout(timer);
+  }, [attempt, failed, visible]);
+  const retrySource = source && attempt ? `${source}${source.includes('?') ? '&' : '?'}attempt=${attempt}` : source;
+  return <span className={`books-cover${compact ? ' is-compact' : ''}`} ref={root}>
+    {retrySource && visible && !failed ? <img alt="" decoding="async" fetchPriority="low" loading="lazy" onError={() => setFailed(true)} src={retrySource} /> : <span className="books-cover-fallback"><BookOpen aria-hidden="true" /><strong>{title}</strong>{author ? <span>{author}</span> : null}</span>}
   </span>;
 }
 

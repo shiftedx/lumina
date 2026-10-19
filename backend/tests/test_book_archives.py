@@ -1,15 +1,40 @@
 """Synthetic EPUB and CBZ coverage for the bounded archive reader."""
 from __future__ import annotations
 
+import base64
+import os
+import struct
 import zipfile
+import zlib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import BoundedSemaphore, Lock
+from time import sleep
 
 import pytest
 
 from app.services.book_archives import BookArchiveError, chapter_nodes, inspect_book, read_resource
 
 
-PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 20
+def _chunk(kind: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+
+def _png(width: int = 1, height: int = 1) -> bytes:
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+        + _chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00\x00"))
+        + _chunk(b"IEND", b"")
+    )
+
+
+def _gif(width: int, height: int, frames: int) -> bytes:
+    frame = b"\x2c" + b"\x00" * 4 + width.to_bytes(2, "little") + height.to_bytes(2, "little") + b"\x00\x02\x02L\x01\x00"
+    return b"GIF89a" + width.to_bytes(2, "little") + height.to_bytes(2, "little") + b"\x00\x00\x00" + frame * frames + b"\x3b"
+
+
+PNG = _png()
 
 
 def _zip(path: Path, members: dict[str, bytes], *, encrypted_flag: bool = False) -> Path:
@@ -66,6 +91,149 @@ def test_cbz_uses_natural_page_order_and_comicinfo(tmp_path: Path) -> None:
         "genres": ["Action", "Comedy"], "series_name": "Series", "volume_number": 4.0,
         "cover_member": "1.png", "chapters": [], "pages": ["1.png", "2.png", "10.png"], "reading_direction": "rtl",
     }
+
+
+def test_repeated_resource_reads_reuse_work_and_file_changes_invalidate_cache(tmp_path: Path, monkeypatch) -> None:
+    from app.services import book_archives
+
+    book = _zip(tmp_path / "manga.cbz", {"1.png": PNG})
+    real_zip = zipfile.ZipFile
+    opens = 0
+
+    def counting_zip(*args, **kwargs):
+        nonlocal opens
+        opens += 1
+        return real_zip(*args, **kwargs)
+
+    monkeypatch.setattr(book_archives.zipfile, "ZipFile", counting_zip)
+    original_mtime = book.stat().st_mtime_ns
+    assert read_resource(book, "1.png") == (PNG, "image/png")
+    assert read_resource(book, "1.png") == (PNG, "image/png")
+    assert opens == 1
+
+    changed = _png(2, 1)
+    with real_zip(book, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("1.png", changed)
+    os.utime(book, ns=(original_mtime, original_mtime))
+    assert read_resource(book, "1.png") == (changed, "image/png")
+    assert opens == 2
+
+    replacement = tmp_path / "replacement.cbz"
+    with real_zip(replacement, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("1.png", changed)
+        archive.writestr("2.png", changed)
+    replacement.replace(book)
+    assert read_resource(book, "1.png") == (changed, "image/png")
+    assert opens == 3
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _index: read_resource(book, "2.png"), range(4)))
+    assert results == [(changed, "image/png")] * 4
+    assert opens == 4
+
+
+@pytest.mark.parametrize(("byte_limit", "entry_limit"), [(len(PNG), 128), (64 * 1024 * 1024, 1)])
+def test_resource_cache_enforces_byte_and_entry_bounds(tmp_path: Path, monkeypatch, byte_limit: int, entry_limit: int) -> None:
+    from app.services import book_archives
+
+    first = _zip(tmp_path / "first.cbz", {"1.png": PNG})
+    second = _zip(tmp_path / "second.cbz", {"1.png": PNG})
+    real_zip = zipfile.ZipFile
+    opens = 0
+
+    def counting_zip(*args, **kwargs):
+        nonlocal opens
+        opens += 1
+        return real_zip(*args, **kwargs)
+
+    monkeypatch.setattr(book_archives, "RESOURCE_CACHE_BYTES", byte_limit)
+    monkeypatch.setattr(book_archives, "RESOURCE_CACHE_ENTRIES", entry_limit)
+    monkeypatch.setattr(book_archives.zipfile, "ZipFile", counting_zip)
+    assert read_resource(first, "1.png") == (PNG, "image/png")
+    assert read_resource(second, "1.png") == (PNG, "image/png")
+    assert read_resource(first, "1.png") == (PNG, "image/png")
+    assert opens == 3
+    assert book_archives._RESOURCE_CACHE_SIZE <= byte_limit
+    assert len(book_archives._RESOURCE_CACHE) <= entry_limit
+
+
+def test_uncached_resource_reads_have_bounded_concurrency(tmp_path: Path, monkeypatch) -> None:
+    from app.services import book_archives
+
+    book = _zip(tmp_path / "manga.cbz", {f"{index}.png": PNG for index in range(6)})
+    real_read = book_archives._read_resource
+    state_lock = Lock()
+    active = 0
+    peak = 0
+
+    def delayed_read(*args, **kwargs):
+        nonlocal active, peak
+        with state_lock:
+            active += 1
+            peak = max(peak, active)
+        sleep(0.02)
+        try:
+            return real_read(*args, **kwargs)
+        finally:
+            with state_lock:
+                active -= 1
+
+    monkeypatch.setattr(book_archives, "_RESOURCE_WORKERS", BoundedSemaphore(2))
+    monkeypatch.setattr(book_archives, "_read_resource", delayed_read)
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(lambda index: read_resource(book, f"{index}.png"), range(6)))
+    assert results == [(PNG, "image/png")] * 6
+    assert peak == 2
+
+
+def test_resource_delivery_rejects_oversized_canvases_and_animation_work(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    from app.services import raster_images
+
+    book = _zip(tmp_path / "unsafe.cbz", {
+        "huge.png": _png(10_000, 5_000),
+        "many.gif": _gif(1000, 1000, 3),
+    })
+    with pytest.raises(FileNotFoundError):
+        read_resource(book, "huge.png")
+
+    monkeypatch.setattr(raster_images, "MAX_FRAMES", 2)
+    with pytest.raises(FileNotFoundError):
+        read_resource(book, "many.gif")
+
+    monkeypatch.setattr(raster_images, "MAX_FRAMES", 256)
+    monkeypatch.setattr(raster_images, "MAX_TOTAL_PIXELS", 2_000_000)
+    with pytest.raises(FileNotFoundError):
+        read_resource(book, "many.gif")
+
+
+def test_bounded_animated_resource_remains_available(tmp_path: Path) -> None:
+    animated = _gif(100, 100, 2)
+    book = _zip(tmp_path / "animated.cbz", {"cover.gif": animated})
+    assert read_resource(book, "cover.gif") == (animated, "image/gif")
+
+
+def test_animation_frames_and_compressed_png_metadata_stay_within_canvas_budgets(tmp_path: Path) -> None:
+    bad_gif = _gif(1, 1, 1).replace(b"\x2c\x00\x00\x00\x00\x01\x00\x01\x00", b"\x2c\x00\x00\x00\x00\xe8\x03\xe8\x03")
+    png = _png(10, 10)
+    after_ihdr = 8 + 12 + 13
+    bad_apng = (
+        png[:after_ihdr]
+        + _chunk(b"acTL", struct.pack(">II", 1, 0))
+        + _chunk(b"fcTL", struct.pack(">IIIIIHHBB", 0, 1000, 1000, 0, 0, 1, 1, 0, 0))
+        + png[after_ihdr:]
+    )
+    metadata_bomb = png[:after_ihdr] + _chunk(b"zTXt", b"note\0\0" + zlib.compress(b"x" * (1024 * 1024 + 1))) + png[after_ihdr:]
+    bad_webp = bytearray(base64.b64decode(
+        "UklGRoQAAABXRUJQVlA4WAoAAAACAAAACAAADAAAQU5JTQYAAAD/////AABBTk1GKAAAAAAAAAAAAAgAAAwAAGQAAAJWUDhMDwAAAC8IAAMABxD1j/4HIqL/AQBBTk1GKAAAAAAAAAAAAAgAAAwAAGQAAABWUDhMDwAAAC8IAAMABxDR//4HIqL/AQA="
+    ))
+    frame = bad_webp.index(b"ANMF")
+    bad_webp[frame + 14:frame + 17] = (999).to_bytes(3, "little")
+    book = _zip(tmp_path / "bad-frames.cbz", {
+        "bad.gif": bad_gif, "bad.png": bad_apng, "metadata.png": metadata_bomb, "bad.webp": bytes(bad_webp),
+    })
+    for member in ("bad.gif", "bad.png", "metadata.png", "bad.webp"):
+        with pytest.raises(FileNotFoundError):
+            read_resource(book, member)
 
 
 def test_epub_description_cleans_escaped_html_and_keeps_long_paragraphs(tmp_path: Path) -> None:

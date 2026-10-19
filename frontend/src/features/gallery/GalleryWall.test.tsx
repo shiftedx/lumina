@@ -6,6 +6,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import * as api from '../../api';
 import * as perfMetrics from '../../perfMetrics';
 import { albumSummary, artistSummary, facets, movieSummary, seriesSummary, titlePage } from '../../test/galleryFixtures';
+import { chooseSelect } from '../../test/selectChoice';
 import type { LibraryItem, LocalSearchResponse, TitlePage } from '../../types';
 import { GalleryWall } from './GalleryWall';
 import { resetImageLoader } from './imageLoader';
@@ -350,7 +351,9 @@ describe('GalleryWall', () => {
     expect(container.querySelector('.g-poster-frame')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Quick filters' })).toBeNull();
     expect(screen.queryByRole('search')).toBeNull();
-    expect([...screen.getByRole('combobox', { name: 'Sort' }).querySelectorAll('option')].map((option) => option.textContent)).toEqual(['Recently added', 'Title A–Z', 'Year']);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Sort' }));
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['Recently added', 'Title A–Z', 'Year']);
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Sort' }), { key: 'Escape' });
     await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
     expect(facetsSpy).toHaveBeenCalledWith({ type: 'album' }, expect.anything());
     expect(screen.queryByRole('group', { name: 'Resolution' })).toBeNull();
@@ -365,12 +368,14 @@ describe('GalleryWall', () => {
     expect(list.mock.calls[0][0]).toMatchObject({ type: 'artist', sort: 'name' });
     expect(screen.queryByRole('button', { name: /^Filters/ })).toBeNull();
     const sort = screen.getByRole('combobox', { name: 'Sort' });
-    expect([...sort.querySelectorAll('option')].map((option) => option.textContent)).toEqual(['Title A–Z', 'Recently added']);
+    fireEvent.click(sort);
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['Title A–Z', 'Recently added']);
+    fireEvent.keyDown(sort, { key: 'Escape' });
     const card = await screen.findByRole('button', { name: 'Artist A, 4 albums' });
     card.focus();
     fireEvent.keyDown(card, { key: 'ArrowUp' });
     expect(document.activeElement).toBe(sort);
-    await userEvent.selectOptions(sort, 'created');
+    chooseSelect(sort, 'Recently added');
     expect(changes).toEqual(['sort=created']);
   });
 

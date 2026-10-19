@@ -1,3 +1,4 @@
+import { chooseSelect, selectLabels } from './test/selectChoice';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -116,11 +117,11 @@ describe('admin storage', () => {
     const browser = setup([rule('crafted', 10, { target_root_id: 'imports' })]);
     const first = await screen.findByRole('group', { name: 'Rule 1' });
     const target = within(first).getByLabelText('Save to');
-    expect(within(target).queryByRole('option', { name: 'Old rips' })).toBeNull();
+    expect(selectLabels(target)).not.toContain('Old rips');
     expect(within(first).getByRole('alert').textContent).toMatch(/Choose a managed root/);
-    expect(within(screen.getByLabelText('Default destination')).queryByRole('option', { name: 'Old rips' })).toBeNull();
+    expect(selectLabels(screen.getByLabelText('Default destination'))).not.toContain('Old rips');
 
-    await browser.selectOptions(target, 'fast');
+    chooseSelect(target, 'Fast SSD');
     api.saveStorageRules.mockRejectedValue(new api.ApiRequestError('Rules may only target registered managed roots.', 422));
     await browser.click(screen.getByRole('button', { name: 'Save rules' }));
     expect(await screen.findByText('Rules may only target registered managed roots.')).not.toBeNull();
@@ -158,7 +159,7 @@ describe('admin storage', () => {
     api.startImport.mockResolvedValue({ id: 'run-9' });
     await browser.type(await screen.findByLabelText('Container path'), '/media/films');
     await browser.type(screen.getByLabelText('Label'), 'Film drive');
-    await browser.selectOptions(screen.getByLabelText('Mode'), 'external');
+    chooseSelect(screen.getByLabelText('Mode'), 'External — read-only, for imports');
     await browser.click(screen.getByRole('button', { name: 'Add root' }));
     const step = await screen.findByRole('group', { name: /^Import Film drive now\?/ });
     const card = step.closest('tr') as HTMLElement;

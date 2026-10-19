@@ -27,7 +27,7 @@
 .collection-add { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .collection-titles { margin-top: 8px; }
 .collection-titles > summary { width: fit-content; }
-.collection-add select { min-width: 0; flex: 1; }
+.collection-add .g-select { min-width: 0; flex: 1; }
 .collection-detail { margin-top: 12px; }
 .collection-entry-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .collection-entry-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: var(--g-rule); }

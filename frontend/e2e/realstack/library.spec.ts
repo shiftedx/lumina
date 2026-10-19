@@ -1,3 +1,4 @@
+import { chooseSelect } from '../select-helper';
 /**
  * Library gallery on the real stack: the music root imports into four albums and
  * three album artists, an album shows its cover square and plays on to its next track, and the anime folders sort a
@@ -16,7 +17,7 @@ test('music imports into albums and artists, an album plays on, and the anime fo
     await page.goto('/admin/storage');
     await page.getByLabel('Container path').fill(MUSIC_ROOT);
     await page.getByLabel('Label').fill('Music');
-    await page.getByLabel('Mode').selectOption({ label: 'External — read-only, for imports' });
+    await chooseSelect(page, page.getByLabel('Mode'), 'External — read-only, for imports');
     await page.getByRole('button', { name: 'Add root' }).click();
     const root = page.getByRole('group', { name: /Import Music now/ });  // roots are table rows; the import step opens under the new row
     await expect(page.getByRole('row', { name: /^Music External/ })).toContainText('Available');

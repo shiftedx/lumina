@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Select } from './ui';
 import './libraryCuration.css';
 
 export type CurationVisibility = 'private' | 'shared';
@@ -60,15 +61,15 @@ export function LibraryCurationControls({
         </div>
         <label className="g-field settings-select">
           <span className="g-field-label">Who can see {item.title}</span>
-          <select
-            className="g-input"
+          <Select
+            aria-label={`Who can see ${item.title}`}
             disabled={!canManageItem || busy}
             onChange={(event) => { void onVisibilityChange(event.target.value as CurationVisibility).catch(() => undefined); }}
             value={item.visibility}
           >
             <option value="private">Private</option>
             <option value="shared">Shared with household</option>
-          </select>
+          </Select>
         </label>
       </header>
       {!canManageItem ? <p className="settings-note">Only {item.ownerDisplayName} can change who sees it.</p> : null}

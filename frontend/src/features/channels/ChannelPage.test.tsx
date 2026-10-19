@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiRequestError } from '../../api';
 import { stillItem } from '../../test/galleryFixtures';
 import { CHANNEL_ID, channelPage, libraryChannel, remoteEntry } from '../../test/remoteFixtures';
+import { chooseSelect } from '../../test/selectChoice';
 import type { SourceAutomation } from '../../types';
 import { ChannelPage, type ChannelPageProps } from './ChannelPage';
 import { rememberChannel } from './channelMention';
@@ -64,7 +65,7 @@ describe('the YouTube channel page', () => {
     api.getChannelPage.mockResolvedValue(channelPage({ entries: [remoteEntry('a', { view_count: 1 }), remoteEntry('b', { view_count: 9 })], has_more: false }));
     const { container } = page();
     await screen.findByRole('combobox', { name: 'Sort' });
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Sort' }), 'popular');
+    chooseSelect(screen.getByRole('combobox', { name: 'Sort' }), 'Popular');
     expect([...container.querySelectorAll('.g-channel-wall [data-remote-key]')].map((card) => card.getAttribute('data-remote-key'))).toEqual(['https://www.youtube.com/watch?v=b', 'https://www.youtube.com/watch?v=a']);
   });
 

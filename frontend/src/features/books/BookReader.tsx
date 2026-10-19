@@ -2,7 +2,7 @@ import { ArrowLeft, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, List, 
 import { createElement, type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 import { getSessionUserId, trackKeepalive } from '../../api';
-import { BrandMark, Button, ErrorState, IconButton, Skeleton } from '../../ui';
+import { BrandMark, Button, ErrorState, IconButton, Select, Skeleton } from '../../ui';
 import { bookCoverUrl, bookPageUrl, bookResourceUrl, getBookChapter, getBookReader, updateBookState } from './booksApi';
 import type { Book, BookNode, BookReaderManifest } from './types';
 
@@ -218,7 +218,7 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
       <BrandMark compact={false} size="bar" />
       <h1 className="books-reader-title" tabIndex={-1}><span>Books / </span>{book.title}</h1>
       <div className="books-reader-tools">
-        {onFileChange && book.files && book.files.length > 1 ? <label className="books-reader-format"><span className="sr-only">Read format</span><select aria-label="Read format" disabled={busy} onChange={(event) => { const id = event.target.value; if (id === book.id) return; void persist().then((saved) => { if (saved || !ready.current) { ready.current = false; onFileChange(id); } }); }} value={book.id}>{book.files.map((file) => <option disabled={!file.available} key={file.id} value={file.id}>{file.format.toUpperCase()} · {file.filename}</option>)}</select></label> : null}
+        {onFileChange && book.files && book.files.length > 1 ? <div className="books-reader-format"><span className="sr-only">Read format</span><Select aria-label="Read format" disabled={busy} onChange={(event) => { const id = event.target.value; if (id === book.id) return; void persist().then((saved) => { if (saved || !ready.current) { ready.current = false; onFileChange(id); } }); }} value={book.id}>{book.files.map((file) => <option disabled={!file.available} key={file.id} value={file.id}>{file.format.toUpperCase()} · {file.filename}</option>)}</Select></div> : null}
         <IconButton aria-controls="book-contents" aria-expanded={contentsOpen} icon={<List />} label={book.format === 'epub' ? 'Chapters' : 'Pages'} onClick={() => { setContentsOpen((value) => !value); setAppearanceOpen(false); }} />
         <IconButton aria-controls="book-appearance" aria-expanded={appearanceOpen} icon={<Settings2 />} label="Reading appearance" onClick={() => { setAppearanceOpen((value) => !value); if (window.innerWidth < 1000) setContentsOpen(false); }} />
         <IconButton aria-pressed={book.reading_list} icon={<Bookmark />} label={book.reading_list ? 'Remove from reading list' : 'Add to reading list'} onClick={() => { void updateBookState(bookId, { reading_list: !book.reading_list }).then((updated) => { setManifest((value) => value ? { ...value, book: { ...updated, progress: value.book.progress, reading_file_id: value.book.id } } : value); onBookChange(updated); }).catch((error: unknown) => setSaveError(error instanceof Error ? error.message : 'Your reading list could not be updated.')); }} />

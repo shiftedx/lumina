@@ -1,3 +1,4 @@
+import { chooseSelect } from '../select-helper';
 import path from 'node:path';
 import { test as base, expect, type Browser, type Page } from '@playwright/test';
 
@@ -32,7 +33,7 @@ export async function inviteMember(owner: Page, browser: Browser, username: stri
   const form = owner.getByRole('dialog', { name: 'Invite someone' });
   await form.getByLabel('Email').fill(`${username}@example.com`);
   await form.getByRole('checkbox', { name: 'All libraries' }).check();
-  await form.getByLabel('Limits').selectOption('none');
+  await chooseSelect(owner, form.getByLabel('Limits'), 'No limits');
   await form.getByRole('button', { name: 'Copy link instead' }).click();
   const link = await owner.getByRole('textbox', { name: 'Invite link' }).inputValue();
   expect(link).toMatch(/#invite=[\w-]+$/);

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { mockApi, signIn } from './lumina-mock';
+import { chooseSelect } from './select-helper';
 
 /**
  * A public YouTube source plays, seeks, resumes and switches quality in a real
@@ -98,10 +99,10 @@ test('test_youtube_playback_seek_resume_quality', async ({ page }) => {
   await video.evaluate((m: HTMLVideoElement) => { m.pause(); m.currentTime = 5; });
   await page.locator('[data-lumina-player="true"]').hover();
   const quality = page.getByLabel('Remote playback quality');
-  await expect(quality).toHaveValue('r720');
-  await quality.selectOption('r360');
+  await expect(quality).toHaveText('720p');
+  await chooseSelect(page, quality, '360p');
   expect(selections).toEqual(['r360']);
-  await expect(quality).toHaveValue('r360');
+  await expect(quality).toHaveText('360p');
   await expect.poll(() => video.evaluate((m: HTMLVideoElement) => m.videoHeight)).toBe(360);
   expect(await video.evaluate((m: HTMLVideoElement) => Math.round(m.currentTime))).toBe(5);
   await expect(page.locator('video, audio')).toHaveCount(1);

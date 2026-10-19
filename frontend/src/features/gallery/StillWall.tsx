@@ -12,7 +12,7 @@ import { recordMetric, sinceNavigation } from '../../perfMetrics';
 import type { LibraryItem } from '../../types';
 import { moveFocus } from '../media/focusNav';
 import { EmptyShelf } from '../media/MediaCards';
-import { useToast } from '../../ui';
+import { Select, useToast } from '../../ui';
 import { queueMedia } from '../watch/WatchQueue';
 import { chapterColumns, countLabel, gridGap, useElementWidth } from './allStore';
 import { StillCard, type StillKind } from './StillCard';
@@ -188,26 +188,26 @@ export function StillWall({ kind, shape, wall, onWallChange, lenses, header, vie
   }
 
   return (
-    <div className={`surface gallery g-still-wall is-${shape}`} onKeyDown={(event) => moveFocus(event, { targets: ':is(button, select):not(:disabled)', horizontalExit: 'select' })}>
+    <div className={`surface gallery g-still-wall is-${shape}`} onKeyDown={(event) => moveFocus(event, { targets: ':is(button, [role="combobox"]):not(:disabled)', horizontalExit: '[role="combobox"]' })}>
       {lenses}
       {header ?? (query.channel !== undefined ? (
         <header className="g-masthead"><h1>{query.channel || 'No channel'}</h1><button className="g-text-button" onClick={() => change({ ...query, channel: undefined })} type="button">Clear</button></header>
       ) : <header className="g-masthead"><h1>{HEADINGS[kind]}</h1><p className="g-label g-kicker">{kicker}</p></header>)}
       <div className="g-toolbar">
         {viewSwitch}
-        <label className="g-sort g-select">
+        <label className="g-sort">
           <span className="g-label">Sort</span>
-          <select onChange={(event) => change({ ...query, sort: event.target.value as StillQuery['sort'] })} value={query.sort}>
+          <Select aria-label="Sort" onChange={(event) => change({ ...query, sort: event.target.value as StillQuery['sort'] })} value={query.sort}>
             <option value="recent">Recently added</option>
             <option value="title">Title A–Z</option>
-          </select>
+          </Select>
         </label>
         {kind === 'video' ? (
-          <label className="g-sort g-select">
+          <label className="g-sort">
             <span className="g-label">Source</span>
-            <select onChange={(event) => change({ ...query, source: event.target.value as StillQuery['source'] })} value={query.source}>
+            <Select aria-label="Source" onChange={(event) => change({ ...query, source: event.target.value as StillQuery['source'] })} value={query.source}>
               {SOURCES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
+            </Select>
           </label>
         ) : null}
       </div>

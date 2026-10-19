@@ -18,6 +18,7 @@ import { type AudioGraph, audioGraphFor } from './features/watch/audioGraph';
 import type { MuteRange } from './types';
 import { captionStyle, DEFAULT_CAPTIONS, type CaptionPrefs } from './features/watch/captionPrefs';
 import { pauseMediaForUser, playMediaForUser, registerMediaPlayIntent } from './playIntent';
+import { Select } from './ui';
 import './features/watch/player.css';
 
 export type LuminaPlayerState = 'loading' | 'ready' | 'unsupported' | 'failed';
@@ -125,7 +126,7 @@ export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 /** Text-entry targets keep every key; sliders and buttons keep only the keys they natively use. */
 function shortcutOwnedByTarget(target: HTMLElement, key: string): boolean {
-  if (target.isContentEditable || target.closest('textarea, select, [contenteditable="true"]')) return true;
+  if (target.isContentEditable || target.closest('textarea, select, [role="combobox"], [role="listbox"], [contenteditable="true"]')) return true;
   const input = target.closest('input');
   if (input) return input.type !== 'range' || key.startsWith('arrow') || key === 'home' || key === 'end' || key.startsWith('page');
   return key === ' ' && Boolean(target.closest('button, a, summary'));
@@ -779,12 +780,12 @@ export const LuminaPlayer = forwardRef<HTMLMediaElement, LuminaPlayerProps>(func
               <div className="player-control-cluster player-control-cluster--end">
                 {extensions?.quality ? <div data-player-extension="quality">{extensions.quality}</div> : null}
                 {!isLive ? (
-                  <label className="player-rate-control">
+                  <span className="player-rate-control">
                     <span className="sr-only">Playback speed</span>
-                    <select aria-label="Playback speed" onChange={(event) => changeRate(Number(event.currentTarget.value))} value={rate}>
+                    <Select aria-label="Playback speed" onChange={(event) => changeRate(Number(event.currentTarget.value))} value={rate}>
                       {PLAYBACK_RATES.map((option) => <option key={option} value={option}>{option}×</option>)}
-                    </select>
-                  </label>
+                    </Select>
+                  </span>
                 ) : null}
                 {extensions?.menu ? <div data-player-extension="menu">{extensions.menu}</div> : hasCaptions ? <button aria-label="Captions" aria-pressed={captionsOn} onClick={toggleCaptions} type="button"><Captions aria-hidden="true" /></button> : null}
                 {pictureInPicture ? <button aria-label="Picture in picture" onClick={() => void togglePictureInPicture()} type="button"><PictureInPicture2 aria-hidden="true" /></button> : null}

@@ -1,3 +1,4 @@
+import { chooseSelect } from './test/selectChoice';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -57,7 +58,7 @@ describe('"You" sections', () => {
     expect(props.onThemeChange).toHaveBeenCalledWith('dark');
     await browser.click(screen.getByRole('switch', { name: 'Skip credits' }));
     expect(props.onPlaybackPrefsChange).toHaveBeenLastCalledWith({ autoSkip: { intro: false, credits: true, recap: false } });
-    await browser.selectOptions(screen.getByRole('combobox', { name: 'Maximum quality' }), '720');
+    chooseSelect(screen.getByRole('combobox', { name: 'Maximum quality' }), 'Up to 720p');
     expect(props.onPlaybackMaxHeightChange).toHaveBeenLastCalledWith(720);
   });
 

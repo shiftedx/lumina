@@ -1,7 +1,9 @@
 import { CircleAlert, Eye } from 'lucide-react';
-import { type InputHTMLAttributes, type ReactElement, type ReactNode, type Ref, type SelectHTMLAttributes, type TextareaHTMLAttributes, useEffect, useId, useRef, useState } from 'react';
+import { type InputHTMLAttributes, type ReactElement, type ReactNode, type Ref, type TextareaHTMLAttributes, useEffect, useId, useRef, useState } from 'react';
 import { cx } from './cx';
 import { IconButton } from './IconButton';
+
+export { Select } from './Select';
 
 export interface FieldIds { inputId: string; hintId?: string; errorId?: string; describedBy?: string; invalid: boolean }
 export interface FieldProps {
@@ -47,10 +49,6 @@ export function Input({ className, ref, ...rest }: InputHTMLAttributes<HTMLInput
 
 export function Textarea({ className, ref, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement> & { ref?: Ref<HTMLTextAreaElement> }) {
   return <textarea {...rest} className={cx('g-input', 'g-textarea', className)} ref={ref} />;
-}
-
-export function Select({ className, ref, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSelectElement> }) {
-  return <span className={cx('g-select', className)}><select {...rest} ref={ref}>{children}</select></span>;
 }
 
 /** The toggle's name stays "Show password"; aria-pressed carries the state. It never submits. */

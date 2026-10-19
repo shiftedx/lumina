@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ApiRequestError } from '../../api';
+import { chooseSelect } from '../../test/selectChoice';
 import type { HouseholdCollection } from '../../types';
 import { HouseholdCollectionsPanel } from './HouseholdCollections';
 
@@ -69,10 +70,10 @@ describe('household collection recovery', () => {
     expect(screen.getByRole('alert').textContent).not.toContain('Database constraint detail');
 
     const chooser = screen.getByRole('combobox', { name: /choose a title for original name/i });
-    await user.selectOptions(chooser, 'item-one');
+    chooseSelect(chooser, 'First title');
     await user.click(screen.getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(api.addItem).toHaveBeenCalledWith('collection-one', 'item-one'));
-    expect((chooser as HTMLSelectElement).value).toBe('');
+    expect(chooser.textContent).toBe('Choose from your visible library');
   });
 
   it('does not render a previous member collection after a keyed session rollover', async () => {

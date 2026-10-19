@@ -1,3 +1,4 @@
+import { selectLabels } from '../../../test/selectChoice';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -65,7 +66,7 @@ describe('music metadata editor', () => {
     expect(screen.getByRole('heading', { name: 'Release details' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Listening context' })).toBeTruthy();
     expect(screen.getByRole('combobox', { name: 'Release type' })).toBeTruthy();
-    expect([...screen.getByRole('combobox', { name: 'Release type' }).querySelectorAll('option')].map((option) => option.value)).toEqual(['', 'album', 'single', 'ep', 'compilation', 'live', 'soundtrack']);
+    expect(selectLabels(screen.getByRole('combobox', { name: 'Release type' }))).toEqual(['Not set', 'Album', 'Single', 'EP', 'Compilation', 'Live', 'Soundtrack']);
     expect(screen.queryByRole('textbox', { name: 'Active since' })).toBeNull();
 
     expect(FIELD_META.original_year.label).toBe('Original release year');

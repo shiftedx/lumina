@@ -77,7 +77,7 @@
 .books-search input { width: 100%; min-width: 0; min-height: 44px; padding: 8px 0; border: 0; border-bottom: 1px solid var(--g-field-rule); border-radius: 0; background: transparent; color: var(--g-ink); font: var(--g-type-ui); }
 .books-search input::placeholder { color: var(--g-ink-2); }
 .books-sort, .books-status { display: flex; align-items: center; gap: 8px; color: var(--g-ink-2); font: var(--g-type-small); }
-.books-toolbar select { width: auto; max-width: 180px; min-height: 44px; border: 0; background: var(--g-paper); color: var(--g-ink); cursor: pointer; font: var(--g-type-ui); }
+.books-toolbar .g-select-trigger { width: auto; max-width: 180px; min-height: 44px; border: 0; background: var(--g-paper); color: var(--g-ink); cursor: pointer; font: var(--g-type-ui); }
 .books-status svg { width: 16px; height: 16px; }
 .books-detail { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 40px; margin-bottom: 48px; }
 .books-detail > .books-cover { max-width: 236px; }
@@ -251,7 +251,7 @@
   .books-toolbar { gap: 12px 16px; }
   .books-search { flex-basis: 100%; }
   .books-sort { flex: 1; }
-  .books-toolbar select { max-width: 160px; }
+  .books-toolbar .g-select-trigger { max-width: 160px; }
   .books-detail { grid-template-columns: minmax(0, 1fr); gap: 24px; margin-bottom: 32px; }
   .books-detail > .books-cover { width: 160px; }
   .books-description { font-size: 17px; }
@@ -342,5 +342,6 @@
 }
 .books-card-filename { display: -webkit-box; overflow: hidden; color: var(--g-ink-2); font: var(--g-type-small); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .books-reader-format { min-width: 0; max-width: 200px; }
-.books-reader-format select { width: 100%; min-height: 44px; color: var(--g-ink); background: var(--g-paper-2); font: var(--g-type-small); border: 0; border-radius: 4px; padding: 8px; }
+.books-reader-format .g-select, .books-reader-format .g-select-trigger { width: 100%; min-width: 0; }
+.books-reader-format .g-select-trigger { min-height: 44px; color: var(--g-ink); background: var(--g-paper-2); font: var(--g-type-small); border: 0; border-radius: 4px; padding: 8px; }
 @media (max-width: 699px) { .books-reader-format { max-width: 110px; } }

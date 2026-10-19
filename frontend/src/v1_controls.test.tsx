@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LuminaPlayer, PlayerPreferencesContext, type PlayerPreferences } from './LuminaPlayer';
+import { chooseSelect } from './test/selectChoice';
 
 const audioMock = vi.hoisted(() => {
   const graph = { mode: 'webaudio' as const, setLoudnessGain: vi.fn(), setMuteRanges: vi.fn(), setVolume: vi.fn(), resume: vi.fn(async () => undefined), schedule: vi.fn() };
@@ -98,6 +99,17 @@ describe('player controls', () => {
     expect(media.muted).toBe(false);
   });
 
+  it('keeps seek shortcuts out of focused playback choices', () => {
+    const { media } = renderPlayer();
+    const speed = screen.getByRole('combobox', { name: 'Playback speed' });
+    speed.focus();
+    for (const key of ['ArrowLeft', 'ArrowRight']) fireEvent.keyDown(speed, { key });
+    fireEvent.click(speed);
+    for (const key of ['ArrowLeft', 'ArrowRight']) fireEvent.keyDown(speed, { key });
+    expect(media.currentTime).toBe(83);
+    expect(screen.getByRole('listbox')).not.toBeNull();
+  });
+
   it('ignores page-level keys for the docked mini-player but still answers inside the player', () => {
     const { media, player } = renderPlayer({ globalShortcuts: false });
     fireEvent.keyDown(document.body, { key: 'l' });
@@ -143,7 +155,7 @@ describe('player controls', () => {
 
   it('test_actual_quality_audio_caption: speed choices apply to the element and captions appear only with tracks', () => {
     const { media } = renderPlayer();
-    fireEvent.change(screen.getByLabelText('Playback speed'), { target: { value: '1.5' } });
+    chooseSelect(screen.getByLabelText('Playback speed'), '1.5×');
     expect(media.playbackRate).toBe(1.5);
     expect(media.defaultPlaybackRate).toBe(1.5);
     expect(media.currentTime).toBe(83);

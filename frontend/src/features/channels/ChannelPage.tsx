@@ -13,7 +13,7 @@ import type { ChannelPageTab } from '../../app/routes';
 import { type ChannelSubscriptionCommands, findChannelBySource } from '../../channelSubscriptions';
 import type { ChannelPageResponse, LibraryChannelResponse, LibraryItem, RemoteEntry, SourceAutomation } from '../../types';
 import { formatCompactNumber } from '../../utils';
-import { TabScroller } from '../../ui';
+import { Select, TabScroller } from '../../ui';
 import { ChannelAvatar } from '../gallery/ChannelAvatar';
 import { GalleryArt } from '../gallery/GalleryArt';
 import { fallbackColour } from '../gallery/galleryModel';
@@ -151,7 +151,7 @@ export function ChannelPage(props: ChannelPageProps) {
     body = (
       <>
         <div className="g-toolbar g-channel-toolbar">
-          <label className="g-sort g-select"><span className="g-label">Sort</span><select aria-label="Sort" onChange={(event) => setSort(event.target.value as ChannelSort)} value={sort}><option value="latest">Latest</option><option value="popular">Popular</option></select></label>
+          <label className="g-sort"><span className="g-label">Sort</span><Select aria-label="Sort" onChange={(event) => setSort(event.target.value as ChannelSort)} value={sort}><option value="latest">Latest</option><option value="popular">Popular</option></Select></label>
         </div>
         <div aria-busy={load.loading} className={`g-channel-wall${tab === 'shorts' ? ' is-short' : ''}`}>
           {entries.map((item, index) => (

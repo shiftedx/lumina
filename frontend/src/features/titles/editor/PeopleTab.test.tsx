@@ -27,7 +27,7 @@ describe('PeopleTab', () => {
     setup([credit('A'), credit('B', null, 'Director')]);
     expect((screen.getByLabelText('Name 1') as HTMLInputElement).value).toBe('A');
     expect((screen.getByLabelText('Role 2') as HTMLInputElement).value).toBe('Role');
-    expect((screen.getByLabelText('Type 2') as HTMLSelectElement).value).toBe('Director');
+    expect(screen.getByLabelText('Type 2').textContent).toContain('Director');
   });
 
   it('Move down and Move up reorder by button and announce it', async () => {

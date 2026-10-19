@@ -1,3 +1,4 @@
+import { chooseSelect } from '../../test/selectChoice';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -44,7 +45,7 @@ describe('MusicTab', () => {
     expect(screen.getByText('110 albums · 108 artists · Sorted by recently added')).toBeTruthy();
     expect(list.mock.calls[0][0]).toMatchObject({ type: 'artist', sort: 'created' });
     expect(await screen.findByText('No artists yet')).toBeTruthy();
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Sort' }), 'name');
+    chooseSelect(screen.getByRole('combobox', { name: 'Sort' }), 'Title A–Z');
     expect(onWallChange).toHaveBeenLastCalledWith('view=artists');
     await userEvent.click(screen.getByRole('button', { name: 'Albums' }));
     expect(onWallChange).toHaveBeenLastCalledWith('');

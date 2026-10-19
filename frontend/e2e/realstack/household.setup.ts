@@ -1,3 +1,4 @@
+import { chooseSelect } from '../select-helper';
 import { MEDIA_ROOT, OWNER, OWNER_STATE, expect, test } from './realstack';
 
 test('first owner connects and imports media during onboarding, then signs in again', async ({ page }) => {
@@ -65,7 +66,7 @@ test('first owner connects and imports media during onboarding, then signs in ag
     await expect.poll(() => moviePoster.evaluate(servedWidth)).toBe(120);
     await page.goto('/library/shows'); // the Shows tab link needs /api/library/sections; the address works before and after
     // Title A–Z: under "Recently added" the first show is a backdrop feature tile, and this show has no backdrop.
-    await page.getByRole('combobox', { name: 'Sort' }).selectOption('name');
+    await chooseSelect(page, page.getByRole('combobox', { name: 'Sort' }), 'Title A–Z');
     const show = page.getByRole('button', { name: /^Realstack Show,/ });
     await expect(show).toBeVisible();
     await expect.poll(() => show.locator('img.g-art-image').evaluate(servedWidth)).toBe(120);

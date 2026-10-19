@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BookProse, BookReader } from './BookReader';
+import { chooseSelect } from '../../test/selectChoice';
 import { book, ebookManifest } from './testFixtures';
 
 const api = vi.hoisted(() => ({
@@ -89,7 +90,6 @@ describe('BookReader', () => {
   });
 
   it('saves the current file checkpoint before switching bundled formats', async () => {
-    const browser = userEvent.setup();
     const bundled = book({ files: [
       { id: 'ebook-1', filename: 'Northbound.epub', format: 'epub', chapter_count: 2, page_count: 0, available: true },
       { id: 'pdf-1', filename: 'Northbound.pdf', format: 'pdf', chapter_count: 0, page_count: 30, available: true },
@@ -104,7 +104,7 @@ describe('BookReader', () => {
     const formats = screen.getByRole('combobox', { name: 'Read format' });
     expect(fireEvent.keyDown(formats, { key: 'ArrowRight' })).toBe(true);
     expect(screen.queryByText('The pass')).toBeNull();
-    await browser.selectOptions(formats, 'pdf-1');
+    chooseSelect(formats, 'PDF · Northbound.pdf');
     await waitFor(() => expect(onFileChange).toHaveBeenCalledWith('pdf-1'));
     expect(api.updateBookState).toHaveBeenCalledWith('ebook-1', { unit_index: 0, offset: 0 }, false);
     expect(api.updateBookState).toHaveBeenCalledOnce();

@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
-import { type KeyboardEvent, useId, useState } from 'react';
+import { type KeyboardEvent, useState } from 'react';
 
-import { IconButton, Input } from '../../../ui';
+import { AutocompleteInput, IconButton } from '../../../ui';
 
 export interface ChipInputProps {
   id: string;
@@ -17,7 +17,6 @@ export interface ChipInputProps {
 /** The one chip input for genres, tags and studios (editor Details tab and the bulk dialog). Keyboard only works. */
 export function ChipInput({ id, label, values, onChange, suggestions = [], maxItems = 30, maxLength = 60, disabled = false }: ChipInputProps) {
   const [text, setText] = useState('');
-  const listId = useId();
 
   function commit(raw: string) {
     const next = raw.trim().slice(0, maxLength);
@@ -39,17 +38,16 @@ export function ChipInput({ id, label, values, onChange, suggestions = [], maxIt
           </li>
         ))}
       </ul>
-      <Input
+      <AutocompleteInput
         disabled={disabled}
         enterKeyHint="done"
         id={id}
-        list={listId}
+        options={suggestions}
         onBlur={() => commit(text)}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={onKeyDown}
         value={text}
       />
-      <datalist id={listId}>{suggestions.map((value) => <option key={value} value={value} />)}</datalist>
     </div>
   );
 }

@@ -95,7 +95,7 @@
 .transcript-panel { display: grid; gap: 12px; margin-top: 16px; }
 .transcript-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .transcript-version { margin: 0; color: var(--g-ink-2); font: var(--g-type-small); }
-.transcript-version select { max-width: 100%; }
+.transcript-version .g-select, .transcript-version .g-select-trigger { max-width: 100%; }
 .transcript-search { display: flex; flex: 1 1 260px; min-width: 0; align-items: center; gap: 4px; border-bottom: 1px solid var(--g-field-rule, var(--g-ink-3)); }
 .transcript-search:focus-within { border-bottom-color: var(--g-ink); }
 .transcript-search > svg { width: 16px; height: 16px; flex: none; color: var(--g-ink-3); }

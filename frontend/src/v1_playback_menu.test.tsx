@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { LocalPlaybackOptions, SubtitleTrack } from './types';
 import type { PlaybackPrefs } from './workspace';
+import { chooseSelect } from './test/selectChoice';
 
 const api = vi.hoisted(() => ({ requestSubtitleJob: vi.fn(), getEnrichmentJob: vi.fn(), listSubtitleTracks: vi.fn() }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
@@ -119,7 +120,7 @@ describe('PlaybackMenu', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
     await waitFor(() => expect(props.onTracksChanged).toHaveBeenCalledTimes(1));
     expect(screen.getByText('Done. The new subtitles are in the list.')).toBeTruthy();
-    await user.selectOptions(screen.getByRole('combobox', { name: /Translate to/ }), 'es');
+    chooseSelect(screen.getByRole('combobox', { name: /Translate to/ }), 'Spanish');
     await user.click(screen.getByRole('button', { name: 'Translate' }));
     expect(api.requestSubtitleJob).toHaveBeenLastCalledWith('i1', { kind: 'translate', trackId: 's:0', targetLanguage: 'es' });
   });

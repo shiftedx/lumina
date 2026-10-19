@@ -22,3 +22,4 @@ export { BrandMark } from './BrandMark';
 export { initials } from './initials';
 export { modKeyLabel } from './platform';
 export { clampServerText } from './text';
+export { AutocompleteInput } from './AutocompleteInput';

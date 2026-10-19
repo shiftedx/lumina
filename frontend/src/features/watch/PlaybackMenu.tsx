@@ -7,7 +7,7 @@ import { playbackFactsLabel } from '../../localPlayer';
 import type { EnrichmentJob, LocalPlaybackOptions, PlaybackSessionRequest, SubtitleOrigin, SubtitleTrack, TitleVersion } from '../../types';
 import { errorMessage } from '../../utils';
 import type { PlaybackPrefs } from '../../workspace';
-import { Button, TextButton } from '../../ui';
+import { Button, Select, TextButton } from '../../ui';
 import { useFetched, versionLabel } from '../titles/titleModel';
 import type { CaptionPrefs } from './captionPrefs';
 import { CaptionStyleRows } from './CaptionStyleRows';
@@ -157,9 +157,9 @@ export function PlaybackMenu({ itemId, options, versions, currentVersionId, trac
           <div className="playback-menu-actions">
             {action('generate', 'Generate subtitles', { kind: 'generate' })}
             {action('sync', 'Sync to audio', textTrack ? { kind: 'sync', trackId: textTrack.id } : null)}
-            <label>Translate to
-              <select disabled={Boolean(reasons.translate)} onChange={(event) => setLanguage(event.target.value)} value={language}>{TRANSLATE_LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}</select>
-            </label>
+            <div className="playback-menu-translate"><span>Translate to</span>
+              <Select aria-label="Translate to" disabled={Boolean(reasons.translate)} onChange={(event) => setLanguage(event.target.value)} value={language}>{TRANSLATE_LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}</Select>
+            </div>
             {action('translate', 'Translate', textTrack ? { kind: 'translate', trackId: textTrack.id, targetLanguage: language } : null)}
             {job ? <p aria-live="polite" className="playback-menu-status" role="status">{job.state === 'failed' ? job.error || 'That did not work.' : JOB_STATUS[job.state] ?? job.state}</p> : null}
             {jobError ? <p className="playback-menu-status" role="alert">{jobError}</p> : null}

@@ -175,4 +175,3 @@ def resolve(db: Session, user: User, refs: Any, *, policy: str, active_entry: in
         if not available and (resolved or row.foreign_album_id in album_visible_beyond_cap if ref["kind"] == "acquisition" else True):
             entry["message"] = "Available after the current queue"
     return ResolvedQueue(entries, tracks, [track.id for track in tracks], retained, offsets)
-

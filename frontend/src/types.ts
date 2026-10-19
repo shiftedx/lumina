@@ -215,6 +215,7 @@ export interface UpNextRequest {
 }
 
 export interface YouTubeSearchResult {
+  language?: string | null;
   id?: string | null;
   title?: string | null;
   uploader?: string | null;
@@ -321,6 +322,7 @@ export interface PopularSnapshot {
 }
 
 export interface LiveSnapshot extends PopularSnapshot {
+  language_pending?: boolean;
   twitch_available: boolean;
   /** Provider-reported live channels overall (2.4.0); null/absent when unknown. */
   live_total?: number | null;
@@ -1076,6 +1078,22 @@ export interface AdminSettings {
   updated_at?: string | null;
 }
 
+export interface AdminUpdateStatus {
+  current_version: string;
+  latest_release: {
+    version: string;
+    url: string;
+    published_at: string | null;
+  } | null;
+  status: 'not_checked' | 'up_to_date' | 'update_available';
+  checked_at: string | null;
+  error: string | null;
+  checking: boolean;
+  automatic_checks: boolean;
+  email_notifications: boolean;
+  email_configured: boolean;
+}
+
 /** GET /api/admin/overview: aggregates only; `null` means the sensor is unavailable, not zero. */
 export interface AdminOverview {
   generated_at: string;
@@ -1100,6 +1118,7 @@ export interface AdminOverview {
     artifact_count: number;
     artifact_bytes: number;
   }[];
+  updates?: AdminUpdateStatus;
   event_streams: number;
   persistence: Record<string, { count: number; errors: number; busy_timeouts: number; total_ms: number; max_wait_ms: number }>;
 }
@@ -2088,7 +2107,7 @@ export interface MetadataErrorBody {
 }
 
 export type ScanSchedule = 'off' | '15m' | '1h' | '6h' | 'nightly';
-export type ScanTrigger = 'manual' | 'scheduled' | 'watch';
+export type ScanTrigger = 'manual' | 'scheduled' | 'watch' | 'manager';
 export type AutomationState = 'idle' | 'scanning' | 'preparing' | 'waiting_files' | 'waiting_confirmation' | 'offline' | 'unresponsive' | 'too_large' | 'needs_first_import';
 export type AutomationSkipReason = 'scanning' | 'offline' | 'unresponsive' | 'waiting_confirmation' | 'needs_first_import';
 export type ImportRunErrorCode = 'offline' | 'permission_denied' | 'identity_mismatch' | 'root_removed' | 'root_empty';
@@ -2162,7 +2181,9 @@ export interface LibraryActivity {
   discovering_roots: number;
   indexing_roots: number;
   preparing_roots: number;
+  stalled_roots: number;
   waiting_files: number;
+  waiting_error_files: number;
   discovered_files: number;
   completed_files: number;
   total_files: number | null;

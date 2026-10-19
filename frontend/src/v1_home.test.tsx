@@ -9,7 +9,7 @@ import type { LiveShelfProps } from './features/home/LiveShelf';
 import { ToastProvider } from './ui';
 import { forgetTitles } from './features/gallery/titleCache';
 import { resetWatchQueue } from './features/watch/WatchQueue';
-import { episodeSummary, movieSummary, stillItem, titleDetail } from './test/galleryFixtures';
+import { albumSummary, episodeSummary, movieSummary, stillItem, titleDetail } from './test/galleryFixtures';
 import type { PlaybackProgress, TitleSummary, UserProfile, WatchQueue, YouTubeSearchResult } from './types';
 
 const api = vi.hoisted(() => ({
@@ -73,6 +73,27 @@ beforeEach(() => {
   live.mounted.mockReset();
 });
 afterEach(() => { resetWatchQueue(); forgetHomeCache(); forgetTitles(); });
+
+it('separates listening from watching, resumes the track, and removes it with Undo', async () => {
+  const video = entry(episodeSummary(2, 4));
+  const audio = entry(albumSummary(), { item: stillItem('track-1', { kind: 'track' }) });
+  const ungrouped = entry(null, { item: stillItem('audio-2', { kind: 'audio', title: 'Saved audio' }) });
+  const hide = vi.fn().mockResolvedValue(undefined);
+  const restore = vi.fn().mockResolvedValue(undefined);
+  const { props } = renderHome({ continueWatching: [audio, ungrouped, video], onHideContinueWatching: hide, onRestoreContinueWatching: restore });
+  const watching = await screen.findByRole('region', { name: 'Continue watching' });
+  const listening = await screen.findByRole('region', { name: 'Continue listening' });
+  expect(within(watching).queryByRole('button', { name: /Album One|Saved audio/ })).toBeNull();
+  expect(within(listening).queryByRole('button', { name: /Harbor Lights/ })).toBeNull();
+  expect(within(listening).getByRole('button', { name: /^Saved audio,/ })).toBeTruthy();
+  fireEvent.click(within(listening).getByRole('button', { name: /^Album One,/ }));
+  expect(props.onOpenLibrary).toHaveBeenCalledWith(audio.item);
+  fireEvent.click(within(listening).getByRole('button', { name: 'Remove Album One from Continue listening' }));
+  expect(await screen.findByText('Removed from Continue listening.')).toBeTruthy();
+  expect(hide).toHaveBeenCalledWith(audio);
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(restore).toHaveBeenCalledWith(audio);
+});
 
 describe('Home page', () => {
   it('shows shelves in the member\'s order, skips hidden ones without requesting them, and hides empty ones', async () => {
@@ -224,7 +245,7 @@ describe('Home edit mode', () => {
     expect(screen.queryByRole('button', { name: 'Edit home' })).toBeNull();
     expect(document.querySelector('.h-hero')).toBeNull();
     expect(sections()).toEqual([]);
-    expect(screen.getByRole('list', { name: 'Home shelves' }).children).toHaveLength(13);
+    expect(screen.getByRole('list', { name: 'Home shelves' }).children).toHaveLength(14);
     fireEvent.click(within(document.querySelector('.h-editor') as HTMLElement).getByRole('button', { name: 'Done' }));
     expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 }));
     expect(screen.getByText('Home layout saved.')).toBeTruthy();

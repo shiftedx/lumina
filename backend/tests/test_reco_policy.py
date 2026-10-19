@@ -640,3 +640,36 @@ def test_recommend_ignores_a_completion_after_as_of(surface: str) -> None:
     db.commit()
 
     assert _tid(3) in recommend(db, member.id, NOW, surface, 20)  # Drama A: not the anchor, not "started", as of NOW
+
+
+def test_live_choices_use_member_affinity_language_and_provider_breadth(monkeypatch) -> None:
+    from app.schemas import PopularItemResponse
+    from app.services.reco import policy as module
+
+    member = make_user('member')
+    db = _session(member)
+    profile = dataclasses.replace(_profile(), affinity={CHANNEL: 10.0}, followed=frozenset({CHANNEL}))
+    monkeypatch.setattr(module.profiles, 'get', lambda *args, **kwargs: profile)
+    choices = [PopularItemResponse(id=f'live-{i}', title=f'Game session {i}', uploader=f'Creator {i}',
+                                  language='en', uploader_url=CHANNEL if i == 0 else f'https://www.youtube.com/@creator{i}',
+                                  view_count=1 if i == 0 else 100_000_000, category_keys=['gaming']) for i in range(20)]
+    foreign = PopularItemResponse(id='foreign', title='English-looking title', language='hi', uploader='Popular creator', view_count=1_000_000_000)
+    own = PopularItemResponse(id='followed', title='My followed stream', language=None, uploader='Followed creator')
+    hero, entries = RecommendationPolicy(db, refresher=None, channel_pages=None, now=lambda: NOW).live(member, [own], [foreign, *choices])
+    assert [entry.id for entry in hero] == ['followed']
+    assert len(entries) >= 16 and 'foreign' not in {entry.id for entry in entries}
+    assert entries[0].id == 'live-0'  # member affinity outranks global viewers
+    assert entries[0].reco and entries[0].reco.reason
+    # The same shared candidates produce another ordering for another profile.
+    profile = dataclasses.replace(profile, affinity={'https://www.youtube.com/@creator1': 10.0}, followed=frozenset())
+    _, other = RecommendationPolicy(db, refresher=None, channel_pages=None, now=lambda: NOW).live(member, [], choices)
+    assert other[0].id == 'live-1'
+    # Eligibility follows the member's saved audio languages, including when
+    # personalization is disabled; following a known mismatch cannot bypass it.
+    db.add(UserSettings(id=str(uuid.uuid4()), user_id=member.id, ui_prefs={'captions': {'tracks': {'audioLanguages': ['hi-IN']}}}))
+    db.commit()
+    policy = RecommendationPolicy(db, refresher=None, channel_pages=None, now=lambda: NOW)
+    for personal in (True, False):
+        hero, entries = policy.live(member, [choices[0], own], [foreign, *choices], personal=personal)
+        assert [entry.id for entry in hero] == ['followed']
+        assert [entry.id for entry in entries] == ['foreign']

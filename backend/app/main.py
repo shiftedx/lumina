@@ -24,13 +24,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.http_activity import AuthenticatedActivityMiddleware
 from app.http_bandwidth import BandwidthPacingMiddleware
 from app.http_compression import ResponseCompressionMiddleware
-from app.services import invites as invite_service, network_policy, public_address, social_preview, two_factor
+from app.services import invites as invite_service, network_policy, public_address, release_updates, social_preview, two_factor
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.config import APP_VERSION, settings
-from app.routers import books, admin_invites, admin_ai, admin_backups, admin_activity, member_access as member_access_routes, admin_diagnostics, admin_library_automation, admin_models, admin_imports, admin_overview, admin_recording_retention, admin_storage, admin_tasks, discovery, idea_graph, local_playback, media_tools, profile_export, provenance, search_history, summaries, watch_queue
+from app.routers import books, admin_invites, admin_ai, admin_backups, admin_activity, admin_updates, member_access as member_access_routes, admin_diagnostics, admin_library_automation, admin_models, admin_imports, admin_overview, admin_recording_retention, admin_storage, admin_tasks, discovery, idea_graph, local_playback, media_tools, profile_export, provenance, search_history, summaries, watch_queue
 from app.routers import enrichment as enrichment_routes
 from app.routers import admin_media_server, connected_apps, jellyfin_auth
 from app.routers import two_factor as two_factor_routes
@@ -588,7 +588,7 @@ popular_discovery = PopularDiscovery(settings.data_dir / "popular-discovery.json
 
 def _youtube_live_search(query: str, limit: int) -> YouTubeSearchResponse:
     with SessionLocal() as db:
-        return YtDlpService(db).youtube_live_search(query, limit)
+        return YtDlpService(db).youtube_live_search(f"{query} english live", limit)
 
 
 def _probe_followed_live(probe_url: str) -> YouTubeSearchResult | None:
@@ -597,7 +597,7 @@ def _probe_followed_live(probe_url: str) -> YouTubeSearchResult | None:
 
 
 twitch_directory = TwitchGqlDirectory()
-live_search = LiveSearch(_youtube_live_search, twitch_directory)
+live_search = LiveSearch(_youtube_live_search, twitch_directory, youtube_probe=_probe_followed_live)
 live_wall = LiveWall(twitch_directory, youtube_pool=live_search.youtube_pool, gaming=live_search.gaming)
 live_discovery = create_live_discovery(settings.data_dir / "live-discovery.json", live_search)
 followed_live_checker = FollowedLiveChecker(_probe_followed_live)
@@ -823,6 +823,12 @@ async def reconcile_loop() -> None:
         except Exception as exc:
             logger.warning("Enrichment pump failed; retrying next interval: %.300s", repr(exc))
         try:
+            # Only the due-state read and worker enqueue happen here; provider
+            # I/O stays on the coordinator's one bounded thread.
+            await asyncio.to_thread(release_updates.coordinator.request_automatic)
+        except Exception as exc:  # noqa: BLE001 - independent of the library sweep below
+            logger.warning("Release update scheduling failed; retrying next interval: %s", type(exc).__name__)
+        try:
             await asyncio.to_thread(run_library_maintenance_cycle)
         except Exception as exc:
             # Bounded, secret-free breadcrumb: recurring sweep failures must be
@@ -889,6 +895,7 @@ async def lifespan(app: FastAPI):
     settings.validate_runtime_security()
     server_lock = backups.hold_server_lock()  # the offline restore refuses while this is held
     init_db()
+    release_updates.coordinator.start()
     with session_scope() as db:
         two_factor.reseal_legacy(db)  # 2.9.0 authenticator secrets → app-data/totp-key, before any sign-in
     configured_concurrency = 1
@@ -999,6 +1006,7 @@ async def lifespan(app: FastAPI):
             await asyncio.to_thread(enrichment_jobs.join_background_captions)
         await asyncio.to_thread(client_metric_store.flush)  # keep the last minutes of client metrics
         await jobs.stop()
+        await asyncio.to_thread(release_updates.coordinator.close)
         server_lock.close()
 
 
@@ -1036,6 +1044,7 @@ admin_backups.register(app)
 admin_ai.register(app)
 admin_models.register(app)
 admin_overview.register(app, events)
+admin_updates.register(app)
 admin_activity.register(app, (hls_relay, live_hls_relay))
 member_access_routes.register(app)
 from app.routers import resources as resource_routes
@@ -2284,6 +2293,7 @@ def live_now(
     ]
     unavailable = followed_live_checker.unavailable_sources(followed_urls)
     items = [item.model_copy(update={"artwork_url": _remote_artwork_url(item.thumbnail)}) for item in snapshot.items]
+    hero, items = _reco_policy(db).live(current_user, hero, items, personal=reco.enabled(db))
     annotated = annotate_remote_entries(db, current_user, [*hero, *items])  # one call: still two queries
     hero, items = annotated[: len(hero)], annotated[len(hero):]
     counts = live_search.counts
@@ -2293,6 +2303,7 @@ def live_now(
         update={
             "categories": categories,
             "live_total": sum(known) if known else None,
+            "language_pending": any(not entry.language for entry in snapshot.items),
             "twitch_available": live_search.health.available,
             "hero": hero,
             "followed_unavailable": [
@@ -2324,6 +2335,7 @@ def live_wall_page(
         PopularItemResponse.model_validate(entry).model_copy(update={"artwork_url": _remote_artwork_url(entry.thumbnail)})
         for entry in entries
     ]
+    _hero, items = _reco_policy(db).live(current_user, [], items, personal=reco.enabled(db), limit=limit)
     live_count = live_search.counts.get(category_key)
     return LiveWallResponse(
         items=annotate_remote_entries(db, current_user, items),

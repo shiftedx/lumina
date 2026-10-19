@@ -231,6 +231,14 @@ subtitle enabled/forced/SDH defaults and caption appearance. Browser playback an
 compatible Jellyfin playback resolve defaults before making their playback decisions;
 explicit client or per-play audio choices and subtitle Off take priority.
 
+Streaming live recommendations use those audio languages, defaulting to English
+when none are selected. Provider audio metadata determines eligibility; an English
+title alone does not establish the spoken language. Unconfirmed public streams
+stay out while bounded background checks qualify more choices. Followed channels
+can appear with unknown language, but a known language mismatch is excluded.
+Browse shows up to 16 eligible streams per provider, prioritizes follows and the
+member's own interests and viewing signals, and updates as background results arrive.
+
 **My Settings → Playback → Listening history export** optionally connects a member's
 ListenBrainz user token or Last.fm application API key/secret followed by Last.fm
 account approval. These are separate from media-player credentials. Export uses
@@ -403,6 +411,16 @@ The command refuses while a server holds the data directory, verifies the backup
 
 ## Upgrades
 
+### Checking for a release
+
+Manage Server → Maintenance → Updates shows the installed version and the latest stable [GitHub Release](https://github.com/shiftedx/lumina/releases). Lumina checks once a day by default; **Check for updates** requests a check sooner. Checks contact GitHub's public API without credentials or library information. Drafts, prereleases and unpublished commits do not count as updates. Disable automatic checks on the same page to stop scheduled requests; manual checks remain available.
+
+When a newer version is available, the Manage Server overview keeps an update notice visible. Optional email notifications use the configured SMTP server and active admins' saved notification email addresses. Email is off by default and best effort: each release is queued once, including across restarts, so a crash or mail failure can lose that email. The overview notice remains available. GitHub failures preserve the last successful result and show an error; scheduled failures retry after an hour. Manual checks share a one-minute cooldown.
+
+Checking never downloads or installs an image or restarts the server. Follow the upgrade and rollback instructions below after reviewing the release notes. A private/source build reports its declared application version; this check does not compare untagged source commits.
+
+### Installing a release
+
 To update, set or replace the image line in `.env` with the exact release you want, then pull and restart only Lumina. These commands leave `app-data/` and every media mount in place:
 
 Set this line in `.env` (replace an existing `LUMINA_DOCKER_IMAGE` line):
@@ -418,12 +436,44 @@ docker compose up -d --no-build lumina
 
 For a checkout-based install, first update the Compose file with `git fetch origin tag v0.3.4 && git checkout --detach v0.3.4`. When a release raises the schema version, Lumina first writes an automatic `pre-upgrade` backup (listed under Settings → Backups), then applies its additive upgrade steps in one transaction. It refuses to open a database from a newer release; to roll back, see "Rollback after a schema upgrade" below (the pre-upgrade backup is the last resort).
 
+### Retaining a rollback image
+
+Before replacing a running image, use the checkout's retention script to keep the
+previous image referenced by a stopped container:
+
+```bash
+previous_image=$(docker inspect lumina --format '{{.Image}}')
+rollback_name="lumina-rollback-$(date -u +%Y%m%dT%H%M%SZ)"
+sh scripts/preserve-rollback.sh "$previous_image" "$rollback_name"
+docker inspect "$rollback_name" --format '{{.State.Status}} {{json .Config.Healthcheck.Test}} {{.HostConfig.RestartPolicy.Name}}'
+# Expected: created ["NONE"] no
+```
+
+Keep this pin stopped: restore service by selecting its image in Compose, using
+the normal Lumina entrypoint and health check. The pin has health checks,
+automatic restart, networking, proxy discovery and automatic updates disabled.
+It retains the image without mounting application data. A sleeping container
+still runs health checks inherited from its image unless they are explicitly
+disabled; repeated checks can exhaust the host's `/run` inodes and cause the
+proxy to remove an otherwise working service.
+
+After each deployment, verify every retained rollback container is stopped;
+new pins must have `Healthcheck.Test` set to `["NONE"]`. Configure scheduled
+cleanup to exclude retained pins and their images. For `docker-gc`, put the
+container-name pattern `lumina-.*rollback` in its
+`/etc/docker-gc-exclude-containers` file (mounted from persistent host storage).
+It keeps images referenced by excluded containers. Keep database/key backups
+separately; an image pin is not a data backup. Retain pins until their rollback
+window ends and remove their cleanup exclusions when retiring them.
+
 ### Rollback after a schema upgrade
 
-Schema steps 6 to 18 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to:
+Schema steps 6 to 18 only add tables, columns and indexes that older releases ignore, so rolling back keeps everything written since the upgrade, except step 8's album and artist titles (below). Stamp the database with the schema version of the release you roll back to. Before any rollback to an image predating the discovery I/O fixes, normalize the new manager trigger so its older API can read run history: `UPDATE import_runs SET trigger = 'watch' WHERE trigger = 'manager';`. Manager reconciliation cursors may remain; older images ignore them:
 
 | Rolling back to | Stamp |
 | --- | --- |
+| Before discovery I/O fixes (schema 30) | `UPDATE import_runs SET trigger = 'watch' WHERE trigger = 'manager'; PRAGMA user_version = 30` (keep the additive `ix_media_artifacts_root_size` index; older releases ignore manager reconciliation cursors in `app_maintenance_state`) |
+| Before release update checks (schema 29) | `PRAGMA user_version = 29` (keep the additive `app_settings.update_settings` column; older releases ignore cached release status and notification preferences) |
 | Before acquisition-aware music queues (schema 28) | `PRAGMA user_version = 28` (keep the additive `queue_entries`, `entry_index` and `unavailable_policy` columns; older releases use only the resolved playable queue) |
 | Before Chromecast media tickets (schema 27) | `DELETE FROM media_cast_tickets; PRAGMA user_version = 27` (revoke receiver access; keep the additive table) |
 | Before listening history exports (schema 26) | `PRAGMA user_version = 26` (keep `listening_export_connections` and `listening_play_events`; preserve uncertain delivery records to prevent duplicate exports) |
@@ -497,13 +547,17 @@ Version 0.3.0 starts a new release baseline; earlier release tags and downloads 
 
 The **Refresh** button beside the Library tabs reloads the current view. For vault owners, it also starts a full background rescan of eligible imported folders; the notification reports scans started or queued and folders unavailable. To scan one folder or review missing-file confirmation, use **Manage Server → Library & storage → Imports**. Other members can refresh their view without starting a server-wide scan.
 
-The header activity indicator combines downloads with library-wide scan work. Open it to see the current phase and progress. Scans first discover file paths, then check and index them in bounded batches; indexing shows completed files against the discovered total. Work completed by one folder stays in the overall total while other folders continue. Totals can adjust if the files change during a scan. A file still copying or settling is shown separately until it is ready to index. Idle means no scan is running; it does not certify that every folder has been scanned recently. Members see aggregate progress without storage paths, folder names, or private media details; scan controls remain owner-only.
+Music rescans also reconcile partial release tags: tracks in the same album folder use a unique matching MusicBrainz release/album-artist identity when only some files carry it. Already identified album fragments with the same release ID reuse one album; distinct explicit edition IDs remain separate, and manual track destinations stay in place. Album queues retain disc and track order. In folders containing several albums, use embedded covers or album-named images (`Album title.jpg`, `Album title-cover.jpg`, or `Album title-front.jpg`); a generic `cover.jpg` cannot identify each album. A rescan removes previously assigned local art that its own folder no longer supports and invalidates its cached metadata result so replacement artwork is fetched again, while preserving manual artwork and locked albums. When several public editions match, a unique exact album-and-artist release-group match can supply its cover without choosing an edition or changing tagged release identities. Run a full music-root scan after upgrading to apply these repairs to existing entries.
+
+The header activity indicator combines downloads with active library scan work. Open it to see progress. Scans discover and index files in bounded batches; the final total can remain unknown until traversal ends. Waiting for a file to finish copying is separate from an active scan, and unreadable files or stalled roots are reported separately. Idle means no scan is running; it does not certify that every folder has been scanned recently. Passive library-progress polling allows optional background work to resume once genuine app activity has been quiet for 30 seconds. Members see aggregate progress without storage paths, folder names, or private media details; scan controls remain owner-only.
 
 Lumina 2.1.0 can keep an **external** storage root up to date by itself. Both options are **off** for every root after an upgrade, so nothing changes until you turn them on under **Settings → Library & storage**, on each root's row. Managed roots do not use them. We recommend **Watch on (every 5 minutes) plus Nightly** for TV and Movies.
 
 - **Scan schedule** runs a full scan of the root: Off, every 15 minutes, hourly, every 6 hours or **Nightly**. A scan never overlaps another on the same root, and only one automatic scan runs at a time (a scan stuck on an unresponsive share does not count; see below). After an outage, a nightly root scans once, not once per missed night. The row shows when the next scan is due; on a big root, check the "full scan takes about N min" hint before choosing 15 minutes.
 - **Nightly at** (Settings → Library & storage) sets the hour nightly scans start. It uses the **server's** time zone, shown next to the hour. Set `TZ` in `.env` (or the compose `environment:` block), for example `TZ=America/Chicago`, then recreate the container. Without it the server is on UTC. The image includes `tzdata`.
 - **Watch for new media** polls the folders' modification times and scans only the folders that changed. Interval: 1, 5 or 15 minutes for one full pass (5 is the default). It never reads file contents. A new file is indexed only after its size and time stop changing for about 90 seconds, so a copy in progress is not picked up half-written.
+
+Connected Sonarr, Radarr and Lidarr observers also reconcile their mapped folders independently of the root Watch and Scan schedule settings. Their import history uses **Manager** as the trigger. Changed upstream file identities receive priority; known unchanged folders become eligible for a slower safety check after six hours. Admission is limited to one folder per root per observation pass, so six hours is an eligibility interval rather than a completion deadline for a large inventory. Successful fingerprints and admission state survive restarts. Failed or busy imports remain retryable, and an upstream file flag alone never makes media playable.
 
 What the watcher sees: new, deleted and renamed files and folders. It does **not** see a file edited in place, such as an NFO rewritten by another tool, because that changes no folder time. The nightly scan catches those, which is why Watch plus Nightly is the recommended pairing.
 

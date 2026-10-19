@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { releaseBackground, holdBackground } from './backgroundGate';
-import { ApiRequestError, bulkEditMetadata, chooseTitleImage, getMetadataHistory, getMetadataVocabulary, listImageCandidates, listMetadataEpisodes, previewMetadataRefresh, removeTitleImage, reorderBackdrops, revertMetadata, searchMetadataPeople, undoMetadataBatch, uploadTitleImage, getTitleMetadata, saveMetadataEdits, forgetDeviceMember, getDeviceMembers, loginSession, switchMember, beaconRecoEvents, clearRecoHistory, getUpNext, sendRecoEvents, suppressRecommendation, getChannelPage, listLibraryChannels, resolveChannel, activateLocalModel, addHouseholdCollectionItem, cancelLocalModelDownload, downloadLocalModel, removeLocalModel, browserSupportedPlaybackProfiles, markHevcFailed, completeOnboarding, confirmImport, createAcquisitionBatch, deleteHouseholdCollection, deleteLibraryNote, dismissNextUp, getChannelSuggestions, getHomeRecommendations, getLibrarySections, getLocalPlaybackOptions, getMemberInterests, getTitleFacets, hideContinueWatching, listJobs, listLibrary, listLibraryNotes, listNextUp, listSeasonEpisodes, listTitles, previewJellyfinImport, previewUrl, refreshLibrary, runJellyfinImport, renameHouseholdCollection, requestSubtitleJob, resolveApiBaseUrl, retryAcquisitionEntry, searchChannels, searchLibrary, searchTitleMatches, setFavorite, skipOnboarding, unhideContinueWatching, updateLibraryNote, updateMemberInterests, updateUser } from './api';
+import { ApiRequestError, bulkEditMetadata, checkAdminUpdates, chooseTitleImage, getAdminUpdateStatus, getMetadataHistory, getMetadataVocabulary, listImageCandidates, listMetadataEpisodes, previewMetadataRefresh, removeTitleImage, reorderBackdrops, revertMetadata, searchMetadataPeople, undoMetadataBatch, updateAdminUpdateSettings, uploadTitleImage, getTitleMetadata, saveMetadataEdits, forgetDeviceMember, getDeviceMembers, loginSession, switchMember, beaconRecoEvents, clearRecoHistory, getUpNext, sendRecoEvents, suppressRecommendation, getChannelPage, listLibraryChannels, resolveChannel, activateLocalModel, addHouseholdCollectionItem, cancelLocalModelDownload, downloadLocalModel, removeLocalModel, browserSupportedPlaybackProfiles, markHevcFailed, completeOnboarding, confirmImport, createAcquisitionBatch, deleteHouseholdCollection, deleteLibraryNote, dismissNextUp, getChannelSuggestions, getHomeRecommendations, getLibrarySections, getLocalPlaybackOptions, getMemberInterests, getTitleFacets, hideContinueWatching, listJobs, listLibrary, listLibraryNotes, listNextUp, listSeasonEpisodes, listTitles, previewJellyfinImport, previewUrl, refreshLibrary, runJellyfinImport, renameHouseholdCollection, requestSubtitleJob, resolveApiBaseUrl, retryAcquisitionEntry, searchChannels, searchLibrary, searchTitleMatches, setFavorite, skipOnboarding, unhideContinueWatching, updateLibraryNote, updateMemberInterests, updateUser } from './api';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -80,6 +80,20 @@ describe('paged collection contracts', () => {
 });
 
 describe('production API boundary', () => {
+  it('uses the admin update status, check, and settings contracts', async () => {
+    const fetchMock = stubFetch({ current_version: '3.1.0' });
+
+    await getAdminUpdateStatus();
+    await checkAdminUpdates();
+    await updateAdminUpdateSettings({ automatic_checks: false, email_notifications: true });
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method, init?.body])).toEqual([
+      ['/api/admin/updates', undefined, undefined],
+      ['/api/admin/updates/check', 'POST', undefined],
+      ['/api/admin/updates', 'PATCH', JSON.stringify({ automatic_checks: false, email_notifications: true })],
+    ]);
+  });
+
   it('uses the authenticated member interest and Home recommendation contracts', async () => {
     const fetchMock = stubFetch({ categories: [], selected_keys: [], items: [], state: 'empty', refreshing: false, stale: false });
 

@@ -130,7 +130,7 @@ def undo(batch_id: str, user: User = Depends(get_detail_editor), db: Session = D
     return music_library.undo_tracks(db, user, batch_id)
 
 
-def lyrics(item_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
+def lyrics(item_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function"), retry: bool = False) -> dict:
     item = music_library.visible_tracks(db, user, [item_id])[0]
     override = db.get(MusicTrackOverride, item_id)
     local = music_library.track_fields(item, override).get("lyrics")
@@ -139,11 +139,19 @@ def lyrics(item_id: str, user: User = Depends(get_current_user), db: Session = D
     track = music_library.manifests(db, user, [item])[0]
     key = music_providers.key_for("lyrics", track.artist, track.title, track.album, str(track.duration))
     row = db.get(MusicLookup, key)
-    music_providers.enqueue(key, "lyrics", lambda: music_providers.lyric_lookup(track.title, track.artist, track.album, track.duration))
+    # Manual recovery bypasses only failed cache entries, with a short cooldown and no duplicate work.
+    failed = bool(row and (row.payload or {}).get("error"))
+    retry_after = max(0, 10 - int((utcnow() - row.refreshed_at).total_seconds())) if failed else 0
+    load = lambda: music_providers.lyric_lookup(track.title, track.artist, track.album, track.duration)
+    if retry and failed and not retry_after and not music_providers.pending(key):
+        music_providers.enqueue(key, "lyrics", load, force=True)
+    else:
+        music_providers.enqueue(key, "lyrics", load)
     return {
         **MusicLyrics().model_dump(),
         **(row.payload if row else {}),
         "refreshing": music_providers.pending(key),
+        **({"retry_after_seconds": retry_after} if retry_after else {}),
     }
 
 

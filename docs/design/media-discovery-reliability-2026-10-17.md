@@ -40,3 +40,6 @@ Frontend source is unchanged from the preceding remediation, whose completed fro
 
 
 A later full-project verification for the metadata-enrichment correction includes the final observer/scanner source. Its backend stage passed **5,068 tests / 11 existing skips**, including the unchanged writer-duration contract and final fair-order regression. Its frontend unit, real-stack and mocked browser phases also passed, completing the full gate with exit status 0; see [the metadata-enrichment record](metadata-enrichment-reliability-2026-10-17.md) for the completed gate outcome. This subsequent run does not erase the earlier failed timing observation.
+
+
+The subsequent production test release `b373cc24` now includes these prevention changes. Post-cutover verification retained all seven recovered seasons / 126 available episodes and the 60-second watch / six-hour safety-scan settings. See the [metadata-enrichment deployment follow-up](metadata-enrichment-reliability-2026-10-17.md#subsequent-production-test-deployment) for deployment and verification evidence.

@@ -1,6 +1,6 @@
 /**
  * Explore: without a query, the masthead, the search field, a Live now teaser from the
- * cached live snapshot (fetched once per visit), typographic category tiles and one rail per popular category; with a
+ * cached live snapshot (shared with Streaming's refresh), typographic category tiles and one rail per popular category; with a
  * query, results grouped by kind in a fixed order with Source chips and jump links. Moved from the old browse surfaces with
  * its props kept.
  */
@@ -24,7 +24,7 @@ import { CategoryRail, ForYouRail } from '../reco/ExploreRails';
 import { RecoRowOwnersProvider, rowOwners } from '../reco/recoFeedback';
 import { RecoPersonalScope } from '../reco/recoPersonal';
 import { orderRails, remoteTarget } from '../reco/recoModel';
-import { channelTarget, exploreGroups, exploreKicker, GROUP_ORDER, type GroupKey, LIBRARY_GROUP_MAX, liveTeaser, popularNotice, popularRails } from './exploreModel';
+import { channelTarget, exploreGroups, exploreKicker, GROUP_ORDER, type GroupKey, LIBRARY_GROUP_MAX, LIVE_TEASER, liveTeaser, popularNotice, popularRails } from './exploreModel';
 import { REMOTE_CARD_SIZES, remoteProvider } from '../gallery/remoteModel';
 import './explore.css';
 
@@ -59,6 +59,9 @@ export type ExploreSurfaceProps = {
    * the order is Live now, For you, Browse by category, then the popular rails, and Live now's See all goes through onSeeAllLive. */
   embedded?: boolean;
   provider?: SearchSource;
+  /** Streaming supplies its member-scoped, polled snapshot; standalone Explore fetches its own. */
+  liveSnapshot?: LiveSnapshot | null;
+  liveError?: string | null;
   onSeeAllLive?: () => void;
   /** Embedded on Streaming: the latest uploads from followed channels, shown after Live now. */
   fromChannels?: RemoteEntry[];
@@ -82,7 +85,8 @@ function ExploreSurfaceView(props: ExploreSurfaceProps) {
   const results = allResults.filter((item) => isProviderVisible(providers, item.source));
   const [draft, setDraft] = useState(query);
   const [source, setSource] = useState('all');
-  const [live, setLive] = useState<LiveSnapshot | null>(null);
+  const [fetchedLive, setLive] = useState<LiveSnapshot | null>(null);
+  const live = props.liveSnapshot === undefined ? fetchedLive : props.liveSnapshot;
   const [liveLoading, setLiveLoading] = useState(true);
   const [localRail, setLocalRail] = useState<string | null>(null);
   const rail = props.onRailChange ? props.rail ?? null : localRail;
@@ -98,12 +102,13 @@ function ExploreSurfaceView(props: ExploreSurfaceProps) {
     return () => cancelAnimationFrame(frame);
   }, [rail]);
   useEffect(() => { setDraft(query); setSource('all'); }, [query]);
-  // Decision: the cached live snapshot, once on entry, never polled here.
+  // Streaming shares its existing poll; standalone Explore reads once on entry.
   useEffect(() => {
+    if (props.liveSnapshot !== undefined) return;
     let active = true;
     getLiveDiscovery().then((snapshot) => { if (active) setLive(snapshot); }).catch(() => { /* the teaser is simply absent */ }).finally(() => { if (active) setLiveLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [props.liveSnapshot]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (rail && !query && isBackKey(event)) { event.preventDefault(); if (props.onRailChange) window.history.back(); else changeRail(null); return; }
@@ -143,7 +148,7 @@ function ExploreSurfaceView(props: ExploreSurfaceProps) {
     if (expanded) {
       return <div className={shell} onKeyDown={onKeyDown}>{masthead}<RecoPersonalScope value={personal}><RecoRowOwnersProvider value={owners}><CategoryRail eager expanded extra={actionsFor} onOpen={onOpen} rail={expanded} /></RecoRowOwnersProvider></RecoPersonalScope></div>;
     }
-    const teaser = liveTeaser(live).filter((item) => (!provider || remoteProvider(item) === provider) && isProviderVisible(providers, item.source));
+    const teaser = liveTeaser(live, (item) => (!provider || remoteProvider(item) === provider) && isProviderVisible(providers, item.source));
     // One compact, sideways-scrolling row (owner, 2.3.1): Live now and the rows stay above the fold, and nothing shifts.
     const categories = (
       <nav aria-label="Browse by category" className="g-chips g-category-chips" data-focus-row>
@@ -162,8 +167,10 @@ function ExploreSurfaceView(props: ExploreSurfaceProps) {
         {masthead}
         {searchField}
         {/* While a row loads it holds its place (heading + card slots), so rows below never jump when it lands (CLS). */}
-        {liveLoading && !teaser.length ? <RailSlot heading="Live now" /> : null}
+        {!props.liveError && (props.liveSnapshot === undefined ? liveLoading : !props.liveSnapshot) && !teaser.length ? <RailSlot heading="Live now" /> : null}
+        {props.liveError && !teaser.length ? <p className="g-label" role="status">{props.liveError}</p> : null}
         {teaser.length ? <StillRail eager heading="Live now" items={teaser} liveCount={provider ? null : live?.live_total} onOpen={onOpen} onSeeAll={onSeeAllLive ?? (() => openAppPath('/streaming/live'))} railKey="live-now" seeAllHref="/streaming/live" showProvider={!provider} /> : null}
+        {live?.language_pending && teaser.length < LIVE_TEASER ? <p className="g-label" role="status">Finding more live streams in your language…</p> : null}
         {embedded && props.fromChannels?.length ? <StillRail heading="From your channels" items={props.fromChannels.filter((item) => isProviderVisible(providers, item.source))} onOpen={onOpen} onSeeAll={props.onSeeAllChannels} railKey="from-channels" seeAllHref="/streaming/channels" /> : null}
         {!popular && !popularError ? <RailSlot heading={embedded ? 'Recommended for you' : 'For you'} /> : null}
         <ForYouRail heading={embedded ? 'Recommended for you' : undefined} items={popular?.for_you ?? []} onOpen={onOpen} />

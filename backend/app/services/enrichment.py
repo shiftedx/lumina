@@ -749,18 +749,30 @@ WORKERS["segments"] = _work_segments
 
 
 def queue_captions_after_import(run_id: str) -> None:
-    """After-import hook: a captions job for every titled version item the run saw. Never raises."""
+    """Queue changed titled versions; retain the run lookup after a process restart."""
     try:
         with session_scope() as db:
-            item_ids = [
-                item_id for item_id, in db.query(LibraryItem.id)
-                .join(LibraryItemArtifact, LibraryItemArtifact.library_item_id == LibraryItem.id)
-                .join(MediaArtifact, MediaArtifact.id == LibraryItemArtifact.artifact_id)
-                .filter(
-                    MediaArtifact.last_seen_run_id == run_id, LibraryItem.title_id.is_not(None),
-                    LibraryItem.extra_type.is_(None), LibraryItem.status != "missing",
-                ).all()
-            ]
+            changes = library_import.import_changes(run_id)
+            base = db.query(LibraryItem.id).filter(
+                LibraryItem.title_id.is_not(None), LibraryItem.extra_type.is_(None), LibraryItem.status != "missing",
+            )
+            if changes is not None:
+                if not changes.item_ids:
+                    return
+                wanted = sorted(changes.item_ids)
+                for start in range(0, len(wanted), MAX_BULK_ROWS):
+                    item_ids = [item_id for item_id, in base.filter(
+                        LibraryItem.id.in_(wanted[start:start + MAX_BULK_ROWS])
+                    ).all()]
+                    queue_bulk(db, item_ids, ["captions"], None)
+                return
+            else:
+                query = base.join(
+                    LibraryItemArtifact, LibraryItemArtifact.library_item_id == LibraryItem.id
+                ).join(MediaArtifact, MediaArtifact.id == LibraryItemArtifact.artifact_id).filter(
+                    MediaArtifact.last_seen_run_id == run_id
+                )
+            item_ids = [item_id for item_id, in query.all()]
             for start in range(0, len(item_ids), MAX_BULK_ROWS):  # already-captioned items are skipped as done
                 queue_bulk(db, item_ids[start:start + MAX_BULK_ROWS], ["captions"], None)
     except Exception as exc:  # noqa: BLE001 - an import never fails because enrichment could not queue

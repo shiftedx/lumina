@@ -74,6 +74,19 @@ describe('admin overview', () => {
     expect(await screen.findByText('Library items')).not.toBeNull();
   });
 
+  it('keeps a new-release notice on Overview and opens the Updates settings page', async () => {
+    const onOpenUpdates = vi.fn();
+    api.getAdminOverview.mockResolvedValue({ ...overview, updates: {
+      current_version: '3.1.0', latest_release: { version: '3.2.0', url: 'https://github.com/shiftedx/lumina/releases/tag/v3.2.0', published_at: null },
+      status: 'update_available', checked_at: '2026-10-18T12:00:00Z', error: null, checking: false, automatic_checks: true, email_notifications: false, email_configured: true,
+    } });
+    render(<AdminOverview onOpenUpdates={onOpenUpdates} />);
+
+    const notice = (await screen.findByText('Lumina 3.2.0 is available.')).closest('[role="status"]') as HTMLElement;
+    await userEvent.click(within(notice).getByRole('button', { name: 'Review update' }));
+    expect(onOpenUpdates).toHaveBeenCalledOnce();
+  });
+
   it('saves download limits from their own rows, keeps entered values on failure and refreshes the overview', async () => {
     const browser = userEvent.setup();
     api.getAdminOverview.mockResolvedValue(overview);

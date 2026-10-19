@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CHANNEL_ID, liveEntry, liveSnapshot, remoteEntry } from '../../test/remoteFixtures';
+import { CHANNEL_ID, endedEntry, liveEntry, liveSnapshot, remoteEntry } from '../../test/remoteFixtures';
 import type { PopularSnapshot } from '../../types';
 import { channelTarget, exploreGroups, liveTeaser, popularNotice, popularRails } from './exploreModel';
 
@@ -14,11 +14,24 @@ describe('Explore model', () => {
     });
   });
 
-  it('teases the eight most-watched live streams from the snapshot, follows included, once each', () => {
-    const snapshot = liveSnapshot({ hero: [liveEntry('g1', { view_count: 30_000 }), liveEntry('f', { view_count: 99_000 })] });
-    expect(liveTeaser(snapshot).map((entry) => entry.id)).toEqual(['f', 'g1', 'g3', 'm1', 'g2', 'm2']);
-    expect(liveTeaser(liveSnapshot({ items: Array.from({ length: 12 }, (_, index) => liveEntry(`x${index}`)) }))).toHaveLength(8);
+  it('keeps followed live streams first, dedupes by first occurrence, and omits non-live entries', () => {
+    const followed = liveEntry('followed', { title: 'Followed first', view_count: 1 });
+    const followedSecond = liveEntry('followed-second', { view_count: 99 });
+    const backendCopy = liveEntry('followed', { title: 'Backend copy', view_count: 100_000 });
+    const backend = liveEntry('backend', { view_count: 90_000 });
+    const teaser = liveTeaser(liveSnapshot({ hero: [followed, followedSecond, endedEntry('ended')], items: [backendCopy, backend] }));
+    expect(teaser.map((entry) => entry.id)).toEqual(['followed', 'followed-second', 'backend']);
+    expect(teaser[0]?.title).toBe('Followed first');
     expect(liveTeaser(null)).toEqual([]);
+  });
+
+  it('filters the selected provider before applying the 16-entry limit', () => {
+    const followed = liveEntry('followed-youtube', { title: 'Followed YouTube', source: 'youtube', view_count: 1 });
+    const twitch = Array.from({ length: 18 }, (_, index) => liveEntry(`twitch-${index}`, { source: 'twitch', view_count: 100_000 - index }));
+    const youtube = Array.from({ length: 15 }, (_, index) => liveEntry(`youtube-${index}`, { source: 'youtube', view_count: 10_000 - index }));
+    const teaser = liveTeaser(liveSnapshot({ hero: [followed], items: [...twitch, ...youtube] }), (item) => item.source === 'youtube');
+    expect(teaser).toHaveLength(16);
+    expect(teaser.map((entry) => entry.id)).toEqual(['followed-youtube', ...youtube.map((entry) => entry.id)]);
   });
 
   it('makes one rail per ready or stale popular category, in snapshot order', () => {

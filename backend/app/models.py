@@ -671,6 +671,8 @@ class AppSettings(Base):
     archive_path: Mapped[str] = mapped_column(Text, nullable=False)
     concurrency: Mapped[int] = mapped_column(Integer, default=1)
     resource_policy: Mapped[dict] = mapped_column(JSON, default=dict, server_default=text("'{}'"), nullable=False)
+    # Stable GitHub release checks: preferences, the last successful result, retry timing and email dedupe.
+    update_settings: Mapped[dict] = mapped_column(JSON, default=dict, server_default=text("'{}'"), nullable=False)
     max_active_jobs_per_user: Mapped[int] = mapped_column(Integer, default=25)
     min_free_disk_mb: Mapped[int] = mapped_column(Integer, default=2048)
     max_playback_sessions: Mapped[int] = mapped_column(Integer, default=2)
@@ -808,7 +810,10 @@ class MediaArtifact(Base):
     """One physical file, addressed as root + relative path; never a raw absolute path."""
 
     __tablename__ = "media_artifacts"
-    __table_args__ = (UniqueConstraint("root_id", "relative_path", name="uq_media_artifact_root_path"),)
+    __table_args__ = (
+        UniqueConstraint("root_id", "relative_path", name="uq_media_artifact_root_path"),
+        Index("ix_media_artifacts_root_size", "root_id", "size"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     root_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)

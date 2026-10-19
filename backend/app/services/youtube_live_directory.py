@@ -1,9 +1,8 @@
 """YouTube's live directory: many currently-live streams per live category.
 
-Research (2026-10): YouTube's "Live" destination and topic channels expose no
-tab yt-dlp can read, but the live-filtered search results page returns ~100
-live streams per query. Several parallel queries per category, merged and
-ranked by concurrent viewers, give 350-750 live streams per category in ~6 s.
+YouTube's live-filtered search supplies a bounded pool across several queries
+per category. Fetch only the queries the shared provider budget can afford;
+member language eligibility and personal ranking happen after collection.
 """
 from __future__ import annotations
 
@@ -28,10 +27,9 @@ CATEGORY_QUERIES: dict[str, tuple[str, ...]] = {
     "creative": ("irl", "art", "just chatting", "cooking", "podcast", "talk show"),
     "other": ("live", "livestream", "24/7", "webcam", "animals", "space"),
 }
-QUERY_RESULTS = 100
+QUERY_RESULTS = 40
 TIME_BUDGET_SECONDS = 8.0
-# A category's pool is ~30-40 search requests: it refreshes hourly at most, and only when the shared YouTube budget can
-# afford the whole pool above the background reserve (so rows and followed checks come first).
+# Refresh hourly at most, admitting an affordable prefix above the background reserve.
 CACHE_TTL_SECONDS = 60 * 60.0
 _WORKERS = 4
 
@@ -44,7 +42,7 @@ def _default_search(query: str, limit: int) -> YouTubeSearchResponse:
     from app.services.yt_dlp_service import YtDlpService
 
     with SessionLocal() as db:
-        return YtDlpService(db).youtube_live_search(query, limit, max_limit=QUERY_RESULTS)
+        return YtDlpService(db).youtube_live_search(f"{query} english live", limit, max_limit=QUERY_RESULTS)
 
 
 _lock = threading.Lock()
@@ -68,8 +66,13 @@ def _decode(cursor: str | None) -> int:
 def _fetch(category_key: str, search: Search, budget: float) -> list[YouTubeSearchResult] | None:
     """The category's merged pool, or None when the shared YouTube budget cannot afford it now (keep the last one)."""
     queries = CATEGORY_QUERIES[category_key]
-    if not provider_budget.affordable(provider_budget.youtube, len(queries) * provider_budget.youtube_search_cost(QUERY_RESULTS), "background"):
+    # Admit the breadth that fits now, rather than requiring the entire category
+    # at once (the first shallow search already spends part of the burst).
+    count = next((size for size in range(len(queries), 0, -1)
+                  if provider_budget.affordable(provider_budget.youtube, size * provider_budget.youtube_search_cost(QUERY_RESULTS), "background")), 0)
+    if not count:
         return None
+    queries = queries[:count]
 
     def run(query: str) -> YouTubeSearchResponse:
         # Each query spends at the seam; a rate-limit answer from a sibling pauses YouTube and the rest stop there.

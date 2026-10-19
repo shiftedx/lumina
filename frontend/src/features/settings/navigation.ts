@@ -63,6 +63,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
   { id: 'ai-activity', category: 'ai', section: 'ai', label: 'Activity', summary: 'AI availability and the progress of enrichment jobs.', rows: ['ai.status'] },
   { id: 'backups', category: 'maintenance', section: 'backups', label: 'Backups', summary: 'Create, verify and schedule copies of the vault database.', rows: ['backups.list', 'backups.schedule'] },
   { id: 'tasks', category: 'maintenance', section: 'tasks', label: 'Tasks', summary: 'Background work, failures, cancellation and retries.', rows: ['tasks.list'], essential: ['tasks.list'] },
+  { id: 'updates', category: 'maintenance', section: 'diagnostics', label: 'Updates', summary: 'Check releases and choose how vault owners are notified.', rows: ['diagnostics.updates'] },
   { id: 'diagnostics', category: 'maintenance', section: 'diagnostics', label: 'Diagnostics', summary: 'Versions and a redacted health report for troubleshooting.', rows: ['diagnostics.report'], essential: ['diagnostics.report'] },
   { id: 'transcoding', category: 'maintenance', section: 'transcoding', label: 'Video conversion', summary: 'Hardware acceleration and limits for video your devices cannot play directly.', rows: ['transcoding.hwaccel', 'transcoding.max-sessions', 'transcoding.cache', 'transcoding.diagnostics'], essential: ['transcoding.hwaccel', 'transcoding.max-sessions', 'transcoding.cache', 'transcoding.diagnostics'] },
   { id: 'download-limits', category: 'maintenance', section: 'overview', label: 'Download limits', summary: 'Server limits for downloads, disk space and source ports.', rows: ['overview.concurrency', 'overview.per-member', 'overview.min-free', 'overview.source-ports'], essential: ['overview.concurrency', 'overview.per-member', 'overview.min-free', 'overview.source-ports'] },
@@ -85,6 +86,6 @@ export const SETTINGS_CATEGORIES: ReadonlyArray<{ id: SettingsCategory; space: S
 
 export const pageById = (id: string) => SETTINGS_PAGES.find((page) => page.id === id);
 export const pageForRow = (id: string) => SETTINGS_PAGES.find((page) => page.rows.includes(id));
-const SECTION_DEFAULTS: Partial<Record<SettingsSectionId, string>> = { media: 'metadata', requests: 'sonarr' };
+const SECTION_DEFAULTS: Partial<Record<SettingsSectionId, string>> = { media: 'metadata', requests: 'sonarr', diagnostics: 'diagnostics' };
 export const resolveSettingsPage = (section: SettingsSectionId, id?: string | null) => SETTINGS_PAGES.find((page) => page.section === section && page.id === id) ?? SETTINGS_PAGES.find((page) => page.section === section && (!SECTION_DEFAULTS[section] || page.id === SECTION_DEFAULTS[section]))!;
 export const categoryForPage = (page: SettingsPage) => SETTINGS_CATEGORIES.find((category) => category.id === page.category)!;

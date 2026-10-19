@@ -151,7 +151,7 @@ def _popular() -> PopularSnapshot:
     item = PopularItem(
         id="v1", title="v1", uploader="Someone", duration=None, thumbnail=None, artwork_url=None,
         webpage_url="https://www.youtube.com/watch?v=v1", view_count=10, availability=None, published_at=None,
-        source="youtube", source_label="YouTube", capabilities=None, category_keys=("gaming",),
+        source="youtube", source_label="YouTube", capabilities=None, category_keys=("gaming",), language="en",
     )
     return PopularSnapshot(
         items=(item,), categories=(PopularCategorySnapshot(key="gaming", label="Gaming", state="ready", last_success_at=now, next_refresh_at=now),),

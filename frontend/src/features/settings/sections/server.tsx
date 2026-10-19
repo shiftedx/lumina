@@ -3,6 +3,7 @@ import { ActivityBackground, ActivityHistory, ActivityNowPlaying, ActivityProvid
 import { AdminDiagnostics } from '../../admin/AdminDiagnostics';
 import { LocalAddress, MemberInvitations, MembersList, OwnerTwoFactorSwitch, PublicAddress } from '../../admin/AdminMembers';
 import { AdminTasks } from '../../admin/AdminTasks';
+import { AdminUpdates } from '../../admin/AdminUpdates';
 import { JellyfinHouseholdImport } from '../JellyfinHouseholdImport';
 import { HouseholdResourcesSettings } from '../HouseholdResources';
 import { useSettingsHost } from '../settingsHost';
@@ -68,6 +69,7 @@ export const SERVER_SECTIONS: readonly SettingsSectionDef[] = [
   {
     id: 'diagnostics', group: 'advanced', label: 'Diagnostics', aliases: ['logs'], summary: 'Versions, runtime health and recent errors, redacted so the report is safe to share.',
     entries: [
+      { id: 'diagnostics.updates', label: 'Updates', layout: 'block', keywords: ['update', 'updates', 'upgrade', 'version', 'release', 'release notes', 'automatic checks', 'email notifications'], info: 'Shows the installed Lumina version and the newest public release, with a manual check when you want a fresh result. Automatic checks only look for releases; Lumina never installs an update or restarts itself. Affects this server and notifies vault owners only when you opt in.', Control: AdminUpdates },
       { id: 'diagnostics.report', label: 'Health report', layout: 'block', advanced: true, keywords: ['diagnostics', 'versions', 'runtime', 'recent errors', 'ffmpeg', 'yt-dlp', 'maintenance', 'copy report', 'support'], info: 'Versions, runtime health and recent errors, with paths, tokens and keys removed so the report is safe to share. Copy it when you ask for help. Nothing here changes a setting.', Control: AdminDiagnostics },
     ],
   },

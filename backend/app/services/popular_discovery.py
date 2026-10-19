@@ -92,6 +92,7 @@ class PopularItem:
     # channel address simply cannot become a follow and is skipped downstream.
     uploader_url: str | None = None
     uploader_id: str | None = None
+    language: str | None = None
 
 
 @dataclass(frozen=True)
@@ -489,6 +490,7 @@ class PopularDiscovery:
                     # channel candidate from the video-shaped popular record.
                     "uploader_url": self._text(item.get("uploader_url") or item.get("channel_url"), 2_048),
                     "uploader_id": self._text(item.get("channel_id") or item.get("uploader_id"), 256),
+                    "language": self._text(item.get("language"), 32),
                     "duration": self._nonnegative_integer(item.get("duration")),
                     "thumbnail": self._text(item.get("thumbnail"), 2_048),
                     # Opaque artwork IDs are process-local capabilities and
@@ -776,6 +778,7 @@ class PopularDiscovery:
             category_keys=tuple(key for key in item.get("category_keys", []) if isinstance(key, str)),
             uploader_url=item.get("uploader_url") if isinstance(item.get("uploader_url"), str) else None,
             uploader_id=item.get("uploader_id") if isinstance(item.get("uploader_id"), str) else None,
+            language=PopularDiscovery._text(item.get("language"), 32),
         )
 
     @staticmethod

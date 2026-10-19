@@ -122,8 +122,8 @@ describe('Show advanced settings (familiar before technical)', () => {
       'tasks.list', 'diagnostics.report',
     ]);
   });
-  it('hides only Transcoding, Tasks and Diagnostics whole, and still shows a hidden section opened by link', () => {
-    expect(SETTINGS_SECTIONS.filter(isAdvancedSection).map((section) => section.id)).toEqual(['transcoding', 'tasks', 'diagnostics']);
+  it('hides only Transcoding and Tasks whole, and still shows a hidden section opened by link', () => {
+    expect(SETTINGS_SECTIONS.filter(isAdvancedSection).map((section) => section.id)).toEqual(['transcoding', 'tasks']);
     const transcoding = SETTINGS_SECTIONS.find((section) => section.id === 'transcoding')!;
     expect(shownEntries(transcoding, false)).toHaveLength(transcoding.entries.length);
     const playback = SETTINGS_SECTIONS.find((section) => section.id === 'playback')!;

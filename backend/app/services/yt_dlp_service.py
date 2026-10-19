@@ -980,6 +980,7 @@ class YtDlpService:
         # The immutable channel id (UC…) outranks the renamable @handle.
         channel_id = entry.get("channel_id") or entry.get("uploader_id")
         return YouTubeSearchResult(
+            language=cls.result_language(entry),
             id=entry.get("id"),
             title=entry.get("title") or entry.get("track"),
             uploader=entry.get("uploader") or entry.get("channel") or entry.get("artist"),
@@ -999,6 +1000,31 @@ class YtDlpService:
                 "extractor_key": entry.get("extractor_key") or provider,
             }),
         )
+
+    @staticmethod
+    def result_language(entry: dict[str, Any]) -> str | None:
+        from app.services.track_preferences import language
+
+        explicit = entry.get("language") or entry.get("default_audio_language")
+        if explicit:
+            return language(explicit)
+        # Original/default audio wins over alternate dubbed tracks. Never infer
+        # spoken language from the title or the extractor's UI locale.
+        raw_formats = entry.get("formats")
+        formats = [value for value in (raw_formats if isinstance(raw_formats, list) else []) if isinstance(value, dict)
+                   and value.get("acodec") not in (None, "none") and value.get("language")]
+        preferred = [value for value in formats if isinstance(value.get("language_preference"), (int, float)) and value["language_preference"] > 0]
+        best = max((value.get("language_preference") or 0 for value in preferred), default=0)
+        choices = [value for value in preferred if value.get("language_preference") == best] if preferred else formats
+        langs = {language(value.get("language")) for value in choices} - {None}
+        if len(langs) == 1:
+            return next(iter(langs))
+        if not langs:
+            captions = entry.get("automatic_captions")
+            original = {language(key[:-5]) for key in captions if isinstance(key, str) and key.endswith("-orig")} if isinstance(captions, dict) else set()
+            original.discard(None)
+            return next(iter(original)) if len(original) == 1 else None
+        return None
 
     @staticmethod
     def _youtube_result_kind(entry: dict[str, Any], webpage_url: str | None) -> str:

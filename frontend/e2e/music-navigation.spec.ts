@@ -64,7 +64,7 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
   await expect(page.getByRole('heading', { level: 1, name: 'Album One' })).toBeVisible();
   if (process.env.MUSIC_VISUAL_DIR) await page.screenshot({ path: `${process.env.MUSIC_VISUAL_DIR}/album-page-desktop.png`, fullPage: true });
   await page.getByRole('button', { name: 'Play', exact: true }).click();
-  const player = page.getByRole('region', { name: 'Music player' });
+  const player = page.getByRole('region', { name: 'Music player', exact: true });
   await expect(player).toBeVisible();
   await expect(player.getByRole('button', { name: /Open listening room for Song [123]/ })).toBeVisible();
   if (process.env.MUSIC_VISUAL_DIR) {
@@ -88,12 +88,17 @@ test('Video, Audio, and Books are direct destinations while the music queue keep
   await expect(player).toBeVisible();
   await expect(player.getByRole('button', { name: /Open listening room for Song [123]/ })).toBeVisible();
 
-  await page.getByRole('region', { name: 'A Title 0' }).getByRole('button', { name: 'Open artist' }).click();
-  await expect(page).toHaveURL(/\/audio\/title\/artist-0000$/);
+  const soundstage = page.getByRole('region', { name: 'A room full of records' });
+  await expect(soundstage.getByRole('button', { name: /A Title 0 by Artist 0/ })).toBeVisible();
+  await soundstage.getByRole('button', { name: /A Title 0 by Artist 0/ }).click();
+  await expect(page).toHaveURL(/\/audio\/title\/album-0000$/);
+  await page.goto('/audio/title/artist-0000');
   await expect(page.getByRole('heading', { level: 1, name: 'A Title 0' })).toBeVisible();
   await expect(page.getByRole('heading', { level: 2, name: /^Albums/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Play all', exact: true })).toBeEnabled();
-  await expect(player).toBeVisible();
+  // A full navigation restores the queue paused; only SPA navigation keeps audio playing.
+  await expect(player).toBeHidden();
+  await expect(page.getByRole('region', { name: 'Mini music player' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'artist page overflow').toBeLessThanOrEqual(0);
   const artistAccessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
   expect(artistAccessibility.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical').map((violation) => violation.id)).toEqual([]);
@@ -112,9 +117,10 @@ for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: '
     await mockFirstClassMusic(page);
     await page.goto('/audio');
     await signIn(page);
-    const soundstage = page.getByRole('region', { name: 'A Title 0' });
+    const soundstage = page.getByRole('region', { name: 'A room full of records' });
     await expect(soundstage).toBeVisible();
-    await expect(soundstage.getByRole('button', { name: 'Play artist' })).toBeEnabled();
+    await expect(soundstage.getByRole('button', { name: /A Title 0 by Artist 0/ })).toBeVisible();
+    await expect(soundstage.getByRole('button', { name: /C Title 1 by Artist 1/ })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'page overflow').toBeLessThanOrEqual(0);
     if (viewport.width === 390) {
       const nav = page.getByRole('navigation', { name: 'Audio' });

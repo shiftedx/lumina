@@ -316,6 +316,7 @@ def test_cached_lyrics_error_keeps_the_complete_response_contract(music_world, m
         "instrumental": False,
         "error": "Music provider is temporarily unavailable",
         "refreshing": False,
+        "retry_after_seconds": 10,
     }
 
 
@@ -447,3 +448,31 @@ def test_photo_credit_is_only_returned_for_the_current_image(music_world):
         artist.images = {'Primary': {'upload': 'my-photo', 'tag': 'manual-tag'}}
         db.commit()
     assert client.get(f'/api/titles/{ARTIST}').json()['music']['artwork_credits'] == []
+
+
+def test_lyrics_retry_recovers_a_cached_failure_but_does_not_duplicate_pending_work(music_world, monkeypatch):
+    factory, client_for, _root = music_world
+    key = music_providers.key_for('lyrics', 'Artist A', 'Song 1.1', 'Album One', '180.0')
+    calls = []
+    monkeypatch.setattr(music_providers, 'enqueue', lambda *args, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(music_providers, 'pending', lambda _key: False)
+    with factory() as db:
+        db.add(MusicLookup(key=key, kind='lyrics', payload={'error': 'Music provider is temporarily unavailable'}, refreshed_at=utcnow() - timedelta(minutes=5), expires_at=utcnow() + timedelta(hours=1)))
+        db.commit()
+    client = client_for(ALICE)
+    assert client.get(f'/api/music/tracks/{TRACKS[0]}/lyrics?retry=true').status_code == 200
+    assert calls[-1] == {'force': True}
+    monkeypatch.setattr(music_providers, 'pending', lambda _key: True)
+    client.get(f'/api/music/tracks/{TRACKS[0]}/lyrics?retry=true')
+    assert calls[-1] == {}
+    monkeypatch.setattr(music_providers, 'pending', lambda _key: False)
+    with factory() as db:
+        db.get(MusicLookup, key).refreshed_at = utcnow()
+        db.commit()
+    reply = client.get(f'/api/music/tracks/{TRACKS[0]}/lyrics?retry=true').json()
+    assert calls[-1] == {} and reply['retry_after_seconds'] > 0
+    with factory() as db:
+        db.get(MusicLookup, key).payload = {'plain': 'Saved words', 'cues': []}
+        db.commit()
+    client.get(f'/api/music/tracks/{TRACKS[0]}/lyrics?retry=true')
+    assert calls[-1] == {}

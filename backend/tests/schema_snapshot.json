@@ -135,6 +135,7 @@
    "tmdb_api_key",
    "transcode_cache_gb",
    "ui_prefs",
+   "update_settings",
    "updated_at",
    "yt_dlp_defaults"
   ],
@@ -1097,5 +1098,5 @@
    "user_id"
   ]
  },
- "version": 29
+ "version": 31
 }

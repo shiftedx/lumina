@@ -13,7 +13,6 @@ from app import db as db_module
 from app.config import settings
 from app.main import app
 from app.models import ImportRun, LibraryItem, MediaArtifact, MediaTitle, User, utcnow
-from app.routers.admin_imports import _serialize
 from app.security import hash_password
 from app.services import library_import
 from app.services.library_import import LibraryImportService
@@ -158,13 +157,13 @@ def test_scan_cancel_resume_deduplicates(library: Path, monkeypatch: pytest.Monk
         db.commit()
         assert service.step(run.id) is False
         run = db.get(ImportRun, run.id)
-        assert run.cursor == "[]" and run.counters["candidate_discovered"] == 2 and run.counters["_discovery_cursor"]
-        assert "_discovery_cursor" not in _serialize(run).counters
+        assert run.cursor != "[]" and run.counters["candidate_discovered"] == 2
+        assert "candidate_total" not in run.counters
         service.cancel(db.get(ImportRun, run.id))
         db.commit()
         assert service.step(run.id) is True
         assert db.get(ImportRun, run.id).state == "cancelled"
-        assert db.query(LibraryItem).count() == 0
+        assert db.query(LibraryItem).count() == 2  # cancellation keeps batches that already committed
 
         for _ in range(2):  # resuming twice (second is a fresh rescan) never duplicates
             current = db.get(ImportRun, run.id)
@@ -198,41 +197,146 @@ def test_legacy_run_resumes_its_processing_cursor_without_restarting_discovery(l
         assert {artifact.relative_path for artifact in db.query(MediaArtifact)} == {"b.mp4", "c.mp4"}
 
 
-def test_indexing_total_reconciles_when_files_change_after_discovery(library: Path) -> None:
+def test_indexing_total_is_unknown_until_the_bounded_walk_finishes(library: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write(library / "a.mp4", b"a")
+    write(library / "b.mp4", b"b")
+    with client_for("admin") as admin:
+        root_id = register_root(admin, library)
+    with db_module.SessionLocal() as db:
+        monkeypatch.setattr(library_import, "BATCH_SIZE", 1)
+        service = LibraryImportService(db)
+        run = service.start(root_id, "admin")
+        db.commit()
+        assert service.step(run.id) is False
+        run = db.get(ImportRun, run.id)
+        assert run.counters["scan_phase"] == "indexing" and "candidate_total" not in run.counters
+        while not service.step(run.id):
+            pass
+        run = db.get(ImportRun, run.id)
+        assert (run.counters["candidate_completed"], run.counters["candidate_total"]) == (2, 2)
+
+
+def test_files_changed_during_a_live_walk_are_reconciled_by_the_next_scan(
+    library: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     write(library / "a.mp4", b"a")
     write(library / "b.mp4", b"b")
     with client_for("admin") as admin:
         root_id = register_root(admin, library)
     with db_module.SessionLocal() as db:
         service = LibraryImportService(db)
+        baseline = service.start(root_id, "admin")
+        db.commit()
+        while not service.step(baseline.id):
+            pass
+
+        monkeypatch.setattr(library_import, "BATCH_SIZE", 1)
         run = service.start(root_id, "admin")
         db.commit()
-        assert service.step(run.id) is False
-        run = db.get(ImportRun, run.id)
-        assert (run.counters["scan_phase"], run.counters["candidate_total"]) == ("indexing", 2)
+        assert service.step(run.id) is False  # the retained listing now holds a then b
         (library / "b.mp4").unlink()
         write(library / "c.mp4", b"c")
         write(library / "d.mp4", b"d")
         while not service.step(run.id):
             pass
         run = db.get(ImportRun, run.id)
-        assert (run.counters["candidate_completed"], run.counters["candidate_total"]) == (3, 3)
+        assert run.state == "partial" and run.coverage == "incomplete"
+        assert (run.counters["candidate_completed"], run.counters["candidate_total"]) == (2, 2)
+        assert db.scalar(select(MediaArtifact.lifecycle).where(MediaArtifact.relative_path == "b.mp4")) == "available"
+
+        followup = service.start(root_id, "admin")
+        db.commit()
+        while not service.step(followup.id):
+            pass
+        followup = db.get(ImportRun, followup.id)
+        assert followup.state == "succeeded"
+        assert (followup.counters["candidate_completed"], followup.counters["candidate_total"]) == (3, 3)
+        assert {
+            artifact.relative_path: artifact.lifecycle for artifact in db.query(MediaArtifact)
+        } == {"a.mp4": "available", "b.mp4": "missing", "c.mp4": "available", "d.mp4": "available"}
 
 
-def test_rescan_requeues_a_probe_after_a_missing_file_returns(library: Path) -> None:
+def test_batches_share_one_live_walk(library: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for index in range(7):
+        write(library / f"clip{index}.mp4", str(index).encode())
+    with client_for("admin") as admin:
+        root_id = register_root(admin, library)
+    real_walk = library_import.walk
+    walks = 0
+
+    def counted_walk(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        nonlocal walks
+        walks += 1
+        return real_walk(*args, **kwargs)
+
+    monkeypatch.setattr(library_import, "BATCH_SIZE", 2)
+    monkeypatch.setattr(library_import, "walk", counted_walk)
+    with db_module.SessionLocal() as db:
+        service = LibraryImportService(db)
+        run = service.start(root_id, "admin")
+        db.commit()
+        while not service.step(run.id):
+            pass
+        assert walks == 1
+        assert db.query(MediaArtifact).count() == 7
+
+
+def test_failed_batch_rebuilds_the_walk_from_its_durable_cursor(library: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for index in range(5):
+        write(library / f"clip{index}.mp4", str(index).encode())
+    with client_for("admin") as admin:
+        root_id = register_root(admin, library)
+    real_describe = library_import.describe
+    attempts = 0
+
+    def fail_once(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("synthetic description failure")
+        return real_describe(*args, **kwargs)
+
+    monkeypatch.setattr(library_import, "BATCH_SIZE", 2)
+    monkeypatch.setattr(library_import, "describe", fail_once)
+    with db_module.SessionLocal() as db:
+        service = LibraryImportService(db)
+        run = service.start(root_id, "admin")
+        db.commit()
+        with pytest.raises(RuntimeError, match="synthetic description failure"):
+            service.step(run.id)
+        db.rollback()
+        assert db.get(ImportRun, run.id).cursor == "[]"
+        while not service.step(run.id):
+            pass
+        assert {artifact.relative_path for artifact in db.query(MediaArtifact)} == {
+            f"clip{index}.mp4" for index in range(5)
+        }
+
+
+def test_rescan_requeues_a_probe_after_a_missing_file_returns(library: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     media = library / "Movies" / "Return.mp4"
     write(media)
+    changed_artifacts: dict[str, set[str]] = {}
+
+    def capture(run_id: str) -> None:
+        changes = library_import.import_changes(run_id)
+        assert changes is not None
+        changed_artifacts[run_id] = set(changes.artifact_ids)
+
+    monkeypatch.setattr(library_import, "after_import_hooks", [capture])
     with client_for("admin") as admin:
         root_id = register_root(admin, library)
         run = admin.post("/api/admin/imports", json={"root_id": root_id}).json()
         assert admin.get(run["status_url"]).json()["state"] == "succeeded"
         with db_module.SessionLocal() as db:
             artifact = db.query(MediaArtifact).one()
+            artifact_id = artifact.id
             artifact.probe = {"fingerprint": None, "error": "missing", "loudness": {"error": "missing"}}
             db.commit()
 
         rerun = admin.post("/api/admin/imports", json={"root_id": root_id}).json()
         assert admin.get(rerun["status_url"]).json()["state"] == "succeeded"
+        assert changed_artifacts[rerun["id"]] == {artifact_id}
     with db_module.SessionLocal() as db:
         probe = db.query(MediaArtifact).one().probe
         assert probe is None or probe.get("error") != "missing"  # the background worker may already have retried

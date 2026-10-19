@@ -95,6 +95,39 @@ def baselined(env: Env, fs: FakeFs, root_id: str) -> None:
     assert env.automation._watches[root_id].phase == "watching" and rows(root_id) == fs.dirs
 
 
+def test_file_read_failure_recovers_through_the_public_activity_contract(env):
+    fs = library(FakeFs(FsClock()))
+    e = env(fs_factory=lambda root: fs)
+    root_id = watched(e)
+    baselined(e, fs, root_id)
+    fs.add("Movie/extra.mkv")
+    fs.read_errors["Movie/extra.mkv"] = OSError("transient read failure")
+
+    for _ in range(12):
+        tick(e)
+        if e.automation.public_activity()["waiting_error_files"]:
+            break
+    assert e.automation.public_activity()["waiting_files"] == 2
+    assert e.automation.public_activity()["waiting_error_files"] == 1
+
+    del fs.read_errors["Movie/extra.mkv"]
+    recovered_at = e.fake_clock._mono
+    for _ in range(12):
+        tick(e)
+        if not e.automation.public_activity()["waiting_error_files"]:
+            break
+    assert e.automation.public_activity()["waiting_files"] == 2
+    assert watch_starts(e) == []
+
+    for _ in range(12):
+        tick(e)
+        if watch_starts(e):
+            break
+    assert e.fake_clock._mono - recovered_at >= library_watch.STABLE_SPAN_S
+    assert watch_starts(e) == [[{"dir": "Movie", "deep": False}]]
+    assert e.automation.public_activity()["waiting_files"] == 0
+
+
 # --- 9.4-M: mass-missing is held, never confirmed by automation --------------------------------------------------
 
 def test_mass_missing_is_never_auto_confirmed_9_4_M(env, tmp_path):
@@ -493,7 +526,7 @@ def test_one_roots_error_does_not_abort_the_tick_for_other_roots(env, monkeypatc
     assert "Bad: OSError" in e.automation.diagnostics()["poller"]["last_error"]
 
 
-def test_completed_passes_refresh_row_age_so_a_restart_after_weeks_reuses_the_snapshot(env):
+def test_completed_passes_refresh_only_the_completion_marker_so_a_restart_reuses_the_snapshot(env):
     fs = library(FakeFs(FsClock()))
     e = env(fs_factory=lambda root: fs)
     root_id = watched(e)
@@ -505,7 +538,9 @@ def test_completed_passes_refresh_row_age_so_a_restart_after_weeks_reuses_the_sn
     tick(e, 3)  # inside the hour: no write
     tick(e, 2, advance=la.TOUCH_EVERY_S)
     with db_module.SessionLocal() as db:
-        assert all(r.updated_at > old + timedelta(days=29) for r in db.query(LibraryWatchDir))
+        rows = {row.path: row.updated_at for row in db.query(LibraryWatchDir)}
+        assert rows[""] > old + timedelta(days=29)
+        assert all(updated_at == old for path, updated_at in rows.items() if path)
     second = env(fs_factory=lambda root: fs)
     tick(second, 2)
     assert second.automation._watches[root_id].dirs == fs.dirs and not second.automation._roots[root_id].baselining

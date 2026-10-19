@@ -35,6 +35,10 @@ final class NativeProofTests: XCTestCase {
         try launchAndResetSession()
         try signIn(using: fixture)
 
+        #if os(iOS)
+        try await assertLibraryCardsStayInsideTheVisibleGrid(using: fixture)
+        #endif
+
         try openLibraryItem(id: fixture.directItemID)
         let directPlaybackTime = try startPlayback(using: "playButton")
         let directInitial = try waitForPlaybackValue(directPlaybackTime, timeout: 10) { _ in true }
@@ -63,7 +67,7 @@ final class NativeProofTests: XCTestCase {
         _ = try waitForPlaybackValue(directPlaybackTime, timeout: 15) { $0 >= stillPaused + 2 }
         #endif
 
-        attachPlaybackFrame(named: "Direct video frame")
+        try attachPlaybackFrame(named: "Direct video frame")
         try closePlayer()
         let directSaved = try await waitForServerProgress(api, identity: identity, itemID: fixture.directItemID, minimum: max(2, directBefore + 5))
         XCTAssertGreaterThan(directSaved, 2, "Direct playback did not report more than two seconds of watch progress.")
@@ -94,7 +98,7 @@ final class NativeProofTests: XCTestCase {
         }
         XCTAssertGreaterThan(convertedAdvanced, convertedInitial + 6, "The converted player's accessibility value did not advance for seven seconds.")
 
-        attachPlaybackFrame(named: "Compatible HLS video frame")
+        try attachPlaybackFrame(named: "Compatible HLS video frame")
         try closePlayer()
         let convertedSaved = try await waitForServerProgress(api, identity: identity, itemID: fixture.convertedItemID, minimum: max(2, convertedBefore + 5))
         XCTAssertGreaterThan(convertedSaved, 2, "Converted playback did not report more than two seconds of watch progress.")
@@ -102,16 +106,141 @@ final class NativeProofTests: XCTestCase {
         completed = true
     }
 
-    private func attachPlaybackFrame(named name: String) {
-        let attachment = XCTAttachment(screenshot: application!.screenshot())
+    func testCurrentDuoLayoutKeepsControlsAndPlaybackReachable() async throws {
+        #if os(iOS)
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let apiSession = makeTestAPISession(origin: origin)
+        defer { apiSession.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: apiSession)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.matrixItemID, seconds: 0)
+        try launchAndResetSession()
+        try assertConnectionFieldsFitViewport(named: "Current-layout sign-in")
+        try signIn(using: fixture)
+        try await assertMatrixLibraryItem(fixture, named: "Current-layout library")
+
+        try openLibraryItem(id: fixture.matrixItemID)
+        try assertMatrixDetail(fixture, named: "Current-layout detail")
+
+        let playbackTime = try startPlayback(using: "playButton")
+        let initial = try waitForPlaybackValue(playbackTime, timeout: 10) { _ in true }
+        _ = try waitForPlaybackValue(playbackTime, timeout: 10) { $0 >= initial + 2 }
+        try assertPlayerControlsFitViewport(named: "Current-layout player")
+        let beforeHome = try waitForPlaybackValue(playbackTime, timeout: 5) { _ in true }
+
+        try backgroundApplication()
+        try await Task.sleep(for: .seconds(3))
+        application!.activate()
+        guard waitUntil(timeout: 10, condition: { self.application!.state == .runningForeground }) else {
+            throw ProofFailure.timeout("Lumina did not return to the foreground after activation.")
+        }
+        try waitForExistence(element("playbackScreen"), timeout: 15, named: "player after returning from Home")
+        let afterHome = try waitForPlaybackValue(playbackTime, timeout: 5) { _ in true }
+        try await Task.sleep(for: .seconds(2))
+        let stillPaused = try waitForPlaybackValue(playbackTime, timeout: 5) { _ in true }
+        XCTAssertLessThanOrEqual(afterHome, beforeHome + 2, "Playback continued while the app was in the background.")
+        XCTAssertLessThanOrEqual(stillPaused, afterHome + 1, "Returning to the app resumed playback without a user action.")
+        _ = try resumeNativePlayer(playbackTime, pausedAt: stillPaused)
+
+        let replay = element("replayButton")
+        try waitForExistence(replay, timeout: 50, named: "replay button at end of media")
+        try waitForExistence(element("playbackScreen"), timeout: 2, named: "player retained at end of media")
+        try assertPlayerControlFitsViewport(replay, named: "Replay")
+        try assertPlayerControlsFitViewport(named: "Current-layout player at end")
+
+        try activate(replay)
+        guard disappears(replay, timeout: 5) else {
+            throw ProofFailure.ui("Replay did not leave the finished playback state.")
+        }
+        let replayedFrom = try waitForPlaybackValue(playbackTime, timeout: 8) { $0 <= 2 }
+        _ = try waitForPlaybackValue(playbackTime, timeout: 10) { $0 >= replayedFrom + 1 }
+        try closePlayer()
+        try waitForExistence(element("detailScreen"), timeout: 10, named: "detail after Done")
+
+        completed = true
+        #else
+        throw XCTSkip("The Duo orientation matrix applies only to iOS and iPadOS.")
+        #endif
+    }
+
+    func testCompatibleHLSReplayRequestsFreshSession() async throws {
+        #if os(iOS)
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let apiSession = makeTestAPISession(origin: origin)
+        defer { apiSession.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: apiSession)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.convertedItemID, seconds: 84)
+
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.convertedItemID)
+        let playbackTime = try startPlayback(using: "convertButton")
+        let resumed = try waitForPlaybackValue(playbackTime, timeout: 15) { $0 >= 82 }
+        XCTAssertGreaterThanOrEqual(resumed, 82, "Compatible playback did not resume near the seeded end position.")
+
+        let replay = element("replayButton")
+        try waitForExistence(replay, timeout: 25, named: "compatible replay button at end of media")
+        try waitForExistence(element("playbackScreen"), timeout: 2, named: "compatible player retained at end of media")
+        try assertPlayerControlFitsViewport(replay, named: "Compatible Replay")
+        try assertPlayerControlFitsViewport(element("closePlayerButton"), named: "Compatible Done")
+        try attachFrame(named: "Compatible HLS at end")
+
+        try activate(replay)
+        guard disappears(replay, timeout: 35) else {
+            throw ProofFailure.ui("Compatible Replay did not prepare a fresh playback session.")
+        }
+        let replayedFrom = try waitForPlaybackValue(playbackTime, timeout: 10) { $0 <= 2 }
+        let replayed = try waitForPlaybackValue(playbackTime, timeout: 15) { $0 >= replayedFrom + 3 }
+        XCTAssertGreaterThanOrEqual(replayed, replayedFrom + 3, "Compatible replay did not advance from its reset position.")
+        try attachFrame(named: "Compatible HLS replaying")
+
+        try closePlayer()
+        let saved = try await waitForServerProgress(
+            api,
+            identity: identity,
+            itemID: fixture.convertedItemID,
+            minimum: 2,
+            maximum: 20
+        )
+        XCTAssertGreaterThan(saved, 2, "Compatible replay did not report its new watch position to the server.")
+        XCTAssertLessThan(saved, 20, "Compatible replay retained the stale near-end server position.")
+
+        completed = true
+        #else
+        throw XCTSkip("The compatible replay control regression applies only to iOS and iPadOS.")
+        #endif
+    }
+
+    private func attachPlaybackFrame(named name: String) throws {
+        let attachment = XCTAttachment(screenshot: try applicationWindow().screenshot())
         attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func attachFrame(named name: String) throws {
+        let window = try applicationWindow()
+        let attachment = XCTAttachment(screenshot: window.screenshot())
+        let frame = window.frame
+        attachment.name = "\(name) — \(Int(frame.width))×\(Int(frame.height)) pt"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
 
     private func captureScreenshot(succeeded: Bool) {
         guard let application else { return }
-        let attachment = XCTAttachment(screenshot: application.screenshot())
+        let window = application.windows.firstMatch
+        let screenshot = window.exists && !window.frame.isEmpty ? window.screenshot() : application.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = succeeded ? "Lumina native proof - success" : "Lumina native proof - failure"
         attachment.lifetime = .keepAlways
         add(attachment)
@@ -123,11 +252,24 @@ final class NativeProofTests: XCTestCase {
         }
     }
 
+    private func applicationWindow() throws -> XCUIElement {
+        let window = application!.windows.firstMatch
+        try waitForExistence(window, timeout: 10, named: "main application window")
+        guard !window.frame.isEmpty else {
+            throw ProofFailure.ui("The main application window had an empty viewport frame.")
+        }
+        return window
+    }
+
+    private func applicationViewport() throws -> CGRect {
+        try applicationWindow().frame
+    }
+
     private func loadFixture() throws -> ProofFixture {
         let bundle = Bundle(for: Self.self)
         guard let url = bundle.url(forResource: "Fixture", withExtension: "json") else {
             throw XCTSkip(
-                "Fixture.json is absent from the UI-test bundle. The proof harness must generate it with local serverURL, username, password, directItemID, and convertedItemID strings."
+                "Fixture.json is absent from the UI-test bundle. The proof harness must generate it with local serverURL, username, password, item ID, and item title strings."
             )
         }
 
@@ -168,6 +310,7 @@ final class NativeProofTests: XCTestCase {
     private func launchAndResetSession() throws {
         let app = XCUIApplication()
         application = app
+        app.launchArguments.append("--ui-testing")
         app.launch()
 
         let loginField = element("serverURLField")
@@ -190,13 +333,20 @@ final class NativeProofTests: XCTestCase {
         let passwordField = element("passwordField")
 
         try waitForExistence(serverField, timeout: 20, named: "server URL field")
+        #if os(iOS)
+        try enter(fixture.serverURL, into: serverField)
+        serverField.typeText("\n")
+        try waitForExistence(usernameField, timeout: 10, named: "username field after Next")
+        usernameField.typeText(fixture.username)
+        usernameField.typeText("\n")
+        try waitForExistence(passwordField, timeout: 10, named: "password field after Next")
+        passwordField.typeText(fixture.password)
+        // Exercise the keyboard's Go action, which stays reachable in Duo landscape.
+        passwordField.typeText("\n")
+        #else
         try enter(fixture.serverURL, into: serverField)
         try enter(fixture.username, into: usernameField)
         try enter(fixture.password, into: passwordField)
-        #if os(iOS)
-        // Exercise the keyboard's Go action, which stays reachable in iPad landscape.
-        passwordField.typeText("\n")
-        #else
         try activate(element("connectButton"))
         #endif
 
@@ -211,21 +361,375 @@ final class NativeProofTests: XCTestCase {
 
     private func openLibraryItem(id: String) throws {
         guard !id.isEmpty else { throw ProofFailure.invalidFixture }
+        #if os(iOS)
+        let item = try revealLibraryItem(id: id, named: "library item")
+        #else
         let item = element("libraryItem-\(id)")
         try waitForExistence(item, timeout: 35, named: "library item")
+        #endif
         try activate(item)
         try waitForExistence(element("detailScreen"), timeout: 25, named: "detail screen")
     }
 
+    #if os(iOS)
+    private func assertLibraryCardsStayInsideTheVisibleGrid(using fixture: ProofFixture) async throws {
+        let direct = element("libraryItem-\(fixture.directItemID)")
+        let converted = element("libraryItem-\(fixture.convertedItemID)")
+        try waitForExistence(direct, timeout: 35, named: "long-title direct library card")
+        try waitForExistence(converted, timeout: 35, named: "landscape-artwork library card")
+        XCTAssertEqual(direct.elementType, .button, "A library card lost its native button role.")
+        XCTAssertEqual(converted.elementType, .button, "A library card lost its native button role.")
+
+        XCTAssertTrue(
+            direct.label.contains(fixture.directItemTitle),
+            "The complete direct-item title was not available from its library card."
+        )
+        XCTAssertTrue(
+            converted.label.contains(fixture.convertedItemTitle),
+            "The complete converted-item title was not available from its library card."
+        )
+
+        // The loopback artwork route is already verified by the fixture server.
+        // Its generated rendition is warm before launch; allow the app's real
+        // AsyncImage request to render, then require consecutive stable layouts.
+        try await Task.sleep(for: .seconds(2))
+        let (frames, isSingleColumn) = try await visibleStableFrames(of: [direct, converted], timeout: 12)
+        let first = frames[0]
+        let second = frames[1]
+        let visibleLibrary = element("libraryScreen").frame.intersection(try applicationViewport())
+        let tolerance: CGFloat = 1
+
+        for frame in frames {
+            XCTAssertFalse(frame.isEmpty, "A library card had no visible frame.")
+            XCTAssertGreaterThanOrEqual(
+                frame.minX,
+                visibleLibrary.minX - tolerance,
+                "A library card escaped the leading visible-library edge: card=\(frame), library=\(visibleLibrary)."
+            )
+            XCTAssertLessThanOrEqual(
+                frame.maxX,
+                visibleLibrary.maxX + tolerance,
+                "A library card escaped the trailing visible-library edge: card=\(frame), library=\(visibleLibrary)."
+            )
+            let copyHeight = frame.height - (frame.width * 1.5)
+            XCTAssertGreaterThan(
+                copyHeight,
+                max(32, frame.width * 0.15),
+                "A library card did not reserve the expected portrait artwork and title area."
+            )
+            XCTAssertLessThan(
+                copyHeight,
+                max(100, frame.width * 0.6),
+                "A library card grew beyond its portrait artwork and two-line title area."
+            )
+        }
+
+        XCTAssertEqual(first.width, second.width, accuracy: tolerance, "Library columns rendered at different widths.")
+        XCTAssertEqual(first.height, second.height, accuracy: tolerance, "Long-title library cards rendered at different heights.")
+        if !isSingleColumn {
+            let leading = first.minX <= second.minX ? first : second
+            let trailing = first.minX <= second.minX ? second : first
+            XCTAssertGreaterThanOrEqual(
+                trailing.minX - leading.maxX,
+                8,
+                "Adjacent library cards overlapped instead of remaining in separate grid columns."
+            )
+        } else {
+            XCTAssertEqual(first.minX, second.minX, accuracy: tolerance, "A single-column library was not leading-aligned.")
+        }
+
+        let attachment = XCTAttachment(screenshot: try applicationWindow().screenshot())
+        attachment.name = "Long-title portrait and landscape artwork cards"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func visibleStableFrames(
+        of elements: [XCUIElement],
+        timeout: TimeInterval
+    ) async throws -> ([CGRect], Bool) {
+        let initial = try await stableFrames(of: elements, timeout: timeout)
+        let isSingleColumn = abs(initial[0].minY - initial[1].minY) > 1
+        if !isSingleColumn {
+            try revealInLibraryViewport(elements)
+            return (initial, false)
+        }
+
+        for element in elements {
+            try revealInLibraryViewport([element])
+        }
+        return (initial, true)
+    }
+
+    private func revealInLibraryViewport(_ elements: [XCUIElement]) throws {
+        let library = element("libraryScreen")
+        let viewport = library.frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 2)
+        for _ in 0..<8 {
+            let frames = elements.map(\.frame)
+            let hasUsefulVisibleArea = frames.allSatisfy { frame in
+                let visible = frame.intersection(viewport)
+                return !visible.isNull && visible.height >= min(44, frame.height)
+            }
+            if hasUsefulVisibleArea { return }
+            guard let leastVisible = frames.min(by: {
+                $0.intersection(viewport).height < $1.intersection(viewport).height
+            }) else { return }
+            if leastVisible.midY >= viewport.midY {
+                try scrollLibrary(library, up: true)
+            } else {
+                try scrollLibrary(library, up: false)
+            }
+        }
+        throw ProofFailure.ui(
+            "The long-title grid cards could not be scrolled into the visible library: "
+                + "cards=\(elements.map(\.frame)), viewport=\(viewport)."
+        )
+    }
+
+    private func stableFrames(of elements: [XCUIElement], timeout: TimeInterval) async throws -> [CGRect] {
+        let deadline = Date().addingTimeInterval(timeout)
+        var previous: [CGRect]?
+        var stableSamples = 0
+        while Date() < deadline {
+            let current = elements.map(\.frame)
+            if current.allSatisfy({ !$0.isEmpty }), framesEqual(current, previous, accuracy: 0.5) {
+                stableSamples += 1
+                if stableSamples >= 3 { return current }
+            } else {
+                stableSamples = 0
+            }
+            previous = current
+            try await Task.sleep(for: .milliseconds(400))
+        }
+        throw ProofFailure.timeout("The long-title library cards did not settle into stable visible frames after artwork loaded.")
+    }
+
+    private func framesEqual(_ left: [CGRect], _ right: [CGRect]?, accuracy: CGFloat) -> Bool {
+        guard let right, left.count == right.count else { return false }
+        return zip(left, right).allSatisfy { lhs, rhs in
+            abs(lhs.minX - rhs.minX) <= accuracy
+                && abs(lhs.minY - rhs.minY) <= accuracy
+                && abs(lhs.width - rhs.width) <= accuracy
+                && abs(lhs.height - rhs.height) <= accuracy
+        }
+    }
+
+    private func assertConnectionFieldsFitViewport(named name: String) throws {
+        let fields = [element("serverURLField"), element("usernameField"), element("passwordField")]
+        for field in fields {
+            try waitForExistence(field, timeout: 10, named: "\(name) connection field")
+            try assertHorizontalContainment(field.frame, in: applicationViewport(), named: "\(name) connection field")
+        }
+        try attachFrame(named: name)
+    }
+
+    private func assertMatrixLibraryItem(_ fixture: ProofFixture, named name: String) async throws {
+        let item = try revealLibraryItem(id: fixture.matrixItemID, named: "\(name) matrix library item")
+        XCTAssertEqual(item.elementType, .button, "\(name) library item lost its button role.")
+        XCTAssertTrue(item.label.contains(fixture.matrixItemTitle), "\(name) library item lost its complete title.")
+        try revealInLibraryViewport([item])
+        let frame = try await stableFrames(of: [item], timeout: 8)[0]
+        let viewport = element("libraryScreen").frame.intersection(try applicationViewport())
+        try assertHorizontalContainment(frame, in: viewport, named: "\(name) library item")
+        try attachFrame(named: name)
+    }
+
+    private func assertMatrixDetail(_ fixture: ProofFixture, named name: String) throws {
+        let detail = element("detailScreen")
+        let title = application!.staticTexts[fixture.matrixItemTitle].firstMatch
+        let play = element("playButton")
+        let convert = element("convertButton")
+        try waitForExistence(title, timeout: 10, named: "\(name) complete title")
+        try waitForExistence(play, timeout: 10, named: "\(name) play button")
+        try waitForExistence(convert, timeout: 10, named: "\(name) convert button")
+
+        try revealDetailElement(title, in: detail, named: "\(name) title", requiresHittable: false)
+        try revealDetailElement(play, in: detail, named: "\(name) Play", requiresHittable: true)
+        try revealDetailElement(convert, in: detail, named: "\(name) Convert", requiresHittable: true)
+        let viewport = detail.frame.intersection(try applicationViewport())
+        for (element, label) in [(title, "title"), (play, "Play"), (convert, "Convert")] {
+            try assertHorizontalContainment(element.frame, in: viewport, named: "\(name) \(label)")
+        }
+        XCTAssertFalse(play.frame.intersects(convert.frame), "\(name) Play and Convert controls overlapped.")
+        try attachFrame(named: name)
+    }
+
+    private func assertPlayerControlsFitViewport(named name: String) throws {
+        let playback = element("playbackScreen")
+        try waitForExistence(playback, timeout: 10, named: name)
+        try assertPlayerControlFitsViewport(element("closePlayerButton"), named: "\(name) Done")
+        try attachFrame(named: name)
+    }
+
+    private func assertPlayerControlFitsViewport(_ control: XCUIElement, named name: String) throws {
+        try waitForExistence(control, timeout: 10, named: name)
+        let viewport = element("playbackScreen").frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 1)
+        try assertHorizontalContainment(control.frame, in: viewport, named: name)
+        guard control.isHittable, control.isEnabled,
+              isFullyVerticallyContained(control.frame, in: viewport) else {
+            throw ProofFailure.ui("\(name) was not a usable control inside the player viewport: control=\(control.frame), viewport=\(viewport).")
+        }
+    }
+
+    private func assertHorizontalContainment(_ frame: CGRect, in viewport: CGRect, named name: String) throws {
+        let tolerance: CGFloat = 1
+        guard !frame.isEmpty,
+              frame.minX >= viewport.minX - tolerance,
+              frame.maxX <= viewport.maxX + tolerance else {
+            throw ProofFailure.ui("\(name) escaped horizontal viewport bounds: element=\(frame), viewport=\(viewport).")
+        }
+    }
+
+    private func isFullyVerticallyContained(_ frame: CGRect, in viewport: CGRect) -> Bool {
+        let tolerance: CGFloat = 1
+        return !frame.isEmpty
+            && frame.minY >= viewport.minY - tolerance
+            && frame.maxY <= viewport.maxY + tolerance
+    }
+
+    private func revealDetailElement(
+        _ element: XCUIElement,
+        in detail: XCUIElement,
+        named name: String,
+        requiresHittable: Bool
+    ) throws {
+        let viewport = detail.frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 2)
+        for _ in 0..<8 {
+            let frame = element.frame
+            let visible = frame.intersection(viewport)
+            let hasRequiredVisibility = requiresHittable
+                ? isFullyVerticallyContained(frame, in: viewport)
+                : !visible.isNull && visible.height >= min(44, frame.height)
+            if (!requiresHittable || element.isHittable), element.isEnabled,
+               hasRequiredVisibility {
+                return
+            }
+            let anchor = self.element("playButton")
+            let anchorX = anchor.exists && !anchor.frame.isEmpty ? anchor.frame.midX : frame.midX
+            try dragVertically(in: viewport, anchorX: anchorX, up: frame.midY >= viewport.midY)
+        }
+        throw ProofFailure.ui("\(name) could not be revealed: element=\(element.frame), viewport=\(viewport).")
+    }
+
+    private func revealLibraryItem(id: String, named name: String) throws -> XCUIElement {
+        let item = element("libraryItem-\(id)")
+        let library = element("libraryScreen")
+        try waitForExistence(library, timeout: 15, named: "library containing \(name)")
+        for _ in 0..<8 {
+            if item.exists {
+                try revealInLibraryViewport([item])
+                return item
+            }
+            try scrollLibrary(library, up: true)
+        }
+        throw ProofFailure.timeout("The \(name) did not materialize after bounded library scrolling.")
+    }
+
+    private func scrollLibrary(_ library: XCUIElement, up: Bool) throws {
+        // A deliberate vertical drag lets the outer scroll view win direction
+        // locking even when it begins over the horizontal Continue Watching rail.
+        let anchor = element("searchField")
+        try waitForExistence(anchor, timeout: 5, named: "library search field scroll anchor")
+        let viewport = library.frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 2)
+        try dragVertically(in: viewport, anchorX: anchor.frame.midX, up: up)
+    }
+
+    private func dragVertically(in viewport: CGRect, anchorX: CGFloat, up: Bool) throws {
+        let window = try applicationWindow()
+        let visibleViewport = viewport.intersection(window.frame)
+        guard !visibleViewport.isEmpty, visibleViewport.height >= 44 else {
+            throw ProofFailure.ui("The vertical scroll viewport was empty: viewport=\(viewport), window=\(window.frame).")
+        }
+
+        let insetX = min(max(anchorX, visibleViewport.minX + 2), visibleViewport.maxX - 2)
+        let startY = visibleViewport.minY + visibleViewport.height * (up ? 0.82 : 0.18)
+        let endY = visibleViewport.minY + visibleViewport.height * (up ? 0.18 : 0.82)
+        let normalizedX = (insetX - window.frame.minX) / window.frame.width
+        let normalizedStartY = (startY - window.frame.minY) / window.frame.height
+        let normalizedEndY = (endY - window.frame.minY) / window.frame.height
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: normalizedX, dy: normalizedStartY))
+        let end = window.coordinate(withNormalizedOffset: CGVector(dx: normalizedX, dy: normalizedEndY))
+        start.press(forDuration: 0.05, thenDragTo: end)
+    }
+
+    private func resumeNativePlayer(_ playbackTime: XCUIElement, pausedAt: Double) throws -> Double {
+        let player = element("nativeVideoPlayer")
+        try waitForExistence(player, timeout: 10, named: "native player after returning from Home")
+        player.tap()
+        if let advanced = try? waitForPlaybackValue(playbackTime, timeout: 4, where: { $0 >= pausedAt + 1 }) {
+            return advanced
+        }
+
+        let play = player.descendants(matching: .button).matching(
+            NSPredicate(format: "label == %@ OR label == %@", "Play", "Resume")
+        ).firstMatch
+        try waitForExistence(play, timeout: 8, named: "native Play control")
+        try activate(play)
+        return try waitForPlaybackValue(playbackTime, timeout: 10) { $0 >= pausedAt + 1 }
+    }
+
+    private func backgroundApplication() throws {
+        let app = application!
+        XCUIApplication(bundleIdentifier: "com.apple.springboard").activate()
+        guard waitUntil(timeout: 8, condition: {
+            app.state == .runningBackground || app.state == .runningBackgroundSuspended
+        }) else {
+            throw ProofFailure.ui("Lumina remained in the foreground after SpringBoard activation: state=\(app.state.rawValue).")
+        }
+    }
+    #endif
+
     private func startPlayback(using buttonIdentifier: String) throws -> XCUIElement {
         let button = element(buttonIdentifier)
         try waitForExistence(button, timeout: 20, named: buttonIdentifier)
+        #if os(iOS)
+        try revealDetailControl(button, named: buttonIdentifier)
+        #endif
         try activate(button)
         try waitForExistence(element("playbackScreen"), timeout: 35, named: "native playback screen")
         let playbackTime = element("playbackTime")
         try waitForExistence(playbackTime, timeout: 20, named: "playback time")
         return playbackTime
     }
+
+    #if os(iOS)
+    private func revealDetailControl(_ control: XCUIElement, named name: String) throws {
+        let detail = element("detailScreen")
+        try waitForExistence(detail, timeout: 10, named: "detail screen containing \(name)")
+        let viewport = detail.frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 2)
+
+        for _ in 0..<8 {
+            let frame = control.frame
+            if control.isHittable,
+               control.isEnabled,
+               isFullyVerticallyContained(frame, in: viewport) {
+                return
+            }
+            let anchor = element("playButton")
+            let anchorX = anchor.exists && !anchor.frame.isEmpty ? anchor.frame.midX : frame.midX
+            try dragVertically(in: viewport, anchorX: anchorX, up: frame.midY >= viewport.midY)
+        }
+
+        throw ProofFailure.ui(
+            "The \(name) control could not be revealed in its detail screen: "
+                + "control=\(control.frame), viewport=\(viewport), hittable=\(control.isHittable)."
+        )
+    }
+
+    private func revealConnectionField(_ field: XCUIElement) throws {
+        let form = application!.scrollViews.firstMatch
+        try waitForExistence(form, timeout: 10, named: "connection form scroll view")
+        let viewport = form.frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 2)
+        for _ in 0..<8 {
+            if field.isHittable { return }
+            guard !field.frame.isEmpty else {
+                throw ProofFailure.ui("A connection field had no frame to anchor its reveal gesture.")
+            }
+            try dragVertically(in: viewport, anchorX: field.frame.midX, up: field.frame.midY >= viewport.midY)
+        }
+        throw ProofFailure.ui("A connection field could not be revealed: field=\(field.frame), viewport=\(viewport).")
+    }
+    #endif
 
     private func closePlayer() throws {
         #if os(tvOS)
@@ -283,6 +787,7 @@ final class NativeProofTests: XCTestCase {
             throw ProofFailure.ui("The tvOS remote could not focus a connection field.")
         }
         #else
+        try revealConnectionField(field)
         try waitForHittable(field, timeout: 10, named: "text field")
         field.tap()
         #endif
@@ -436,7 +941,11 @@ private struct ProofFixture: Decodable {
     let username: String
     let password: String
     let directItemID: String
+    let directItemTitle: String
     let convertedItemID: String
+    let convertedItemTitle: String
+    let matrixItemID: String
+    let matrixItemTitle: String
 }
 
 private struct ProofAPI {
@@ -615,16 +1124,18 @@ private extension NativeProofTests {
         _ api: ProofAPI,
         identity: APIIdentity,
         itemID: String,
-        minimum: Double = 2
+        minimum: Double = 2,
+        maximum: Double? = nil
     ) async throws -> Double {
         let deadline = Date().addingTimeInterval(20)
         var latest = 0.0
         while Date() < deadline {
             latest = try await api.playbackSeconds(identity: identity, itemID: itemID)
-            if latest > minimum { return latest }
+            if latest > minimum, maximum.map({ latest < $0 }) ?? true { return latest }
             try await Task.sleep(for: .milliseconds(250))
         }
-        throw ProofFailure.timeout("The server did not report watch progress above two seconds.")
+        let range = maximum.map { " above \(minimum) and below \($0) seconds" } ?? " above \(minimum) seconds"
+        throw ProofFailure.timeout("The server did not report watch progress\(range); latest=\(latest).")
     }
 
     func waitUntil(timeout: TimeInterval, condition: @escaping () -> Bool) -> Bool {

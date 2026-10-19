@@ -13,6 +13,7 @@ import type {
   AcquisitionBatchCreateRequest,
   AdminOverview,
   AdminSettings,
+  AdminUpdateStatus,
   ChatReplayAsset,
   TimedChatEvent,
   AutomationRun,
@@ -626,6 +627,9 @@ export const changePassword = (currentPassword: string, newPassword: string): Pr
 export const getAdminSettings = (): Promise<AdminSettings> => requestJson('/api/admin/settings');
 export const updateAdminSettings = (payload: Partial<Pick<AdminSettings, 'concurrency' | 'max_active_jobs_per_user' | 'min_free_disk_mb' | 'extra_source_ports' | 'require_owner_two_factor'>>): Promise<AdminSettings> => put('/api/admin/settings', payload);
 export const getAdminOverview = (): Promise<AdminOverview> => requestJson('/api/admin/overview');
+export const getAdminUpdateStatus = (): Promise<AdminUpdateStatus> => requestJson('/api/admin/updates');
+export const checkAdminUpdates = (): Promise<AdminUpdateStatus> => post('/api/admin/updates/check');
+export const updateAdminUpdateSettings = (payload: Partial<Pick<AdminUpdateStatus, 'automatic_checks' | 'email_notifications'>>): Promise<AdminUpdateStatus> => patch('/api/admin/updates', payload);
 
 export type StorageSource = 'youtube' | 'twitch' | 'kick' | 'soundcloud' | 'generic';
 export type StorageMediaKind = 'video' | 'audio' | 'recording';
@@ -993,7 +997,7 @@ export const getMusicQueue = (request: { item_ids?: string[]; title_id?: string 
 export const getMusicTrack = (id: string): Promise<import('./features/music/musicTypes').MusicTrack> => requestJson(`/api/music/tracks/${enc(id)}`);
 export const getMusicTrackMetadata = (id: string): Promise<{ fields: Record<string, unknown>; overridden: string[] }> => requestJson(`/api/music/tracks/${enc(id)}/metadata`);
 export const getMusicHighlights = (id: string): Promise<import('./features/music/musicTypes').MusicTrack[]> => requestJson(`/api/music/titles/${enc(id)}/tracks`);
-export const getMusicLyrics = (id: string): Promise<import('./features/music/musicTypes').MusicLyrics> => requestJson(`/api/music/tracks/${enc(id)}/lyrics`);
+export const getMusicLyrics = (id: string, retry = false): Promise<import('./features/music/musicTypes').MusicLyrics> => requestJson(`/api/music/tracks/${enc(id)}/lyrics${retry ? '?retry=true' : ''}`);
 export const getMusicVideos = (id: string, kind: 'track' | 'title' = 'track'): Promise<import('./features/music/musicTypes').MusicVideos> => requestJson(`/api/music/${kind === 'track' ? 'tracks' : 'titles'}/${enc(id)}/videos`);
 export const getMusicEnrichment = (id: string): Promise<{ refreshing: boolean; identified: boolean; error: string | null; candidates: import('./features/music/musicTypes').MusicTitleInfo['candidates'] }> => requestJson(`/api/music/titles/${enc(id)}/enrichment`);
 export const identifyMusic = (id: string, providerId?: string): Promise<{ queued: boolean }> => post(`/api/music/titles/${enc(id)}/identify`, { ...(providerId ? { provider_id: providerId } : {}), refresh: true });

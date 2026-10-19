@@ -8,6 +8,8 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, wait
+from itertools import zip_longest
 from pathlib import Path
 
 from app.schemas import YouTubeSearchResponse, YouTubeSearchResult
@@ -98,6 +100,7 @@ def twitch_stream_to_result(stream: TwitchLiveStream) -> YouTubeSearchResult:
         }
     )
     return YouTubeSearchResult(
+        language=stream.language[:32] if stream.language else None,
         id=f"twitch:{stream.login}",
         title=stream.title,
         uploader=stream.display_name,
@@ -181,7 +184,10 @@ class LiveSearch:
         health: TwitchHealth | None = None,
         youtube_directory: YouTubeLiveDirectory = youtube_live_directory,
         gaming: GamingDirectories | None = None,
+        youtube_probe: Callable[[str], YouTubeSearchResult | None] | None = None,
     ) -> None:
+        self._youtube_probe = youtube_probe
+        self._verified: dict[str, tuple[float, str | None]] = {}
         self._youtube_live_search = youtube_live_search
         self._twitch_directory = twitch_directory
         self._youtube_directory = youtube_directory
@@ -215,16 +221,24 @@ class LiveSearch:
             count = _sum_known([twitch_count, held or None])
             if count is not None or category_key not in self._counts:
                 self._counts[category_key] = count  # a failed refresh keeps the last known count
-        return YouTubeSearchResponse(query=query, items=merge_live_entries(youtube_items, twitch_items)[:limit])
+        # A busier provider must not consume the other provider's entire rail.
+        youtube_items = merge_live_entries(youtube_items, [])
+        twitch_items = merge_live_entries([], twitch_items)
+        combined = [item for pair in zip_longest(youtube_items, twitch_items) for item in pair if item is not None]
+        return YouTubeSearchResponse(query=query, items=combined[:limit])
 
     def _youtube_items(self, query: str, category_key: str, limit: int) -> tuple[list[YouTubeSearchResult], Exception | None]:
         items: list[YouTubeSearchResult] = []
         errors: list[Exception] = []
+        verified_batch = False
         try:  # the extraction seam charges the shared YouTube budget (BudgetExhausted when spent or paused)
             with provider_budget.priority("live"):
                 items.extend(self._youtube_live_search(query, limit).items)
         except Exception as error:  # noqa: BLE001 - one provider must not sink the rail
             errors.append(error)
+        if self._youtube_probe is not None and items:
+            items = self._verify_languages(items)
+            verified_batch = True
         try:
             pool = list(self._youtube_directory(category_key, YOUTUBE_POOL_LIMIT, None)[0])
             if pool:  # keep the last good list on an empty or failed refresh
@@ -233,7 +247,52 @@ class LiveSearch:
             items.extend(pool)
         except Exception as error:  # noqa: BLE001
             errors.append(error)
+        if self._youtube_probe is not None:
+            items = self._verify_languages(items, max_probes=0 if verified_batch else 8)
+            with self._lock:
+                self._pools[category_key] = list(items)
         return items, (errors[0] if errors and not items else None)
+
+    def _verify_languages(self, items: list[YouTubeSearchResult], *, max_probes: int = 8) -> list[YouTubeSearchResult]:
+        """Confirm a bounded number of unknown live languages on the refresher.
+
+        Full metadata probes share the background provider budget; a search's
+        English UI or English title is never treated as language evidence.
+        """
+        now = time.monotonic()
+        with self._lock:
+            self._verified = {key: value for key, value in self._verified.items() if now - value[0] < 3600}
+            cached = dict(self._verified)
+        unique = {item.webpage_url: item for item in items if item.webpage_url}
+        pending = [url for url, item in unique.items() if not item.language and url not in cached][:max_probes]
+
+        def probe(url: str) -> tuple[str, str | None]:
+            if not provider_budget.affordable(provider_budget.youtube, provider_budget.PROBE_REQUESTS, "background"):
+                raise provider_budget.BudgetExhausted("Language check deferred")
+            with provider_budget.priority("background"):
+                entry = self._youtube_probe(url)
+            known = entry.language if entry is not None else None
+            with self._lock:
+                self._verified[url] = (now, known)
+            return url, known
+
+        if pending:
+            pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="live-language")
+            futures = [pool.submit(probe, url) for url in pending]
+            done, _ = wait(futures, timeout=8)
+            pool.shutdown(wait=False, cancel_futures=True)
+            for future in done:
+                try:
+                    url, known = future.result()
+                except Exception:  # a failed probe leaves language unknown; never guess
+                    continue
+                cached[url] = (now, known)
+            with self._lock:
+                # Bound the household metadata cache as well as each refresh.
+                self._verified.update(cached)
+                self._verified = dict(list(self._verified.items())[-2000:])
+        return [item.model_copy(update={"language": cached[item.webpage_url][1]})
+                if not item.language and item.webpage_url in cached else item for item in unique.values()]
 
     def _twitch_items(self, category_key: str, limit: int) -> tuple[list[YouTubeSearchResult], int | None, TwitchDirectoryError | None]:
         if TWITCH_CATEGORY_SOURCES.get(category_key, ()) == ():
@@ -373,5 +432,5 @@ def create_live_discovery(
         per_category_limit=SNAPSHOT_CATEGORY_LIMIT,
         feed_limit=SNAPSHOT_CATEGORY_LIMIT * len(LIVE_CATEGORIES),
         category_ttl_seconds=LIVE_REFRESH_SECONDS,  # +-20% jitter; failures back off 60s doubling to 1h, honouring Retry-After
-        max_concurrency=1,  # a cold YouTube refresh is ~35 upstream requests, so categories refresh serially
+        max_concurrency=1,  # serialize category searches and language probes within the shared provider budget
     )

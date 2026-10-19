@@ -35,7 +35,7 @@ describe('normalizeHomeShelves', () => {
   it('names and shapes every catalogue shelf, in the default order', () => {
     expect(DEFAULT_HOME_ORDER).toEqual([
       'continue', 'live', 'next_up', 'watchlist', 'new_in_library', 'because_you_watched', 'recommended',
-      'picked_for_you', 'collections', 'from_follows', 'recently_saved', 'new_anime', 'recent_music',
+      'picked_for_you', 'collections', 'from_follows', 'recently_saved', 'new_anime', 'recent_music', 'continue_listening',
     ]);
     expect(Object.keys(HOME_CATALOGUE).sort()).toEqual([...HOME_SHELF_IDS].sort());
     expect(HOME_CATALOGUE.because_you_watched).toEqual({ name: 'Because you watched…', shape: 'poster' });

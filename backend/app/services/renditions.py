@@ -553,8 +553,12 @@ class ArtworkRenditions:
             self._urgent.extend((title_id, image_type) for image_type in art_urls.ART_TYPES)
         self._wake.set()
 
-    def after_import(self, _run_id: str) -> None:
-        self._wake.set()
+    def after_import(self, run_id: str) -> None:
+        changes = library_import.import_changes(run_id)
+        if changes is None:  # a run that crossed a process boundary: restart-safe broad fallback
+            self._wake.set()
+        # Normal drivers already queue changed art after the batch commit, with
+        # its exact title ids. A present context therefore needs no second wake.
 
     def run_once(self) -> bool:
         """Prepare one (title, image type). False when nothing is left (tests call this directly)."""

@@ -1,6 +1,6 @@
 # Native iOS viewing client: feasibility and sizing
 
-**Date:** 2026-10-17  
+**Date:** 2026-10-17
 **Status:** research only; no runtime validation was performed.
 
 ## Decision framing

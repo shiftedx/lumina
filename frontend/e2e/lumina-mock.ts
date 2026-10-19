@@ -14,7 +14,7 @@ export const item = {
 export const OPEN_ACCESS = { sections: null, blocked_streaming: [], followed_only: false, allowed_now: true, until: null, remaining_minutes: null, can_download: true };
 /** Redacted member-visible library work summary; individual specs can override this route with active counts. */
 export const LIBRARY_ACTIVITY_IDLE = {
-  scanning_roots: 0, discovering_roots: 0, indexing_roots: 0, preparing_roots: 0, waiting_files: 0,
+  scanning_roots: 0, discovering_roots: 0, indexing_roots: 0, preparing_roots: 0, stalled_roots: 0, waiting_files: 0, waiting_error_files: 0,
   discovered_files: 0, completed_files: 0, total_files: null, progress: null,
   inspected_files: 0, directories_listed: 0, directories_total: null,
 };

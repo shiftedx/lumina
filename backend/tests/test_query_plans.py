@@ -777,3 +777,60 @@ def test_a_restricted_members_walls_and_grid_keep_their_indexes(plan_env) -> Non
     assert "ix_library_items_visibility_downloaded_created_id" in grid and "sqlite_autoindex_media_titles_1" in grid, grid
     assert_no_unindexed_scan(grid, "library_items")
     assert_no_unindexed_scan(grid, "media_titles")
+
+
+def test_import_move_lookup_seeks_matching_sizes_in_its_root(plan_env, tmp_path) -> None:  # noqa: ANN001
+    from app.models import ImportRun
+    from app.services.library_import import LibraryImportService
+
+    engine, session, _ = plan_env
+    incoming = tmp_path / "renamed.mp4"
+    incoming.write_bytes(b"x")
+    status = incoming.stat()
+    session.add_all([
+        MediaArtifact(id=f"move-seed-{index}", root_id="external-root", relative_path=f"old-{index}.mp4",
+                      ownership="external", size=index + 2, lifecycle="available")
+        for index in range(1000)
+    ])
+    original = MediaArtifact(id="original", root_id="external-root", relative_path="old.mp4", ownership="external",
+                             size=1, inode=status.st_ino, lifecycle="available")
+    session.add(original)
+    session.add(MediaArtifact(id="other-root", root_id="elsewhere", relative_path="old.mp4", ownership="external",
+                              size=1, inode=status.st_ino, lifecycle="available"))
+    session.commit()
+    run = ImportRun(id="moving-run", root_id="external-root")
+    result = []
+    plan = explain_plan(engine, session, lambda: result.append(
+        LibraryImportService(session)._find_moves(run, tmp_path, [("renamed.mp4", status)], {})))
+    assert result == [({"renamed.mp4": original}, set())]
+    assert "SEARCH media_artifacts USING INDEX ix_media_artifacts_root_size" in plan
+    assert_no_unindexed_scan(plan, "media_artifacts")
+
+
+@pytest.mark.parametrize("deep", [False, True])
+def test_scoped_removal_seeks_exact_folder_range(plan_env, tmp_path, deep) -> None:  # noqa: ANN001
+    from app.models import ImportRun, StorageRoot
+    from app.services.library_import import LibraryImportService
+
+    engine, session, _ = plan_env
+    prefix = "A_%é"
+    root = StorageRoot(id="scope-root", path=str(tmp_path), label="Scope", mode="external", enabled=True)
+    entries = {"direct": f"{prefix}/direct.mp4", "nested": f"{prefix}/sub/nested.mp4",
+               "sibling": f"{prefix}0/other.mp4", "case": "a_%é/other.mp4"}
+    session.add_all([
+        MediaArtifact(id=identity, root_id=root.id, relative_path=path, ownership="external", size=1, lifecycle="available")
+        for identity, path in entries.items()
+    ])
+    session.add_all([
+        MediaArtifact(id=f"scope-decoy-{index}", root_id=root.id, relative_path=f"Other/{index}.mp4",
+                      ownership="external", size=1, lifecycle="available") for index in range(500)
+    ])
+    session.commit()
+    run = ImportRun(id="scope-run", root_id=root.id, scope=[{"dir": prefix, "deep": deep}])
+    results = []
+    plan = explain_plan(engine, session, lambda: results.append(
+        LibraryImportService(session)._scope_gone(run, root, set(), confirmed=False)))
+    expected = {"direct", "nested"} if deep else {"direct"}
+    assert results[0][0] == len(expected) and set(results[0][1]) == expected
+    assert "SEARCH media_artifacts" in plan and "relative_path>?" in plan and "relative_path<?" in plan
+    assert_no_unindexed_scan(plan, "media_artifacts")

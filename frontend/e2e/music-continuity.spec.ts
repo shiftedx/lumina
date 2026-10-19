@@ -31,21 +31,18 @@ test('a requested album remains paused until the member explicitly plays it afte
   await page.goto('/audio/title/album-1');
   await signIn(page);
 
-  const player = page.getByRole('region', { name: 'Music player' });
+  const player = page.getByRole('region', { name: 'Music player', exact: true });
   await expect(player.getByText('Waiting for requested album')).toBeVisible();
   await expect(player.getByRole('button', { name: 'Play music' })).toBeDisabled();
   await player.getByRole('button', { name: 'Open queue' }).click();
   const room = page.getByRole('dialog', { name: 'Your queue' });
   await expect(room.getByRole('region', { name: 'Unavailable queue entries' })).toContainText('Requested album · Waiting for library import');
-  await expect(room.getByRole('combobox', { name: 'Unavailable queue policy' })).toHaveValue('wait');
+  await expect(room.getByRole('button', { name: 'Unavailable queue policy' })).toHaveText('Wait here');
 
   request.importAlbum();
   await room.getByRole('button', { name: 'Refresh requested albums' }).click();
-  await expect(player.getByRole('button', { name: 'Play music' })).toBeEnabled();
-  await expect(player.getByRole('button', { name: 'Play music' })).toBeVisible();
-  await expect(player.getByText('Requested albums refreshed. Choose Play when you are ready.')).toBeVisible();
-
-  await room.getByRole('button', { name: 'Close listening room' }).click();
-  await player.getByRole('button', { name: 'Play music' }).click();
+  await expect(player).toBeHidden();
+  await expect(room.getByText('Requested albums refreshed. Choose Play when you are ready.')).toBeVisible();
+  await room.getByRole('button', { name: /Song 1/ }).click();
   await expect.poll(() => musicCalls.includes('GET /api/music/tracks/track-1/audio')).toBe(true);
 });

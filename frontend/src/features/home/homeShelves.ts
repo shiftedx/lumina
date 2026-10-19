@@ -7,7 +7,7 @@
 /** Stable shelf ids in the default order. */
 export const HOME_SHELF_IDS = [
   'continue', 'live', 'next_up', 'watchlist', 'new_in_library', 'because_you_watched', 'recommended',
-  'picked_for_you', 'collections', 'from_follows', 'recently_saved', 'new_anime', 'recent_music',
+  'picked_for_you', 'collections', 'from_follows', 'recently_saved', 'new_anime', 'recent_music', 'continue_listening',
 ] as const;
 export type HomeShelfId = (typeof HOME_SHELF_IDS)[number];
 /** One entry of ui_prefs.home_shelves, in display order. */
@@ -31,6 +31,7 @@ export const HOME_CATALOGUE: Readonly<Record<HomeShelfId, { name: string; shape:
   from_follows: { name: 'New from your follows', shape: 'still' },
   recently_saved: { name: 'Recently saved', shape: 'still' },
   new_anime: { name: 'New in Anime', shape: 'poster' },
+  continue_listening: { name: 'Continue listening', shape: 'square' },
   recent_music: { name: 'Recently added music', shape: 'square' },
 };
 

@@ -74,6 +74,25 @@ def test_qsv_override_passes_the_render_device_and_group() -> None:
     assert "LUMINA_RENDER_GID: ${LUMINA_RENDER_GID:?" in qsv
 
 
+def test_rollback_image_is_retained_without_starting_health_checks(tmp_path: Path) -> None:
+    docker = tmp_path / "docker"
+    docker.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
+    docker.chmod(0o755)
+    result = subprocess.run(
+        ["sh", str(ROOT / "scripts" / "preserve-rollback.sh"), "sha256:previous", "lumina-rollback-test"],
+        env={"PATH": f"{tmp_path}:{os.environ['PATH']}"},
+        capture_output=True, text=True, check=True,
+    )
+    args = result.stdout.splitlines()
+    assert args[0] == "create"  # An image reference is sufficient; no running placeholder is needed.
+    assert args[-1] == "sha256:previous"
+    assert args[args.index("--name") + 1] == "lumina-rollback-test"
+    assert {"--no-healthcheck", "--restart=no", "--network=none"} <= set(args)
+    assert "traefik.enable=false" in args
+    assert "com.centurylinklabs.watchtower.enable=false" in args
+    assert args[args.index("--entrypoint") + 1] == "/bin/true"
+
+
 def _run_entrypoint(tmp_path: Path, **env: str) -> subprocess.CompletedProcess[str]:
     """Run the real entrypoint with chown/stat/setpriv stubbed; the setpriv stub prints its arguments."""
     stubs = tmp_path / "bin"

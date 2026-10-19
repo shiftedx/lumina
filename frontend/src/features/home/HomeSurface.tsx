@@ -26,7 +26,7 @@ import { cachedShelf, rememberShelf } from './homeCache';
 import { HomeEditor } from './HomeEditor';
 import { HomeHero } from './HomeHero';
 import { FetchedShelf, HomeShelf, itemStill, NearGate, remoteStill, RemoveButton, type ShelfActions, titleStill, useNear } from './HomeShelf';
-import { entryLeft, entryPercent, firstName, greeting, heroSlides, mastheadDate, titleCaption } from './homeModel';
+import { entryLeft, entryPercent, firstName, greeting, heroSlides, isListeningEntry, mastheadDate, titleCaption } from './homeModel';
 import { HOME_CATALOGUE, HOME_SHELF_IDS, type HomeShelfId, type HomeShelfPref, normalizeHomeShelves, type ShelfStatus } from './homeShelves';
 import { LiveShelf } from './LiveShelf';
 import { createVisit, FETCHED_SHELVES, isFetchedShelf, SHELF_LIMIT } from './shelfSources';
@@ -167,7 +167,9 @@ function HomeSurfaceView({
   const restoreFocusRef = useRef(false);
 
   // Hero: the Continue titles; else the newest, fetched now and shared with its shelf (9.2 row 4a).
-  const needsNewest = !continueWatching.some((entry) => entry.title);
+  const watching = useMemo(() => continueWatching.filter((entry) => !isListeningEntry(entry)), [continueWatching]);
+  const listening = useMemo(() => continueWatching.filter(isListeningEntry), [continueWatching]);
+  const needsNewest = !watching.some((entry) => entry.title);
   useEffect(() => {
     if (!needsNewest || newest !== undefined) return undefined;
     let current = true;
@@ -226,7 +228,7 @@ function HomeSurfaceView({
   async function hide(entry: PlaybackProgress) {
     try {
       await onHideContinueWatching?.(entry);
-      toast({ tone: 'success', message: 'Removed from Continue watching.', action: onRestoreContinueWatching ? { label: 'Undo', onAction: () => { void onRestoreContinueWatching(entry); } } : undefined });
+      toast({ tone: 'success', message: `Removed from ${isListeningEntry(entry) ? 'Continue listening' : 'Continue watching'}.`, action: onRestoreContinueWatching ? { label: 'Undo', onAction: () => { void onRestoreContinueWatching(entry); } } : undefined });
     } catch {
       toast({ tone: 'error', message: 'Lumina could not remove that. Try again.' });
     }
@@ -264,7 +266,8 @@ function HomeSurfaceView({
   const followFailures = subscriptionOutcomes.filter((outcome) => outcome.status === 'authentication-required' || outcome.status === 'failed');
   const followsLoading = subscriptionOutcomes.some((outcome) => outcome.status === 'loading');
   const shellStatus: Partial<Record<HomeShelfId, ShelfStatus>> = {
-    continue: continueWatching.length ? 'items' : 'empty',
+    continue: watching.length ? 'items' : 'empty',
+    continue_listening: listening.length ? 'items' : 'empty',
     watchlist: !onOpenQueued ? 'empty' : queue ? (queued.length ? 'items' : 'empty') : queueFailed ? 'failed' : 'loading',
     picked_for_you: !pickedSignal ? 'empty' : recommendations?.items.length ? 'items' : recommendations?.state === 'empty' ? 'empty' : 'loading',
     from_follows: subscriptionVideos.length ? 'items' : followsLoading ? 'loading' : 'empty',
@@ -318,24 +321,29 @@ function HomeSurfaceView({
     }
     switch (id) {
       case 'continue':
-        return continueWatching.length ? (
+      case 'continue_listening': {
+        const entries = id === 'continue' ? watching : listening;
+        const { name } = HOME_CATALOGUE[id];
+        const shape = id === 'continue' ? 'still' : 'square';
+        return entries.length ? (
           <HomeShelf
-            heading="Continue watching"
+            heading={name}
             itemKey={(entry) => entry.id}
-            items={continueWatching}
+            items={entries}
             renderCard={(entry, slot) => (
               <>
                 {entry.title
-                  ? titleStill(entry.title, slot, () => onOpenLibrary(entry.item), { left: entryLeft(entry), percent: entryPercent(entry) })
+                  ? titleStill(entry.title, slot, () => onOpenLibrary(entry.item), { left: entryLeft(entry), percent: entryPercent(entry) }, shape)
                   : itemStill(entry.item, slot, onOpenLibrary, entryPercent(entry))}
-                {onHideContinueWatching ? <RemoveButton label={`Remove ${entry.title ? titleCaption(entry.title).name : entry.item.title} from Continue watching`} onRemove={() => void hide(entry)} /> : null}
+                {onHideContinueWatching ? <RemoveButton label={`Remove ${entry.title ? titleCaption(entry.title).name : entry.item.title} from ${name}`} onRemove={() => void hide(entry)} /> : null}
               </>
             )}
-            sectionKey="continue"
-            shape="still"
+            sectionKey={id}
+            shape={shape}
             state="ready"
           />
         ) : null;
+      }
       case 'live':
         return <NearGate heading={HOME_CATALOGUE.live.name} sectionKey="live" shape="still">{() => <LiveShelf onOpenRemote={onOpenRemote} onSeeAll={() => onOpenRoute({ surface: 'streaming', view: 'live' })} onStatus={(status) => setStatus('live', status)} userId={user.id} />}</NearGate>;
       case 'watchlist':

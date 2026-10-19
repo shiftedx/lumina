@@ -18,6 +18,7 @@ from app.models import DownloadJob, LibraryItem, MediaArtifact, StorageRoot
 from app.persistence import persistence_metrics_snapshot
 from app.security import get_admin_user, utcnow
 from app.services.job_manager import _free_bytes  # the same measurement admission uses
+from app.services import release_updates
 from app.services.yt_dlp_service import YtDlpService
 
 FAILURE_WINDOW = timedelta(days=7)
@@ -58,6 +59,7 @@ class AdminOverviewResponse(BaseModel):
     roots: list[RootSummary]
     event_streams: int
     persistence: dict[str, dict]
+    updates: release_updates.UpdateStatus
 
 
 def build_overview(db: Session, events: EventBus) -> AdminOverviewResponse:
@@ -101,6 +103,7 @@ def build_overview(db: Session, events: EventBus) -> AdminOverviewResponse:
         roots=roots,
         event_streams=events.stream_count(),
         persistence=persistence_metrics_snapshot(),
+        updates=release_updates.status_for(limits, checking=release_updates.coordinator.checking),
     )
 
 

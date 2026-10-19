@@ -38,7 +38,7 @@ test('music imports into albums and artists, an album plays on, and the anime fo
   await test.step('the album page shows its cover at exactly 1:1', async () => {
     await page.goto('/library/music');
     await expect(page).toHaveURL(/\/audio$/);
-    await page.getByRole('button', { name: /^Album One by Artist A/ }).click();
+    await page.getByRole('group', { name: 'Albums', exact: true }).getByRole('button', { name: /^Album One by Artist A/ }).click();
     await expect(page).toHaveURL(/\/audio\/title\/[^/]+$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Album One' })).toBeVisible();
     const albumId = decodeURIComponent(new URL(page.url()).pathname.split('/').pop()!);

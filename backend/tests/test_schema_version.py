@@ -428,3 +428,35 @@ def test_v13_adds_member_access(tmp_path, monkeypatch) -> None:  # noqa: ANN001
     assert {"rating", "rating_rank"} <= set(columns["media_titles"])
     assert {"email", "access", "sent_at", "revoked_at"} <= set(columns["account_tokens"])
     assert {"public_address", "invite_permissions"} <= set(columns["app_settings"])
+
+
+def test_v30_adds_durable_release_update_settings(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    columns = _columns(_init(tmp_path, monkeypatch))
+    assert db_module.SCHEMA_VERSION >= 30
+    assert "update_settings" in columns["app_settings"]
+
+
+def test_discovery_rollback_keeps_media_and_reupgrades_the_additive_index(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    from pathlib import Path
+    from sqlalchemy.orm import Session
+    from app.models import ImportRun, MediaArtifact
+
+    engine = _init(tmp_path, monkeypatch)
+    with Session(engine) as db, db.begin():
+        db.add(ImportRun(id="manager-run", root_id="root", user_id="owner", visibility="shared", state="succeeded",
+                         trigger="manager", cursor="[]", counters={}))
+        db.add(MediaArtifact(id="kept", root_id="root", relative_path="Film/file.mp4", ownership="external", size=10))
+    guide = (Path(__file__).resolve().parents[2] / "docker" / "README.md").read_text()
+    match = re.search(r"\| Before discovery I/O fixes \(schema 30\) \| `([^`]+)`", guide)
+    assert match, "keep an executable discovery rollback in the operator guide"
+    with engine.begin() as connection:
+        for statement in match[1].split(";"):
+            if statement.strip():
+                connection.exec_driver_sql(statement)
+        assert connection.scalar(text("SELECT trigger FROM import_runs WHERE id='manager-run'")) == "watch"
+        assert connection.scalar(text("SELECT size FROM media_artifacts WHERE id='kept'")) == 10
+        assert connection.scalar(text("PRAGMA user_version")) == 30
+    db_module.init_db()
+    assert "ix_media_artifacts_root_size" in _sqlite_indexes(engine, "media_artifacts")
+    with engine.connect() as connection:
+        assert connection.scalar(text("PRAGMA user_version")) == db_module.SCHEMA_VERSION

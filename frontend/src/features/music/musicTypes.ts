@@ -25,6 +25,7 @@ export interface MusicTrack {
 }
 
 export interface MusicLyrics {
+  retry_after_seconds?: number;
   plain: string | null;
   cues: { start: number; text: string }[];
   source: string | null;

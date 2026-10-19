@@ -34,3 +34,19 @@ def test_unknown_category_and_garbage_cursor(monkeypatch) -> None:
     monkeypatch.setattr(yld, "_default_search", _fake_search)
     assert yld.youtube_live_directory("nope", 5) == ([], None, None)
     assert yld.youtube_live_directory("news", 5, "!!garbage")[0]
+
+
+def test_directory_fetches_affordable_breadth_when_the_full_pool_will_not_fit(monkeypatch) -> None:
+    from app.services import provider_budget
+    budget = provider_budget.fresh('youtube')
+    monkeypatch.setattr(provider_budget, 'youtube', budget)
+    assert budget.take(35)  # five tokens available above the background reserve
+    calls = []
+    def search(query, limit):
+        calls.append(query)
+        with provider_budget.priority('background'):
+            provider_budget.spend(budget, provider_budget.youtube_search_cost(limit))
+        return YouTubeSearchResponse(query=query, items=[_result('live-video', 10)])
+    result = yld._fetch('gaming', search, 1)
+    assert result and len(calls) == 2
+    assert budget._tokens >= provider_budget.KEEP['background']

@@ -219,7 +219,7 @@ export function ActivityHistory() {
       {rows.length ? (
         <>
         <ViewingBreakdown rows={rows} />
-        <div className="g-table-scroll">
+        <div aria-label="Playback history table" className="g-table-scroll" onKeyDown={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') event.stopPropagation(); }} role="region" tabIndex={0}>
           <table className="g-table activity-history">
             <caption className="sr-only">Playback history, newest first</caption>
             <thead><tr><th scope="col">When</th><th scope="col">Member</th><th scope="col">Title</th><th scope="col">Client</th><th scope="col">Method</th><th scope="col">Watched</th></tr></thead>

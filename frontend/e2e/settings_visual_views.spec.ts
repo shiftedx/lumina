@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SETTINGS_CATEGORIES, SETTINGS_PAGES } from '../src/features/settings/navigation';
@@ -34,6 +35,23 @@ test('bookmarked controls and group anchors focus their destination after loadin
   await expect(page.locator('#settings-group-captions')).toBeFocused();
   await expect(page.getByRole('heading', { name: 'Captions', exact: true })).toBeVisible();
 });
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`playback history scrolls with the keyboard on a ${scheme} phone`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+    await mockApi(page, {}); await mockAdminFixtures(page);
+    await page.goto('/settings/overview'); await signIn(page);
+    const history = page.getByRole('region', { name: 'Playback history table' });
+    await expect(history.getByRole('table')).toBeVisible();
+    await history.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(history).toBeFocused();
+    await expect.poll(() => history.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+    const audit = await new AxeBuilder({ page }).include('[data-setting-id="activity.history"]').analyze();
+    expect(audit.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
+  });
+}
 
 if (process.env.SETTINGS_REWORK_OUT) {
   for (const [width, scheme] of [[1440, 'dark'], [390, 'light']] as const) {

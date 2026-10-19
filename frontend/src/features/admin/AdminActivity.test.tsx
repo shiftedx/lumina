@@ -102,6 +102,9 @@ describe('Activity: history', () => {
     expect(screen.getByText('Intel QSV')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
     expect(await screen.findByText('Film b')).toBeTruthy();
+    expect(screen.getByText('2 loaded sessions · current filters')).toBeTruthy();
+    const chart = document.querySelector('.activity-viewing-chart')!;
+    expect(chart.textContent).toContain('2:00:00');
     expect(api.getActivityHistory).toHaveBeenLastCalledWith(expect.objectContaining({ before: '2026-10-02T11:00:00Z' }));
     expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
 

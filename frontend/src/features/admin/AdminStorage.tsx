@@ -1,11 +1,11 @@
 import { createContext, type FormEvent, useContext, useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, HardDrive, Plus, Trash2 } from 'lucide-react';
 
 import {
   ApiRequestError, createStorageRoot, deleteStorageRoot, getStorageRules, listStorageRoots, probeStorageRoot, resolveStorage, saveStorageRules, startImport, updateStorageRoot,
   type ImportVisibility, type StorageDecision, type StorageMediaKind, type StorageRootRecord, type StorageRule, type StorageRuleSet, type StorageSource,
 } from '../../api';
-import { Button, Checkbox, ConfirmDialog, Field, fieldProps, IconButton, Input, Menu, ProgressBar, Radio, Select, StatusText, type StatusTone } from '../../ui';
+import { Button, Checkbox, ConfirmDialog, Field, fieldProps, IconButton, Input, ProgressBar, Radio, Select, StatusText, type StatusTone } from '../../ui';
 import { errorMessage as errorText, formatBytes, formatDateTime } from '../../utils';
 import { useUnsavedChanges } from '../settings/unsavedChanges';
 import { useAdminResource } from './useAdminResource';
@@ -96,7 +96,7 @@ function RootRow({ root, busy, offerImport = false, onProbe, onEnabled, onRemove
     <>
       <tr aria-busy={busy}>
         <th className="g-root-name" scope="row">
-          {root.label}
+          <HardDrive aria-hidden="true" />{root.label}
           <small>{root.mode === 'managed' ? 'Managed' : 'External · read-only'}</small>
           {root.enabled ? null : <small><StatusText tone="muted">Disabled</StatusText></small>}
         </th>
@@ -109,22 +109,18 @@ function RootRow({ root, busy, offerImport = false, onProbe, onEnabled, onRemove
         </td>
         <td className="g-root-space">
           <span className="g-root-label">Free space</span>
+          <strong className="storage-free">{free == null ? 'Unavailable' : formatBytes(free)}<small>free{total ? ` of ${formatBytes(total)}` : ''}</small></strong>
           {hasSpace ? <ProgressBar label={`${root.label} space used`} value={((total - free) / total) * 100} /> : null}
-          <span className="g-tabular">{free == null ? 'Unavailable' : `${formatBytes(free)} of ${formatBytes(total)}`}</span>
           {root.mode === 'managed' ? <small>Keeps {root.minimum_free_bytes ? formatBytes(root.minimum_free_bytes) : 'none'} free</small> : null}
         </td>
         <td className="g-root-files g-tabular"><span className="g-root-label">Files</span>{root.artifact_count}</td>
         <td className="g-root-actions">
-          <Menu
-            align="end"
-            items={[
-              ...(root.mode === 'external' ? [{ kind: 'item' as const, label: 'Import', disabled: busy || importing || !root.enabled, onSelect: () => { setStarted(false); setImporting(true); } }] : []),
-              { kind: 'item', label: 'Check now', disabled: busy, onSelect: onProbe },
-              { kind: 'item', label: root.enabled ? 'Disable' : 'Enable', disabled: busy, onSelect: onEnabled },
-              { kind: 'item', label: 'Remove', danger: true, disabled: busy, onSelect: () => setConfirming(true) },
-            ]}
-            trigger={(props) => <IconButton {...props} data-root-actions={root.id} icon={<MoreHorizontal />} label={`Actions for ${root.label}`} />}
-          />
+          <div className="g-actions">
+            <Button disabled={busy} onClick={onProbe}>Check now</Button>
+            <Button data-root-actions={root.id} disabled={busy} onClick={onEnabled}>{root.enabled ? 'Disable' : 'Enable'}</Button>
+            {root.mode === 'external' ? <Button disabled={busy || importing || !root.enabled} onClick={() => { setStarted(false); setImporting(true); }}>Import</Button> : null}
+            <IconButton disabled={busy} icon={<Trash2 />} label={`Remove ${root.label}`} onClick={() => setConfirming(true)} />
+          </div>
           <ConfirmDialog
             body="Lumina forgets this location; no files are deleted. A root that still holds registered media or is used by a rule cannot be removed."
             confirmLabel="Remove"
@@ -326,7 +322,7 @@ export function AdminStorage() {
     <div aria-busy={!roots && !loadError} className="admin-storage">
       <section aria-labelledby="admin-storage-roots-title" className="admin-panel">
         <h2 id="admin-storage-roots-title">Storage roots</h2>
-        <p className="admin-note">Folders Lumina can use. <strong>Managed</strong> roots receive downloads; <strong>external</strong> roots are read-only libraries you import from. Changes apply to new downloads only — existing files are never moved.</p>
+        <p className="admin-note">Managed drives receive downloads. External drives are read-only. Existing files stay where they are.</p>
         {loadError ? <p className="auth-error" role="alert">{loadError}</p> : null}
         {!roots && !loadError ? <p className="admin-note" role="status">Loading storage roots…</p> : null}
         {roots && !roots.length ? <p className="admin-note">No extra roots yet. Downloads go to the built-in library folder.</p> : null}

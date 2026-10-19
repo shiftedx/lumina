@@ -37,7 +37,7 @@ const mia = person('mia', 'Mia', 'viewer', { access: kids, screen_time_today_sec
 const accessState = { ...kids, screen_time_today_seconds: 3900, bonus_minutes_today: 0 };
 
 function routes(extra: Record<string, unknown> = {}) {
-  const table: Record<string, unknown> = { '/api/admin/sections': sections, '/api/admin/invites': [], '/api/admin/public-address': { public_address: null }, '/api/admin/local-address': { local_address: null, lan_http: false }, '/api/admin/members/mia/access': accessState, '/api/admin/members/mia/follows': [], ...extra };
+  const table: Record<string, unknown> = { '/api/admin/sections': sections, '/api/admin/invites': [], '/api/admin/public-address': { public_address: null }, '/api/admin/local-address': { local_address: null, lan_http: false }, '/api/admin/members/mia/access': accessState, '/api/admin/members/mia/follows': [], '/api/admin/members/mia/activity': { screen_time_today_seconds: 3900, recent: [{ id: 'h1', title: 'Bluey', subtitle: 'S1 E3', started_at: '2026-10-04T08:00:00Z', watched_seconds: 420, client: { name: 'Lumina web' } }] }, ...extra };
   api.requestJson.mockImplementation(async (path: string) => { if (path in table) return table[path]; throw new Error(`unmocked ${path}`); });
 }
 const host = (extra = {}) => ({ user: dana, onMessage: vi.fn(), onOpenSection: vi.fn(() => true), ...extra });
@@ -262,14 +262,14 @@ describe('Member page', () => {
     const onBack = vi.fn();
     inHost(<MemberPage memberId="mia" onBack={onBack} />, value);
     await screen.findByRole('heading', { name: 'Mia' });
-    const tab = (name: string) => userEvent.click(screen.getByRole('tab', { name }));
+    const tab = (name: string) => userEvent.click(screen.getByRole('link', { name }));
     return { onBack, tab };
   }
   const save = () => userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-  it('has the eight tabs and saves every access tab’s edits in one PUT', async () => {
+  it('shows eight groups at once and saves all access edits in one PUT', async () => {
     const { tab } = await openMia();
-    expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Profile', 'Libraries', 'Ratings', 'Streaming', 'Schedule', 'Permissions', 'Activity', 'Resources']);
+    expect(within(screen.getByRole('navigation', { name: /settings$/ })).getAllByRole('link').map((entry) => entry.textContent)).toEqual(['Profile', 'Libraries', 'Ratings', 'Streaming', 'Schedule', 'Permissions', 'Activity', 'Resources']);
     await tab('Libraries');
     await userEvent.click(screen.getByRole('checkbox', { name: 'TV shows' }));
     await tab('Ratings');
@@ -310,7 +310,7 @@ describe('Member page', () => {
     api.listUsers.mockResolvedValue([dana, mia]);
     inHost(<MemberPage memberId="mia" onBack={vi.fn()} />);
     await screen.findByRole('heading', { name: 'Mia' });
-    await userEvent.click(screen.getByRole('tab', { name: 'Libraries' }));
+    await userEvent.click(screen.getByRole('link', { name: 'Libraries' }));
     const ebooks = screen.getByRole('checkbox', { name: 'Ebooks' }) as HTMLInputElement;
     const manga = screen.getByRole('checkbox', { name: 'Manga & comics' }) as HTMLInputElement;
     expect(ebooks.checked).toBe(true);
@@ -360,7 +360,7 @@ describe('Member page', () => {
     api.listUsers.mockResolvedValue([dana, mia]);
     inHost(<MemberPage memberId="mia" onBack={vi.fn()} />);
     await screen.findByRole('heading', { name: 'Mia' });
-    await userEvent.click(screen.getByRole('tab', { name: 'Streaming' }));
+    await userEvent.click(screen.getByRole('link', { name: 'Streaming' }));
     const list = await screen.findByRole('list', { name: 'Followed channels' });
     expect(list.textContent).toContain('Cats');
     const dogs = { id: 'f2', label: 'Dogs', source_url: 'https://www.youtube.com/@dogs' };
@@ -471,7 +471,7 @@ describe('Member page', () => {
     api.listUsers.mockResolvedValue([dana, mia]);
     inHost(<MemberPage memberId="owner" onBack={vi.fn()} />);
     await screen.findByRole('heading', { name: 'Dana' });
-    expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Profile', 'Activity', 'Resources']);
+    expect(within(screen.getByRole('navigation', { name: /settings$/ })).getAllByRole('link').map((entry) => entry.textContent)).toEqual(['Profile', 'Activity', 'Resources']);
     expect(screen.getByText(/Vault owners open the Server settings and have full server access/)).not.toBeNull();
     expect(screen.getByRole('combobox', { name: 'Role for Dana' }).hasAttribute('disabled')).toBe(true);
     expect(screen.queryByRole('button', { name: 'Deactivate' })).toBeNull();
@@ -480,15 +480,15 @@ describe('Member page', () => {
     expect(api.requestJson).not.toHaveBeenCalledWith('/api/admin/members/owner/access');
   });
 
-  it('tabs move with the arrow keys and Back returns to the list', async () => {
+  it('jump links focus their group without hiding the other controls', async () => {
     const { onBack } = await openMia();
-    const profile = screen.getByRole('tab', { name: 'Profile' });
+    const profile = screen.getByRole('link', { name: 'Profile' });
     profile.focus();
-    await userEvent.keyboard('{ArrowRight}');
-    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Libraries' }));
-    expect(screen.getByRole('tab', { name: 'Libraries' }).getAttribute('aria-selected')).toBe('true');
-    await userEvent.keyboard('{End}');
-    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Resources' }));
+    await userEvent.click(screen.getByRole('link', { name: 'Libraries' }));
+    expect(document.activeElement?.id).toBe('member-group-libraries');
+    expect(screen.getByLabelText('Display name')).toBeTruthy();
+    expect(screen.getByRole('switch', { name: 'All libraries' })).toBeTruthy();
+    expect(screen.queryByRole('tablist')).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Members' }));
     expect(onBack).toHaveBeenCalled();
   });

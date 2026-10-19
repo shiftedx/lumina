@@ -1,6 +1,8 @@
 import { createContext, type ReactNode, type Ref, useContext, useId } from 'react';
 
+import { PlaybackPreview } from './PlaybackPreview';
 import { InfoButton } from './InfoButton';
+import type { SettingsPage } from './navigation';
 import type { SettingEntry, SettingsSectionDef } from './settingsTypes';
 import './settings.css';
 
@@ -53,16 +55,14 @@ export function SettingSwitch({ label, hint, checked, onChange, busy = false, di
 }
 
 /** A section's rows (all, or a search's subset) inside the section Provider when it has one. */
-export function SectionRows({ section, entries = section.entries, discloseAdvanced = false, essential = [], groups = [] }: { section: SettingsSectionDef; entries?: readonly SettingEntry[]; discloseAdvanced?: boolean; essential?: readonly string[]; groups?: ReadonlyArray<{ label: string; rows: readonly string[] }> }) {
+export function SectionRows({ section, entries = section.entries, pages }: { pages?: readonly SettingsPage[]; section: SettingsSectionDef; entries?: readonly SettingEntry[] }) {
   const renderRows = (list: readonly SettingEntry[]) => list.map(({ id, label, info, description, advanced, layout, Control, Detail }) => (
-    <SettingRow advanced={advanced && !essential.includes(id)} description={description ?? (discloseAdvanced ? info.split(/(?<=[.!?])\s/)[0] : undefined)} detail={Detail ? <Detail /> : undefined} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>
+    <SettingRow advanced={!pages && advanced} description={description ?? (pages && layout !== 'block' ? info.split(/(?<=[.!?])\s/)[0] : undefined)} detail={Detail ? <Detail /> : undefined} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>
   ));
-  const advancedRows = entries.filter((entry) => entry.advanced && !essential.includes(entry.id));
-  const groupedIds = groups.flatMap((group) => group.rows);
-  const rows = discloseAdvanced ? <>
-    <div className="g-settings-rows">{renderRows(entries.filter((entry) => !advancedRows.includes(entry) && !groupedIds.includes(entry.id)))}</div>
-    {groups.map((group) => <details className="g-settings-local-advanced" key={group.label}><summary>{group.label}</summary>{renderRows(entries.filter((entry) => group.rows.includes(entry.id)))}</details>)}
-    {advancedRows.length ? <details className="g-settings-local-advanced"><summary>Advanced options</summary>{renderRows(advancedRows)}</details> : null}
-  </> : renderRows(entries);
+  const rows = pages ? pages.map((page) => <section aria-label={page.label} className="g-settings-group" id={`settings-group-${page.id}`} key={page.id} tabIndex={-1}>
+    <h3 className={pages.length === 1 || page.rows.length === 1 ? 'sr-only' : 'g-settings-group-title'}>{page.label}</h3>
+    {page.id === 'watching' ? <PlaybackPreview /> : null}
+    <div className="g-settings-rows">{renderRows(entries.filter((entry) => page.rows.includes(entry.id)))}</div>
+  </section>) : renderRows(entries);
   return section.Provider ? <section.Provider>{rows}</section.Provider> : <>{rows}</>;
 }

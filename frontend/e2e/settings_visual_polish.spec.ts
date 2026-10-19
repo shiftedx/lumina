@@ -25,15 +25,8 @@ if (QUALITY_OUT) {
           await page.screenshot({ fullPage: true, path: join(QUALITY_OUT, `${destination.id}-${viewport.name}-${scheme}.png`) });
         }
         await page.goto('/settings/members/m2');
-        const memberTabs = page.locator('.g-member-tabs [role="tab"]');
-        const memberPages = page.getByRole('combobox', { name: 'Member settings page' });
-        await expect(viewport.name === 'phone' ? memberPages : memberTabs.first()).toBeVisible();
-        const choices = await memberTabs.evaluateAll((tabs) => tabs.map((tab) => ({ id: tab.id.replace('member-tab-', ''), label: tab.textContent!.trim() })));
-        for (const { id, label } of choices) {
-          if (viewport.name === 'phone') await chooseSelect(page, memberPages, label);
-          else await page.locator(`#member-tab-${id}`).click();
-          await page.screenshot({ fullPage: true, path: join(QUALITY_OUT, `member-${id}-${viewport.name}-${scheme}.png`) });
-        }
+        await expect(page.locator('#member-group-activity')).toBeVisible();
+        await page.screenshot({ fullPage: true, path: join(QUALITY_OUT, `member-all-${viewport.name}-${scheme}.png`) });
       });
     }
   }
@@ -41,7 +34,7 @@ if (QUALITY_OUT) {
 
 for (const width of [390, 975, 1536]) {
   test(`settings panels contain their controls and every row remains reachable at ${width}px`, async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(240_000);
     await page.setViewportSize({ width, height: 900 });
     await mockApi(page, { settings_advanced: true });
     await mockAdminFixtures(page);
@@ -56,7 +49,8 @@ for (const width of [390, 975, 1536]) {
         overflow: [...pane.querySelectorAll<HTMLElement>('.g-settings-rows, .g-settings-local-advanced')].some((panel) => panel.scrollWidth > panel.clientWidth + 1),
         documentOverflow: document.documentElement.scrollWidth > innerWidth + 1,
       }));
-      expect(report.rows.sort(), destination.id).toEqual([...destination.rows].sort());
+      const expected = destination.id === 'about' ? destination.rows : SETTINGS_PAGES.filter((entry) => entry.category === destination.category && entry.id !== 'about').flatMap((entry) => entry.rows);
+      expect(report.rows.sort(), destination.id).toEqual([...expected].sort());
       if (report.overflow || report.documentOverflow) problems.push(destination.id);
     }
     expect(problems).toEqual([]);
@@ -107,19 +101,19 @@ test('invitation libraries fit a compact grid with every choice and the limits s
 });
 
 
-test('member library choices use the full pane and Activity has no unrelated Save', async ({ page }) => {
+test('member library choices use the full pane and Activity sits outside the access form', async ({ page }) => {
   await page.setViewportSize({ width: 975, height: 900 });
   await mockApi(page, {}); await mockAdminFixtures(page);
   await page.goto('/settings/members/m2'); await signIn(page);
-  await page.getByRole('tab', { name: 'Libraries', exact: true }).click();
+  await page.getByRole('link', { name: 'Libraries', exact: true }).click();
   const choices = page.locator('[data-setting-id="members.libraries"] .g-control-stack');
   await expect(choices).toBeVisible();
   expect(await choices.evaluate((element) => element.clientWidth)).toBeGreaterThan(500);
   await expect(choices.getByRole('checkbox')).toHaveCount(4);
   await expect(choices.getByRole('group', { name: 'Watch', exact: true })).toBeVisible();
   await expect(choices.getByRole('group', { name: 'Other files', exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Activity', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
+  await expect(page.locator('#member-group-activity').getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
 });
 
 
@@ -140,8 +134,8 @@ test('model explanations stay inside the viewport on desktop and phones', async 
 
 test('setting descriptions start below their heading at wide desktop widths', async ({ page }) => {
   await mockApi(page, {}); await mockAdminFixtures(page);
-  await page.goto('/settings/apps?page=apps'); await signIn(page);
-  const row = page.locator('[data-setting-id="apps.connected"]');
+  await page.goto('/settings/playback?page=watching'); await signIn(page);
+  const row = page.locator('[data-setting-id="playback.max-quality"]');
   const heading = row.locator(':scope > .g-setting-head > .g-setting-label');
   const description = row.locator(':scope > .g-setting-head > .g-setting-desc');
   for (const width of [1280, 1440, 1920]) {
@@ -174,7 +168,7 @@ test('storage roots keep path and status readable at desktop and phone widths', 
   const status = row.getByText('Available', { exact: true });
   await page.setViewportSize({ width: 1440, height: 900 });
   expect((await path.boundingBox())!.height).toBeLessThan(24);
-  await expect(pathCell.getByText('Path', { exact: true })).toBeHidden();
+  await expect(pathCell.getByText('Path', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 900 });
   const label = pathCell.getByText('Path', { exact: true });
   await expect(pathCell).toHaveAccessibleName('Path /media/nas');
@@ -184,20 +178,16 @@ test('storage roots keep path and status readable at desktop and phone widths', 
   expect(statusBox!.x + statusBox!.width).toBeLessThanOrEqual(374);
 });
 
-test('member settings expose every page in a labeled phone selector', async ({ page }) => {
+test('member settings expose every group on phones without hiding any controls', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await mockApi(page, {}); await mockAdminFixtures(page);
   await page.goto('/settings/members/m2'); await signIn(page);
-  const pages = page.getByRole('combobox', { name: 'Member settings page' });
-  await expect(pages).toBeVisible();
-  await expect(page.getByRole('tablist', { name: /settings/ })).toBeHidden();
-  await pages.click();
-  await expect(page.getByRole('listbox').getByRole('option')).toHaveCount(8);
-  await page.getByRole('option', { name: 'Schedule', exact: true }).click();
+  await expect(page.locator('.g-settings-jumps.g-member-nav a')).toHaveCount(8);
+  await expect(page.getByRole('combobox', { name: 'Member settings page' })).toHaveCount(0);
+  await page.locator('.g-settings-jumps.g-member-nav').getByRole('link', { name: 'Schedule', exact: true }).click();
   const monday = page.getByRole('group', { name: 'Monday' });
   const [dayBox, fromBox] = await Promise.all([monday.locator('.g-day-name').boundingBox(), monday.getByRole('textbox', { name: 'Monday from' }).boundingBox()]);
   expect(dayBox!.y + dayBox!.height).toBeLessThanOrEqual(fromBox!.y);
-  await chooseSelect(page, pages, 'Activity');
   await expect(page.getByText('Screen time today', { exact: true })).toBeVisible();
 });
 

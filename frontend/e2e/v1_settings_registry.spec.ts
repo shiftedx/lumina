@@ -1,4 +1,4 @@
-import { SETTINGS_PAGES } from '../src/features/settings/navigation';
+import { SETTINGS_CATEGORIES, SETTINGS_PAGES } from '../src/features/settings/navigation';
 import { expect, test } from '@playwright/test';
 import { mockAdminFixtures, mockApi, signIn } from './lumina-mock';
 
@@ -15,7 +15,7 @@ test('every rendered Settings control belongs to a registry row with ⓘ text', 
   await signIn(page);
   const problems: string[] = [];
   const seen = new Set<string>();
-  for (const destination of SETTINGS_PAGES) {
+  for (const destination of [...SETTINGS_CATEGORIES.map((category) => SETTINGS_PAGES.find((page) => page.id === category.page)!), SETTINGS_PAGES.find((page) => page.id === 'about')!]) {
     const section = destination.section;
     await page.goto(`/settings/${section}?page=${destination.id}`);
     await expect(page.locator('.g-settings-section-head h2')).toBeVisible();
@@ -32,7 +32,7 @@ test('every rendered Settings control belongs to a registry row with ⓘ text', 
     for (const orphan of report.orphans) problems.push(`${section}: control outside every registry row: ${orphan}`);
     for (const row of report.rows) {
       seen.add(row.id);
-      if (!row.id.startsWith(`${section}.`)) problems.push(`${section}: row ${row.id} belongs to another section`);
+      if (!SETTINGS_PAGES.some((page) => page.rows.includes(row.id))) problems.push(`${section}: unregistered row ${row.id}`);
       if (row.text.length < 40) problems.push(`${section}: ${row.id} has no ⓘ text`);
     }
   }
@@ -48,12 +48,12 @@ test('every member-page control belongs to a members.* row with ⓘ text (member
   await page.goto('/');
   await signIn(page);
   await page.goto('/settings/members/m2');
-  const tabs = page.getByRole('tab');
+  const tabs = page.locator('.g-settings-jumps.g-member-nav a');
   await expect(tabs).toHaveCount(8);
   const problems: string[] = [];
   const seen = new Set<string>();
   for (const name of await tabs.allTextContents()) {
-    await page.getByRole('tab', { name }).click();
+    await tabs.filter({ hasText: name }).click();
     await page.waitForTimeout(200);
     const report = await page.locator('.g-settings-pane').evaluate((pane) => ({
       orphans: [...pane.querySelectorAll<HTMLElement>('input, select, textarea, button, a[href], summary, [role="switch"], [role="radio"]')]

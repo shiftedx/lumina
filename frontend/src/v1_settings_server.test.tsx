@@ -75,8 +75,7 @@ describe('Server sections', () => {
     api.startImport.mockResolvedValue({ id: 'run-1' });
     const browser = userEvent.setup();
     renderSection('library');
-    await browser.click(await screen.findByRole('button', { name: 'Actions for Old rips' }));
-    await browser.click(screen.getByRole('menuitem', { name: 'Import' }));
+    await browser.click(await screen.findByRole('button', { name: /^Import$/ }));
     await browser.click(screen.getByRole('button', { name: 'Import now' }));
     await waitFor(() => expect(api.listImports).toHaveBeenCalledTimes(2));
   });

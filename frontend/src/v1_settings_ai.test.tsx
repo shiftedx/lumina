@@ -473,8 +473,8 @@ describe('Go to Server address inside Settings', () => {
     const onSection = vi.fn();
     render(<Shell onSection={onSection} start="ai" />);
     await screen.findByRole('switch', { name: 'Semantic search' });
-    // The address is an advanced row, hidden until Go to Server address shows advanced settings.
-    expect(screen.queryByRole('textbox', { name: /^Server address/ })).toBeNull();
+    // Connection fields share the same workspace as the feature controls.
+    expect(screen.getByRole('textbox', { name: /^Server address/ })).toBeTruthy();
     await goFromSearch();
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: /^Server address/ })));
     expect(onSection).not.toHaveBeenCalled();

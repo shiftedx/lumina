@@ -44,9 +44,9 @@ describe('admin overview', () => {
     expect(screen.getByText('Active downloads').parentElement?.textContent).toContain('3');
     expect(screen.getByText('Live event streams').parentElement?.textContent).toContain('3');
     expect(screen.getByText('Library volume free space:', { exact: false }).textContent).toContain('unavailable');
-    const nas = screen.getByRole('row', { name: /NAS/ });
+    const nas = screen.getByText('NAS', { exact: true }).closest('li')!;
     expect(within(nas).getByText('Not probed')).not.toBeNull();
-    expect(within(nas).getByText('Unavailable')).not.toBeNull();
+    expect(within(nas).getByText(/^Unavailable/)).not.toBeNull();
     expect(screen.getByText('HTTP Error 403: Forbidden')).not.toBeNull();
   });
 

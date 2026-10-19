@@ -15,6 +15,7 @@ const admin = { ...base, role: 'admin' as const };
 const media: MediaServerSettings = { jellyfin_enabled: false, jellyfin_url: null, has_tmdb_key: false, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10 };
 const prefs = { normalizeLoudness: false, autoSkip: { intro: false, credits: false, recap: false }, profanity: { enabled: false, words: [] } };
 function shell(owner = false, start: SettingsLocation = { section: null, page: null, space: 'personal' }) {
+  api.listBackups.mockResolvedValue({ backups: [], schedule: { daily: false, keep: 7 } });
   const onPlaybackPrefsChange = vi.fn();
   function Host() {
     const [location, setLocation] = useState(start);
@@ -63,7 +64,7 @@ describe('Settings destination search', () => {
     expect(api.getMediaServerSettings).not.toHaveBeenCalled();
     await userEvent.click(within(results()).getByRole('link', { name: /Conversion cache/ }));
     const cache = await screen.findByRole('spinbutton', { name: 'Conversion cache (GB)' });
-    expect(screen.getByRole('heading', { level: 1, name: 'Manage Server' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
     await userEvent.clear(cache);
     await userEvent.type(cache, '20');
     await userEvent.click(screen.getByRole('button', { name: 'Save playback and transcoding settings' }));
@@ -83,10 +84,12 @@ describe('Settings destination search', () => {
     expect((cache as HTMLInputElement).value).toBe('30');
   });
 
-  it('opens a searched advanced row inside its local disclosure', async () => {
+  it('opens and focuses a searched tuning control without a disclosure', async () => {
     shell();
     await userEvent.type(search(), 'recent stream cache');
     await userEvent.click(within(results()).getByRole('link', { name: /Recent stream cache/ }));
-    expect(document.getElementById('setting-playback-stream-cache')?.closest('details')?.open).toBe(true);
+    const row = document.getElementById('setting-playback-stream-cache')!;
+    expect(row.closest('details')).toBeNull();
+    expect(row.contains(document.activeElement)).toBe(true);
   });
 });

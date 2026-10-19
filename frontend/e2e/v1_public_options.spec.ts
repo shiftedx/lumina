@@ -161,7 +161,7 @@ async function login(page: Page) {
 async function openSettings(page: Page) {
   await page.getByRole('button', { name: /, account menu$/ }).click();
   await page.getByRole('menuitem', { name: 'My Settings' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: /^(My Settings|Manage Server)$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
 }
 
 const SIGN_IN_LABEL_PATTERNS = [/saved sign-in/i, /sign in with/i, /auth profile/i, /credential/i, /cookie file/i, /browser sign-in/i, /netrc/i] as const;
@@ -169,7 +169,7 @@ const SIGN_IN_LABEL_PATTERNS = [/saved sign-in/i, /sign in with/i, /auth profile
 async function assertSettingsSurfaceHasNoSignInControls(page: Page) {
   // The surface itself renders (positive control) and the surviving local
   // session control stays.
-  await expect(page.getByRole('heading', { level: 1, name: /^(My Settings|Manage Server)$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
   // Sign out lives on Profile now (the landing is a card grid; the top-bar menu has one too).
   await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Profile & security' }).click();
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();

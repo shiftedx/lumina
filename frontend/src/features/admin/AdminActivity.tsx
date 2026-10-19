@@ -91,6 +91,7 @@ export function ActivityNowPlaying() {
   return (
     <div>
       {error ? <StatusText tone="danger"><span role="alert">{error} Showing the last update.</span></StatusText> : null}
+      <div className="activity-live-summary"><span className="activity-live-dot" aria-hidden="true" /><strong>{data.sessions.length}</strong> stream{data.sessions.length === 1 ? '' : 's'} playing <span>Live · refreshes every 3 seconds</span></div>
       {data.sessions.length ? <ul className="activity-list">{data.sessions.map((session) => <SessionRow key={session.id} onStop={(next) => { setStopError(null); setPending(next); }} session={session} />)}</ul> : <EmptyState title="Nothing is playing right now." />}
       <ConfirmDialog
         body={<><p>Stop this stream? {pending?.user.name} will see that the server owner stopped it.</p>{stopError ? <p role="alert"><StatusText tone="danger">{stopError}</StatusText></p> : null}</>}
@@ -100,8 +101,9 @@ export function ActivityNowPlaying() {
   );
 }
 
-const Stat = ({ label, value, note }: { label: string; value: string | null; note?: string }) => (
-  <div className="g-stat">
+const Stat = ({ label, value, note, percent }: { label: string; value: string | null; note?: string; percent?: number | null }) => (
+  <div className={`g-stat${percent != null ? ' activity-meter' : ''}`}>
+    {percent != null ? <svg aria-hidden="true" viewBox="0 0 100 100"><circle className="activity-meter-track" cx="50" cy="50" r="42" /><circle className="activity-meter-fill" cx="50" cy="50" r="42" pathLength="100" strokeDasharray={`${Math.max(0, Math.min(100, percent))} 100`} /></svg> : null}
     <dt className="g-label">{label}</dt>
     <dd className={value === null ? 'g-stat-note activity-na' : 'g-stat-figure'}>{value ?? NOT_AVAILABLE}</dd>
     {note && value !== null ? <dd className="g-stat-note">{note}</dd> : null}
@@ -117,10 +119,10 @@ export function ActivityServerStats() {
   return (
     <div>
       <dl className="g-stat-strip activity-stats">
-        <Stat label="CPU" value={pct(server.cpu_percent)} />
-        <Stat label="Memory" note={server.memory ? `of ${gigabytes(server.memory.total_bytes)}` : undefined} value={server.memory ? gigabytes(server.memory.used_bytes) : null} />
+        <Stat label="CPU" percent={server.cpu_percent} value={pct(server.cpu_percent)} />
+        <Stat label="Memory" percent={server.memory && server.memory.total_bytes > 0 ? 100 * server.memory.used_bytes / server.memory.total_bytes : null} note={server.memory ? `of ${gigabytes(server.memory.total_bytes)}` : undefined} value={server.memory ? gigabytes(server.memory.used_bytes) : null} />
         <Stat label="Load average" value={server.load_average ? server.load_average[0].toFixed(2) : null} note={server.load_average ? `5 min ${server.load_average[1].toFixed(2)} · 15 min ${server.load_average[2].toFixed(2)}` : undefined} />
-        <Stat label="Transcoder CPU" value={pct(server.transcoder_cpu_percent)} />
+        <Stat label="Transcoder CPU" percent={server.transcoder_cpu_percent} value={pct(server.transcoder_cpu_percent)} />
         <Stat label="ffmpeg processes" value={String(server.ffmpeg_processes)} />
         <Stat label="Uptime" value={server.uptime_seconds == null ? null : uptimeLabel(server.uptime_seconds)} />
       </dl>
@@ -161,6 +163,22 @@ const useDebounced = (value: string, ms: number) => {
   return debounced;
 };
 
+function ViewingBreakdown({ rows }: { rows: ActivityHistoryRow[] }) {
+  const members = new Map<string, { name: string; seconds: number; sessions: number }>();
+  for (const row of rows) {
+    const member = members.get(row.user.id) ?? { name: row.user.name, seconds: 0, sessions: 0 };
+    member.seconds += Math.max(0, row.watched_seconds);
+    member.sessions += 1;
+    members.set(row.user.id, member);
+  }
+  const ranked = [...members].sort((a, b) => b[1].seconds - a[1].seconds);
+  const max = Math.max(1, ...ranked.map(([, member]) => member.seconds));
+  return <figure className="activity-viewing-chart">
+    <figcaption><strong>Viewing by member</strong><span>{rows.length} loaded session{rows.length === 1 ? '' : 's'} · current filters</span></figcaption>
+    <ul>{ranked.map(([id, member]) => <li key={id}><span>{member.name}</span><div><span aria-hidden="true" style={{ width: `${100 * member.seconds / max}%` }} /></div><strong>{formatDuration(member.seconds)}</strong><small>{member.sessions} session{member.sessions === 1 ? '' : 's'}</small></li>)}</ul>
+  </figure>;
+}
+
 export function ActivityHistory() {
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [userId, setUserId] = useState('');
@@ -199,6 +217,8 @@ export function ActivityHistory() {
       </div>
       {error ? <ErrorState onRetry={() => load(null)} title="History is unavailable" body={error} /> : null}
       {rows.length ? (
+        <>
+        <ViewingBreakdown rows={rows} />
         <div className="g-table-scroll">
           <table className="g-table activity-history">
             <caption className="sr-only">Playback history, newest first</caption>
@@ -215,6 +235,7 @@ export function ActivityHistory() {
             ))}</tbody>
           </table>
         </div>
+        </>
       ) : !loading && !error ? <EmptyState title={q || userId ? 'Nothing matches.' : 'No playback history yet.'} /> : null}
       {loading ? <p aria-busy="true" className="g-setting-note">Loading…</p> : null}
       <p className="g-setting-note">History is kept for 90 days.</p>

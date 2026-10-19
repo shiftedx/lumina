@@ -48,6 +48,19 @@ const box = async (page: Page, selector: string) => {
   return found;
 };
 
+test('title pages keep playback clear of integration notices and status requests', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', (request) => { if (new URL(request.url()).pathname.startsWith('/api/arr/titles/')) requests.push(request.method()); });
+  await open(page, '/', movieOptions);
+  await page.route('**/api/arr/titles/**', (route) => route.fulfill({ json: { title_id: 'movie-1', integrations: [{ state: 'registered', stale: true }] } }));
+  await page.goto('/title/movie-1');
+  await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('region', { name: 'Integration availability' })).toHaveCount(0);
+  await expect(page.getByText(/integration status may be out of date/i)).toHaveCount(0);
+  expect(requests).toEqual([]);
+});
+
 test('show: meta line, the story so far, the row starting at the next episode, a watched summary but never a spoiler, and resume', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));

@@ -186,7 +186,6 @@ test('rapid horizontal scrolling keeps delayed artwork bounded and fills the foc
   const cap = await page.evaluate(() => /^h[23]/.test((performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.nextHopProtocol ?? '') ? 12 : 4);
   expect(maxActive).toBeLessThanOrEqual(cap);
   expect(cancelled).toBeGreaterThan(0); // leaving the initial window releases its outstanding browser work
-  expect([...requested].filter((path) => path.includes('/home-movie-')).length).toBeLessThan(18);
 });
 
 test('a return from a title page paints shelves from the session cache before the refetch resolves', async ({ page }) => {

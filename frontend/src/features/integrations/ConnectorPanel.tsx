@@ -14,8 +14,15 @@ const KINDS: Array<{ value: ConnectorKind; label: string }> = [
 const DATASETS: Record<ConnectorKind, Array<{ value: ConnectorDataset; label: string }>> = {
   lidarr: [{ value: 'artists', label: 'Artists' }, { value: 'albums', label: 'Albums' }, { value: 'queue', label: 'Queue' }, { value: 'history', label: 'History' }, { value: 'root_folders', label: 'Root folders' }, { value: 'quality_profiles', label: 'Quality profiles' }, { value: 'metadata_profiles', label: 'Metadata profiles' }],
   prowlarr: [{ value: 'health', label: 'Health' }, { value: 'indexers', label: 'Indexers' }, { value: 'indexer_status', label: 'Indexer status' }, { value: 'history', label: 'History' }, { value: 'stats', label: 'Statistics' }],
-  qbittorrent: [{ value: 'transfers', label: 'Transfers' }, { value: 'health', label: 'Health' }],
+  qbittorrent: [{ value: 'transfers', label: 'Transfers' }],
   nzbget: [{ value: 'transfers', label: 'Transfers' }, { value: 'health', label: 'Health' }],
+};
+
+const COLLECTED_INFORMATION: Record<ConnectorKind, string> = {
+  lidarr: 'Artist and album inventory, download activity, history, music folders, quality and metadata profiles.',
+  prowlarr: 'Configured indexers, indexer availability, health notices, history and statistics.',
+  qbittorrent: 'Transfer states, progress, sizes, remaining data and download speeds.',
+  nzbget: 'Transfer states, progress, sizes, remaining data and service health.',
 };
 
 type Draft = { kind: ConnectorKind; name: string; base_url: string; api_key: string; username: string; password: string; settings: ConnectorSettings };
@@ -46,9 +53,10 @@ function connectorPayload(draft: Draft): ConnectorInput {
 }
 
 function State({ connector }: { connector: ServiceConnector }) {
-  if (connector.last_error) return <StatusText tone="danger">Last test failed: {connector.last_error}</StatusText>;
-  if (connector.enabled && connector.last_ok_at) return <StatusText tone={connector.stale ? 'attention' : 'ok'}>{connector.stale ? 'The last successful observation may be out of date.' : `Tested ${formatDateTime(connector.last_ok_at)}.`}</StatusText>;
-  return <StatusText tone="muted">Saved. Test this connection to qualify it.</StatusText>;
+  return <div className="arr-freshness">
+    <p>{connector.last_ok_at ? <>Saved snapshot from <time dateTime={connector.last_ok_at}>{formatDateTime(connector.last_ok_at)}</time>.{connector.stale ? ' Test this connection to check for updates.' : ''}</> : 'No completed collection yet. Test this connection to collect its information.'}</p>
+    {connector.last_error ? <StatusText tone="danger">Last collection failed: {connector.last_error}</StatusText> : null}
+  </div>;
 }
 
 function recordText(value: unknown) { return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : null; }
@@ -207,5 +215,5 @@ function ArrBindings({ rows, onChange }: { rows: ConnectorArrClient[]; onChange:
 
 function ConnectorDetails({ connector, dataset, details, error, onDataset, onPage }: { connector: ServiceConnector; dataset: ConnectorDataset; details: Awaited<ReturnType<typeof getConnectorDetails>> | null; error: string | null; onDataset: (value: ConnectorDataset) => void; onPage: (value: number) => void }) {
   const entries = DATASETS[connector.kind];
-  return <section aria-labelledby="connector-details-heading" className="connector-details"><h5 id="connector-details-heading">Saved observations</h5><div aria-label="Connector dataset" className="arr-tabs">{entries.map((entry) => <button aria-pressed={dataset === entry.value} key={entry.value} onClick={() => onDataset(entry.value)} type="button">{entry.label}</button>)}</div>{error ? <p className="connector-note" role="alert">{error}</p> : !details ? <p className="admin-note" role="status">Loading saved observations…</p> : <><DetailRows rows={details.items} /><Pager page={details.page} pageSize={details.page_size} total={details.total} onPage={onPage} /></>}</section>;
+  return <section aria-labelledby="connector-details-heading" className="connector-details"><h5 id="connector-details-heading">Collected information</h5><p className="connector-note">{COLLECTED_INFORMATION[connector.kind]}</p>{connector.capabilities.control === false ? <p className="connector-note">Read-only connection. Lumina observes activity without controlling this service.</p> : connector.capabilities.approved_music_requests ? <p className="connector-note">Album requests are sent only after approval.</p> : null}<div aria-label="Connector dataset" className="arr-tabs">{entries.map((entry) => <button aria-pressed={dataset === entry.value} key={entry.value} onClick={() => onDataset(entry.value)} type="button">{entry.label}</button>)}</div>{error ? <p className="connector-note" role="alert">{error}</p> : !details ? <p className="admin-note" role="status">Loading saved observations…</p> : <><DetailRows rows={details.items} /><Pager page={details.page} pageSize={details.page_size} total={details.total} onPage={onPage} /></>}</section>;
 }

@@ -20,26 +20,40 @@ function shell(props: Partial<Parameters<typeof SettingsSurface>[0]> = {}) {
   return render(<SettingsSurface formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} user={viewer} {...props} />);
 }
 const nav = () => screen.getByRole('navigation', { name: 'Settings sections' });
+const categoryNames = () => within(nav()).getAllByRole('link').map((link) => link.getAttribute('aria-label') ?? link.textContent);
 const personal = ['Profile & security', 'Playback', 'Display', 'Discovery & streaming', 'Downloads', 'Privacy & connected apps', 'About Lumina'];
 const server = ['Overview & activity', 'Household', 'Library & storage', 'Connections', 'AI features', 'Maintenance', 'About Lumina'];
 
 describe('separate settings spaces', () => {
   it('shows only six personal categories, with About in the footer and no repeated card grid', () => {
     shell();
-    expect(within(nav()).getAllByRole('link').map((link) => link.textContent)).toEqual(personal);
+    expect(categoryNames()).toEqual(personal);
     expect(screen.getByRole('heading', { level: 1, name: 'My Settings' })).toBeTruthy();
     expect(screen.queryByRole('navigation', { name: 'Settings spaces' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'All settings' })).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Quick changes Get straight to it.' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Autoplay next video' })).toBeNull();
   });
 
   it('keeps owners’ personal preferences separate from their six server categories', async () => {
     api.listUsers.mockResolvedValue([admin]);
     shell({ user: admin });
-    expect(within(nav()).getAllByRole('link').map((link) => link.textContent)).toEqual(personal);
+    expect(categoryNames()).toEqual(personal);
     await userEvent.click(screen.getByRole('link', { name: 'Manage Server' }));
-    expect(within(nav()).getAllByRole('link').map((link) => link.textContent)).toEqual(server);
+    expect(categoryNames()).toEqual(server);
     expect(screen.getByRole('heading', { level: 1, name: 'Manage Server' })).toBeTruthy();
-    expect(screen.getByText('Entire household')).toBeTruthy();
+    expect(screen.getByText('Entire household · Server changes affect everyone.')).toBeTruthy();
+    expect(api.listUsers).not.toHaveBeenCalled();
+    expect(api.listBackups).not.toHaveBeenCalled();
+  });
+
+  it('jumps from a common task to its input and returns to a focused home', async () => {
+    shell({ onPlaybackMaxHeightChange: vi.fn() });
+    await userEvent.click(screen.getByRole('link', { name: 'Set streaming quality' }));
+    expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Maximum quality' }));
+    await userEvent.click(screen.getByRole('button', { name: 'All settings' }));
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Quick changes Get straight to it.' }));
+    expect(screen.queryByRole('combobox', { name: 'Maximum quality' })).toBeNull();
   });
 
   it('opens focused pages and restores focus to the category heading', async () => {

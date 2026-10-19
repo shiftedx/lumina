@@ -141,15 +141,16 @@ export function ArrCard({ kind }: { kind: ArrKind }) {
           {select(`${name} root folder`, current.root_folder, (root_folder) => edit({ root_folder }), roots, 'Test the connection to choose')}
           {select(`${name} quality profile`, current.quality_profile_id, (quality_profile_id) => edit({ quality_profile_id }), profiles(current.quality_profile_id), 'Test the connection to choose')}
           {kind === 'sonarr' && showAdvanced ? (
-            <>
+            <details className="g-req-advanced"><summary>Anime options</summary><div className="g-subrows">
               {select('Anime root folder', current.anime_root_folder, (anime_root_folder) => edit({ anime_root_folder }), animeRoots, 'Test the connection to choose')}
               {select('Anime quality profile', current.anime_quality_profile_id, (anime_quality_profile_id) => edit({ anime_quality_profile_id }), profiles(current.anime_quality_profile_id), 'Test the connection to choose')}
-            </>
+            </div></details>
           ) : null}
         </div>
         {showAdvanced ? (
+          <details className="g-req-advanced"><summary>Path mapping</summary>
           <fieldset className="g-req-maps">
-            <legend>Path mapping <span className="g-setting-tag">Advanced</span></legend>
+            <legend className="sr-only">Path mapping</legend>
             <p className="g-req-line">Where {name} saves files, and the same folder as Lumina sees it.</p>
             {current.path_mappings.map((row, index) => (
               <div className="g-req-map-row" key={index}>
@@ -161,6 +162,7 @@ export function ArrCard({ kind }: { kind: ArrKind }) {
             ))}
             <div className="g-actions"><Button icon={<Plus />} onClick={() => edit({ path_mappings: [...current.path_mappings, { remote: '', local: '' }] })} variant="quiet">{`Add ${name} path mapping`}</Button></div>
           </fieldset>
+          </details>
         ) : null}
         {server ? (
           <div className="g-actions g-req-status">

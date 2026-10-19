@@ -82,10 +82,19 @@ describe('Requests settings', () => {
   it('saves an edited server with only a typed key and the path mappings', async () => {
     renderSection();
     await screen.findByLabelText(/^Sonarr API key/);
+    const mappings = screen.getByLabelText('Sonarr path 1').closest('details')!;
+    const anime = screen.getByLabelText('Anime root folder').closest('details')!;
+    expect(mappings.open).toBe(false);
+    expect(anime.open).toBe(false);
+    await userEvent.click(within(mappings).getByText('Path mapping', { selector: 'summary' }));
+    const localPath = screen.getByLabelText('Sonarr path 1 in Lumina');
+    await userEvent.clear(localPath);
+    await userEvent.type(localPath, '/media/shows');
+    await userEvent.click(within(mappings).getByText('Path mapping', { selector: 'summary' }));
     await userEvent.type(screen.getByLabelText(/^Sonarr API key/), 'k3y');
     await userEvent.click(screen.getByRole('button', { name: 'Save Sonarr' }));
     await waitFor(() => expect(sent('PUT', '/servers/s1')).toHaveLength(1));
-    expect(sent('PUT', '/servers/s1')[0].body).toMatchObject({ kind: 'sonarr', base_url: 'http://sonarr.lan', api_key: 'k3y', path_mappings: [{ remote: '/tv', local: '/media/tv' }] });
+    expect(sent('PUT', '/servers/s1')[0].body).toMatchObject({ kind: 'sonarr', base_url: 'http://sonarr.lan', api_key: 'k3y', path_mappings: [{ remote: '/tv', local: '/media/shows' }] });
   });
 
   it('prefills Radarr with the /movies path mapping when nothing is saved', async () => {

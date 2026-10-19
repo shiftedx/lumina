@@ -1,10 +1,11 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, ArrowRight, Bell, Captions, ChevronRight, CircleUserRound, Compass, Download, FolderOpen, Gauge, HardDrive, KeyRound, Palette, Play, Plug, ShieldCheck, Sparkles, Users, Wrench } from 'lucide-react';
 
 import { routePath, type SettingsSectionId } from '../../app/routes';
 import { Button, Field, fieldProps, Input, Masthead, Select } from '../../ui';
 import { MemberPage } from '../admin/MemberPage';
 import { moveFocus } from '../media/focusNav';
-import { categoryForPage, pageById, pageForRow, resolveSettingsPage, SETTINGS_CATEGORIES, SETTINGS_PAGES, type SettingsPage, type SettingsSpace } from './navigation';
+import { categoryForPage, pageById, pageForRow, resolveSettingsPage, SETTINGS_CATEGORIES, SETTINGS_PAGES, type SettingsCategory, type SettingsPage, type SettingsSpace } from './navigation';
 import { sectionById, visibleSections } from './registry';
 import { SectionRows, settingDomId } from './SettingRow';
 import { SettingsSearchResults } from './SettingsSearch';
@@ -24,9 +25,24 @@ export type SettingsShellProps = SettingsSurfaceProps & {
 };
 
 const NAV_TARGETS = '.g-settings-search input, .g-settings-link';
-const PANE_TARGETS = ['.g-settings-page-link', '.g-settings-page-select .g-select-trigger', '.g-settings-local-advanced summary', '.g-settings-result-link', '.g-member-nav .g-button', '.g-member-nav [aria-selected="true"]', ...['button', 'a[href]', 'input', 'select', 'textarea', 'summary'].map((tag) => `.setting-row ${tag}:not(:disabled)`), '.setting-form-bar button:not(:disabled)', '.g-save-bar button:not(:disabled)'].join(', ');
+const PANE_TARGETS = ['.g-settings-back', '.g-settings-page-link', '.g-settings-page-select .g-select-trigger', '.g-settings-local-advanced summary', '.g-settings-result-link', '.g-member-nav .g-button', '.g-member-nav [aria-selected="true"]', ...['button', 'a[href]', 'input', 'select', 'textarea', 'summary'].map((tag) => `.setting-row ${tag}:not(:disabled)`), '.setting-form-bar button:not(:disabled)', '.g-save-bar button:not(:disabled)'].join(', ');
 const VERTICAL_EXIT = 'input:not([type="checkbox"]):not([type="radio"]), select';
 const OWNS_LEFT = 'input:not([type="checkbox"]), textarea, select, [role="combobox"], [role="radiogroup"], [role="tablist"]';
+const CATEGORY_ICONS = { profile: CircleUserRound, playback: Play, display: Palette, discovery: Compass, downloads: Download, privacy: ShieldCheck, overview: Gauge, household: Users, library: FolderOpen, connections: Plug, ai: Sparkles, maintenance: Wrench } satisfies Record<SettingsCategory, typeof Play>;
+const QUICK_CHANGES: Record<SettingsSpace, Array<{ page: string; label: string; icon: typeof Play; row?: string }>> = {
+  personal: [
+    { page: 'captions', label: 'Adjust subtitles', icon: Captions },
+    { page: 'display', label: 'Change appearance', icon: Palette },
+    { page: 'watching', label: 'Set streaming quality', icon: Play, row: 'playback.max-quality' },
+    { page: 'security', label: 'Change password', icon: KeyRound, row: 'account.password' },
+  ],
+  server: [
+    { page: 'invitations', label: 'Invite someone', icon: Users },
+    { page: 'folders', label: 'Manage media folders', icon: FolderOpen },
+    { page: 'backups', label: 'Create a backup', icon: HardDrive },
+    { page: 'tasks', label: 'Check background tasks', icon: Bell },
+  ],
+};
 
 /** Two spaces, six categories each. Every registry row has a searchable, bookmarkable subpage. */
 export function SettingsSurface({ section = null, page = null, space, onLocation, onSection = () => undefined, member = null, onMember = () => undefined, ...host }: SettingsShellProps) {
@@ -52,6 +68,7 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
   const paneRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState('');
   const searching = query.trim() !== '';
+  const home = !effectiveSection && !searching && !member;
   const locationKey = `${effectiveSection}:${(local ? local.page : page)}:${activeSpace}`;
   const [seenLocation, setSeenLocation] = useState(locationKey);
   if (locationKey !== seenLocation) { setSeenLocation(locationKey); setQuery(''); }
@@ -60,7 +77,7 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
   function choose(next: SettingsLocation, row?: string): boolean {
     if (next.section === effectiveSection && next.page === current.id && next.space === activeSpace && !searching && !member) return true;
     if (!confirmLeaveSettings()) return false;
-    pendingFocus.current = row ?? 'settings-section-title';
+    pendingFocus.current = row ?? (next.section ? 'settings-section-title' : 'settings-home-title');
     setQuery('');
     if (member) onMember(null);
     if (onLocation) onLocation(next);
@@ -86,8 +103,9 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
     const waitingFrom = document.activeElement;
     const focus = () => {
       if (document.activeElement !== waitingFrom && document.activeElement !== document.body) { pendingFocus.current = null; return true; }
-      const target = row === 'settings-section-title' ? document.getElementById(row) : document.getElementById(row.startsWith('setting-') ? row : settingDomId(row));
-      if (!target || !paneRef.current?.contains(target)) return false;
+      const heading = row === 'settings-section-title' || row === 'settings-home-title';
+      const target = document.getElementById(heading || row.startsWith('setting-') ? row : settingDomId(row));
+      if (!target || (!heading && !paneRef.current?.contains(target))) return false;
       const details = target.closest('details');
       if (details) details.open = true;
       const controls = target.querySelector('.g-setting-control') ?? target;
@@ -105,6 +123,7 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
   }, [locationKey, searching, member]);
 
   function onNavKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (home) return;
     const target = event.target as HTMLElement;
     moveFocus(event, { targets: NAV_TARGETS, verticalExit: VERTICAL_EXIT });
     if (event.defaultPrevented || event.key !== 'ArrowRight' || target.matches('input')) return;
@@ -145,9 +164,9 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
 
   return (
     <SettingsHostContext.Provider value={{ ...host, showAdvanced: true, visibleSettingIds: current.rows, onOpenSection: (id) => openPage(resolveSettingsPage(id)), onOpenSetting: (id) => { const next = pageForRow(id); return next ? openPage(next, id) : false; }, onOpenMember: (id) => { if (!confirmLeaveSettings()) return; onMember(id); } }}>
-      <div className="g-settings" data-view={effectiveSection || searching ? 'detail' : 'list'} data-space={activeSpace}>
+      <div className="g-settings" data-view={home ? 'list' : 'detail'} data-space={activeSpace} onKeyDown={home ? (event) => moveFocus(event, { targets: '.g-settings-spaces a, .g-settings-search input, .g-settings-shortcut, .g-settings-sidebar .g-settings-link', verticalExit: VERTICAL_EXIT }) : undefined}>
         <header className="g-settings-header">
-          <Masthead title={activeSpace === 'server' ? 'Manage Server' : 'My Settings'} />
+          <div className="g-settings-heading"><Masthead title={activeSpace === 'server' ? 'Manage Server' : 'My Settings'} />{home ? <p className="g-settings-welcome">{activeSpace === 'server' ? 'Keep your household running smoothly.' : 'Settle in. Make Lumina yours.'}</p> : null}</div>
           {host.user.role === 'admin' ? <nav aria-label="Settings spaces" className="g-settings-spaces" data-focus-row onKeyDown={(event) => moveFocus(event, { targets: 'a' })}>
             {(['personal', 'server'] as const).map((next) => <a className="g-settings-link" aria-current={activeSpace === next ? 'page' : undefined} href={routePath({ surface: 'settings', space: next })} key={next} onClick={(event) => {
               if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
@@ -155,25 +174,37 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
             }}>{next === 'personal' ? 'My Settings' : 'Manage Server'}</a>)}
           </nav> : null}
         </header>
-        <div className="g-settings-search" role="search" onKeyDown={(event) => { if (event.key === 'ArrowDown') { const first = navRef.current?.querySelector<HTMLElement>('.g-settings-link'); if (first) { event.preventDefault(); first.focus(); } } }}>
-          <Field hideLabel label="Search settings">{(ids) => <Input {...fieldProps(ids)} autoComplete="off" onChange={(event) => changeQuery(event.target.value)} placeholder="Search settings" type="search" value={query} />}</Field>
+        <div className="g-settings-search" role="search" onKeyDown={(event) => { if (event.key === 'ArrowDown') { const first = searching ? paneRef.current?.querySelector<HTMLElement>('.g-settings-result-link') : home ? event.currentTarget.parentElement?.querySelector<HTMLElement>('.g-settings-shortcut') : navRef.current?.querySelector<HTMLElement>('.g-settings-link'); if (first) { event.preventDefault(); first.focus(); } } }}>
+          <Field hideLabel label="Search settings">{(ids) => <Input {...fieldProps(ids)} autoComplete="off" onChange={(event) => changeQuery(event.target.value)} placeholder={home ? 'Find a setting — try “subtitles” or “quality”' : 'Search settings'} type="search" value={query} />}</Field>
         </div>
+        {home ? <section aria-labelledby="settings-home-title" className="g-settings-quick" onKeyDown={(event) => moveFocus(event, { targets: 'a' })}>
+          <h2 id="settings-home-title" tabIndex={-1}>Quick changes <span>Get straight to it.</span></h2>
+          <div className="g-settings-shortcuts" data-focus-row>{QUICK_CHANGES[activeSpace].map((shortcut) => {
+            const next = pageById(shortcut.page)!;
+            return <a className="g-settings-shortcut" href={`${routePath({ surface: 'settings', section: next.section, page: next.id, space: activeSpace })}${shortcut.row ? `#${settingDomId(shortcut.row)}` : ''}`} key={next.id} onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+              event.preventDefault(); openPage(next, shortcut.row);
+            }}><shortcut.icon aria-hidden="true" /><span>{shortcut.label}</span><ArrowRight aria-hidden="true" /></a>;
+          })}</div>
+        </section> : null}
         <nav aria-label="Settings sections" className="g-settings-sidebar" onKeyDown={onNavKeyDown} ref={navRef}>
-          <ul>
+          {home ? <h2>Browse settings</h2> : null}
+          <ul data-focus-row={home || undefined}>
             {categories.map((entry) => {
               const next = pageById(entry.page)!;
-              return <li data-focus-row key={entry.id}><a aria-current={!forbidden && !searching && category.id === entry.id ? 'page' : undefined} className="g-settings-link" href={routePath({ surface: 'settings', section: next.section, page: next.id, space: activeSpace })} onClick={(event) => follow(event, next)}>{entry.label}</a><p className="g-settings-category-summary">{entry.summary}</p></li>;
+              const Icon = CATEGORY_ICONS[entry.id];
+              return <li data-focus-row={!home || undefined} key={entry.id}><a aria-label={entry.label} aria-describedby={home ? `settings-category-${entry.id}` : undefined} aria-current={!home && !forbidden && !searching && category.id === entry.id ? 'page' : undefined} className="g-settings-link" href={routePath({ surface: 'settings', section: next.section, page: next.id, space: activeSpace })} onClick={(event) => follow(event, next)}><Icon aria-hidden="true" /><span className="g-settings-category-copy"><span>{entry.label}</span>{home ? <span className="g-settings-category-summary" id={`settings-category-${entry.id}`}>{entry.summary}</span> : null}</span>{home ? <ChevronRight aria-hidden="true" className="g-settings-category-arrow" /> : null}</a></li>;
             })}
           </ul>
-          <p className="g-settings-scope-note">{activeSpace === 'personal' ? 'Preferences for your profile.' : 'Server changes affect the entire household.'}</p>
+          <p className="g-settings-scope-note">{activeSpace === 'personal' ? 'Preferences for your profile.' : 'Entire household · Server changes affect everyone.'}</p>
           <a className="g-settings-link g-settings-about" href="/settings/about" onClick={(event) => follow(event, pageById('about')!)}>About Lumina</a>
         </nav>
-        <div className="g-settings-pane" onKeyDown={onPaneKeyDown} onKeyDownCapture={onPaneKeyDownCapture} ref={paneRef}>
-          {effectiveSection || searching ? <Button className="g-settings-back" onClick={() => choose({ section: null, page: null, space: activeSpace })} variant="quiet">All settings</Button> : null}
-          {searching ? <SettingsSearchResults onOpen={openPage} query={query} sections={allowed} /> : forbidden ? <p className="g-settings-summary" role="status">This part of Settings is for vault owners. Ask a vault owner if something on this server needs changing.</p> : current.section === 'members' && member ? (
+        <div className="g-settings-pane" hidden={home} onKeyDown={onPaneKeyDown} onKeyDownCapture={onPaneKeyDownCapture} ref={paneRef}>
+          {!home ? <Button className="g-settings-back" icon={<ArrowLeft />} onClick={() => choose({ section: null, page: null, space: activeSpace })} variant="quiet">All settings</Button> : null}
+          {home ? null : searching ? <SettingsSearchResults onOpen={openPage} query={query} sections={allowed} /> : forbidden ? <p className="g-settings-summary" role="status">This part of Settings is for vault owners. Ask a vault owner if something on this server needs changing.</p> : current.section === 'members' && member ? (
             <MemberPage key={member} memberId={member} onBack={() => { if (confirmLeaveSettings()) onMember(null); }} />
           ) : <section aria-labelledby="settings-section-title" className="g-settings-section">
-            <header className="g-settings-section-head"><div><h2 id="settings-section-title" tabIndex={-1}>{current.id === 'about' ? current.label : category.label}</h2><p className="g-settings-summary">{current.summary}</p></div><span className="g-settings-scope">{activeSpace === 'personal' ? 'Your profile' : 'Entire household'}</span></header>
+            <header className="g-settings-section-head"><div><h2 id="settings-section-title" tabIndex={-1}>{current.id === 'about' ? current.label : category.label}</h2><p className="g-settings-summary">{current.summary}</p></div><span className="g-settings-scope">{['watching', 'captions', 'display'].includes(current.id) ? 'Saves automatically · Your profile' : activeSpace === 'personal' ? 'Your profile' : 'Entire household'}</span></header>
             {pages.length > 1 && current.id !== 'about' ? <>
               <nav aria-label={`${category.label} pages`} className="g-settings-pages" data-focus-row>{pages.map((next) => <a aria-current={next.id === current.id ? 'page' : undefined} className="g-settings-link g-settings-page-link" href={routePath({ surface: 'settings', section: next.section, page: next.id, space: activeSpace })} key={next.id} onClick={(event) => follow(event, next)}>{next.label}</a>)}</nav>
               <div className="g-settings-page-select"><Field label="Settings page">{(ids) => <Select {...fieldProps(ids)} onChange={(event) => { const next = pageById(event.target.value); if (next) openPage(next); }} value={current.id}>{pages.map((next) => <option key={next.id} value={next.id}>{next.label}</option>)}</Select>}</Field></div>

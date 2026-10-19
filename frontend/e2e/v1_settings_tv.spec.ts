@@ -15,6 +15,19 @@ async function tv(page: Page) {
   await signIn(page);
 }
 
+test('the D-pad moves from search into quick changes and opens their destination', async ({ page }) => {
+  await tv(page);
+  await page.goto('/settings');
+  await page.getByRole('searchbox', { name: 'Search settings' }).focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('link', { name: 'Adjust subtitles' })).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('link', { name: 'Change appearance' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/settings\/appearance\?page=display$/);
+  await expect(page.getByRole('radio', { name: 'System' })).toBeVisible();
+});
+
 test('the D-pad reaches every section and row without Tab or hover', async ({ page }) => {
   await tv(page);
   await page.goto('/settings/playback');

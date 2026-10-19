@@ -58,12 +58,42 @@ test('search finds a destination and saves the real setting on its own page', as
   await page.getByRole('searchbox', { name: 'Search settings' }).fill('dark');
   const results = page.getByRole('region', { name: 'Search results' });
   await expect(results.getByRole('radio')).toHaveCount(0);
-  await results.getByRole('link', { name: /Theme/ }).click();
+  await page.getByRole('searchbox', { name: 'Search settings' }).press('ArrowDown');
+  await expect(results.getByRole('link', { name: /Theme/ })).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/settings\/appearance\?page=display$/);
   await page.getByRole('radio', { name: 'Dark' }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect.poll(() => saved.some((body) => (body.ui_prefs as Record<string, unknown> | undefined)?.theme === 'dark')).toBe(true);
 });
+
+for (const width of [390, 1440]) {
+  test(`quick changes go straight to a field and save at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const saved = await mockApi(page, {}); await mockAdminFixtures(page);
+    await page.goto('/settings'); await signIn(page);
+    await expect(page.getByRole('heading', { name: 'Browse settings' })).toBeVisible();
+    expect((await auditA11y(page)).violations).toEqual([]);
+    await page.getByRole('link', { name: 'Set streaming quality' }).click();
+    const quality = page.getByRole('combobox', { name: 'Maximum quality' });
+    await expect(quality).toBeFocused();
+    await chooseSelect(page, quality, 'Up to 720p');
+    await expect.poll(() => saved.some((body) => (body.ui_prefs as Record<string, unknown> | undefined)?.playback_max_height === 720)).toBe(true);
+    await page.getByRole('button', { name: 'All settings' }).click();
+    await expect(page.getByRole('heading', { name: /Quick changes/ })).toBeFocused();
+    await page.getByRole('link', { name: 'Change appearance' }).click();
+    await page.getByRole('radio', { name: 'Dark' }).check();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect.poll(() => saved.some((body) => (body.ui_prefs as Record<string, unknown> | undefined)?.theme === 'dark')).toBe(true);
+    expect((await auditA11y(page)).violations).toEqual([]);
+    await page.getByRole('button', { name: 'All settings' }).click();
+    expect((await auditA11y(page)).violations).toEqual([]);
+    await page.getByRole('navigation', { name: 'Settings spaces' }).getByRole('link', { name: 'Manage Server' }).click();
+    await page.getByRole('link', { name: 'Manage media folders' }).click();
+    await expect(page).toHaveURL(/\/manage\/library\?page=folders$/);
+    await expect(page.getByRole('button', { name: 'Add root', exact: true })).toBeVisible();
+  });
+}
 
 test('drafts survive declined subpage, space, navigation and browser Back changes', async ({ page }) => {
   await mockApi(page, { sidebar_collapsed: false }); await mockAdminFixtures(page);

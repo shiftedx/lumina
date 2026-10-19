@@ -35,7 +35,7 @@ export function SettingRow({ id, label, info, description, advanced = false, lay
 export type SettingSwitchProps = { label?: ReactNode; hint?: ReactNode; checked: boolean; onChange: (next: boolean) => void; busy?: boolean; disabled?: boolean; ref?: Ref<HTMLInputElement> };
 
 /**
- * Settings' on/off: the ui Switch's look (same classes) without its visible On echo, since the track already shows the state.
+ * Settings' on/off uses the shared Switch styles and a short text state beside standalone toggles.
  * With no `label` it is named by its row's heading (aria-labelledby), so the row never shows the same words twice.
  */
 export function SettingSwitch({ label, hint, checked, onChange, busy = false, disabled, ref }: SettingSwitchProps) {
@@ -45,6 +45,7 @@ export function SettingSwitch({ label, hint, checked, onChange, busy = false, di
   return (
     <label className="g-switch">
       {label ? <span className="g-switch-copy"><span className="g-switch-label" id={`${base}label`}>{label}</span>{hint ? <span className="g-switch-hint" id={`${base}hint`}>{hint}</span> : null}</span> : null}
+      {!label ? <span aria-hidden="true" className="g-switch-state">{checked ? 'On' : 'Off'}</span> : null}
       <input aria-busy={busy || undefined} aria-describedby={described} aria-labelledby={label ? `${base}label` : row?.labelId} checked={checked} disabled={disabled} onChange={(event) => { if (!busy) onChange(event.target.checked); }} ref={ref} role="switch" type="checkbox" />
       <span aria-hidden="true" className="g-switch-track" />
     </label>

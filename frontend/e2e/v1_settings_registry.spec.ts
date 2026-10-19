@@ -57,7 +57,7 @@ test('every member-page control belongs to a members.* row with ⓘ text (member
     await page.waitForTimeout(200);
     const report = await page.locator('.g-settings-pane').evaluate((pane) => ({
       orphans: [...pane.querySelectorAll<HTMLElement>('input, select, textarea, button, a[href], summary, [role="switch"], [role="radio"]')]
-        .filter((element) => element.getClientRects().length > 0 && !element.closest('[data-setting-id], .g-save-bar, .g-member-nav'))
+        .filter((element) => element.getClientRects().length > 0 && !element.closest('[data-setting-id], .g-save-bar, .g-member-nav') && !element.matches('.g-settings-back'))
         .map((element) => element.getAttribute('aria-label') || element.textContent?.trim().slice(0, 40) || element.tagName),
       rows: [...pane.querySelectorAll<HTMLElement>('[data-setting-id]')].map((row) => {
         const info = row.querySelector<HTMLElement>(':scope > .g-setting-head .g-info-button');

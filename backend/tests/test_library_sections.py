@@ -43,5 +43,19 @@ def test_sections_are_cached_per_member_until_cleared(walls) -> None:  # noqa: A
     assert walls.get("/api/library/sections").json()["saved_audio"] == 1
 
 
+def test_streaming_count_excludes_imported_video_and_keeps_saved_web_stream(walls) -> None:  # noqa: ANN001, F811
+    from app.routers import library_sections
+
+    before = walls.get("/api/library/sections").json()["youtube"]
+    with walls.db() as session:
+        add_file(session, walls.root, "imports/unclassified.mkv", item_id=uid(510), title_id=None,
+                 title="Imported lesson", kind="video", extractor="external_library", owner=ALICE)
+        add_file(session, walls.root, "saved/stream.mp4", item_id=uid(511), title_id=None,
+                 title="Saved web stream", kind="video", extractor="Generic", owner=ALICE)
+        session.commit()
+    library_sections.clear()
+    assert walls.get("/api/library/sections").json()["youtube"] == before + 1
+
+
 def test_sections_need_a_member(api_client) -> None:  # noqa: ANN001
     assert api_client(base_url="http://localhost").get("/api/library/sections").status_code == 401

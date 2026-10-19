@@ -1,6 +1,6 @@
 /**
- * The still wall for YouTube, Recordings and the Music tab's saved audio: the masthead
- * (or the caller's header), a sticky toolbar (Sort, and Source for videos), and StillCards paged 60 at a time through
+ * The still wall for saved web video, Recordings and the Music tab's saved audio: the masthead
+ * (or the caller's header), a sticky toolbar (Sort, and Source for web videos), and StillCards paged 60 at a time through
  * /api/library as a sentinel one viewport ahead comes into view. It deletes with the existing toast and Undo and
  * reports every changed item.
  */
@@ -21,7 +21,7 @@ import { useMediaQuery } from './WallGrid';
 export type StillWallProps = {
   kind: StillKind;
   shape: 'still' | 'square';
-  /** The wall's query string without '?': sort=recent|title, and source=youtube|twitch|kick for video. */
+  /** The wall's query string without '?': sort=recent|title, and source=youtube|twitch|kick|other_web for video. */
   wall?: string;
   onWallChange: (wall: string) => void;
   /** The tab row, above the masthead. */
@@ -39,8 +39,8 @@ export type StillWallProps = {
 };
 
 export const STILL_PAGE = 60;
-export type StillQuery = { sort: 'recent' | 'title'; source: '' | 'youtube' | 'twitch' | 'kick'; channel?: string };
-const SOURCES: ReadonlyArray<readonly [StillQuery['source'], string]> = [['', 'All sources'], ['youtube', 'YouTube'], ['twitch', 'Twitch'], ['kick', 'Kick']];
+export type StillQuery = { sort: 'recent' | 'title'; source: '' | 'youtube' | 'twitch' | 'kick' | 'other_web'; channel?: string };
+const SOURCES: ReadonlyArray<readonly [StillQuery['source'], string]> = [['', 'All web sources'], ['youtube', 'YouTube'], ['twitch', 'Twitch'], ['kick', 'Kick'], ['other_web', 'Other web sources']];
 const HEADINGS: Readonly<Record<StillKind, string>> = { video: 'YouTube', recording: 'Recordings', audio: 'Saved audio' };
 const NOUNS: Readonly<Record<StillKind, readonly [string, string]>> = { video: ['video', 'videos'], recording: ['recording', 'recordings'], audio: ['item', 'items'] };
 const EMPTY = {
@@ -51,13 +51,13 @@ const EMPTY = {
 /** wall_first_screen_ms labels; saved audio records under the Music tab's own walls. */
 const METRIC: Partial<Record<StillKind, string>> = { video: 'youtube', recording: 'recordings' };
 
-/** The wall's address state: sort=recent|title, source=youtube|twitch|kick for videos; the rest is dropped. */
+/** The wall's address state: sort=recent|title, source=youtube|twitch|kick|other_web for videos; the rest is dropped. */
 export function parseStillQuery(kind: StillKind, wall: string | undefined): StillQuery {
   const params = new URLSearchParams(wall ?? '');
   const source = params.get('source');
   return {
     sort: params.get('sort') === 'title' ? 'title' : 'recent',
-    source: kind === 'video' && (source === 'youtube' || source === 'twitch' || source === 'kick') ? source : '',
+    source: kind === 'video' && (source === 'youtube' || source === 'twitch' || source === 'kick' || source === 'other_web') ? source : '',
     ...(kind === 'video' && params.has('channel') ? { channel: params.get('channel')!.slice(0, 200) } : {}),
   };
 }
@@ -96,7 +96,7 @@ export function usePagedLibrary(query: LibraryPageQuery | null) {
 // non-virtualised DOM; virtualise (reuse WallGrid with an item store) when any member's tab exceeds 2,000 items.
 export function StillWall({ kind, shape, wall, onWallChange, lenses, header, viewSwitch, count, onPlay, canDelete, onItemChanged }: StillWallProps) {
   const query = parseStillQuery(kind, wall);
-  const paged = usePagedLibrary({ kind, sort: query.sort, source: query.source || undefined, group: query.channel, limit: STILL_PAGE });
+  const paged = usePagedLibrary({ kind, sort: query.sort, source: kind === 'video' ? query.source || 'saved' : undefined, status: kind === 'video' ? 'available' : undefined, group: query.channel, limit: STILL_PAGE });
   const phone = useMediaQuery('(max-width: 599px)');
   const narrow = useMediaQuery('(max-width: 419px)');
   const tenFoot = useMediaQuery('(min-width: 1920px)');

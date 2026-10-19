@@ -47,11 +47,15 @@ vi.mock('dashjs', () => {
   return { MediaPlayer };
 });
 
-import { getSession } from './api';
+import { getSession, getUpNext, listLibraryNotes } from './api';
 import { hlsCalls, resetHlsCalls } from './test/fakeHls';
 import { AUTO_START_BANDWIDTH_BPS, RemotePlayer } from './remotePlayer';
 import { watchSurface } from './test/watchSurface';
-import type { LibraryItem, RemotePlayback, YouTubeSearchResult } from './types';
+import type { LibraryItem, MemberRecommendationSnapshot, RemotePlayback, YouTubeSearchResult } from './types';
+
+vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), getUpNext: vi.fn(), listLibraryNotes: vi.fn() }));
+
+const upNext = (items: MemberRecommendationSnapshot['items']): MemberRecommendationSnapshot => ({ items, categories: [], state: 'ready', refreshing: false, stale: false, error: null });
 
 afterEach(async () => {
   // Let unmount-scheduled stream releases fire now, not inside the next test's fetch mock.
@@ -72,6 +76,7 @@ describe('RemotePlayer', () => {
     dashCalls.resetCurrentTime = false;
     dashCalls.media = null;
     vi.restoreAllMocks();
+    vi.mocked(getUpNext).mockReset().mockResolvedValue(upNext([]));
   });
 
   const ladder = [
@@ -1193,6 +1198,11 @@ describe('WatchSurface remote playback contract', () => {
 });
 
 describe('WatchSurface autoplay queue', () => {
+  beforeEach(() => {
+    vi.mocked(getUpNext).mockReset().mockResolvedValue(upNext([]));
+    vi.mocked(listLibraryNotes).mockReset().mockResolvedValue([]);
+  });
+
   const current = {
     id: 'library-current',
     title: 'Current video',
@@ -1219,7 +1229,7 @@ describe('WatchSurface autoplay queue', () => {
     capabilities: { provider: 'youtube', lifecycle: 'vod', can_play: true, can_acquire: true, chat: { live: 'unavailable', replay: 'unavailable' } },
   } as YouTubeSearchResult;
 
-  function renderAutoplay({
+  async function renderAutoplay({
     autoplayUpNext = true,
     related = [currentDuplicate, next],
     onOpenRelated = vi.fn(),
@@ -1232,6 +1242,7 @@ describe('WatchSurface autoplay queue', () => {
     onPlaybackCheckpoint?: (item: LibraryItem, position: number, duration: number | null, completed: boolean) => void;
     onAutoplayUpNextChange?: (autoplayUpNext: boolean) => void;
   } = {}) {
+    vi.mocked(getUpNext).mockResolvedValue(upNext(related));
     render(watchSurface({
       autoplayUpNext,
       library: [current],
@@ -1241,6 +1252,8 @@ describe('WatchSurface autoplay queue', () => {
       related,
       selection: { kind: 'library', item: current },
     }));
+    await waitFor(() => expect(getUpNext).toHaveBeenCalledTimes(1));
+    await act(async () => { await Promise.resolve(); });
     return { onAutoplayUpNextChange, onOpenRelated, onPlaybackCheckpoint };
   }
 
@@ -1255,8 +1268,8 @@ describe('WatchSurface autoplay queue', () => {
     return media;
   }
 
-  it('checkpoints completion and advances exactly once to the visibly first distinct video', () => {
-    const { onOpenRelated, onPlaybackCheckpoint } = renderAutoplay();
+  it('checkpoints completion and advances exactly once to the visibly first distinct video', async () => {
+    const { onOpenRelated, onPlaybackCheckpoint } = await renderAutoplay();
 
     expect(screen.queryByText('Current duplicate')).toBeNull();
     expect(screen.getByText('Plays next')).toBeTruthy();
@@ -1271,8 +1284,8 @@ describe('WatchSurface autoplay queue', () => {
     expect(onOpenRelated).toHaveBeenCalledWith(next);
   });
 
-  it('re-arms autoplay only after the same video genuinely resumes', () => {
-    const { onOpenRelated, onPlaybackCheckpoint } = renderAutoplay();
+  it('re-arms autoplay only after the same video genuinely resumes', async () => {
+    const { onOpenRelated, onPlaybackCheckpoint } = await renderAutoplay();
     const media = finishCurrentVideo();
 
     Object.defineProperty(media, 'ended', { configurable: true, value: false });
@@ -1286,8 +1299,8 @@ describe('WatchSurface autoplay queue', () => {
     expect(vi.mocked(onPlaybackCheckpoint).mock.calls.filter((call) => call[3] === true)).toHaveLength(2);
   });
 
-  it('exposes a controlled autoplay toggle and leaves playback ended when disabled', () => {
-    const { onAutoplayUpNextChange, onOpenRelated } = renderAutoplay({ autoplayUpNext: false });
+  it('exposes a controlled autoplay toggle and leaves playback ended when disabled', async () => {
+    const { onAutoplayUpNextChange, onOpenRelated } = await renderAutoplay({ autoplayUpNext: false });
     const toggle = screen.getByRole('checkbox', { name: 'Autoplay next video' });
 
     expect((toggle as HTMLInputElement).checked).toBe(false);
@@ -1299,15 +1312,15 @@ describe('WatchSurface autoplay queue', () => {
     expect(screen.queryByText('Plays next')).toBeNull();
   });
 
-  it('ends normally when the distinct queue is empty', () => {
-    const { onOpenRelated } = renderAutoplay({ related: [currentDuplicate] });
+  it('ends normally when the distinct queue is empty', async () => {
+    const { onOpenRelated } = await renderAutoplay({ related: [currentDuplicate] });
     finishCurrentVideo();
     expect(onOpenRelated).not.toHaveBeenCalled();
     expect(screen.queryByRole('checkbox', { name: 'Autoplay next video' })).toBeNull();
   });
 
-  it('advances to the first playable recommendation, skipping a known not-playable one', () => {
-    const { onOpenRelated } = renderAutoplay({ related: [liveNext, playableNext] });
+  it('advances to the first playable recommendation, skipping a known not-playable one', async () => {
+    const { onOpenRelated } = await renderAutoplay({ related: [liveNext, playableNext] });
 
     // The "Plays next" badge and autoplay target is the playable candidate, not
     // the higher-listed but not-playable live source.
@@ -1320,8 +1333,8 @@ describe('WatchSurface autoplay queue', () => {
     expect(onOpenRelated).toHaveBeenCalledWith(playableNext);
   });
 
-  it('does not auto-advance when every recommendation is not playable', () => {
-    const { onOpenRelated } = renderAutoplay({ related: [liveNext] });
+  it('does not auto-advance when every recommendation is not playable', async () => {
+    const { onOpenRelated } = await renderAutoplay({ related: [liveNext] });
 
     expect(screen.queryByText('Plays next')).toBeNull();
     finishCurrentVideo();

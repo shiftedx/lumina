@@ -19,7 +19,7 @@ import { takePlayIntent } from './perfMetrics';
 import { artistSummary, movieSummary, titleDetail, titlePage } from './test/galleryFixtures';
 import { docFixture } from './features/titles/editor/editorFixtures';
 import { forgetTitles } from './features/gallery/titleCache';
-import { CHANNEL_ID, channelPage } from './test/remoteFixtures';
+import { capabilities, CHANNEL_ID, channelPage } from './test/remoteFixtures';
 import { recoEntry } from './test/recoFixtures';
 import { openAppPath } from './features/channels/channelMention';
 import { openMemberPicker } from './app/commands';
@@ -889,6 +889,30 @@ describe('Media acquisition shell integration', () => {
     await waitFor(() => expect(mocks.createJob).toHaveBeenCalledTimes(1));
     expect(mocks.createJob).toHaveBeenCalledWith(expect.objectContaining({ source_url: sourceA }));
     expect(mocks.createJob).not.toHaveBeenCalledWith(expect.objectContaining({ source_url: sourceB }));
+  });
+
+  it.each([
+    { annotated: true, recording: false },
+    { annotated: false, recording: false },
+    { annotated: true, recording: true },
+  ])('opens an Up next recommendation from its saved copy ($annotated, recording: $recording)', async ({ annotated, recording }) => {
+    const browser = userEvent.setup();
+    const source = 'https://www.youtube.com/watch?v=streamed';
+    const saved = { ...libraryItem, id: 'saved-follow-up', remote_id: 'saved', title: 'Saved follow-up', extractor: 'youtube', webpage_url: 'https://youtu.be/saved' };
+    // An annotated copy can be outside the loaded library page; older responses match the canonical source.
+    if (!annotated) workspaceState.library = [saved];
+    mocks.getUpNext.mockResolvedValue(upNextSnapshot([{ id: 'saved', title: 'Saved follow-up', source: 'youtube', webpage_url: 'https://www.youtube.com/watch?v=saved', saved_item_id: annotated ? saved.id : null, kind: recording ? 'live' : 'video', capabilities: capabilities('youtube', recording ? 'completed_live' : 'vod') }]));
+    mocks.previewUrl.mockResolvedValue({ kind: 'video', title: 'Streamed video', webpage_url: source, entries: [], raw: { id: 'streamed', extractor: 'youtube' } });
+    mocks.getLibraryItem.mockResolvedValue(saved);
+
+    render(<LuminaApp />);
+    await browser.type(await openPalette(browser), `${source}{Enter}`);
+    await browser.click(await screen.findByRole('button', { name: /^Saved follow-up/ }));
+
+    await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
+    expect(mocks.getLibraryItem).toHaveBeenCalledWith('saved-follow-up');
+    expect(mocks.previewUrl).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.g-watch-kicker')?.textContent).toBe('YouTube · In your library');
   });
 
   it('drives format choices from inspection through queue submission', async () => {

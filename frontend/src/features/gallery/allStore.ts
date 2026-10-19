@@ -72,7 +72,7 @@ export type ChapterSlice =
 /** A chapter's slice, newest first: titles by category or albums, else Library items by kind. */
 export async function fetchChapter(id: ChapterId, limit: number, signal?: AbortSignal): Promise<ChapterSlice> {
   if (id === 'youtube' || id === 'recordings') {
-    const page = await listLibrary({ kind: id === 'youtube' ? 'video' : 'recording', status: 'available', sort: 'recent', limit }, { signal });
+    const page = await listLibrary({ kind: id === 'youtube' ? 'video' : 'recording', ...(id === 'youtube' ? { source: 'saved' } : {}), status: 'available', sort: 'recent', limit }, { signal });
     return { kind: 'items', items: page.items, limit, fresh: true };
   }
   const page = await listTitles(id === 'music' ? { type: 'album', sort: 'created', limit } : { category: id, sort: 'created', limit }, { signal });

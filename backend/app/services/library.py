@@ -198,6 +198,16 @@ class LibraryService:
             filters.append(LibraryItem.extractor == EXTERNAL_LIBRARY_ORIGIN)
         elif source == "saved":
             filters.append(or_(LibraryItem.extractor.is_(None), LibraryItem.extractor != EXTERNAL_LIBRARY_ORIGIN))
+        elif source == "other_web":
+            provider = func.lower(LibraryItem.extractor)
+            filters.append(or_(LibraryItem.extractor.is_(None), and_(
+                provider != EXTERNAL_LIBRARY_ORIGIN,
+                *(~or_(provider == known, provider.like(f"{known}:%")) for known in ("youtube", "twitch", "kick")),
+            )))
+        elif source and source.casefold() in {"youtube", "twitch", "kick"}:
+            source = source.casefold()
+            provider = func.lower(LibraryItem.extractor)
+            filters.append(or_(provider == source, provider.like(f"{source}:%")))
         elif source:
             filters.append(func.lower(LibraryItem.extractor) == source.casefold())
         if group is not None:

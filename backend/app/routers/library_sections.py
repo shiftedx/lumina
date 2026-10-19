@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 
 from fastapi import Depends, FastAPI
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -39,6 +39,7 @@ def count_sections(db: Session, user: User) -> LibrarySections:
     kinds = dict(db.execute(
         select(LibraryItem.kind, func.count())
         .where(LibraryItem.kind.in_(list(SECTION_KINDS)), LibraryItem.status != "missing", items)
+        .where(or_(LibraryItem.kind != "video", and_(*LibraryService.view_filters(source="saved"))))
         .group_by(LibraryItem.kind)
     ).all())
     deleted = db.scalar(select(func.count()).select_from(LibraryItem).where(LibraryItem.status == "missing", items)) or 0

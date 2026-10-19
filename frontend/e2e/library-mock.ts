@@ -46,7 +46,10 @@ export async function mockLibraryItems(page: Page, options: LibraryItemsMock = {
     const kind = query.get('kind') as Kind | null;
     if (kind && options.failKinds?.includes(kind)) return json({ detail: 'boom' }, 500);
     let items = query.get('status') === 'missing' ? everything().filter((entry) => entry.status === 'missing') : kind ? lists[kind] ?? [] : lists.video;
-    if (query.get('source')) items = items.filter((entry) => entry.extractor === query.get('source'));
+    const source = query.get('source');
+    if (source === 'saved') items = items.filter((entry) => entry.extractor !== 'external_library');
+    else if (source === 'other_web') items = items.filter((entry) => !entry.extractor || !['external_library', 'youtube', 'twitch', 'kick'].includes(entry.extractor.toLowerCase().split(':')[0]));
+    else if (source) items = items.filter((entry) => entry.extractor?.toLowerCase().split(':')[0] === source);
     if (query.get('sort') === 'title') items = [...items].sort((a, b) => a.title.localeCompare(b.title));
     const start = Number(query.get('cursor')?.slice(1) ?? 0);
     const limit = Number(query.get('limit') ?? 60);

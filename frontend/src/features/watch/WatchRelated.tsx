@@ -19,12 +19,14 @@ export type WatchRelatedProps = {
   autoplayIndex: number;
   showAutoplay: boolean;
   loading: boolean;
+  error?: unknown | null;
   remote: boolean;
   onOpen: (item: YouTubeSearchResult) => void;
   onAutoplayChange: (autoplay: boolean) => void;
+  onRetry?: () => void;
 };
 
-export function WatchRelated({ items, autoplay, autoplayIndex, showAutoplay, loading, remote, onOpen, onAutoplayChange }: WatchRelatedProps) {
+export function WatchRelated({ items, autoplay, autoplayIndex, showAutoplay, loading, error = null, remote, onOpen, onAutoplayChange, onRetry }: WatchRelatedProps) {
   const playsNextId = `g-plays-next-${useId().replace(/:/g, '')}`;
   const observe = useRecoImpressions(items.find((item) => item.reco)?.reco?.list_id ?? null);
   return (
@@ -35,7 +37,7 @@ export function WatchRelated({ items, autoplay, autoplayIndex, showAutoplay, loa
           <h2 id="up-next-title">Up next</h2>
           {showAutoplay ? <label className="g-autoplay"><input checked={autoplay} onChange={(event) => onAutoplayChange(event.currentTarget.checked)} type="checkbox" /><span>Autoplay next video</span></label> : null}
         </header>
-        {items.length ? null : <p className="g-list-row-meta">{loading ? 'Finding related videos…' : remote ? 'No related videos from this source yet.' : 'Related videos appear here when you stream from a source.'}</p>}
+        {items.length ? null : error ? <p className="g-list-row-meta" role="status">Couldn’t load suggestions. {onRetry ? <button className="g-text-button" data-focus-item disabled={loading} onClick={onRetry} type="button">{loading ? 'Retrying…' : 'Retry'}</button> : null}</p> : <p className="g-list-row-meta">{loading ? 'Finding related videos…' : remote ? 'No related videos from this source yet.' : 'Related videos appear here when you stream from a source.'}</p>}
         {items.map((item, index) => {
           const next = index === autoplayIndex && autoplay;
           return (

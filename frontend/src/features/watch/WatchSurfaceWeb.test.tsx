@@ -1,12 +1,12 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { stillItem } from '../../test/galleryFixtures';
 import { capabilities, CHANNEL_ID, liveEntry, remoteEntry } from '../../test/remoteFixtures';
 import { watchSurface } from '../../test/watchSurface';
-import type { PreviewResponse } from '../../types';
+import type { MemberRecommendationSnapshot, PreviewResponse } from '../../types';
 
-const api = vi.hoisted(() => ({ getLiveDiscovery: vi.fn(), getRemotePlaybackProgress: vi.fn(), getTitle: vi.fn(), listLiveRecordings: vi.fn() }));
+const api = vi.hoisted(() => ({ getLiveDiscovery: vi.fn(), getRemotePlaybackProgress: vi.fn(), getTitle: vi.fn(), getUpNext: vi.fn(), listLiveRecordings: vi.fn() }));
 vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api')>()), ...api }));
 
 const preview = (patch: Partial<PreviewResponse> = {}) => ({
@@ -16,10 +16,13 @@ const preview = (patch: Partial<PreviewResponse> = {}) => ({
   ...patch,
 }) as unknown as PreviewResponse;
 
+const upNext = (items: MemberRecommendationSnapshot['items']): MemberRecommendationSnapshot => ({ items, categories: [], state: 'ready', refreshing: false, stale: false, error: null });
+
 afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => {
   vi.clearAllMocks();
   api.getRemotePlaybackProgress.mockResolvedValue(null);
+  api.getUpNext.mockResolvedValue(upNext([]));
   api.getLiveDiscovery.mockResolvedValue({ items: [], hero: [], categories: [], state: 'ready', refreshing: false, stale: false, twitch_available: true });
   api.listLiveRecordings.mockResolvedValue({ items: [], next_cursor: null });
 });
@@ -52,6 +55,64 @@ describe('the web-video watch page', () => {
     const { container } = render(watchSurface({ selection: { kind: 'library', item } }));
     expect(container.querySelector('.g-watch-kicker')?.textContent).toBe('YouTube · In your library');
     expect(screen.getByRole('button', { name: 'Saved' })).toBeTruthy();
+  });
+
+  it('gets a saved YouTube video’s Up next from the shared feed and opens saved or streamed results alike', async () => {
+    const item = stillItem('saved-1', {
+      title_id: null, extractor: 'youtube', remote_id: 'saved-video', webpage_url: 'https://www.youtube.com/watch?v=saved-video',
+      metadata_json: { id: 'saved-video', uploader: 'Chan', channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}` },
+    });
+    const savedNext = remoteEntry('saved-next', { title: 'Saved next', saved_item_id: 'saved-next-item' });
+    const streamedNext = remoteEntry('streamed-next', { title: 'Streamed next' });
+    api.getUpNext.mockResolvedValue(upNext([remoteEntry('saved-video'), savedNext, streamedNext]));
+    const onOpenRelated = vi.fn();
+
+    render(watchSurface({ related: [remoteEntry('stale', { title: 'Stale acquisition result' })], onOpenRelated, selection: { kind: 'library', item } }));
+
+    await waitFor(() => expect(api.getUpNext).toHaveBeenCalledWith(expect.objectContaining({
+      source_url: item.webpage_url, source_id: 'saved-video', source: 'youtube', channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}`,
+    })));
+    expect(await screen.findByRole('button', { name: /^Saved next/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Streamed next/ })).toBeTruthy();
+    expect(screen.queryByText('Stale acquisition result')).toBeNull();
+    expect(screen.getByText('Plays next')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Saved next/ }));
+    expect(onOpenRelated).toHaveBeenCalledWith(savedNext);
+    fireEvent.click(screen.getByRole('button', { name: /^Streamed next/ }));
+    expect(onOpenRelated).toHaveBeenCalledWith(streamedNext);
+
+    onOpenRelated.mockClear();
+    const media = screen.getByLabelText('Harbor walk at dawn video') as HTMLVideoElement;
+    Object.defineProperties(media, {
+      currentTime: { configurable: true, value: 761, writable: true },
+      duration: { configurable: true, value: 761 },
+      ended: { configurable: true, value: true, writable: true },
+    });
+    fireEvent.ended(media);
+    fireEvent.ended(media);
+    expect(onOpenRelated).toHaveBeenCalledTimes(1);
+    expect(onOpenRelated).toHaveBeenCalledWith(savedNext);
+  });
+
+  it('refetches a saved video’s Up next when its library summary hydrates channel context', async () => {
+    const item = stillItem('saved-1', {
+      title_id: null, extractor: 'youtube', remote_id: 'saved-video', webpage_url: 'https://www.youtube.com/watch?v=saved-video',
+      metadata_json: { id: 'saved-video', uploader: 'Chan' },
+    });
+    let resolveFirst!: (value: MemberRecommendationSnapshot) => void;
+    api.getUpNext
+      .mockImplementationOnce(() => new Promise<MemberRecommendationSnapshot>((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce(upNext([remoteEntry('hydrated-next', { title: 'Hydrated next' })]));
+    const view = render(watchSurface({ selection: { kind: 'library', item } }));
+
+    await waitFor(() => expect(api.getUpNext).toHaveBeenCalledWith(expect.not.objectContaining({ channel_id: expect.anything() })));
+    view.rerender(watchSurface({ selection: { kind: 'library', item: { ...item, metadata_json: { ...item.metadata_json, channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}` } } } }));
+
+    await waitFor(() => expect(api.getUpNext).toHaveBeenLastCalledWith(expect.objectContaining({ channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}` })));
+    expect(await screen.findByRole('button', { name: /^Hydrated next/ })).toBeTruthy();
+    await act(async () => { resolveFirst(upNext([remoteEntry('old-next', { title: 'Old response' })])); });
+    expect(screen.queryByRole('button', { name: /^Old response/ })).toBeNull();
   });
 
   it('leaves movie and episode playback as it was', () => {

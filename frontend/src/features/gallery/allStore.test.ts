@@ -54,7 +54,7 @@ describe('All landing model', () => {
     expect(titles.mock.calls.map(([query]) => query)).toEqual([{ category: 'anime', sort: 'created', limit: 14 }, { type: 'album', sort: 'created', limit: 10 }]);
     const videos = await fetchChapter('youtube', 8);
     await fetchChapter('recordings', 8);
-    expect(items.mock.calls.map(([query]) => query)).toEqual([{ kind: 'video', status: 'available', sort: 'recent', limit: 8 }, { kind: 'recording', status: 'available', sort: 'recent', limit: 8 }]);
+    expect(items.mock.calls.map(([query]) => query)).toEqual([{ kind: 'video', source: 'saved', status: 'available', sort: 'recent', limit: 8 }, { kind: 'recording', status: 'available', sort: 'recent', limit: 8 }]);
     expect(videos.items.map((item) => item.id)).toEqual(['v1']); // the server leaves deleted files out before the limit, so a full row stays full
   });
 

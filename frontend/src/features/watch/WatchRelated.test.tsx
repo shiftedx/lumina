@@ -37,6 +37,14 @@ describe('WatchRelated', () => {
     expect(screen.queryByRole('checkbox', { name: 'Autoplay next video' })).toBeNull();
   });
 
+  it('keeps a failed related request soft and can retry it', () => {
+    const onRetry = vi.fn();
+    render(provider(<WatchRelated {...props} autoplay={false} autoplayIndex={-1} error={new Error('offline')} items={[]} loading={false} onRetry={onRetry} showAutoplay={false} />));
+    expect(screen.getByRole('status').textContent).toContain('Couldn’t load suggestions.');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the reason in the row\'s menu and "Plays next" as its description', () => {
     const picks = [recoEntry('a', 0, { title: 'Actual next video' }, { reason: 'Because you finished Harbor walk at dawn' }), recoEntry('b', 1, { title: 'Second video' }, { reason: 'More from Channel b', reason_code: 'same_channel' })];
     render(provider(<WatchRelated {...props} items={picks} />));

@@ -4,5 +4,10 @@
 .hero-frame[data-hero-revealed='false'] .hero-frame-foreground { visibility: hidden; }
 .hero-frame-foreground > .g-art { position: absolute; inset: 0; display: block; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
 .hero-frame .g-art-image, .hero-frame .g-art-preview, .hero-frame .rq-img { width: 100%; height: 100%; object-fit: cover; object-position: var(--hero-focus-x) var(--hero-focus-y); transform: none; }
-/* Zoom would invalidate the analyzed frame and cut its protected edges again. */
-.gallery.home .hero-frame .g-art-image, .rq-hero-art.hero-frame .rq-img { animation: none; }
+/* Animate the whole sharp/preview layer together; the subject bounds cap its zoom. */
+@media (prefers-reduced-motion: no-preference) {
+  .hero-frame[data-hero-revealed='true'][data-hero-motion='true'] .hero-frame-foreground { transform-origin: var(--hero-origin-x) var(--hero-origin-y); animation: hero-camera 20s cubic-bezier(.25, 1, .5, 1) both; animation-play-state: paused; }
+  .hero-frame[data-hero-active='true'][data-hero-motion='true'] .hero-frame-foreground { animation-play-state: running; }
+  .h-hero.is-paused .hero-frame .hero-frame-foreground, .rq-hero.is-paused .hero-frame .hero-frame-foreground { animation-play-state: paused; }
+}
+@keyframes hero-camera { from { transform: scale(var(--hero-zoom)); } to { transform: scale(1); } }

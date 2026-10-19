@@ -13,7 +13,7 @@ export function resetPlaybackIntent() {
   asked.clear();
 }
 
-function ask(sourceUrl: string) {
+export function warmPlaybackIntent(sourceUrl: string) {
   const now = Date.now();
   if (now - (asked.get(sourceUrl) ?? -Infinity) < ASKED_TTL_MS) return;
   if (asked.size >= 200) asked.clear(); // crude bound; an LRU only if members browse hundreds of cards a minute
@@ -35,7 +35,7 @@ export function usePlaybackIntent(sourceUrl: string | null) {
     if (!sourceUrl || timer.current !== undefined) return;
     timer.current = globalThis.setTimeout(() => {
       timer.current = undefined;
-      ask(sourceUrl);
+      warmPlaybackIntent(sourceUrl);
     }, INTENT_DWELL_MS);
   }, [sourceUrl]);
   useEffect(() => cancel, [cancel]);

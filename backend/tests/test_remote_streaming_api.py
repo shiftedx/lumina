@@ -319,12 +319,19 @@ def test_preview_event_payload_is_redacted_with_the_http_response(monkeypatch) -
 
     def fake_preview(self, source_url, lazy_playlist=True, format_selection=None, entries_limit=None):  # noqa: ANN001
         del self, lazy_playlist, format_selection
-        return PreviewResponse(kind="video", title="Private", webpage_url=source_url, raw={"title": "Private", "url": "https://secret.example/direct?token=event-secret", **format_info("progressive")})
+        return PreviewResponse(kind="video", title="Private", webpage_url=source_url, raw={
+            "title": "Private", "url": "https://secret.example/direct?token=event-secret",
+            "categories": ["Music", None, {"url": "https://secret.example/direct?token=event-secret"}],
+            "channel_id": "UCabcdefghijklmnopqrstuv", **format_info("progressive"),
+        })
 
     monkeypatch.setattr(YtDlpService, "preview", fake_preview)
     response = asyncio.run(main_module.preview(PreviewRequest(source_url="https://source.example/private"), object()))
 
     assert response.playback is not None
+    assert response.raw["categories"] == ["Music"]
+    assert response.raw["channel_id"] == "UCabcdefghijklmnopqrstuv"
+    assert published[0]["raw"]["categories"] == ["Music"]
     assert published
     serialized = repr(published)
     assert "secret.example" not in serialized

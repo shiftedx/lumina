@@ -15,7 +15,7 @@ const props = { autoplay: true, autoplayIndex: 0, loading: false, onAutoplayChan
 describe('WatchRelated', () => {
   const items = [remoteEntry('a', { title: 'Actual next video' }), liveEntry('b', { title: 'Live stream' })];
 
-  it('lists compact rows, describes the autoplay target and keeps the switch', async () => {
+  it('lists compact rows, makes the next item and autoplay state clear, and keeps the branded switch', async () => {
     const onOpen = vi.fn();
     const onAutoplayChange = vi.fn();
     render(provider(<WatchRelated {...props} items={items} onAutoplayChange={onAutoplayChange} onOpen={onOpen} />));
@@ -23,9 +23,12 @@ describe('WatchRelated', () => {
     const next = screen.getByRole('button', { name: /^Actual next video/ });
     expect(screen.getByText('Plays next')).toBeTruthy();
     expect(next.getAttribute('aria-describedby')?.split(' ')).toContain(screen.getByText('Plays next').id);
+    const autoplay = screen.getByRole('switch', { name: 'Autoplay next video' });
+    expect((autoplay as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText(/Next: Actual next video/)).toBeTruthy();
     await userEvent.click(next);
     expect(onOpen).toHaveBeenCalledWith(items[0]);
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Autoplay next video' }));
+    await userEvent.click(autoplay);
     expect(onAutoplayChange).toHaveBeenCalledWith(false);
     expect(screen.getAllByRole('button', { name: /^More options for / })).toHaveLength(2);
     expect(document.querySelectorAll('.g-remote-card.is-compact')).toHaveLength(2);
@@ -34,7 +37,7 @@ describe('WatchRelated', () => {
   it('says why the list is empty', () => {
     render(provider(<WatchRelated {...props} autoplay={false} autoplayIndex={-1} items={[]} loading showAutoplay={false} />));
     expect(screen.getByText('Finding related videos…')).toBeTruthy();
-    expect(screen.queryByRole('checkbox', { name: 'Autoplay next video' })).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'Autoplay next video' })).toBeNull();
   });
 
   it('keeps a failed related request soft and can retry it', () => {
@@ -45,12 +48,15 @@ describe('WatchRelated', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the reason in the row\'s menu and "Plays next" as its description', () => {
+  it('shows why each recommendation is relevant and keeps the reason in its row menu', () => {
     const picks = [recoEntry('a', 0, { title: 'Actual next video' }, { reason: 'Because you finished Harbor walk at dawn' }), recoEntry('b', 1, { title: 'Second video' }, { reason: 'More from Channel b', reason_code: 'same_channel' })];
     render(provider(<WatchRelated {...props} items={picks} />));
     expect(screen.getByRole('button', { name: /^Actual next video/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Second video/ })).toBeTruthy();
-    expect(screen.queryByText('Because you finished Harbor walk at dawn')).toBeNull();
+    expect(screen.getByText('Because you finished Harbor walk at dawn')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Actual next video/ }).getAttribute('aria-describedby')?.split(' ')).toContain(screen.getByText('Because you finished Harbor walk at dawn').id);
+    expect(screen.getByText('More from Channel b')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Second video/ }).getAttribute('aria-describedby')?.split(' ')).toContain(screen.getByText('More from Channel b').id);
     expect(screen.getByText('Plays next')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'More options for Second video' }));
     expect(screen.getByRole('group', { name: 'More from Channel b' })).toBeTruthy();

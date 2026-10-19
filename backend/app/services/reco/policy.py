@@ -8,6 +8,7 @@ the household Popular snapshot, Library titles visible to them and the peeked li
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import re
 import secrets
 from array import array
@@ -34,7 +35,7 @@ from app.models import (
 from app.schemas import PopularItemResponse, UpNextRequest, YouTubeSearchResult
 from app.services.hls_relay_support import public_provider
 from app.services.member_recommendations import TITLE_POOL_TYPES, MemberRecommendationPolicy
-from app.services.popular_discovery import PopularItem, PopularSnapshot, _source_key
+from app.services.popular_discovery import POPULAR_CATEGORIES, PopularItem, PopularSnapshot, _source_key
 from app.services.reco import (
     CONSTANTS,
     SOURCE_CURRENT_CHANNEL,
@@ -74,6 +75,7 @@ _WORD = re.compile(r"[^\W\d_]{3,}")
 FOLLOW_SHELF_ENTRIES = 12  # New from your follows shows each follow's newest 12 (SourceAutomationService.FEED_ENTRY_LIMIT)
 STORED_SHELVES_CAP = 64  # homeShelves.ts reads at most this many entries of ui_prefs.home_shelves
 _LOOKUP_CHUNK = 500  # keys per IN (…) lookup; SQLite's variable limit is far above it
+_CATEGORY_KEYS = frozenset(category.key for category in POPULAR_CATEGORIES)
 
 # Because you watched: completions of the last 30 days, at most 3 rows.
 BECAUSE_WINDOW = timedelta(days=30)
@@ -96,6 +98,22 @@ def remote_key(source: str | None, entry_id: str | None, webpage_url: str | None
         return RemotePlaybackProgressService.source_identity_key(RemotePlaybackProgressService.canonical_source_identity(identity))
     except ValueError:
         return None
+
+
+def _canonical_categories(keys: Iterable[str]) -> tuple[str, ...]:
+    """Only Popular's stable category vocabulary can form an Up Next topical anchor."""
+    return tuple(dict.fromkeys(key for key in keys if key in _CATEGORY_KEYS))
+
+
+def _matches_anchor(candidate: Candidate, anchor: Candidate) -> bool:
+    """An anchored queue is topical: channel identity alone never turns an unrelated upload into Up Next."""
+    if not _categories_compatible(candidate, anchor):
+        return False
+    return any(not token.startswith("ch:") for token in candidate.tokens & anchor.tokens)
+
+
+def _categories_compatible(candidate: Candidate, anchor: Candidate) -> bool:
+    return not (anchor.category_keys and candidate.category_keys and not set(anchor.category_keys).intersection(candidate.category_keys))
 
 
 def local_date(now: datetime) -> date:
@@ -264,13 +282,18 @@ class RecommendationPolicy:
         """Up next: pool ∪ Popular ∪ the peeked listing of the channel being watched; the next part pinned."""
         current = remote_key(request.source, request.source_id, request.source_url)
         page = self._peek(request.channel_id, warm=True)
+        context_key = self._up_next_context_key(current, request, page)
 
         def build(_profile: MemberProfile) -> tuple[list[Candidate], Candidate | None, str | None]:
             anchor = self._current(request, current)
             candidates = self._remote_pool(member, _profile, snapshot.items, page=page, exclude=frozenset({current} if current else ()))
+            if anchor is not None:
+                topical = [candidate for candidate in candidates if _matches_anchor(candidate, anchor)]
+                candidates = topical or [candidate for candidate in candidates
+                                          if anchor.channel_key and candidate.channel_key == anchor.channel_key and _categories_compatible(candidate, anchor)]
             return candidates, anchor, next_part_key(anchor, candidates) if anchor else None
 
-        return self._serve(member, "up_next", f"{current or '-'}:{request.limit}", request.limit, build)
+        return self._serve(member, "up_next", context_key, request.limit, build)
 
     def explore(self, member: User, snapshot: PopularSnapshot) -> tuple[ServedList, tuple[str, ...]]:
         """Explore's For you rail and the member's category order."""
@@ -465,15 +488,34 @@ class RecommendationPolicy:
         from the request alone."""
         if key is None:
             return None
+        categories = _canonical_categories(request.category_keys)
         row = self._db.get(RemoteMedia, key)
         if row is not None:
-            return candidate_from_remote(row, sources=SOURCE_CURRENT_CHANNEL)
+            candidate = candidate_from_remote(row, sources=SOURCE_CURRENT_CHANNEL)
+            title = request.title.strip() if request.title and request.title.strip() else candidate.title
+            stable = candidate.channel_key or channel_key(request.source, request.channel_id, request.channel_url, request.uploader)
+            categories = _canonical_categories((*candidate.category_keys, *categories))
+            return dataclasses.replace(
+                candidate,
+                title=title,
+                channel_key=stable,
+                channel_name=request.uploader or candidate.channel_name,
+                tokens=remote_tokens(title, stable, categories),
+                category_keys=categories,
+            )
         stable = channel_key(request.source, request.channel_id, request.channel_url, request.uploader)
         return Candidate(
             key=key, target_kind="remote", title=request.title or "", channel_key=stable, channel_name=request.uploader,
-            tokens=remote_tokens(request.title, stable, request.category_keys), published_at=None,
-            sources=SOURCE_CURRENT_CHANNEL, category_keys=tuple(request.category_keys),
+            tokens=remote_tokens(request.title, stable, categories), published_at=None,
+            sources=SOURCE_CURRENT_CHANNEL, category_keys=categories,
         )
+
+    def _up_next_context_key(self, current: str | None, request: UpNextRequest, page: ChannelTabPage | None) -> str:
+        """Keep a hydrated anchor or freshly warmed channel page from reusing the sparse response for 30 minutes."""
+        fields = (current or "-", request.limit, request.title or "", request.uploader or "", request.channel_id or "",
+                  request.channel_url or "", *_canonical_categories(request.category_keys),
+                  *((entry.id or entry.webpage_url or "" for entry in page.entries) if page is not None else ()))
+        return hashlib.sha256("\0".join(map(str, fields)).encode()).hexdigest()
 
     def _anchored(self, member: User, anchor: MediaTitle) -> _Build:
         return lambda profile: (self._titles(member, profile, anchor=anchor),

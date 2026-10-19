@@ -103,7 +103,7 @@ describe('media acquisition interface', () => {
     expect(previewUrl).toHaveBeenCalledWith(expect.objectContaining({
       source_url: remote.webpage_url,
       format_selection: expect.objectContaining({ preset: 'best', extract_audio: false }),
-    }));
+    }), { signal: expect.any(AbortSignal) });
     expect(createJob).toHaveBeenCalledWith(expect.objectContaining({
       format_selection: expect.objectContaining({ preset: 'audio_only', extract_audio: true, audio_format: 'mp3' }),
       output_profile: expect.objectContaining({ base_path: null, subdir: 'family/videos' }),
@@ -166,10 +166,10 @@ describe('media acquisition interface', () => {
 
   it('tells Up Next which channel the current video is on', async () => {
     const channel = 'UCabcdefghijklmnopqrstuv';
-    vi.mocked(previewUrl).mockResolvedValue({ ...preview, raw: { channel_id: channel, channel_url: `https://www.youtube.com/channel/${channel}` } });
+    vi.mocked(previewUrl).mockResolvedValue({ ...preview, raw: { channel_id: channel, channel_url: `https://www.youtube.com/channel/${channel}`, categories: ['Music', 'Unrecognized provider category'] } });
     const { result } = renderHook(() => useMediaAcquisition({ workspace: acquisitionWorkspace(), onMessage: vi.fn() }));
     await act(async () => { await result.current.open(remote); });
-    expect(getUpNext).toHaveBeenCalledWith(expect.objectContaining({ channel_id: channel, channel_url: `https://www.youtube.com/channel/${channel}` }));
+    expect(getUpNext).toHaveBeenCalledWith(expect.objectContaining({ channel_id: channel, channel_url: `https://www.youtube.com/channel/${channel}`, category_keys: ['music'] }));
   });
 
   it('sends no channel when the video names none, and never a too-long address or a non-UC id', async () => {
@@ -179,6 +179,32 @@ describe('media acquisition interface', () => {
     const request = vi.mocked(getUpNext).mock.calls[0][0];
     expect(request).not.toHaveProperty('channel_id');
     expect(request).not.toHaveProperty('channel_url');
+  });
+
+  it('cancels an obsolete stream request when choosing another video or leaving Watch', async () => {
+    const signals: AbortSignal[] = [];
+    vi.mocked(previewUrl).mockImplementation((_payload, options) => new Promise((_resolve, reject) => {
+      const signal = options!.signal!;
+      signals.push(signal);
+      signal.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), { once: true });
+    }));
+    const { result, unmount } = renderHook(() => useMediaAcquisition({ workspace: acquisitionWorkspace(), onMessage: vi.fn() }));
+    let first: Promise<PreviewResponse | null> | null = null;
+    let second: Promise<PreviewResponse | null> | null = null;
+    act(() => { first = result.current.open(remote); });
+    act(() => { second = result.current.open({ ...remote, webpage_url: 'https://example.test/next' }); });
+    await act(async () => { await first; });
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+    act(() => { result.current.reset(); });
+    await act(async () => { await second; });
+    expect(signals[1].aborted).toBe(true);
+    expect(result.current.state.failure).toBeNull();
+    let third: Promise<PreviewResponse | null> | null = null;
+    act(() => { third = result.current.open(remote); });
+    unmount();
+    await third;
+    expect(signals[2].aborted).toBe(true);
   });
 
   it('keeps late related results from an earlier inspection out of the current selection', async () => {

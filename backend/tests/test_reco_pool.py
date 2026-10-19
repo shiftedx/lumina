@@ -17,7 +17,7 @@ from sqlalchemy import event, func, select, update
 from app import db as db_module
 from app.db import Base
 import app.main as main
-from app.models import AppSession, AppSettings, LibraryItem, MediaTitle, RecoPool, RemoteMedia, RemotePlaybackProgress, SourceAutomation, User, utcnow
+from app.models import AppSession, AppSettings, LibraryItem, MediaTitle, PlaybackProgress, RecoPool, RemoteMedia, RemotePlaybackProgress, SourceAutomation, User, utcnow
 from app.schemas import YouTubeSearchResult
 from app.services import embeddings, local_ai
 from app.services.popular_discovery import PopularCategory, PopularDiscovery
@@ -329,6 +329,27 @@ def make_refresher(factory, clock: Clock, search, pages) -> pool.RecoRefresher: 
     return pool.RecoRefresher(factory, search, pages, clock=clock, sleep=clock.sleep, rng=Middle())
 
 
+def test_refresh_expands_a_finished_saved_web_video_but_not_an_import(factory, profile_of) -> None:  # noqa: ANN001
+    with factory.begin() as session:
+        session.add(make_user("a"))
+        session.add_all([
+            LibraryItem(id="saved", user_id="a", extractor="generic", title="Harbor Artist evening song",
+                        webpage_url="https://example.test/watch", kind="video"),
+            LibraryItem(id="imported", user_id="a", extractor="external_library", title="Private family video",
+                        webpage_url=None, kind="video"),
+            PlaybackProgress(id="p-saved", user_id="a", item_id="saved", completed=True, max_fraction=1.0, last_watched_at=NOW),
+            PlaybackProgress(id="p-imported", user_id="a", item_id="imported", completed=True, max_fraction=1.0, last_watched_at=NOW),
+        ])
+    clock = Clock()
+    search = Search(clock)
+
+    outcome = make_refresher(factory, clock, search, None).refresh("a")
+
+    assert outcome.error is None and len(search.calls) == 1
+    assert {"harbor", "artist", "evening"} <= set(search.calls[0][0].split())
+    assert set(pool_bits(factory)) == {SOURCE_SEED}
+
+
 def feed_entry(video_id: str) -> dict:
     return {
         "id": video_id, "title": f"Feed upload {video_id}", "duration": 900, "thumbnail": None, "uploader": "Alpha Channel",
@@ -528,24 +549,28 @@ def test_a_failing_plan_returns_the_error_name_and_does_not_raise(factory, profi
 def test_due_members_follow_the_refresh_rules(factory) -> None:
     clock = Clock()
     with factory.begin() as session:
-        for member in ("fresh", "aged", "never", "idle", "watcher", "quiet"):
+        for member in ("fresh", "aged", "never", "idle", "watcher", "saved-watcher", "quiet"):
             session.add(make_user(member))
         session.add(make_user("gone", is_active=False))
-        for member in ("fresh", "aged", "never", "watcher", "quiet", "gone"):
+        for member in ("fresh", "aged", "never", "watcher", "saved-watcher", "quiet", "gone"):
             session.add(AppSession(id=f"s-{member}", user_id=member, expires_at=NOW + timedelta(days=1), last_seen_at=NOW - timedelta(hours=1)))
         session.add(AppSession(id="s-idle", user_id="idle", expires_at=NOW + timedelta(days=1), last_seen_at=NOW - timedelta(days=4)))  # active window is 3 days
-        for member, age in (("fresh", timedelta(hours=1)), ("aged", timedelta(hours=7)), ("watcher", timedelta(hours=2)), ("quiet", timedelta(hours=2)), ("gone", timedelta(hours=9))):
+        for member, age in (("fresh", timedelta(hours=1)), ("aged", timedelta(hours=7)), ("watcher", timedelta(hours=2)), ("saved-watcher", timedelta(hours=2)), ("quiet", timedelta(hours=2)), ("gone", timedelta(hours=9))):
             session.add(RecoPool(user_id=member, item_key=key_of(member), sources=SOURCE_FOLLOW, first_seen_at=NOW - age, last_nominated_at=NOW - age))
         for member, finished in (("watcher", timedelta(minutes=30)), ("quiet", timedelta(hours=3))):
             session.add(RemotePlaybackProgress(
                 id=f"done-{member}", user_id=member, source_identity=f"youtube:{member}", source_identity_key=key_of(member), source_url="https://example.com/v",
                 completed=True, last_watched_at=NOW - finished, updated_at=NOW - finished,
             ))
+        session.add(LibraryItem(id="saved-due", user_id="saved-watcher", extractor="generic", title="Harbor Artist evening song",
+                                webpage_url="https://example.test/watch", kind="video"))
+        session.add(PlaybackProgress(id="saved-due-progress", user_id="saved-watcher", item_id="saved-due", completed=True,
+                                     max_fraction=1.0, last_watched_at=NOW - timedelta(minutes=30), updated_at=NOW - timedelta(minutes=30)))
     refresher = make_refresher(factory, clock, Search(clock), None)
 
     with factory() as db:
-        # never: no pool. aged: 7 h. watcher: finished a video after its pool was written. Not: fresh, quiet (finished before its pool), idle, gone.
-        assert refresher._due_members(db, NOW) == ["never", "aged", "watcher"]
+        # never: no pool. aged: 7 h. watcher and saved-watcher finished after their pool was written. Not: fresh, quiet (finished before its pool), idle, gone.
+        assert refresher._due_members(db, NOW) == ["never", "aged", "saved-watcher", "watcher"]
 
     refresher.trigger("fresh")  # debounced from the first trigger (10 min), then at most one trigger-driven refresh an hour
     with factory() as db:

@@ -948,7 +948,7 @@ describe('Media acquisition shell integration', () => {
 
     expect(mocks.previewUrl).toHaveBeenNthCalledWith(1, expect.objectContaining({
       format_selection: expect.objectContaining({ preset: 'best_1080p', output_container: 'mkv', subtitles: true }),
-    }));
+    }), { signal: expect.any(AbortSignal) });
     expect(mocks.createJob).toHaveBeenCalledWith(expect.objectContaining({
       format_selection: expect.objectContaining({ preset: 'best_1080p', output_container: 'mkv', subtitles: true }),
       output_profile: expect.objectContaining({ subdir: 'family/protected' }),
@@ -1004,7 +1004,7 @@ describe('keyboard-safe interactive overlays', () => {
     const channel = await screen.findByRole('option', { name: /Mars Astronomy/ });
     await browser.click(channel);
 
-    await waitFor(() => expect(mocks.previewUrl).toHaveBeenCalledWith(expect.objectContaining({ source_url: sourceUrl })));
+    await waitFor(() => expect(mocks.previewUrl).toHaveBeenCalledWith(expect.objectContaining({ source_url: sourceUrl }), { signal: expect.any(AbortSignal) }));
     expect(mocks.youtubeSearch).not.toHaveBeenCalledWith(expect.objectContaining({ query: 'Mars Astronomy' }));
   });
 

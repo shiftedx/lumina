@@ -372,7 +372,7 @@ def test_feedback_drops_every_cached_list_of_the_member(household) -> None:  # n
     _pooled(db, member, "x", "Harbor walk")
     _pooled(db, member, "y", "Tidal pools", channel=f"{CHANNEL}2")
     db.commit()
-    up_next = main.UpNextRequest(source_url=_watch("now"), source_id="now", uploader="Someone")
+    up_next = main.UpNextRequest(source_url=_watch("now"), source_id="now", title="Harbor films", uploader="Someone")
     x = remote_key("youtube", "x", _watch("x"))
 
     def served() -> dict[str, set[str]]:

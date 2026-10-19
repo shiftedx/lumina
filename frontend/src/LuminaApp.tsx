@@ -52,6 +52,7 @@ import { listRequests } from './features/requests/requestsApi';
 import { cachedTitle, forgetTitles, rememberSummary, summaryFor } from './features/gallery/titleCache';
 import type { WatchSelection } from './features/watch/WatchSurface';
 import { queuedAsRemote, resetWatchQueue } from './features/watch/WatchQueue';
+import { resetPlaybackIntent } from './features/gallery/usePlaybackIntent';
 import { holdBackground } from './backgroundGate';
 import { markNavigation, notePlayIntent, takePlayIntent } from './perfMetrics';
 import { cancelSpeculativeStart, claimSpeculativeStart, forgetPlaybackWarmup, prefetchPlaybackOptions } from './playbackPrefetch';
@@ -689,7 +690,7 @@ export default function LuminaApp() {
   useEffect(() => { resetRecoEvents(); setPopularDiscovery(null); setPopularDiscoveryError(null); setHomeRecommendations(null); setHomeRecommendationsError(null); setHomeRecommendationsLoading(false); }, [state.currentUser?.id]);
 
   // Session revocation or a user switch stops the player: the next member never inherits it.
-  useEffect(() => { resetWatchQueue(); resetWatch(); }, [state.currentUser?.id]);
+  useEffect(() => { resetWatchQueue(); resetPlaybackIntent(); resetWatch(); }, [state.currentUser?.id]);
 
   useEffect(() => {
     const item = watchSelection?.kind === 'library' ? watchSelection.item : null;

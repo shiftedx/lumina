@@ -1,9 +1,25 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 
 import { mockGalleryWall, mockLibrarySections } from './gallery-mock';
 import { mockHome } from './home-mock';
+import { openHomeEditor } from './home-edit-helper';
+import { mockReco } from './reco-mock';
 import { mockLibraryItems, mockTitleDetails } from './library-mock';
-import { mockAdminFixtures, mockApi, mockTitles, signIn } from './lumina-mock';
+import { item, mockAdminFixtures, mockApi, mockTitles, signIn } from './lumina-mock';
+
+async function switchAppearance(control: Locator) {
+  return control.evaluate((element) => {
+    const home = element.matches('button');
+    const track = home ? element : element.parentElement!.querySelector('.g-switch-track')!;
+    const style = getComputedStyle(track, home ? '::before' : null);
+    const knob = getComputedStyle(home ? element.querySelector('.h-switch-knob')! : track, home ? null : '::after');
+    return {
+      radius: style.borderTopLeftRadius, knobRadius: knob.borderTopLeftRadius,
+      height: style.height, knobSize: [knob.width, knob.height],
+      fill: style.backgroundColor, border: style.borderTopColor, knob: knob.backgroundColor,
+    };
+  });
+}
 
 const ROUTES = [
   ['home', '/'], ['library', '/library/shows'], ['downloads', '/downloads'],
@@ -12,6 +28,58 @@ const ROUTES = [
 
 for (const scheme of ['light', 'dark'] as const) {
   for (const width of [1440, 390]) {
+    test(`switches share square gold states across Settings, playback and Home: ${scheme} ${width}`, async ({ page }) => {
+      test.setTimeout(90_000);
+      await page.setViewportSize({ width, height: 900 });
+      await mockApi(page, {}); await mockTitles(page); await mockHome(page); await mockReco(page);
+      await page.goto('/settings'); await signIn(page);
+      for (const forcedColors of ['none', 'active'] as const) {
+        await page.emulateMedia({ colorScheme: scheme, forcedColors, reducedMotion: 'reduce' });
+        const inspect = async (control: Locator) => {
+          await control.scrollIntoViewIfNeeded();
+          await page.keyboard.press('Tab');
+          const states = [];
+          for (const checked of [false, true]) {
+            const isChecked = () => control.evaluate((element) => element.matches('input') ? (element as HTMLInputElement).checked : element.getAttribute('aria-checked') === 'true');
+            if (await isChecked() !== checked) {
+              await control.focus();
+              await page.keyboard.press('Space');
+            }
+            await expect.poll(isChecked).toBe(checked);
+            await control.focus();
+            await expect(control).toBeFocused();
+            expect(await control.evaluate((element) => [element, element.parentElement!.querySelector('.g-switch-track')].some((node) => node && getComputedStyle(node).outlineStyle === 'solid'))).toBe(true);
+            states.push(await switchAppearance(control));
+          }
+          return states;
+        };
+        await page.goto('/settings');
+        const settings = await inspect(page.getByRole('switch', { name: 'Autoplay next video' }));
+        const tokens = await page.locator('html').evaluate((element) => {
+          const style = getComputedStyle(element);
+          const probe = document.createElement('span');
+          probe.style.backgroundColor = 'var(--g-gold)'; element.append(probe);
+          const gold = getComputedStyle(probe).backgroundColor; probe.remove();
+          return { radius: style.getPropertyValue('--g-radius').trim(), gold };
+        });
+        expect(settings[0].radius).toBe(tokens.radius);
+        expect(settings[0].knobRadius).toBe(tokens.radius);
+        expect(settings[0].fill).not.toBe(settings[1].fill);
+        expect(settings[1].fill).not.toBe(settings[1].knob);
+        if (forcedColors === 'none') expect(settings[1].fill).toBe(tokens.gold);
+        for (const [id, label] of [['item-ep-1-2', 'Autoplay'], [item.id, 'Autoplay next video']]) {
+          await page.goto(`/watch/library/${id}`);
+          await page.locator('video').first().evaluate((media: HTMLVideoElement) => media.pause());
+          expect(await inspect(page.getByRole('switch', { name: label, exact: true }))).toEqual(settings);
+        }
+        await page.goto('/'); await openHomeEditor(page);
+        expect(await inspect(page.getByRole('switch', { name: 'Show Next up' }))).toEqual(settings);
+        await page.getByRole('button', { name: 'Done', exact: true }).click();
+        await openHomeEditor(page);
+        await expect(page.getByRole('switch', { name: 'Show Next up' })).toHaveAttribute('aria-checked', 'true');
+      }
+    });
+
     test(`profile and navigation popups share rounded corners: ${scheme} ${width}`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });

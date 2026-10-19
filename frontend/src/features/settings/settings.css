@@ -84,9 +84,6 @@
 .g-settings .g-setting-label { font-size: 15px; }
 .g-settings .g-setting-desc, .g-settings .g-setting-note { font-size: 14px; }
 .g-settings .g-button { font-size: 13px; letter-spacing: normal; text-transform: none; white-space: normal; }
-.g-settings .g-switch-track, .g-settings .g-switch-track::after { border-radius: var(--g-radius-round); }
-.g-settings .g-switch input:checked + .g-switch-track { border-color: var(--g-gold); background: var(--g-gold); }
-.g-settings .g-switch input:checked + .g-switch-track::after { background: var(--g-on-gold); }
 .g-settings .g-segment { font: var(--g-type-ui); letter-spacing: normal; text-transform: none; }
 .g-settings .g-save-bar { padding-inline: 0; }
 .g-settings-section > .g-setting-form > .g-save-bar { padding-inline: 20px; }
@@ -330,10 +327,6 @@
 
 /* TV controls retain the larger target even when a compact row overrides button sizing. */
 @media (min-width: 1600px) { .g-settings :is(button, .g-button) { min-height: var(--g-control); } }
-@media (forced-colors: active) {
-  .g-settings .g-switch input:checked + .g-switch-track { background: Highlight; border-color: Highlight; }
-  .g-settings .g-switch input:checked + .g-switch-track::after { background: HighlightText; }
-}
 
 /* Capacity lives beside each drive's controls, rather than in a wide table. */
 .g-settings .g-roots { display: block; min-width: 0; }

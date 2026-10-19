@@ -13,12 +13,12 @@
 .gallery .h-handle[aria-pressed='true'] { outline: var(--g-hairline); background: var(--g-paper-2); }
 .gallery .h-move[aria-disabled='true'] { color: var(--g-ink-3); cursor: default; }
 .gallery .h-handle svg, .gallery .h-move svg { width: 20px; height: 20px; }
-/* The switch is a full 44 (48 on TV) px target; its 24 px track is drawn by ::before. On = ink fill, paper knob; off = hairline. */
+/* Keep the button semantics for Home's D-pad editor, with the shared square, gold switch appearance. */
 .gallery .h-switch { position: relative; width: var(--h-control); height: var(--h-control); padding: 0; border: 0; background: none; cursor: pointer; }
-.gallery .h-switch::before { content: ''; position: absolute; top: 50%; left: 0; box-sizing: border-box; width: 100%; height: 24px; border: var(--g-hairline); border-radius: 12px; transform: translateY(-50%); }
-.gallery .h-switch[aria-checked='true']::before { background: var(--g-ink); }
-.gallery .h-switch-knob { position: absolute; top: 50%; left: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--g-ink); transform: translateY(-50%); transition: transform var(--g-hover); }
-.gallery .h-switch[aria-checked='true'] .h-switch-knob { background: var(--g-paper); transform: translate(calc(var(--h-control) - 24px), -50%); }
+.gallery .h-switch::before { content: ''; position: absolute; top: 50%; left: 0; box-sizing: border-box; width: 100%; height: 24px; border: 1px solid var(--g-ink-3); border-radius: var(--g-radius); transform: translateY(-50%); }
+.gallery .h-switch[aria-checked='true']::before { border-color: var(--g-gold); background: var(--g-gold); }
+.gallery .h-switch-knob { position: absolute; top: 50%; left: 4px; width: 16px; height: 16px; border-radius: var(--g-radius); background: var(--g-ink-3); transform: translateY(-50%); transition: transform var(--g-hover); }
+.gallery .h-switch[aria-checked='true'] .h-switch-knob { background: var(--g-on-gold); transform: translate(calc(var(--h-control) - 24px), -50%); }
 .gallery .h-edit-actions { display: flex; justify-content: flex-end; gap: var(--g-space-3); margin-top: var(--g-space-5); }
 @media (max-width: 599px) {
   .gallery .h-editor { --h-edit-row: 56px; }

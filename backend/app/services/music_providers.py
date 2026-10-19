@@ -16,6 +16,7 @@ from urllib.parse import quote, unquote, urlencode, urlparse
 
 import httpx
 from sqlalchemy import delete, exists, or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import aliased
 
 from app.db import session_scope
@@ -32,7 +33,7 @@ _lock = threading.Lock()
 _brainz_lock = threading.Lock()
 _brainz_at = 0.0
 _TIMESTAMP = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
-_PUBLIC_HOSTS = {"musicbrainz.org", "coverartarchive.org", "lrclib.net", "en.wikipedia.org", "www.wikidata.org", "commons.wikimedia.org"}
+_PUBLIC_HOSTS = {"musicbrainz.org", "coverartarchive.org", "lrclib.net", "en.wikipedia.org", "www.wikidata.org", "commons.wikimedia.org", "api.deezer.com"}
 _artwork = None
 
 
@@ -46,6 +47,7 @@ def validate_art_url(value: str) -> str:
     hostname = parsed.hostname or ""
     if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in (None, 443) or not (
         hostname in {"coverartarchive.org", "archive.org", "upload.wikimedia.org", "thumb.wikimedia.org"} or hostname.endswith(".archive.org")
+        or (hostname == "cdn-images.dzcdn.net" and re.fullmatch(r"/images/artist/[a-fA-F0-9]+/[\w.-]+", parsed.path))
     ):
         raise ValueError("Unsupported music artwork host")
     return value
@@ -113,7 +115,8 @@ def enqueue(key: str, kind: str, load: Callable[[], dict], *, ttl_days: int = 7,
         try:
             try:
                 payload = load()
-                expiry = utcnow() if payload.get("changed") else utcnow() + (timedelta(hours=1) if payload.get("artwork_error") else timedelta(days=ttl_days))
+                expiry = utcnow() if payload.get("changed") else utcnow() + (timedelta(hours=1) if payload.get("artwork_error")
+                    else timedelta(days=7 if payload.get("artwork_missing") else ttl_days))
             except Exception:  # noqa: BLE001 - availability is reported without private provider details
                 payload, expiry = {"error": "Music provider is temporarily unavailable"}, utcnow() + (timedelta(minutes=1) if kind == "lyrics" else timedelta(hours=1))
             with session_scope() as db, write_transaction(db, name="music_lookup"):
@@ -247,24 +250,45 @@ def candidates_for(kind: str, name: str, artist: str | None = None) -> list[dict
         names = [entry.get("name") or entry.get("title") or ""]
         if kind == "artist":
             names.extend(alias["name"] for alias in entry.get("aliases", [])[:30] if isinstance(alias, dict) and isinstance(alias.get("name"), str))
-        exact = bool(normalized(name)) and any(normalized(candidate) == normalized(name) for candidate in names)
+        name_match = bool(normalized(name)) and any(normalized(candidate) == normalized(name) for candidate in names)
+        exact = name_match
         if artist:
             exact = exact and normalized(credits) == normalized(artist)
         # A partial search page cannot establish a unique identity.
         count = value.get("count")
-        exact = exact and not (type(count) is int and count > len(results))
+        partial = type(count) is int and count > len(results)
+        complete = type(count) is int and count <= len(results)
+        exact = exact and not partial  # preserve the established unique-match behavior when an older response omits count
         rows.append({"id": identity, "name": entry.get("name") or entry.get("title"), "artist": credits,
                      "release_group_id": (entry.get("release-group") or {}).get("id"),
                      "disambiguation": entry.get("disambiguation"), "date": entry.get("date"), "country": entry.get("country"),
-                     "score": int(entry.get("score") or 0), "exact": exact})
+                     "score": int(entry.get("score") or 0), "exact": exact, "complete": complete})
     return rows
+
+
+def _artist_match_from_catalog(candidates: list[dict], local_albums: set[str]) -> str | None:
+    """Disambiguate at most three exact artists using distinct registered album names."""
+    if len(local_albums) < 2 or not 2 <= len(candidates) <= 3:
+        return None
+    qualified = []
+    for candidate in candidates:
+        if not candidate.get("complete") or not candidate.get("exact") or candidate.get("score", 0) < 95:
+            return None
+        page = release_page(candidate["id"])
+        if not page.get("complete") or page.get("next_offset") is not None:
+            return None
+        remote_albums = {value for row in page["items"] if (value := normalized(str(row.get("name") or "")))}
+        if len(local_albums & remote_albums) >= 2:
+            qualified.append(candidate["id"])
+    return qualified[0] if len(qualified) == 1 else None
 
 
 def release_page(artist_id: str, offset: int = 0) -> dict:
     identity = str(uuid.UUID(artist_id))
     value = fetch_json("https://musicbrainz.org/ws/2/release-group?" + urlencode({"artist": identity, "fmt": "json", "limit": 100, "offset": offset}))
     items = []
-    for release in value.get("release-groups", [])[:100]:
+    releases = value.get("release-groups", [])[:100]
+    for release in releases:
         try:
             release_id = str(uuid.UUID(release.get("id")))
         except (TypeError, ValueError, AttributeError):
@@ -272,7 +296,9 @@ def release_page(artist_id: str, offset: int = 0) -> dict:
         items.append({"id": release_id, "name": str(release.get("title") or "Untitled")[:300],
                       "year": str(release.get("first-release-date") or "")[:4], "type": str(release.get("primary-type") or "Release")[:100]})
     count = value.get("release-group-count")
-    return {"items": items, "next_offset": offset + 100 if type(count) is int and offset + 100 < count else None}
+    complete = type(count) is int and 0 <= count <= offset + len(releases)
+    return {"items": items, "next_offset": offset + 100 if type(count) is int and offset + 100 < count else None,
+            "complete": complete}
 
 
 def _credits(value: dict) -> list[dict]:
@@ -311,11 +337,12 @@ def release_editions(group_id: str, offset: int = 0) -> dict:
 
 
 def artist_profile(value: dict) -> tuple[dict, list[dict]]:
-    """Follow identity-linked articles and P18 photographs, never a name-based image search."""
+    """Follow identity-linked photographs, never a name-based image search."""
     fields, pictures, entity = {}, [], {}
     retry = False
     relations = value.get("relations", [])[:200]
-    wiki = next((r.get("url", {}).get("resource", "") for r in relations if r.get("type") == "wikipedia"), "")
+    wiki = next((url for r in relations if r.get("type") == "wikipedia"
+                 and (url := r.get("url", {}).get("resource", "")).startswith("https://en.wikipedia.org/wiki/")), "")
     wikidata = next((r.get("url", {}).get("resource", "") for r in relations if r.get("type") == "wikidata"), "")
     entity_id = wikidata.rsplit("/", 1)[-1]
     if re.fullmatch(r"Q\d{1,12}", entity_id):
@@ -378,7 +405,35 @@ def artist_profile(value: dict) -> tuple[dict, list[dict]]:
         primary = {**primary, "image_type": "Primary"}
         background = next((p for p in pictures if p["source_url"] != primary["source_url"] and p["width"] >= p["height"] * 1.4), None)
         return fields, [primary, *([{**background, "image_type": "Backdrop"}] if background else [])]
-    return fields, [{"url": portrait, "image_type": "Primary", "source_url": wiki, "author": "", "license": ""}] if portrait else []
+    if portrait:
+        return fields, [{"url": portrait, "image_type": "Primary", "source_url": wiki, "author": "", "license": ""}]
+    try:
+        picture = linked_artist_picture(value)
+        return fields, [picture] if picture else []
+    except (httpx.HTTPError, ValueError):
+        fields["_artwork_retry"] = True
+        return fields, []
+
+
+def linked_artist_picture(value: dict) -> dict | None:
+    # A MusicBrainz artist relationship establishes the external account identity.
+    # Do not search names or borrow album sleeves when Wikimedia has no photograph.
+    for relation in value.get("relations", [])[:200]:
+        linked = urlparse(relation.get("url", {}).get("resource", ""))
+        match = re.fullmatch(r"/(?:[a-z]{2}/)?artist/(\d{1,15})/?", linked.path)
+        if (linked.scheme not in ("http", "https") or linked.hostname not in ("deezer.com", "www.deezer.com")
+                or linked.username or linked.password or linked.port not in (None, 80, 443) or not match):
+            continue
+        artist = fetch_json(f"https://api.deezer.com/artist/{match[1]}")
+        if artist.get("error"):
+            raise ValueError("Artist artwork provider is temporarily unavailable")
+        url = artist.get("picture_xl")
+        if str(artist.get("id")) == match[1] and isinstance(url, str):
+            validate_art_url(url)
+            if urlparse(url).hostname == "cdn-images.dzcdn.net" and not re.search(r"/0+/", urlparse(url).path):
+                return {"url": url, "image_type": "Primary", "source_url": f"https://www.deezer.com/artist/{match[1]}", "author": "", "license": ""}
+        break  # One identity-bound fallback per refresh keeps provider work bounded.
+    return None
 
 
 def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
@@ -396,9 +451,13 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
         identity_before, parent_before = dict(title.provider_ids or {}), title.parent_id
         if (title.field_sources or {}).get("provider_ids") == "user" and not existing_id and not provider_id:
             return {"unmatched": True}
+        local_albums = {value for album in db.scalars(select(MediaTitle.name).join(LibraryItem, LibraryItem.title_id == MediaTitle.id).where(
+            MediaTitle.type == "album", MediaTitle.parent_id == title.id, LibraryItem.status != "missing").distinct())
+            if (value := normalized(album))} if kind == "artist" and not provider_id and not existing_id else set()
     candidates = [] if provider_id or existing_id else candidates_for(kind, name, artist)
     exact = [c for c in candidates if c["exact"] and c["score"] >= 95 and (not release_group or c.get("release_group_id") == release_group)]
-    chosen = provider_id or existing_id or (exact[0]["id"] if len(exact) == 1 else None)
+    catalog_match = _artist_match_from_catalog(exact, local_albums) if kind == "artist" and len(exact) > 1 else None
+    chosen = provider_id or existing_id or (exact[0]["id"] if len(exact) == 1 else catalog_match)
     if not chosen:
         group = release_group
         if kind == "album" and not group:
@@ -492,7 +551,9 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
         from app.services.library_search import index_title
         db.flush()
         index_title(db, title)
-    artwork_error = profile_retry
+    artwork_failures: set[str] = set()
+    primary_unavailable = False
+    unavailable_primary_urls: set[str] = set()
     if kind == "album":
         pictures = [{"url": f"https://coverartarchive.org/release/{chosen}/front-1200", "image_type": "Primary"}]
     for picture in pictures:
@@ -500,17 +561,63 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
             import_art(title_id, picture["url"], identity=chosen, image_type=picture["image_type"], credit=picture if kind == "artist" else None)
         except Exception as error:  # noqa: BLE001 - artwork retries without discarding a valid identity
             from app.services.artwork import ArtworkNotFoundError
-            artwork_error = artwork_error or not isinstance(error, ArtworkNotFoundError)
-    if artwork_error:
-        with session_scope() as db, write_transaction(db, name="music_art_retry"):
+            if not isinstance(error, ArtworkNotFoundError):
+                artwork_failures.add(picture["image_type"])
+            if picture["image_type"] == "Primary":
+                unavailable_primary_urls.add(picture["url"])
+            primary_unavailable = primary_unavailable or (picture["image_type"] == "Primary" and urlparse(picture["url"]).hostname != "cdn-images.dzcdn.net")
+    if kind == "artist" and primary_unavailable:
+        fallback = None
+        try:
+            fallback = linked_artist_picture(value)
+            if fallback:
+                import_art(title_id, fallback["url"], identity=chosen, credit=fallback)
+                artwork_failures.discard("Primary")
+        except Exception:  # noqa: BLE001 - keep the identity and retry transient artwork failures
+            artwork_failures.add("Primary")
+            if fallback:
+                unavailable_primary_urls.add(fallback["url"])
+    artwork_error = profile_retry or bool(artwork_failures)
+    artwork_missing = False
+    if kind == "artist" or artwork_error:
+        with session_scope() as db, write_transaction(db, name="music_art_status"):
             title = db.get(MediaTitle, title_id)
             if title and (title.provider_ids or {}).get("MusicBrainz") == chosen:
-                title.metadata_due_at = utcnow() + timedelta(hours=1)
-    return {"identified": True, "id": chosen, **({"artwork_error": "Artist or release artwork is temporarily unavailable"} if artwork_error else {})}
+                primary = (title.images or {}).get("Primary") or {}
+                artwork_missing = kind == "artist" and (not primary or primary.get("music") in unavailable_primary_urls)
+                if artwork_error:
+                    title.metadata_due_at = utcnow() + timedelta(hours=1)
+                elif artwork_missing:
+                    title.metadata_due_at = utcnow() + timedelta(days=7)
+    return {"identified": True, "id": chosen, **({"artwork_missing": True} if artwork_missing else {}),
+            **({"artwork_error": "Artist or release artwork is temporarily unavailable"} if artwork_error else {})}
 
 
 def request_enrichment(title_id: str, provider_id: str | None = None, *, force: bool = False) -> bool:
     return enqueue(key_for("metadata", title_id), "metadata", lambda: enrich_title(title_id, provider_id), ttl_days=30, force=force)
+
+
+def request_artwork_repair(title_id: str) -> bool:
+    """A failed artist image may bypass old metadata, at most once an hour."""
+    key = key_for("metadata", title_id)
+    if not settings.music_metadata_enabled or pending(key):
+        return False
+    try:
+        with session_scope() as db:
+            row = db.get(MusicLookup, key)
+            now = utcnow()
+            cutoff = now - timedelta(hours=1)
+            if row and (row.refreshed_at > cutoff or (row.expires_at > now and (row.payload or {}).get("artwork_missing"))):
+                return False
+            if row:
+                with write_transaction(db, name="music_art_repair"):
+                    db.refresh(row)
+                    if row.refreshed_at > cutoff or (row.expires_at > now and (row.payload or {}).get("artwork_missing")):
+                        return False
+                    row.expires_at = utcnow()
+        return request_enrichment(title_id)
+    except SQLAlchemyError:
+        return False  # The normal image-unavailable response must survive a busy metadata writer.
 
 
 def import_art(title_id: str, url: str | None, *, identity: str | None = None, image_type: str = "Primary", credit: dict | None = None,

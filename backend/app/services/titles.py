@@ -26,7 +26,7 @@ from app.media_schemas import (
 from app.models import LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberFavorite, MusicTrackOverride, PlaybackProgress, StorageRoot, TitleArtwork, TitleUpload, User
 from app.persistence import read_regular_file
 from app.schemas import PlaybackProgressUpdateRequest
-from app.services.artwork import LOCAL_ARTWORK_TYPES, ArtworkError, ArtworkService
+from app.services.artwork import LOCAL_ARTWORK_TYPES, ArtworkCacheMissError, ArtworkError, ArtworkService
 from app.services.audio_tags import embedded_picture
 from app.services.library import LibraryService, decode_library_cursor, encode_library_cursor
 from app.services.media_artifacts import artifact_file
@@ -1075,6 +1075,10 @@ def title_image_bytes(db: Session, title: MediaTitle, image_type: str, artwork: 
             response = artwork.load_pinned(entry["music"], bucket="music", max_bytes=2 * 1024**3, validate_redirect=validate_art_url)
             return response.content_type, response.content
         except (ArtworkError, ValueError) as error:
+            if (title.type == "artist" and image_type == "Primary" and not title.locked and not isinstance(error, ArtworkCacheMissError)
+                    and (title.field_sources or {}).get("images.Primary") not in ("user", "nfo")):
+                from app.services.music_providers import request_artwork_repair
+                request_artwork_repair(title.id)
             raise FileNotFoundError("Music artwork is unavailable") from error
     if isinstance(entry, dict) and entry.get("removed"):
         raise FileNotFoundError("Removed")

@@ -370,6 +370,37 @@ def test_gone_stored_portrait_is_not_cached_as_healthy_for_a_month(db_factory, m
         assert db.get(MediaTitle, ARTIST).metadata_due_at < utcnow() + timedelta(days=8)
 
 
+@pytest.mark.parametrize('project', ['commons', 'en'])
+def test_blocked_wikimedia_original_recovers_with_the_same_photo_at_a_standard_size(db_factory, monkeypatch, project):
+    from app.services.artwork import ArtworkUnavailableError
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    monkeypatch.setattr(music, 'fetch_json', lambda _url: {'name': 'Artist A'})
+    monkeypatch.setattr(music, 'release_page', lambda _id: {'items': []})
+    original = f'https://upload.wikimedia.org/wikipedia/{project}/a/a1/Artist_A.jpg'
+    standard = f'https://upload.wikimedia.org/wikipedia/{project}/thumb/a/a1/Artist_A.jpg/500px-Artist_A.jpg'
+    credit = {'url': original, 'image_type': 'Primary', 'source_url': 'https://commons.wikimedia.org/wiki/File:Artist_A.jpg', 'author': 'Photographer', 'license': 'CC BY'}
+    monkeypatch.setattr(music, 'artist_profile', lambda _value: ({}, [credit]))
+    monkeypatch.setattr(music, 'linked_artist_picture', lambda _value: pytest.fail('The same photograph is available; no second provider is needed'))
+    calls = []
+    def load(url, **_kwargs):
+        calls.append(url)
+        if url == original:
+            raise ArtworkUnavailableError('Original returned HTTP 429')
+        assert url == standard
+        return SimpleNamespace(content=b'standard-size photograph')
+    monkeypatch.setattr(music, '_artwork', SimpleNamespace(load_pinned=load))
+    with db_factory() as db:
+        db.add(MediaTitle(id=ARTIST, type='artist', key='artist:a', name='Artist A', provider_ids={'MusicBrainz': ARTIST}))
+        db.commit()
+    result = music.enrich_title(ARTIST)
+    assert result['identified'] and not result.get('artwork_error')
+    assert calls == [original, standard]
+    with db_factory() as db:
+        artist = db.get(MediaTitle, ARTIST)
+        assert artist.images['Primary']['music'] == standard
+        assert artist.metadata_json['artwork_credits'][0]['author'] == 'Photographer'
+
+
 def test_unavailable_artist_image_queues_one_repair_despite_long_lived_metadata_cache(db_factory, monkeypatch):
     from datetime import timedelta
     from app.models import MusicLookup, utcnow

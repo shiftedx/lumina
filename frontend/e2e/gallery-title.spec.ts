@@ -124,9 +124,9 @@ test('title layout: the hero, side column, episode cards, and a long title descr
   const main = await box(page, '.t-main');
   const side = await box(page, '.t-side');
   expect(hero.height).toBeCloseTo(630, 0); // min(70vh, 680px) at 900px tall
-  expect(main.y).toBeCloseTo(hero.y + hero.height - 120, 0);
+  expect((await box(page, '.t-body')).y).toBeCloseTo(hero.y + hero.height - 120, 0);
   expect(side.x).toBeGreaterThanOrEqual(main.x + main.width + 47);
-  expect(side.y).toBeCloseTo(main.y + 74, 0);
+  expect(side.y).toBeCloseTo((await page.getByText(overview, { exact: true }).boundingBox())!.y, 0);
   expect((await box(page, '.t-episodes > li')).width).toBe(320);
   for (const width of [1920, 1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
@@ -137,11 +137,21 @@ test('title layout: the hero, side column, episode cards, and a long title descr
     const sideColumn = await box(page, '.t-side');
     expect(paragraph!.width).toBeGreaterThanOrEqual(mainColumn.width - 1);
     expect(paragraph!.x + paragraph!.width).toBeLessThanOrEqual(mainColumn.x + mainColumn.width + 1);
-    if (width > 599) expect(paragraph!.x + paragraph!.width).toBeLessThan(sideColumn.x);
+    if (width > 599) {
+      expect(paragraph!.x + paragraph!.width).toBeLessThan(sideColumn.x);
+      expect(sideColumn.y).toBeCloseTo(paragraph!.y, 0);
+    }
     else expect(sideColumn.y).toBeGreaterThan(paragraph!.y + paragraph!.height);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-    await page.screenshot({ path: `../output/title-description-width/title-${width}.png`, fullPage: true });
+    await page.screenshot({ path: `../output/title-sidebar-alignment/title-${width}.png`, fullPage: true });
   }
+  const name = 'Harbor Lights: The Lighthouse Keepers and the Stories of the Northern Coast';
+  await mockGalleryTitle(page, { ...showOptions, detail: { ...showOptions.detail, name, overview } });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+  expect((await box(page, '.t-side')).y).toBeCloseTo((await page.getByText(overview, { exact: true }).boundingBox())!.y, 0);
+  await page.screenshot({ path: '../output/title-sidebar-alignment/title-wrapped.png', fullPage: true });
 });
 
 test('desktop over the gallery styles: the art fills the hero, More like this posters are 168px, and Back reads on the art', async ({ page }) => {

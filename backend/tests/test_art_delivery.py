@@ -15,13 +15,14 @@ from sqlalchemy import event
 
 from app import db as db_module
 from app.main import app
-from app.models import MediaTitle
+from app.models import MediaTitle, TitleArtwork
 from app.routers import art
 from app.services import art_urls, renditions
 from app.services.titles import title_image_source
-from art_support import add_art_title, art_url, fake_calls, png_header, seed_art_root, use_fake_ffmpeg, write_rendition
+from art_support import add_art_title, art_url, artwork_row, fake_calls, png_header, seed_art_root, use_fake_ffmpeg, write_rendition
 
 MOVIE = str(uuid.UUID(int=0xD0E))
+EPISODE = str(uuid.UUID(int=0xE11))
 
 
 @pytest.fixture
@@ -144,6 +145,31 @@ def test_a_miss_is_generated_within_budget_from_the_titles_own_art_only(poster, 
     assert (response.status_code, response.content, response.headers["etag"]) == (200, b"r" * 64, f'"{key}-240.webp"')
     assert reads == [(MOVIE, "Primary")] and len(fake_calls(log)) == 1
     assert http.get(url).content == b"r" * 64 and len(fake_calls(log)) == 1  # now a hit
+
+
+def test_a_failed_missing_width_repair_keeps_the_ready_width_and_retries_without_original(
+    poster, http, tmp_path, monkeypatch,  # noqa: ANN001
+) -> None:
+    media, _, _ = poster
+    log = use_fake_ffmpeg(tmp_path, monkeypatch, "fail")
+    add_art_title(media, EPISODE, "episode")
+    with db_module.SessionLocal() as session:
+        title = session.get(MediaTitle, EPISODE)
+        source = title_image_source(title, "Primary")
+        key = art_urls.source_key(EPISODE, "Primary", source)
+        artwork_row(session, title, width=500, height=750)
+        session.commit()
+    write_rendition(key, 400, b"old")
+
+    missing = http.get(art_url(EPISODE, "Primary", source, 800))
+    existing = http.get(art_url(EPISODE, "Primary", source, 400))
+    retried = http.get(art_url(EPISODE, "Primary", source, 800))
+    with db_module.SessionLocal() as session:
+        state = session.get(TitleArtwork, (EPISODE, "Primary")).state
+    assert (missing.status_code, missing.headers["retry-after"], retried.status_code) == (503, "2", 503)
+    assert (existing.status_code, existing.content, existing.headers["cache-control"]) == (200, b"old", "public, max-age=31536000, immutable")
+    assert state == "ready" and len(fake_calls(log)) == 2
+    assert renditions.serving().fallback_original == 0
 
 
 def test_a_miss_over_budget_serves_a_small_original_or_503(poster, http, tmp_path, monkeypatch) -> None:  # noqa: ANN001

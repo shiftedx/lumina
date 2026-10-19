@@ -77,7 +77,7 @@ def test_detail_adds_backdrop_preview_logo_and_counts(library, api_client) -> No
     assert (movie["boxset"]["poster"], movie["boxset"]["backdrop"]) == (None, None)
     show = alice.get(f"/api/titles/{SERIES}").json()
     assert (show["episode_count"], show["best_height"], show["backdrop"], show["logo"]) == (4, 1080, None, None)
-    assert show["play_next"]["poster"]["widths"] == [400] and show["play_next"]["poster"]["preview"].startswith("data:")
+    assert show["play_next"]["poster"]["widths"] == [400, 800, 1200] and show["play_next"]["poster"]["preview"].startswith("data:")
     assert all(child["backdrop"] is None for child in show["children"])
     season = alice.get(f"/api/titles/{SEASON1}").json()
     assert (season["episode_count"], season["best_height"]) == (2, 1080)
@@ -87,5 +87,5 @@ def test_detail_adds_backdrop_preview_logo_and_counts(library, api_client) -> No
 
 def test_episode_stills_carry_their_preview(library, api_client) -> None:  # noqa: ANN001
     pilot, second = member(api_client, library[0], ALICE).get(f"/api/titles/{SERIES}/episodes", params={"season": 1}).json()
-    assert pilot["poster"]["widths"] == [400] and pilot["poster"]["preview"].startswith("data:image/webp;base64,")
+    assert pilot["poster"]["widths"] == [400, 800, 1200] and pilot["poster"]["preview"].startswith("data:image/webp;base64,")
     assert (pilot["poster"]["width"], second["poster"]) == (1920, None)

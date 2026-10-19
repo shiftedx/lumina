@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { expect, test, type Page } from '@playwright/test';
 
 import { albumSummary, episodeSummary, movieSummary } from '../src/test/galleryFixtures';
@@ -17,6 +19,7 @@ async function openHome(page: Page, options: HomeMock = {}, viewport = { width: 
 }
 const sections = (page: Page) => page.locator('[data-shelf-section]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-shelf-section')));
 const videoTime = (page: Page) => page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime);
+const ARTWORK_PNG = readFileSync(new URL('./fixtures/books-page.png', import.meta.url));
 
 test('default order with the hero from Continue; Resume opens the player at the saved point', async ({ page }) => {
   const lantern = movieSummary('movie-home', { name: 'Northern Lantern', play_item_id: item.id });
@@ -68,6 +71,122 @@ test('only near shelves are requested until the member scrolls', async ({ page }
   await expect(page.getByRole('region', { name: 'Recently added music' })).toBeVisible();
   // Because you watched and Recommended share one title-rows request per visit.
   expect(requests.filter((request) => request.startsWith('GET /api/home/title-rows'))).toHaveLength(1);
+});
+
+test('rapid horizontal scrolling keeps delayed artwork bounded and fills the focused window', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await mockApi(page, { sidebar_collapsed: false });
+  await mockHome(page, { newest: Array.from({ length: 18 }, (_, index) => homeMovie(index)) });
+
+  let active = 0;
+  let maxActive = 0;
+  let cancelled = 0;
+  let completed = 0;
+  let issued = 0;
+  const requested = new Set<string>();
+  const artwork = (url: string) => new URL(url).pathname.startsWith('/api/art/');
+  page.on('request', (request) => {
+    if (!artwork(request.url())) return;
+    requested.add(new URL(request.url()).pathname);
+    issued += 1;
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+  });
+  const finished = (request: import('@playwright/test').Request) => { if (artwork(request.url())) { active -= 1; completed += 1; } };
+  page.on('requestfinished', finished);
+  page.on('requestfailed', (request) => { if (artwork(request.url())) { active -= 1; cancelled += 1; } });
+  await page.route('**/api/art/**', async (route) => {
+    if (!route.request().url().includes('/fixture/')) await new Promise((resolve) => setTimeout(resolve, 2_500));
+    await route.fulfill({ status: 200, contentType: 'image/png', body: ARTWORK_PNG }).catch(() => {});
+  });
+  await page.setContent('<img id="fixture-route" alt="" sizes="168px" src="http://127.0.0.1:4187/api/art/fixture/Primary/pixel-240.webp" srcset="http://127.0.0.1:4187/api/art/fixture/Primary/pixel-240.webp 240w, http://127.0.0.1:4187/api/art/fixture/Primary/pixel-480.webp 480w">');
+  expect(await page.locator('#fixture-route').evaluate(async (element: HTMLImageElement) => {
+    await element.decode();
+    return element.naturalWidth;
+  })).toBeGreaterThan(0);
+  active = 0;
+  maxActive = 0;
+  cancelled = 0;
+  completed = 0;
+  issued = 0;
+  requested.clear();
+  await page.addInitScript(() => {
+    const events = { errors: 0, loads: 0 };
+    (window as Window & { __homeImageEvents?: typeof events }).__homeImageEvents = events;
+    document.addEventListener('error', (event) => { if ((event.target as Element | null)?.classList?.contains('g-art-image')) events.errors += 1; }, true);
+    document.addEventListener('load', (event) => { if ((event.target as Element | null)?.classList?.contains('g-art-image')) events.loads += 1; }, true);
+  });
+
+  const shelf = page.getByRole('region', { name: 'New in your library' });
+  const row = shelf.locator('.h-row');
+  const last = shelf.getByRole('button', { name: /Home Movie 17/ }).first();
+  await page.goto('/');
+  await signIn(page);
+  await expect(row).toBeVisible();
+  await expect.poll(() => active).toBeGreaterThan(0);
+
+  await row.evaluate(async (element) => {
+    for (const fraction of [0.35, 0.7, 1]) {
+      element.scrollLeft = (element.scrollWidth - element.clientWidth) * fraction;
+      element.dispatchEvent(new Event('scroll'));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+  });
+  await last.focus();
+  await expect(last).toBeFocused();
+  expect(active).toBeGreaterThan(0);
+  expect(completed).toBe(0); // focus moved while every admitted image response was still delayed
+
+  const pipelineState = async () => ({ active, cancelled, completed, issued, maxActive, browser: await row.evaluate((element) => {
+    const cards = [...element.querySelectorAll(':scope > .h-card')];
+    const first = cards[0] as HTMLElement | undefined;
+    return {
+      cardsWithSharp: cards.flatMap((card, index) => card.querySelector('img.g-art-image') ? [index] : []),
+      sharp: cards.flatMap((card, index) => {
+        const image = card.querySelector('img.g-art-image') as HTMLImageElement | null;
+        return image ? [{ index, complete: image.complete, currentSrc: image.currentSrc, naturalWidth: image.naturalWidth, shown: image.classList.contains('is-shown'), src: image.getAttribute('src') }] : [];
+      }),
+      clientWidth: element.clientWidth,
+      events: (window as Window & { __homeImageEvents?: { errors: number; loads: number } }).__homeImageEvents,
+      lastHasSharp: Boolean(cards.at(-1)?.querySelector('img.g-art-image')),
+      loader: (window as Window & { __luminaImageLoader?: { stats: () => unknown } }).__luminaImageLoader?.stats(),
+      pitch: first ? first.offsetWidth + (parseFloat(getComputedStyle(element).columnGap) || 0) : 0,
+      scrollLeft: element.scrollLeft,
+      scrollWidth: element.scrollWidth,
+      shown: element.querySelectorAll('img.g-art-image.is-shown').length,
+    };
+  }) });
+  try {
+    await expect.poll(() => [...requested].some((path) => path.includes('/home-movie-17/Primary/')), { timeout: 7_500 }).toBe(true);
+  } catch (error) {
+    throw new Error(`focused artwork was never admitted: ${JSON.stringify(await pipelineState())}`, { cause: error });
+  }
+
+  const currentWindowDecoded = () => row.evaluate((element) => {
+    const cards = [...element.querySelectorAll(':scope > .h-card')];
+    const first = cards[0] as HTMLElement | undefined;
+    const pitch = first ? first.offsetWidth + (parseFloat(getComputedStyle(element).columnGap) || 0) : 0;
+    if (!pitch) return false;
+    const start = Math.floor(element.scrollLeft / pitch);
+    const visible = Math.ceil(element.clientWidth / pitch);
+    const window = cards.slice(start, start + visible);
+    return window.length > 0 && window.every((card) => {
+      const image = card.querySelector('img.g-art-image.is-shown') as HTMLImageElement | null;
+      return image?.complete && image.naturalWidth > 0;
+    });
+  });
+  try {
+    await expect.poll(currentWindowDecoded, { timeout: 15_000 }).toBe(true);
+  } catch (error) {
+    throw new Error(`horizontal image pipeline stalled: ${JSON.stringify(await pipelineState())}`, { cause: error });
+  }
+  await expect(last.locator('img.g-art-image.is-shown')).toHaveCount(1);
+  await expect.poll(() => active).toBe(0);
+  const cap = await page.evaluate(() => /^h[23]/.test((performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.nextHopProtocol ?? '') ? 12 : 4);
+  expect(maxActive).toBeLessThanOrEqual(cap);
+  expect(cancelled).toBeGreaterThan(0); // leaving the initial window releases its outstanding browser work
+  expect([...requested].filter((path) => path.includes('/home-movie-')).length).toBeLessThan(18);
 });
 
 test('a return from a title page paints shelves from the session cache before the refetch resolves', async ({ page }) => {

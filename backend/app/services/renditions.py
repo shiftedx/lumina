@@ -590,7 +590,19 @@ class ArtworkRenditions:
             if title is None or image_type not in art_urls.ART_TYPES:
                 return
             source = title_image_source(title, image_type)
-            if not art_urls.needs_preparation(title, image_type, source, db.get(TitleArtwork, (title_id, image_type))):
+            row = db.get(TitleArtwork, (title_id, image_type))
+            current_ready = (
+                row is not None and source is not None
+                and row.source_key == art_urls.source_key(title_id, image_type, source) and row.state == "ready"
+            )
+            expected = (
+                art_urls.rendition_file(row.source_key, width, art_urls.extension())
+                for width in art_urls.widths(title.type, image_type)
+            ) if current_ready else ()
+            missing_product = current_ready and any(
+                not path.is_file() or path.is_symlink() for path in expected
+            )
+            if not missing_product and not art_urls.needs_preparation(title, image_type, source, row):
                 return
             key = art_urls.source_key(title_id, image_type, source)
             local = art_urls.local((title.images or {})[image_type])
@@ -610,13 +622,14 @@ class ArtworkRenditions:
                 failure = "unreadable"
             title_type = title.type
         if failure is not None:
-            save(failed_row(title_id, image_type, key, failure))
+            if not current_ready:
+                save(failed_row(title_id, image_type, key, failure))
             return
         try:
             rendered = render(data, content_type, title_type=title_type, image_type=image_type, timeout=PASS_TIMEOUT_SECONDS, ffmpeg=ffmpeg,
                               on_process=self._set_child)
         except RenditionError as exc:
-            if not self._stop.is_set():  # killed by stop(): not the image's fault
+            if not self._stop.is_set() and not current_ready:  # killed by stop(), or a repair failed: keep prior state
                 save(failed_row(title_id, image_type, key, exc.reason))
             return
         finally:
@@ -771,7 +784,9 @@ def serve_miss(title_id: str, image_type: str, key: str, width: int, ext: str, a
         if source is None or art_urls.source_key(title_id, image_type, source) != key or width not in art_urls.widths(title.type, image_type):
             return None  # the width check comes first: a still width on a poster must not start ffmpeg
         row = db.get(TitleArtwork, (title_id, image_type))
-        settled = row is not None and row.source_key == key and row.state != "ready"
+        current = row is not None and row.source_key == key
+        ready = current and row.state == "ready"
+        settled = current and row.state != "ready"
     if not settled:
         future = _generation(title_id, image_type, key, ext, artwork)
         if future is not None:
@@ -780,6 +795,9 @@ def serve_miss(title_id: str, image_type: str, key: str, width: int, ext: str, a
             if produced is not None:
                 return Served(CONTENT_TYPES[ext], produced[width]) if width in produced else None
         art_urls.enqueue([(title_id, image_type)])
+    if ready:
+        count("fallback_unavailable")
+        raise Preparing
     return _original(title_id, image_type, artwork, any_size=settled)
 
 
@@ -825,6 +843,7 @@ def _finished(job: tuple[str, str]) -> None:
 
 def _generate(title_id: str, image_type: str, key: str, ext: str, artwork: ArtworkService) -> dict[int, bytes] | None:
     """One on-demand run (nice 19, one thread, 5 s). Installs the files and, when stale, the row. Never raises."""
+    current_ready = False
     try:
         with SessionLocal() as db:
             title = _subject(db, title_id)
@@ -839,6 +858,7 @@ def _generate(title_id: str, image_type: str, key: str, ext: str, artwork: Artwo
             content_type, data = _image_bytes(db, title, image_type, artwork)
             row = db.get(TitleArtwork, (title_id, image_type))
             stale = row is None or row.source_key != key
+            current_ready = not stale and row.state == "ready"
             title_type = title.type
         rendered = render(data, content_type, title_type=title_type, image_type=image_type, timeout=ON_DEMAND_TIMEOUT_SECONDS, ext=ext, ffmpeg=ffmpeg)
     except FileNotFoundError:
@@ -846,7 +866,7 @@ def _generate(title_id: str, image_type: str, key: str, ext: str, artwork: Artwo
         return None
     except RenditionError as exc:
         count("failures")
-        if exc.reason != "timeout" and ext == art_urls.extension():
+        if exc.reason != "timeout" and ext == art_urls.extension() and not current_ready:
             with contextlib.suppress(SQLAlchemyError):
                 save(failed_row(title_id, image_type, key, exc.reason))
         return None

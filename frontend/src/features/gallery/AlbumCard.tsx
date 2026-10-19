@@ -19,6 +19,7 @@ export type AlbumCardProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'chil
   title: TitleSummary;
   onOpen: (title: TitleSummary) => void;
   priority: LoadPriority;
+  enabled?: boolean;
   /** Queue order inside the priority class: row * 1000 + column. */
   position?: number;
   sizes: string;
@@ -41,7 +42,7 @@ export function albumLabel(title: TitleSummary): string {
   return [named, title.year ? String(title.year) : null, title.child_count ? countNoun(title.child_count, ['track', 'tracks']) : null].filter(Boolean).join(', ');
 }
 
-export function AlbumCard({ title, onOpen, priority, position = 0, sizes, caption = true, showArtist = true, className, onFocus, onBlur, onPointerEnter, onPointerLeave, ...button }: AlbumCardProps) {
+export function AlbumCard({ title, onOpen, priority, enabled = true, position = 0, sizes, caption = true, showArtist = true, className, onFocus, onBlur, onPointerEnter, onPointerLeave, ...button }: AlbumCardProps) {
   const intent = useIntentPrefetch(title);
   const byline = albumByline(title, showArtist);
   return (
@@ -57,7 +58,7 @@ export function AlbumCard({ title, onOpen, priority, position = 0, sizes, captio
       onPointerLeave={(event) => { intent.cancel(); onPointerLeave?.(event); }}
       type="button"
     >
-      <GalleryArt alt="" art={title.poster} card={{ name: title.name, year: title.type === 'album' ? title.year : null }} colour={cardColour(title, 'square')} kind="square" position={position} priority={priority} sizes={sizes} />
+      <GalleryArt alt="" art={title.poster} card={{ name: title.name, year: title.type === 'album' ? title.year : null }} colour={cardColour(title, 'square')} enabled={enabled} kind="square" position={position} priority={priority} sizes={sizes} />
       {caption ? <span aria-hidden="true" className="g-caption"><span className="g-caption-title">{title.name}</span>{byline ? <span className="g-caption-year">{byline}</span> : null}</span> : null}
     </button>
     <ArtMenu subject={{ kind: 'title', title }} />

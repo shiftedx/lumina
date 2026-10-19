@@ -122,9 +122,9 @@ export function captureMetrics() {
 }
 
 /** A signed-in, throttled context on the perf titles server. */
-export async function perfTitlesPage(browser: Browser, profile: Profile, { cpu = 4 }: { cpu?: number } = {}): Promise<Page> {
+export async function perfTitlesPage(browser: Browser, profile: Profile, { cpu = 4, deviceScaleFactor }: { cpu?: number; deviceScaleFactor?: number } = {}): Promise<Page> {
   const baseURL = process.env.PERF_TITLES_URL!;
-  const context = await browser.newContext({ baseURL });
+  const context = await browser.newContext({ baseURL, deviceScaleFactor });
   await context.addInitScript(captureMetrics);
   const login = await context.request.post('/api/session/login', { data: PERF_MEMBER, headers: { Origin: baseURL } });
   expect(login.ok(), await login.text()).toBe(true);

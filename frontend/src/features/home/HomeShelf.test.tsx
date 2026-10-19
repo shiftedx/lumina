@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { episodeSummary, movieSummary } from '../../test/galleryFixtures';
+import { episodeSummary, movieSummary, titleArt } from '../../test/galleryFixtures';
+import { GalleryArt } from '../gallery/GalleryArt';
+import { loaderStats, resetImageLoader } from '../gallery/imageLoader';
 import { recoTitle } from '../../test/recoFixtures';
 import { RecoFeedbackProvider } from '../reco/recoFeedback';
 import { forgetHomeCache, rememberShelf } from './homeCache';
@@ -20,7 +22,9 @@ class Observer {
   unobserve() {}
   disconnect() {}
   takeRecords() { return []; }
-  static near() { act(() => { for (const observer of Observer.all) observer.callback([{ isIntersecting: true } as IntersectionObserverEntry], observer as unknown as IntersectionObserver); }); }
+  static emit(isIntersecting: boolean) { act(() => { for (const observer of Observer.all) observer.callback([{ isIntersecting } as IntersectionObserverEntry], observer as unknown as IntersectionObserver); }); }
+  static near() { Observer.emit(true); }
+  static far() { Observer.emit(false); }
 }
 
 const actions = (): ShelfActions => ({ onOpenTitle: vi.fn(), onOpenLibrary: vi.fn(), onOpenRoute: vi.fn() });
@@ -32,8 +36,9 @@ beforeEach(() => {
   vi.stubGlobal('IntersectionObserver', Observer);
   Object.values(api).forEach((mock) => mock.mockReset());
   forgetHomeCache();
+  resetImageLoader();
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); resetImageLoader(); });
 
 describe('FetchedShelf', () => {
   it('makes no request until its placeholder is near, then loads once', async () => {
@@ -155,6 +160,87 @@ describe('HomeShelf', () => {
     render8();
     expect(slots.slice(0, 4).map((slot) => slot.priority)).toEqual([2, 2, 2, 2]);
     rect.mockRestore();
+  });
+
+  it('keeps every card and preview rendered, and retains only loaded or focused sharp art when the shelf moves far away', () => {
+    const view = render(
+      <HomeShelf
+        heading="New in your library"
+        itemKey={String}
+        items={[0, 1, 2, 3, 4, 5, 6, 7]}
+        renderCard={(item, slot) => (
+          <button aria-label={`Title ${item}`} data-focus-item type="button">
+            <GalleryArt {...slot} alt="" art={titleArt(`home-${item}`, 'Primary')} card={{ name: `Title ${item}` }} colour={{ colour: '#2a3b4c', fromPalette: false }} kind="poster" />
+          </button>
+        )}
+        sectionKey="new_in_library"
+        shape="poster"
+        state="ready"
+      />,
+    );
+    expect(screen.getAllByRole('button')).toHaveLength(8);
+    expect(view.container.querySelectorAll('.g-art-preview')).toHaveLength(8);
+    expect(view.container.querySelectorAll('.g-art-image')).toHaveLength(0);
+    expect(loaderStats()).toMatchObject({ inFlight: 0, queued: 0 });
+
+    Observer.near();
+    expect(view.container.querySelectorAll('.g-art-image')).toHaveLength(4);
+    expect(loaderStats()).toMatchObject({ inFlight: 4, queued: 2 });
+
+    fireEvent.load(view.container.querySelector('.g-art-image')!);
+    const loaded = view.container.querySelector('.g-art-image.is-shown');
+    expect(loaded).not.toBeNull();
+    Observer.far();
+    expect([...view.container.querySelectorAll('.g-art-image')]).toEqual([loaded]);
+    expect(loaderStats()).toMatchObject({ inFlight: 0, queued: 0 });
+
+    const last = screen.getByRole('button', { name: 'Title 7' });
+    act(() => last.focus());
+    expect(view.container.querySelectorAll('.g-art-image')).toHaveLength(2);
+    expect(loaderStats()).toMatchObject({ inFlight: 1, queued: 0 });
+    act(() => last.blur());
+    expect([...view.container.querySelectorAll('.g-art-image')]).toEqual([loaded]);
+    expect(loaderStats()).toMatchObject({ inFlight: 0, queued: 0 });
+  });
+
+  it('fills the horizontal window after row scrolling and immediately enables a focused card', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('pointer: fine'), addEventListener() {}, removeEventListener() {} }));
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(100);
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(400);
+    vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(2_000);
+    const windowSlots: CardSlot[] = [];
+    render(
+      <HomeShelf
+        heading="Wide shelf"
+        itemKey={String}
+        items={Array.from({ length: 12 }, (_, index) => index)}
+        renderCard={(item, slot) => { windowSlots[item] = slot; return <button data-focus-item type="button">Card {item}</button>; }}
+        sectionKey="wide"
+        shape="poster"
+        state="ready"
+      />,
+    );
+    expect(windowSlots.every((slot) => !slot.enabled)).toBe(true);
+    const last = screen.getByRole('button', { name: 'Card 11' });
+    act(() => last.focus());
+    expect(windowSlots[11].enabled).toBe(true);
+    expect(document.activeElement).toBe(last);
+    act(() => last.blur());
+    expect(windowSlots[11].enabled).toBe(false);
+
+    Observer.near();
+    expect(windowSlots.map((slot) => slot.enabled)).toEqual([true, true, true, true, true, true, false, false, false, false, false, false]);
+
+    expect(screen.getByRole('button', { name: 'Scroll Wide shelf right' })).toBeTruthy();
+    const row = screen.getByRole('list');
+    Object.defineProperty(row, 'scrollLeft', { configurable: true, value: 360, writable: true });
+    fireEvent.scroll(row);
+    expect(windowSlots[8].enabled).toBe(true);
+    expect(windowSlots[9].enabled).toBe(false);
+
+    act(() => last.focus());
+    expect(windowSlots[11].enabled).toBe(true);
+    expect(document.activeElement).toBe(last);
   });
 
   it('hides poster captions on a phone and keeps them on stills', () => {

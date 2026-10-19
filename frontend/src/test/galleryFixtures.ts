@@ -7,7 +7,7 @@ export const PREVIEW = 'data:image/webp;base64,UklGRg==';
 const KEY = (id: string, type: string) => `${(id + type).replace(/[^0-9a-f]/g, '').padEnd(64, '0').slice(0, 64)}`;
 
 export function titleArt(id: string, type: 'Primary' | 'Backdrop' | 'Logo', patch: Partial<TitleArt> = {}, episode = false): TitleArt {
-  const widths = type === 'Backdrop' ? [960, 1920] : type === 'Logo' ? [600] : episode ? [400] : [240, 480];
+  const widths = type === 'Backdrop' ? [960, 1920] : type === 'Logo' ? [600] : episode ? [400, 800, 1200] : [240, 480];
   return {
     url: `/api/titles/${id}/images/${type}?tag=0123456789abcdef`, rendition: `/api/art/${SIG}/${id}/${type}/${KEY(id, type)}-{w}.webp`, widths,
     width: null, height: null, preview: type === 'Logo' ? null : PREVIEW, dominant: type === 'Logo' ? null : '#2a3b4c', accent: type === 'Logo' ? null : '#c08a4b', ...patch,

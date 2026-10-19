@@ -64,7 +64,7 @@ def test_title_art_uses_only_a_current_ready_row() -> None:
     row = TitleArtwork(title_id=TITLE_ID, image_type="Primary", source_key=key, state="ready", width=1000, height=1500,
                        preview=b"RIFF", preview_type="image/webp", dominant="#112233", accent="#aa5500")
     art = art_urls.title_art(_title("episode"), "Primary", source="1f-2a", url="/u", row=row, preview=True)
-    assert art.widths == [400]
+    assert art.widths == [400, 800, 1200]
     assert (art.width, art.dominant, art.accent) == (1000, "#112233", "#aa5500")
     assert art.preview == "data:image/webp;base64,UklGRg=="
     assert art_urls.title_art(_title(), "Primary", source="1f-2a", url="/u", row=row, preview=False).preview is None

@@ -96,7 +96,7 @@ def test_logos_get_no_preview_or_colours_and_stills_no_colours(tmp_path, monkeyp
     logo = renditions.render(png_header(800, 310), "image/png", title_type="movie", image_type="Logo", timeout=10, ffmpeg=ffmpeg)
     assert (sorted(logo.files), logo.preview, logo.dominant, logo.accent) == ([600], None, None, None)
     still = renditions.render(png_header(1280, 720), "image/png", title_type="episode", image_type="Primary", timeout=10, ffmpeg=ffmpeg)
-    assert (sorted(still.files), still.preview is not None, still.dominant) == ([400], True, None)
+    assert (sorted(still.files), still.preview is not None, still.dominant) == ([400, 800, 1200], True, None)
     backdrop = renditions.render(png_header(1920, 1080), "image/png", title_type="series", image_type="Backdrop", timeout=10, ffmpeg=ffmpeg)
     assert (sorted(backdrop.files), backdrop.dominant) == ([960, 1920], FAKE_DOMINANT)
 
@@ -611,6 +611,51 @@ def test_a_miss_is_generated_within_budget_installed_and_recorded(media, tmp_pat
     assert served == renditions.Served("image/webp", b"r" * 64)
     assert art_urls.rendition_file(key, 240, "webp").is_file() and _row(A).state == "ready"
     assert renditions.serving().generated == 1
+
+
+def test_a_ready_row_missing_new_still_widths_queues_repair_without_serving_the_original(
+    media, tmp_path, monkeypatch, fresh_serving,  # noqa: ANN001, ARG001
+) -> None:
+    from art_support import artwork_row, write_rendition
+
+    log = use_fake_ffmpeg(tmp_path, monkeypatch)
+    add_art_title(media, A, "episode")
+    key = _key(A)
+    with db_module.SessionLocal() as session:
+        artwork_row(session, session.get(MediaTitle, A), width=500, height=750)
+        session.commit()
+    write_rendition(key, 400, b"old")
+    monkeypatch.setattr(renditions, "_generation", lambda *args: None)
+
+    with pytest.raises(renditions.Preparing):
+        renditions.serve_miss(A, "Primary", key, 800, "webp", app_artwork)
+    assert renditions.serving().fallback_original == 0
+    assert renditions.ArtworkRenditions().run_once() is True
+    assert len(fake_calls(log)) == 1
+    assert all(art_urls.rendition_file(key, width, "webp").read_bytes() == b"r" * 64 for width in (400, 800, 1200))
+
+
+def test_a_failed_background_repair_keeps_the_ready_product_and_missing_width_retry(
+    media, tmp_path, monkeypatch, fresh_serving,  # noqa: ANN001, ARG001
+) -> None:
+    from art_support import artwork_row, write_rendition
+
+    use_fake_ffmpeg(tmp_path, monkeypatch, "fail")
+    add_art_title(media, A, "episode")
+    key = _key(A)
+    with db_module.SessionLocal() as session:
+        artwork_row(session, session.get(MediaTitle, A), width=500, height=750)
+        session.commit()
+    write_rendition(key, 400, b"old")
+    art_urls.enqueue([(A, "Primary")])
+
+    assert renditions.ArtworkRenditions().run_once() is True
+    assert (_row(A).state, art_urls.rendition_file(key, 400, "webp").read_bytes()) == ("ready", b"old")
+    assert not art_urls.rendition_file(key, 800, "webp").exists()
+    monkeypatch.setattr(renditions, "_generation", lambda *args: None)
+    with pytest.raises(renditions.Preparing):
+        renditions.serve_miss(A, "Primary", key, 800, "webp", app_artwork)
+    assert renditions.serving().fallback_original == 0
 
 
 def test_a_miss_for_art_that_is_gone_or_changed_is_not_found(media, tmp_path, monkeypatch, fresh_serving) -> None:  # noqa: ANN001, ARG001

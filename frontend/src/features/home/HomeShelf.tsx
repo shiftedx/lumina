@@ -6,7 +6,7 @@
  * StillFrame, PosterCard, AlbumCard). Props and DOM are fixed.
  */
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type FocusEvent, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { AppRoute } from '../../app/routes';
 import { isAudioItem, libraryThumbnail } from '../../luminaModel';
@@ -28,7 +28,7 @@ import { HOME_CATALOGUE, SHELF_SIZES, type ShelfShape, type ShelfStatus } from '
 import { type FetchedShelfId, type HomeVisit, loadShelf, type ShelfRow } from './shelfSources';
 
 /** What HomeShelf hands each card: its load class and order, `sizes`, and whether captions show. */
-export type CardSlot = { priority: LoadPriority; position: number; sizes: string; caption: boolean };
+export type CardSlot = { priority: LoadPriority; position: number; sizes: string; caption: boolean; enabled: boolean };
 
 export type HomeShelfProps<T> = {
   /** The shelf id, or `${id}:${row key}` for one row of a group shelf. Also the section's data-shelf-section. */
@@ -52,6 +52,7 @@ export type HomeShelfProps<T> = {
 };
 
 const FRAMES = 4;
+const HORIZONTAL_OVERSCAN = 2;
 /** One viewport height below the fold. */
 export const NEAR_MARGIN = '0px 0px 100% 0px';
 const POINTER_ROW = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
@@ -60,31 +61,51 @@ export function HomeShelf<T>({ sectionKey, heading, shape, state, items, itemKey
   const headingId = `h-shelf-${sectionKey.replace(/\W/g, '-')}`;
   const phone = useMediaQuery('(max-width: 599px)');
   const pointerRow = useMediaQuery(POINTER_ROW);
-  const section = useRef<HTMLElement>(null);
+  const [section, near] = useNear<HTMLElement>(false);
   const row = useRef<HTMLUListElement>(null);
-  /** Whether the shelf starts inside the first viewport, and how many cards its row shows. */
-  const [fit, setFit] = useState({ first: true, visible: FRAMES });
+  /** Vertical placement and the current horizontal card window. Nothing loads before its geometry is known. */
+  const [fit, setFit] = useState({ first: true, measured: false, start: 0, visible: FRAMES });
+  const [focused, setFocused] = useState<number | null>(null);
   const [ends, setEnds] = useState({ left: false, right: false });
   const count = state === 'ready' ? items.length : 0;
-  useLayoutEffect(() => {
-    const top = section.current?.getBoundingClientRect().top ?? 0;
-    const card = row.current?.firstElementChild as HTMLElement | null;
-    const pitch = card ? card.offsetWidth + (parseFloat(getComputedStyle(row.current as Element).columnGap) || 0) : 0;
-    setFit({ first: top < window.innerHeight, visible: pitch ? Math.max(1, Math.ceil((row.current?.clientWidth ?? 0) / pitch)) : FRAMES });
-  }, [count]);
-  const measureEnds = () => {
+  const measure = () => {
     const element = row.current;
-    if (element) setEnds({ left: element.scrollLeft > 0, right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1 });
+    const top = section.current?.getBoundingClientRect().top ?? 0;
+    const card = element?.firstElementChild as HTMLElement | null;
+    const pitch = card && element ? card.offsetWidth + (parseFloat(getComputedStyle(element).columnGap) || 0) : 0;
+    const next = {
+      first: top < window.innerHeight,
+      measured: true,
+      start: pitch && element ? Math.max(0, Math.floor(element.scrollLeft / pitch)) : 0,
+      visible: pitch && element ? Math.max(1, Math.ceil(element.clientWidth / pitch)) : FRAMES,
+    };
+    setFit((current) => current.first === next.first && current.measured && current.start === next.start && current.visible === next.visible ? current : next);
+    if (pointerRow && element) {
+      const nextEnds = { left: element.scrollLeft > 0, right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1 };
+      setEnds((current) => current.left === nextEnds.left && current.right === nextEnds.right ? current : nextEnds);
+    }
   };
+  useLayoutEffect(measure, [count, pointerRow]); // eslint-disable-line react-hooks/exhaustive-deps -- measure current row geometry
   useEffect(() => {
-    if (!pointerRow) return undefined;
-    measureEnds();
-    window.addEventListener('resize', measureEnds);
-    return () => window.removeEventListener('resize', measureEnds);
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
   }, [pointerRow, count]);
   // Row buttons scroll 90 % of the row, smoothly unless motion is reduced.
   const scrollRow = (direction: 1 | -1) => row.current?.scrollBy({ left: direction * row.current.clientWidth * 0.9, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-  const priorityOf = (index: number): LoadPriority => (index < fit.visible ? (fit.first ? 1 : 2) : index < fit.visible + 2 ? 3 : 4);
+  const priorityOf = (index: number): LoadPriority => {
+    const offset = index - fit.start;
+    if (offset >= 0 && offset < fit.visible) return fit.first ? 1 : 2;
+    if (offset >= fit.visible && offset < fit.visible + HORIZONTAL_OVERSCAN) return 3;
+    return focused === index ? 2 : 4;
+  };
+  const enabled = (index: number) => focused === index || (near && fit.measured && index >= Math.max(0, fit.start - HORIZONTAL_OVERSCAN) && index < fit.start + fit.visible + HORIZONTAL_OVERSCAN);
+  const focusCard = (event: FocusEvent<HTMLUListElement>) => {
+    const element = row.current;
+    const card = (event.target as Element).closest('li.h-card');
+    if (!element || !card || card.parentElement !== element) return;
+    setFocused([...element.children].indexOf(card));
+  };
   const caption = !(phone && shape === 'poster');
   return (
     <section aria-busy={state === 'loading' || undefined} aria-labelledby={headingId} className={`h-shelf is-${shape}`} data-shelf-section={sectionKey} ref={section}>
@@ -107,25 +128,39 @@ export function HomeShelf<T>({ sectionKey, heading, shape, state, items, itemKey
       ) : null}
       {state === 'loading' ? <div aria-hidden="true" className="h-row is-frames">{Array.from({ length: FRAMES }, (_, index) => <span className="h-frame" key={index} />)}</div> : null}
       {count ? (
-        <ul className="h-row" data-focus-row onScroll={pointerRow ? measureEnds : undefined} ref={row}>
-          {items.map((item, index) => <li className="h-card" key={itemKey(item)}>{renderCard(item, { priority: priorityOf(index), position: index, sizes: SHELF_SIZES[shape], caption })}</li>)}
+        <ul
+          className="h-row"
+          data-focus-row
+          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(null); }}
+          onFocus={focusCard}
+          onScroll={measure}
+          ref={row}
+        >
+          {items.map((item, index) => <li className="h-card" key={itemKey(item)}>{renderCard(item, { priority: priorityOf(index), position: index, sizes: SHELF_SIZES[shape], caption, enabled: enabled(index) })}</li>)}
         </ul>
       ) : null}
     </section>
   );
 }
 
-/** True once `ref`'s element comes within one viewport of the fold; it stays true. Always true without IntersectionObserver. */
-export function useNear<E extends Element>(): [RefObject<E | null>, boolean] {
+/** Whether `ref` is within one viewport of the fold. Sticky gates stay true after their first intersection. */
+export function useNear<E extends Element>(sticky = true): [RefObject<E | null>, boolean] {
   const ref = useRef<E>(null);
   const [near, setNear] = useState(() => typeof IntersectionObserver === 'undefined');
   useEffect(() => {
     const node = ref.current;
-    if (near || !node) return undefined;
-    const observer = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) setNear(true); }, { rootMargin: NEAR_MARGIN });
+    if (!node || typeof IntersectionObserver === 'undefined') return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      const intersecting = entries.some((entry) => entry.isIntersecting);
+      if (sticky) {
+        if (!intersecting) return;
+        setNear(true);
+        observer.disconnect();
+      } else setNear(intersecting);
+    }, { rootMargin: NEAR_MARGIN });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [near]);
+  }, [sticky]);
   return [ref, near];
 }
 

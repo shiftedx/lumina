@@ -192,4 +192,45 @@ describe('GalleryArt', () => {
     expect(art.innerHTML).toBe('');
     expect(art.style.backgroundColor).toBe('rgb(42, 59, 76)');
   });
+
+  it('keeps its preview and fallback while disabled, then asks for a sharp image and retains it once loaded', async () => {
+    const view = render(element({ enabled: false }));
+    expect(view.container.querySelector('.g-art-preview')).not.toBeNull();
+    expect(image(view.container)).toBeNull();
+    expect(loaderStats().inFlight).toBe(0);
+
+    view.rerender(element({ enabled: true }));
+    expect(image(view.container)).not.toBeNull();
+    expect(loaderStats().inFlight).toBe(1);
+    await act(async () => { fireEvent.load(image(view.container)!); });
+    view.rerender(element({ enabled: false }));
+    expect(image(view.container)?.className).toContain('is-shown');
+    expect(loaderStats().inFlight).toBe(0);
+
+    const fallback = render(element({ art: null, enabled: false }));
+    expect(fallback.container.querySelector('.g-card-name')?.textContent).toBe('Northern Lantern');
+  });
+
+  it('aborts a detached sharp image and ignores a decode that finishes after it was disabled', async () => {
+    let finishDecode = () => {};
+    const decoding = new Promise<void>((resolve) => { finishDecode = resolve; });
+    const onSettled = vi.fn();
+    const view = render(element({ onSettled }));
+    const sharp = image(view.container)!;
+    sharp.decode = vi.fn(() => decoding);
+
+    fireEvent.load(sharp);
+    view.rerender(element({ enabled: false, onSettled }));
+    await act(async () => { await Promise.resolve(); });
+    expect(sharp.hasAttribute('src')).toBe(false);
+    expect(sharp.hasAttribute('srcset')).toBe(false);
+    expect(image(view.container)).toBeNull();
+    expect(loaderStats().inFlight).toBe(0);
+
+    await act(async () => { finishDecode(); await decoding; });
+    expect(image(view.container)).toBeNull();
+    expect(view.container.querySelector('.g-art-preview')).not.toBeNull();
+    expect(onSettled).not.toHaveBeenCalled();
+    expect(metrics.recordMetric).not.toHaveBeenCalledWith('image_load_ms', expect.anything(), expect.anything());
+  });
 });

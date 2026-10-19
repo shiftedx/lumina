@@ -60,7 +60,7 @@ export function SectionRows({ section, entries = section.entries, pages }: { pag
     <SettingRow advanced={!pages && advanced} description={description ?? (pages && layout !== 'block' ? info.split(/(?<=[.!?])\s/)[0] : undefined)} detail={Detail ? <Detail /> : undefined} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>
   ));
   const rows = pages ? pages.map((page) => <section aria-label={page.label} className="g-settings-group" id={`settings-group-${page.id}`} key={page.id} tabIndex={-1}>
-    <h3 className={pages.length === 1 || page.rows.length === 1 ? 'sr-only' : 'g-settings-group-title'}>{page.label}</h3>
+    {pages.length > 1 && page.rows.length > 1 ? <h3 className="g-settings-group-title">{page.label}</h3> : null}
     {page.id === 'watching' ? <PlaybackPreview /> : null}
     <div className="g-settings-rows">{renderRows(entries.filter((entry) => page.rows.includes(entry.id)))}</div>
   </section>) : renderRows(entries);

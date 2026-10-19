@@ -459,6 +459,7 @@ areaTest('subscriptions', async ({ page, visit }) => {
 });
 
 areaTest('recommendations', async ({ page, visit }) => {
+  await mockAdminFixtures(page);
   await mockHome(page);
   await mockPopular(page, popularWithForYou());
   await mockReco(page, { suppressions: suppressionList({ items: [suppression('item')], channels: [suppression('channel')], fewer: [suppression('fewer')], titles: [suppression('title')] }) });
@@ -530,7 +531,7 @@ areaTest('settings', async ({ page, visit }) => {
   await openSigned(page, '/settings'); await visit('landing', true);
   await openSigned(page, '/settings/media');
   await page.getByRole('textbox', { name: 'TMDB API key' }).fill('synthetic-key');
-  await expect(page.locator('.g-save-bar button[type="submit"]')).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Save media server settings', exact: true })).toBeEnabled();
   await visit('save-bar');
   page.once('dialog', (dialog) => dialog.accept()); // discard the draft when leaving the form
   await openSigned(page, '/settings');

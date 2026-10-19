@@ -112,8 +112,8 @@ const Stat = ({ label, value, note, percent }: { label: string; value: string | 
 const pct = (value: number | null) => (value === null ? null : `${value.toFixed(0)} %`);
 
 export function ActivityServerStats() {
-  const { data } = useActivity();
-  if (!data) return <p aria-busy="true" className="g-setting-note">Loading…</p>;
+  const { data, error } = useActivity();
+  if (!data) return <p aria-busy={!error || undefined} className="g-setting-note">{error ? 'Server stats are unavailable. Retry activity above.' : 'Loading…'}</p>;
   const server: ActivityServer = data.server;
   const [tone, text] = hardwareStatus(server.hardware);
   return (
@@ -135,8 +135,8 @@ export function ActivityServerStats() {
 const RECORDING_STATUS = { queued: 'Queued', live: 'Recording live', stopping: 'Stopping', finalizing: 'Finishing up' } as const;
 
 export function ActivityBackground() {
-  const { data } = useActivity();
-  if (!data) return <p aria-busy="true" className="g-setting-note">Loading…</p>;
+  const { data, error } = useActivity();
+  if (!data) return <p aria-busy={!error || undefined} className="g-setting-note">{error ? 'Background activity is unavailable. Retry activity above.' : 'Loading…'}</p>;
   if (!data.downloads.length && !data.recordings.length) return <EmptyState title="No downloads or recordings are running." />;
   return (
     <ul className="activity-list">

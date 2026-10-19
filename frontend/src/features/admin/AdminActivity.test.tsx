@@ -67,6 +67,17 @@ describe('Activity: now playing', () => {
 });
 
 describe('Activity: server and background work', () => {
+  it('ends loading for every activity view when a shared request fails, and retries them together', async () => {
+    api.getAdminActivity.mockRejectedValueOnce(new Error('Activity is offline')).mockResolvedValue(snapshot());
+    render(ui(<><ActivityNowPlaying /><ActivityServerStats /><ActivityBackground /></>));
+    expect(await screen.findByText('Server stats are unavailable. Retry activity above.')).toBeTruthy();
+    expect(screen.getByText('Background activity is unavailable. Retry activity above.')).toBeTruthy();
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('41 %')).toBeTruthy();
+    expect(screen.getByText('No downloads or recordings are running.')).toBeTruthy();
+  });
+
   it('says what is not available instead of guessing', async () => {
     const base = snapshot();
     api.getAdminActivity.mockResolvedValue({ ...base, server: { ...base.server, cpu_percent: null, memory: null, load_average: null, uptime_seconds: null, transcoder_cpu_percent: null, hardware: { mode: 'auto', active: null, disabled: true, failures: 3, fallbacks: 4 } } });

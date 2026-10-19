@@ -281,9 +281,8 @@ function WeekHours() {
                 const edit = (next: [string, string]) => setDay(day, ranges.map((range, at) => (at === index ? next : range)));
                 return (
                   <span className="g-day-range" key={index}>
-                    <Input aria-label={`${label} from`} onChange={(event) => edit([event.target.value, to])} type="time" value={from} />
-                    <span aria-hidden="true">–</span>
-                    <Input aria-label={`${label} until`} onChange={(event) => edit([from, event.target.value])} type="time" value={to} />
+                    <label className="g-day-time"><span>From</span><Input aria-label={`${label} from`} onChange={(event) => edit([event.target.value, to])} type="time" value={from} /></label>
+                    <label className="g-day-time"><span>Until</span><Input aria-label={`${label} until`} onChange={(event) => edit([from, event.target.value])} type="time" value={to} /></label>
                     <IconButton icon={<X />} label={`Remove ${label} ${from}–${to}`} onClick={() => setDay(day, ranges.filter((_, at) => at !== index))} />
                   </span>
                 );

@@ -46,18 +46,17 @@ export function AdminOverview({ refreshKey = 0, onOpenUpdates }: { refreshKey?: 
           <section aria-labelledby="admin-roots-title" className="g-panel">
             <h3 className="g-panel-title" id="admin-roots-title">Storage roots</h3>
             <p className="g-setting-note">Library volume free space: <strong>{overview.library_free_bytes === null ? 'unavailable' : formatBytes(overview.library_free_bytes)}</strong> · downloads pause below {overview.min_free_disk_mb} MB.</p>
-            <p className="overview-capacity-key"><span>Media</span><span>Other used space</span><span>Free</span></p>
+            <p className="overview-capacity-key"><span>Used space</span><span>Free</span></p>
             {overview.roots.length ? (
               <ul className="overview-drive-list">{overview.roots.map((root) => {
                 const total = root.total_bytes;
                 const free = root.free_bytes;
                 const known = total != null && total > 0 && free != null;
                 const used = known ? Math.max(0, total - free) : 0;
-                const media = Math.min(used, root.artifact_bytes);
                 return <li key={root.id}>
                   <header><strong>{root.label}</strong><StatusText tone={rootTone(root.state)}>{root.state ? STATES[root.state]?.label ?? root.state : 'Not probed'}</StatusText></header>
                   <p className="overview-drive-figure">{free == null ? 'Unavailable' : formatBytes(free)} <span>free{total ? ` of ${formatBytes(total)}` : ''}</span></p>
-                  {known ? <div aria-label={`${root.label}: ${formatBytes(media)} media, ${formatBytes(used - media)} other used, ${formatBytes(free)} free`} className="overview-capacity" role="img"><span style={{ width: `${100 * media / total}%` }} /><span style={{ width: `${100 * (used - media) / total}%` }} /></div> : <p className="g-setting-note">Capacity unavailable. Check the drive connection.</p>}
+                  {known ? <div aria-label={`${root.label}: ${formatBytes(used)} used, ${formatBytes(free)} free`} className="overview-capacity" role="img"><span style={{ width: `${100 * used / total}%` }} /></div> : <p className="g-setting-note">Capacity unavailable. Check the drive connection.</p>}
                   <p className="g-setting-note">{root.artifact_count} files · {formatBytes(root.artifact_bytes)} media · {root.mode === 'managed' ? 'Managed' : 'Read-only'}{root.enabled ? '' : ' · disabled'}</p>
                   <small className="g-setting-note">Checked {time(root.checked_at)}</small>
                 </li>;

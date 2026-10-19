@@ -44,6 +44,7 @@ describe('admin overview', () => {
     expect(screen.getByText('Active downloads').parentElement?.textContent).toContain('3');
     expect(screen.getByText('Live event streams').parentElement?.textContent).toContain('3');
     expect(screen.getByText('Library volume free space:', { exact: false }).textContent).toContain('unavailable');
+    expect(screen.getByRole('img', { name: 'Media: 3.0 GB used, 1.0 GB free' })).not.toBeNull();
     const nas = screen.getByText('NAS', { exact: true }).closest('li')!;
     expect(within(nas).getByText('Not probed')).not.toBeNull();
     expect(within(nas).getByText(/^Unavailable/)).not.toBeNull();

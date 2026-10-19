@@ -261,6 +261,7 @@ async function installApi(page: Page, options: { onboarding?: 'pending'; discove
     }
     if (path === '/api/auth-profiles') return json([{ id: 'auth-1', user_id: user.id, label: 'Privater Familienzugang', kind: 'cookie_file', has_password: false, has_token: false }]);
     if (path === '/api/settings/me') return json(settings);
+    if (path === '/api/me/listening-export' || path === '/api/me/listening-events') return json({ items: [] });
     if (path === '/api/automations') return json([automation, ...createdFollows]);
     if (path === '/api/discovery/up-next') return json({ items: [], categories: [], state: 'ready', refreshing: false, stale: false, error: null });
     if (path === '/api/discovery/live') return json({

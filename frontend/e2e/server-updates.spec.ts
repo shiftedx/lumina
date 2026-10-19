@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { mockApi, signIn } from './lumina-mock';
+import { mockAdminFixtures, mockApi, signIn } from './lumina-mock';
 
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
   test(`server release checks retain cached updates during an outage at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await mockApi(page, {});
+    await mockApi(page, {}); await mockAdminFixtures(page);
     let checks = 0;
     let state = {
       current_version: '0.3.4', latest_release: null as null | { version: string; url: string; published_at: string },
@@ -32,7 +32,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await expect(page.getByRole('link', { name: 'Read 0.4.0 release notes' })).toHaveAttribute('href', 'https://github.com/shiftedx/lumina/releases/tag/v0.4.0');
     await expect(page.getByText('Lumina 0.4.0 is available.', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Check for updates', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('Unable to check GitHub for updates.');
+    await expect(page.locator('[data-setting-id="diagnostics.updates"]').getByRole('alert')).toContainText('Unable to check GitHub for updates.');
     await expect(page.getByRole('link', { name: 'Read 0.4.0 release notes' })).toBeVisible();
     await expect(page.getByText('Lumina 0.4.0 is available.', { exact: true })).toBeVisible();
     await page.getByRole('switch', { name: 'Check automatically each day' }).click();
@@ -45,7 +45,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
 }
 
 test('admin overview update notification opens the update controls', async ({ page }) => {
-  await mockApi(page, {});
+  await mockApi(page, {}); await mockAdminFixtures(page);
   const updates = {
     current_version: '0.3.4', latest_release: { version: '0.4.0', url: 'https://github.com/shiftedx/lumina/releases/tag/v0.4.0', published_at: '2026-10-18T10:00:00Z' },
     status: 'update_available', checked_at: '2026-10-18T12:00:00Z', error: null, checking: false,

@@ -51,6 +51,8 @@ async function audit(page: Page, where: string, found: string[]) {
   if (page.viewportSize()!.width <= 390) {
     // Touch targets: 44px for controls; toggles are measured by their clickable <label>; inline text links are exempt.
     const small = await page.locator('button:visible, a:visible, summary:visible, select:visible, input[type=radio]:visible, input[type=checkbox]:visible').evaluateAll((elements) => elements
+      // Native backing fields are hidden from interaction; their branded triggers are measured instead.
+      .filter((element) => !element.closest('[aria-hidden="true"]'))
       .filter((element) => !(element.tagName === 'A' && element.closest('p, li > span, dd, td')))
       .map((element) => {
         const box = (element.matches('input') ? element.closest('label') ?? element : element).getBoundingClientRect();

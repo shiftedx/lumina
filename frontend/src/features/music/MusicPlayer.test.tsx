@@ -158,7 +158,7 @@ describe('MusicPlayer', () => {
     expect(mocks.close).not.toHaveBeenCalled();
   });
 
-  it('dismisses playback without clearing the queue and returns on the next play', async () => {
+  it('keeps dismissal across remounts until playback starts again without clearing the queue', async () => {
     const view = render(<><main id="main-content" tabIndex={-1} /><MusicPlayer {...props} /></>);
 
     await userEvent.click(screen.getByRole('button', { name: 'Dismiss music player' }));
@@ -167,13 +167,46 @@ describe('MusicPlayer', () => {
     expect(screen.queryByRole('region', { name: 'Music player' })).toBeNull();
     expect(mocks.close).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(document.getElementById('main-content'));
+    view.unmount();
 
     music = { ...music, playback: { ...music.playback, playing: false } };
-    view.rerender(<><main id="main-content" tabIndex={-1} /><MusicPlayer {...props} /></>);
-    music = { ...music, playback: { ...music.playback, playing: true } };
-    view.rerender(<><main id="main-content" tabIndex={-1} /><MusicPlayer {...props} /></>);
+    const restored = render(<MusicPlayer {...props} />);
+    expect(screen.queryByRole('region', { name: /^(Mini music player|Music player)$/ })).toBeNull();
+    expect(music.queue).toEqual(queue);
 
+    music = { ...music, playback: { ...music.playback, playing: true } };
+    restored.rerender(<MusicPlayer {...props} />);
     expect(await screen.findByRole('region', { name: 'Music player' })).toBeTruthy();
+    restored.unmount();
+
+    music = { ...music, playback: { ...music.playback, playing: false } };
+    render(<MusicPlayer {...props} />);
+    expect(screen.getByRole('region', { name: 'Mini music player' })).toBeTruthy();
+  });
+
+  it('reopens if music starts before the player mounts again', async () => {
+    music = { ...music, playback: { ...music.playback, playing: false } };
+    const view = render(<MusicPlayer {...props} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss music player' }));
+    view.unmount();
+
+    music = { ...music, playback: { ...music.playback, playing: true } };
+    render(<MusicPlayer {...props} />);
+    expect(screen.getByRole('region', { name: 'Music player' })).toBeTruthy();
+  });
+
+  it('keeps dismissal private to the member who closed the player', async () => {
+    music = { ...music, playback: { ...music.playback, playing: false } };
+    const view = render(<MusicPlayer {...props} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss music player' }));
+
+    music = { ...music, owner: 'member-b' };
+    view.rerender(<MusicPlayer {...props} owner="member-b" />);
+    expect(screen.getByRole('region', { name: 'Mini music player' })).toBeTruthy();
+
+    music = { ...music, owner: 'member-a' };
+    view.rerender(<MusicPlayer {...props} />);
+    expect(screen.queryByRole('region', { name: /^(Mini music player|Music player)$/ })).toBeNull();
   });
 
   it('keeps Sonos playback visible when dismiss is not acknowledged and hides it after retry', async () => {

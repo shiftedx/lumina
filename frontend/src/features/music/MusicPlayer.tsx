@@ -19,6 +19,11 @@ type OfflineScope = 'track' | 'album' | 'queue';
 const MAX_TRANSFER = 100;
 const distinct = (tracks: MusicTrack[]) => [...new Map(tracks.map((track) => [track.id, track])).values()];
 const problem = (error: unknown, fallback: string) => error instanceof Error && error.message ? error.message : fallback;
+const dismissalKey = (owner: string) => `lumina:music:dismissed:${owner}`;
+function wasDismissed(owner: string): boolean {
+  try { return localStorage.getItem(dismissalKey(owner)) === 'true'; }
+  catch { return false; }
+}
 
 export interface MusicPlayerProps { owner: string; hidden?: boolean; onWatchVideo: (url: string, itemId?: string) => void; onOpenAlbum?: (id: string) => void; onOpenPlaylists?: () => void }
 
@@ -48,7 +53,7 @@ export function MusicPlayer({ owner, hidden = false, onWatchVideo, onOpenAlbum, 
   const [speakers, setSpeakers] = useState<SonosSpeaker[] | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [compatibility, setCompatibility] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => wasDismissed(owner));
   const [expanded, setExpanded] = useState(active);
   const dialog = useRef<HTMLDialogElement>(null);
   const dock = useRef<HTMLElement>(null);
@@ -60,10 +65,10 @@ export function MusicPlayer({ owner, hidden = false, onWatchVideo, onOpenAlbum, 
   const lyricCues = Array.isArray(lyrics?.cues) ? lyrics.cues : [];
   const hasLyrics = Boolean(lyrics?.plain?.trim() || lyricCues.length);
   const activeCue = lyricCues.reduce((current, cue, cueIndex) => cue.start <= position ? cueIndex : current, -1);
-  const wasActive = useRef(active);
+  const wasActive = useRef(false);
 
   useEffect(() => {
-    download.current?.abort(); setOfflineProgress(null); setMessage(null); setLyrics(null); setSavedIds(new Set()); setRoom(null); setDismissed(false); setExpanded(active); focusAfter.current = null;
+    download.current?.abort(); setOfflineProgress(null); setMessage(null); setLyrics(null); setSavedIds(new Set()); setRoom(null); setDismissed(wasDismissed(owner)); setExpanded(active); focusAfter.current = null;
     let current = true;
     void (async () => {
       if (cast && cast.owner !== owner) await stopMusicCast().catch(() => undefined);
@@ -77,7 +82,9 @@ export function MusicPlayer({ owner, hidden = false, onWatchVideo, onOpenAlbum, 
   useEffect(() => { const element = dialog.current; if (room && element && !element.open) element.showModal(); else if (!room && element?.open) element.close(); }, [room]);
 
   useEffect(() => {
-    if (active && !wasActive.current) { setDismissed(false); setExpanded(true); }
+    if (active && !wasActive.current) {
+      rememberDismissal(false); setExpanded(true);
+    }
     if (!active && wasActive.current) setExpanded(false);
     wasActive.current = active;
   }, [active]);
@@ -195,10 +202,17 @@ export function MusicPlayer({ owner, hidden = false, onWatchVideo, onOpenAlbum, 
   async function watchVideo(url: string, itemId?: string) { if (activeCast) { try { await stopMusicCast(); } catch (error) { report(error); return; } } else pauseMusic(); setRoom(null); onWatchVideo(url, itemId); }
 
   const focusMain = () => document.getElementById('main-content')?.focus();
+  function rememberDismissal(value: boolean) {
+    setDismissed(value);
+    try {
+      if (value) localStorage.setItem(dismissalKey(owner), 'true');
+      else localStorage.removeItem(dismissalKey(owner));
+    } catch { /* local preference only */ }
+  }
   async function dismiss() {
-    setDismissed(true); focusAfter.current = null; focusMain();
+    rememberDismissal(true); focusAfter.current = null; focusMain();
     try { await castControl('pause'); }
-    catch (error) { setDismissed(false); report(error); }
+    catch (error) { rememberDismissal(false); report(error); }
   }
 
   function resizePlayer(nextExpanded: boolean) {

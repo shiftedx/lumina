@@ -542,15 +542,36 @@ def test_wikipedia_link_can_resolve_entity_photos_without_a_direct_wikidata_rela
 
 
 def test_artist_stylization_and_provider_aliases_match_without_losing_non_latin_names(monkeypatch):
-    monkeypatch.setattr(music, 'fetch_json', lambda _url: {'artists': [
+    urls = []
+    def fetch(url):
+        urls.append(url)
+        return {'artists': [
         {'id': ARTIST, 'name': 'Mára‐Vale', 'score': 100},
         {'id': RELEASE, 'name': 'North Arcade', 'score': 100, 'aliases': [{'name': 'The Arcade', 'locale': 'en'}]},
-    ]})
+    ]}
+    monkeypatch.setattr(music, 'fetch_json', fetch)
     assert music.candidates_for('artist', 'Mara-Vale')[0]['exact']
     assert music.candidates_for('artist', 'The Arcade')[1]['exact']
+    assert 'alias%3A%22The+Arcade%22' in urls[-1]
     assert music.normalized('東京') == '東京'
     assert music.normalized('Mara_Vale') == 'mara vale'
     assert not any(row['exact'] for row in music.candidates_for('artist', '!!!'))
+
+
+def test_generic_artist_categories_wait_for_manual_identification(db_factory, monkeypatch):
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    with db_factory() as db:
+        db.add(MediaTitle(id=ARTIST, type='artist', key='artist:soundtracks', name='Soundtracks'))
+        db.commit()
+    monkeypatch.setattr(music, 'candidates_for', lambda *_args: pytest.fail('Generic artist categories must not be searched automatically'))
+    assert music.enrich_title(ARTIST) == {'unmatched': True}
+
+    monkeypatch.setattr(music, 'fetch_json', lambda _url: {'name': 'Soundtracks'})
+    monkeypatch.setattr(music, 'release_page', lambda _id: {'items': []})
+    monkeypatch.setattr(music, 'artist_profile', lambda _value: ({}, []))
+    assert music.enrich_title(ARTIST, provider_id=RELEASE)['id'] == RELEASE
+    with db_factory() as db:
+        assert db.get(MediaTitle, ARTIST).provider_ids == {'MusicBrainz': RELEASE}
 
 
 @pytest.mark.parametrize('protected', [False, True])

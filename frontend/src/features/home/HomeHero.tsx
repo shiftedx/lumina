@@ -18,6 +18,7 @@ import { recordMetric, sinceNavigation } from '../../perfMetrics';
 import { cancelSpeculativeStart, prefetchPlaybackOptions, speculativeStart } from '../../playbackPrefetch';
 import type { TitleDetail, TitleSummary } from '../../types';
 import { GalleryArt } from '../gallery/GalleryArt';
+import { HeroFrame } from '../gallery/HeroFrame';
 import { backdropWidthFor, cardColour, cardTextColour, prefersReducedMotion, renditionUrl } from '../gallery/galleryModel';
 import { prefetchImage } from '../gallery/imageLoader';
 import { SPECULATE_AFTER_MS } from '../gallery/TitleActions';
@@ -241,7 +242,7 @@ function HeroSlide({ pick, position, total, motion, warm, onPlay, onOpenTitle, o
       role={total > 1 ? 'tabpanel' : 'group'}
       style={{ '--h-hero-colour': colour.colour, color: art.kind === 'field' ? cardTextColour(colour.colour, colour.fromPalette) : undefined } as CSSProperties}
     >
-      {art.kind === 'backdrop' ? <GalleryArt alt="" art={art.art} card={null} className="h-hero-art" colour={colour} kind="backdrop" onSettled={settle} priority={1} sizes="100vw" /> : null}
+      {art.kind === 'backdrop' ? <HeroFrame className="h-hero-art" enabled={!out} placement="home" src={art.art.url}><GalleryArt alt="" art={art.art} card={null} className="hero-frame-art" colour={colour} kind="backdrop" onSettled={settle} priority={1} sizes="100vw" /></HeroFrame> : null}
       {/* Portrait art: the poster beside the text, over a blurred, darkened copy of itself (the same rendition, one fetch). */}
       {art.kind === 'poster' ? <GalleryArt alt="" art={art.art} card={null} className="h-hero-art h-hero-blur" colour={colour} kind="poster" priority={1} sizes={POSTER_SIZES} /> : null}
       {art.kind === 'poster' ? <GalleryArt alt="" art={art.art} card={null} className="h-hero-poster" colour={colour} kind="poster" onSettled={settle} priority={1} sizes={POSTER_SIZES} /> : null}

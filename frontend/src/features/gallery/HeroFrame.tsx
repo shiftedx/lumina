@@ -1,0 +1,138 @@
+import { type CSSProperties, type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
+
+import { getHeroFraming, type HeroFraming, type HeroFramingRegion } from '../../api';
+import './heroFrame.css';
+
+type Size = { width: number; height: number };
+export type HeroGeometry = { mode: 'cover'; x: number; y: number };
+
+const EMPTY: HeroFraming = { state: 'pending' };
+const CACHE_LIMIT = 128;
+const NEGATIVE_TTL_MS = 60_000;
+const cache = new Map<string, { framing: HeroFraming; expiresAt: number | null }>();
+const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
+
+function region(value: unknown): HeroFramingRegion | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<HeroFramingRegion>;
+  if ((candidate.kind !== 'face' && candidate.kind !== 'subject') || !finite(candidate.x) || !finite(candidate.y) || !finite(candidate.width) || !finite(candidate.height) || !finite(candidate.weight)) return null;
+  if (candidate.x < 0 || candidate.y < 0 || candidate.width <= 0 || candidate.height <= 0 || candidate.x + candidate.width > 1 || candidate.y + candidate.height > 1 || candidate.weight < 0 || candidate.weight > 1) return null;
+  return candidate as HeroFramingRegion;
+}
+
+/** Treat model output as untrusted: malformed ready data falls back to the whole image. */
+export function validFraming(value: unknown): HeroFraming {
+  if (!value || typeof value !== 'object') return { state: 'unavailable' };
+  const candidate = value as Partial<HeroFraming>;
+  if (candidate.state === 'pending' || candidate.state === 'unavailable') return { state: candidate.state };
+  if (candidate.state !== 'ready' || !finite(candidate.width) || !finite(candidate.height) || !Number.isInteger(candidate.width) || !Number.isInteger(candidate.height) || candidate.width <= 0 || candidate.height <= 0 || candidate.width > 16_384 || candidate.height > 16_384 || candidate.width * candidate.height > 40_000_000 || !Array.isArray(candidate.regions) || candidate.regions.length > 16) return { state: 'unavailable' };
+  const regions = candidate.regions.map(region);
+  if (regions.some((item) => item === null)) return { state: 'unavailable' };
+  return { state: 'ready', width: candidate.width, height: candidate.height, regions: regions as HeroFramingRegion[] };
+}
+
+function remember(src: string, framing: HeroFraming) {
+  if (cache.has(src)) cache.delete(src);
+  cache.set(src, { framing, expiresAt: framing.state === 'unavailable' ? Date.now() + NEGATIVE_TTL_MS : null });
+  if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value!);
+}
+
+function cached(src: string): HeroFraming | null {
+  const hit = cache.get(src);
+  if (!hit) return null;
+  if (hit.expiresAt !== null && hit.expiresAt <= Date.now()) { cache.delete(src); return null; }
+  if (hit.framing.state === 'ready') { cache.delete(src); cache.set(src, hit); }
+  return hit.framing;
+}
+
+/** Full-bleed framing: protect heads first, then fit generic subject proposals above the text fade. */
+export function heroGeometry(raw: unknown, viewport: Size, placement: 'home' | 'title' = 'title'): HeroGeometry {
+  const framing = validFraming(raw);
+  const fallback: HeroGeometry = { mode: 'cover', x: 50, y: 15 };
+  if (framing.state !== 'ready' || !viewport.width || !viewport.height) return fallback;
+  const faces = framing.regions!.filter((item) => item.kind === 'face');
+  const subjects = framing.regions!.filter((item) => item.kind === 'subject');
+  const regions = faces.length ? faces : subjects;
+  if (!regions.length) return fallback;
+  const strongest = Math.max(...regions.map((item) => item.weight));
+  const material = regions.filter((item) => item.weight >= strongest * .55);
+  const bounds = material.map((item) => ({
+    left: clamp(item.x - item.width * .1, 0, 1), right: clamp(item.x + item.width * 1.1, 0, 1),
+    top: clamp(item.y - item.height * (faces.length ? .45 : .07), 0, 1),
+    bottom: clamp(item.y + item.height * (faces.length ? 1.2 : 1.03), 0, 1),
+  }));
+  const left = Math.min(...bounds.map((item) => item.left));
+  const right = Math.max(...bounds.map((item) => item.right));
+  const top = Math.min(...bounds.map((item) => item.top));
+  const bottom = Math.max(...bounds.map((item) => item.bottom));
+  const sourceAspect = framing.width! / framing.height!;
+  const viewportAspect = viewport.width / viewport.height;
+  const cropWidth = Math.min(1, viewportAspect / sourceAspect);
+  const cropHeight = Math.min(1, sourceAspect / viewportAspect);
+  const weight = material.reduce((total, item) => total + item.weight * item.width * item.height, 0);
+  const focus = (axis: 'x' | 'y') => weight ? material.reduce((total, item) => total + (item[axis] + item[axis === 'x' ? 'width' : 'height'] / 2) * item.weight * item.width * item.height, 0) / weight : .5;
+  const preferredX = placement === 'home' && viewport.width >= 600 ? .68 : .5;
+  const xLow = Math.max(0, right - cropWidth);
+  const xHigh = Math.min(1 - cropWidth, left);
+  const cropLeft = xLow <= xHigh ? clamp(focus('x') - cropWidth * preferredX, xLow, xHigh) : clamp(focus('x') - cropWidth * preferredX, 0, 1 - cropWidth);
+  const yLow = Math.max(0, bottom - cropHeight * .9);
+  const yHigh = Math.min(1 - cropHeight, top);
+  // If a group cannot fit, retain its upper edge rather than slice through its heads.
+  const cropTop = yLow <= yHigh ? clamp(focus('y') - cropHeight * .42, yLow, yHigh) : clamp(top, 0, 1 - cropHeight);
+  return { mode: 'cover', x: cropWidth === 1 ? 50 : cropLeft / (1 - cropWidth) * 100, y: cropHeight === 1 ? 50 : cropTop / (1 - cropHeight) * 100 };
+}
+
+function useHeroFraming(src: string | null | undefined, enabled: boolean, root: RefObject<HTMLElement | null>, placement: 'home' | 'title') {
+  const [visible, setVisible] = useState(false);
+  const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== 'hidden');
+  const [size, setSize] = useState<Size>({ width: 0, height: 0 });
+  const [entry, setEntry] = useState<{ src: string | null; framing: HeroFraming }>({ src: null, framing: EMPTY });
+  const framing = entry.src === src ? entry.framing : EMPTY;
+  useEffect(() => {
+    const update = () => setPageVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, []);
+  useEffect(() => {
+    if (!enabled || !root.current) return;
+    const node = root.current;
+    const update = () => { const rect = node.getBoundingClientRect(); setSize({ width: rect.width, height: rect.height }); };
+    update();
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    resize?.observe(node);
+    const observer = typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver(([entry]) => setVisible(entry?.isIntersecting ?? false));
+    if (observer) observer.observe(node); else setVisible(true);
+    return () => { resize?.disconnect(); observer?.disconnect(); };
+  }, [enabled, root]);
+  useEffect(() => {
+    if (!src || !enabled || !visible || !pageVisible) return;
+    const hit = cached(src);
+    if (hit) { setEntry({ src, framing: hit }); return; }
+    let cancelled = false;
+    const controller = new AbortController();
+    let attempts = 0;
+    let retry: number | undefined;
+    const load = () => {
+      if (cancelled) return;
+      getHeroFraming(src, { signal: controller.signal }).then(validFraming).catch(() => ({ state: 'unavailable' as const })).then((next) => {
+        if (cancelled) return;
+        if (next.state === 'pending' && attempts++ < 10) retry = window.setTimeout(load, 1_000);
+        else { const settled = next.state === 'pending' ? { state: 'unavailable' as const } : next; remember(src, settled); setEntry({ src, framing: settled }); }
+      });
+    };
+    setEntry({ src, framing: EMPTY });
+    load();
+    return () => { cancelled = true; controller.abort(); if (retry !== undefined) window.clearTimeout(retry); };
+  }, [enabled, pageVisible, src, visible]);
+  return { framing, geometry: useMemo(() => heroGeometry(framing, size, placement), [framing, placement, size]) };
+}
+
+export function HeroFrame({ children, className = '', enabled = true, placement = 'title', src }: { children: ReactNode; className?: string; enabled?: boolean; placement?: 'home' | 'title'; src?: string | null }) {
+  const root = useRef<HTMLSpanElement>(null);
+  const { framing, geometry } = useHeroFraming(src, enabled, root, placement);
+  const style = { '--hero-focus-x': `${geometry.x}%`, '--hero-focus-y': `${geometry.y}%` } as CSSProperties;
+  return <span className={`hero-frame ${className} is-cover`} data-hero-framing={framing.state} ref={root} style={style}>
+    <span className="hero-frame-foreground">{children}</span>
+  </span>;
+}

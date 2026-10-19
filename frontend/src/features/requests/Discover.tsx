@@ -9,6 +9,7 @@ import { useLoad, useRequests } from './requestsContext';
 import { canAskFor, catalogId, KIND_LABEL, metaLine } from './requestsModel';
 import { Art, CardRail, HeroSkeleton, LoadProblem, RailSkeleton, StatusRibbon } from './parts';
 import { TrailerStage } from './TrailerStage';
+import { HeroFrame } from '../gallery/HeroFrame';
 
 /** A rail's See all (`/requests/anime?section=next_season`) as an in-tab navigation; anything else is ignored. */
 export function useSeeAll() {
@@ -63,7 +64,7 @@ export function Hero({ items }: { items: CatalogItem[] }) {
       <div aria-label={`${index + 1} of ${items.length}`} aria-roledescription="slide" className="rq-hero-slide" key={item.key} role="group">
         {trailers ? <TrailerStage onClose={() => setTrailers(null)} poster={item.backdrop_url} title={item.title} trailers={trailers} /> : (
           <>
-            <span className="rq-hero-art"><Art eager src={item.backdrop_url ?? item.poster_url} /></span>
+            <HeroFrame className="rq-hero-art" src={item.backdrop_url}><Art eager src={item.backdrop_url ?? item.poster_url} /></HeroFrame>
             <span aria-hidden="true" className="rq-hero-scrim" />
           </>
         )}

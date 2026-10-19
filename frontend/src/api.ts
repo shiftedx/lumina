@@ -893,6 +893,11 @@ export const getEpisodeSummaries = (seriesId: string, season: number, options?: 
   requestJson(`/api/titles/${enc(seriesId)}/episode-summaries${qs({ season })}`, undefined, options);
 export const getKeyScenes = (titleId: string, options?: RequestJsonOptions): Promise<KeyScenes> => requestJson(`/api/titles/${enc(titleId)}/key-scenes`, undefined, options);
 export const getArtworkProgress = (): Promise<ArtworkProgress> => requestJson('/api/admin/artwork');
+export type HeroFramingRegion = { x: number; y: number; width: number; height: number; kind: 'face' | 'subject'; weight: number };
+export type HeroFraming = { state: 'pending' | 'ready' | 'unavailable'; width?: number; height?: number; regions?: HeroFramingRegion[] };
+/** Cached server-side artwork analysis. The original artwork URL is the cache key, never a rendition URL. */
+export const getHeroFraming = (src: string, options?: RequestJsonOptions): Promise<HeroFraming> =>
+  requestJson(`/api/art/framing?src=${enc(src)}`, undefined, { timeoutMs: 4_000, ...options });
 export const sendClientMetrics = (samples: ClientMetricSample[]): Promise<void> => post('/api/metrics/client', { samples } satisfies ClientMetricsBatch);
 /** pagehide flush: sendBeacon cannot set headers, so the CSRF token travels in the body. False when the browser refused it. */
 export function beaconClientMetrics(samples: ClientMetricSample[]): boolean {

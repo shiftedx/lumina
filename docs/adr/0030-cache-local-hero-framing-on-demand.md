@@ -1,0 +1,22 @@
+# ADR 0030: Cache local hero framing on demand
+
+- Status: Accepted
+- Date: 2026-10-19
+
+## Context
+
+One fixed backdrop crop cuts off faces in some compositions and hides low subjects in others. Library and Requests heroes use different image-delivery paths. Analyzing every backdrop during a library scan would waste CPU on artwork nobody views.
+
+## Decision
+
+Analyze only requested hero backdrops, through a deduplicated bounded background queue. Library requests must pass the normal title visibility check and name its current source; catalog requests accept only the exact approved TMDB backdrop URL shape and use the existing guarded image fetcher. Browsing never waits for inference. Posters, logos and episode cards do not enter this queue.
+
+The small pinned YuNet and NanoDet models ship with their licenses. YuNet supplies face regions; NanoDet supplies generic subject boxes only, with its classification labels discarded. OpenCV runs only in a low-priority, single-thread child with a wall timeout and Linux CPU/address-space limits. It returns validated normalized regions, never executable instructions or modified assets. Its native memory is released when the child exits. The worker stops when idle and is reaped during shutdown.
+
+Cache small JSON results by analysis version and source identity, with bounded memory and disk retention. A source replacement invalidates framing; failed analysis has a retry delay. This cache is disposable, requires no schema migration and is independent of artwork rendition readiness. No full-library backfill is scheduled.
+
+The browser keeps heroes full bleed and fits important regions to the current dimensions, including headroom and an allowance for the text overlay. Wide desktop title heroes gain a bounded responsive height allowance to reduce excessive cropping without a delayed layout change. Uncertain detections retain the existing conservative crop. Preview and sharp image share geometry; inset images and blurred borders are excluded. Browser inference and per-title asset customizations are unnecessary.
+
+## Consequences
+
+The image gains approximately 4.0 MB of model weights plus the pinned OpenCV/NumPy runtime. These libraries are not imported by the serving process. First views use conservative full-bleed framing while analysis runs; subsequent views reuse cached metadata. Unusual compositions can still require a compromise when important subjects cannot all fit the available aspect ratio. The fallback also covers providers without supported local analysis.

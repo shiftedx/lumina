@@ -47,7 +47,7 @@ from app.routers import title_images as title_images_routes  # 2.1.0 title artwo
 from app.routers import metadata_editor as metadata_editor_routes
 from app.routers import music as music_routes
 from app.services import metadata_history, tmdb
-from app.routers import jellyfin, titles
+from app.routers import hero_framing as hero_framing_routes, jellyfin, titles
 from app.routers import requests_catalog, showcase as showcase_routes
 from app.routers import library_sections  # library gallery sections
 from app.routers import requests as requests_routes  # 2.6.0 Requests (BE-B)
@@ -256,6 +256,7 @@ from app.services.embeddings import start_backfill as start_embedding_backfill
 from app.services.library_automation import FIRST_TICK_DELAY_S, automation as library_automation
 from app.services.probe_warming import probe_warming
 from app.services.renditions import renditions, use_host_format  # artwork renditions pass
+from app.services.hero_framing import hero_framing
 from app.routers import art  # /api/art and /api/admin/artwork
 from app.routers import visible_item_or_404
 from app.services.library import (
@@ -930,6 +931,8 @@ async def lifespan(app: FastAPI):
     # gallery: artwork renditions, one nice-19 ffmpeg at a time, paused during video transcodes. Off the loop:
     # start() probes ffmpeg's encoders and sweeps staging. With the pass off, on-demand renders still need the format.
     await asyncio.to_thread(renditions.start if settings.artwork_pass else use_host_format)
+    if settings.artwork_pass:
+        await asyncio.to_thread(hero_framing.start)
     events.bind(asyncio.get_running_loop())
     admin_models.wire(events)
     model_downloads.manager.resume_wanted()  # model downloads a restart interrupted continue from their .part files
@@ -969,6 +972,7 @@ async def lifespan(app: FastAPI):
         remote_streams.close_all()
         await asyncio.to_thread(probe_warming.stop)
         await asyncio.to_thread(renditions.stop)
+        await asyncio.to_thread(hero_framing.stop)
         await asyncio.to_thread(local_playback_sessions.close_all)
         hls_relay.close_all()
         live_hls_relay.close_all()
@@ -1095,6 +1099,7 @@ listening_export.register(app)
 music_requests.register(app)
 chromecast.register(app)
 art.register(app)
+hero_framing_routes.register(app, artwork)
 requests_catalog.register(app)
 showcase_routes.register(app)  # public: the sign-in showcase (test_unauthenticated_surface)
 titles.register(app, artwork)

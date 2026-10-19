@@ -182,7 +182,8 @@ for (const width of [390, 320]) {
     const actions = await box(page, '.t-actions');
     const side = await box(page, '.t-side');
     const story = await box(page, '.t-story');
-    expect((await box(page, '.t-hero')).height).toBeCloseTo(width * 0.75, 0);
+    // A landscape phone hero preserves ensemble width without letterboxing.
+    expect((await box(page, '.t-hero')).height).toBeCloseTo(width * 9 / 16, 0);
     expect(side.x).toBeCloseTo(main.x, 0);
     // The story so far sits in the main column directly after the actions.
     expect(story.y).toBeGreaterThanOrEqual(actions.y + actions.height);
@@ -238,3 +239,34 @@ test('motion: the page fades in, and nothing moves under reduced motion', async 
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   expect(await page.locator('.t-page').evaluate((element) => getComputedStyle(element).animationName)).toBe('t-page-in');
 });
+
+for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844 }]) {
+  test(`hero framing ${viewport.width}: full bleed with a lower subject above the text fade`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await mockApi(page, { sidebar_collapsed: false });
+    await mockTitles(page);
+    await mockGalleryTitle(page, { ...movieOptions, detail: { ...movieOptions.detail, backdrop: { ...movieOptions.detail.backdrop!, rendition: null, widths: [] } } });
+    // A visible lower-frame subject, rather than a one-pixel mock that cannot expose a bad crop.
+    const artwork = '<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><rect width="1920" height="1080" fill="navy"/><circle cx="960" cy="842" r="100" fill="gold"/></svg>';
+    await page.route((url) => url.pathname === '/api/titles/movie-1/images/Backdrop', (route) => route.fulfill({ contentType: 'image/svg+xml', body: artwork }));
+    await page.route('**/api/art/framing?*', (route) => route.fulfill({ json: { state: 'ready', width: 1920, height: 1080, regions: [{ kind: 'subject', x: .42, y: .66, width: .16, height: .25, weight: .8 }] } }));
+    await page.goto('/title/movie-1');
+    await signIn(page);
+    await expect(page.locator('.t-hero .hero-frame')).toHaveAttribute('data-hero-framing', 'ready');
+    await expect.poll(() => page.locator('.t-hero .g-art-image').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1920);
+    const result = await page.locator('.t-hero .g-art-image').evaluate((image: HTMLImageElement) => {
+      const frame = image.closest('.t-hero')!.getBoundingClientRect();
+      const box = image.getBoundingClientRect();
+      const style = getComputedStyle(image);
+      const scale = Math.max(box.width / image.naturalWidth, box.height / image.naturalHeight);
+      const yPosition = parseFloat(style.objectPosition.split(' ')[1]) / 100;
+      const subjectY = box.y + (box.height - image.naturalHeight * scale) * yPosition + 842 * scale;
+      return { fit: style.objectFit, fills: Math.abs(box.width - frame.width) < 1 && Math.abs(box.height - frame.height) < 1, subject: (subjectY - frame.y) / frame.height };
+    });
+    expect(result.fills).toBe(true);
+    expect(result.fit).toBe('cover');
+    expect(result.subject).toBeGreaterThan(.2);
+    expect(result.subject).toBeLessThan(.9);
+  });
+}

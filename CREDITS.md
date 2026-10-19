@@ -14,6 +14,8 @@ Lumina is built on other people's work. Thank you.
 | [FastAPI](https://fastapi.tiangolo.com), [Uvicorn](https://www.uvicorn.org), [SQLAlchemy](https://www.sqlalchemy.org), [Pydantic](https://docs.pydantic.dev), [HTTPX](https://www.python-httpx.org) | Backend | MIT / BSD-3-Clause |
 | [Mutagen](https://github.com/quodlibet/mutagen) | Music tags | GPL-2.0-or-later |
 | [PyMuPDF](https://github.com/pymupdf/PyMuPDF) | Raster PDF book pages | AGPL-3.0 |
+| [OpenCV](https://opencv.org), [NumPy](https://numpy.org) | Local backdrop analysis in a bounded child process | Apache-2.0 / BSD-3-Clause |
+| [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet), [NanoDet](https://github.com/opencv/opencv_zoo/tree/main/models/object_detection_nanodet) | Bundled small face/generic-subject proposal models for automatic hero framing | MIT / Apache-2.0 ([provenance and licenses](backend/app/data/hero_models/README.md)) |
 | [libarchive](https://www.libarchive.org) and [libarchive-c](https://github.com/Changaco/python-libarchive-c) | Read CBR archives without extraction | BSD |
 | [Node.js](https://nodejs.org) | JavaScript runtime yt-dlp uses for YouTube | MIT |
 | [React](https://react.dev), [hls.js](https://github.com/video-dev/hls.js), [dash.js](https://github.com/Dash-Industry-Forum/dash.js), [Lucide](https://lucide.dev) | Web app and player | MIT / Apache-2.0 / BSD-3-Clause / ISC |
@@ -21,7 +23,7 @@ Lumina is built on other people's work. Thank you.
 
 Exact versions are pinned in `Dockerfile`, `backend/requirements.runtime.lock` and `frontend/package-lock.json`. License texts ship with the image: Python packages in their `site-packages` metadata, Debian packages under `/usr/share/doc`, llama.cpp at `/opt/lumina-llama/LICENSE`, Node.js at `/usr/local/share/doc/node/LICENSE`, and the web app's bundled packages at `/third-party-licenses.txt` on any running Lumina. FFmpeg source for the bundled build is at the [jellyfin-ffmpeg v8.1.2-5 release](https://github.com/jellyfin/jellyfin-ffmpeg/releases/tag/v8.1.2-5).
 
-On-device models are downloaded only when an admin chooses one, and each model's license is shown before download (see `backend/app/model_catalog.json`).
+Search and speech models are downloaded only when an admin chooses one, and each model's license is shown before download (see `backend/app/model_catalog.json`). The small backdrop-analysis models ship with their licenses under `/app/backend/app/data/hero_models/`.
 
 ## Data and services
 

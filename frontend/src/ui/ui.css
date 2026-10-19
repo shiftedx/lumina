@@ -106,8 +106,8 @@
 .g-switch input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
 .g-switch-track { position: relative; width: 44px; height: 24px; flex: none; border: 1px solid var(--g-ink-3); border-radius: var(--g-radius); transition: background-color var(--g-hover); }
 .g-switch-track::after { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: var(--g-radius); background: var(--g-ink-3); content: ''; transition: transform var(--g-hover); }
-.g-switch input:checked + .g-switch-track { border-color: var(--g-ink); background: var(--g-ink); }
-.g-switch input:checked + .g-switch-track::after { background: var(--g-paper); transform: translateX(20px); }
+.g-switch input:checked + .g-switch-track { border-color: var(--g-gold); background: var(--g-gold); }
+.g-switch input:checked + .g-switch-track::after { background: var(--g-on-gold); transform: translateX(20px); }
 .g-switch input:focus-visible + .g-switch-track { outline: var(--g-focus-width) solid var(--g-focus); outline-offset: 3px; }
 .g-switch input:disabled + .g-switch-track, .g-switch input[aria-busy='true'] + .g-switch-track { opacity: .6; }
 
@@ -195,8 +195,6 @@
   .g-skeleton-item { border: 1px solid CanvasText; }
   .g-progress { border: 1px solid CanvasText; }
   .g-progress-fill { background: Highlight; forced-color-adjust: none; }
-  .g-switch-track::after { background: CanvasText; }
-  .g-switch input:checked + .g-switch-track::after { background: Canvas; }
 }
 
 html.g-modal-open { scrollbar-gutter: stable; }

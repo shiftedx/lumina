@@ -48,7 +48,12 @@ test('saved YouTube playback keeps a ranked Up next and moves between saved and 
   await expect(page.locator('.g-up-next').getByRole('button', { name: item.title })).toHaveCount(0);
   await expect.poll(() => page.locator('video').evaluate((media: HTMLVideoElement) => media.currentTime)).toBeGreaterThan(0.2);
   await page.locator('video').evaluate((media: HTMLVideoElement) => media.pause());
+  const autoplay = page.getByRole('switch', { name: 'Autoplay next video' });
+  await autoplay.check();
+  await expect(autoplay).toBeChecked();
+  await expect(page.locator('.g-up-next')).toContainText(`Next: ${streamed.title}`);
   await page.screenshot({ path: 'test-results/visual/watch-saved-up-next-desktop.png' });
+  await autoplay.uncheck();
   await page.setViewportSize({ width: 390, height: 844 });
   await next.scrollIntoViewIfNeeded();
   await expect(next).toBeVisible();

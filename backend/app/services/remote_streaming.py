@@ -1968,13 +1968,16 @@ def redact_preview_info(info: Mapping[str, Any]) -> dict[str, Any]:
     public_keys = {
         "_type", "id", "title", "description", "uploader", "channel", "duration",
         "webpage_url", "channel_url", "uploader_url", "availability", "extractor", "extractor_key", "upload_date", "view_count",
-        "channel_follower_count", "format_resolution",
+        "channel_follower_count", "channel_id", "uploader_id", "format_resolution",
     }
     format_keys = {
         "format_id", "format_note", "ext", "vcodec", "acodec", "width", "height", "fps", "tbr", "abr",
         "filesize", "filesize_approx", "protocol",
     }
     result = {key: info[key] for key in public_keys if key in info}
+    categories = info.get("categories")
+    if isinstance(categories, list):
+        result["categories"] = [category.strip()[:100] for category in categories[:25] if isinstance(category, str) and category.strip()]
     formats = info.get("formats")
     if isinstance(formats, list):
         result["formats"] = [

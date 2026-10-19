@@ -294,7 +294,9 @@ export const runJellyfinHousehold = (username: string, password: string, jellyfi
 export const prefetchRemote = (sourceUrl: string): Promise<{ accepted: boolean }> => post('/api/remote/prefetch', { source_url: sourceUrl, supported_profiles: browserSupportedPlaybackProfiles() });
 
 export function previewUrl(payload: PreviewRequest, options?: RequestJsonOptions): Promise<PreviewResponse> {
-  return post('/api/preview', { ...payload, supported_profiles: payload.supported_profiles ?? browserSupportedPlaybackProfiles() }, options);
+  // A cold provider extraction may retry or fall back to another client before it
+  // can register playback. Keep it cancellable, without the ordinary 20 s cutoff.
+  return post('/api/preview', { ...payload, supported_profiles: payload.supported_profiles ?? browserSupportedPlaybackProfiles() }, { timeoutMs: 60_000, ...options });
 }
 
 const HEVC_FAILED_KEY = 'lumina.hevcFailed';

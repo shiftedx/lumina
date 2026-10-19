@@ -151,6 +151,26 @@ describe('production API boundary', () => {
     expect((fetchMock.mock.calls[0][1]?.signal as AbortSignal).aborted).toBe(true);
   });
 
+  it('lets a cold stream resolve beyond the ordinary request deadline while retaining a finite timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const signals: AbortSignal[] = [];
+      vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+        signals.push(init!.signal as AbortSignal);
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+        if (signals.length === 1) setTimeout(() => resolve(new Response(JSON.stringify({ title: 'Cold stream' }))), 25_000);
+      })));
+      const slow = expect(previewUrl({ source_url: 'https://example.test/cold' })).resolves.toMatchObject({ title: 'Cold stream' });
+      await vi.advanceTimersByTimeAsync(25_000);
+      await slow;
+      expect(signals[0].aborted).toBe(false);
+      const stalled = expect(previewUrl({ source_url: 'https://example.test/stalled' })).rejects.toMatchObject({ message: 'Request timed out. Please try again.' });
+      await vi.advanceTimersByTimeAsync(60_000);
+      await stalled;
+      expect(signals[1].aborted).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
   it.each([
     ['preview', previewJellyfinImport],
     ['import', runJellyfinImport],

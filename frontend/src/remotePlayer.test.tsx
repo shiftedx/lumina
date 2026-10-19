@@ -1301,7 +1301,7 @@ describe('WatchSurface autoplay queue', () => {
 
   it('exposes a controlled autoplay toggle and leaves playback ended when disabled', async () => {
     const { onAutoplayUpNextChange, onOpenRelated } = await renderAutoplay({ autoplayUpNext: false });
-    const toggle = screen.getByRole('checkbox', { name: 'Autoplay next video' });
+    const toggle = screen.getByRole('switch', { name: 'Autoplay next video' });
 
     expect((toggle as HTMLInputElement).checked).toBe(false);
     fireEvent.click(toggle);
@@ -1316,7 +1316,7 @@ describe('WatchSurface autoplay queue', () => {
     const { onOpenRelated } = await renderAutoplay({ related: [currentDuplicate] });
     finishCurrentVideo();
     expect(onOpenRelated).not.toHaveBeenCalled();
-    expect(screen.queryByRole('checkbox', { name: 'Autoplay next video' })).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'Autoplay next video' })).toBeNull();
   });
 
   it('advances to the first playable recommendation, skipping a known not-playable one', async () => {

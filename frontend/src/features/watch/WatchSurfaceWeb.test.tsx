@@ -6,7 +6,7 @@ import { capabilities, CHANNEL_ID, liveEntry, remoteEntry } from '../../test/rem
 import { watchSurface } from '../../test/watchSurface';
 import type { MemberRecommendationSnapshot, PreviewResponse } from '../../types';
 
-const api = vi.hoisted(() => ({ getLiveDiscovery: vi.fn(), getRemotePlaybackProgress: vi.fn(), getTitle: vi.fn(), getUpNext: vi.fn(), listLiveRecordings: vi.fn() }));
+const api = vi.hoisted(() => ({ getLiveDiscovery: vi.fn(), getRemotePlaybackProgress: vi.fn(), getTitle: vi.fn(), getUpNext: vi.fn(), listLiveRecordings: vi.fn(), prefetchRemote: vi.fn() }));
 vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api')>()), ...api }));
 
 const preview = (patch: Partial<PreviewResponse> = {}) => ({
@@ -25,9 +25,25 @@ beforeEach(() => {
   api.getUpNext.mockResolvedValue(upNext([]));
   api.getLiveDiscovery.mockResolvedValue({ items: [], hero: [], categories: [], state: 'ready', refreshing: false, stale: false, twitch_available: true });
   api.listLiveRecordings.mockResolvedValue({ items: [], next_cursor: null });
+  api.prefetchRemote.mockResolvedValue({ accepted: true });
 });
 
 describe('the web-video watch page', () => {
+  it('warms only the playable streamed successor near the end, and respects autoplay being off', async () => {
+    const next = remoteEntry('warm-successor');
+    const props = { selection: { kind: 'remote' as const, item: remoteEntry('v1'), preview: preview({ playback: { status: 'ready', stream_id: 'warm-current', transport: 'progressive', media_kind: 'video', playback_url: '/api/remote-streams/warm-current/content', content_type: 'video/mp4', has_video: true, has_audio: true, seekable: true } }) }, related: [remoteEntry('unplayable', { capabilities: capabilities('youtube', 'upcoming') }), next, remoteEntry('later')] };
+    const { rerender } = render(watchSurface({ ...props, autoplayUpNext: false }));
+    const media = screen.getByLabelText('Harbor walk at dawn video') as HTMLVideoElement;
+    Object.defineProperty(media, 'currentTime', { configurable: true, writable: true, value: 1400 });
+    fireEvent.timeUpdate(media);
+    expect(api.prefetchRemote).not.toHaveBeenCalled();
+    rerender(watchSurface({ ...props, autoplayUpNext: true }));
+    await waitFor(() => expect(api.prefetchRemote).toHaveBeenCalledWith(next.webpage_url));
+    fireEvent.timeUpdate(media);
+    expect(api.prefetchRemote).toHaveBeenCalledTimes(1);
+    rerender(watchSurface({ ...props, related: [{ ...next, saved_item_id: 'saved-successor' }] }));
+    expect(api.prefetchRemote).toHaveBeenCalledTimes(1);
+  });
   it('lays out the editorial column and side column under the player', () => {
     const { container } = render(watchSurface({ selection: { kind: 'remote', item: remoteEntry('v1'), preview: preview() } }));
     const column = container.querySelector('.gallery.g-watch-body .g-watch-column') as HTMLElement;
@@ -60,7 +76,7 @@ describe('the web-video watch page', () => {
   it('gets a saved YouTube video’s Up next from the shared feed and opens saved or streamed results alike', async () => {
     const item = stillItem('saved-1', {
       title_id: null, extractor: 'youtube', remote_id: 'saved-video', webpage_url: 'https://www.youtube.com/watch?v=saved-video',
-      metadata_json: { id: 'saved-video', uploader: 'Chan', channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}` },
+      metadata_json: { id: 'saved-video', uploader: 'Chan', channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}`, categories: ['Music'] },
     });
     const savedNext = remoteEntry('saved-next', { title: 'Saved next', saved_item_id: 'saved-next-item' });
     const streamedNext = remoteEntry('streamed-next', { title: 'Streamed next' });
@@ -70,7 +86,7 @@ describe('the web-video watch page', () => {
     render(watchSurface({ related: [remoteEntry('stale', { title: 'Stale acquisition result' })], onOpenRelated, selection: { kind: 'library', item } }));
 
     await waitFor(() => expect(api.getUpNext).toHaveBeenCalledWith(expect.objectContaining({
-      source_url: item.webpage_url, source_id: 'saved-video', source: 'youtube', channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}`,
+      source_url: item.webpage_url, source_id: 'saved-video', source: 'youtube', channel_id: CHANNEL_ID, channel_url: `https://www.youtube.com/channel/${CHANNEL_ID}`, category_keys: ['music'],
     })));
     expect(await screen.findByRole('button', { name: /^Saved next/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Streamed next/ })).toBeTruthy();

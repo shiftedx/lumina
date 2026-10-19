@@ -16,7 +16,7 @@ import { ChapterSeekMarkers, DescriptionWithTimestamps, type TimelineChapter } f
 import { TheaterModeControl } from '../../theaterMode';
 import { findChannelBySource } from '../../channelSubscriptions';
 import { distinctRemoteSources, PLAYBACK_CHECKPOINT_INTERVAL_SECONDS, remoteSourceIdentity, shouldSavePlaybackCheckpoint } from '../../playbackModel';
-import { type AcquisitionFormat, acquisitionFormatOptions } from '../../mediaAcquisition';
+import { type AcquisitionFormat, acquisitionFormatOptions, relatedSubjectKeys } from '../../mediaAcquisition';
 import { capabilityActionDisabled, capabilityActionMessage } from '../../sourceCapabilities';
 import { formatCompactNumber, formatDuration } from '../../utils';
 import { formatPublished } from '../media/MediaCards';
@@ -45,6 +45,7 @@ import { type UpNext, PlayerOverlays } from './PlayerOverlays';
 import { showTextTrack } from './playerSegments';
 import { stepFrom } from '../gallery/albumQueue';
 import { useMediaQuery } from '../gallery/WallGrid';
+import { warmPlaybackIntent } from '../gallery/usePlaybackIntent';
 import { WatchInfoColumn } from './WatchInfoColumn';
 import { WatchChatSeam } from './WatchChatSeam';
 import { useLiveViewers } from './useLiveViewers';
@@ -230,8 +231,9 @@ export function WatchSurface({
     uploader_url: readString(raw, 'uploader_url'),
   });
   const savedYoutubeChannelUrl = readString(raw, 'channel_url') || readString(raw, 'uploader_url');
+  const savedYoutubeSubjects = relatedSubjectKeys({}, raw);
   const savedYoutubeUpNextKey = local && !local.title_id && provider === 'YouTube' && !isAudioItem(local) && savedYoutubeSourceUrl
-    ? `youtube-up-next:${JSON.stringify({ item: local.id, url: savedYoutubeSourceUrl, source: savedYoutubeId, title: sourceTitle, uploader, channel: savedYoutubeChannelId, channelUrl: savedYoutubeChannelUrl })}`
+    ? `youtube-up-next:${JSON.stringify({ item: local.id, url: savedYoutubeSourceUrl, source: savedYoutubeId, title: sourceTitle, uploader, channel: savedYoutubeChannelId, channelUrl: savedYoutubeChannelUrl, subjects: savedYoutubeSubjects })}`
     : null;
   const [savedYoutubeUpNextRevision, setSavedYoutubeUpNextRevision] = useState(0);
   const savedYoutubeUpNext = useFetched(savedYoutubeUpNextKey, () => {
@@ -241,6 +243,7 @@ export function WatchSurface({
       source: 'youtube',
       title: sourceTitle,
       uploader,
+      category_keys: savedYoutubeSubjects,
       ...(savedYoutubeChannelId ? { channel_id: savedYoutubeChannelId } : {}),
       ...(savedYoutubeChannelUrl && savedYoutubeChannelUrl.length <= 2_048 ? { channel_url: savedYoutubeChannelUrl } : {}),
     });
@@ -310,6 +313,12 @@ export function WatchSurface({
   const remoteCheckpointSuppressionRef = useRef<{ identity: string; lastPosition: number; advancedSeconds: number } | null>(null);
   const [shareFeedback, setShareFeedback] = useState<{ kind: 'success' | 'error'; message: string; fallback: boolean } | null>(null);
   const [currentTime, setCurrentTime] = useState(playback?.position_seconds || 0);
+  // Resolve only the actual successor, near the end so signed URLs stay fresh.
+  // Reuse the bounded, deduplicated intent cache; saved successors need no network.
+  const nextRemoteUrl = queuedNext
+    ? queuedNext.ref.kind === 'remote' ? queuedNext.ref.url : null
+    : autoplayIndex >= 0 && !visibleRelated[autoplayIndex].saved_item_id ? visibleRelated[autoplayIndex].webpage_url : null;
+  const nearEnd = Boolean(duration && currentTime > 0 && duration - currentTime <= 60);
   const [remoteProgress, setRemoteProgress] = useState<RemotePlaybackProgress | null>(null);
   const shareUrl = sourceUrl || window.location.href;
   const chapters = preview?.chapters || local?.chapters || NO_CHAPTERS;
@@ -332,6 +341,9 @@ export function WatchSurface({
   const previousTitle = useMemo(() => previousInUpNext(libraryUpNext), [libraryUpNext]);
   // Never advance on its own once the member's watching time or hours are over (the stop state takes over).
   const gated = watchGate(useAccess()) !== null;
+  useEffect(() => {
+    if (autoplayUpNext && !gated && nearEnd && nextRemoteUrl) warmPlaybackIntent(nextRemoteUrl);
+  }, [autoplayUpNext, gated, nearEnd, nextRemoteUrl]);
   // Music: a track or saved audio plays on the audio stage. An album track continues the
   // member's stored order (Shuffle, Play all) while that holds this track, else the album's; read once per track,
   // because the order is stored before the track opens.

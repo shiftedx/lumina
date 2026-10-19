@@ -4,6 +4,7 @@ import { ApiRequestError, createJob, getUpNext, previewUrl } from './api';
 import { youtubeChannelId } from './features/channels/channelMention';
 import { readString, remoteItemIsSaved, resultFromPreview } from './luminaModel';
 import { acquisitionPlanForSource } from './sourcePreferences';
+import { EXPLORER_CATEGORIES } from './explorerCategories';
 import type {
   AcquisitionErrorCategory,
   DownloadJob,
@@ -85,10 +86,12 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
   const [format, setFormat] = useState<AcquisitionFormat>(preferredFormat);
   const [failure, setFailure] = useState<AcquisitionFailure | null>(null);
   const previewGeneration = useRef(0);
+  const previewAbort = useRef<AbortController | null>(null);
   const previewChoiceKey = useRef<string | null>(null);
   const activeQueueRequests = useRef(new Map<string, symbol>());
 
   useEffect(() => setFormat(preferredFormat), [preferredFormat]);
+  useEffect(() => () => { previewGeneration.current += 1; previewAbort.current?.abort(); }, []);
 
   const sourcePlan = useCallback((choice: AcquisitionFormat) => acquisitionPlanForSource({
     formatPreset: choice,
@@ -115,6 +118,9 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
   const open = useCallback((item: YouTubeSearchResult): Promise<PreviewResponse | null> | null => {
     const sourceUrl = sourceUrlFor(item);
     const generation = ++previewGeneration.current;
+    previewAbort.current?.abort();
+    const controller = new AbortController();
+    previewAbort.current = controller;
     setRelated([]);
     previewChoiceKey.current = null;
     setFailure(null);
@@ -134,7 +140,7 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
           source_url: sourceUrl,
           lazy_playlist: true,
           format_selection: formatSelection(format),
-        });
+        }, { signal: controller.signal });
         globalThis.performance?.mark?.('lumina:preview-ready');
         if (generation !== previewGeneration.current || !workspace.isSessionTokenCurrent(sessionToken)) return null;
         const resolvedItem = resultFromPreview(inspected, item);
@@ -149,7 +155,7 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
           source: resolvedItem.source,
           title: resolvedItem.title ?? null,
           uploader: resolvedItem.uploader ?? null,
-          category_keys: relatedSubjectKeys(item),
+          category_keys: relatedSubjectKeys(item, inspected.raw),
           ...upNextChannel(inspected, resolvedItem),
         }).then((snapshot) => {
           if (generation === previewGeneration.current && workspace.isSessionTokenCurrent(sessionToken)) {
@@ -260,6 +266,8 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
 
   const reset = useCallback(() => {
     previewGeneration.current += 1;
+    previewAbort.current?.abort();
+    previewAbort.current = null;
     previewChoiceKey.current = null;
     setSelection(null);
     setRelated([]);
@@ -311,10 +319,12 @@ export function upNextChannel(preview: PreviewResponse, item: YouTubeSearchResul
   return { ...(channelId ? { channel_id: channelId } : {}), ...(url && url.length <= 2_048 ? { channel_url: url } : {}) };
 }
 
-/** The current source's canonical subjects when opened from a recommendation surface. */
-function relatedSubjectKeys(item: YouTubeSearchResult): string[] | undefined {
+/** Keep only known subjects from a recommendation or the inspected provider metadata. */
+export function relatedSubjectKeys(item: YouTubeSearchResult, raw: Record<string, unknown> = {}): string[] {
   const keys = (item as { category_keys?: unknown }).category_keys;
-  return Array.isArray(keys) ? keys.filter((key): key is string => typeof key === 'string') : undefined;
+  const subjects = [...(Array.isArray(keys) ? keys : []), ...(Array.isArray(raw.categories) ? raw.categories : [])];
+  const normalized = new Set(subjects.filter((key): key is string => typeof key === 'string').map((key) => key.toLowerCase().replace(/[^a-z0-9]/g, '')));
+  return EXPLORER_CATEGORIES.filter(({ key, label }) => normalized.has(key.replace(/[^a-z0-9]/g, '')) || normalized.has(label.toLowerCase().replace(/[^a-z0-9]/g, ''))).map(({ key }) => key);
 }
 
 function acquisitionChoiceKey(

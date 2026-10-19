@@ -230,12 +230,13 @@ def _watch(vid: str) -> str:
     return f"https://www.youtube.com/watch?v={vid}"
 
 
-def _media(db, vid: str, title: str, *, channel: str = CHANNEL, uploader: str = "Harbor Films", days: int = 2) -> str:  # noqa: ANN001
+def _media(db, vid: str, title: str, *, channel: str = CHANNEL, uploader: str = "Harbor Films", days: int = 2,
+           category_keys: list[str] | None = None) -> str:  # noqa: ANN001
     key = remote_key("youtube", vid, _watch(vid))
     db.add(RemoteMedia(
         key=key, source_identity=f"youtube:{vid}", extractor="youtube", remote_id=vid, webpage_url=_watch(vid), title=title,
         uploader=uploader, channel_key=channel, channel_url=channel, duration=600, view_count=1_000,
-        published_at=NOW - timedelta(days=days), kind="video", category_keys=["music"], thumbnail=None, availability="public",
+        published_at=NOW - timedelta(days=days), kind="video", category_keys=category_keys if category_keys is not None else ["music"], thumbnail=None, availability="public",
         tokens=[], fetched_at=NOW, last_nominated_at=NOW,
     ))
     return key
@@ -368,7 +369,30 @@ def test_up_next_reads_the_peeked_listing_and_never_the_current_item() -> None:
     assert remote_key("youtube", "fresh", _watch("fresh")) in _keys(served)
     assert current not in _keys(served)
     assert "fresh" in {entry.id for entry in entries}
-    assert served.context_key == f"{current}:12"
+
+
+def test_up_next_keeps_a_known_subject_topical_and_merges_hydrated_anchor_categories() -> None:
+    member = _member()
+    db = _session(member)
+    _pooled(db, member, "now", "Harbor Artist evening song", category_keys=[])
+    music = _pooled(db, member, "music", "Another artist", channel=OTHER_CHANNEL, category_keys=["music"])
+    podcast = _pooled(db, member, "podcast", "Harbor Artist interview", channel=OTHER_CHANNEL, category_keys=["podcasts"])
+    same_channel_podcast = _pooled(db, member, "same-podcast", "Harbor Artist discussion", channel=CHANNEL, category_keys=["podcasts"])
+    db.commit()
+    bare = UpNextRequest(source_url=_watch("now"), source_id="now", title="Harbor Artist evening song")
+    request = UpNextRequest(source_url=_watch("now"), source_id="now", title="Harbor Artist evening song", category_keys=["music"])
+    policy = _policy(db)
+
+    before_hydration = policy.up_next(member, _snapshot(), bare)
+    served = policy.up_next(member, _snapshot(), request)
+
+    assert podcast in _keys(before_hydration)
+    assert _keys(served) == [music]
+    assert podcast not in _keys(served)
+    db.query(RecoPool).filter(RecoPool.item_key.in_([music, podcast])).delete(synchronize_session=False)
+    db.commit()
+    served_lists.drop(member.id, "up_next")
+    assert policy.up_next(member, _snapshot(), request).items == ()  # a category-conflicting current-channel item cannot backfill
 
 
 def test_up_next_warms_the_channel_on_a_miss_and_never_loads_it() -> None:
@@ -382,7 +406,26 @@ def test_up_next_warms_the_channel_on_a_miss_and_never_loads_it() -> None:
     served = _policy(db, pages=FakePages(None), refresher=refresher).up_next(member, _snapshot(), request)
 
     assert refresher.warmed == [UC]
-    assert remote_key("youtube", "p1", _watch("p1")) in _keys(served)  # the pool alone serves the miss
+    assert served.items == ()  # no unrelated pool backfill while the relevant channel cache warms
+
+
+def test_up_next_replaces_a_sparse_cached_list_when_the_channel_cache_warms() -> None:
+    member = _member()
+    db = _session(member)
+    pages = FakePages()
+    request = UpNextRequest(source_url=_watch("now"), source_id="now", title="Harbor walk now", channel_id=UC)
+    policy = _policy(db, pages=pages)
+
+    sparse = policy.up_next(member, _snapshot(), request)
+    pages.value = ChannelTabPage(entries=(
+        YouTubeSearchResult(id="fresh", title="Harbor walk later", uploader="Harbor Films", uploader_id=UC, uploader_url=CHANNEL,
+                            duration=600, webpage_url=_watch("fresh"), source="youtube"),
+    ), has_more=False)
+    warmed = policy.up_next(member, _snapshot(), request)
+
+    assert sparse.items == ()
+    assert remote_key("youtube", "fresh", _watch("fresh")) in _keys(warmed)
+    assert warmed.list_id != sparse.list_id
 
 
 def test_up_next_pins_the_next_part_first() -> None:

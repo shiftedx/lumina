@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from app.models import AppSession, LibraryItem, MediaTitle, PlaybackProgress, RecoPool, RemoteMedia, RemotePlaybackProgress, SourceAutomation, User, utcnow
 from app.persistence import write_transaction
 from app.schemas import YouTubeSearchResult
-from app.services.library import LibraryService
+from app.services.library import EXTERNAL_LIBRARY_ORIGIN, LibraryService
 from app.services.member_follows import CHANNEL_SOURCE_TYPE
 from app.services.member_recommendations import _UNPLAYABLE_AVAILABILITY, TITLE_POOL_TYPES, MemberRecommendationPolicy
 from app.services import provider_budget
@@ -501,6 +501,30 @@ def _words_of(row: RemotePlaybackProgress) -> list[str]:
     return [token for token in reco_profile.remote_tokens(row.title, row.channel_key, ()) if _is_word(token)]
 
 
+def _saved_video_seeds(db: Session, member_id: str) -> list[tuple[str, list[str], datetime]]:
+    """Finished saved web videos seed the same background searches as a remote watch.
+
+    External-library files never have a provider URL and must not turn an imported filename into a provider query.
+    """
+    rows = db.execute(
+        select(PlaybackProgress, LibraryItem.id, LibraryItem.title, LibraryItem.channel_key).join(
+            LibraryItem, LibraryItem.id == PlaybackProgress.item_id
+        ).where(
+            PlaybackProgress.user_id == member_id,
+            LibraryItem.title_id.is_(None),
+            LibraryItem.extra_type.is_(None),
+            LibraryItem.kind == "video",
+            or_(LibraryItem.extractor.is_(None), LibraryItem.extractor != EXTERNAL_LIBRARY_ORIGIN),
+            LibraryItem.webpage_url.is_not(None),
+        ).order_by(PlaybackProgress.last_watched_at.desc(), PlaybackProgress.id).limit(HISTORY_ANCHORS)
+    )
+    return [
+        (item_id, [token for token in reco_profile.remote_tokens(title, channel, ()) if _is_word(token)], progress.last_watched_at)
+        for progress, item_id, title, channel in rows
+        if progress.completed or progress.max_fraction >= CONSTANTS.satisfied_fraction
+    ]
+
+
 def _newest(page: object, keep: int = LISTING_KEEP) -> list[YouTubeSearchResult]:
     """The newest ``keep`` entries of a listing, by upload date; entries without a date keep their listed order after the dated ones."""
     entries = list(page.entries)  # type: ignore[attr-defined]
@@ -612,9 +636,21 @@ class RecoRefresher:
             aged = (pooled is None or now - pooled >= REFRESH_AGE) and since >= REFRESH_AGE
             triggered = member_id in triggers and now - triggers[member_id] >= TRIGGER_DEBOUNCE and since >= TRIGGER_MIN_GAP
             retrying = member_id in retry and now >= retry[member_id]
-            finished = db.scalar(select(func.max(RemotePlaybackProgress.updated_at)).where(
+            remote_finished = db.scalar(select(func.max(RemotePlaybackProgress.updated_at)).where(
                 RemotePlaybackProgress.user_id == member_id, RemotePlaybackProgress.completed.is_(True)
             ))
+            saved_finished = db.scalar(select(func.max(PlaybackProgress.updated_at)).join(
+                LibraryItem, LibraryItem.id == PlaybackProgress.item_id
+            ).where(
+                PlaybackProgress.user_id == member_id,
+                PlaybackProgress.completed.is_(True),
+                LibraryItem.title_id.is_(None),
+                LibraryItem.extra_type.is_(None),
+                LibraryItem.kind == "video",
+                or_(LibraryItem.extractor.is_(None), LibraryItem.extractor != EXTERNAL_LIBRARY_ORIGIN),
+                LibraryItem.webpage_url.is_not(None),
+            ))
+            finished = max((at for at in (remote_finished, saved_finished) if at is not None), default=None)
             completed = (
                 pooled is not None and finished is not None and finished > pooled
                 and now - finished >= TRIGGER_DEBOUNCE and since >= TRIGGER_MIN_GAP
@@ -680,6 +716,8 @@ class RecoRefresher:
                 stopped = stop
             with self._session_factory() as db, write_transaction(db, name="reco_refresh"):
                 nominated = nominate(db, member_id, [*nominations, *plan.anchors], now=self._clock())
+            if nominated:
+                reco_events.served_lists.drop(member_id, "up_next")
         except Exception as error:  # noqa: BLE001 - a refresh never raises; the type is all that is logged
             logger.warning("Recommendation refresh failed: %s", type(error).__name__)
             return RefreshResult(member_id, 0, self._gate.total - calls_before, False, error=type(error).__name__)
@@ -719,9 +757,18 @@ class RecoRefresher:
             documents.setdefault(row.source_identity_key, reco_profile.remote_tokens(row.title, row.channel_key, ()))
         idf = _idf(documents)
         satisfied = [row for row in progress if row.completed or row.max_fraction >= CONSTANTS.satisfied_fraction]
-        fresh = [row for row in satisfied if now - self._expanded.get(row.id, datetime.min) >= SEED_REEXPAND][:SEEDS]
+        seed_rows = [
+            (row.id, _words_of(row), row.last_watched_at)
+            for row in satisfied
+        ]
+        seed_rows.extend(_saved_video_seeds(db, member_id))
+        fresh = sorted(
+            (row for row in seed_rows if now - self._expanded.get(row[0], datetime.min) >= SEED_REEXPAND),
+            key=lambda row: (row[2], row[0]), reverse=True,
+        )[:SEEDS]
         seeds = tuple(
-            _Seed(row.id, tuple(sorted(words, key=lambda word: (-idf(word), word))[:3])) for row in fresh if (words := _words_of(row))
+            _Seed(seed_id, tuple(sorted(words, key=lambda word: (-idf(word), word))[:3]))
+            for seed_id, words, _watched_at in fresh if words
         )
         return _Plan(
             follows=follows,

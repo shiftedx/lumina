@@ -184,6 +184,17 @@ describe('MusicPlayer', () => {
     expect(screen.getByRole('region', { name: 'Mini music player' })).toBeTruthy();
   });
 
+  it('reopens if music starts before the player mounts again', async () => {
+    music = { ...music, playback: { ...music.playback, playing: false } };
+    const view = render(<MusicPlayer {...props} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss music player' }));
+    view.unmount();
+
+    music = { ...music, playback: { ...music.playback, playing: true } };
+    render(<MusicPlayer {...props} />);
+    expect(screen.getByRole('region', { name: 'Music player' })).toBeTruthy();
+  });
+
   it('keeps dismissal private to the member who closed the player', async () => {
     music = { ...music, playback: { ...music.playback, playing: false } };
     const view = render(<MusicPlayer {...props} />);

@@ -65,7 +65,7 @@ export function MusicPlayer({ owner, hidden = false, onWatchVideo, onOpenAlbum, 
   const lyricCues = Array.isArray(lyrics?.cues) ? lyrics.cues : [];
   const hasLyrics = Boolean(lyrics?.plain?.trim() || lyricCues.length);
   const activeCue = lyricCues.reduce((current, cue, cueIndex) => cue.start <= position ? cueIndex : current, -1);
-  const wasActive = useRef(active);
+  const wasActive = useRef(false);
 
   useEffect(() => {
     download.current?.abort(); setOfflineProgress(null); setMessage(null); setLyrics(null); setSavedIds(new Set()); setRoom(null); setDismissed(wasDismissed(owner)); setExpanded(active); focusAfter.current = null;

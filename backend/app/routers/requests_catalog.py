@@ -30,7 +30,7 @@ def _serve(db: Session, user: User, build: Callable[[tmdb.TmdbClient | None], di
     except (tmdb.TmdbError, anilist.AniListError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
     annotated = catalog.annotate(response, db, user)
-    hero_framing.catalog_sources.register(annotated)
+    hero_framing.hero_framing.warm_catalog(hero_framing.catalog_sources.register(annotated))
     return annotated
 
 

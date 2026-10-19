@@ -17,18 +17,21 @@ import sys
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from app.config import settings
 from app.persistence import atomic_write, read_regular_file
-from app.services import raster_images
+from app.services import art_urls, raster_images
+from app.services.background_work import background_work
 from app.services.local_playback_sessions import sessions
 
 ANALYSIS_VERSION = 2
 MAX_PENDING = 32
+MAX_WARM_PENDING = 8
+WARM_CANDIDATES = 4
 MAX_MEMORY = 128
 MAX_CACHE_FILES = 512
 MAX_CACHE_BYTES = 8192
@@ -41,6 +44,7 @@ TIMEOUT_SECONDS = 8.0
 SHUTDOWN_JOIN_SECONDS = TIMEOUT_SECONDS + 20.0 + 2.0
 UNAVAILABLE_SECONDS = 60 * 60
 POLL_SECONDS = 1.0
+WARM_GAP_SECONDS = 2.0
 CATALOG_SOURCE_TTL_SECONDS = 24 * 60 * 60
 MAX_CATALOG_SOURCES = 2_048
 MAX_CATALOG_NODES = 2_048
@@ -206,6 +210,57 @@ def analyze(data: bytes, *, on_process: Callable[[subprocess.Popen[bytes] | None
     return _validate(payload) or Result("unavailable", expires_at=time.time() + UNAVAILABLE_SECONDS)
 
 
+def local_loader(
+    title_id: str,
+    expected: str,
+    key: str,
+    artwork: Any = None,
+    *,
+    user_id: str | None = None,
+    offline: bool = False,
+    session_factory: Callable[[], Any] | None = None,
+) -> Loader:
+    """Deferred current-source loader. Warm callers use cache-only artwork and recheck visibility."""
+    def load() -> tuple[bytes, str] | None:
+        from app.db import SessionLocal
+        from app.models import MediaTitle, User
+        from app.services.artwork import ArtworkError
+        from app.services.renditions import offline_artwork
+        from app.services.titles import TitleService, image_url, title_image_bytes, title_image_source
+
+        with (session_factory or SessionLocal)() as db:
+            user = db.get(User, user_id) if user_id is not None else None
+            if user_id is not None and user is None:
+                return None
+            title = TitleService(db).get_visible(title_id, user) if user is not None else db.get(MediaTitle, title_id)
+            if title is None or image_url(title, "Backdrop") != expected:
+                return None
+            source = title_image_source(title, "Backdrop")
+            if source is None or art_urls.source_key(title.id, "Backdrop", source) != key:
+                return None
+            try:
+                content_type, content = title_image_bytes(db, title, "Backdrop", offline_artwork() if offline else artwork)
+                return content, content_type
+            except (ArtworkError, FileNotFoundError):
+                return None
+    return load
+
+
+def remote_loader(path: str, artwork: Any = None, *, offline: bool = False) -> Loader:
+    """Deferred TMDB reader; cache-only warm reads never initiate network traffic."""
+    def load() -> tuple[bytes, str] | None:
+        from app.services import tmdb
+        from app.services.artwork import ArtworkError
+        from app.services.renditions import offline_artwork
+
+        try:
+            response = tmdb.load_image(offline_artwork() if offline else artwork, path, "Backdrop", size="w1280", max_bytes=MAX_INPUT_BYTES)
+        except ArtworkError:
+            return None
+        return response.content, response.content_type
+    return load
+
+
 class HeroFraming:
     """One dormant-on-idle worker; callers provide only deferred byte loaders."""
 
@@ -215,9 +270,13 @@ class HeroFraming:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._pending: OrderedDict[str, Loader] = OrderedDict()
+        self._warm: OrderedDict[str, Loader] = OrderedDict()
         self._running: set[str] = set()
+        self._running_warm: set[str] = set()
+        self._interactive_retries: dict[str, Loader] = {}
         self._cache: OrderedDict[str, Result] = OrderedDict()
         self._child: subprocess.Popen[bytes] | None = None
+        self._last_was_warm = False
 
     @property
     def running(self) -> bool:
@@ -255,12 +314,78 @@ class HeroFraming:
         if not self.running:
             return Result("unavailable")
         with self._lock:
-            if key not in self._pending and key not in self._running:
+            if key in self._warm:
+                if len(self._pending) >= MAX_PENDING:
+                    return Result("unavailable")
+                self._warm.pop(key)
+                self._pending[key] = loader  # an opened title preempts its own warm-up
+            elif key in self._running:
+                # A cache-only warm read may miss; retain the guarded interactive
+                # loader so that miss can immediately become high-priority work.
+                if key in self._running_warm:
+                    if len(self._pending) >= MAX_PENDING:
+                        return Result("unavailable")
+                    self._interactive_retries[key] = loader
+            elif key not in self._pending and key not in self._running:
                 if len(self._pending) >= MAX_PENDING:
                     return Result("unavailable")
                 self._pending[key] = loader
-                self._wake.set()
+            self._wake.set()
         return Result("pending")
+
+    def warm(self, key: str, loader: Loader) -> None:
+        """Queue a cache-only candidate after a browse surface; never displaces an interactive request."""
+        if not self.running:
+            return
+        with self._lock:
+            cached = self._cache.get(key)
+            if cached is not None and (cached.expires_at is None or cached.expires_at > time.time()):
+                return
+        if _read(key) is not None:
+            return
+        with self._lock:
+            if key in self._pending or key in self._warm or key in self._running:
+                return
+            if len(self._warm) >= MAX_WARM_PENDING:
+                return
+            self._warm[key] = loader
+            self._wake.set()
+
+    def warm_library(self, user_id: str, titles: Iterable[Any]) -> None:
+        """At most four already-authorized movie/series Backdrops, read later from local/pinned cache only."""
+        from app.services.titles import image_url, title_image_source
+
+        found = 0
+        for title in titles:
+            if getattr(title, "type", None) not in ("movie", "series"):
+                continue
+            source = title_image_source(title, "Backdrop")
+            expected = image_url(title, "Backdrop")
+            if source is None or expected is None:
+                continue
+            key = art_urls.source_key(title.id, "Backdrop", source)
+            self.warm(key, local_loader(title.id, expected, key, user_id=user_id, offline=True))
+            found += 1
+            if found == WARM_CANDIDATES:
+                return
+
+    def warm_catalog(self, urls: Iterable[str]) -> None:
+        """At most four catalog URLs already admitted by CatalogSources; pinned-cache reads only."""
+        from app.services import tmdb
+
+        found = 0
+        prefix = "https://image.tmdb.org/t/p/w1280"
+        for url in urls:
+            if not isinstance(url, str) or not url.startswith(prefix):
+                continue
+            path = tmdb._image_path(url[len(prefix):])
+            if path is None or f"{prefix}{path}" != url:
+                continue
+            key = hashlib.sha256(f"tmdb:{path}".encode()).hexdigest()
+            self.warm(key, remote_loader(path, offline=True))
+            found += 1
+            if found == WARM_CANDIDATES:
+                return
 
     def _remember(self, key: str, result: Result) -> None:
         with self._lock:
@@ -271,19 +396,47 @@ class HeroFraming:
 
     def run_once(self) -> bool:
         with self._lock:
-            if not self._pending:
+            if self._pending:
+                key, loader = self._pending.popitem(last=False)
+                warm = False
+            elif self._warm:
+                # Leave a low-priority candidate queued until the machine is quiet.
+                # That lets an opened title promote this exact source immediately.
+                if sessions.video_encodes() > 0 or background_work.busy():
+                    return False
+                key, loader = self._warm.popitem(last=False)
+                warm = True
+            else:
                 return False
-            key, loader = self._pending.popitem(last=False)
             self._running.add(key)
+            if warm:
+                self._running_warm.add(key)
+            self._last_was_warm = warm
         while sessions.video_encodes() > 0 and not self._stop.wait(POLL_SECONDS):
             pass
+        warm_missed = False
         try:
             if self._stop.is_set():
                 return False
+            if warm:
+                with self._lock:
+                    retry = self._interactive_retries.pop(key, None)
+                    if retry is not None and len(self._pending) < MAX_PENDING:
+                        self._pending[key] = retry
+                        self._wake.set()
+                        return False
+                    if background_work.busy() or self._pending:
+                        if len(self._warm) < MAX_WARM_PENDING:
+                            self._warm[key] = loader
+                            self._warm.move_to_end(key, last=False)
+                        return False
             try:
                 loaded = loader()
                 if self._stop.is_set():
                     return False
+                if loaded is None and warm:
+                    warm_missed = True
+                    return True  # cache-only misses stay eligible for a later interactive load
                 result = analyze(loaded[0], on_process=self._set_child) if loaded is not None and len(loaded[0]) <= MAX_INPUT_BYTES else Result("unavailable", expires_at=time.time() + UNAVAILABLE_SECONDS)
             except Exception:
                 result = Result("unavailable", expires_at=time.time() + UNAVAILABLE_SECONDS)
@@ -300,6 +453,11 @@ class HeroFraming:
         finally:
             with self._lock:
                 self._running.discard(key)
+                self._running_warm.discard(key)
+                retry = self._interactive_retries.pop(key, None)
+                if warm_missed and retry is not None and not self._stop.is_set() and len(self._pending) < MAX_PENDING:
+                    self._pending[key] = retry
+                    self._wake.set()
         return True
 
     def _set_child(self, process: subprocess.Popen[bytes] | None) -> None:
@@ -310,9 +468,14 @@ class HeroFraming:
 
     def _loop(self) -> None:
         while not self._stop.is_set():
-            if not self.run_once():
-                self._wake.wait()
-                self._wake.clear()
+            self._wake.clear()
+            if self.run_once():
+                if self._last_was_warm:
+                    self._wake.wait(WARM_GAP_SECONDS)
+                continue
+            with self._lock:
+                has_warm = bool(self._warm)
+            self._wake.wait(POLL_SECONDS if has_warm else None)
 
 
 class CatalogSources:
@@ -322,7 +485,7 @@ class CatalogSources:
         self._lock = threading.Lock()
         self._values: OrderedDict[str, float] = OrderedDict()
 
-    def register(self, response: object) -> None:
+    def register(self, response: object) -> tuple[str, ...]:
         now = time.monotonic()
         found: list[str] = []
         pending: list[tuple[object, int]] = [(response, 0)]
@@ -353,6 +516,7 @@ class CatalogSources:
                 self._values.move_to_end(url)
             while len(self._values) > MAX_CATALOG_SOURCES:
                 self._values.popitem(last=False)
+        return tuple(found)
 
     def contains(self, url: str) -> bool:
         now = time.monotonic()

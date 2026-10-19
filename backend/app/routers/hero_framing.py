@@ -8,12 +8,12 @@ from urllib.parse import urlsplit
 from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal, get_db
-from app.models import MediaTitle, User
+from app.db import get_db
+from app.models import User
 from app.security import get_current_user
 from app.services import art_urls, hero_framing, tmdb
-from app.services.artwork import ArtworkError, ArtworkService
-from app.services.titles import TitleService, image_url, title_image_bytes, title_image_source
+from app.services.artwork import ArtworkService
+from app.services.titles import TitleService, image_url, title_image_source
 
 _LOCAL = re.compile(r"^/api/titles/([0-9a-f-]{36})/images/Backdrop\?tag=([0-9a-f]{16})$")
 _REMOTE_HOST = "image.tmdb.org"
@@ -21,33 +21,6 @@ _REMOTE_HOST = "image.tmdb.org"
 
 def _result(key: str, loader: hero_framing.Loader) -> dict:
     return hero_framing.hero_framing.request(key, loader).body()
-
-
-def _local(title_id: str, expected: str, key: str, artwork: ArtworkService) -> hero_framing.Loader:
-    def load() -> tuple[bytes, str] | None:
-        with SessionLocal() as db:
-            title = db.get(MediaTitle, title_id)
-            if title is None or image_url(title, "Backdrop") != expected:
-                return None
-            source = title_image_source(title, "Backdrop")
-            if source is None or art_urls.source_key(title.id, "Backdrop", source) != key:
-                return None
-            try:
-                content_type, content = title_image_bytes(db, title, "Backdrop", artwork)
-                return content, content_type
-            except (ArtworkError, FileNotFoundError):
-                return None
-    return load
-
-
-def _remote(path: str, artwork: ArtworkService) -> hero_framing.Loader:
-    def load() -> tuple[bytes, str] | None:
-        try:
-            response = tmdb.load_image(artwork, path, "Backdrop", size="w1280", max_bytes=hero_framing.MAX_INPUT_BYTES)
-        except ArtworkError:
-            return None
-        return response.content, response.content_type
-    return load
 
 
 def framing(
@@ -67,7 +40,7 @@ def framing(
         if source is None:
             return {"state": "unavailable"}
         key = art_urls.source_key(title.id, "Backdrop", source)
-        return _result(key, _local(title.id, src, key, _artwork))
+        return _result(key, hero_framing.local_loader(title.id, src, key, _artwork, user_id=current_user.id))
     try:
         parsed = urlsplit(src)
     except ValueError:
@@ -81,7 +54,7 @@ def framing(
     if path is None or f"https://{_REMOTE_HOST}{prefix}{path}" != src or not hero_framing.catalog_sources.contains(src):
         return {"state": "unavailable"}
     key = hashlib.sha256(f"tmdb:{path}".encode()).hexdigest()
-    return _result(key, _remote(path, _artwork))
+    return _result(key, hero_framing.remote_loader(path, _artwork))
 
 
 _artwork: ArtworkService

@@ -7,11 +7,11 @@ import uuid
 import pytest
 
 from app import db as db_module
-from app.models import MediaTitle
+from app.models import MediaTitle, StorageRoot
 from app.routers import admin_diagnostics
 from app.services import art_urls, renditions
 from app.services.hwaccel import HwStatus, hwaccel
-from art_support import add_art_title, artwork_row, give_art, seed_art_root, write_rendition
+from art_support import ART_ROOT_ID, add_art_title, artwork_row, give_art, seed_art_root, write_rendition
 from support import make_user
 from test_v1_sessions import client, factory, login  # noqa: F401  (fixtures)
 
@@ -54,6 +54,8 @@ def test_progress_is_cached_for_30_seconds_but_live_flags_and_serving_are_curren
     real = renditions.scan
     monkeypatch.setattr(renditions, "scan", lambda db, skipped=frozenset(): scans.append(1) or real(db, skipped))
     worker = renditions.ArtworkRenditions()
+    worker.progress(refresh=False)
+    assert scans == []
     worker.progress()
     renditions.count("hits_memory")
     renditions.count("hits_memory")
@@ -62,8 +64,30 @@ def test_progress_is_cached_for_30_seconds_but_live_flags_and_serving_are_curren
     assert len(scans) == 1
     assert second.serving.hits_memory == 2 and second.paused_for_playback is True
     monkeypatch.setattr(renditions, "PROGRESS_MAX_AGE_SECONDS", 0)
+    worker.progress(refresh=False)
+    assert len(scans) == 1  # header polling never inventories the catalog, even after its diagnostic TTL expires
     worker.progress()
     assert len(scans) == 2
+
+
+def test_progress_does_not_count_art_deferred_until_the_worker_wakes(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    media = tmp_path.resolve() / "media"
+    seed_art_root(media)
+    add_art_title(media, A)
+    with db_module.SessionLocal() as session:
+        session.get(StorageRoot, ART_ROOT_ID).observation = {"state": "offline"}
+        session.commit()
+    worker = renditions.ArtworkRenditions()
+    assert worker.run_once() and worker.run_once() is False
+
+    monkeypatch.setattr(renditions, "PROGRESS_MAX_AGE_SECONDS", 0)
+    assert worker.progress().pending == 0  # the source remains eligible, but is unreachable until wake/idle retry
+
+    with db_module.SessionLocal() as session:
+        session.get(StorageRoot, ART_ROOT_ID).observation = {"state": "available"}
+        session.commit()
+    worker._skipped.clear()  # the loop does this after its idle wait returns
+    assert worker.run_once()
 
 
 def test_housekeeping_never_recounts_the_library(monkeypatch) -> None:  # noqa: ANN001
@@ -85,7 +109,8 @@ def test_admin_artwork_route_is_admin_only(api_client) -> None:  # noqa: ANN001
     assert api_client(user=MEMBER, base_url="http://localhost").get("/api/admin/artwork").status_code == 403
     response = api_client(user=ADMIN, base_url="http://localhost").get("/api/admin/artwork")
     assert response.status_code == 200, response.text
-    assert set(response.json()) == {"total", "prepared", "failed", "unsupported", "cache_bytes", "running", "paused_for_playback", "failure_reasons", "serving", "updated_at"}
+    assert set(response.json()) == {"pending", "missing_episode_stills", "pending_episode_stills", "total", "prepared", "failed", "unsupported",
+                                    "cache_bytes", "running", "paused_for_playback", "failure_reasons", "serving", "updated_at"}
 
 
 def test_diagnostics_carry_the_artwork_counters(client, monkeypatch) -> None:  # noqa: ANN001

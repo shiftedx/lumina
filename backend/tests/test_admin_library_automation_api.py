@@ -99,7 +99,8 @@ def test_library_activity_requires_a_session_but_is_available_to_members_without
 ) -> None:
     from app.media_schemas import ArtworkProgress
     from app.services.renditions import renditions
-    monkeypatch.setattr(renditions, "progress", lambda: ArtworkProgress(
+    calls = []
+    monkeypatch.setattr(renditions, "progress", lambda *, refresh=True: calls.append(refresh) or ArtworkProgress(
         pending=7, failed=1, missing_episode_stills=8, paused_for_playback=True,
         failure_reasons={"private failure": 1},
     ))
@@ -129,6 +130,7 @@ def test_library_activity_requires_a_session_but_is_available_to_members_without
     }
     assert all(private not in response.text for private in ("Private TV", "/mnt/private", "private failure"))
     assert fake.calls == [("public_activity",)]
+    assert calls == [False]
     assert client.get(URL).status_code == 403
 
 

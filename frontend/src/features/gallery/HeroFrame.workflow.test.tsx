@@ -104,16 +104,19 @@ describe('HeroFrame request lifecycle', () => {
     const view = render(<HeroFrame src="/first">{child}</HeroFrame>);
     await act(async () => { intersection?.(true); await Promise.resolve(); });
     const firstSignal = api.getHeroFraming.mock.calls[0][1].signal as AbortSignal;
+    const frame = view.container.querySelector('.hero-frame') as HTMLElement;
+    expect(frame.dataset.heroActive).toBe('true');
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
     expect(firstSignal.aborted).toBe(true);
+    expect(frame.dataset.heroActive).toBe('false');
 
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await Promise.resolve(); });
     view.rerender(<HeroFrame src="/second">{child}</HeroFrame>);
     await act(async () => { settleFirst?.(ready); await Promise.resolve(); });
 
-    const frame = view.container.querySelector('.hero-frame') as HTMLElement;
+    expect(frame.dataset.heroActive).toBe('true');
     expect(api.getHeroFraming.mock.calls.map(([src]) => src)).toContain('/second');
     expect(frame.className).toContain('is-cover');
     expect(frame.style.getPropertyValue('--hero-focus-x')).toBe('50%');

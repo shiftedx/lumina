@@ -4,7 +4,7 @@ import { getHeroFraming, type HeroFraming, type HeroFramingRegion } from '../../
 import './heroFrame.css';
 
 type Size = { width: number; height: number };
-export type HeroGeometry = { mode: 'cover'; x: number; y: number };
+export type HeroGeometry = { mode: 'cover'; x: number; y: number; zoom: number; originX: number; originY: number };
 
 const EMPTY: HeroFraming = { state: 'pending' };
 const CACHE_LIMIT = 128;
@@ -50,7 +50,7 @@ function cached(src: string): HeroFraming | null {
 /** Full-bleed framing: protect heads first, then fit generic subject proposals above the text fade. */
 export function heroGeometry(raw: unknown, viewport: Size, placement: 'home' | 'title' = 'title'): HeroGeometry {
   const framing = validFraming(raw);
-  const fallback: HeroGeometry = { mode: 'cover', x: 50, y: 15 };
+  const fallback: HeroGeometry = { mode: 'cover', x: 50, y: 15, zoom: 1.025, originX: 50, originY: 15 };
   if (framing.state !== 'ready' || !viewport.width || !viewport.height) return fallback;
   const faces = framing.regions!.filter((item) => item.kind === 'face');
   const subjects = framing.regions!.filter((item) => item.kind === 'subject');
@@ -81,7 +81,13 @@ export function heroGeometry(raw: unknown, viewport: Size, placement: 'home' | '
   const yHigh = Math.min(1 - cropHeight, top);
   // If a group cannot fit, retain its upper edge rather than slice through its heads.
   const cropTop = yLow <= yHigh ? clamp(focus('y') - cropHeight * .42, yLow, yHigh) : clamp(top, 0, 1 - cropHeight);
-  return { mode: 'cover', x: cropWidth === 1 ? 50 : cropLeft / (1 - cropWidth) * 100, y: cropHeight === 1 ? 50 : cropTop / (1 - cropHeight) * 100 };
+  // Zoom around the protected group, stopping before any padded edge leaves the frame.
+  const visibleBounds = [(left - cropLeft) / cropWidth, (right - cropLeft) / cropWidth, (top - cropTop) / cropHeight, (bottom - cropTop) / cropHeight];
+  const originX = clamp((visibleBounds[0] + visibleBounds[1]) / 2, 0, 1);
+  const originY = clamp((visibleBounds[2] + visibleBounds[3]) / 2, 0, 1);
+  const limit = (low: number, high: number, origin: number) => Math.min(low < origin ? origin / (origin - low) : Infinity, high > origin ? (1 - origin) / (high - origin) : Infinity);
+  const zoom = clamp(Math.min(limit(visibleBounds[0], visibleBounds[1], originX), limit(visibleBounds[2], visibleBounds[3], originY)), 1, 1.06);
+  return { mode: 'cover', x: cropWidth === 1 ? 50 : cropLeft / (1 - cropWidth) * 100, y: cropHeight === 1 ? 50 : cropTop / (1 - cropHeight) * 100, zoom, originX: originX * 100, originY: originY * 100 };
 }
 
 function useHeroFraming(src: string | null | undefined, enabled: boolean, root: RefObject<HTMLElement | null>, placement: 'home' | 'title') {
@@ -139,14 +145,14 @@ function useHeroFraming(src: string | null | undefined, enabled: boolean, root: 
     });
     return () => { cancelled = true; controller.abort(); if (reveal !== undefined) window.clearTimeout(reveal); };
   }, [enabled, pageVisible, src, visible]);
-  return { framing: presentation.framing, geometry: useMemo(() => heroGeometry(presentation.framing, size, placement), [placement, presentation.framing, size]), revealed: presentation.revealed };
+  return { framing: presentation.framing, geometry: useMemo(() => heroGeometry(presentation.framing, size, placement), [placement, presentation.framing, size]), revealed: presentation.revealed, active: enabled && visible && pageVisible };
 }
 
 export function HeroFrame({ children, className = '', enabled = true, placement = 'title', src }: { children: ReactNode; className?: string; enabled?: boolean; placement?: 'home' | 'title'; src?: string | null }) {
   const root = useRef<HTMLSpanElement>(null);
-  const { framing, geometry, revealed } = useHeroFraming(src, enabled, root, placement);
-  const style = { '--hero-focus-x': `${geometry.x}%`, '--hero-focus-y': `${geometry.y}%` } as CSSProperties;
-  return <span className={`hero-frame ${className} is-cover`} data-hero-framing={framing.state} data-hero-revealed={revealed} ref={root} style={style}>
-    <span className="hero-frame-foreground">{children}</span>
+  const { framing, geometry, revealed, active } = useHeroFraming(src, enabled, root, placement);
+  const style = { '--hero-focus-x': `${geometry.x}%`, '--hero-focus-y': `${geometry.y}%`, '--hero-zoom': geometry.zoom, '--hero-origin-x': `${geometry.originX}%`, '--hero-origin-y': `${geometry.originY}%` } as CSSProperties;
+  return <span className={`hero-frame ${className} is-cover`} data-hero-active={active} data-hero-motion={geometry.zoom > 1} data-hero-framing={framing.state} data-hero-revealed={revealed} ref={root} style={style}>
+    <span className="hero-frame-foreground" key={src}>{children}</span>
   </span>;
 }

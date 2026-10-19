@@ -269,6 +269,35 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844
     expect(result.fit).toBe('cover');
     expect(result.subject).toBeGreaterThan(.2);
     expect(result.subject).toBeLessThan(.9);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    const layer = page.locator('.t-hero .hero-frame-foreground');
+    await expect(layer).toHaveCSS('animation-play-state', 'running');
+    const motion = await layer.evaluate((element) => {
+      const animation = element.getAnimations()[0];
+      animation.pause();
+      const positions = [0, 10_000, 20_000].map((time) => {
+        animation.currentTime = time;
+        const image = element.querySelector<HTMLImageElement>('.g-art-image')!;
+        const frame = element.closest('.t-hero')!.getBoundingClientRect();
+        const box = image.getBoundingClientRect();
+        const scale = Math.max(box.width / image.naturalWidth, box.height / image.naturalHeight);
+        const y = parseFloat(getComputedStyle(image).objectPosition.split(' ')[1]) / 100;
+        return { width: box.width, subject: (box.y + (box.height - image.naturalHeight * scale) * y + 842 * scale - frame.y) / frame.height,
+          fills: box.left <= frame.left + 1 && box.right >= frame.right - 1 && box.top <= frame.top + 1 && box.bottom >= frame.bottom - 1 };
+      });
+      animation.play();
+      return positions;
+    });
+    expect(motion[0].width).toBeGreaterThan(motion[2].width);
+    for (const position of motion) {
+      expect(position.fills).toBe(true);
+      expect(position.subject).toBeGreaterThan(.2);
+      expect(position.subject).toBeLessThan(.9);
+    }
+    await page.getByRole('region', { name: 'Cast' }).scrollIntoViewIfNeeded();
+    await expect(layer).toHaveCSS('animation-play-state', 'paused');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(layer).toHaveCSS('animation-name', 'none');
   });
 }
 

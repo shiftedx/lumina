@@ -23,10 +23,15 @@ export const HOLD_KEY = 'lumina.conversionHold.';
 export const MAX_DECISIONS = 50;
 export const FORGET_WAIT_MS = 1_000;
 export const HOLD_FRESH_MS = 90_000; // a hidden tab's timers may fire only once a minute
+export const NETWORK_BANDWIDTH_SAFETY_FACTOR = 0.8;
+export const MIN_NETWORK_BANDWIDTH_BPS = 100_000;
+export const MAX_NETWORK_BANDWIDTH_BPS = 1_000_000_000;
+// Chromium reports 10 Mbps for saturated/faster links, not an exact LAN measurement.
+export const SATURATED_NETWORK_DOWNLINK_MBPS = 10;
 const HOLD_BEAT_MS = 5_000;
 const PHONE = '(max-width: 599px), (pointer: coarse)';
 
-type Cached = { at: number; promise: Promise<LocalPlaybackOptions>; data: LocalPlaybackOptions | null };
+type Cached = { at: number; bandwidthBps: number | undefined; promise: Promise<LocalPlaybackOptions>; data: LocalPlaybackOptions | null };
 // `dead`: stopped, cancelled or adopted, so a request not yet sent must never go out.
 type Early = { itemId: string; promise: Promise<LocalPlaybackSession | null>; claimed: boolean; dead: boolean; timer: ReturnType<typeof setTimeout> | null };
 
@@ -59,15 +64,32 @@ if (typeof window !== 'undefined') {
   });
 }
 
-function fresh(itemId: string): Cached | null {
+/** A browser-only, transient initial-start budget. Missing or implausible hints preserve the server default. */
+export function initialPlaybackBandwidthBps(): number | undefined {
+  const downlink = (navigator as Navigator & { connection?: { downlink?: unknown } }).connection?.downlink;
+  if (typeof downlink !== 'number' || !Number.isFinite(downlink) || downlink <= 0 || downlink >= SATURATED_NETWORK_DOWNLINK_MBPS) return undefined;
+  const budget = Math.floor(downlink * 1_000_000 * NETWORK_BANDWIDTH_SAFETY_FACTOR);
+  return budget >= MIN_NETWORK_BANDWIDTH_BPS && budget <= MAX_NETWORK_BANDWIDTH_BPS ? budget : undefined;
+}
+
+function getOptions(itemId: string, bandwidthBps: number | undefined): Promise<LocalPlaybackOptions> {
+  return bandwidthBps === undefined ? getLocalPlaybackOptions(itemId) : getLocalPlaybackOptions(itemId, bandwidthBps);
+}
+
+function startSession(itemId: string, start: number, bandwidthBps: number | undefined): Promise<LocalPlaybackSession> {
+  return bandwidthBps === undefined ? startLocalPlaybackSession(itemId, start) : startLocalPlaybackSession(itemId, start, undefined, bandwidthBps);
+}
+
+function fresh(itemId: string, bandwidthBps = initialPlaybackBandwidthBps()): Cached | null {
   const hit = decisions.get(itemId);
-  return hit && Date.now() - hit.at < OPTIONS_TTL_MS ? hit : null;
+  return hit && hit.bandwidthBps === bandwidthBps && Date.now() - hit.at < OPTIONS_TTL_MS ? hit : null;
 }
 
 /** Title page open: prefetch the primary action's playback options (also prioritises its probe). */
 export function prefetchPlaybackOptions(itemId: string): void {
-  if (fresh(itemId)) return;
-  const entry: Cached = { at: Date.now(), promise: getLocalPlaybackOptions(itemId), data: null };
+  const bandwidthBps = initialPlaybackBandwidthBps();
+  if (fresh(itemId, bandwidthBps)) return;
+  const entry: Cached = { at: Date.now(), bandwidthBps, promise: getOptions(itemId, bandwidthBps), data: null };
   entry.promise.then((data) => { entry.data = data; }, () => { if (decisions.get(itemId) === entry) decisions.delete(itemId); });
   for (const [key, value] of decisions) if (entry.at - value.at >= OPTIONS_TTL_MS) decisions.delete(key);
   decisions.delete(itemId);
@@ -76,8 +98,8 @@ export function prefetchPlaybackOptions(itemId: string): void {
 }
 
 /** The prefetched decision for the player, once; null when there is none or it is older than 60 s. */
-export function takePrefetchedOptions(itemId: string): Promise<LocalPlaybackOptions> | null {
-  const hit = fresh(itemId);
+export function takePrefetchedOptions(itemId: string, bandwidthBps = initialPlaybackBandwidthBps()): Promise<LocalPlaybackOptions> | null {
+  const hit = fresh(itemId, bandwidthBps);
   decisions.delete(itemId);
   return hit?.promise ?? null;
 }
@@ -141,7 +163,8 @@ function stop(entry: Early | null): Promise<void> {
 
 /** 400 ms of hover or focus on the primary action: maybe start the conversion session early. */
 export function speculativeStart(itemId: string): void {
-  const decision = fresh(itemId)?.data;
+  const cached = fresh(itemId);
+  const decision = cached?.data;
   if (early?.itemId === itemId || !decision || !mayStartEarly()) return;
   // free_video_slots counts video transcodes only, so it gates only a transcode; a remux never waits on it.
   // The options cannot tell an audio-only transcode apart, so every transcode is gated (fewer early starts, never more).
@@ -149,6 +172,7 @@ export function speculativeStart(itemId: string): void {
   if (!converts) return;
   stop(early);
   const entry: Early = { itemId, claimed: false, dead: false, timer: null, promise: Promise.resolve(null) };
+  const bandwidthBps = cached?.bandwidthBps;
   // A session that arrives after the entry died is stopped (or kept, when adopted) by stop's and adopt's own handlers.
   entry.promise = conversionPlaying()
     .then(async (playing) => {
@@ -157,7 +181,7 @@ export function speculativeStart(itemId: string): void {
       if (entry.dead || conversionsHere > 0) return null; // the player took its hold (Play) while this was pending
       // No body: it must equal the player's request. If a remembered subtitle or quality default is ever sent by
       // the player on its first start, this must predict that same body, or the early session is never reused.
-      return startLocalPlaybackSession(itemId, startPoint(progress && !progress.completed ? progress.position_seconds : 0, decision.facts?.duration));
+      return startSession(itemId, startPoint(progress && !progress.completed ? progress.position_seconds : 0, decision.facts?.duration), bandwidthBps);
     })
     .catch(() => null);
   entry.timer = setTimeout(() => stop(entry), SPECULATIVE_TTL_MS);

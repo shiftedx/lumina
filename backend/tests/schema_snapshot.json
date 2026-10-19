@@ -138,6 +138,51 @@
    "updated_at",
    "yt_dlp_defaults"
   ],
+  "arr_observation_states": [
+   "attempted_at",
+   "capabilities",
+   "last_error",
+   "last_ok_at",
+   "server_id",
+   "summary",
+   "version"
+  ],
+  "arr_observed_items": [
+   "details",
+   "has_file",
+   "import_state",
+   "media_type",
+   "monitored",
+   "observed_at",
+   "server_id",
+   "title",
+   "tmdb_id",
+   "tvdb_id",
+   "upstream_id",
+   "year"
+  ],
+  "arr_observed_records": [
+   "data",
+   "dataset",
+   "item_id",
+   "observed_at",
+   "record_id",
+   "server_id"
+  ],
+  "arr_operations": [
+   "action",
+   "actor_id",
+   "args",
+   "created_at",
+   "error",
+   "id",
+   "resource_revision",
+   "result",
+   "server_id",
+   "status",
+   "updated_at",
+   "upstream_id"
+  ],
   "arr_servers": [
    "anime_quality_profile_id",
    "anime_root_folder",
@@ -437,6 +482,26 @@
    "root_id",
    "updated_at"
   ],
+  "listening_export_connections": [
+   "credentials",
+   "enabled",
+   "generation",
+   "provider",
+   "updated_at",
+   "user_id",
+   "username"
+  ],
+  "listening_play_events": [
+   "created_at",
+   "deliveries",
+   "id",
+   "item_id",
+   "listened_seconds",
+   "metadata_json",
+   "started_at",
+   "updated_at",
+   "user_id"
+  ],
   "live_recordings": [
    "attempts",
    "awaiting_fallback_choice",
@@ -494,6 +559,15 @@
    "root_id",
    "size",
    "updated_at"
+  ],
+  "media_cast_tickets": [
+   "created_at",
+   "expires_at",
+   "id",
+   "item_id",
+   "subtitle",
+   "token_hash",
+   "user_id"
   ],
   "media_request_followers": [
    "created_at",
@@ -587,6 +661,23 @@
    "title",
    "user_id"
   ],
+  "music_acquisitions": [
+   "album_id",
+   "album_name",
+   "args",
+   "artist_id",
+   "artist_name",
+   "connector_id",
+   "created_at",
+   "error",
+   "foreign_album_id",
+   "foreign_artist_id",
+   "id",
+   "result",
+   "status",
+   "updated_at",
+   "user_id"
+  ],
   "music_cast_tickets": [
    "expires_at",
    "id",
@@ -609,6 +700,20 @@
    "id",
    "item_id",
    "restored_at",
+   "user_id"
+  ],
+  "music_listening_sessions": [
+   "active_output",
+   "current_index",
+   "entry_index",
+   "item_ids",
+   "position_seconds",
+   "queue_entries",
+   "repeat",
+   "revision",
+   "shuffle",
+   "unavailable_policy",
+   "updated_at",
    "user_id"
   ],
   "music_lookups": [
@@ -802,6 +907,22 @@
    "series_id",
    "state"
   ],
+  "service_connectors": [
+   "api_key",
+   "base_url",
+   "enabled",
+   "id",
+   "kind",
+   "last_error",
+   "last_ok_at",
+   "name",
+   "password",
+   "settings",
+   "snapshot",
+   "updated_at",
+   "username",
+   "version"
+  ],
   "source_automations": [
    "active",
    "artwork_url",
@@ -976,5 +1097,5 @@
    "user_id"
   ]
  },
- "version": 22
+ "version": 29
 }

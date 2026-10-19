@@ -6,7 +6,7 @@ import pytest
 from arr_fake import API_KEY, FakeArr, FakeTmdb, seed_anime
 from support import make_user, seed_app_settings
 
-from app.models import ArrServer, User
+from app.models import ArrObservationState, ArrObservedItem, ArrObservedRecord, ArrServer, User
 from app.services import tmdb
 
 ADMIN_CALLS = [
@@ -100,7 +100,7 @@ def test_quota_endpoint(clients) -> None:  # noqa: ANN001
     assert set(quotas) == {"movie", "show", "anime"}
 
 
-def test_server_api_key_is_write_only_and_test_uses_the_stored_key(clients) -> None:  # noqa: ANN001
+def test_server_api_key_is_write_only_and_test_uses_the_stored_key(clients, db_factory) -> None:  # noqa: ANN001
     fake = FakeArr("sonarr")
     try:
         admin = clients("admin")
@@ -123,7 +123,19 @@ def test_server_api_key_is_write_only_and_test_uses_the_stored_key(clients) -> N
         assert bad == {"ok": False, "version": None, "root_folders": [], "quality_profiles": [], "error": "Sonarr endpoint returned HTTP 401"}
         made = admin.post(f"/api/admin/requests/servers/{server['id']}/anime-language-profiles").json()
         assert made["dub_profile_id"] and made["sub_profile_id"] and made["dub_profile_id"] != 5
+        with db_factory() as db:
+            db.add(ArrObservationState(server_id=server['id'], version='4.0.9'))
+            db.add(ArrObservedItem(server_id=server['id'], upstream_id=1, media_type='tv', title='Example', import_state='unmapped'))
+            db.add(ArrObservedRecord(server_id=server['id'], dataset='queue', record_id='1', data={}))
+            db.commit()
+        admin.put(f"/api/admin/requests/servers/{server['id']}", json={"enabled": False})
+        with db_factory() as db:
+            assert db.get(ArrObservationState, server['id']).last_error
         assert admin.delete(f"/api/admin/requests/servers/{server['id']}").status_code == 204
+        with db_factory() as db:
+            assert db.get(ArrObservationState, server['id']) is None
+            assert db.get(ArrObservedItem, (server['id'], 1)) is None
+            assert db.get(ArrObservedRecord, (server['id'], 'queue', '1')) is None
     finally:
         fake.close()
 

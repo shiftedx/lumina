@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import ArrServer, MediaRequest, RequestPolicy, User, UserSettings, utcnow
+from app.models import ArrObservationState, ArrObservedItem, ArrObservedRecord, ArrServer, MediaRequest, RequestPolicy, User, UserSettings, utcnow
 from app.persistence import write_transaction
 from app.security import get_admin_user, get_current_user
 from app.services.local_ai import validate_endpoint_url
@@ -306,13 +306,25 @@ def update_server(server_id: str, body: ServerBody, db: Session = Depends(get_db
     if body.base_url is not None and body.base_url != server.base_url and not body.api_key:
         raise HTTPException(status_code=400, detail="api_key_required")  # the stored key never follows to another address
     with write_transaction(db, name="arr_server_update"):
+        identity_changed = any(value is not None and value != getattr(server, field)
+                               for field, value in (("kind", body.kind), ("base_url", body.base_url)))
         _apply(server, body)
+        if identity_changed:
+            _clear_observations(db, server_id)
+        elif state := db.get(ArrObservationState, server_id):
+            state.last_error = "Connection settings changed; waiting for a complete refresh"
     return serialize_server(server)
+
+
+def _clear_observations(db: Session, server_id: str) -> None:
+    for model in (ArrObservedItem, ArrObservedRecord, ArrObservationState):
+        db.query(model).filter(model.server_id == server_id).delete(synchronize_session=False)
 
 
 def delete_server(server_id: str, db: Session = Depends(get_db, scope="function")) -> Response:
     server = _server(db, server_id)
     with write_transaction(db, name="arr_server_delete"):
+        _clear_observations(db, server_id)
         db.delete(server)
     return Response(status_code=204)
 

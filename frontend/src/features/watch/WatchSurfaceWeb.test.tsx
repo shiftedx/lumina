@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { stillItem } from '../../test/galleryFixtures';
@@ -60,6 +60,29 @@ describe('the web-video watch page', () => {
     expect(container.querySelector('section.watch-info')).not.toBeNull();
     expect(container.querySelector('aside.watch-rail')).not.toBeNull();
     expect(container.querySelector('.g-watch-body')).toBeNull();
+  });
+
+  it('keeps a Notes draft and timestamp when title metadata moves tools into the title layout', async () => {
+    let resolveTitle: (value: { id: string; name: string; type: 'movie' }) => void = () => undefined;
+    api.getTitle.mockReturnValue(new Promise((resolve) => { resolveTitle = resolve; }));
+    render(watchSurface({ selection: { kind: 'library', item: stillItem('m', { title: 'Imported film', title_id: 'movie-1', kind: 'movie' }) } }));
+
+    const notes = screen.getByRole('tab', { name: 'Notes' });
+    fireEvent.click(notes);
+    expect(notes.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('region', { name: 'Notes' })).toBeTruthy();
+    const composer = screen.getByLabelText('New note') as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: 'Remember this moment' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add current time' }));
+    expect(composer.value).toBe('Remember this moment');
+    expect(screen.getByText(/^At 0:00/)).toBeTruthy();
+
+    resolveTitle({ id: 'movie-1', name: 'Metadata title', type: 'movie' });
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Metadata title' })).toBeTruthy());
+    expect(screen.getByRole('tab', { name: 'Notes' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('region', { name: 'Notes' })).toBeTruthy();
+    expect((screen.getByLabelText('New note') as HTMLTextAreaElement).value).toBe('Remember this moment');
+    expect(screen.getByText(/^At 0:00/)).toBeTruthy();
   });
 
   it('does not query the phone breakpoint on a movie page', () => {

@@ -3,6 +3,7 @@ import type { AutoSkipPref } from '../../../types';
 import { PLAYBACK_MAX_HEIGHTS } from '../../../workspace';
 import { TMDB_ATTRIBUTION } from '../../titles/titleModel';
 import { CaptionStyleRows } from '../../watch/CaptionStyleRows';
+import { TrackPreferenceRows } from '../../watch/TrackPreferenceRows';
 import { Avatar, Button, ButtonLink, Field, fieldProps, SegmentedControl, Select } from '../../../ui';
 import { SettingSwitch } from '../SettingRow';
 import { RequestNotifications } from './requestsNotifications';
@@ -10,6 +11,7 @@ import { ConnectedApps } from '../ConnectedApps';
 import { TwoFactorSettings } from '../TwoFactorSettings';
 import { JellyfinHistoryImport } from '../JellyfinHistoryImport';
 import { PersonalResources } from '../HouseholdResources';
+import { ListeningExportRows } from '../ListeningExportRows';
 import { useSettingsHost } from '../settingsHost';
 import type { SettingsSectionDef } from '../settingsTypes';
 import {
@@ -90,6 +92,7 @@ function CaptionsControl() {
   return (
     <div className="g-subrows">
       <CaptionStyleRows onChange={onCaptionsChange} value={captions} />
+      <TrackPreferenceRows onChange={onCaptionsChange} value={captions} />
       <p className="g-setting-note">On iPhone and iPad, full-screen captions follow the system's caption style.</p>
     </div>
   );
@@ -178,11 +181,12 @@ export const YOU_SECTIONS: readonly SettingsSectionDef[] = [
       { id: 'playback.autoplay', label: 'Autoplay next video', layout: 'switch', keywords: ['autoplay', 'up next', 'continuous play'], info: 'Starts the next related video when the one you are watching ends. Turn it off to stop at the end of each video. Affects only you.', Control: Autoplay },
       { id: 'playback.max-quality', label: 'Streaming quality', keywords: ['maximum quality', 'resolution', '1080p', '720p', '480p', 'data saver', 'bandwidth'], info: 'The highest quality Lumina picks automatically when a video streams. A quality you choose in the player still wins, and downloads are not affected. Lower it to save data; affects only you.', Control: MaxQuality },
       { id: 'playback.loudness', label: 'Even out loudness', layout: 'switch', keywords: ['sound', 'loudness', 'volume', 'normalize', 'quiet', 'loud'], info: 'Keeps quiet films and loud episodes at a similar volume. Lumina adjusts the sound in your browser as it plays, and the file never changes. Affects only you.', Control: Loudness },
+      { id: 'playback.listening-export', label: 'Listening history export', layout: 'block', keywords: ['last.fm', 'lastfm', 'listenbrainz', 'scrobble', 'music', 'history'], info: 'Optionally send eligible browser music listens to your own Last.fm or ListenBrainz account. Credentials stay on this server and disconnecting stops future exports. Only you can see your export outcomes.', Control: ListeningExportRows },
       {
         id: 'playback.captions',
         label: 'Captions',
-        info: "Sets how large captions are and what sits behind them. Changes apply to every video you watch in Lumina. On iPhone and iPad, full-screen captions follow the system's caption style.",
-        keywords: ['subtitles', 'size', 'background', 'shadow', 'box'],
+        info: "Choose audio and subtitle languages, forced/SDH defaults, and caption size and background for your profile. Your choices in the player take priority. On iPhone and iPad, full-screen captions follow the system's caption style.",
+        keywords: ['subtitles', 'size', 'background', 'shadow', 'box', 'audio', 'language', 'forced', 'sdh', 'hearing'],
         layout: 'block',
         Control: CaptionsControl,
       },

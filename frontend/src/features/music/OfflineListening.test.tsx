@@ -77,7 +77,8 @@ beforeEach(() => {
   vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:saved'), revokeObjectURL: vi.fn() });
 });
 
-it('stops and releases native offline playback before starting Web Audio', async () => {
+it.each([false, true])('stops and releases native offline playback before starting Web Audio (unprobed: %s)', async (unprobed) => {
+  if (unprobed) Object.assign(mocks.tracks[0].track, { duration: null, sample_rate: null, channels: null });
   render(<OfflineListening />);
   await userEvent.click(await screen.findByRole('button', { name: 'Play Long track' }));
   expect(mocks.nativePlay).toHaveBeenCalledOnce();

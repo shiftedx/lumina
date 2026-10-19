@@ -8,6 +8,8 @@ DATA_DIR must come from seed_household.py. The backend is started from serve.py
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import random
 import sqlite3
 import statistics
@@ -33,7 +35,11 @@ def sample_ids(data_dir: Path) -> dict[str, list[str]]:
             "transcript": pick("SELECT t.id FROM transcripts t JOIN library_items i ON i.id = t.library_item_id WHERE i.visibility = 'shared' LIMIT 100"),
             "noted": pick("SELECT DISTINCT n.item_id FROM library_notes n JOIN library_items i ON i.id = n.item_id WHERE i.visibility = 'shared' LIMIT 100"),
             "series": pick("SELECT DISTINCT uploader FROM library_items WHERE kind = 'episode' LIMIT 20"),
-            "transcribed": pick("SELECT t.library_item_id FROM transcripts t JOIN library_items i ON i.id = t.library_item_id WHERE i.visibility = 'shared' LIMIT 1"),
+            # The browser workflow opens Watch's video tools.  Keep its
+            # fixture contract aligned with audit_household --ui-only rather
+            # than selecting an arbitrary shared transcript (which may belong
+            # to audio or an unavailable item and cannot render that tab).
+            "transcribed": pick("SELECT t.library_item_id FROM transcripts t JOIN library_items i ON i.id = t.library_item_id WHERE i.visibility = 'shared' AND i.status = 'available' AND i.kind IN ('video', 'movie', 'episode') ORDER BY t.id LIMIT 1"),
         }
 
 
@@ -82,18 +88,19 @@ def login(base: str, username: str) -> httpx.Client:
     return client
 
 
-def call(client: httpx.Client, spec: tuple) -> tuple[int, int]:
+def call(client: httpx.Client, spec: tuple) -> tuple[int, int, int]:
     method, path, *body = spec
     if method == "SSE":
         with client.stream("GET", path) as response:
-            next(response.iter_raw(), None)  # time to first byte
-            return response.status_code, int(response.headers.get("x-perf-queries", 0))
+            first = next(response.iter_raw(), b"")  # time to first byte
+            return response.status_code, int(response.headers.get("x-perf-queries", 0)), len(first)
     response = client.request(method, path, json=body[0] if body else None)
-    return response.status_code, int(response.headers.get("x-perf-queries", 0))
+    return response.status_code, int(response.headers.get("x-perf-queries", 0)), len(response.content)
 
 
-def run(base: str, ids: dict, seconds: float, think: float) -> dict[str, list[tuple[float, int, int]]]:
-    results: dict[str, list[tuple[float, int, int]]] = defaultdict(list)
+def run(base: str, ids: dict, seconds: float, think: float, members: int = 6) -> dict[str, list[tuple[float, int, int, int]]]:
+    results: dict[str, list[tuple[float, int, int, int]]] = defaultdict(list)
+    failures: list[str] = []
     lock = threading.Lock()
     deadline = time.monotonic() + seconds
 
@@ -105,17 +112,29 @@ def run(base: str, ids: dict, seconds: float, think: float) -> dict[str, list[tu
         while time.monotonic() < deadline:
             name = rng.choice(names)
             started = time.perf_counter()
-            status, queries = call(client, table[name]())
+            try:
+                status, queries, size = call(client, table[name]())
+            except httpx.HTTPError:
+                status, queries, size = 0, 0, 0  # A failed transport must remain in the sample distribution.
             elapsed = (time.perf_counter() - started) * 1000
             with lock:
-                results[name].append((elapsed, status, queries))
+                results[name].append((elapsed, status, queries, size))
             time.sleep(rng.uniform(0, 2 * think))  # member think time; --think 0 is a closed-loop stress run
 
-    threads = [threading.Thread(target=member, args=(user,)) for user in USERS]
+    def checked_member(username: str) -> None:
+        try:
+            member(username)
+        except Exception as error:
+            with lock:
+                failures.append(type(error).__name__)
+
+    threads = [threading.Thread(target=checked_member, args=(user,)) for user in USERS[:members]]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
+    if failures:
+        raise RuntimeError(f"Load workers failed: {', '.join(failures)}")
     return results
 
 
@@ -135,7 +154,11 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8799)
     parser.add_argument("--ui", action="store_true", help="also run the browser measurement (scripts/perf/ui.mjs)")
     parser.add_argument("--think", type=float, default=0.25, help="mean seconds between one member's requests")
+    parser.add_argument("--members", type=int, choices=range(1, 7), default=6)
+    parser.add_argument("--json", type=Path, help="retain raw synthetic samples and measured distributions")
     args = parser.parse_args()
+    if args.seconds <= 0 or args.think < 0:
+        parser.error("seconds must be positive and think time must be non-negative")
     base = f"http://127.0.0.1:{args.port}"
     server = subprocess.Popen([sys.executable, str(HERE / "serve.py"), str(args.data_dir), str(args.port)])
     try:
@@ -148,14 +171,32 @@ def main() -> None:
         else:
             sys.exit("backend did not start")
         ids = sample_ids(args.data_dir)
+        if not all(ids.values()):
+            raise RuntimeError("The workload requires the complete synthetic household seed")
         warm = login(base, "perfadmin")
         for name, spec in endpoints(ids).items():  # warm caches once so the run measures steady state
             call(warm, spec())
-        results = run(base, ids, args.seconds, args.think)
-        print(f"{sum(map(len, results.values())) / args.seconds:.0f} req/s over {args.seconds:.0f}s, 6 members, think {args.think}s")
+        results = run(base, ids, args.seconds, args.think, args.members)
+        print(f"{sum(map(len, results.values())) / args.seconds:.0f} req/s over {args.seconds:.0f}s, {args.members} members, think {args.think}s")
         report(results)
         rss = subprocess.run(["ps", "-o", "rss=", "-p", str(server.pid)], capture_output=True, text=True).stdout.strip()
-        print(f"backend RSS after run: {int(rss or 0) // 1024}MB")
+        rss_bytes = int(rss) * 1024 if rss.isdecimal() else None
+        print(f"backend RSS after run: {rss_bytes // 1048576 if rss_bytes is not None else 'unavailable'} MB")
+        if args.json:
+            endpoints_report = {}
+            for name, rows in results.items():
+                ordered = sorted(row[0] for row in rows)
+                rank = lambda fraction: ordered[max(0, math.ceil(len(ordered) * fraction) - 1)]  # noqa: E731
+                endpoints_report[name] = {"count": len(rows), "p50_ms": statistics.median(ordered),
+                    "p95_ms": rank(.95) if len(rows) >= 20 else None, "p99_ms": rank(.99) if len(rows) >= 100 else None,
+                    "max_ms": ordered[-1], "max_queries": max(row[2] for row in rows),
+                    "non_2xx": sum(not 200 <= row[1] < 300 for row in rows), "response_bytes": sum(row[3] for row in rows),
+                    "raw": [{"wall_ms": row[0], "status": row[1], "queries": row[2], "decoded_body_bytes": row[3]} for row in rows]}
+            args.json.parent.mkdir(parents=True, exist_ok=True)
+            args.json.write_text(json.dumps({"seconds": args.seconds, "members": args.members, "think_seconds": args.think,
+                "warmup": "one request per endpoint before the run; OS page cache not flushed", "backend_end_rss_bytes": rss_bytes,
+                "tail_note": "p95 requires at least 20 samples; p99 at least 100; raw samples retained; status 0 is a transport error",
+                "endpoints": endpoints_report}, indent=2) + "\n")
         if args.ui:
             subprocess.run(["node", str(HERE / "ui.mjs"), base, ids["transcribed"][0]], check=True)
     finally:

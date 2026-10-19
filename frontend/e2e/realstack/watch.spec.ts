@@ -4,7 +4,7 @@ import { expect, libraryItemId, test, videoTime } from './realstack';
 test('a timestamped note persists and seeks the player', async ({ page }) => {
   await page.goto('/library/movies');
   await page.getByRole('button', { name: /^Realstack Direct,/ }).first().click();
-  await page.getByRole('button', { name: /^(Play|Resume|Start)/ }).first().click();
+  await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
   await expect.poll(() => videoTime(page)).toBeGreaterThan(1.2);
   await page.getByRole('button', { name: 'Pause' }).click();
   const stamp = await videoTime(page);
@@ -17,7 +17,10 @@ test('a timestamped note persists and seeks the player', async ({ page }) => {
   await expect(seek).toBeVisible();
 
   await page.reload();
+  // Title metadata replaces the initial player layout; choose the tool after that layout is ready.
+  await expect(page.getByRole('region', { name: 'Realstack Direct', exact: true }).getByText(/2024/)).toBeVisible();
   await page.getByRole('tab', { name: 'Notes' }).click();
+  await expect(page.getByRole('tabpanel', { name: 'Notes', exact: true })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Notes on this item' })).toContainText('Lantern appears on the left');
   await page.locator('video').evaluate((video: HTMLVideoElement) => { video.pause(); video.currentTime = 3.5; });
   await seek.click();
@@ -42,7 +45,7 @@ test('watch queue adds, reorders across reload, and autoplays the next entry', a
   for (const title of ['Realstack Show S01E01', 'Realstack Show S01E02', 'Realstack Remux']) await queueLibraryItem(page, title);
   await page.goto('/library/movies');
   await page.getByRole('button', { name: /^Realstack Direct,/ }).first().click();
-  await page.getByRole('button', { name: /^(Play|Resume|Start)/ }).first().click();
+  await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
   const queue = page.getByRole('region', { name: 'Your queue' });
   const order = () => queue.getByRole('listitem').locator('strong').allTextContents();
   await expect.poll(order).toEqual(['Realstack Show S01E01', 'Realstack Show S01E02', 'Realstack Remux']);

@@ -66,6 +66,7 @@ class Snapshot:
     provider_ids: dict
     provider_source: str | None
     path: str  # root-relative path from the identity key, for the AI's file context
+    metadata_due_at: datetime | None = None  # queue token: a later import/refresh must survive this fetch
     season_numbers: frozenset[int] = frozenset()
     display_order: str = "aired"  # #164: how the files are numbered; TMDB is read through that order
     episode_group: str | None = None  # a TMDB episode group the user picked for that order
@@ -162,6 +163,7 @@ def snapshot(db: Session, title: MediaTitle) -> Snapshot:
         id=title.id, type=title.type, name=title.name, year=title.year,
         provider_ids=dict(title.provider_ids or {}), provider_source=(title.field_sources or {}).get("provider_ids"),
         path=title.key.split(":", 1)[-1], season_numbers=seasons, display_order=order,
+        metadata_due_at=title.metadata_due_at,
         episode_group=meta.get("episode_group") if isinstance(meta.get("episode_group"), str) else None, episodes=episodes,
     )
 
@@ -295,8 +297,10 @@ def store(db: Session, snap: Snapshot, fetched: Fetched, now: datetime) -> bool:
     metadata = {key: value for key, value in (title.metadata_json or {}).items() if key != "metadata_failures"}
     title.metadata_json = {**metadata, "match": {**fetched.match, "tmdb_id": fetched.tmdb_id, "at": now.isoformat()}}
     details = fetched.details
+    due_unchanged = title.metadata_due_at == snap.metadata_due_at
     if fetched.tmdb_id is None or details is None:
-        title.metadata_due_at = now + UNMATCHED_RETRY
+        if due_unchanged:
+            title.metadata_due_at = now + UNMATCHED_RETRY
         return True
     _store_provider_ids(title, details.provider_ids)
     _apply(title, details.fields)
@@ -308,7 +312,8 @@ def store(db: Session, snap: Snapshot, fetched: Fetched, now: datetime) -> bool:
     _upsert_people(db, people)
     cast_photos.top_up(db, title, details.people)
     returning = title.type == "series" and details.status not in tmdb.ENDED_STATUSES
-    title.metadata_due_at = now + (RETURNING_REFRESH if returning else MOVIE_OR_ENDED_REFRESH)
+    if due_unchanged:
+        title.metadata_due_at = now + (RETURNING_REFRESH if returning else MOVIE_OR_ENDED_REFRESH)
     _reindex(db, title)
     return True
 
@@ -383,7 +388,7 @@ def failure_delay(failures: int) -> timedelta:
     return min(MAX_FAILURE_DELAY, timedelta(hours=2 ** min(failures, 10)))
 
 
-def _record_failure(title_id: str, now: datetime) -> None:
+def _record_failure(title_id: str, now: datetime, expected_due: datetime | None) -> None:
     with session_scope() as db, write_transaction(db, name="tmdb_metadata_failure"):
         title = db.get(MediaTitle, title_id)
         if title is None:
@@ -392,7 +397,8 @@ def _record_failure(title_id: str, now: datetime) -> None:
         failures = metadata.get("metadata_failures")
         failures = failures if type(failures) is int and failures >= 0 else 0
         title.metadata_json = {**metadata, "metadata_failures": failures + 1}
-        title.metadata_due_at = now + failure_delay(failures)
+        if title.metadata_due_at == expected_due:
+            title.metadata_due_at = now + failure_delay(failures)
 
 
 def refresh_title(
@@ -416,7 +422,7 @@ def refresh_title(
             stored = store(db, snap, fetched, now)
     except Exception as exc:  # noqa: BLE001 - one title fails, never the batch; the type only, never content
         logger.warning("TMDB metadata refresh failed for title %s: %s", title_id, type(exc).__name__)
-        _record_failure(title_id, now)
+        _record_failure(title_id, now, snap.metadata_due_at)
         return "failed"
     if not stored:
         return "skipped"

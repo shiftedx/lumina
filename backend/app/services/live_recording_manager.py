@@ -446,7 +446,10 @@ class LiveRecordingManager:
         worker = threading.Thread(target=target, args=args, name=f"live-rec-{recording_id[:8]}", daemon=True)
         with self._lock:
             self._workers[recording_id] = worker
-        worker.start()
+            # ``wait_all`` snapshots workers under this lock.  Do not publish a
+            # Thread that has not passed ``start()`` yet: joining that narrow
+            # window raises ``RuntimeError`` instead of waiting for its work.
+            worker.start()
 
     def _monitor(self, user_id: str, control: _Control) -> None:
         """Stop a capture at its runtime ceiling, or when its owner or disk gives out.

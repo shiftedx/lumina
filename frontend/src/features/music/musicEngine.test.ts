@@ -21,7 +21,7 @@ type FakeAudio = {
   gains: Array<{ gain: { value: number; setValueAtTime: ReturnType<typeof vi.fn> }; disconnect: ReturnType<typeof vi.fn> }>;
 };
 
-const track = (id: string, fallbackUrl?: string): MusicSource => fallbackUrl ? { id, url: `/audio/${id}.bin`, fallbackUrl } : { id, url: `/audio/${id}.bin` };
+const track = (id: string, fallbackUrl?: string): MusicSource => ({ id, url: `/audio/${id}.bin`, fallbackUrl, duration: 5, sampleRate: 48_000, channels: 2 });
 
 function fakeAudio(durations: Record<string, number> = {}): FakeAudio {
   const sources: FakeSource[] = [];
@@ -104,6 +104,22 @@ describe('MusicEngine', () => {
 
     fake.sources[0].onended?.();
     expect(engine.getState()).toMatchObject({ index: 1, position: 0, duration: 4, playing: true, loading: false });
+  });
+
+  it('keeps default gapless timing and starts decoded-buffer crossfade before the boundary', async () => {
+    const fake = fakeAudio({ a: 10, b: 8 });
+    const engine = new MusicEngine({ onChange: () => undefined, createContext: () => fake.context, getAudio: loader() });
+    await engine.play([track('a'), track('b')]);
+    await settle();
+    expect(fake.sources[1].start).toHaveBeenCalledWith(20, 0);
+
+    engine.setCrossfade(3);
+    await settle();
+    const fadingSource = fake.sources.find((source) => source.start.mock.calls.some(([at]) => at === 17));
+    expect(fadingSource?.start).toHaveBeenCalledWith(17, 0);
+    engine.setCrossfade(0);
+    expect(fadingSource?.stop).toHaveBeenCalled();
+    engine.dispose();
   });
 
   it('decodes only the current and one next track, then advances lookahead after transition', async () => {
@@ -517,6 +533,17 @@ describe('MusicEngine', () => {
     expect(fake.context.decodeAudioData).not.toHaveBeenCalled();
     expect(fake.sources).toHaveLength(0);
     expect(engine.getState()).toMatchObject({ playing: false, loading: false });
+    engine.dispose();
+  });
+
+  it('refuses unprobed audio before loading it, including tracks introduced by queue refresh', async () => {
+    const fake = fakeAudio();
+    const getAudio = vi.fn(loader());
+    const engine = new MusicEngine({ onChange: () => undefined, createContext: () => fake.context, getAudio });
+    await expect(engine.play([{ id: 'unprobed', url: '/audio/unprobed.bin' }])).rejects.toThrow(/streaming playback/i);
+    expect(getAudio).not.toHaveBeenCalled();
+    expect(fake.context.decodeAudioData).not.toHaveBeenCalled();
+    expect(fake.sources).toHaveLength(0);
     engine.dispose();
   });
 

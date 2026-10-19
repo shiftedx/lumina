@@ -20,7 +20,7 @@ for (const { title, via, codecs } of [
     }
     await page.goto('/library/movies');
     await page.getByRole('button', { name: new RegExp(`^${title},`) }).first().click();
-    await page.getByRole('button', { name: /^(Play|Resume|Start)/ }).first().click();
+    await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
     await expect(page.getByRole('region', { name: `${title} player` })).toContainText(`${codecs} · ${via}`);
     await expect.poll(() => videoTime(page), { timeout: 15_000 }).toBeGreaterThan(0.5);
   });
@@ -31,7 +31,7 @@ test('seeking beyond the converted range restarts the transcode and lands near t
   await page.addInitScript(() => localStorage.setItem('lumina.hevcFailed', '1'));
   await page.goto('/library/movies');
   await page.getByRole('button', { name: /^Realstack Seek,/ }).first().click();
-  await page.getByRole('button', { name: /^(Play|Resume|Start)/ }).first().click();
+  await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
   await expect(page.getByRole('region', { name: 'Realstack Seek player' })).toContainText('HEVC / AAC · Transcoded');
   // Playing inside the first converted segment proves real WebKit decode before the far seek.
   await expect.poll(() => videoTime(page), { timeout: 15_000 }).toBeGreaterThan(0.5);

@@ -114,6 +114,9 @@ export async function mockApi(page: Page, uiPrefs: Record<string, unknown>) {
     if (path === '/api/collections') return json([]); // Home's Collections shelf: none, not a 404
     if (path === '/api/jobs') return json({ items: [], next_cursor: null });
     if (path === '/api/me/watch-queue') return json({ revision: 0, limit: 500, entries: [] });
+    if (path === '/api/me/music-session') return json({ revision: 0, queue: [], current_index: null, position_seconds: 0, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+    if (path === '/api/me/listening-export') return json({ items: [{ provider: 'lastfm', enabled: false, username: null, credentials_set: false, authorization_pending: false }, { provider: 'listenbrainz', enabled: false, username: null, credentials_set: false, authorization_pending: false }] });
+    if (path === '/api/me/listening-events') return json({ items: [], page: 1 });
     if (path === '/api/search/history') {
       if (request.method() === 'GET') return json(searchHistory);
       if (request.method() === 'POST') {
@@ -216,6 +219,7 @@ export async function mockAdminFixtures(page: Page) {
     'members/m2/activity': { screen_time_today_seconds: 3900, recent: [{ id: 'h1', source: 'library', user: { id: 'm2', name: 'Eleanor' }, title: 'Bluey', subtitle: 'Season 1 · Episode 3', item_id: null, client: { name: 'Lumina web', device: 'Living-room TV' }, method: 'direct', hardware: null, video: null, started_at: at, ended_at: at, watched_seconds: 420, stopped_by_admin: false }] },
     'members/m2/resources': ELEANOR_RESOURCES,
     'requests/servers': [],
+    'arr/observations': { servers: [], items: [], page: 1, page_size: 50, total: 0, total_pages: 1 },
     'requests/settings': { requests_enabled: true, smtp: { host: null, port: null, security: 'starttls', username: null, from: null, password_set: false } },
     'requests/policies': {
       defaults: [

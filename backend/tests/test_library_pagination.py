@@ -58,6 +58,26 @@ def collect_all_pages(client, params: dict | None = None) -> list[str]:  # noqa:
     raise AssertionError("Pagination never terminated")
 
 
+def test_streaming_video_view_excludes_ordinary_imports(library_api) -> None:
+    client, _engine, sessions, *_ = library_api
+    with sessions.begin() as session:
+        downloaded = _item("downloaded-video")
+        downloaded.kind = "video"
+        saved_stream = _item("saved-web-stream")
+        saved_stream.kind, saved_stream.extractor = "video", "Generic"
+        unknown = _item("unknown-provider")
+        unknown.kind, unknown.extractor = "video", None
+        twitch = _item("twitch-vod")
+        twitch.kind, twitch.extractor = "video", "twitch:vod"
+        imported = _item("imported-episode", metadata={"lumina_import_kind": "unclassified"})
+        imported.kind, imported.extractor = "video", "external_library"
+        session.add_all([downloaded, saved_stream, unknown, twitch, imported])
+    assert set(collect_all_pages(client, {"kind": "video", "source": "saved", "status": "available", "limit": 1})) == {"downloaded-video", "saved-web-stream", "unknown-provider", "twitch-vod"}
+    assert set(collect_all_pages(client, {"kind": "video", "source": "other_web"})) == {"saved-web-stream", "unknown-provider"}
+    assert collect_all_pages(client, {"kind": "video", "source": "Twitch"}) == ["twitch-vod"]
+    assert set(collect_all_pages(client)) == {"downloaded-video", "saved-web-stream", "unknown-provider", "twitch-vod", "imported-episode"}
+
+
 def test_pages_are_deterministically_ordered_across_null_downloads_and_ties(library_api) -> None:
     client, _engine, session_factory, _active, *_ = library_api
     with session_factory.begin() as session:

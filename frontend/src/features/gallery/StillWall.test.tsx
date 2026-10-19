@@ -40,14 +40,16 @@ describe('StillWall', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'YouTube' })).toBeTruthy();
     expect(screen.getByText('318 videos · Sorted by recently added')).toBeTruthy();
     expect(await screen.findByRole('button', { name: /^Canal at noon, / })).toBeTruthy();
-    expect(list).toHaveBeenCalledWith(expect.objectContaining({ kind: 'video', sort: 'recent', limit: 60, cursor: null }));
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ kind: 'video', source: 'saved', status: 'available', sort: 'recent', limit: 60, cursor: null }));
   });
 
   it('sorts and filters through the address and drops invalid values', async () => {
     expect(parseStillQuery('video', 'sort=bogus&source=vimeo')).toEqual({ sort: 'recent', source: '' });
     expect(parseStillQuery('video', 'sort=title&source=twitch&view=saved')).toEqual({ sort: 'title', source: 'twitch' });
+    expect(parseStillQuery('video', 'source=other_web')).toEqual({ sort: 'recent', source: 'other_web' });
     expect(parseStillQuery('recording', 'source=twitch')).toEqual({ sort: 'recent', source: '' });
     expect(serializeStillQuery({ sort: 'title', source: 'kick' })).toBe('sort=title&source=kick');
+    expect(serializeStillQuery({ sort: 'recent', source: 'other_web' })).toBe('source=other_web');
     expect(serializeStillQuery({ sort: 'recent', source: '' })).toBe('');
     const list = vi.spyOn(api, 'listLibrary').mockResolvedValue(page([stillItem()]));
     const { props, rerender } = wall();
@@ -55,6 +57,8 @@ describe('StillWall', () => {
     expect(props.onWallChange).toHaveBeenLastCalledWith('sort=title');
     chooseSelect(screen.getByRole('combobox', { name: 'Source' }), 'Twitch');
     expect(props.onWallChange).toHaveBeenLastCalledWith('source=twitch');
+    chooseSelect(screen.getByRole('combobox', { name: 'Source' }), 'Other web sources');
+    expect(props.onWallChange).toHaveBeenLastCalledWith('source=other_web');
     rerender(<ToastProvider><StillWall {...props} wall="sort=title&source=twitch" /></ToastProvider>);
     await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'title', source: 'twitch', cursor: null })));
     expect(screen.getByText('Filtered · Sorted by title')).toBeTruthy();

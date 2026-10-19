@@ -110,7 +110,7 @@ describe('AllLanding', () => {
     expect(await within(chapter('music')).findByRole('button', { name: /Album One/ })).toBeTruthy();
     reveal('youtube');
     expect(await within(chapter('youtube')).findByRole('button', { name: /^Harbor walk at dawn, / })).toBeTruthy();
-    expect(items.mock.calls[0][0]).toEqual({ kind: 'video', status: 'available', sort: 'recent', limit: 6 });
+    expect(items.mock.calls[0][0]).toEqual({ kind: 'video', source: 'saved', status: 'available', sort: 'recent', limit: 6 });
   });
 
   it('cancels the chapter requests still out when the landing is left', async () => {

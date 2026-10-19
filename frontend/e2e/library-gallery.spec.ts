@@ -151,6 +151,11 @@ test('tabs, See all, the /music address and Back to the All landing where it was
 test('YouTube: sort and source live in the address, pages load ahead, and a delete undoes', async ({ page }) => {
   const { library } = await openLibrary(page, '/library/youtube');
   await expect(page.locator('.g-still-wall .g-kicker')).toHaveText('318 videos · Sorted by recently added');
+  expect(library.requests.some((url) => url.searchParams.get('kind') === 'video' && url.searchParams.get('source') === 'saved' && url.searchParams.get('status') === 'available')).toBe(true);
+  await chooseSelect(page, page.getByRole('combobox', { name: 'Source' }), 'Other web sources');
+  await expect(page).toHaveURL(/source=other_web$/);
+  await expect.poll(() => library.requests.some((url) => url.searchParams.get('source') === 'other_web')).toBe(true);
+  await chooseSelect(page, page.getByRole('combobox', { name: 'Source' }), 'All web sources');
   await chooseSelect(page, page.getByRole('combobox', { name: 'Sort' }), 'Title A–Z');
   await expect(page).toHaveURL(/\/video\/youtube\?sort=title$/);
   await chooseSelect(page, page.getByRole('combobox', { name: 'Source' }), 'Twitch');

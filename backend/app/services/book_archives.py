@@ -9,13 +9,18 @@ import math
 import posixpath
 import re
 import zipfile
+from collections import OrderedDict
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
+from threading import BoundedSemaphore, Lock
 from typing import Any
 from urllib.parse import unquote
 from xml.etree import ElementTree as ET
+
+from app.services.raster_images import is_book_image as _is_image
 
 
 MAX_MEMBERS = 10_000
@@ -27,6 +32,9 @@ MAX_TOTAL_UNCOMPRESSED = 512 * 1024 * 1024
 MAX_MARKUP_NODES = 50_000
 MAX_MARKUP_DEPTH = 128
 MAX_DESCRIPTION_CHARS = 10_000
+RESOURCE_CACHE_BYTES = 64 * 1024 * 1024
+RESOURCE_CACHE_ENTRIES = 128
+RESOURCE_READERS = 4
 IMAGE_TYPES = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
     ".webp": "image/webp", ".gif": "image/gif",
@@ -39,6 +47,37 @@ _NATURAL = re.compile(r"(\d+)")
 
 class BookArchiveError(ValueError):
     """The book is malformed, unsafe, or cannot be read as the requested format."""
+
+
+_ResourceKey = tuple[int, int, int, int, int, str]
+_RESOURCE_CACHE: OrderedDict[_ResourceKey, tuple[bytes, str]] = OrderedDict()
+_RESOURCE_CACHE_SIZE = 0
+_RESOURCE_LOADS: dict[_ResourceKey, Future[tuple[bytes, str]]] = {}
+_RESOURCE_LOCK = Lock()
+_RESOURCE_WORKERS = BoundedSemaphore(RESOURCE_READERS)
+
+
+def _resource_key(path: Path, member: str) -> _ResourceKey:
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        raise FileNotFoundError("Book resource is unavailable") from exc
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, member
+
+
+def _cache_resource(key: _ResourceKey, value: tuple[bytes, str]) -> None:
+    global _RESOURCE_CACHE_SIZE
+    size = len(value[0])
+    if size > RESOURCE_CACHE_BYTES:
+        return
+    previous = _RESOURCE_CACHE.pop(key, None)
+    if previous is not None:
+        _RESOURCE_CACHE_SIZE -= len(previous[0])
+    _RESOURCE_CACHE[key] = value
+    _RESOURCE_CACHE_SIZE += size
+    while _RESOURCE_CACHE_SIZE > RESOURCE_CACHE_BYTES or len(_RESOURCE_CACHE) > RESOURCE_CACHE_ENTRIES:
+        _old_key, old_value = _RESOURCE_CACHE.popitem(last=False)
+        _RESOURCE_CACHE_SIZE -= len(old_value[0])
 
 
 @dataclass
@@ -342,15 +381,6 @@ def _image_type(member: str) -> str | None:
     return IMAGE_TYPES.get(PurePosixPath(member).suffix.casefold())
 
 
-def _is_image(data: bytes, mime: str) -> bool:
-    return {
-        "image/jpeg": data.startswith(b"\xff\xd8\xff"),
-        "image/png": data.startswith(b"\x89PNG\r\n\x1a\n"),
-        "image/gif": data.startswith((b"GIF87a", b"GIF89a")),
-        "image/webp": len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP",
-    }.get(mime, False)
-
-
 def inspect_book(path: Path, format: str, *, filename: str | None = None) -> dict[str, Any]:
     """Inspect an EPUB or CBZ without extracting it; all returned values are JSON-serializable."""
     if format in {"cbr", "pdf"}:
@@ -394,12 +424,58 @@ def read_resource(path: Path, member: str) -> tuple[bytes, str]:
     mime = _image_type(name)
     if not mime:
         raise FileNotFoundError("Book resource is unavailable")
+    key = _resource_key(path, name)
+    with _RESOURCE_LOCK:
+        if cached := _RESOURCE_CACHE.pop(key, None):
+            _RESOURCE_CACHE[key] = cached
+            return cached
+        future = _RESOURCE_LOADS.get(key)
+        if future is None:
+            future = Future()
+            _RESOURCE_LOADS[key] = future
+            load = True
+        else:
+            load = False
+    if not load:
+        return future.result()
+    try:
+        with _RESOURCE_WORKERS:
+            value = _read_resource(path, name, mime)
+        with _RESOURCE_LOCK:
+            _cache_resource(key, value)
+        future.set_result(value)
+        return value
+    except BaseException as exc:
+        future.set_exception(exc)
+        raise
+    finally:
+        with _RESOURCE_LOCK:
+            _RESOURCE_LOADS.pop(key, None)
+
+
+def read_resource_uncached(path: Path, member: str) -> tuple[bytes, str]:
+    """Read a validated raster without retaining its full encoded source bytes."""
+    try:
+        name = _safe_name(member)
+    except BookArchiveError as exc:
+        raise FileNotFoundError("Book resource is unavailable") from exc
+    mime = _image_type(name)
+    if not mime:
+        raise FileNotFoundError("Book resource is unavailable")
+    with _RESOURCE_WORKERS:
+        return _read_resource(path, name, mime)
+
+
+def _read_resource(path: Path, name: str, mime: str) -> tuple[bytes, str]:
     if path.suffix.lower() in {".cbr", ".pdf"}:
         from app.services.book_native import native_book
         try:
-            return native_book(path, path.suffix.lower()[1:], name), mime
+            data = native_book(path, path.suffix.lower()[1:], name)
         except BookArchiveError as exc:
             raise FileNotFoundError("Book resource is unavailable") from exc
+        if not _is_image(data, mime):
+            raise FileNotFoundError("Book resource is unavailable")
+        return data, mime
     archive = _Archive(path)
     try:
         if name not in archive.info:

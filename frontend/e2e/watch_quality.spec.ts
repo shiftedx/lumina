@@ -87,7 +87,12 @@ test('an empty season keeps the full-width stage and explains where to find all 
   const allEpisodes = page.getByRole('button', { name: 'See all episodes' });
   await expect(allEpisodes).toBeVisible();
   await page.getByRole('button', { name: 'Share', exact: true }).focus();
-  await page.keyboard.press('ArrowRight');
+  for (const target of [page.getByRole('button', { name: 'Start over' }), page.getByRole('button', { name: 'Clear progress' }), allEpisodes]) {
+    if (await target.isVisible()) {
+      await page.keyboard.press('ArrowRight');
+      await expect(target).toBeFocused();
+    }
+  }
   await expect(allEpisodes).toBeFocused();
   await expect(page.locator('.watch-rail')).toHaveCount(0);
   await expect(page.locator('.watch-local-continuation')).toContainText('No next episode in your library.');

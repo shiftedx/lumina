@@ -9,7 +9,7 @@ from typing import Literal
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
 from app.book_schemas import (
@@ -23,6 +23,7 @@ from app.models import User
 from app.persistence import write_transaction
 from app.security import get_current_user
 from app.services import member_access
+from app.services.book_covers import BookCoverPreparing
 from app.services.books import BookError, BookForbidden, BookNotFound, BookService, book_root
 
 URL = "/api/books"
@@ -68,7 +69,7 @@ async def import_book(filename: str, request: Request, current_user: User = Depe
             handle.flush(); os.fsync(handle.fileno())
         try:
             service = BookService(db)
-            format_, manifest = service.inspect_staged(staged, filename)
+            format_, manifest = await run_in_threadpool(service.inspect_staged, staged, filename)
             with write_transaction(db, name="book_import"):
                 book = service.import_staged(staged, filename, current_user, format_=format_, manifest=manifest)
                 # ``book`` may now be a child of an existing canonical root. Its storage key is
@@ -98,19 +99,13 @@ def list_books(kind: Literal["ebook", "manga"] | None = None, q: str | None = Qu
 
 
 def list_series(q: str | None = Query(default=None, max_length=200), status: Literal["all", "unread", "reading", "read", "favorites", "reading_list"] = "all", sort: Literal["added", "title", "author"] = "title", cursor: str | None = None, limit: int = Query(default=40, ge=1, le=100), current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
-    items = BookService(db).series(current_user, q, status)
-    if sort == "title": items.sort(key=lambda item: (item["title"].casefold(), item["id"]))
-    elif sort == "author": items.sort(key=lambda item: (item["author"].casefold(), item["title"].casefold(), item["id"]))
-    else: items.sort(key=lambda item: (-item["created_at"].timestamp(), item["id"]))
-    offset = _cursor(cursor); page = items[offset:offset + limit + 1]
-    return {"items": page[:limit], "total": len(items), "next_cursor": str(offset + limit) if len(page) > limit else None}
+    items, total, next_cursor = BookService(db).series_page(current_user, q, status, sort, _cursor(cursor), limit)
+    return {"items": items, "total": total, "next_cursor": next_cursor}
 
 
 def get_series(series_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:
-    service = BookService(db); series = next((item for item in service.series(current_user) if item["id"] == series_id), None)
+    service = BookService(db); series, books = service.series_detail(current_user, series_id)
     if series is None: raise HTTPException(status_code=404, detail="Series not found")
-    from app.book_models import BookItem
-    books = list(db.scalars(select(BookItem).where(BookItem.series_id == series_id, BookItem.kind == "manga", service.catalog_predicate(current_user)).order_by(BookItem.volume_number.nulls_last(), BookItem.title.collate("NOCASE"), BookItem.id)))
     return {"series": series, "books": service.serialize_many(books, current_user)}
 
 
@@ -151,9 +146,10 @@ def get_resource(book_id: str, member: str = Query(max_length=1024), current_use
 def get_cover(book_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> Response:
     service = BookService(db)
     try:
-        book = service.get(book_id, current_user); member = (book.manifest or {}).get("cover_member")
-        if not isinstance(member, str): raise BookNotFound("Cover not found")
-        return _resource(service, book, member)
+        book = service.get(book_id, current_user); body, mime = service.cover(book)
+        return Response(content=body, media_type=mime, headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+    except BookCoverPreparing:
+        return Response(status_code=202, headers={"Retry-After": "1", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
     except (BookError, FileNotFoundError) as exc: raise _error(exc) from exc
 
 

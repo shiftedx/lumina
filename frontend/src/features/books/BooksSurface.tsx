@@ -7,12 +7,12 @@ import { useFetched } from '../titles/titleModel';
 import { AddToShelfDialog, BookMetadataEditor, ImportBooksDialog, ShelfEditor } from './BooksDialogs';
 import { BookCard, BookCover, readingPosition, SeriesCard, ShelfTile } from './BookCards';
 import { BookDetail } from './BookDetail';
+import { BookReader } from './BookReader';
 import { booksRoutePath, type BooksRoute } from './routes';
 import { deleteBook, deleteBookShelf, getBook, getBookSeries, getBooksOverview, listBooks, listBookSeries, setBookShelfEntries, separateBookFile, updateBookShelf, updateBookState, type BooksQuery } from './booksApi';
 import type { Book, BookPage, BookSeries, BookShelf, BookSort, BookStateUpdate } from './types';
 import './books.css';
 
-const BookReader = lazy(() => import('./BookReader').then((module) => ({ default: module.BookReader })));
 const CombineBooksDialog = lazy(() => import('./BooksManagementDialogs').then((module) => ({ default: module.CombineBooksDialog })));
 const BooksTrashDialog = lazy(() => import('./BooksManagementDialogs').then((module) => ({ default: module.BooksTrashDialog })));
 
@@ -72,7 +72,8 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   const isShelfList = route.view === 'shelves' && (Boolean(route.shelfId) || Boolean(route.status));
   const listActive = route.view === 'ebooks' || route.view === 'discover' || isShelfList;
   const query: BooksQuery = filters ? { q: filters.q, sort: filters.sort ?? (route.view === 'shelves' && route.shelfId ? 'custom' : undefined), status: route.view === 'discover' ? filters.status ?? 'unread' : filters.status, ...(route.view === 'ebooks' ? { kind: 'ebook' } : {}), ...(route.view === 'shelves' ? { shelf_id: route.shelfId, ...(shelfFormat === 'all' ? {} : { kind: shelfFormat }) } : {}), limit: 48 } : {};
-  const overview = useFetched(route.view === 'read' ? null : `${user.id}:books-overview`, getBooksOverview, revision);
+  const overviewActive = route.view === 'overview' || route.view === 'shelves' || shelfIds !== null;
+  const overview = useFetched(overviewActive ? `${user.id}:books-overview` : null, getBooksOverview, revision);
   const books = useFetched(listActive ? `${user.id}:${routeKey}:${shelfFormat}` : null, () => listBooks(query), revision);
   const series = useFetched(route.view === 'manga' ? `${user.id}:${routeKey}:series` : null, () => listBookSeries({ q: filters?.q, sort: filters?.sort, status: filters?.status, limit: 48 }), revision);
   const detail = useFetched(route.view === 'title' ? `${user.id}:book:${route.bookId}` : null, () => getBook(route.view === 'title' ? route.bookId : ''), revision);
@@ -154,7 +155,7 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   </div>;
   const dataState = <T,>(resource: { data: BookPage<T> | null; loading: boolean; error: unknown }, children: ReactNode) => resource.error ? <ErrorState body={ERROR(resource.error)} onRetry={refreshed} title="Your collection could not be loaded" /> : !resource.data ? <Skeleton count={6} label="Loading your books…" shape="poster" /> : resource.data.total === 0 ? <EmptyState action={canImport ? <Button icon={<Plus />} onClick={() => input.current?.click()} variant="quiet">Import books</Button> : undefined} body={filters?.q || (filters?.status && filters.status !== 'all') ? 'Try a different search or reading status.' : canImport ? 'Import an EPUB or CBZ to begin your collection.' : 'Book imports are not available on this account.'} size="page" title={filters?.q ? 'No matching stories' : 'This shelf is waiting for its first story'} /> : children;
 
-  if (route.view === 'read') return <Suspense fallback={<Skeleton count={5} label="Opening your book…" shape="row" />}><BookReader bookId={route.bookId} key={`${user.id}:${route.bookId}`} onBack={() => open(lastReaderRoute.current)} onBookChange={bookChanged} onFileChange={(id) => open({ surface: 'books', view: 'read', bookId: id })} userId={user.id} /></Suspense>;
+  if (route.view === 'read') return <BookReader bookId={route.bookId} key={`${user.id}:${route.bookId}`} onBack={() => open(lastReaderRoute.current)} onBookChange={bookChanged} onFileChange={(id) => open({ surface: 'books', view: 'read', bookId: id })} userId={user.id} />;
 
   let body: ReactNode;
   let heading = 'Books';

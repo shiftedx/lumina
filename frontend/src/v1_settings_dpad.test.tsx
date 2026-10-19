@@ -9,7 +9,7 @@ const at = (element: HTMLElement, top: number) => Object.defineProperty(element,
   configurable: true, value: () => ({ left: 0, top, width: 200, height: 48, right: 200, bottom: top + 48, x: 0, y: top, toJSON: () => ({}) }),
 });
 function shell() {
-  const props = { user: viewer, formatPreset: 'best', onFormatChange: vi.fn(), onLogout: vi.fn(), autoplayUpNext: true, onAutoplayUpNextChange: vi.fn(), section: 'playback' as const };
+  const props = { user: viewer, formatPreset: 'best', onFormatChange: vi.fn(), onLogout: vi.fn(), autoplayUpNext: true, onAutoplayUpNextChange: vi.fn(), playbackMaxHeight: null, onPlaybackMaxHeightChange: vi.fn(), playbackPrefs: { normalizeLoudness: true, autoSkip: { intro: false, credits: false, recap: false }, profanity: { enabled: false, words: [] } }, onPlaybackPrefsChange: vi.fn(), section: 'playback' as const };
   render(<SettingsSurface {...props} />);
   return props;
 }
@@ -47,6 +47,20 @@ describe('Settings on a D-pad', () => {
     expect(document.activeElement).toBe(autoplay);
     fireEvent.keyDown(autoplay, { key: 'Enter' }); expect(props.onAutoplayUpNextChange).toHaveBeenCalledWith(false);
     fireEvent.keyDown(autoplay, { key: 'ArrowLeft' }); expect(document.activeElement).toBe(info);
+  });
+
+  it('leaves a closed choice by row while an open choice owns its option arrows', () => {
+    shell();
+    const quality = screen.getByRole('combobox', { name: 'Maximum quality' });
+    quality.focus(); fireEvent.keyDown(quality, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByRole('switch', { name: 'Even out loudness' }));
+    expect(screen.queryByRole('listbox')).toBeNull();
+
+    quality.focus(); fireEvent.keyDown(quality, { key: 'Enter' });
+    expect(screen.getByRole('listbox')).not.toBeNull();
+    fireEvent.keyDown(quality, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(quality);
+    expect(screen.getByRole('listbox')).not.toBeNull();
   });
 });
 

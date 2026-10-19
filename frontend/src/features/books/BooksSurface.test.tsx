@@ -1,9 +1,10 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ImportBooksDialog } from './BooksDialogs';
+import { BookCover } from './BookCards';
 import { BooksSurface } from './BooksSurface';
 import { AccessProvider, type AccessValue } from '../access/access';
 import { booksUser, book, ebookManifest, mangaVolume, overview, series, shelf } from './testFixtures';
@@ -13,6 +14,53 @@ const api = vi.hoisted(() => ({
   combineBookEntries: vi.fn(), deleteBook: vi.fn(), listBookTrash: vi.fn(), restoreBook: vi.fn(), deleteBookShelf: vi.fn(), getBook: vi.fn(), getBookReader: vi.fn(), getBookSeries: vi.fn(), getBooksOverview: vi.fn(), importBook: vi.fn(),
   listBooks: vi.fn(), listBookSeries: vi.fn(), setBookShelfEntries: vi.fn(), updateBookShelf: vi.fn(), updateBookState: vi.fn(),
 }));
+
+describe('BookCover', () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  it('retries a visible preparing cover with bounded backoff', () => {
+    vi.useFakeTimers();
+    let observe!: (visible: boolean) => void;
+    const disconnect = vi.fn();
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: IntersectionObserverCallback) { observe = (visible) => callback([{ isIntersecting: visible } as IntersectionObserverEntry], this as never); }
+      observe() {}
+      disconnect() { disconnect(); }
+    });
+    const view = render(<BookCover author="Rin Kato" title="Skybound" url="/api/books/manga-1/cover" />);
+
+    expect(view.container.querySelector('img')).toBeNull();
+    act(() => observe(true));
+    const first = view.container.querySelector('img')!;
+    expect(first.getAttribute('src')).toBe('/api/books/manga-1/cover');
+    expect(first.getAttribute('fetchpriority')).toBe('low');
+    fireEvent.error(first);
+    expect(view.container.querySelector('img')).toBeNull();
+    act(() => vi.advanceTimersByTime(999));
+    expect(view.container.querySelector('img')).toBeNull();
+    act(() => vi.advanceTimersByTime(1));
+    expect(view.container.querySelector('img')?.getAttribute('src')).toBe('/api/books/manga-1/cover?attempt=1');
+
+    fireEvent.error(view.container.querySelector('img')!);
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('stops retrying a persistently unavailable cover', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IntersectionObserver', undefined);
+    const view = render(<BookCover title="Unavailable" url="/api/books/manga-1/cover" />);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const image = view.container.querySelector('img');
+      if (image) fireEvent.error(image);
+      act(() => vi.runOnlyPendingTimers());
+    }
+    expect(view.container.querySelector('img')).toBeNull();
+    expect(screen.getByText('Unavailable')).not.toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
 vi.mock('./booksApi', async (importOriginal) => ({ ...(await importOriginal<typeof import('./booksApi')>()), ...api }));
 
 const permitted: AccessValue = { access: { sections: null, blocked_streaming: [], followed_only: false, allowed_now: true, until: null, remaining_minutes: null, can_download: true }, stop: null, refresh: vi.fn() };
@@ -105,8 +153,10 @@ describe('BooksSurface', () => {
     render(<Surface initial={{ surface: 'books', view: 'manga' }} />);
     await browser.click(await screen.findByRole('button', { name: /Open Skybound, 2 volumes/ }));
     await screen.findByRole('heading', { level: 1, name: 'Skybound' });
+    expect(api.getBooksOverview).not.toHaveBeenCalled();
     await browser.click(screen.getByRole('button', { name: 'Read volume 1' }));
-    await waitFor(() => expect(api.getBookReader).toHaveBeenCalledWith('manga-1', expect.any(AbortSignal)));
+    expect(api.getBookReader).toHaveBeenCalledWith('manga-1', expect.any(AbortSignal));
+    expect(screen.queryByText('Opening your book…')).toBeNull();
   });
 
   it('opens individual volumes as title detail and exposes volume-specific editing', async () => {
@@ -163,9 +213,10 @@ describe('BooksSurface', () => {
     const browser = userEvent.setup();
     render(<Surface initial={{ surface: 'books', view: 'title', bookId: 'ebook-1' }} />);
     await screen.findByRole('button', { name: 'Add to shelf' });
+    expect(api.getBooksOverview).not.toHaveBeenCalled();
     await browser.click(screen.getByRole('button', { name: 'Add to shelf' }));
     const dialog = screen.getByRole('dialog', { name: 'Add to shelf' });
-    await browser.click(within(dialog).getByRole('checkbox', { name: 'Weekend reads' }));
+    await browser.click(await within(dialog).findByRole('checkbox', { name: 'Weekend reads' }));
     await browser.click(within(dialog).getByRole('button', { name: 'Add to shelves' }));
     await waitFor(() => expect(api.setBookShelfEntries).toHaveBeenCalledWith('shelf-1', ['ebook-1', 'ebook-2']));
     await browser.click(screen.getByRole('button', { name: 'Mark as read' }));

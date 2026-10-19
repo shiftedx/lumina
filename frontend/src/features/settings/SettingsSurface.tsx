@@ -112,18 +112,29 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
     const first = paneRef.current?.querySelector<HTMLElement>(phone ? '.g-settings-page-select .g-select-trigger' : '.g-settings-page-link[aria-current="page"]') ?? paneRef.current?.querySelector<HTMLElement>(PANE_TARGETS);
     if (first) { event.preventDefault(); first.focus(); }
   }
+  function moveToAdjacentSettingRow(event: KeyboardEvent<HTMLElement>) {
+    const target = event.target as HTMLElement;
+    const pane = paneRef.current;
+    if (!pane) return false;
+    const row = target.closest('.setting-row');
+    if (row && (!row.classList.contains('is-block') || !target.closest('.g-setting-control')) && (event.key === 'ArrowDown' || event.key === 'ArrowUp') && !target.closest('textarea')) {
+      const rows = [...pane.querySelectorAll<HTMLElement>('.setting-row')].filter((entry) => !entry.closest('[hidden], details:not([open]) > :not(summary)'));
+      const next = rows[rows.indexOf(row as HTMLElement) + (event.key === 'ArrowDown' ? 1 : -1)];
+      const selector = target.closest('.g-setting-control') ? '.g-setting-control input:not(:disabled), .g-setting-control select:not(:disabled):not([hidden]), .g-setting-control button:not(:disabled), .g-setting-control a[href]' : '.g-info-button';
+      const control = next?.querySelector<HTMLElement>(selector) ?? next?.querySelector<HTMLElement>('.g-info-button');
+      if (control) { event.preventDefault(); control.focus(); control.scrollIntoView?.({ block: 'nearest' }); return true; }
+    }
+    return false;
+  }
+  function onPaneKeyDownCapture(event: KeyboardEvent<HTMLElement>) {
+    const target = event.target as HTMLElement;
+    if (target.matches('[role="combobox"][aria-expanded="false"]') && moveToAdjacentSettingRow(event)) event.stopPropagation();
+  }
   function onPaneKeyDown(event: KeyboardEvent<HTMLElement>) {
     const target = event.target as HTMLElement;
     if (!paneRef.current?.contains(target) || event.defaultPrevented || target.closest('[role="listbox"]')) return;
     if (event.key === 'Enter' && target.matches('input[type="checkbox"], input[type="radio"]')) { event.preventDefault(); target.click(); return; }
-    const row = target.closest('.setting-row');
-    if (row && (!row.classList.contains('is-block') || !target.closest('.g-setting-control')) && (event.key === 'ArrowDown' || event.key === 'ArrowUp') && !target.closest('textarea')) {
-      const rows = [...paneRef.current.querySelectorAll<HTMLElement>('.setting-row')].filter((entry) => !entry.closest('[hidden], details:not([open]) > :not(summary)'));
-      const next = rows[rows.indexOf(row as HTMLElement) + (event.key === 'ArrowDown' ? 1 : -1)];
-      const selector = target.closest('.g-setting-control') ? '.g-setting-control input:not(:disabled), .g-setting-control select:not(:disabled):not([hidden]), .g-setting-control button:not(:disabled), .g-setting-control a[href]' : '.g-info-button';
-      const control = next?.querySelector<HTMLElement>(selector) ?? next?.querySelector<HTMLElement>('.g-info-button');
-      if (control) { event.preventDefault(); control.focus(); control.scrollIntoView?.({ block: 'nearest' }); return; }
-    }
+    if (moveToAdjacentSettingRow(event)) return;
     const phone = window.matchMedia?.('(max-width: 680px)').matches ?? false;
     const targets = PANE_TARGETS.replace(phone ? '.g-settings-page-link,' : '.g-settings-page-select .g-select-trigger,', '');
     moveFocus(event, { targets, verticalExit: VERTICAL_EXIT });
@@ -157,7 +168,7 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
           <p className="g-settings-scope-note">{activeSpace === 'personal' ? 'Preferences for your profile.' : 'Server changes affect the entire household.'}</p>
           <a className="g-settings-link g-settings-about" href="/settings/about" onClick={(event) => follow(event, pageById('about')!)}>About Lumina</a>
         </nav>
-        <div className="g-settings-pane" onKeyDown={onPaneKeyDown} ref={paneRef}>
+        <div className="g-settings-pane" onKeyDown={onPaneKeyDown} onKeyDownCapture={onPaneKeyDownCapture} ref={paneRef}>
           {effectiveSection || searching ? <Button className="g-settings-back" onClick={() => choose({ section: null, page: null, space: activeSpace })} variant="quiet">All settings</Button> : null}
           {searching ? <SettingsSearchResults onOpen={openPage} query={query} sections={allowed} /> : forbidden ? <p className="g-settings-summary" role="status">This part of Settings is for vault owners. Ask a vault owner if something on this server needs changing.</p> : current.section === 'members' && member ? (
             <MemberPage key={member} memberId={member} onBack={() => { if (confirmLeaveSettings()) onMember(null); }} />

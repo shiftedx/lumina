@@ -11,11 +11,9 @@ import hashlib
 import logging
 import os
 import resource
-import struct
 import subprocess
 import threading
 import uuid
-import zlib
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -25,7 +23,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
 from app.models import MediaTitle, PersonOverride, TitleEdit, TitleUpload, utcnow
-from app.services import metadata_editor, renditions
+from app.services import metadata_editor, raster_images, renditions
 from app.services.titles import EXTRA_BACKDROPS, image_key, title_image_source
 
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024        # the scoped body cap
@@ -89,32 +87,12 @@ def check_dimensions(data: bytes) -> tuple[int, int]:
     return width, height
 
 
-MAX_PNG_CHUNKS = 65_536  # libpng writes ~2k IDATs for a 15 MiB PNG
-_PNG_KEEP = frozenset({b"IHDR", b"PLTE", b"tRNS", b"IDAT", b"IEND"})
-
-
 def strip_png(data: bytes) -> bytes:
-    """The PNG rebuilt from IHDR, PLTE, tRNS, IDAT and IEND only, or 415 when the chunk walk is malformed.
-
-    ffmpeg inflates iCCP/zTXt in full before ``-map_metadata`` applies (540 KiB -> 1.8 GB), so no ancillary
-    chunk reaches it. Every chunk's CRC is checked; bytes after IEND are dropped.
-    """
-    view, at, count, first, seen_idat, last = memoryview(data), 8, 0, None, False, None
-    out = bytearray(data[:8])  # one buffer, no object per chunk
-    while last != b"IEND":
-        count += 1
-        if count > MAX_PNG_CHUNKS or at + 12 > len(data):
-            raise UploadError(415, "unsupported_image")
-        length, kind = struct.unpack_from(">I4s", data, at)
-        end = at + 12 + length
-        if length > 0x7FFFFFFF or end > len(data) or zlib.crc32(view[at + 4:end - 4]) != int.from_bytes(view[end - 4:end], "big"):
-            raise UploadError(415, "unsupported_image")
-        if kind in _PNG_KEEP:
-            out += view[at:end]
-        first, seen_idat, last, at = first or kind, seen_idat or kind == b"IDAT", kind, end
-    if first != b"IHDR" or not seen_idat:
-        raise UploadError(415, "unsupported_image")
-    return bytes(out)
+    """The PNG rebuilt from CRC-checked critical chunks, or 415 when malformed."""
+    try:
+        return raster_images.strip_png(data)
+    except ValueError as exc:
+        raise UploadError(415, "unsupported_image") from exc
 
 
 def _argv(ffmpeg: str, content_type: str, out_type: str) -> list[str]:

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import io
+import struct
+import time
 import zipfile
+import zlib
 from html import escape
 
 from app import book_models  # noqa: F401 - registers Books metadata before db_factory creates its schema
@@ -10,12 +13,33 @@ from app.http_boundaries import MAX_BOOK_UPLOAD_BODY_BYTES, body_limit
 from app.models import MemberAccess, User
 
 
+def _png() -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00\x00"))
+        + chunk(b"IEND", b"")
+    )
+
+
+def _cover(client, url: str):  # noqa: ANN001,ANN202
+    for _attempt in range(100):
+        response = client.get(url)
+        if response.status_code != 202:
+            return response
+        time.sleep(0.02)
+    return response
+
+
 def _cbz(*, title: str = "Moon", series: str = "Night", number: int = 1, pages: int = 1, summary: str | None = None) -> bytes:
     body = io.BytesIO()
     with zipfile.ZipFile(body, "w") as archive:
         summary_tag = f"<Summary>{summary}</Summary>" if summary is not None else ""
         archive.writestr("ComicInfo.xml", f"<ComicInfo><Title>{title}</Title><Writer>Ada</Writer><Series>{series}</Series><Number>{number}</Number>{summary_tag}</ComicInfo>")
-        for page in range(1, pages + 1): archive.writestr(f"{page:03}.png", b"\x89PNG\r\n\x1a\nsmall")
+        for page in range(1, pages + 1): archive.writestr(f"{page:03}.png", _png())
     return body.getvalue()
 
 
@@ -26,16 +50,16 @@ def _epub() -> bytes:
         archive.writestr("META-INF/container.xml", """<?xml version='1.0'?><container><rootfiles><rootfile full-path='OEBPS/content.opf'/></rootfiles></container>""")
         archive.writestr("OEBPS/content.opf", """<package><metadata><title>Small Book</title><creator>Bea</creator><language>en</language></metadata><manifest><item id='c1' href='chapter.xhtml' media-type='application/xhtml+xml'/><item id='cover' href='cover.png' media-type='image/png' properties='cover-image'/></manifest><spine><itemref idref='c1'/></spine></package>""")
         archive.writestr("OEBPS/chapter.xhtml", "<html><body><h1>Hello</h1><p>Book</p><img src='cover.png' alt='Cover'/></body></html>")
-        archive.writestr("OEBPS/cover.png", b"\x89PNG\r\n\x1a\nsmall")
+        archive.writestr("OEBPS/cover.png", _png())
     return body.getvalue()
 
 
 def _plain_cbz() -> bytes:
     body = io.BytesIO()
     with zipfile.ZipFile(body, "w") as archive:
-        archive.writestr("10.png", b"\x89PNG\r\n\x1a\nsmall")
-        archive.writestr("2.png", b"\x89PNG\r\n\x1a\nsmall")
-        archive.writestr("1.png", b"\x89PNG\r\n\x1a\nsmall")
+        archive.writestr("10.png", _png())
+        archive.writestr("2.png", _png())
+        archive.writestr("1.png", _png())
     return body.getvalue()
 
 
@@ -126,7 +150,7 @@ def test_epub_reader_resources_listing_series_and_shelves(api_client, db_factory
         assert client.get(f"/api/books/{epub['id']}/reader").json()["chapters"] == [{"label": "Chapter 1"}]
         nodes = client.get(f"/api/books/{epub['id']}/chapters/0").json()["nodes"]
         assert any(node.get("tag") == "h1" for node in nodes)
-        assert client.get(f"/api/books/{epub['id']}/cover").headers["content-type"] == "image/png"
+        assert _cover(client, f"/api/books/{epub['id']}/cover").headers["content-type"] == "image/jpeg"
         assert client.get(f"/api/books/{epub['id']}/resources?member=OEBPS/cover.png").status_code == 200
         assert client.patch(f"/api/books/{first['id']}/state", json={"completed": True}).status_code == 200
         series = client.get("/api/books/series").json()["items"]
@@ -201,7 +225,7 @@ def test_books_filters_checkpoint_reset_metadata_clears_and_shelf_order(api_clie
         assert all(item["title"] != "Not manga" for item in client.get("/api/books/series").json()["items"])
         page = client.get(f"/api/books/{first['id']}/pages/-1")
         assert page.status_code == 404
-        asset = client.get(f"/api/books/{first['id']}/cover")
+        asset = _cover(client, f"/api/books/{first['id']}/cover")
         assert asset.headers["cache-control"] == "private, no-store"
 
 

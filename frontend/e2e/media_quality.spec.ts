@@ -97,10 +97,8 @@ for (const width of [1280, 390]) {
       const select = translate.getByRole('combobox');
       expect((await select.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       expect(await translate.evaluate((element) => {
-        const text = [...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim());
-        const range = document.createRange();
-        range.selectNode(text!);
-        return range.getBoundingClientRect().right <= element.querySelector('.g-select-trigger')!.getBoundingClientRect().left;
+        const label = element.querySelector(':scope > span')!;
+        return label.getBoundingClientRect().right <= element.querySelector('.g-select-trigger')!.getBoundingClientRect().left;
       })).toBe(true);
       const origin = panel.getByRole('radio', { name: /Français \(Canada\)/ }).locator('..');
       expect(await origin.evaluate((element) => {

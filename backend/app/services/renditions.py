@@ -34,7 +34,7 @@ from app.db import SessionLocal
 from app.media_schemas import ArtServing, ArtworkProgress
 from app.models import LibraryItem, MediaTitle, NfoPerson, PlaybackProgress, StorageRoot, TitleArtwork, utcnow
 from app.persistence import read_regular_file, write_transaction
-from app.services import art_urls, cast_photos, library_import
+from app.services import art_urls, cast_photos, library_import, raster_images
 from app.services.artwork import ArtworkCacheMissError, ArtworkService
 from app.services.local_playback_sessions import sessions
 from app.services.media_probe import media_tool
@@ -106,34 +106,8 @@ def _private_dir(path: Path) -> Path:
 
 
 def image_size(data: bytes) -> tuple[int, int] | None:
-    """(width, height) from a PNG, WebP or JPEG header, read without decoding; None when it is none of them."""
-    if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
-        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        chunk = data[12:16]
-        if chunk == b"VP8X":
-            return 1 + int.from_bytes(data[24:27], "little"), 1 + int.from_bytes(data[27:30], "little")
-        if chunk == b"VP8L" and data[20:21] == b"\x2f":
-            bits = int.from_bytes(data[21:25], "little")
-            return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
-        if chunk == b"VP8 " and data[23:26] == b"\x9d\x01\x2a":
-            return int.from_bytes(data[26:28], "little") & 0x3FFF, int.from_bytes(data[28:30], "little") & 0x3FFF
-        return None
-    if data[:2] == b"\xff\xd8":
-        index = 2
-        while index + 9 <= len(data):
-            if data[index] != 0xFF:
-                return None
-            marker = data[index + 1]
-            if marker == 0xFF:  # fill byte
-                index += 1
-            elif marker == 0x01 or 0xD0 <= marker <= 0xD8:  # markers without a length
-                index += 2
-            elif 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):  # SOFn: precision, height, width
-                return int.from_bytes(data[index + 7:index + 9], "big"), int.from_bytes(data[index + 5:index + 7], "big")
-            else:
-                index += 2 + int.from_bytes(data[index + 2:index + 4], "big")
-    return None
+    """Compatibility seam for the shared standard-library raster parser."""
+    return raster_images.image_size(data)
 
 
 def colours(raw: bytes) -> tuple[str, str]:

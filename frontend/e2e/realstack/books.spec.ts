@@ -1,13 +1,13 @@
 /** Real EPUB/CBZ import, reading, and personal-library journey against the backend. */
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { strFromU8, unzipSync, zipSync, strToU8 } from "fflate";
+import type { Locator } from "@playwright/test";
 
 import { expect, test } from "./realstack";
 
-// The existing 1×1 PNG fixture used by the browser suite. It is enough to prove a real CBZ page and cover response.
-const PIXEL = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkqOcHAAGmAQs+B90oAAAAAElFTkSuQmCC",
-  "base64",
+const PAGE_PNG = readFileSync(
+  new URL("../fixtures/books-page.png", import.meta.url),
 );
 const epubText = (value: string) => strToU8(value);
 
@@ -30,7 +30,7 @@ function sampleEpub(): Buffer {
       "OPS/two.xhtml": epubText(
         "<html><body><h2 id='water'>Across the water</h2><p>The small boat found the patient morning.</p></body></html>",
       ),
-      "OPS/cover.png": PIXEL,
+      "OPS/cover.png": PAGE_PNG,
     }),
   );
 }
@@ -38,9 +38,9 @@ function sampleEpub(): Buffer {
 function sampleCbz(): Buffer {
   return Buffer.from(
     zipSync({
-      "10.png": PIXEL,
-      "2.png": PIXEL,
-      "1.png": PIXEL,
+      "10.png": PAGE_PNG,
+      "2.png": PAGE_PNG,
+      "1.png": PAGE_PNG,
       "ComicInfo.xml": epubText(
         "<ComicInfo><Title>Lantern Manga</Title><Writer>Test Cartographer</Writer><Series>Lantern Manga</Series><Number>1</Number><Summary>A right-to-left harbor story.</Summary><Genre>Adventure</Genre><Manga>YesAndRightToLeft</Manga></ComicInfo>",
       ),
@@ -56,6 +56,18 @@ async function assertNoHorizontalOverflow(
       page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
       ),
+    )
+    .toBe(true);
+}
+
+async function expectDecodedImage(image: Locator) {
+  await expect(image).toBeVisible();
+  await expect
+    .poll(() =>
+      image.evaluate((element) => {
+        const pageImage = element as HTMLImageElement;
+        return pageImage.complete && pageImage.naturalWidth > 0;
+      }),
     )
     .toBe(true);
 }
@@ -222,9 +234,9 @@ test("Books imports real EPUB and CBZ archives, persists readers, and keeps pers
     await expect(page.getByText("Right to left")).toBeVisible();
     await page.getByRole("button", { name: "Read volume 1" }).click();
     await expect(page).toHaveURL(new RegExp(`/books/read/${mangaId}$`));
-    await expect(page.getByAltText("Page 1 of 3")).toBeVisible();
+    await expectDecodedImage(page.getByAltText("Page 1 of 3"));
     await page.getByRole("button", { name: "Next" }).click();
-    await expect(page.getByAltText("Page 2 of 3")).toBeVisible();
+    await expectDecodedImage(page.getByAltText("Page 2 of 3"));
     await expect
       .poll(
         async () =>
@@ -236,7 +248,7 @@ test("Books imports real EPUB and CBZ archives, persists readers, and keeps pers
       )
       .toBe(1);
     await page.reload();
-    await expect(page.getByAltText("Page 2 of 3")).toBeVisible();
+    await expectDecodedImage(page.getByAltText("Page 2 of 3"));
   });
 
   await test.step("Books remains an isolated, responsive surface on a phone viewport", async () => {

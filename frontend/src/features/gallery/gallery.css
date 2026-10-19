@@ -101,6 +101,7 @@
   .gallery.g-wall { padding-top: 20px; }
   .gallery .g-toolbar { flex-wrap: nowrap; gap: 8px; }
   .gallery .g-sort, .gallery .g-sort .g-select { min-width: 0; }
+  .gallery .g-sort .g-select-trigger { width: 100%; }
   .gallery .g-sort > .g-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .gallery .g-search-open { margin-left: auto; }
   .gallery .g-filters { margin-left: 0; }

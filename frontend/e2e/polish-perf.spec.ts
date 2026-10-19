@@ -73,6 +73,11 @@ test('opening the palette, a dialog, a menu, a toast, the reco menu and the mini
     // Home's first-screen shelves settle on their own (an empty one collapses, which first render CLS covers); measure
     // the overlay once none is still loading. Below-the-fold shelves load only when scrolled near, so they are left out.
     await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('[data-shelf-section][aria-busy="true"]')].filter((node) => node.getBoundingClientRect().top < innerHeight).length)).toBe(0);
+    if (name === 'reco menu') {
+      const recentlySaved = page.locator('[data-shelf-section="recently_saved"]');
+      await expect(recentlySaved).toBeVisible();
+      await expect(recentlySaved).not.toHaveAttribute('aria-busy', 'true');
+    }
     await page.evaluate(OBSERVE);
     await open();
     const observed = await page.evaluate(() => ({ cls: (window as unknown as Shifts).__cls, sources: (window as unknown as Shifts).__src }));

@@ -1,14 +1,34 @@
 from __future__ import annotations
 
+import os
 import struct
 import zlib
 from pathlib import Path
+from time import sleep
 
 import pymupdf
 import pytest
 
 from app import book_models  # noqa: F401 - register tables before db_factory creates its schema
 from app.services.book_archives import BookArchiveError, inspect_book, read_resource
+from app.services.raster_images import image_size
+
+
+SOLID_RAR5 = Path(__file__).parent / 'fixtures' / 'books' / 'solid-rar5.cbr'
+
+
+def png(red: int = 0) -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
+    return (
+        b'\x89PNG\r\n\x1a\n'
+        + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 6, 0, 0, 0))
+        + chunk(b'IDAT', zlib.compress(bytes((0, red, 0, 0, 255))))
+        + chunk(b'IEND', b'')
+    )
+
+
+PNG = png()
 
 
 def rar(members: dict[str, bytes], *, attributes: int = 0o100644) -> bytes:
@@ -33,6 +53,18 @@ def pdf(*, encrypted: bool = False) -> bytes:
         return document.tobytes(encryption=pymupdf.PDF_ENCRYPT_AES_256, owner_pw='owner', user_pw='reader') if encrypted else document.tobytes()
 
 
+def cover_ready(client, url: str):  # noqa: ANN001, ANN201
+    response = client.get(url)
+    if response.status_code == 202:
+        assert response.headers['retry-after'] == '1' and response.content == b''
+    for _ in range(100):
+        if response.status_code == 200:
+            return response
+        sleep(0.02)
+        response = client.get(url)
+    return response
+
+
 def test_pdf_metadata_raster_pages_and_encryption(tmp_path: Path) -> None:
     path = tmp_path / 'book.pdf'; path.write_bytes(pdf())
     manifest = inspect_book(path, 'pdf')
@@ -51,7 +83,7 @@ def test_pdf_metadata_raster_pages_and_encryption(tmp_path: Path) -> None:
 
 def test_cbr_comicinfo_natural_pages_and_safety(tmp_path: Path) -> None:
     path = tmp_path / 'comic.cbr'
-    image = b'\x89PNG\r\n\x1a\nsmall'
+    image = PNG
     path.write_bytes(rar({'10.png': image, '2.png': image, 'ComicInfo.xml': b'<ComicInfo><Series>Stars</Series><Number>2</Number><Manga>YesAndRightToLeft</Manga></ComicInfo>'}))
     manifest = inspect_book(path, 'cbr', filename='Stars 2.cbr')
     assert manifest['format'] == 'cbr' and manifest['title'] == 'Stars 2'
@@ -67,6 +99,102 @@ def test_cbr_comicinfo_natural_pages_and_safety(tmp_path: Path) -> None:
             with pytest.raises(BookArchiveError): inspect_book(path, 'cbr')
     path.write_bytes(rar({'link.png': image}, attributes=0o120777))
     with pytest.raises(BookArchiveError): inspect_book(path, 'cbr')
+
+
+def test_compressed_solid_rar5_reads_first_and_late_pages_after_validation() -> None:
+    # Reproducible synthetic fixture: scripts/perf/audit_books.py --fixtures-only ... --pages 120
+    # --solid-rar-tool <official RAR CLI>. Generator provenance is retained with the performance audit.
+    manifest = inspect_book(SOLID_RAR5, 'cbr', filename='Synthetic Solid Comic.cbr')
+    assert len(manifest['pages']) == 120
+    assert manifest['pages'][0] == '0000.png' and manifest['pages'][-1] == '0119.png'
+
+    first, first_mime = read_resource(SOLID_RAR5, manifest['pages'][0])
+    late, late_mime = read_resource(SOLID_RAR5, manifest['pages'][-1])
+    assert first_mime == late_mime == 'image/png'
+    assert first == late and image_size(first) == (900, 1300)
+
+
+def test_repeated_native_resource_reads_spawn_one_worker(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+    from app.services import book_native
+
+    path = tmp_path / 'comic.cbr'
+    image = PNG
+    path.write_bytes(rar({'1.png': image, '2.png': image}))
+    real_run = subprocess.run
+    calls = []
+
+    def counting_run(*args, **kwargs):
+        calls.append(args[0])
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(book_native.subprocess, 'run', counting_run)
+    inspect_book(path, 'cbr')
+    assert read_resource(path, '1.png') == (image, 'image/png')
+    assert read_resource(path, '1.png') == (image, 'image/png')
+    assert len(calls) == 2
+
+
+def test_native_validation_marker_includes_format_and_file_change_time(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+    from app.services import book_native
+
+    path = tmp_path / 'comic.cbr'
+    first = png(1)
+    second = png(2)
+    path.write_bytes(rar({'1.png': first}))
+    original_mtime = path.stat().st_mtime_ns
+    real_run = subprocess.run
+    flags = []
+
+    def recording_run(*args, **kwargs):
+        flags.append(args[0][-1])
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(book_native.subprocess, 'run', recording_run)
+    inspect_book(path, 'cbr')
+    assert book_native.native_book(path, 'cbr', '1.png') == first
+    assert flags[-1] == '1'
+
+    path.write_bytes(rar({'1.png': second}))
+    os.utime(path, ns=(original_mtime, original_mtime))
+    assert book_native.native_book(path, 'cbr', '1.png') == second
+    assert flags[-1] == '0'
+
+
+def test_validated_cbr_skips_non_target_member_data(tmp_path: Path, monkeypatch) -> None:
+    import libarchive
+    from app.services.book_native_worker import _cbr
+
+    image = PNG
+    calls = []
+
+    class Entry:
+        isdir = False
+        isfile = True
+        issym = False
+        islnk = False
+
+        def __init__(self, name):
+            self.pathname = name
+            self.size = len(image)
+
+        def get_blocks(self):
+            calls.append(self.pathname)
+            yield image
+
+    class Reader:
+        def __enter__(self):
+            return iter([Entry('1.png'), Entry('2.png')])
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(libarchive, 'file_reader', lambda _path: Reader())
+    path = tmp_path / 'comic.cbr'
+    path.write_bytes(b'Rar!\x1a\x07\x00')
+    assert _cbr(path, '2.png', validated=True) == image
+    assert calls == ['2.png']
 
 
 def test_native_timeout_and_output_limit_are_enforced(tmp_path: Path, monkeypatch) -> None:
@@ -98,7 +226,7 @@ def test_pdf_page_limit_and_cbr_member_limit(tmp_path: Path) -> None:
     with pytest.raises(BookArchiveError): inspect_book(path, 'cbr')
 
 
-@pytest.mark.parametrize('filename,body,kind', [('paper.pdf', pdf(), 'ebook'), ('comic.cbr', rar({'1.png': b'\x89PNG\r\n\x1a\nsmall', '2.png': b'\x89PNG\r\n\x1a\nsmall'}), 'manga')], ids=['pdf', 'cbr'])
+@pytest.mark.parametrize('filename,body,kind', [('paper.pdf', pdf(), 'ebook'), ('comic.cbr', rar({'1.png': PNG, '2.png': PNG}), 'manga')], ids=['pdf', 'cbr'])
 def test_native_import_private_reader_and_checkpoint(api_client, db_factory, filename, body, kind) -> None:
     from test_books_api import _user
 
@@ -110,7 +238,8 @@ def test_native_import_private_reader_and_checkpoint(api_client, db_factory, fil
         book = response.json()
         assert book['kind'] == kind and book['visibility'] == 'private' and book['page_count'] == 2
         book_id = book['id']
-        assert client.get(f'/api/books/{book_id}/cover').status_code == 200
+        cover = cover_ready(client, f'/api/books/{book_id}/cover')
+        assert cover.status_code == 200 and cover.headers['content-type'] == 'image/jpeg'
         assert client.get(f'/api/books/{book_id}/pages/1').status_code == 200
         assert client.get(f'/api/books/{book_id}/chapters/0').status_code == 404
         assert client.patch(f'/api/books/{book_id}/state', json={'unit_index': 1}).json()['progress']['percent'] == 50

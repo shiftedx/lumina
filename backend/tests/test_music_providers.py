@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.models import MediaTitle
+from app.models import LibraryItem, MediaTitle
 from app.services import metadata_editor, music_providers as music
 from app.services.titles import title_image_bytes, title_image_source
 
@@ -253,6 +253,157 @@ def test_profile_uses_no_name_search_and_decodes_article_title_once(monkeypatch)
     assert fields['overview'] == 'A biography' and pictures[0]['url'].startswith('https://thumb.wikimedia.org/')
 
 
+@pytest.mark.parametrize('answer_id', [42, 43])
+def test_artist_without_wikimedia_photo_uses_only_identity_linked_deezer_art(monkeypatch, answer_id):
+    calls = []
+    def fetch(url):
+        calls.append(url)
+        return {'id': answer_id, 'picture_xl': 'https://cdn-images.dzcdn.net/images/artist/abc123/1000x1000-000000-80-0-0.jpg'}
+    monkeypatch.setattr(music, 'fetch_json', fetch)
+    _, pictures = music.artist_profile({'relations': [
+        {'type': 'streaming', 'url': {'resource': 'https://www.deezer.com/en/artist/42'}},
+    ]})
+    assert calls == ['https://api.deezer.com/artist/42']
+    if answer_id == 42:
+        assert pictures[0]['image_type'] == 'Primary'
+        assert pictures[0]['source_url'] == 'https://www.deezer.com/artist/42'
+        assert music.validate_art_url(pictures[0]['url']) == pictures[0]['url']
+    else:
+        assert pictures == []
+
+
+@pytest.mark.parametrize('link', ['https://www.deezer.com.evil.invalid/artist/42',
+    'https://user@www.deezer.com/artist/42', 'https://www.deezer.com:8443/artist/42',
+    'https://www.deezer.com/album/42', 'https://www.deezer.com/artist/not-an-id'])
+def test_artist_art_fallback_never_follows_untrusted_or_nonartist_links(monkeypatch, link):
+    monkeypatch.setattr(music, 'fetch_json', lambda _url: pytest.fail('Not an identity-linked artist'))
+    assert music.artist_profile({'relations': [{'url': {'resource': link}}]}) == ({}, [])
+
+
+def test_nonenglish_wikipedia_relation_does_not_hide_the_linked_english_biography(monkeypatch):
+    calls = []
+    def fetch(url):
+        calls.append(url)
+        return {'extract': 'An identity-linked biography'}
+    monkeypatch.setattr(music, 'fetch_json', fetch)
+    fields, _ = music.artist_profile({'relations': [
+        {'type': 'wikipedia', 'url': {'resource': 'https://fr.wikipedia.org/wiki/Artist_A'}},
+        {'type': 'wikipedia', 'url': {'resource': 'https://en.wikipedia.org/wiki/Artist_A'}},
+    ]})
+    assert calls == ['https://en.wikipedia.org/api/rest_v1/page/summary/Artist_A']
+    assert fields['overview'] == 'An identity-linked biography'
+
+
+def test_identified_artist_without_a_photo_is_revisited_weekly_without_repeated_work(db_factory, monkeypatch):
+    from datetime import timedelta
+    from app.models import MusicLookup, utcnow
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    monkeypatch.setattr(music, 'fetch_json', lambda _url: {'name': 'Artist A'})
+    monkeypatch.setattr(music, 'release_page', lambda _id: {'items': []})
+    tasks = []
+    monkeypatch.setattr(music, '_pool', SimpleNamespace(submit=lambda callback: tasks.append(callback)))
+    with db_factory() as db:
+        db.add(MediaTitle(id=ARTIST, type='artist', key='artist:a', name='Artist A', provider_ids={'MusicBrainz': ARTIST}))
+        db.commit()
+    assert music.request_enrichment(ARTIST)
+    tasks.pop()()
+    with db_factory() as db:
+        artist = db.get(MediaTitle, ARTIST)
+        lookup = db.get(MusicLookup, music.key_for('metadata', ARTIST))
+        assert lookup.payload['identified'] and lookup.payload['artwork_missing']
+        assert utcnow() + timedelta(days=6) < artist.metadata_due_at < utcnow() + timedelta(days=8)
+        assert utcnow() + timedelta(days=6) < lookup.expires_at < utcnow() + timedelta(days=8)
+    assert not music.request_enrichment(ARTIST)
+    assert not tasks
+
+
+def test_artist_refresh_recovers_from_unavailable_wikimedia_photo_with_linked_portrait(db_factory, monkeypatch):
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    monkeypatch.setattr(music, 'release_page', lambda _id: {'items': []})
+    def fetch(url):
+        if '/ws/2/artist/' in url:
+            return {'name': 'Artist A', 'relations': [
+                {'type': 'wikipedia', 'url': {'resource': 'https://en.wikipedia.org/wiki/Artist_A'}},
+                {'type': 'streaming', 'url': {'resource': 'https://www.deezer.com/artist/42'}},
+            ]}
+        if '/summary/' in url:
+            return {'extract': 'Biography', 'originalimage': {'source': 'https://upload.wikimedia.org/photo.jpg'}}
+        if 'api.deezer.com' in url:
+            return {'id': 42, 'picture_xl': 'https://cdn-images.dzcdn.net/images/artist/abc123/1000x1000-000000-80-0-0.jpg'}
+        return {}
+    def load(url, **_kwargs):
+        if 'wikimedia.org' in url:
+            raise ValueError('Upstream is rate limited')
+        return SimpleNamespace(content=b'verified portrait')
+    monkeypatch.setattr(music, 'fetch_json', fetch)
+    monkeypatch.setattr(music, '_artwork', SimpleNamespace(load_pinned=load))
+    with db_factory() as db:
+        db.add(MediaTitle(id=ARTIST, type='artist', key='artist:a', name='Artist A', provider_ids={'MusicBrainz': ARTIST},
+                          images={'Primary': {'music': 'https://upload.wikimedia.org/photo.jpg', 'tag': 'old'}}, field_sources={'images.Primary': 'musicbrainz'}))
+        db.commit()
+    result = music.enrich_title(ARTIST)
+    assert result['identified'] and not result.get('artwork_error')
+    with db_factory() as db:
+        artist = db.get(MediaTitle, ARTIST)
+        assert artist.images['Primary']['music'].startswith('https://cdn-images.dzcdn.net/images/artist/')
+        assert artist.metadata_json['artwork_credits'][0]['source_url'] == 'https://www.deezer.com/artist/42'
+
+
+def test_gone_stored_portrait_is_not_cached_as_healthy_for_a_month(db_factory, monkeypatch):
+    from datetime import timedelta
+    from app.models import utcnow
+    from app.services.artwork import ArtworkNotFoundError
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    monkeypatch.setattr(music, 'fetch_json', lambda _url: {'name': 'Artist A'})
+    monkeypatch.setattr(music, 'release_page', lambda _id: {'items': []})
+    monkeypatch.setattr(music, 'artist_profile', lambda _value: ({}, [{'url': 'https://upload.wikimedia.org/gone.jpg', 'image_type': 'Primary'}]))
+    def gone(*_args, **_kwargs):
+        raise ArtworkNotFoundError('Gone')
+    monkeypatch.setattr(music, 'import_art', gone)
+    with db_factory() as db:
+        db.add(MediaTitle(id=ARTIST, type='artist', key='artist:a', name='Artist A', provider_ids={'MusicBrainz': ARTIST},
+                          images={'Primary': {'music': 'https://upload.wikimedia.org/gone.jpg', 'tag': 'old'}}))
+        db.commit()
+    result = music.enrich_title(ARTIST)
+    assert result['identified'] and result['artwork_missing']
+    with db_factory() as db:
+        assert db.get(MediaTitle, ARTIST).metadata_due_at < utcnow() + timedelta(days=8)
+
+
+def test_unavailable_artist_image_queues_one_repair_despite_long_lived_metadata_cache(db_factory, monkeypatch):
+    from datetime import timedelta
+    from app.models import MusicLookup, utcnow
+    from app.services.artwork import ArtworkNotFoundError
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    tasks = []
+    monkeypatch.setattr(music, '_pool', SimpleNamespace(submit=lambda callback: tasks.append(callback)))
+    monkeypatch.setattr(music, 'enrich_title', lambda *_args: {'identified': True, 'artwork_missing': True})
+    key = music.key_for('metadata', ARTIST)
+    with db_factory() as db:
+        db.add(MediaTitle(id=ARTIST, type='artist', key='artist:a', name='Artist A', provider_ids={'MusicBrainz': ARTIST},
+                          images={'Primary': {'music': 'https://upload.wikimedia.org/gone.jpg', 'tag': 'old'}}))
+        db.add(MusicLookup(key=key, kind='metadata', payload={'identified': True}, refreshed_at=utcnow()-timedelta(days=2), expires_at=utcnow()+timedelta(days=28)))
+        db.commit()
+    def gone(*_args, **_kwargs):
+        raise ArtworkNotFoundError('Gone')
+    with db_factory() as db:
+        artist = db.get(MediaTitle, ARTIST)
+        for _ in range(2):
+            with pytest.raises(FileNotFoundError):
+                title_image_bytes(db, artist, 'Primary', SimpleNamespace(load_pinned=gone))
+    assert len(tasks) == 1
+    tasks.pop()()
+    with db_factory() as db:
+        with pytest.raises(FileNotFoundError):
+            title_image_bytes(db, db.get(MediaTitle, ARTIST), 'Primary', SimpleNamespace(load_pinned=gone))
+        assert utcnow() + timedelta(days=6) < db.get(MusicLookup, key).expires_at < utcnow() + timedelta(days=8)
+        db.get(MusicLookup, key).refreshed_at = utcnow() - timedelta(days=2)
+        db.commit()
+        with pytest.raises(FileNotFoundError):
+            title_image_bytes(db, db.get(MediaTitle, ARTIST), 'Primary', SimpleNamespace(load_pinned=gone))
+    assert not tasks
+
+
 def test_artwork_failure_keeps_identity_and_retries_before_month_long_metadata_ttl(db_factory, monkeypatch):
     from datetime import timedelta
     from app.models import utcnow
@@ -410,3 +561,139 @@ def test_lyrics_outage_cache_recovers_soon_without_discarding_saved_words(db_fac
     tasks.pop()()
     with db_factory() as db:
         assert db.get(MusicLookup, key).payload['plain'] == 'Saved words'
+
+
+def test_ambiguous_artist_uses_two_registered_album_matches_to_choose_one_candidate(db_factory, monkeypatch):
+    local_artist = 'local-artist'
+    third = '32345678-1234-4678-9234-123456789012'
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    with db_factory() as db:
+        db.add(MediaTitle(id=local_artist, type='artist', key='artist:the sound', name='The Sound'))
+        for index, (name, status) in enumerate((('Echoes', 'available'), ('Northern Lights', 'available'),
+                                                ('Missing Decoy', 'missing'), ('Missing Other', 'missing'))):
+            album_id = f'local-album-{index}'
+            db.add(MediaTitle(id=album_id, type='album', key=f'album:the sound/{index}', name=name, parent_id=local_artist))
+            db.add(LibraryItem(id=f'local-track-{index}', title=f'Track {index}', title_id=album_id, kind='track', status=status))
+        db.commit()
+    candidates = [
+        {'id': ARTIST, 'name': 'The Sound', 'score': 100, 'exact': True, 'complete': True},
+        {'id': RELEASE, 'name': 'The Sound', 'score': 100, 'exact': True, 'complete': True},
+        {'id': third, 'name': 'The Sound', 'score': 94, 'exact': False, 'complete': True},
+    ]
+    monkeypatch.setattr(music, 'candidates_for', lambda *_args: candidates)
+    pages = {
+        ARTIST: {'items': [{'name': 'Echoes'}, {'name': 'Northern Lights'}], 'next_offset': None, 'complete': True},
+        RELEASE: {'items': [{'name': 'Missing Decoy'}, {'name': 'Missing Other'}], 'next_offset': None, 'complete': True},
+    }
+    monkeypatch.setattr(music, 'release_page', lambda identity: pages[identity])
+    monkeypatch.setattr(music, 'fetch_json', lambda _url: {'name': 'The Sound'})
+    monkeypatch.setattr(music, 'artist_profile', lambda _value: ({}, []))
+
+    assert music.enrich_title(local_artist)['id'] == ARTIST
+    with db_factory() as db:
+        assert db.get(MediaTitle, local_artist).provider_ids == {'MusicBrainz': ARTIST}
+
+
+@pytest.mark.parametrize(('candidate_patch', 'pages'), [
+    ({}, {
+        ARTIST: {'items': [{'name': 'Echoes'}, {'name': 'Unrelated'}]},
+        RELEASE: {'items': [{'name': 'Echoes'}, {'name': 'Different'}]},
+    }),
+    ({}, {
+        ARTIST: {'items': [{'name': 'Echoes'}, {'name': 'Northern Lights'}]},
+        RELEASE: {'items': [{'name': 'Echoes'}, {'name': 'Northern Lights'}]},
+    }),
+    ({}, {
+        ARTIST: {'items': [{'name': 'Echoes'}, {'name': 'Northern Lights'}]},
+        RELEASE: {'items': [{'name': 'Unrelated'}], 'next_offset': 100},
+    }),
+    ({'complete': False}, {}),
+    ({'exact': False, 'score': 94}, {}),
+])
+def test_artist_catalog_evidence_refuses_one_album_ties_partial_pages_and_low_scores(
+    db_factory, monkeypatch, candidate_patch, pages,
+):
+    local_artist = f'guarded-artist-{len(pages)}-{candidate_patch.get("score", 100)}-{candidate_patch.get("complete", True)}'
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    with db_factory() as db:
+        db.add(MediaTitle(id=local_artist, type='artist', key=f'artist:{local_artist}', name='The Sound'))
+        for index, name in enumerate(('Echoes', 'Northern Lights')):
+            album_id = f'{local_artist}-album-{index}'
+            db.add(MediaTitle(id=album_id, type='album', key=f'album:{local_artist}/{index}', name=name, parent_id=local_artist))
+            db.add(LibraryItem(id=f'{local_artist}-track-{index}', title=f'Track {index}', title_id=album_id, kind='track', status='available'))
+        db.commit()
+    candidates = [
+        {'id': identity, 'name': 'The Sound', 'score': 100, 'exact': True, 'complete': True, **candidate_patch}
+        for identity in (ARTIST, RELEASE)
+    ]
+    monkeypatch.setattr(music, 'candidates_for', lambda *_args: candidates)
+    calls = []
+    def releases(identity):
+        calls.append(identity)
+        return {'next_offset': None, 'complete': True, **pages[identity]}
+    monkeypatch.setattr(music, 'release_page', releases)
+    monkeypatch.setattr(music, 'fetch_json', lambda _url: pytest.fail('Insufficient catalog evidence must not select an artist'))
+
+    assert music.enrich_title(local_artist) == {'candidates': candidates}
+    assert calls == list(pages)
+    with db_factory() as db:
+        assert db.get(MediaTitle, local_artist).provider_ids == {}
+
+
+def test_artist_catalog_evidence_requires_a_complete_provider_release_count(db_factory, monkeypatch):
+    local_artist = 'guarded-artist-missing-release-count'
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    with db_factory() as db:
+        db.add(MediaTitle(id=local_artist, type='artist', key='artist:missing-release-count', name='The Sound'))
+        for index, name in enumerate(('Echoes', 'Northern Lights')):
+            album_id = f'missing-release-count-album-{index}'
+            db.add(MediaTitle(id=album_id, type='album', key=f'album:missing-release-count/{index}', name=name,
+                              parent_id=local_artist))
+            db.add(LibraryItem(id=f'missing-release-count-track-{index}', title=f'Track {index}', title_id=album_id,
+                               kind='track', status='available'))
+        db.commit()
+    candidates = [
+        {'id': ARTIST, 'name': 'The Sound', 'score': 100, 'exact': True, 'complete': True},
+        {'id': RELEASE, 'name': 'The Sound', 'score': 100, 'exact': True, 'complete': True},
+    ]
+    monkeypatch.setattr(music, 'candidates_for', lambda *_args: candidates)
+    calls = []
+    def fetch(url):
+        calls.append(url)
+        if '/release-group?' not in url:
+            pytest.fail('Unknown release-page completeness must not select an artist')
+        names = ('Echoes', 'Northern Lights') if f'artist={ARTIST}' in url else ('Unrelated',)
+        return {'release-groups': [
+            {'id': str(__import__('uuid').UUID(int=index + 10)), 'title': name}
+            for index, name in enumerate(names)
+        ]}
+    monkeypatch.setattr(music, 'fetch_json', fetch)
+
+    assert music.enrich_title(local_artist) == {'candidates': candidates}
+    assert len(calls) == 1 and f'artist={ARTIST}' in calls[0]
+    with db_factory() as db:
+        assert db.get(MediaTitle, local_artist).provider_ids == {}
+
+
+def test_artist_catalog_evidence_does_not_inspect_more_than_three_candidates(db_factory, monkeypatch):
+    local_artist = 'guarded-artist-many-candidates'
+    monkeypatch.setattr(music, 'session_scope', db_factory)
+    with db_factory() as db:
+        db.add(MediaTitle(id=local_artist, type='artist', key='artist:many-candidates', name='The Sound'))
+        for index, name in enumerate(('Echoes', 'Northern Lights')):
+            album_id = f'many-candidates-album-{index}'
+            db.add(MediaTitle(id=album_id, type='album', key=f'album:many-candidates/{index}', name=name, parent_id=local_artist))
+            db.add(LibraryItem(id=f'many-candidates-track-{index}', title=f'Track {index}', title_id=album_id, kind='track', status='available'))
+        db.commit()
+    candidates = [
+        {'id': str(__import__('uuid').UUID(int=index)), 'name': 'The Sound', 'score': 100,
+         'exact': True, 'complete': True}
+        for index in range(1, 5)
+    ]
+    monkeypatch.setattr(music, 'candidates_for', lambda *_args: candidates)
+    monkeypatch.setattr(music, 'release_page', lambda _identity: pytest.fail('Four ambiguous candidates must wait for review'))
+    monkeypatch.setattr(music, 'fetch_json', lambda _url: pytest.fail('Four ambiguous candidates must wait for review'))
+
+    assert music.enrich_title(local_artist) == {'candidates': candidates}
+    with db_factory() as db:
+        assert db.get(MediaTitle, local_artist).provider_ids == {}

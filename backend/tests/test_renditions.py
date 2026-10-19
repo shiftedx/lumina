@@ -362,15 +362,23 @@ def test_the_lifespan_starts_the_pass_off_the_event_loop(library, monkeypatch) -
     assert seen == [False]  # ffmpeg -encoders and the staging sweep never block the loop
 
 
-def test_tmdb_art_is_prepared_only_once_its_pinned_copy_is_on_disk(media, tmp_path, monkeypatch, caplog) -> None:  # noqa: ANN001
+@pytest.mark.parametrize('provider', ['tmdb', 'music', 'music-artist'])
+def test_provider_art_is_prepared_only_once_its_pinned_copy_is_on_disk(media, tmp_path, monkeypatch, caplog, provider) -> None:  # noqa: ANN001
     log = use_fake_ffmpeg(tmp_path, monkeypatch)
+    url = tmdb.image_url('/abc123.jpg', tmdb.IMAGE_SIZES['Primary']) if provider == 'tmdb' else 'https://coverartarchive.org/release/12345678-1234-4678-9234-123456789012/front-1200'
+    if provider == 'music-artist':
+        url = 'https://cdn-images.dzcdn.net/images/artist/abc123/1000x1000-000000-80-0-0.jpg'
+    monkeypatch.setattr('app.services.music_providers.request_artwork_repair', lambda *_args: pytest.fail('Offline thumbnail preparation must not schedule provider work'))
     with db_module.SessionLocal() as session:
-        add_title(session, A, "movie", "Remote").images = {"Primary": {"tmdb": "/abc123.jpg"}}
+        add_title(session, A, 'movie' if provider == 'tmdb' else 'artist' if provider == 'music-artist' else 'album', 'Remote').images = {
+            'Primary': {'tmdb': '/abc123.jpg'} if provider == 'tmdb' else {'music': url, 'tag': 'photo-tag'},
+        }
         session.commit()
     worker = renditions.ArtworkRenditions()
     assert worker.run_once() is True and _row(A) is None and fake_calls(log) == []  # never fetched from the network
     assert not [record for record in caplog.records if record.name == "lumina.artwork"]
-    pinned = settings.data_dir / "metadata-art" / (hashlib.sha256(tmdb.image_url("/abc123.jpg", tmdb.IMAGE_SIZES["Primary"]).encode()).hexdigest() + ".jpg")
+    root = settings.data_dir / 'metadata-art'
+    pinned = (root if provider == 'tmdb' else root / 'music') / (hashlib.sha256(url.encode()).hexdigest() + '.jpg')
     pinned.parent.mkdir(parents=True)
     pinned.write_bytes(png_header(500, 750))
     worker._skipped.clear()

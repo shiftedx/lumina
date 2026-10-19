@@ -15,6 +15,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.config import settings
 from app.media_schemas import TitleArt
@@ -67,7 +68,7 @@ def portrait(title_type: str, image_type: str) -> bool:
 
 
 def supported(entry: Any) -> bool:
-    """A stored image entry ({"path": …, "tag": …}, {"embedded": …, "tag": …}, {"tmdb": "/x.jpg"} or {"upload": sha}) whose format ffmpeg
+    """A stored image entry ({"path": …, "tag": …}, {"embedded": …, "tag": …}, {"tmdb": "/x.jpg"}, {"music": url} or {"upload": sha}) whose format ffmpeg
     renditions. An embedded picture is JPEG or PNG, or titles.title_image_bytes refuses it and the pass records that."""
     if not isinstance(entry, dict):
         return False
@@ -75,6 +76,12 @@ def supported(entry: Any) -> bool:
         return True
     if isinstance(entry.get("embedded"), str) and not entry.get("path"):
         return True
+    if isinstance(entry.get("music"), str):
+        try:
+            suffix = PurePosixPath(urlsplit(entry["music"]).path).suffix.lower()
+        except ValueError:
+            return False
+        return not suffix or suffix in SUPPORTED_SUFFIXES  # Cover Art Archive's front-1200 URL has no extension.
     name = entry.get("path") or entry.get("tmdb")
     return isinstance(name, str) and PurePosixPath(name).suffix.lower() in SUPPORTED_SUFFIXES
 

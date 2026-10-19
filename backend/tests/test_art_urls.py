@@ -59,6 +59,16 @@ def test_title_art_without_a_row_has_a_rendition_and_no_facts() -> None:
     assert art_urls.needs_preparation(_title(), "Primary", "1f-2a", None)
 
 
+@pytest.mark.parametrize('url', ['https://upload.wikimedia.org/portrait.jpg',
+    'https://cdn-images.dzcdn.net/images/artist/abc123/1000x1000-000000-80-0-0.jpg'])
+def test_music_artist_portraits_advertise_square_thumbnails_and_queue_preparation(url) -> None:
+    title = MediaTitle(id=TITLE_ID, type='artist', key='artist:a', name='Artist A', images={'Primary': {'music': url, 'tag': 'photo-tag'}})
+    art = art_urls.title_art(title, 'Primary', source='photo-tag', url='/original', row=None, preview=True)
+    assert art.rendition and art.rendition.endswith('-{w}.webp')
+    assert art.widths == [240, 480, 960]
+    assert art_urls.needs_preparation(title, 'Primary', 'photo-tag', None)
+
+
 def test_title_art_uses_only_a_current_ready_row() -> None:
     key = art_urls.source_key(TITLE_ID, "Primary", "1f-2a")
     row = TitleArtwork(title_id=TITLE_ID, image_type="Primary", source_key=key, state="ready", width=1000, height=1500,

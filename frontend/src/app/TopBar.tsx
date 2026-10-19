@@ -44,6 +44,13 @@ export function libraryIsActive(activity: LibraryActivity | null): boolean {
   return Boolean(activity && (activity.scanning_roots > (activity.stalled_roots ?? 0) || activity.preparing_roots));
 }
 
+function artworkButtonLabel(activity: LibraryActivity | null): string | null {
+  const pending = activity?.artwork_pending;
+  if (typeof pending !== 'number' || pending <= 0) return null;
+  const thumbnails = `${pending} ${pending === 1 ? 'thumbnail' : 'thumbnails'}`;
+  return activity?.artwork_paused ? `${thumbnails} queued` : `Preparing ${thumbnails}`;
+}
+
 function libraryButtonLabel(snapshot: LibraryActivitySnapshot): string | null {
   if (snapshot.state === 'loading') return 'Checking library activity';
   if (snapshot.state === 'failed') return 'Library activity unavailable';
@@ -66,7 +73,7 @@ function libraryButtonLabel(snapshot: LibraryActivitySnapshot): string | null {
 
 export function activityLabel(downloads: TopBarProps['activity'], library: LibraryActivitySnapshot): string {
   const current = (downloads.state === 'ready' || downloads.state === 'empty') && !downloads.retrying;
-  const parts = [current && downloads.active ? `${downloads.active} ${downloads.active === 1 ? 'download' : 'downloads'}` : current ? null : downloadActivityLabel(downloads), libraryButtonLabel(library)].filter(Boolean);
+  const parts = [current && downloads.active ? `${downloads.active} ${downloads.active === 1 ? 'download' : 'downloads'}` : current ? null : downloadActivityLabel(downloads), libraryButtonLabel(library), artworkButtonLabel(library.activity)].filter(Boolean);
   return parts.length ? parts.join(' · ') : 'No active downloads';
 }
 
@@ -83,10 +90,16 @@ export function TopBar(props: TopBarProps) {
   const stalledCount = library?.stalled_roots ?? 0;
   const waitingFiles = library?.waiting_files ?? 0;
   const waitingErrorFiles = library?.waiting_error_files ?? 0;
+  const artworkPending = typeof library?.artwork_pending === 'number' ? library.artwork_pending : null;
+  const artworkMissing = typeof library?.artwork_missing === 'number' ? library.artwork_missing : null;
+  const artworkFailed = typeof library?.artwork_failed === 'number' ? library.artwork_failed : null;
+  const artworkPaused = library?.artwork_paused === true;
+  const artworkCountsKnown = artworkPending !== null && artworkMissing !== null && artworkFailed !== null;
+  const artworkActive = (artworkPending ?? 0) > 0 && !artworkPaused;
   const stalled = Boolean(stalledCount);
   const waiting = Boolean(waitingFiles);
   const indexingProgress = library?.indexing_roots && library.total_files !== null && library.progress !== null ? Math.max(0, Math.min(100, library.progress)) : null;
-  const indeterminate = scanning && indexingProgress === null;
+  const indeterminate = artworkActive || (scanning && indexingProgress === null);
   const ringProgress = indexingProgress === null ? (active ? 360 : 0) : Math.round(indexingProgress * 3.6);
   const shortcut = modKeyLabel();
   const activityButton = (triggerProps: Record<string, unknown> = {}) => (
@@ -134,6 +147,17 @@ export function TopBar(props: TopBarProps) {
                   {scanning || waiting ? <p>New files appear in the library after indexing.</p> : null}
                 </div>
               ) : null}
+            </section>
+            <section>
+              <h2>Artwork</h2>
+              {libraryActivity.state !== 'ready' ? <StatusText tone="muted">Artwork preparation status is unavailable</StatusText> : null}
+              {libraryActivity.state === 'ready' && !artworkCountsKnown ? <StatusText tone="muted">Artwork preparation status is unavailable on this server</StatusText> : null}
+              {libraryActivity.state === 'ready' && artworkCountsKnown ? <div className="g-library-activity">
+                {artworkPending ? <><StatusText tone={artworkPaused ? 'muted' : 'attention'}>{artworkPaused ? 'Thumbnail preparation paused' : 'Preparing thumbnails'}</StatusText><p>{artworkPending} {artworkPending === 1 ? 'thumbnail is' : 'thumbnails are'} queued for preparation.</p></> : <StatusText tone="muted">Thumbnail preparation idle</StatusText>}
+                {artworkPaused ? <p>Paused while a video is being converted.</p> : null}
+                {artworkMissing ? <p>{artworkMissing} {artworkMissing === 1 ? 'image still needs' : 'images still need'} a thumbnail.</p> : null}
+                {artworkFailed ? <p>{artworkFailed} {artworkFailed === 1 ? 'thumbnail could' : 'thumbnails could'} not be prepared.</p> : null}
+              </div> : null}
             </section>
           </div>
         </Popover>

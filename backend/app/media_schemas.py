@@ -411,6 +411,9 @@ class ArtServing(BaseModel):
 
 
 class ArtworkProgress(BaseModel):
+    pending: int = 0
+    missing_episode_stills: int = 0
+    pending_episode_stills: int = 0
     total: int = 0  # (title, image type) pairs with a supported source
     prepared: int = 0  # ... whose row is ready for the current source_key
     failed: int = 0
@@ -831,7 +834,7 @@ class ProfanityPref(BaseModel):
 # ---- 2.1.0 metadata editor --------------------------
 EditKind = Literal["edit", "lock", "revert", "bulk", "undo", "item_lock", "image"]
 EditableImageType = Literal["Primary", "Backdrop", "Logo"]  # Thumb and Banner are out of 2.1.0
-ImageOrigin = Literal["tmdb", "musicbrainz", "upload", "local", "embedded"]
+ImageOrigin = Literal["tmdb", "musicbrainz", "upload", "local", "embedded", "generated"]
 RefreshOutcome = Literal["update", "same", "kept_edit", "kept_lock", "kept_higher_source", "new"]
 BulkOpName = Literal["add", "remove", "set", "lock", "unlock", "lock_item", "unlock_item"]
 BulkSkipReason = Literal["not_found", "locked_item", "wrong_type"]
@@ -1185,6 +1188,10 @@ ActivityProgress = Annotated[float, Field(strict=True, ge=0, le=100)]
 class LibraryActivity(BaseModel):
     """Member-safe aggregate of current indexing work; never identifies a root or media item."""
 
+    artwork_pending: ActivityCount = 0
+    artwork_failed: ActivityCount = 0
+    artwork_missing: ActivityCount = 0
+    artwork_paused: bool = False
     scanning_roots: ActivityCount = 0
     discovering_roots: ActivityCount = 0
     indexing_roots: ActivityCount = 0

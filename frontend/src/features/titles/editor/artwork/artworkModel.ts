@@ -34,5 +34,5 @@ export function moveOrder(occupied: readonly number[], index: number, direction:
   return next;
 }
 
-const ORIGINS: Record<ImageOrigin, string> = { tmdb: 'From TMDB', musicbrainz: 'Music metadata', upload: 'Uploaded', local: 'From folder', embedded: 'From media file' };
+const ORIGINS: Record<ImageOrigin, string> = { tmdb: 'From TMDB', musicbrainz: 'Music metadata', upload: 'Uploaded', local: 'From folder', embedded: 'From media file', generated: 'Generated frame' };
 export const originLabel = (entry: TitleImageEntry): string => (entry.origin ? ORIGINS[entry.origin] : '');

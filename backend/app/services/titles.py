@@ -485,6 +485,8 @@ class TitleService:
         art_urls.enqueue(
             (title.id, image_type) for title in page for image_type in art_urls.ART_TYPES
             if art_urls.needs_preparation(title, image_type, title_image_source(title, image_type), batch.artwork.get((title.id, image_type)))
+            or (image_type == "Primary" and title.type == "episode" and not title.locked
+                and not (title.images or {}).get("Primary") and (title.field_sources or {}).get("images.Primary") not in ("user", "nfo"))
         )
 
     def progress_for(self, user: User, item_ids: list[str]) -> dict[str, PlaybackProgress]:
@@ -1069,6 +1071,13 @@ def title_image_bytes(db: Session, title: MediaTitle, image_type: str, artwork: 
     ``tmdb.load_image``). The path comes only from the scanner's stored map, never from the request.
     """
     entry = (title.images or {}).get(image_type)
+    if isinstance(entry, dict) and isinstance(entry.get("frame"), str) and not entry.get("removed"):
+        from app.services import episode_stills
+        try:
+            return "image/jpeg", episode_stills.image_bytes(entry, title.id)
+        except FileNotFoundError:
+            art_urls.enqueue([(title.id, image_type)])
+            raise
     if isinstance(entry, dict) and isinstance(entry.get("music"), str) and not entry.get("removed"):
         from app.services.music_providers import validate_art_url
         try:

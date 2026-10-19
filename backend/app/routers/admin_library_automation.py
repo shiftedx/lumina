@@ -55,7 +55,11 @@ def get_automation() -> LibraryAutomationResponse:
 
 
 def get_library_activity(_current_user: User = Depends(get_current_user)) -> LibraryActivity:
-    return LibraryActivity(**automation_service().public_activity())
+    from app.services.renditions import renditions
+    artwork = renditions.progress()
+    return LibraryActivity(**automation_service().public_activity(), artwork_pending=artwork.pending,
+                           artwork_failed=artwork.failed, artwork_missing=artwork.missing_episode_stills,
+                           artwork_paused=artwork.paused_for_playback)
 
 
 def patch_night_hour(payload: NightHourPatch, db: Session = Depends(get_db, scope="function")) -> LibraryAutomationResponse:

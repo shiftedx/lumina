@@ -155,7 +155,8 @@ describe('BooksSurface', () => {
     await screen.findByRole('heading', { level: 1, name: 'Skybound' });
     expect(api.getBooksOverview).not.toHaveBeenCalled();
     await browser.click(screen.getByRole('button', { name: 'Read volume 1' }));
-    await waitFor(() => expect(api.getBookReader).toHaveBeenCalledWith('manga-1', expect.any(AbortSignal)));
+    expect(api.getBookReader).toHaveBeenCalledWith('manga-1', expect.any(AbortSignal));
+    expect(screen.queryByText('Opening your book…')).toBeNull();
   });
 
   it('opens individual volumes as title detail and exposes volume-specific editing', async () => {

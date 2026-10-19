@@ -7,12 +7,12 @@ import { useFetched } from '../titles/titleModel';
 import { AddToShelfDialog, BookMetadataEditor, ImportBooksDialog, ShelfEditor } from './BooksDialogs';
 import { BookCard, BookCover, readingPosition, SeriesCard, ShelfTile } from './BookCards';
 import { BookDetail } from './BookDetail';
+import { BookReader } from './BookReader';
 import { booksRoutePath, type BooksRoute } from './routes';
 import { deleteBook, deleteBookShelf, getBook, getBookSeries, getBooksOverview, listBooks, listBookSeries, setBookShelfEntries, separateBookFile, updateBookShelf, updateBookState, type BooksQuery } from './booksApi';
 import type { Book, BookPage, BookSeries, BookShelf, BookSort, BookStateUpdate } from './types';
 import './books.css';
 
-const BookReader = lazy(() => import('./BookReader').then((module) => ({ default: module.BookReader })));
 const CombineBooksDialog = lazy(() => import('./BooksManagementDialogs').then((module) => ({ default: module.CombineBooksDialog })));
 const BooksTrashDialog = lazy(() => import('./BooksManagementDialogs').then((module) => ({ default: module.BooksTrashDialog })));
 
@@ -155,7 +155,7 @@ function BooksContent({ user, route, onRoute }: BooksSurfaceProps) {
   </div>;
   const dataState = <T,>(resource: { data: BookPage<T> | null; loading: boolean; error: unknown }, children: ReactNode) => resource.error ? <ErrorState body={ERROR(resource.error)} onRetry={refreshed} title="Your collection could not be loaded" /> : !resource.data ? <Skeleton count={6} label="Loading your books…" shape="poster" /> : resource.data.total === 0 ? <EmptyState action={canImport ? <Button icon={<Plus />} onClick={() => input.current?.click()} variant="quiet">Import books</Button> : undefined} body={filters?.q || (filters?.status && filters.status !== 'all') ? 'Try a different search or reading status.' : canImport ? 'Import an EPUB or CBZ to begin your collection.' : 'Book imports are not available on this account.'} size="page" title={filters?.q ? 'No matching stories' : 'This shelf is waiting for its first story'} /> : children;
 
-  if (route.view === 'read') return <Suspense fallback={<Skeleton count={5} label="Opening your book…" shape="row" />}><BookReader bookId={route.bookId} key={`${user.id}:${route.bookId}`} onBack={() => open(lastReaderRoute.current)} onBookChange={bookChanged} onFileChange={(id) => open({ surface: 'books', view: 'read', bookId: id })} userId={user.id} /></Suspense>;
+  if (route.view === 'read') return <BookReader bookId={route.bookId} key={`${user.id}:${route.bookId}`} onBack={() => open(lastReaderRoute.current)} onBookChange={bookChanged} onFileChange={(id) => open({ surface: 'books', view: 'read', bookId: id })} userId={user.id} />;
 
   let body: ReactNode;
   let heading = 'Books';

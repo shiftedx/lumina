@@ -86,9 +86,9 @@ describe('AI & models form', () => {
     renderAi();
     expect(await screen.findByRole('switch', { name: 'Semantic search' })).toBeTruthy();
     for (const entry of sectionById('ai')!.entries) expect(screen.getByRole('button', { name: `About ${entry.label}` })).toBeTruthy();
-    expect(within(rowOf('ai.semantic-search')).getByText('Needs the search model')).toBeTruthy();
-    expect(within(rowOf('ai.translate')).getByText('Needs your assistant server')).toBeTruthy();
-    expect(within(rowOf('ai.sync')).getByText('Needs nothing extra')).toBeTruthy();
+    expect(within(rowOf('ai.semantic-search')).getByText('Search model')).toBeTruthy();
+    expect(within(rowOf('ai.translate')).getByText('Assistant server')).toBeTruthy();
+    expect(within(rowOf('ai.sync')).getByText('Built in')).toBeTruthy();
     expect(within(rowOf('ai.status')).getByText('Transcripts come only from source captions')).toBeTruthy();
     expect(saveButton().disabled).toBe(true);
   });
@@ -116,7 +116,7 @@ describe('AI & models form', () => {
     renderAi();
     const toggle = await screen.findByRole('switch', { name: 'Personalised recommendations' });
     expect((toggle as HTMLInputElement).checked).toBe(true);
-    expect(within(rowOf('ai.personal-recommendations')).getByText('Needs nothing extra')).toBeTruthy();
+    expect(within(rowOf('ai.personal-recommendations')).getByText('Built in')).toBeTruthy();
     fireEvent.click(toggle);
     expect(api.updateAiConfig).not.toHaveBeenCalled();
     fireEvent.click(saveButton());
@@ -171,7 +171,9 @@ describe('on-device model rows', () => {
     api.downloadLocalModel.mockResolvedValue({ ...granite, state: 'downloading', bytes_done: 46_000_000, bytes_total: granite.size_bytes });
     renderAi();
     const list = await screen.findByRole('list', { name: 'Search models' });
-    expect(within(list).getByText('115 MB download, about 913 MB of memory while running, Apache-2.0 licence.')).toBeTruthy();
+    expect(within(list).getByText('115 MB download · 913 MB memory')).toBeTruthy();
+    fireEvent.click(within(list).getByRole('button', { name: 'About Granite Embedding 97M multilingual' }));
+    expect(within(list).getByRole('note').textContent).toContain('Apache-2.0 licence.');
     expect(within(list).getByText('In use')).toBeTruthy();
     expect(within(list).getAllByText('Not installed')).toHaveLength(2);
     expect(within(list).getByRole('button', { name: 'About Granite Embedding 97M multilingual' })).toBeTruthy();

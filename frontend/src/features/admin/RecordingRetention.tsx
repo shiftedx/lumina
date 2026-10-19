@@ -31,7 +31,7 @@ export function RecordingRetentionForm() {
   }
 
   return (
-    <form aria-busy={days === null} aria-label="Live recording cleanup" className="g-subrows" onSubmit={(event) => { void save(event); }}>
+    <form aria-busy={days === null} aria-label="Live recording cleanup" className="g-subrows g-compact-fields" onSubmit={(event) => { void save(event); }}>
       <Field label="Keep recordings for (days)">
         {(ids) => <Input {...fieldProps(ids)} disabled={days === null} inputMode="numeric" max={3650} min={0} onChange={(event) => setDays(event.target.value)} required type="number" value={days ?? ''} />}
       </Field>

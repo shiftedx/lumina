@@ -8,6 +8,7 @@ describe('separate settings spaces', () => {
   it('has six categories in each space and a valid default page for every category', () => {
     for (const space of ['personal', 'server']) expect(SETTINGS_CATEGORIES.filter((category) => category.space === space)).toHaveLength(6);
     for (const category of SETTINGS_CATEGORIES) expect(SETTINGS_PAGES.find((page) => page.id === category.page)?.category).toBe(category.id);
+    for (const page of SETTINGS_PAGES) if (page.groups) expect(page.groups.flatMap((group) => group.rows).sort()).toEqual([...page.rows].sort());
   });
 
   it('gives every existing control exactly one destination, without introducing or losing rows', () => {

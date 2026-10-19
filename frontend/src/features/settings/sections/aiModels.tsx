@@ -60,7 +60,7 @@ function ModelItem({ model }: { model: LocalModel }) {
         <span aria-live="polite"><StatusText tone={STATE_TONES[model.state]}>{STATE_LABELS[model.state]}{model.state === 'ready' && model.running ? ' · running' : ''}</StatusText></span>
         <InfoButton id={`model-${model.id}-info`} label={model.name} text={`${model.description} ${modelFacts(model)}`} />
       </div>
-      <small>{modelFacts(model)}</small>
+      <small>{sizeText(model.size_bytes)} download · {sizeText(model.ram_bytes)} memory</small>
       {model.state === 'downloading' ? (
         <div className="setting-model-progress">
           <ProgressBar label={`${model.name} download`} value={model.bytes_total ? ((model.bytes_done ?? 0) / model.bytes_total) * 100 : null} />

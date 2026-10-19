@@ -78,7 +78,7 @@ export function SmtpForm() {
   return (
     <div className="g-req">
       <SectionForm dirty={dirty} label="Email (SMTP)" onDiscard={() => { setDraft(null); setStatus(null); }} onSave={() => { void save(); }} saveLabel="Save email settings" saving={saving} status={status}>
-        <div className="g-subrows">
+        <div className="g-subrows g-compact-fields">
           {text('SMTP host', 'host')}
           {showAdvanced ? (
             <>

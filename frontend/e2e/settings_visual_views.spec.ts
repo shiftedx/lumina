@@ -15,6 +15,12 @@ for (const width of [390, 1440]) {
       await openSettingsArea(page, category.label);
       const expected = SETTINGS_PAGES.filter((entry) => entry.category === category.id && entry.id !== 'about').flatMap((entry) => entry.rows).sort();
       await expect.poll(() => page.locator('[data-setting-id]').evaluateAll((rows) => rows.filter((row) => row.getClientRects().length > 0).map((row) => row.getAttribute('data-setting-id')).sort())).toEqual(expected);
+      // Keep the long workflows compact without hiding controls behind another action.
+      if (width === 1440) {
+        const compactGroups: Record<string, { target: string; height: number }> = { ai: { target: '#settings-group-features', height: 760 }, playback: { target: '#settings-group-captions', height: 600 }, household: { target: '#settings-group-resources', height: 850 }, overview: { target: '[data-setting-id="activity.background"]', height: 150 } };
+        const group = compactGroups[category.id];
+        if (group) expect((await page.locator(group.target).boundingBox())!.height, `${category.label} compact group height`).toBeLessThan(group.height);
+      }
       await expect(page.locator('.g-settings-local-advanced')).toHaveCount(0);
       await expect(page.getByRole('combobox', { name: 'Settings page' })).toHaveCount(0);
     }

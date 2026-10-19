@@ -170,7 +170,7 @@ function AddRootForm({ onAdded }: { onAdded: (root: StorageRootRecord) => void }
     <form aria-labelledby="admin-add-root-title" className="admin-add-root" onSubmit={(event) => { void submit(event); }}>
       <h3 id="admin-add-root-title">Add a root</h3>
       <p className="admin-note">Mount the host folder into the container first — for example <code>/srv/media:/media</code> in the compose file — then enter the path <strong>as the container sees it</strong>. It must sit inside a mount parent listed in <code>LUMINA_STORAGE_MOUNT_PARENTS</code>.</p>
-      <div className="g-subrows">
+      <div className="g-subrows g-compact-fields">
         <Field error={error} label="Container path">{(ids) => <Input {...fieldProps(ids)} autoComplete="off" onChange={(event) => setPath(event.target.value)} placeholder="/media/movies" required spellCheck={false} value={path} />}</Field>
         <Field label="Label">{(ids) => <Input {...fieldProps(ids)} maxLength={120} onChange={(event) => setLabel(event.target.value)} placeholder="Movies drive" required value={label} />}</Field>
         <Field label="Mode">

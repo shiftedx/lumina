@@ -11,7 +11,7 @@ import { type AiFeatureKey, activeModel, FEATURE_NAMES, useAiForm } from './aiFo
 import { modelFacts } from './aiModels';
 
 /** What each feature row says it needs. */
-export const NEEDS: Record<AiRequirement, string> = { search_model: 'Needs the search model', speech_model: 'Needs the speech model', assistant: 'Needs your assistant server' };
+export const NEEDS: Record<AiRequirement, string> = { search_model: 'Search model', speech_model: 'Speech model', assistant: 'Assistant server' };
 const ROLE = { search_model: 'search', speech_model: 'speech' } as const;
 
 /** What the dialog says a feature does; only features that need something appear. */
@@ -130,7 +130,7 @@ export function FeatureSwitch({ feature }: { feature: AiFeatureKey }) {
   return (
     <div className="g-feature-switch">
       <SettingSwitch checked={on} onChange={(next) => (next ? toggle() : turn(false))} ref={switchRef} />
-      <small id={`ai-${feature}-needs`}>{requires ? NEEDS[requires] : 'Needs nothing extra'}</small>
+      <small id={`ai-${feature}-needs`}>{requires ? NEEDS[requires] : 'Built in'}</small>
       {ask ? (
         <EnableDialog
           ask={ask}

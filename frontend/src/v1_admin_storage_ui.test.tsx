@@ -42,28 +42,26 @@ describe('admin storage', () => {
     expect(within(screen.getByRole('row', { name: /Old rips/ })).getByText('External · read-only')).not.toBeNull();
   });
 
-  it('roots are table rows with a mono path, free space as a progress bar and an actions menu', async () => {
+  it('drive views show a mono path, capacity and directly available actions', async () => {
     setup();
     const row = (await screen.findByRole('row', { name: /Fast SSD/ })) as HTMLElement;
     expect(within(row).getByText('/media/fast', { selector: '.g-mono' })).toBeTruthy();
     expect(within(row).getByRole('progressbar')).toBeTruthy();
-    expect(within(row).getByRole('button', { name: 'Actions for Fast SSD' })).toBeTruthy();
+    expect(within(row).getByRole('button', { name: 'Remove Fast SSD' })).toBeTruthy();
     expect(document.querySelector('.admin-root-card, .admin-state')).toBeNull();
   });
 
   it('removing a storage root asks first', async () => {
     const browser = setup();
     api.deleteStorageRoot.mockResolvedValue(undefined);
-    const actions = await screen.findByRole('button', { name: 'Actions for Fast SSD' });
+    const actions = await screen.findByRole('button', { name: 'Remove Fast SSD' });
     await browser.click(actions);
-    await browser.click(screen.getByRole('menuitem', { name: 'Remove' }));
     const dialog = screen.getByRole('dialog', { name: 'Remove Fast SSD?' });
     expect(within(dialog).getByText(/no files are deleted/)).toBeTruthy();
     await browser.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(api.deleteStorageRoot).not.toHaveBeenCalled();
     await waitFor(() => expect(document.activeElement).toBe(actions));
     await browser.click(actions);
-    await browser.click(screen.getByRole('menuitem', { name: 'Remove' }));
     await browser.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
     await waitFor(() => expect(api.deleteStorageRoot).toHaveBeenCalledWith('fast'));
   });
@@ -137,8 +135,7 @@ describe('admin storage', () => {
     expect(screen.getByLabelText('Container path').getAttribute('aria-describedby')).toBe(problem.id);
     expect(screen.getByLabelText('Container path').getAttribute('aria-invalid')).toBe('true');
 
-    await browser.click(screen.getByRole('button', { name: 'Actions for Fast SSD' }));
-    await browser.click(screen.getByRole('menuitem', { name: 'Remove' }));
+    await browser.click(screen.getByRole('button', { name: 'Remove Fast SSD' }));
     api.deleteStorageRoot.mockRejectedValue(new api.ApiRequestError('Storage rules still route media to this root; change them first.', 409));
     await browser.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
     expect((await screen.findByText(/change them first\. Disable it instead/)).closest('[role="alert"]')).toBeTruthy();
@@ -173,10 +170,9 @@ describe('admin storage', () => {
 
   it('declining leaves an Import button on the root, where Private is available and failures are explained', async () => {
     const browser = setup();
-    const actions = await screen.findByRole('button', { name: 'Actions for Old rips' });
+    const actions = within(await screen.findByRole('row', { name: /Old rips/ })).getByRole('button', { name: 'Import' });
     expect(screen.queryByRole('group', { name: /now\?/ })).toBeNull();
     await browser.click(actions);
-    await browser.click(screen.getByRole('menuitem', { name: 'Import' }));
     const card = screen.getByRole('group', { name: /^Import Old rips now\?/ }).closest('tr') as HTMLElement;
     await browser.click(within(card).getByRole('radio', { name: /Private/ }));
     api.startImport.mockRejectedValueOnce(new Error('An import is already running for this root.'));
@@ -185,7 +181,7 @@ describe('admin storage', () => {
     expect((await within(card).findByRole('alert')).textContent).toBe('An import is already running for this root.');
     await browser.click(within(card).getByRole('button', { name: 'Not now' }));
     expect(screen.queryByRole('group', { name: /now\?/ })).toBeNull();
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions for Old rips' })));
+    await waitFor(() => expect(document.activeElement).toBe(within(screen.getByRole('row', { name: /Old rips.*Path/ })).getByRole('button', { name: 'Disable' })));
   });
 
   it('adding a managed root offers no import (only external roots are imported)', async () => {
@@ -194,8 +190,8 @@ describe('admin storage', () => {
     await browser.type(await screen.findByLabelText('Container path'), '/media/ssd2');
     await browser.type(screen.getByLabelText('Label'), 'Second SSD');
     await browser.click(screen.getByRole('button', { name: 'Add root' }));
-    await browser.click(await screen.findByRole('button', { name: 'Actions for Second SSD' }));
+    const row = await screen.findByRole('row', { name: /Second SSD/ });
     expect(screen.queryByRole('group', { name: /now\?/ })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: 'Import' })).toBeNull();
+    expect(within(row).queryByRole('button', { name: 'Import' })).toBeNull();
   });
 });

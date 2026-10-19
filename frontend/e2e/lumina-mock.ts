@@ -182,6 +182,15 @@ export async function mockAdminFixtures(page: Page) {
       library_free_bytes: 812e9, library_items_by_status: { available: 1268, missing: 4 }, event_streams: 3, persistence: {},
       roots: [{ ...root, state: 'available', checked_at: at, free_bytes: 812e9, total_bytes: 2e12, artifact_bytes: 1.9e12 }],
     },
+    activity: {
+      generated_at: at,
+      sessions: [{ id: 'session-1', source: 'library', user: { id: 'member-1', name: 'Alexandria' }, title: 'The Lighthouse Keepers', subtitle: 'A quiet evening on the coast', item_id: null, artwork_url: null, client: { kind: 'web', name: 'Lumina web', device: 'Living room' }, method: 'direct', video: { from: 'H.264', to: null, height: 1080, tonemap: false }, audio: null, hardware: null, speed: null, throttled: false, position_seconds: 1800, duration_seconds: 5400, started_at: at, last_seen_at: at, stoppable: true }],
+      downloads: [], recordings: [], server: { cpu_percent: 24, memory: { used_bytes: 4e9, total_bytes: 16e9 }, load_average: [1.2, 0.9, 0.8], uptime_seconds: 172800, transcoder_cpu_percent: 8, ffmpeg_processes: 1, hardware: { mode: 'auto', active: 'qsv', disabled: false, failures: 0, fallbacks: 0 } },
+    },
+    'activity/history': { items: [
+      { id: 'history-1', source: 'library', user: { id: 'member-1', name: 'Alexandria' }, title: 'Harbor Lights', subtitle: 'The ferry returns', item_id: null, client: { kind: 'web', name: 'Lumina web', device: 'Living room' }, method: 'direct', hardware: null, video: null, started_at: at, ended_at: at, watched_seconds: 2700, stopped_by_admin: false },
+      { id: 'history-2', source: 'library', user: { id: 'm2', name: 'Eleanor' }, title: 'Northern Lantern', subtitle: null, item_id: null, client: { kind: 'app', name: 'Infuse', device: 'Apple TV' }, method: 'transcode', hardware: 'qsv', video: null, started_at: at, ended_at: at, watched_seconds: 5400, stopped_by_admin: false },
+    ], next_before: null },
     diagnostics: {
       generated_at: at, status: 'degraded', versions: { lumina: '1.0.0', python: '3.11.9', yt_dlp: '2026.09.01', ffmpeg: '7.1', node: 'v22.9.0' },
       runtime: { ffmpeg_available: true, js_runtime_available: true, yt_dlp_ejs_available: true },
@@ -234,7 +243,7 @@ export async function mockAdminFixtures(page: Page) {
     },
   };
   await page.route('**/api/admin/ai/models', (route) => route.fulfill({ json: { models: ['local-model', 'alternate-model'], error: null } }));
-  await page.route(/\/api\/admin\/(overview|diagnostics|ai\/config|models|tasks|users|invitations|storage\/roots|storage\/rules|library\/automation|backups|imports|media-server|metadata\/unmatched|artwork|settings|recording-retention|sections|invites|public-address|local-address|resources|members\/m2\/access|members\/m2\/follows|members\/m2\/activity|members\/m2\/resources|requests\/(?:servers|settings|policies))(\?|$)/, (route) => {
+  await page.route(/\/api\/admin\/(overview|activity(?:\/history)?|diagnostics|ai\/config|models|tasks|users|invitations|storage\/roots|storage\/rules|library\/automation|backups|imports|media-server|metadata\/unmatched|artwork|settings|recording-retention|sections|invites|public-address|local-address|resources|members\/m2\/access|members\/m2\/follows|members\/m2\/activity|members\/m2\/resources|requests\/(?:servers|settings|policies))(\?|$)/, (route) => {
     const key = new URL(route.request().url()).pathname.replace('/api/admin/', '');
     return route.request().method() === 'GET' ? route.fulfill({ contentType: 'application/json', body: JSON.stringify(ADMIN[key]) }) : route.fallback();
   });
@@ -453,4 +462,9 @@ export async function navigateApp(page: Page, destination: string) {
   const label = destination === 'Settings' ? 'My Settings' : destination;
   await dialog.getByRole('button', { name: new RegExp(`^${label}(,|$)`) }).click();
   await expect(dialog).toHaveCount(0);
+}
+
+/** The persistent area navigation opens the same flat workspaces at every viewport. */
+export async function openSettingsArea(page: Page, name: string) {
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name, exact: true }).click();
 }

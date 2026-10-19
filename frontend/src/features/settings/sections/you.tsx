@@ -1,3 +1,4 @@
+import { Monitor, Moon, Sun } from 'lucide-react';
 import { AccountPassword } from '../../../AccountPassword';
 import type { AutoSkipPref } from '../../../types';
 import { PLAYBACK_MAX_HEIGHTS } from '../../../workspace';
@@ -83,7 +84,11 @@ function StreamCache() {
 
 function Theme() {
   const { theme = 'system', onThemeChange } = useSettingsHost();
-  return <SegmentedControl hideLegend legend="Theme" onChange={(value) => onThemeChange?.(value)} options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} value={theme} />;
+  return <div className="settings-theme-choices"><SegmentedControl hideLegend legend="Theme" onChange={(value) => onThemeChange?.(value)} options={[
+    { value: 'system', label: 'System', icon: <span className="settings-theme-sample is-system"><Monitor /></span> },
+    { value: 'light', label: 'Light', icon: <span className="settings-theme-sample is-light"><Sun /></span> },
+    { value: 'dark', label: 'Dark', icon: <span className="settings-theme-sample is-dark"><Moon /></span> },
+  ]} value={theme} /></div>;
 }
 
 function CaptionsControl() {
@@ -158,7 +163,7 @@ export const YOU_SECTIONS: readonly SettingsSectionDef[] = [
   {
     id: 'appearance', group: 'you', label: 'Display', aliases: ['appearance'], summary: 'How Lumina looks for you.',
     entries: [
-      { id: 'appearance.theme', label: 'Theme', keywords: ['dark mode', 'light mode', 'system', 'colours', 'colors'], info: "Chooses light or dark colours for Lumina. System follows your device's own light or dark setting. Affects only you, on every device you sign in to.", Control: Theme },
+      { id: 'appearance.theme', label: 'Theme', layout: 'block', keywords: ['dark mode', 'light mode', 'system', 'colours', 'colors'], info: "Chooses light or dark colours for Lumina. System follows your device's own light or dark setting. Affects only you, on every device you sign in to.", Control: Theme },
     ],
   },
   {

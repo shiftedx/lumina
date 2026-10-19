@@ -65,7 +65,7 @@ export function AdminBackups() {
   }
 
   return (
-    <div aria-busy={backups === null} className="admin-overview">
+    <div aria-busy={backups === null && !error} className="admin-overview">
       <div className="admin-toolbar">
         <p role="status">{backups === null ? (error ? 'Backups unavailable' : 'Loading backups…') : `${backups.length} ${backups.length === 1 ? 'backup' : 'backups'} on the server`}</p>
         <Button disabled={creating} icon={<DatabaseBackup />} onClick={() => { void create(); }} variant="primary">{creating ? 'Backing up…' : 'Back up now'}</Button>

@@ -74,6 +74,8 @@ for (const scheme of ['light', 'dark'] as const) {
         await expect(page.locator('main h1').first()).toBeVisible();
         if (name === 'title') await expect(page.getByRole('heading', { name: 'Northern Lantern', exact: true })).toBeVisible();
         const framed = await page.locator('main .g-button:visible, main .g-panel:visible, main .summary-card:visible, main .collection-row:visible, main .g-input:visible, main .g-select select:visible').evaluateAll((elements) => elements.filter((element) => {
+          // Settings fields use a functional border to make editable values easy to find.
+          if (element.matches('input, textarea, select') && element.closest('.g-settings')) return false;
           const style = getComputedStyle(element);
           return ['Top', 'Right', 'Bottom', 'Left'].every((side) => {
             const width = style.getPropertyValue(`border-${side.toLowerCase()}-width`);

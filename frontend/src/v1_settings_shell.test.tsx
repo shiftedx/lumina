@@ -17,32 +17,44 @@ const admin = { ...base, role: 'admin' as const };
 const viewer = { ...base, role: 'viewer' as const };
 function shell(props: Partial<Parameters<typeof SettingsSurface>[0]> = {}) {
   api.listConnectedApps.mockResolvedValue([]);
+  api.listBackups.mockResolvedValue({ backups: [], schedule: { daily: false, keep: 7 } });
+  api.listAdminTasks.mockResolvedValue({ items: [], counts: {}, next_cursor: null });
   return render(<SettingsSurface formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} user={viewer} {...props} />);
 }
 const nav = () => screen.getByRole('navigation', { name: 'Settings sections' });
+const categoryNames = () => within(nav()).getAllByRole('link').map((link) => link.getAttribute('aria-label') ?? link.textContent);
 const personal = ['Profile & security', 'Playback', 'Display', 'Discovery & streaming', 'Downloads', 'Privacy & connected apps', 'About Lumina'];
 const server = ['Overview & activity', 'Household', 'Library & storage', 'Connections', 'AI features', 'Maintenance', 'About Lumina'];
 
-describe('separate settings spaces', () => {
-  it('shows only six personal categories, with About in the footer and no repeated card grid', () => {
-    shell();
-    expect(within(nav()).getAllByRole('link').map((link) => link.textContent)).toEqual(personal);
-    expect(screen.getByRole('heading', { level: 1, name: 'My Settings' })).toBeTruthy();
-    expect(screen.queryByRole('navigation', { name: 'Settings spaces' })).toBeNull();
-    expect(screen.queryByRole('region', { name: 'All settings' })).toBeNull();
+describe('flat settings workspaces', () => {
+  it('opens playback controls immediately, with all personal areas directly available', () => {
+    shell({ onPlaybackMaxHeightChange: vi.fn() });
+    expect(categoryNames()).toEqual(personal);
+    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Maximum quality' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Captions' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'All settings' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Settings page' })).toBeNull();
   });
 
-  it('keeps owners’ personal preferences separate from their six server categories', async () => {
-    api.listUsers.mockResolvedValue([admin]);
+  it('exposes personal and household areas together for owners without preloading other areas', () => {
     shell({ user: admin });
-    expect(within(nav()).getAllByRole('link').map((link) => link.textContent)).toEqual(personal);
-    await userEvent.click(screen.getByRole('link', { name: 'Manage Server' }));
-    expect(within(nav()).getAllByRole('link').map((link) => link.textContent)).toEqual(server);
-    expect(screen.getByRole('heading', { level: 1, name: 'Manage Server' })).toBeTruthy();
-    expect(screen.getByText('Entire household')).toBeTruthy();
+    expect(categoryNames()).toEqual([...personal.slice(0, -1), ...server]);
+    expect(api.listUsers).not.toHaveBeenCalled();
+    expect(api.listBackups).not.toHaveBeenCalled();
   });
 
-  it('opens focused pages and restores focus to the category heading', async () => {
+  it('shows every playback group without another navigation step', async () => {
+    shell({ onPlaybackMaxHeightChange: vi.fn() });
+    const quality = screen.getByRole('combobox', { name: 'Maximum quality' });
+    expect(quality.closest('details')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Captions' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('link', { name: 'Subtitles' }));
+    expect(document.activeElement?.id).toBe('settings-group-captions');
+    expect(screen.getByRole('combobox', { name: 'Maximum quality' })).toBe(quality);
+  });
+
+  it('opens an area directly and focuses its heading, with its security inputs already present', async () => {
     function Host() {
       const [location, setLocation] = useState<SettingsLocation>({ section: 'playback', page: 'watching', space: 'personal' });
       return <SettingsSurface {...location} formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} onLocation={setLocation} user={viewer} />;
@@ -50,18 +62,15 @@ describe('separate settings spaces', () => {
     render(<Host />);
     await userEvent.click(within(nav()).getByRole('link', { name: 'Profile & security' }));
     expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'Profile & security' }));
-    expect(screen.queryByLabelText('Current password')).toBeNull();
-    await userEvent.click(screen.getByRole('link', { name: 'Security' }));
     expect(screen.getByLabelText('Current password')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Two-step verification' })).toBeTruthy();
   });
 
-  it('opens legacy server links in Manage Server without hiding tasks behind a global advanced toggle', async () => {
-    api.listAdminTasks.mockResolvedValue({ items: [], counts: {}, next_cursor: null });
+  it('keeps legacy server links and advanced controls directly accessible', async () => {
     shell({ user: admin, section: 'tasks' });
-    expect(screen.getByRole('heading', { level: 1, name: 'Manage Server' })).toBeTruthy();
     expect(within(nav()).getByRole('link', { name: 'Maintenance' }).getAttribute('aria-current')).toBe('page');
     expect(await screen.findByRole('heading', { name: 'Background tasks' })).toBeTruthy();
-    expect(screen.queryByRole('switch', { name: 'Show advanced settings' })).toBeNull();
+    expect(screen.queryByText('Advanced options', { selector: 'summary' })).toBeNull();
   });
 
   it('refuses owner-only links for a member without fetching admin data', () => {
@@ -71,16 +80,14 @@ describe('separate settings spaces', () => {
     expect(within(nav()).getAllByRole('link').map((link) => link.textContent)).toEqual(personal);
   });
 
-  it('keeps Members, Invitations and server addresses on distinct pages', async () => {
+  it('puts members and invitations in the same workspace while addresses remain in Connections', async () => {
     api.listUsers.mockResolvedValue([admin]);
     api.listInvitations.mockResolvedValue([]);
-    const onLocation = vi.fn();
-    shell({ user: admin, section: 'members', onLocation });
+    shell({ user: admin, section: 'members' });
     expect(await screen.findByRole('list', { name: 'Household members' })).toBeTruthy();
     expect(api.listInvitations).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Invite someone' })).toBeTruthy();
     expect(screen.queryByRole('textbox', { name: 'Public address' })).toBeNull();
-    await userEvent.click(screen.getByRole('link', { name: 'Invitations' }));
-    expect(onLocation).toHaveBeenCalledWith({ section: 'members', page: 'invitations', space: 'server' });
   });
 
   it('opens a member and returns to the members list through its category', async () => {
@@ -96,27 +103,25 @@ describe('separate settings spaces', () => {
     expect(onMember).toHaveBeenLastCalledWith(null);
   });
 
-  it('guards category, subpage, space and search changes before discarding drafts', async () => {
+  it('guards leaving an area and search while allowing jumps that retain the same draft', async () => {
     const onLocation = vi.fn();
     function Dirty() { useUnsavedChanges(true, 'Playback'); return null; }
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<><Dirty /><SettingsSurface formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} onLocation={onLocation} section="playback" user={admin} /></>);
     await userEvent.click(within(nav()).getByRole('link', { name: 'Display' }));
     await userEvent.click(screen.getByRole('link', { name: 'Subtitles' }));
-    await userEvent.click(screen.getByRole('link', { name: 'Manage Server' }));
+    await userEvent.click(within(nav()).getByRole('link', { name: 'Library & storage' }));
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search settings' }), 'x');
-    expect(confirm).toHaveBeenCalledTimes(4);
+    expect(confirm).toHaveBeenCalledTimes(3);
     expect(onLocation).not.toHaveBeenCalled();
     expect(screen.queryByRole('region', { name: 'Search results' })).toBeNull();
   });
 
-  it('keeps advanced playback tuning locally disclosed', async () => {
+  it('keeps playback tuning visible alongside captions and skipping', () => {
     shell({ section: 'playback', remotePlaybackCache: { enabled: true, recent_video_limit: 5, storage_limit_mb: 2048 } });
-    const row = document.getElementById('setting-playback-stream-cache')!;
-    expect(row.closest('details')?.open).toBe(false);
-    await userEvent.click(screen.getByText('Advanced options', { selector: 'summary' }));
-    expect(row.closest('details')?.open).toBe(true);
-    expect(screen.queryByRole('heading', { name: 'Captions' })).toBeNull();
+    expect(document.getElementById('setting-playback-stream-cache')?.closest('details')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Captions' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Skip automatically' })).toBeTruthy();
   });
 
   it('puts owner-only Manage Server navigation beside Settings', async () => {

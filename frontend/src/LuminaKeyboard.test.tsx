@@ -543,14 +543,14 @@ describe('browser routes', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     window.history.replaceState(null, '', '/settings/account');
     render(<><LuminaApp /><DirtyAiForm /></>);
-    await screen.findByRole('heading', { level: 1, name: 'My Settings' });
+    await screen.findByRole('heading', { level: 1, name: 'Settings' });
 
     const search = await openPalette(browser);
     await browser.type(search, 'mars');
     await browser.keyboard('{Meta>}{Enter}{/Meta}'); // search everything in Explore
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(mocks.youtubeSearch).not.toHaveBeenCalledWith(expect.objectContaining({ query: 'mars', limit: 30 }));
-    expect(screen.getByRole('heading', { level: 1, name: 'My Settings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
 
     mocks.searchLibrary.mockResolvedValue({ items: [libraryItem], matches: [{ kind: 'library', id: 'library-1', title: 'Film in the vault', subtitle: 'Archive Channel', score: 1, lexical_score: 1, semantic_score: 0, match_mode: 'lexical', item: libraryItem }] });
     await browser.type(await openPalette(browser), 'vault');
@@ -1529,7 +1529,7 @@ describe('recommendation wiring', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     window.history.replaceState(null, '', '/settings/account');
     render(<><LuminaApp /><DirtyForm /></>);
-    await screen.findByRole('heading', { level: 1, name: 'My Settings' });
+    await screen.findByRole('heading', { level: 1, name: 'Settings' });
     await waitFor(() => expect(mocks.getDeviceMembers).toHaveBeenCalled());
     const workspace = mocks.useAuthenticatedWorkspace.mock.results[0].value;
     act(() => openMemberPicker());
@@ -1537,7 +1537,7 @@ describe('recommendation wiring', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(mocks.switchMember).not.toHaveBeenCalled();
     expect(workspace.holdEvents).not.toHaveBeenCalled();
-    expect(screen.getByRole('heading', { level: 1, name: 'My Settings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
     confirm.mockRestore();
   });
 

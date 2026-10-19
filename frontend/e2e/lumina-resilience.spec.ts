@@ -261,6 +261,7 @@ async function installApi(page: Page, options: { onboarding?: 'pending'; discove
     }
     if (path === '/api/auth-profiles') return json([{ id: 'auth-1', user_id: user.id, label: 'Privater Familienzugang', kind: 'cookie_file', has_password: false, has_token: false }]);
     if (path === '/api/settings/me') return json(settings);
+    if (path === '/api/me/listening-export' || path === '/api/me/listening-events') return json({ items: [] });
     if (path === '/api/automations') return json([automation, ...createdFollows]);
     if (path === '/api/discovery/up-next') return json({ items: [], categories: [], state: 'ready', refreshing: false, stale: false, error: null });
     if (path === '/api/discovery/live') return json({
@@ -388,7 +389,7 @@ async function coverEverySurface(page: Page) {
   await expectEffectiveTargets(page);
   await page.getByRole('button', { name: 'Open navigation' }).click();
   await page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: 'My Settings', exact: true }).click();
-  await expect(page.getByRole('heading', { level: 1, name: /^(My Settings|Manage Server)$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectEffectiveTargets(page);
 }
@@ -483,7 +484,7 @@ test('rendered controls retain 44px targets and shelves work by pointer and keyb
 test('a member can choose interests in Settings and receive a personalized Home shelf', async ({ page }) => {
   await openApp(page, 1280, 900);
   await page.getByRole('button', { name: 'Choose interests' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: /^(My Settings|Manage Server)$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
 
   const music = page.getByRole('checkbox', { name: 'Music' });
   await music.check();
@@ -501,7 +502,7 @@ test('a member can choose interests in Settings and receive a personalized Home 
 test('a member suppresses a recommended item and channel, then restores them from Settings', async ({ page }) => {
   await openApp(page, 1280, 900);
   await page.getByRole('button', { name: 'Choose interests' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: /^(My Settings|Manage Server)$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Music' }).check();
   await page.getByRole('button', { name: 'Save interests' }).click();
   await expect(page.getByText('Your Home interests were saved.')).toBeVisible();

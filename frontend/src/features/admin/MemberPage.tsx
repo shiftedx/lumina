@@ -1,5 +1,5 @@
 import { ChevronLeft, Plus, X } from 'lucide-react';
-import { createContext, type KeyboardEvent, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 
 import { createPasswordResetLink, listUsers, resetMemberTwoFactor, unlockUserSignIn, updateUser } from '../../api';
 import { Avatar, Button, Checkbox, ConfirmDialog, Dialog, Field, fieldProps, IconButton, Input, Menu, SegmentedControl, Select, StatusText } from '../../ui';
@@ -281,9 +281,8 @@ function WeekHours() {
                 const edit = (next: [string, string]) => setDay(day, ranges.map((range, at) => (at === index ? next : range)));
                 return (
                   <span className="g-day-range" key={index}>
-                    <Input aria-label={`${label} from`} onChange={(event) => edit([event.target.value, to])} type="time" value={from} />
-                    <span aria-hidden="true">–</span>
-                    <Input aria-label={`${label} until`} onChange={(event) => edit([from, event.target.value])} type="time" value={to} />
+                    <label className="g-day-time"><span>From</span><Input aria-label={`${label} from`} onChange={(event) => edit([event.target.value, to])} type="time" value={from} /></label>
+                    <label className="g-day-time"><span>Until</span><Input aria-label={`${label} until`} onChange={(event) => edit([from, event.target.value])} type="time" value={to} /></label>
                     <IconButton icon={<X />} label={`Remove ${label} ${from}–${to}`} onClick={() => setDay(day, ranges.filter((_, at) => at !== index))} />
                   </span>
                 );
@@ -440,7 +439,7 @@ export const MEMBER_TABS: ReadonlyArray<{ id: string; label: string; ownerToo?: 
 
 const sameAccess = (a: MemberAccess, b: MemberAccess) => JSON.stringify(withDefaults(a)) === JSON.stringify(withDefaults(b));
 
-/** Settings → Members → one member: tabs over one Save form; Profile actions (role, reset link, deactivate) apply at once. */
+/** Settings → Members → one member: all controls in one workspace; Profile actions (role, reset link, deactivate) apply at once. */
 export function MemberPage({ memberId, onBack }: { memberId: string; onBack: () => void }) {
   const { user } = useSettingsHost();
   const [member, setMember] = useState<MemberRow | null>(null);
@@ -448,10 +447,9 @@ export function MemberPage({ memberId, onBack }: { memberId: string; onBack: () 
   const [saved, setSaved] = useState<MemberAccessState | null>(null);
   const [sections, setSections] = useState<Section[] | null>(null);
   const [draft, setDraft] = useState<{ name: string; access: MemberAccess } | null>(null);
-  const [tab, setTab] = useState('profile');
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<FormStatus>(null);
-  const activity = useActivityOnce(memberId, tab === 'activity');
+  const activity = useActivityOnce(memberId, Boolean(member));
 
   useEffect(() => {
     let live = true;
@@ -483,15 +481,13 @@ export function MemberPage({ memberId, onBack }: { memberId: string; onBack: () 
   const accessDirty = !owner && saved !== null && !sameAccess(draft.access, saved);
   const dirty = draft.name.trim() !== member.display_name || accessDirty;
   const tabs = MEMBER_TABS.filter((entry) => !owner || entry.ownerToo);
-  const shownTab = tabs.find((entry) => entry.id === tab) ?? tabs[0];
   const self = member.id === user.id;
-  const entries = shownTab.entries.filter((entry) => !(self && (entry.id === 'members.reset' || entry.id === 'members.status')));
 
   async function save() {
     if (!member || !draft) return;
     const problem = scheduleError(draft.access.schedule);
-    if (problem) { setStatus({ tone: 'error', text: problem }); setTab('schedule'); return; }
-    if (!draft.name.trim()) { setStatus({ tone: 'error', text: 'Enter a display name.' }); setTab('profile'); return; }
+    if (problem) { setStatus({ tone: 'error', text: problem }); document.getElementById('member-group-schedule')?.scrollIntoView?.(); return; }
+    if (!draft.name.trim()) { setStatus({ tone: 'error', text: 'Enter a display name.' }); heading.current?.focus(); return; }
     setSaving(true);
     setStatus(null);
     try {
@@ -506,15 +502,6 @@ export function MemberPage({ memberId, onBack }: { memberId: string; onBack: () 
     }
   }
 
-  function onTabsKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    const at = tabs.indexOf(shownTab);
-    const to = event.key === 'ArrowRight' ? (at + 1) % tabs.length : event.key === 'ArrowLeft' ? (at + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
-    if (to < 0) return;
-    event.preventDefault();
-    setTab(tabs[to].id);
-    document.getElementById(`member-tab-${tabs[to].id}`)?.focus();
-  }
-
   const presets = (Object.keys(PRESETS) as PresetId[]).map((id) => ({
     kind: 'item' as const, label: PRESETS[id].label, hint: PRESETS[id].hint,
     onSelect: () => { setDraft({ ...draft, access: applyPreset(draft.access, id) }); setStatus({ tone: 'ok', text: `${PRESETS[id].label} limits filled in. Review them, then save.` }); },
@@ -525,9 +512,10 @@ export function MemberPage({ memberId, onBack }: { memberId: string; onBack: () 
     access: draft.access, set: (patch) => { setStatus(null); setDraft({ ...draft, access: { ...draft.access, ...patch } }); },
     saved, setSaved, sections, onMember: (next) => setMember(next),
   };
-  const panel = <div aria-labelledby={`member-tab-${shownTab.id}`} id="member-panel" role="tabpanel">
-    {entries.map(({ id, label, info, description, layout, Control }) => <SettingRow description={description} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>)}
-  </div>;
+  const panel = (group: typeof MEMBER_TABS[number]) => <section aria-label={group.label} className="g-settings-group" id={`member-group-${group.id}`} key={group.id} tabIndex={-1}>
+    <h3 className="g-settings-group-title">{group.label}</h3>
+    <div className="g-settings-rows">{group.entries.filter((entry) => !(self && (entry.id === 'members.reset' || entry.id === 'members.status'))).map(({ id, label, info, description, layout, Control }) => <SettingRow description={description} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>)}</div>
+  </section>;
 
   return (
     <section aria-labelledby="settings-section-title" className="g-settings-section">
@@ -540,29 +528,23 @@ export function MemberPage({ memberId, onBack }: { memberId: string; onBack: () 
         </div>
         {owner ? null : <div className="g-member-nav"><Menu align="end" items={presets} label="Presets" trigger={(props) => <Button {...props}>Apply a preset</Button>} /></div>}
       </header>
-      <div aria-label={`${name} settings`} className="g-tabs g-member-nav g-member-tabs" onKeyDown={onTabsKeyDown} role="tablist">
-        {tabs.map((entry) => (
-          <button aria-controls="member-panel" aria-selected={entry === shownTab} id={`member-tab-${entry.id}`} key={entry.id} onClick={() => setTab(entry.id)} role="tab" tabIndex={entry === shownTab ? 0 : -1} type="button">{entry.label}</button>
-        ))}
-      </div>
-      <div className="g-member-page-select">
-        <Field label="Member settings page">
-          {(ids) => <Select {...fieldProps(ids)} onChange={(event) => setTab(event.target.value)} value={shownTab.id}>{tabs.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}</Select>}
-        </Field>
-      </div>
+      <nav aria-label={`${name} settings`} className="g-settings-jumps g-member-nav">
+        {tabs.map((entry) => <a className="g-settings-page-link" href={`#member-group-${entry.id}`} key={entry.id} onClick={(event) => { event.preventDefault(); const target = document.getElementById(`member-group-${entry.id}`); target?.focus(); target?.scrollIntoView?.({ block: 'start', behavior: 'instant' }); }}>{entry.label}</a>)}
+      </nav>
       <MemberContext.Provider value={ctx}>
         <ActivityContext.Provider value={activity}>
-          {shownTab.id === 'resources' ? panel :
-            <SectionForm readOnly={shownTab.id === 'activity'} dirty={dirty} label={`${name}’s settings`} onDiscard={() => { setDraft({ name: member.display_name, access: withDefaults(saved) }); setStatus(null); }} onSave={() => { void save(); }} saveLabel="Save" saving={saving} status={status}>
-              {panel}
-            </SectionForm>}
+          {tabs.filter((entry) => entry.id === 'activity').map(panel)}
+          <SectionForm dirty={dirty} label={`${name}’s settings`} onDiscard={() => { setDraft({ name: member.display_name, access: withDefaults(saved) }); setStatus(null); }} onSave={() => { void save(); }} saveLabel="Save" saving={saving} status={status}>
+            {tabs.filter((entry) => entry.id !== 'activity' && entry.id !== 'resources').map(panel)}
+          </SectionForm>
+          {tabs.filter((entry) => entry.id === 'resources').map(panel)}
         </ActivityContext.Provider>
       </MemberContext.Provider>
     </section>
   );
 }
 
-/** Activity loads each time its tab opens; the last result stays on screen meanwhile. */
+/** Load activity when the selected member is ready. */
 function useActivityOnce(memberId: string, wanted: boolean) {
   const [state, setState] = useState<{ data: MemberActivity | null; error: string | null }>({ data: null, error: null });
   useEffect(() => {

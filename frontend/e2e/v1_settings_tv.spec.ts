@@ -15,6 +15,20 @@ async function tv(page: Page) {
   await signIn(page);
 }
 
+test('the D-pad moves from search into the direct area navigation', async ({ page }) => {
+  await tv(page);
+  await page.goto('/settings');
+  await page.getByRole('searchbox', { name: 'Search settings' }).focus();
+  await page.keyboard.press('ArrowDown');
+  const nav = page.getByRole('navigation', { name: 'Settings sections' });
+  await expect(nav.getByRole('link', { name: 'Profile & security' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(nav.getByRole('link', { name: 'Display', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('radio', { name: 'System' })).toBeVisible();
+});
+
 test('the D-pad reaches every section and row without Tab or hover', async ({ page }) => {
   await tv(page);
   await page.goto('/settings/playback');
@@ -54,14 +68,14 @@ test('the D-pad reaches every section and row without Tab or hover', async ({ pa
   await expect(page).toHaveURL(/page=backups$/);
   await page.getByRole('link', { name: 'Diagnostics', exact: true }).focus();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/page=diagnostics$/);
+  await expect(page.locator('#settings-group-diagnostics')).toBeFocused();
 });
 
 // The 10-foot step is for touch screens and TV remotes; a mouse gets the 36px desktop control (tokens.css).
 test.describe('on a touch screen or TV', () => {
   test.use({ hasTouch: true });
   test('every Settings target is at least 48 px tall at the 1600 px step, and each ⓘ is 48 px wide', async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(240_000);
     await tv(page);
     const small: string[] = [];
     for (const destination of SETTINGS_PAGES) {

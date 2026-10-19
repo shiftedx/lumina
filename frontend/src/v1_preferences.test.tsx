@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ exportMyData: vi.fn(), listConnectedApps: vi.fn().mockResolvedValue([]), getTwoFactor: vi.fn().mockResolvedValue({ enabled: false, recovery_codes_left: 0, required: false }), getJellyfinImport: vi.fn().mockResolvedValue({ server: null }), requestJson: vi.fn().mockResolvedValue({ email: null, enabled: true }) }));
-vi.mock('./api', () => api);
+vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
 
 import { SettingsSurface } from './features/settings/SettingsSurface';
 import { createInitialWorkspaceState } from './workspace';
@@ -37,7 +37,7 @@ describe('Settings surface: grouped sections', () => {
       expect(within(nav).getByRole('link', { name: label })).toBeTruthy();
     }
     expect(within(nav).getAllByRole('link')).toHaveLength(7); // six categories plus About
-    expect(screen.getByRole('heading', { level: 1, name: 'My Settings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeTruthy();
   });
 
   it('test_profile_display_name_edit: saves a trimmed display name through the callback prop', async () => {

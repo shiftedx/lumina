@@ -1,5 +1,8 @@
 /* Settings → Server → Requests. Lumina tokens only; fields use the Settings sub-row columns. */
 .g-req { display: grid; gap: 8px; min-width: 0; }
+.g-req-advanced { min-width: 0; border-top: var(--g-rule); }
+.g-req-advanced > summary { min-height: max(48px, var(--g-control)); padding: 14px 0; color: var(--g-ink-2); font: var(--g-type-ui); cursor: pointer; }
+.g-req-advanced .g-req-maps { padding-top: 0; border-top: 0; }
 .g-req-maps { display: grid; gap: 8px; margin: 0; padding: 16px 0 8px; border: 0; border-top: var(--g-rule); }
 .g-req-maps > legend { float: left; display: flex; align-items: baseline; gap: 8px; padding: 0; color: var(--g-ink-2); font: var(--g-type-ui); }
 .g-req-map-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }

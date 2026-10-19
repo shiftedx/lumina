@@ -55,8 +55,7 @@ async function signInAndOpenOwnerResources(page: Page) {
 
 async function openMemberResources(page: Page, phone = false) {
   await page.goto('/settings/members/m2');
-  if (phone) await chooseSelect(page, page.getByRole('combobox', { name: 'Member settings page' }), 'Resources');
-  else await page.getByRole('tab', { name: 'Resources', exact: true }).click();
+  await page.locator('.g-member-nav').getByRole('link', { name: 'Resources', exact: true }).click();
   await expect(page.getByRole('form', { name: 'Member resources' })).toBeVisible();
 }
 

@@ -38,7 +38,7 @@ describe('settings surface: zero sign-in/account controls', () => {
   it('renders the Settings surface without any saved sign-in or account-credential control', () => {
     render(<SettingsSurface formatPreset="best_1080p" section="account" onFormatChange={vi.fn()} onLogout={vi.fn()} user={user} />);
     // The surface itself renders (positive control).
-    expect(screen.getByRole('heading', { level: 1, name: /^My Settings$/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeTruthy();
     // The surviving local session control stays.
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
     // Label absence: no saved sign-in card or provider/credential control of any kind.

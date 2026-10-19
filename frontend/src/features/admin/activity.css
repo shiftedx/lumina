@@ -20,3 +20,28 @@
 }
 .g-stat-strip.activity-stats { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); row-gap: var(--g-space-4); }
 .g-stat-strip.activity-stats > .g-stat { justify-content: flex-start; }
+.activity-live-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; font: var(--g-type-ui); }
+.activity-live-summary > strong { font: 500 40px / 1 var(--g-serif); }
+.activity-live-summary > span:last-child { margin-left: auto; color: var(--g-ink-3); font: var(--g-type-small); }
+.activity-live-dot { width: 8px; height: 8px; border-radius: var(--g-radius-round); background: var(--g-success); }
+.g-stat-strip.activity-stats > .activity-meter { position: relative; min-height: 126px; align-items: center; justify-content: center; padding: 20px 12px; }
+.activity-meter svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.activity-meter circle { fill: none; stroke-width: 5; }
+.activity-meter-track { stroke: var(--g-wash); }
+.activity-meter-fill { stroke: var(--g-gold); stroke-linecap: round; transform: rotate(-90deg); transform-origin: center; }
+.activity-meter :is(dt, dd) { position: relative; text-align: center; }
+.activity-meter .g-stat-figure { font-size: 24px; }
+.activity-viewing-chart { margin: 0 0 24px; padding: 20px; background: var(--g-paper); border-radius: var(--g-radius-sheet); }
+.activity-viewing-chart figcaption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 20px; font: var(--g-type-ui-strong); }
+.activity-viewing-chart figcaption span { color: var(--g-ink-3); font: var(--g-type-small); }
+.activity-viewing-chart ul { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+.activity-viewing-chart li { display: grid; grid-template-columns: minmax(80px, 1fr) 2fr auto; gap: 4px 16px; align-items: center; font: var(--g-type-small); }
+.activity-viewing-chart li > div { height: 12px; border-radius: var(--g-radius-round); background: var(--g-wash); overflow: hidden; }
+.activity-viewing-chart li > div > span { display: block; height: 100%; background: var(--g-gold); border-radius: inherit; }
+.activity-viewing-chart li > small { grid-column: 1; color: var(--g-ink-3); }
+@media (max-width: 599px) {
+  .activity-viewing-chart { padding: 16px; }
+  .activity-viewing-chart li { grid-template-columns: minmax(0, 1fr) auto; }
+  .activity-viewing-chart li > div { grid-row: 2; grid-column: 1 / -1; }
+  .activity-viewing-chart li > small { grid-row: 3; }
+}

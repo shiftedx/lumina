@@ -120,7 +120,7 @@ test('local-only auth: no provider buttons, local login boots, Settings has no T
   // account control is visible), so click it directly.
   await page.getByRole('button', { name: /, account menu$/ }).click();
   await page.getByRole('menuitem', { name: 'My Settings' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: /^(My Settings|Manage Server)$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^Settings$/ })).toBeVisible();
   await expect(page.getByText('Twitch chat identity')).toHaveCount(0);
   await expect(page.locator('.twitch-connection-card')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: /Twitch/i })).toHaveCount(0);

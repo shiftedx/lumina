@@ -100,6 +100,10 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(player).toBeHidden();
     await expect(mini).toBeHidden();
     await expect(page.getByRole('main')).toBeFocused();
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Album One', exact: true })).toBeVisible();
+    await expect(player).toBeHidden();
+    await expect(mini).toBeHidden();
     await navigateApp(page, 'Video');
     await expect(mini).toBeHidden();
     await expect(player).toBeHidden();

@@ -32,7 +32,7 @@
 .gallery.t-page .t-logo .g-art-image { width: auto; max-width: 100%; height: 100%; max-height: 160px; object-fit: contain; object-position: left bottom; }
 .gallery.t-page .t-meta { margin: 0 0 var(--g-space-4); color: var(--g-ink-2); font-variant-numeric: tabular-nums; }
 .t-meta-part { white-space: nowrap; }
-.t-lede { max-width: 64ch; margin: 0 0 var(--g-space-4); font: var(--g-type-lede); }
+.t-lede { margin: 0 0 var(--g-space-4); font: var(--g-type-lede); }
 /* Three lines tall at least, so the cap never hangs into the tagline or the actions. */
 .t-lede.has-dropcap { min-height: 4.5em; }
 .t-lede.has-dropcap::first-letter { float: left; padding: 4px 8px 0 0; color: var(--g-accent); font: 700 3.1em / .8 var(--g-serif); }

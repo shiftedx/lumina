@@ -116,8 +116,9 @@ test('deep link: a busy paper field with no text, then the page', async ({ page 
   await expect(page.getByRole('heading', { level: 1, name: 'Northern Lantern' })).toBeFocused();
 });
 
-test('desktop: the hero, the body pulled over it, the side column to the right, and 320px episode cards', async ({ page }) => {
-  await open(page, '/title/series-1', showOptions);
+test('title layout: the hero, side column, episode cards, and a long title description using its available width', async ({ page }) => {
+  const overview = 'The keepers follow the coast through a changing season, sharing stories from each town and returning to the lighthouse before nightfall. '.repeat(8);
+  await open(page, '/title/series-1', { ...showOptions, detail: { ...showOptions.detail, overview } });
   await expect(page.locator('.t-episodes > li').first()).toBeVisible();
   const hero = await box(page, '.t-hero');
   const main = await box(page, '.t-main');
@@ -127,6 +128,20 @@ test('desktop: the hero, the body pulled over it, the side column to the right, 
   expect(side.x).toBeGreaterThanOrEqual(main.x + main.width + 47);
   expect(side.y).toBeCloseTo(main.y + 74, 0);
   expect((await box(page, '.t-episodes > li')).width).toBe(320);
+  for (const width of [1920, 1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const description = page.getByText(overview, { exact: true });
+    await expect(description).toBeVisible();
+    const paragraph = await description.boundingBox();
+    const mainColumn = await box(page, '.t-main');
+    const sideColumn = await box(page, '.t-side');
+    expect(paragraph!.width).toBeGreaterThanOrEqual(mainColumn.width - 1);
+    expect(paragraph!.x + paragraph!.width).toBeLessThanOrEqual(mainColumn.x + mainColumn.width + 1);
+    if (width > 599) expect(paragraph!.x + paragraph!.width).toBeLessThan(sideColumn.x);
+    else expect(sideColumn.y).toBeGreaterThan(paragraph!.y + paragraph!.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: `../output/title-description-width/title-${width}.png`, fullPage: true });
+  }
 });
 
 test('desktop over the gallery styles: the art fills the hero, More like this posters are 168px, and Back reads on the art', async ({ page }) => {

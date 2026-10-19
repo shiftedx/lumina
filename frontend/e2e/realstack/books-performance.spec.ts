@@ -134,6 +134,7 @@ test('120-unit EPUB, PDF, CBZ and CBR startup, navigation and resume resource ob
           await expect.poll(async () => ((await (await reader.request.get(`/api/books/${book.id}/reader`)).json()) as { book: { progress: { unit_index: number } } }).book.progress.unit_index).toBe(110);
           const resumeAt = performance.now();
           await reader.reload();
+          const resumeReload = performance.now() - resumeAt;
           await contentReady(reader, format, 110);
           const resumed = performance.now() - resumeAt;
           const resumeContent = await reader.evaluate(() => performance.getEntriesByName('books-first-content')[0]?.startTime ?? null);
@@ -146,7 +147,7 @@ test('120-unit EPUB, PDF, CBZ and CBR startup, navigation and resume resource ob
           }));
           // Reload has a fresh reader window; ordinary promotion of a prefetched page must not refetch it.
           for (const [index, requests] of Object.entries(pageRequests)) expect(requests).toBeLessThanOrEqual(Number(index) >= 110 ? 2 : 1);
-          observations.push({ format, trial, units: pages, first_content_navigation_ms: firstContent, resume_content_navigation_ms: resumeContent, startup_resources: startupResources, page_requests: pageRequests, settled_turn_ms: settledTurn, resources, startup_ms: startup, turns_ms: turnMs, late_page_ms: latePage, resume_ms: resumed, state_writes: saves, responses, cdp_initial: initialMetrics, cdp_final: await metrics(), js_heap_bytes_supplement_only: heap });
+          observations.push({ format, trial, units: pages, first_content_navigation_ms: firstContent, resume_content_navigation_ms: resumeContent, resume_reload_ms: resumeReload, resume_ready_ms: resumed, startup_resources: startupResources, page_requests: pageRequests, settled_turn_ms: settledTurn, resources, startup_ms: startup, turns_ms: turnMs, late_page_ms: latePage, resume_ms: resumed, state_writes: saves, responses, cdp_initial: initialMetrics, cdp_final: await metrics(), js_heap_bytes_supplement_only: heap });
         } finally { await context.close(); }
       }
     }

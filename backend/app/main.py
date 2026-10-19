@@ -4,6 +4,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import logging
+import re
 import threading
 import time
 from contextlib import asynccontextmanager, suppress
@@ -712,12 +713,14 @@ class SpaStaticFiles(StaticFiles):
             return self._shell_response(scope)
         if path in social_preview.IMAGE_PATHS:
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif re.fullmatch(r"assets/(?:[^/]+/)*[^/]+-[A-Za-z0-9_-]{8,}\.[^/]+", path):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
     def _shell_response(self, scope) -> HTMLResponse:  # noqa: ANN001
         invite = scope["path"] in {"/invite", "/invite/"}
         body = social_preview.render(self.index_html, origin=self.public_origin(), invite=invite)
-        response = HTMLResponse(body, headers={"Cache-Control": "public, max-age=300"})
+        response = HTMLResponse(body, headers={"Cache-Control": "no-cache"})
         if scope["method"] == "HEAD":
             response.body = b""  # retain GET's Content-Length while sending no representation body
         return response

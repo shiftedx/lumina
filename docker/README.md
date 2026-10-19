@@ -2,6 +2,8 @@
 
 Lumina ships as one container: the FastAPI backend serves the built React app on port 8765. Docker Compose is the supported install path. Read `RELEASE_NOTES.md`, `SECURITY.md` and `LICENSE` before exposing an installation.
 
+The app shell requires browser revalidation so a new visit receives the current release. Content-hashed files under `assets/` use one-year immutable caching; unhashed scripts, fonts and service workers retain their normal freshness behavior.
+
 ## Books formats
 
 Books imports accept EPUB and PDF ebooks and CBZ and CBR comics, up to 256 MiB per file.

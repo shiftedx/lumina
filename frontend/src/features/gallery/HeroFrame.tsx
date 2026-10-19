@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { getHeroFraming, type HeroFraming, type HeroFramingRegion } from '../../api';
 import './heroFrame.css';
@@ -9,6 +9,7 @@ export type HeroGeometry = { mode: 'cover'; x: number; y: number };
 const EMPTY: HeroFraming = { state: 'pending' };
 const CACHE_LIMIT = 128;
 const NEGATIVE_TTL_MS = 60_000;
+const FIRST_RESPONSE_HOLD_MS = 150;
 const cache = new Map<string, { framing: HeroFraming; expiresAt: number | null }>();
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
@@ -87,14 +88,19 @@ function useHeroFraming(src: string | null | undefined, enabled: boolean, root: 
   const [visible, setVisible] = useState(false);
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== 'hidden');
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
-  const [entry, setEntry] = useState<{ src: string | null; framing: HeroFraming }>({ src: null, framing: EMPTY });
-  const framing = entry.src === src ? entry.framing : EMPTY;
-  useEffect(() => {
+  const [entry, setEntry] = useState<{ src: string | null; framing: HeroFraming; revealed: boolean }>({ src: null, framing: EMPTY, revealed: false });
+  const entryRef = useRef(entry);
+  entryRef.current = entry;
+  const hit = src ? cached(src) : null;
+  const initial = { src: src ?? null, framing: hit ?? EMPTY, revealed: !src || !enabled || hit !== null };
+  // During a source swap, derive a fresh presentation synchronously so the previous hero's crop cannot flash.
+  const presentation = !src || !enabled ? initial : entry.src === src ? entry : initial;
+  useLayoutEffect(() => {
     const update = () => setPageVisible(document.visibilityState !== 'hidden');
     document.addEventListener('visibilitychange', update);
     return () => document.removeEventListener('visibilitychange', update);
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!enabled || !root.current) return;
     const node = root.current;
     const update = () => { const rect = node.getBoundingClientRect(); setSize({ width: rect.width, height: rect.height }); };
@@ -107,32 +113,40 @@ function useHeroFraming(src: string | null | undefined, enabled: boolean, root: 
   }, [enabled, root]);
   useEffect(() => {
     if (!src || !enabled || !visible || !pageVisible) return;
-    const hit = cached(src);
-    if (hit) { setEntry({ src, framing: hit }); return; }
+    const showing = entryRef.current;
+    const preserveVisibleCrop = showing.src === src && showing.revealed;
+    const cachedFraming = cached(src);
+    if (cachedFraming?.state === 'ready') {
+      if (!preserveVisibleCrop) setEntry({ src, framing: cachedFraming, revealed: true });
+      return;
+    }
+    if (cachedFraming?.state === 'unavailable') {
+      if (!preserveVisibleCrop) setEntry({ src, framing: EMPTY, revealed: true });
+      return;
+    }
     let cancelled = false;
     const controller = new AbortController();
-    let attempts = 0;
-    let retry: number | undefined;
-    const load = () => {
+    const reveal = preserveVisibleCrop ? undefined : window.setTimeout(() => {
+      if (!cancelled) setEntry((current) => current.src === src && !current.revealed ? { ...current, revealed: true } : current);
+    }, FIRST_RESPONSE_HOLD_MS);
+    if (!preserveVisibleCrop) setEntry({ src, framing: EMPTY, revealed: false });
+    getHeroFraming(src, { signal: controller.signal }).then(validFraming).catch(() => ({ state: 'unavailable' as const })).then((next) => {
       if (cancelled) return;
-      getHeroFraming(src, { signal: controller.signal }).then(validFraming).catch(() => ({ state: 'unavailable' as const })).then((next) => {
-        if (cancelled) return;
-        if (next.state === 'pending' && attempts++ < 10) retry = window.setTimeout(load, 1_000);
-        else { const settled = next.state === 'pending' ? { state: 'unavailable' as const } : next; remember(src, settled); setEntry({ src, framing: settled }); }
-      });
-    };
-    setEntry({ src, framing: EMPTY });
-    load();
-    return () => { cancelled = true; controller.abort(); if (retry !== undefined) window.clearTimeout(retry); };
+      if (next.state === 'ready' || next.state === 'unavailable') remember(src, next);
+      // The first response wins the visible crop. A later ready answer only warms the cache for the next visit.
+      setEntry((current) => current.src === src && !current.revealed ? { src, framing: next.state === 'ready' ? next : EMPTY, revealed: true } : current);
+      if (reveal !== undefined) window.clearTimeout(reveal);
+    });
+    return () => { cancelled = true; controller.abort(); if (reveal !== undefined) window.clearTimeout(reveal); };
   }, [enabled, pageVisible, src, visible]);
-  return { framing, geometry: useMemo(() => heroGeometry(framing, size, placement), [framing, placement, size]) };
+  return { framing: presentation.framing, geometry: useMemo(() => heroGeometry(presentation.framing, size, placement), [placement, presentation.framing, size]), revealed: presentation.revealed };
 }
 
 export function HeroFrame({ children, className = '', enabled = true, placement = 'title', src }: { children: ReactNode; className?: string; enabled?: boolean; placement?: 'home' | 'title'; src?: string | null }) {
   const root = useRef<HTMLSpanElement>(null);
-  const { framing, geometry } = useHeroFraming(src, enabled, root, placement);
+  const { framing, geometry, revealed } = useHeroFraming(src, enabled, root, placement);
   const style = { '--hero-focus-x': `${geometry.x}%`, '--hero-focus-y': `${geometry.y}%` } as CSSProperties;
-  return <span className={`hero-frame ${className} is-cover`} data-hero-framing={framing.state} ref={root} style={style}>
+  return <span className={`hero-frame ${className} is-cover`} data-hero-framing={framing.state} data-hero-revealed={revealed} ref={root} style={style}>
     <span className="hero-frame-foreground">{children}</span>
   </span>;
 }

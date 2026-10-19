@@ -32,7 +32,7 @@ from app.services.library import LibraryService, decode_library_cursor, encode_l
 from app.services.media_artifacts import artifact_file
 from app.services.playback import PlaybackProgressService
 from app.services.title_metadata import title_people
-from app.services import art_urls, member_access, tmdb
+from app.services import art_urls, hero_framing, member_access, tmdb
 
 # Reuse SQL aliases so repeated Next Up reads do not rebuild their column adapters.
 _PROGRESS_SEASON, _PROGRESS_EPISODE = aliased(MediaTitle), aliased(MediaTitle)
@@ -475,10 +475,10 @@ class TitleService:
         batch.favorites = self.favorites_for(user, [title.id for title in page])
         self._load_folder_counts(batch, user, [title for title in page if title.type in FOLDER_TYPES or title.type in MUSIC_TITLE_TYPES])
         if with_artwork:
-            self._load_artwork(batch, page)
+            self._load_artwork(batch, page, user)
         return batch
 
-    def _load_artwork(self, batch: TitleBatch, page: list[MediaTitle]) -> None:
+    def _load_artwork(self, batch: TitleBatch, page: list[MediaTitle], user: User) -> None:
         """The page's title_artwork rows (one primary-key query); stale or missing ones go to the rendition pass."""
         rows = self.db.scalars(select(TitleArtwork).where(TitleArtwork.title_id.in_([title.id for title in page])))
         batch.artwork = {(row.title_id, row.image_type): row for row in rows}
@@ -488,6 +488,7 @@ class TitleService:
             or (image_type == "Primary" and title.type == "episode" and not title.locked
                 and not (title.images or {}).get("Primary") and (title.field_sources or {}).get("images.Primary") not in ("user", "nfo"))
         )
+        hero_framing.hero_framing.warm_library(user.id, page)
 
     def progress_for(self, user: User, item_ids: list[str]) -> dict[str, PlaybackProgress]:
         if not item_ids:

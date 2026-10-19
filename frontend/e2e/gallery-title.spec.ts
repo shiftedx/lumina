@@ -270,3 +270,31 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844
     expect(result.subject).toBeLessThan(.9);
   });
 }
+
+test('cold hero analysis never shifts already displayed artwork and is used on the next visit', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await mockApi(page, { sidebar_collapsed: false });
+  await mockTitles(page);
+  await mockGalleryTitle(page, movieOptions);
+  let completeAnalysis!: () => void;
+  const analysis = new Promise<void>((resolve) => { completeAnalysis = resolve; });
+  await page.route('**/api/art/framing?*', async (route) => {
+    await analysis;
+    await route.fulfill({ json: { state: 'ready', width: 1920, height: 1080, regions: [{ kind: 'face', x: .55, y: .15, width: .12, height: .18, weight: 1 }] } });
+  });
+  await page.goto('/title/movie-1');
+  await signIn(page);
+  const image = page.locator('.t-hero .g-art-image');
+  await expect(image).toBeVisible();
+  const originalCrop = await image.evaluate((element) => getComputedStyle(element).objectPosition);
+  const response = page.waitForResponse((response) => response.url().includes('/api/art/framing?'));
+  completeAnalysis();
+  await (await response).finished();
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  expect(await image.evaluate((element) => getComputedStyle(element).objectPosition)).toBe(originalCrop);
+  await page.reload();
+  await expect(page.locator('.t-hero .hero-frame')).toHaveAttribute('data-hero-framing', 'ready');
+  await expect(image).toBeVisible();
+  expect(await image.evaluate((element) => getComputedStyle(element).objectPosition)).not.toBe(originalCrop);
+});

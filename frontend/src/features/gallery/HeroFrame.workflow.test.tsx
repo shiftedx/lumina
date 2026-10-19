@@ -28,15 +28,33 @@ const child = <img className="rq-img" src="/sharp.jpg" />;
 
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 1920, 760));
   vi.stubGlobal('IntersectionObserver', TestIntersectionObserver);
   vi.stubGlobal('ResizeObserver', TestResizeObserver);
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   intersection = null;
   api.getHeroFraming.mockReset();
 });
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('HeroFrame request lifecycle', () => {
+  it('keeps the displayed crop stable when cold analysis finishes late, then reuses it next visit', async () => {
+    let settle: ((value: typeof ready) => void) | undefined;
+    api.getHeroFraming.mockReturnValue(new Promise<typeof ready>((resolve) => { settle = resolve; }));
+    const view = render(<HeroFrame src="/late-analysis">{child}</HeroFrame>);
+    await act(async () => { intersection?.(true); await Promise.resolve(); });
+    expect(api.getHeroFraming).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    const frame = view.container.querySelector('.hero-frame') as HTMLElement;
+    const initialCrop = frame.style.cssText;
+    await act(async () => { settle?.(ready); await Promise.resolve(); });
+    expect(frame.style.cssText).toBe(initialCrop);
+    view.unmount();
+    const nextVisit = render(<HeroFrame src="/late-analysis">{child}</HeroFrame>);
+    await act(async () => { intersection?.(true); await Promise.resolve(); });
+    expect((nextVisit.container.querySelector('.hero-frame') as HTMLElement).style.cssText).not.toBe(initialCrop);
+  });
+
   it('does not leave polling work behind when an active hero unmounts', async () => {
     api.getHeroFraming.mockResolvedValue({ state: 'pending' });
     const view = render(<HeroFrame src="/first"><>{child}</></HeroFrame>);
@@ -45,6 +63,38 @@ describe('HeroFrame request lifecycle', () => {
     view.unmount();
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
     expect(api.getHeroFraming).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a quick answer before reveal, while pending and failed answers reveal the conservative crop without polling', async () => {
+    api.getHeroFraming.mockResolvedValueOnce(ready);
+    const quick = render(<HeroFrame src="/quick-ready">{child}</HeroFrame>);
+    await act(async () => { intersection?.(true); await Promise.resolve(); });
+    expect((quick.container.querySelector('.hero-frame') as HTMLElement).dataset.heroRevealed).toBe('true');
+    expect((quick.container.querySelector('.hero-frame') as HTMLElement).style.getPropertyValue('--hero-focus-y')).toBe('0%');
+    quick.unmount();
+
+    api.getHeroFraming.mockReset().mockResolvedValue({ state: 'pending' });
+    const pending = render(<HeroFrame src="/pending">{child}</HeroFrame>);
+    await act(async () => { intersection?.(true); await Promise.resolve(); await vi.advanceTimersByTimeAsync(2_000); });
+    expect(api.getHeroFraming).toHaveBeenCalledTimes(1);
+    expect((pending.container.querySelector('.hero-frame') as HTMLElement).dataset.heroRevealed).toBe('true');
+    pending.unmount();
+
+    api.getHeroFraming.mockReset().mockRejectedValue(new Error('offline'));
+    const failed = render(<HeroFrame src="/failed">{child}</HeroFrame>);
+    await act(async () => { intersection?.(true); await Promise.resolve(); });
+    expect((failed.container.querySelector('.hero-frame') as HTMLElement).dataset.heroRevealed).toBe('true');
+    failed.unmount();
+    api.getHeroFraming.mockReset();
+    const failedRevisit = render(<HeroFrame src="/failed">{child}</HeroFrame>);
+    expect((failedRevisit.container.querySelector('.hero-frame') as HTMLElement).dataset.heroRevealed).toBe('true');
+    expect(api.getHeroFraming).not.toHaveBeenCalled();
+    failedRevisit.unmount();
+
+    api.getHeroFraming.mockReset();
+    const disabled = render(<HeroFrame enabled={false} src="/disabled">{child}</HeroFrame>);
+    expect((disabled.container.querySelector('.hero-frame') as HTMLElement).dataset.heroRevealed).toBe('true');
+    expect(api.getHeroFraming).not.toHaveBeenCalled();
   });
 
   it('aborts while hidden, resumes visibly, and never applies a previous source crop', async () => {

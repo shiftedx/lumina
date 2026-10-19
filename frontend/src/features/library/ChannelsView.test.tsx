@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CHANNEL_ID, FIXED_NOW, libraryChannel } from '../../test/remoteFixtures';
+import { chooseSelect } from '../../test/selectChoice';
 import { ChannelsView, LibraryViewSwitch } from './ChannelsView';
 
 const api = vi.hoisted(() => ({ listLibraryChannels: vi.fn() }));
@@ -49,7 +50,7 @@ describe('Library Channels view', () => {
     const { rerender } = render(<ChannelsView onWallChange={onWallChange} state="view=channels" viewSwitch={null} />);
     await screen.findByRole('link', { name: /^Harbor Films/ });
     vi.useRealTimers();
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Sort' }), 'name');
+    chooseSelect(screen.getByRole('combobox', { name: 'Sort' }), 'Name A–Z');
     expect(onWallChange).toHaveBeenCalledWith('view=channels&sort=name');
     rerender(<ChannelsView onWallChange={onWallChange} state="view=channels&sort=name" viewSwitch={null} />);
     expect(api.listLibraryChannels).toHaveBeenLastCalledWith('name');

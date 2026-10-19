@@ -1,3 +1,4 @@
+import { chooseSelect } from '../../test/selectChoice';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -141,7 +142,7 @@ describe('IntegrationsPanel', () => {
     expect(screen.getByText('WEBDL-1080p')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Unmonitor title' }));
     await waitFor(() => expect(api.postArrOperation).toHaveBeenCalledWith('sonarr-1', 3, expect.objectContaining({ action: 'monitor', base_revision: 'fresh-revision', monitored: false, operation_id: expect.any(String) })));
-    await user.selectOptions(screen.getByLabelText('Quality profile'), '8');
+    chooseSelect(screen.getByLabelText('Quality profile'), 'Archive');
     await user.click(screen.getByRole('button', { name: 'Apply quality profile' }));
     await waitFor(() => expect(api.postArrOperation).toHaveBeenLastCalledWith('sonarr-1', 3, expect.objectContaining({ action: 'profile', base_revision: 'fresh-revision', profile_id: 8, operation_id: expect.any(String) })));
   });

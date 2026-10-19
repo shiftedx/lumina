@@ -11,7 +11,7 @@ import { Search, SlidersHorizontal, X } from 'lucide-react';
 import { searchLibrary } from '../../api';
 import { undoBatch } from '../titles/editor/editorActions';
 import type { LocalSearchMatch, SearchScope, TitleSort, TitleSummary, TitleType } from '../../types';
-import { Button, useToast } from '../../ui';
+import { Button, Select, useToast } from '../../ui';
 import { formatDuration } from '../../utils';
 import { moveFocus } from '../media/focusNav';
 import { EmptyShelf } from '../media/MediaCards';
@@ -58,7 +58,7 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
   const phone = useMediaQuery('(max-width: 599px)');
   const grid = useRef<WallGridHandle>(null);
   const toolbar = useRef<HTMLDivElement>(null);
-  const sortSelect = useRef<HTMLSelectElement>(null);
+  const sortSelect = useRef<HTMLButtonElement>(null);
   const filtersButton = useRef<HTMLButtonElement>(null);
   const searchField = useRef<HTMLInputElement>(null);
   const searchButton = useRef<HTMLButtonElement>(null);
@@ -138,21 +138,21 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
   };
   /** Keyboards and TV remotes: Down from the masthead, a toolbar button or the Find field reaches the grid. */
   const downToGrid = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== 'ArrowDown' || (event.target as HTMLElement).matches('select, textarea')) return;
+    if (event.key !== 'ArrowDown' || (event.target as HTMLElement).matches('textarea, [role="combobox"]')) return;
     event.preventDefault();
     grid.current?.focusCurrent();
   };
   /**
-   * Left/Right step across the toolbar's controls: out of the Sort select always, out of the Find field once the caret
+   * Left/Right step across the toolbar's controls: out of the Sort control always, out of the Find field once the caret
    * is at its start (Left) or end (Right). At the toolbar's ends they do nothing, so the select never changes value.
    */
   const toolbarKeys = (event: KeyboardEvent<HTMLElement>) => {
     downToGrid(event);
     const field = event.target as HTMLElement;
     const left = event.key === 'ArrowLeft';
-    const leaves = (left || event.key === 'ArrowRight') && (field instanceof HTMLSelectElement
+    const leaves = (left || event.key === 'ArrowRight') && (field.getAttribute('role') === 'combobox'
       || (field instanceof HTMLInputElement && field.selectionStart === field.selectionEnd && (left ? field.selectionStart === 0 : field.selectionEnd === field.value.length)));
-    moveFocus(event, { targets: ':is(button, input, select):not(:disabled)', verticalExit: 'input', horizontalExit: leaves ? 'select, input' : 'select' });
+    moveFocus(event, { targets: ':is(button, input):not(:disabled)', verticalExit: 'input', horizontalExit: leaves ? '[role="combobox"], input' : '[role="combobox"]' });
     if (leaves) event.preventDefault();
   };
   /** Phone: dragging along the rail jumps continuously, with the letter in a bubble beside the thumb. */
@@ -234,11 +234,11 @@ export function GalleryWall({ wall, state, lenses, header, onWallChange, onOpen,
         </header>
       )}
       <div className={`g-toolbar${searchOpen ? ' is-searching' : ''}`} onKeyDown={toolbarKeys} ref={toolbar}>
-        <label className="g-sort g-select">
+        <label className="g-sort">
           <span className="g-label">Sort</span>
-          <select onChange={(event) => refilter({ ...query, sort: event.target.value as TitleSort })} ref={sortSelect} value={query.sort}>
+          <Select aria-label="Sort" onChange={(event) => refilter({ ...query, sort: event.target.value as TitleSort })} ref={sortSelect} value={query.sort}>
             {def.sorts.map((value) => <option key={value} value={value}>{SORTS.find(([sort]) => sort === value)?.[1]}</option>)}
-          </select>
+          </Select>
         </label>
         {phone || !def.chips ? null : (
           <div aria-label="Quick filters" className="g-chips" role="group">

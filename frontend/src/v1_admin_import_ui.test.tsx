@@ -1,3 +1,4 @@
+import { chooseSelect } from './test/selectChoice';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -69,7 +70,7 @@ describe('admin import UI', () => {
     expect(within(table).getByText('Films/locked.mkv')).not.toBeNull();
     expect(within(table).getByText(/never followed/)).not.toBeNull();
     expect(screen.getByText(/Partial\. Some files could not be checked/)).not.toBeNull();
-    await browser.selectOptions(screen.getByLabelText('Show'), 'failed');
+    chooseSelect(screen.getByLabelText('Show'), 'Failed');
     await waitFor(() => expect(api.listImportEntries).toHaveBeenLastCalledWith('run-1', 'failed'));
     api.startImport.mockResolvedValue(run({ id: 'run-2', state: 'running', counters: {} }));
     api.getImport.mockResolvedValue(run({ id: 'run-2' }));

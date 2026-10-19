@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { StrictMode, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { chooseSelect } from './test/selectChoice';
 
 const dashCalls = vi.hoisted(() => ({
   credentials: [] as Array<{ requestType: string; value: boolean }>,
@@ -88,14 +89,17 @@ describe('RemotePlayer', () => {
     await waitFor(() => expect(dashCalls.initialized).toHaveLength(1));
     expect(dashCalls.extensions).toEqual(['ThroughputModel']);
     expect(dashCalls.settings).toEqual([{ streaming: { abr: { initialBitrate: { video: AUTO_START_BANDWIDTH_BPS / 1000 }, rules: { throughputRule: { active: true }, bolaRule: { active: false }, droppedFramesRule: { active: true } } } } }]);
-    const select = screen.getByLabelText('Remote playback quality') as HTMLSelectElement;
-    expect(select.value).toBe('auto');
-    expect([...select.options].map((option) => option.text)).toEqual(['Auto', '720p', '4K']);
-
     const video = screen.getByTitle('DASH remote stream') as HTMLVideoElement;
+    fireEvent.canPlay(video);
+    const select = screen.getByLabelText('Remote playback quality');
+    expect(select.textContent).toBe('Auto');
+    fireEvent.click(select);
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map((option) => option.textContent)).toEqual(['Auto', '720p', '4K']);
+    fireEvent.click(select);
+
     Object.defineProperty(video, 'videoHeight', { configurable: true, value: 720 });
     fireEvent(video, new Event('resize'));
-    expect(select.options[0].text).toBe('Auto (720p)');
+    expect(select.textContent).toBe('Auto (720p)');
     view.unmount();
   });
 
@@ -105,10 +109,11 @@ describe('RemotePlayer', () => {
     await waitFor(() => expect(dashCalls.initialized).toHaveLength(1));
     expect(dashCalls.settings).toEqual([]);
     const video = screen.getByTitle('DASH remote stream') as HTMLVideoElement;
+    fireEvent.canPlay(video);
     video.currentTime = 42;
     Object.defineProperty(video, 'paused', { configurable: true, value: false });
 
-    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: 'auto' } });
+    chooseSelect(screen.getByLabelText('Remote playback quality'), 'Auto');
 
     await waitFor(() => expect(dashCalls.initialized).toHaveLength(2));
     expect(fetchMock).toHaveBeenCalledWith('/api/remote-streams/auto-return/renditions/auto/select', expect.objectContaining({ method: 'POST' }));
@@ -141,7 +146,7 @@ describe('RemotePlayer', () => {
     }
     expect(screen.queryByText('Switch to Auto')).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect((screen.getByLabelText('Remote playback quality') as HTMLSelectElement).value).toBe('r2160');
+    expect(screen.getByLabelText('Remote playback quality').textContent).toBe('4K');
   });
 
   it('fails honestly instead of playing sound only when the browser cannot decode the video', async () => {
@@ -167,7 +172,7 @@ describe('RemotePlayer', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Switch to Auto' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/remote-streams/pinned-accept/renditions/auto/select', expect.objectContaining({ method: 'POST' })));
-    await waitFor(() => expect((screen.getByLabelText('Remote playback quality') as HTMLSelectElement).value).toBe('auto'));
+    await waitFor(() => expect(screen.getByLabelText('Remote playback quality').textContent).toBe('Auto'));
     expect(screen.queryByText('Switch to Auto')).toBeNull();
   });
 
@@ -239,15 +244,13 @@ describe('RemotePlayer', () => {
       ],
     }} poster={null} title="Single quality" />);
 
-    const quality = screen.getByLabelText('Remote playback quality') as HTMLSelectElement;
-    expect(quality.value).toBe('r360');
-    expect(quality.disabled).toBe(true);
-    expect(screen.getByRole('option', { name: '360p' })).toBeTruthy();
+    const quality = screen.getByLabelText('Remote playback quality');
+    expect(quality.textContent).toBe('360p');
+    expect(quality.hasAttribute('disabled')).toBe(true);
     expect(screen.getByText('Only 360p is available from this source.')).toBeTruthy();
   });
 
   it('offers recovery choices when a previously selected rendition is unavailable', async () => {
-    const user = userEvent.setup();
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
       status: 'ready', stream_id: 'recover-quality', transport: 'progressive', media_kind: 'video',
       playback_url: '/api/remote-streams/recover-quality/renditions/r720/content', content_type: 'video/mp4',
@@ -266,12 +269,11 @@ describe('RemotePlayer', () => {
       ],
     }} poster={null} title="Recover quality" />);
 
-    const selector = screen.getByLabelText('Remote playback quality') as HTMLSelectElement;
-    expect(selector.value).toBe('');
-    expect(selector.disabled).toBe(false);
-    expect(screen.getByRole('option', { name: 'Choose quality' })).toBeTruthy();
+    const selector = screen.getByLabelText('Remote playback quality');
+    expect(selector.textContent).toBe('Choose quality');
+    expect(selector.hasAttribute('disabled')).toBe(false);
     expect(screen.getByText('720p is available. Choose it to resume.')).toBeTruthy();
-    await user.selectOptions(selector, 'r720');
+    chooseSelect(selector, '720p');
 
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/remote-streams/recover-quality/renditions/r720/select',
@@ -395,10 +397,13 @@ describe('RemotePlayer', () => {
     await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(1));
     // hls.js orders levels by bitrate; a height may appear twice (YouTube's 240p over two audio groups).
     act(() => hlsCalls.onManifestParsed[0]('hlsManifestParsed', { levels: [{ height: 240 }, { height: 240 }, { height: 720 }, { height: 1080 }] }));
-    const quality = screen.getByLabelText('Remote playback quality') as HTMLSelectElement;
-    expect([...quality.options].map((option) => option.textContent)).toEqual(['Auto', '1080p', '720p', '240p']);
+    fireEvent.canPlay(screen.getByTitle('HLS remote stream'));
+    const quality = screen.getByLabelText('Remote playback quality');
+    fireEvent.click(quality);
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map((option) => option.textContent)).toEqual(['Auto', '1080p', '720p', '240p']);
+    fireEvent.click(quality);
     const player = hlsCalls.instances.at(-1) as unknown as { currentLevel?: number; nextLevel?: number };
-    fireEvent.change(quality, { target: { value: '2' } });
+    chooseSelect(quality, '720p');
     expect(player.currentLevel).toBe(2);
     // Chrome keeps showing the old height until the next keyframe (a whole 5 s YouTube segment) when the pick lands at
     // a segment start; once the picked level's segment under the playhead is buffered, a same-time seek shows it now.
@@ -413,11 +418,11 @@ describe('RemotePlayer', () => {
     seekedTo = null;
     buffered(2, 3610); // once per pick
     expect(seekedTo).toBeNull();
-    fireEvent.change(quality, { target: { value: '3' } });
+    chooseSelect(quality, '1080p');
     buffered(3, 3615); // the pick's first segment is ahead of the playhead: it shows by itself at 3615, no seek ever
     buffered(3, 3610);
     expect(seekedTo).toBeNull();
-    fireEvent.change(quality, { target: { value: 'auto' } });
+    chooseSelect(quality, /^Auto/);
     expect(player.nextLevel).toBe(-1);
     unmount();
   });
@@ -430,16 +435,17 @@ describe('RemotePlayer', () => {
     }} poster={null} title="Live" />);
     await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(1));
     act(() => hlsCalls.onManifestParsed[0]('hlsManifestParsed', { levels: [{ height: 240 }, { height: 720 }, { height: 1080 }] }));
-    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: '1' } });
+    fireEvent.canPlay(screen.getByTitle('HLS remote stream'));
+    chooseSelect(screen.getByLabelText('Remote playback quality'), '720p');
     act(() => hlsCalls.handlers[0]('error', { fatal: true, type: 'networkError' }));
     await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(2));
     act(() => hlsCalls.onManifestParsed[1]('hlsManifestParsed', { levels: [{ height: 720 }, { height: 1080 }] }));
-    expect((screen.getByLabelText('Remote playback quality') as HTMLSelectElement).value).toBe('0');
+    expect(screen.getByLabelText('Remote playback quality').textContent).toBe('720p');
     expect(hlsCalls.instances.at(-1)).toMatchObject({ startLevel: 0, currentLevel: 0 });
     // Returning to Auto clears the pin, including for a later manifest.
-    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: 'auto' } });
+    chooseSelect(screen.getByLabelText('Remote playback quality'), /^Auto/);
     act(() => hlsCalls.onManifestParsed[1]('hlsManifestParsed', { levels: [{ height: 720 }, { height: 1080 }] }));
-    expect((screen.getByLabelText('Remote playback quality') as HTMLSelectElement).value).toBe('auto');
+    expect(screen.getByLabelText('Remote playback quality').textContent).toMatch(/^Auto/);
   });
 
   it('does not silently replace an HLS pin that disappears during recovery', async () => {
@@ -450,7 +456,7 @@ describe('RemotePlayer', () => {
     }} poster={null} title="Live" />);
     await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(1));
     act(() => hlsCalls.onManifestParsed[0]('hlsManifestParsed', { levels: [{ height: 720 }, { height: 1080 }] }));
-    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: '1' } });
+    chooseSelect(screen.getByLabelText('Remote playback quality'), '1080p');
     act(() => hlsCalls.handlers[0]('error', { fatal: true, type: 'networkError' }));
     await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(2));
     act(() => hlsCalls.onManifestParsed[1]('hlsManifestParsed', { levels: [{ height: 720 }] }));
@@ -459,7 +465,7 @@ describe('RemotePlayer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Switch to Auto' }));
     await waitFor(() => expect(hlsCalls.onManifestParsed).toHaveLength(3));
     act(() => hlsCalls.onManifestParsed[2]('hlsManifestParsed', { levels: [{ height: 240 }, { height: 720 }] }));
-    expect((screen.getByLabelText('Remote playback quality') as HTMLSelectElement).value).toBe('auto');
+    expect(screen.getByLabelText('Remote playback quality').textContent).toMatch(/^Auto/);
     expect(screen.queryByText('The selected quality is no longer available. Refresh the stream to try again.')).toBeNull();
   });
 
@@ -594,10 +600,11 @@ describe('RemotePlayer', () => {
     render(<RemotePlayer playback={{ ...selected, playback_url: '/api/remote-streams/dash-quality/dash/1/manifest.mpd', selected_rendition_id: 'r1080' }} poster={null} title="DASH quality" />);
     await waitFor(() => expect(dashCalls.initialized).toHaveLength(1));
     const video = screen.getByTitle('DASH remote stream') as HTMLVideoElement;
+    fireEvent.canPlay(video);
     video.currentTime = 42;
     Object.defineProperty(video, 'paused', { configurable: true, value: false });
 
-    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: 'r720' } });
+    chooseSelect(screen.getByLabelText('Remote playback quality'), '720p');
 
     await waitFor(() => expect(dashCalls.initialized).toHaveLength(2));
     expect(dashCalls.initialized[1]).toEqual({
@@ -762,7 +769,7 @@ describe('RemotePlayer', () => {
     const reacquire = vi.fn().mockResolvedValue(true);
     render(<RemotePlayer onReacquire={reacquire} playback={playback} poster={null} title="Restart quality" />);
 
-    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: 'r1080' } });
+    chooseSelect(screen.getByLabelText('Remote playback quality'), '1080p');
 
     await waitFor(() => expect(reacquire).toHaveBeenCalledTimes(1));
     expect(screen.queryByText('That quality could not be selected. The previous stream is still available.')).toBeNull();
@@ -838,7 +845,7 @@ describe('RemotePlayer', () => {
       paused: { configurable: true, value: false },
     });
 
-    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: 'r720' } });
+    chooseSelect(screen.getByLabelText('Remote playback quality'), '720p');
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       '/api/remote-streams/quality-stream/renditions/r720/select',
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
@@ -870,7 +877,7 @@ describe('RemotePlayer', () => {
       paused: { configurable: true, value: true },
     });
 
-    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: 'low' } });
+    chooseSelect(screen.getByLabelText('Remote playback quality'), '720p');
     await waitFor(() => expect(screen.getByTitle('Progressive remote stream').getAttribute('src')).toBe('/api/remote-streams/paused-quality/renditions/low/content'));
     const replacement = screen.getByTitle('Progressive remote stream') as HTMLVideoElement;
     Object.defineProperty(replacement, 'duration', { configurable: true, value: 200 });
@@ -892,7 +899,7 @@ describe('RemotePlayer', () => {
     };
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 503 }));
     render(<RemotePlayer playback={playback} poster={null} title="Quality failure" />);
-    fireEvent.change(screen.getByLabelText('Remote playback quality'), { target: { value: 'low' } });
+    chooseSelect(screen.getByLabelText('Remote playback quality'), '720p');
     expect(await screen.findByText('That quality could not be selected. The previous stream is still available.')).toBeTruthy();
     expect(screen.getByTitle('Progressive remote stream').getAttribute('src')).toBe('/api/remote-streams/quality-failure/renditions/high/content');
   });

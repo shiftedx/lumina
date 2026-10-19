@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as api from '../../api';
 import { stillItem } from '../../test/galleryFixtures';
+import { chooseSelect } from '../../test/selectChoice';
 import type { LibraryItem } from '../../types';
 import { ToastProvider } from '../../ui';
 import { resetImageLoader } from './imageLoader';
@@ -50,9 +51,9 @@ describe('StillWall', () => {
     expect(serializeStillQuery({ sort: 'recent', source: '' })).toBe('');
     const list = vi.spyOn(api, 'listLibrary').mockResolvedValue(page([stillItem()]));
     const { props, rerender } = wall();
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Sort' }), 'title');
+    chooseSelect(screen.getByRole('combobox', { name: 'Sort' }), 'Title A–Z');
     expect(props.onWallChange).toHaveBeenLastCalledWith('sort=title');
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Source' }), 'twitch');
+    chooseSelect(screen.getByRole('combobox', { name: 'Source' }), 'Twitch');
     expect(props.onWallChange).toHaveBeenLastCalledWith('source=twitch');
     rerender(<ToastProvider><StillWall {...props} wall="sort=title&source=twitch" /></ToastProvider>);
     await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'title', source: 'twitch', cursor: null })));

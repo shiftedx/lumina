@@ -566,7 +566,7 @@ export default function LuminaApp() {
     const handler = (event: globalThis.KeyboardEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       const canOpen = state.authStage === 'ready' && Boolean(state.currentUser) && !document.querySelector('dialog[open]');
-      const typing = Boolean(target?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'));
+      const typing = Boolean(target?.closest('input, textarea, select, [role="combobox"], [role="listbox"], [contenteditable=""], [contenteditable="true"]'));
       if (canOpen && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openPaletteMode('search'); return; }
       if (canOpen && event.key === '/' && !typing && !event.metaKey && !event.ctrlKey && !event.altKey) { event.preventDefault(); openPaletteMode('search'); return; }
       if (event.key === 'Escape') {

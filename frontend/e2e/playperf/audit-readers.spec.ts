@@ -150,7 +150,8 @@ async function captureBoundarySchedule(page: Page, crossfadeSeconds: number): Pr
   let reconfiguredAt: number | null = null;
   if (crossfadeSeconds) {
     reconfiguredAt = await page.evaluate(() => performance.now());
-    await room.getByLabel('Crossfade').selectOption(String(crossfadeSeconds));
+    await room.getByRole('button', { name: 'Crossfade' }).click();
+    await page.getByRole('menuitemradio', { name: `${crossfadeSeconds} seconds` }).click();
   }
   await expect.poll(async () => (await audioAudit(page)).starts.some((entry) => entry.when_seconds !== undefined && entry.when_seconds > entry.context_time_at_call_seconds + .1 && entry.offset_seconds === 0 && entry.buffer_duration_seconds !== null && entry.buffer_duration_seconds > 0 && (reconfiguredAt === null || entry.at_ms >= reconfiguredAt)), { timeout: 30_000 }).toBe(true);
   const starts = (await audioAudit(page)).starts;

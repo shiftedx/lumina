@@ -43,8 +43,7 @@
 .player-progress-stack [data-chapter-marker='true'].active { background: var(--g-gold); box-shadow: none; }
 .player-progress-stack [data-moment-origin]:not(.active) { background: var(--g-overlay-ink); }
 .player-rate-control { display: inline-flex; min-height: var(--g-control); align-items: center; }
-.player-rate-control select { min-height: var(--g-control); padding: 0 6px; border: 0; border-radius: var(--g-radius); background: transparent; color: var(--g-overlay-ink); cursor: pointer; font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 600; }
-.player-rate-control option, .quality-control option { background: var(--g-overlay-panel); color: var(--g-overlay-ink); }
+.player-controls .player-rate-control .g-select-trigger { display: flex; width: auto; min-width: var(--g-control); min-height: var(--g-control); padding: 0 6px; border: 0; border-radius: var(--g-radius); background: transparent; color: var(--g-overlay-ink); cursor: pointer; font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .player-notice { position: absolute; bottom: calc(100% + 4px); left: 12px; max-width: calc(100% - 24px); margin: 0; padding: 7px 11px; border-radius: var(--g-radius-sheet); background: var(--g-overlay-panel); color: var(--g-overlay-ink); font: var(--g-type-small); }
 .player-volume-control { display: flex; align-items: center; }
 .player-volume-control label { display: grid; width: 0; min-width: 0; height: var(--g-control); align-items: center; overflow: hidden; }
@@ -54,12 +53,15 @@
 .quality-control { position: relative; display: inline-flex; min-height: var(--g-control); align-items: center; gap: 0; color: var(--g-overlay-ink); font-size: 11px; }
 .quality-control-facts { flex: none; white-space: nowrap; }
 .quality-control > svg { width: 19px; height: 19px; margin-left: 9px; pointer-events: none; }
-.quality-control label { display: inline-flex; min-height: var(--g-control); align-items: center; }
-.quality-control select { min-height: var(--g-control); max-width: 92px; padding: 0 20px 0 5px; border: 0; outline: 0; background: transparent; color: var(--g-overlay-ink); cursor: pointer; font-size: 11px; font-weight: 600; }
-.quality-control select:focus-visible { border-radius: var(--g-radius); outline: var(--g-focus-width) solid var(--g-overlay-focus); outline-offset: -2px; }
+.quality-control .quality-select { display: inline-flex; min-height: var(--g-control); align-items: center; }
+.player-controls .quality-control .g-select-trigger { display: flex; width: auto; min-width: var(--g-control); min-height: var(--g-control); max-width: 92px; padding: 0 20px 0 5px; border: 0; outline: 0; background: transparent; color: var(--g-overlay-ink); cursor: pointer; font-size: 11px; font-weight: 600; }
+.quality-control .g-select-trigger:focus-visible { border-radius: var(--g-radius); outline: var(--g-focus-width) solid var(--g-overlay-focus); outline-offset: -2px; }
+.player-rate-control .g-select-listbox, .quality-control .g-select-listbox, .player-panel .g-select-listbox { background: var(--g-overlay-panel); color: var(--g-overlay-ink); }
+.player-rate-control .g-select-option, .quality-control .g-select-option, .player-panel .g-select-option { color: var(--g-overlay-ink); }
+.player-rate-control .g-select-option:is(.is-active, .is-selected), .quality-control .g-select-option:is(.is-active, .is-selected), .player-panel .g-select-option:is(.is-active, .is-selected) { background: var(--g-overlay-hover); }
 .player-recovery-quality { margin-top: 8px; }
 .player-recovery-quality .quality-control { color: var(--g-overlay-ink); }
-.player-recovery-quality .quality-control select { border: 0; border-bottom: 1px solid var(--g-overlay-rule); border-radius: 0; background: transparent; color: var(--g-overlay-ink); }
+.player-recovery-quality .quality-control .g-select-trigger { border: 0; border-bottom: 1px solid var(--g-overlay-rule); border-radius: 0; background: transparent; color: var(--g-overlay-ink); }
 .quality-problem { position: absolute; right: 0; bottom: calc(100% + 5px); width: min(260px, calc(100vw - 30px)); padding: 7px 9px; border-radius: var(--g-radius-sheet); background: var(--g-overlay-panel); color: var(--g-overlay-ink); line-height: 1.4; }
 .player-recovery-quality .quality-problem { top: calc(100% + 5px); bottom: auto; }
 .quality-suggestion { position: absolute; top: 12px; right: 12px; z-index: 2; display: flex; max-width: calc(100% - 24px); flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--g-radius-sheet); background: var(--g-overlay-panel); color: var(--g-overlay-ink); font: var(--g-type-small); }
@@ -105,7 +107,8 @@
 .player-panel fieldset { margin: 0; padding: 0 16px; border: 0; }
 .player-panel legend, .player-panel .g-label { margin: 12px 0 4px; padding: 0; color: var(--g-overlay-ink-2); }
 .player-panel label { display: grid; min-height: 44px; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 10px; }
-.player-panel select { min-height: 44px; }
+.player-panel .playback-menu-translate { display: grid; min-height: 44px; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 10px; }
+.player-panel .g-select-trigger { min-height: 44px; color: var(--g-overlay-ink); }
 .player-panel label small { grid-column: 2; color: var(--g-overlay-ink-2); }
 .player-panel .g-segment { color: var(--g-overlay-ink-2); }
 .player-panel .g-segment:has(:checked) { color: var(--g-overlay-ink); }
@@ -181,8 +184,8 @@
   .quality-control-facts { position: absolute; top: 4px; right: 8px; min-height: 18px; font-size: 0; }
   .quality-control-copy::after { content: attr(data-compact-label); font-size: 11px; }
   .quality-control > svg { display: none; }
-  .quality-control select { min-height: 44px; max-width: 66px; padding-right: 14px; font-size: 11px; }
-  .player-rate-control select { min-width: var(--g-control); padding: 0; appearance: none; text-align: center; }
+  .player-controls .quality-control .g-select-trigger { min-height: 44px; max-width: 66px; padding-right: 14px; font-size: 11px; }
+  .player-controls .player-rate-control .g-select-trigger { min-width: var(--g-control); padding: 0; text-align: center; }
   .lumina-player[data-player-state='failed'] .player-timecode { display: none; }
   .player-control-cluster--end { gap: 0; }
   .player-progress-stack { margin-inline: 6px; }

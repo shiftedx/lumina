@@ -21,6 +21,7 @@ import type { Browser, Page, Route, TestInfo } from '@playwright/test';
 import { openWatch, stopSession } from '../realstack/perfProbe';
 import { expect, libraryItemId, OWNER_STATE, test } from '../realstack/realstack';
 import { mockApi, signIn } from '../lumina-mock';
+import { chooseSelect } from '../select-helper';
 
 const ENABLED = process.env.LUMINA_RUN_VIDEO_AUDIT === '1';
 const SEEK_DIAGNOSTIC = process.env.AUDIT_VIDEO_SEEK_DIAGNOSTIC === '1';
@@ -417,7 +418,7 @@ test('remote DASH frontend-only synthetic upstream: three cold contexts', async 
       const video = page.locator('video');
       await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.videoHeight), { timeout: 30_000 }).toBe(360);
       const switchAt = await page.evaluate(() => performance.now());
-      await page.getByLabel('Remote playback quality').selectOption('r180');
+      await chooseSelect(page, page.getByLabel('Remote playback quality'), '180p');
       await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.videoHeight), { timeout: 30_000 }).toBe(180);
       const switched = await waitFrameAfter(page, switchAt);
       const state = await videoState(page);

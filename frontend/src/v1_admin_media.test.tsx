@@ -1,3 +1,4 @@
+import { chooseSelect } from './test/selectChoice';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -104,7 +105,7 @@ describe('Media server and Playback & transcoding sections', () => {
   it('keeps the two forms apart: each Save sends only its own fields', async () => {
     setup('media', 'transcoding');
     api.updateMediaServerSettings.mockResolvedValue({ ...settings, hwaccel: 'qsv' });
-    await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Hardware acceleration' }), 'qsv');
+    chooseSelect(await screen.findByRole('combobox', { name: 'Hardware acceleration' }), 'Intel Quick Sync (QSV)');
     await userEvent.clear(screen.getByRole('textbox', { name: 'Details language' }));
     await userEvent.type(screen.getByRole('textbox', { name: 'Details language' }), 'de-DE');
     await userEvent.click(screen.getByRole('button', { name: 'Save playback and transcoding settings' }));

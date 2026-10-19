@@ -5,6 +5,7 @@ import {
   requestAsrTranscript, searchTranscript, type Transcript, type TranscriptCue,
 } from '../../api';
 import { formatDuration } from '../../utils';
+import { Select } from '../../ui';
 import { usePollJob } from './usePollJob';
 
 /** What members may request (AI summaries, speech recognition); null until known or when there is no library item. */
@@ -243,12 +244,12 @@ function TranscriptView({ transcripts, currentTime, onSeek }: PanelProps) {
     <div className="transcript-panel">
       <div className="transcript-toolbar">
         {transcripts.length > 1 ? (
-          <label className="transcript-version g-select">
+          <div className="transcript-version">
             <span className="sr-only">Transcript language</span>
-            <select onChange={(event) => setSelectedId(event.currentTarget.value)} value={transcript.id}>
+            <Select aria-label="Transcript language" onChange={(event) => setSelectedId(event.currentTarget.value)} value={transcript.id}>
               {transcripts.map((entry) => <option key={entry.id} value={entry.id}>{languageName(entry.language)} · {sourceLabel(entry.source_kind)} · rev {entry.revision}</option>)}
-            </select>
-          </label>
+            </Select>
+          </div>
         ) : <p className="transcript-version">{languageName(transcript.language)} · {sourceLabel(transcript.source_kind)}</p>}
         <form className="transcript-search" onSubmit={(event) => void runSearch(event)} role="search">
           <Search aria-hidden="true" />

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { item as baseItem, mockApi, mockTitles, movieTitle, signIn, user } from './lumina-mock';
 import { answerCategoriesByType } from './library-mock';
+import { chooseSelect } from './select-helper';
 
 /** Library views over saved and imported media (mocked API, synthetic fixtures). */
 
@@ -147,7 +148,7 @@ test('the wall keeps its sort and filters in the address across a reload', async
   await openGallery(page, '/library/movies');
   await expect(page.getByRole('button', { name: /^Gallery 000,/ })).toBeVisible();
   await page.getByRole('combobox', { name: 'Sort' }).focus();
-  await page.getByRole('combobox', { name: 'Sort' }).selectOption('name');
+  await chooseSelect(page, page.getByRole('combobox', { name: 'Sort' }), 'Title A–Z');
   await expect(page.getByRole('combobox', { name: 'Sort' })).toBeFocused();
   await page.getByRole('button', { name: 'Unwatched', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Unwatched', exact: true })).toBeFocused();
@@ -157,7 +158,7 @@ test('the wall keeps its sort and filters in the address across a reload', async
   await expect(page.getByRole('button', { name: 'Filters (1)' })).toBeFocused();
   await expect(page).toHaveURL(/\/video\/movies\?sort=name&unwatched=1&genre=Drama$/);
   await page.reload();
-  await expect(page.getByRole('combobox', { name: 'Sort' })).toHaveValue('name');
+  await expect(page.getByRole('combobox', { name: 'Sort' })).toHaveText('Title A–Z');
   await expect(page.getByRole('button', { name: 'Unwatched', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: 'Filters (1)' })).toBeVisible();
   await page.goBack();

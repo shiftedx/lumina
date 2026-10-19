@@ -26,6 +26,7 @@ import { openMemberPicker } from './app/commands';
 import { resetDeviceRing } from './features/auth/deviceRing';
 import { recordRecoOpen } from './features/reco/recoEvents';
 import { clearAlbumQueue } from './features/gallery/albumQueue';
+import { chooseSelect } from './test/selectChoice';
 
 // The app raises its shell messages as toasts, which need the provider main.tsx supplies.
 const render = (ui: ReactElement, options: Parameters<typeof baseRender>[1] = {}) => baseRender(ui, { wrapper: ToastProvider, ...options });
@@ -733,11 +734,12 @@ describe('household and Library curation integration', () => {
 
     const curation = await screen.findByRole('region', { name: 'About this Library item' });
     expect(within(curation).getByText('family')).not.toBeNull();
-    await browser.selectOptions(within(curation).getByRole('combobox', { name: /Who can see Film in the vault/ }), 'shared');
+    chooseSelect(within(curation).getByRole('combobox', { name: /Who can see Film in the vault/ }), 'Shared with household');
+    await waitFor(() => expect(mocks.updateLibraryItemVisibility).toHaveBeenCalledWith(ownedItem.id, 'shared'));
+    await waitFor(() => expect(within(curation).getByRole('textbox', { name: 'Add a private tag' }).hasAttribute('disabled')).toBe(false));
     await browser.type(within(curation).getByRole('textbox', { name: 'Add a private tag' }), 'favorite');
     await browser.click(within(curation).getByRole('button', { name: 'Add tag' }));
 
-    await waitFor(() => expect(mocks.updateLibraryItemVisibility).toHaveBeenCalledWith(ownedItem.id, 'shared'));
     await waitFor(() => expect(mocks.createLibraryTag).toHaveBeenCalledWith(ownedItem.id, 'favorite'));
   });
 
@@ -758,7 +760,7 @@ describe('household and Library curation integration', () => {
     await browser.click(await screen.findByRole('button', { name: /^Item A, / }));
     await openNotes(browser);
     const itemAVisibility = await screen.findByRole('combobox', { name: 'Who can see Item A' });
-    await browser.selectOptions(itemAVisibility, 'shared');
+    chooseSelect(itemAVisibility, 'Shared with household');
     await vi.waitFor(() => expect(finishA).toBeTypeOf('function'));
 
     await browser.click(screen.getByRole('button', { name: 'Back' }));
@@ -772,7 +774,7 @@ describe('household and Library curation integration', () => {
     finishA?.({ ...itemA, visibility: 'shared' });
     await Promise.resolve();
     expect(screen.getByRole('heading', { level: 1, name: 'Item B' })).not.toBeNull();
-    expect((screen.getByRole('combobox', { name: 'Who can see Item B' }) as HTMLSelectElement).value).toBe('private');
+    expect(screen.getByRole('combobox', { name: 'Who can see Item B' }).textContent).toBe('Private');
     expect(screen.getByRole('button', { name: 'Add tag' }).hasAttribute('disabled')).toBe(true);
 
     finishB?.({ id: 'tag-busy-b', item_id: itemB.id, user_id: user.id, tag: 'busy-b' });
@@ -907,9 +909,9 @@ describe('Media acquisition shell integration', () => {
     render(<LuminaApp />);
     await chooseFromAccountMenu(browser, 'My Settings');
     await browser.click(within(await screen.findByRole('navigation', { name: 'Settings sections' })).getByRole('link', { name: 'Downloads' }));
-    await browser.selectOptions(await screen.findByRole('combobox', { name: 'Default quality' }), 'best_1080p');
+    chooseSelect(await screen.findByRole('combobox', { name: 'Default quality' }), 'Video · 1080p');
     // Nothing hides behind a disclosure: Container is one row away.
-    await browser.selectOptions(screen.getByRole('combobox', { name: 'Container' }), 'mkv');
+    chooseSelect(screen.getByRole('combobox', { name: 'Container' }), 'MKV');
     const subtitles = screen.getByRole('checkbox', { name: 'Download subtitles when available' });
     if (!(subtitles as HTMLInputElement).checked) await browser.click(subtitles);
     await browser.type(screen.getByRole('textbox', { name: 'Folder inside the Library' }), 'family/protected');

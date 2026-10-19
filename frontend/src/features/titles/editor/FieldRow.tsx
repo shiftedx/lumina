@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 
 import { listEpisodeGroups, revertMetadata } from '../../../api';
 import type { EpisodeGroup, FieldState, SeasonChoice } from '../../../types';
-import { Button, Checkbox, Field, fieldProps, IconButton, Input, Select, Textarea, useToast } from '../../../ui';
+import { Button, Checkbox, AutocompleteInput, Field, fieldProps, IconButton, Input, Select, Textarea, useToast } from '../../../ui';
 import { forgetTitle } from '../../gallery/titleCache';
 import { undoBatch } from './editorActions';
 import { ChipInput } from './ChipInput';
@@ -167,7 +167,7 @@ export function FieldRow({ titleId, fieldKey, state, draft, itemLocked, setField
     case 'group':
       control = (
         <Field error={error} hint={meta.hint ?? "Leave empty to use TMDB's largest group for the episode order."} label={label}>
-          {(ids) => <Input {...fieldProps(ids)} list={`ed-list-${fieldKey}`} maxLength={meta.max} onChange={(event) => type(event.target.value)} onFocus={loadGroups} value={text} />}
+          {(ids) => <AutocompleteInput {...fieldProps(ids)} options={(groups ?? []).map((group) => ({ value: group.id, label: `${group.name} · ${GROUP_TYPES[group.type ?? 0] ?? 'Other'} · ${group.episode_count ?? 0} episodes` }))} maxLength={meta.max} onChange={(event) => type(event.target.value)} onFocus={loadGroups} value={text} />}
         </Field>
       );
       break;
@@ -181,7 +181,7 @@ export function FieldRow({ titleId, fieldKey, state, draft, itemLocked, setField
       }[meta.kind as 'int' | 'decimal' | 'date' | 'time' | 'datetime' | 'text'];
       control = (
         <Field error={error} hint={meta.hint} label={label}>
-          {(ids) => <Input {...fieldProps(ids)} {...attrs} list={fieldKey === 'official_rating' ? `ed-list-${fieldKey}` : undefined} onChange={(event) => type(event.target.value)} value={text} />}
+          {(ids) => fieldKey === 'official_rating' ? <AutocompleteInput {...fieldProps(ids)} {...attrs} options={vocabulary} onChange={(event) => type(event.target.value)} value={text} /> : <Input {...fieldProps(ids)} {...attrs} onChange={(event) => type(event.target.value)} value={text} />}
         </Field>
       );
     }
@@ -191,12 +191,6 @@ export function FieldRow({ titleId, fieldKey, state, draft, itemLocked, setField
       {control}
       {chip ? <span className="ed-src">{chip}</span> : <span />}
       {lock}
-      {fieldKey === 'official_rating' ? <datalist id="ed-list-official_rating">{vocabulary.map((value) => <option key={value} value={value} />)}</datalist> : null}
-      {meta.kind === 'group' ? (
-        <datalist id={`ed-list-${fieldKey}`}>
-          {(groups ?? []).map((group) => <option key={group.id} value={group.id}>{`${group.name} · ${GROUP_TYPES[group.type ?? 0] ?? 'Other'} · ${group.episode_count ?? 0} episodes`}</option>)}
-        </datalist>
-      ) : null}
     </div>
   );
 }

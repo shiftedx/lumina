@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -35,9 +35,10 @@ describe('ChipInput', () => {
     await userEvent.type(box(), '{Backspace}');
     expect(onChange).toHaveBeenLastCalledWith([]);
   });
-  it('renders suggestions in a datalist and is a labelled group', () => {
-    const { container } = render(<Harness suggestions={['Comedy', 'Horror']} />);
+  it('offers branded suggestions and is a labelled group', () => {
+    render(<Harness suggestions={['Comedy', 'Horror']} />);
     expect(screen.getByRole('group', { name: 'Genres' })).toBeTruthy();
-    expect(container.querySelectorAll('datalist option').length).toBe(2);
+    fireEvent.focus(box());
+    expect(screen.getAllByRole('option')).toHaveLength(2);
   });
 });

@@ -138,6 +138,13 @@ describe('Settings keyboard controls', () => {
     await userEvent.keyboard('{Enter}');
     expect(onAutoplayUpNextChange).toHaveBeenCalledWith(true);
   });
+  it('keeps Left on a settings dropdown instead of moving into navigation', async () => {
+    shell({ section: 'playback', onPlaybackMaxHeightChange: vi.fn() });
+    const quality = screen.getByRole('combobox', { name: 'Maximum quality' });
+    quality.focus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(document.activeElement).toBe(quality);
+  });
   it('segmented controls retain their Left and Right behavior', async () => {
     const onThemeChange = vi.fn();
     shell({ section: 'appearance', theme: 'system', onThemeChange });

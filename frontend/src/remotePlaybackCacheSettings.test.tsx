@@ -1,3 +1,4 @@
+import { chooseSelect } from './test/selectChoice';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -16,7 +17,7 @@ describe('RemotePlaybackCacheSettings', () => {
     await waitFor(() => expect(onChange).toHaveBeenLastCalledWith({ enabled: true, recent_video_limit: 10, storage_limit_mb: 2048 }));
     await waitFor(() => expect(screen.getByText('Cache preference saved.')).toBeTruthy());
 
-    await browser.selectOptions(screen.getByRole('combobox', { name: 'Maximum storage' }), '5120');
+    chooseSelect(screen.getByRole('combobox', { name: 'Maximum storage' }), '5 GB');
     await waitFor(() => expect(onChange).toHaveBeenLastCalledWith({ enabled: true, recent_video_limit: 10, storage_limit_mb: 5120 }));
 
     await browser.click(screen.getByRole('radio', { name: 'Off' }));

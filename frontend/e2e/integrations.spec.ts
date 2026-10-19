@@ -1,3 +1,4 @@
+import { chooseSelect } from './select-helper';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -78,7 +79,7 @@ test('Integration operations fit desktop and a narrow phone before title control
 
 test('admin sends fresh revisioned monitor and profile operations, while rejected releases have no grab', async ({ page }) => {
   await mockApi(page, { settings_advanced: true }); await mockAdminFixtures(page); const operations = await mockIntegrationOperations(page, { mode: 'success' }); await openIntegrations(page);
-  await page.getByRole('button', { name: 'Manage Harbor Lights' }).click(); await expect(page.getByRole('heading', { name: 'Manage Harbor Lights' })).toBeVisible(); await page.getByRole('button', { name: 'Unmonitor title' }).click(); await expect.poll(() => operations.posted.length).toBe(1); expect(operations.posted[0]).toMatchObject({ action: 'monitor', base_revision: 'fresh-revision', monitored: false }); await page.getByLabel('Quality profile').selectOption('8'); await page.getByRole('button', { name: 'Apply quality profile' }).click(); await expect.poll(() => operations.posted.length).toBe(2); expect(operations.posted[1]).toMatchObject({ action: 'profile', profile_id: 8, base_revision: 'fresh-revision' }); await page.getByRole('button', { name: 'Review releases' }).click(); await expect(page.getByText('Not available to grab')).toBeVisible(); await expect(page.getByRole('button', { name: 'Grab release' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Manage Harbor Lights' }).click(); await expect(page.getByRole('heading', { name: 'Manage Harbor Lights' })).toBeVisible(); await page.getByRole('button', { name: 'Unmonitor title' }).click(); await expect.poll(() => operations.posted.length).toBe(1); expect(operations.posted[0]).toMatchObject({ action: 'monitor', base_revision: 'fresh-revision', monitored: false }); await chooseSelect(page, page.getByLabel('Quality profile'), 'Archive'); await page.getByRole('button', { name: 'Apply quality profile' }).click(); await expect.poll(() => operations.posted.length).toBe(2); expect(operations.posted[1]).toMatchObject({ action: 'profile', profile_id: 8, base_revision: 'fresh-revision' }); await page.getByRole('button', { name: 'Review releases' }).click(); await expect(page.getByText('Not available to grab')).toBeVisible(); await expect(page.getByRole('button', { name: 'Grab release' })).toHaveCount(0);
 });
 
 test('a stale result asks for review, while an uncertain result blocks a write until reconciliation', async ({ page }) => {

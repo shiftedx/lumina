@@ -1,3 +1,4 @@
+import { chooseSelect } from './select-helper';
 import { expect, test, type Page } from '@playwright/test';
 import { mockApi, signIn } from './lumina-mock';
 
@@ -76,7 +77,7 @@ test('import partial with entries', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Files that need attention' }).getByRole('table')).toContainText('never followed');
   await expect(page.getByRole('button', { name: 'Rescan' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'View in Library' })).toHaveAttribute('href', '/library');
-  await page.getByRole('combobox', { name: 'Show', exact: true }).selectOption('failed');
+  await chooseSelect(page, page.getByRole('combobox', { name: 'Show', exact: true }), 'Failed');
   await expect(page.getByRole('region', { name: 'Files that need attention' }).getByRole('table').getByRole('row')).toHaveCount(2);
   expect(errors).toEqual([]);
 });

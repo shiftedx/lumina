@@ -1,3 +1,4 @@
+import { chooseSelect } from './select-helper';
 import { expect, test, type Page } from '@playwright/test';
 import { mockApi, signIn } from './lumina-mock';
 
@@ -93,7 +94,7 @@ test('adding an external root offers Import now, shared with the household by de
   await signIn(page);
   await page.getByLabel('Container path').fill('/media/films');
   await page.getByLabel('Label', { exact: true }).fill('Film drive');
-  await page.getByLabel('Mode').selectOption({ label: 'External — read-only, for imports' });
+  await chooseSelect(page, page.getByLabel('Mode'), 'External — read-only, for imports');
   await page.getByRole('button', { name: 'Add root' }).click();
   const card = page.getByRole('row').filter({ has: page.getByRole('group', { name: /^Import Film drive now\?/ }) });
   await expect(card.getByRole('radio', { name: /Household/ })).toBeChecked();

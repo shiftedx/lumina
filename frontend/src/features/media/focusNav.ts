@@ -5,7 +5,7 @@ export type Box = { left: number; top: number; width: number; height: number };
 /** Cards, episode rows and title-page actions that arrow keys move between. */
 export const FOCUS_TARGETS = '.thumbnail-play-target:not(:disabled), [data-focus-item]:not(:disabled)';
 /** Text-entry widgets: own every arrow key. Checkboxes have no arrow behaviour, so arrows leave them. */
-const OWNS_ALL_ARROWS = 'input:not([type="radio"]):not([type="checkbox"]), textarea, select, [role="menu"], [contenteditable="true"]';
+const OWNS_ALL_ARROWS = 'input:not([type="radio"]):not([type="checkbox"]), textarea, select, [role="combobox"], [role="listbox"], [role="menu"], [contenteditable="true"]';
 /** Single-axis widgets: own Left/Right only, so Up/Down still leave the tablist or radio group. */
 const OWNS_HORIZONTAL_ARROWS = '[role="tablist"], [role="radiogroup"], input[type="radio"]';
 /** Closed <details> bodies and hidden subtrees cannot take focus, so arrows skip them (as they skip visibility: hidden). */
@@ -14,7 +14,7 @@ const UNREACHABLE = '[hidden], details:not([open]) > :not(summary), .g-art-menu'
 
 /** Escape or Backspace outside a text field or dialog: the TV remote's Back. Callers do the leaving. */
 export function isBackKey(event: KeyboardEvent<HTMLElement>) {
-  return (event.key === 'Escape' || event.key === 'Backspace') && !event.defaultPrevented && !(event.target as HTMLElement).closest('input, textarea, select, dialog, [role="dialog"], [contenteditable="true"]');
+  return (event.key === 'Escape' || event.key === 'Backspace') && !event.defaultPrevented && !(event.target as HTMLElement).closest('input, textarea, select, [role="combobox"], [role="listbox"], dialog, [role="dialog"], [contenteditable="true"]');
 }
 
 export type MoveFocusOptions = {

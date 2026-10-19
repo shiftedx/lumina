@@ -1,3 +1,4 @@
+import { chooseSelect } from './select-helper';
 import { auditA11y } from './release-evidence';
 import { navigateApp } from './lumina-mock';
 import { expect, test } from '@playwright/test';
@@ -45,7 +46,7 @@ test('phone Settings is list then detail, with persistent search and a labelled 
   await nav.getByRole('link', { name: 'Playback', exact: true }).click();
   await expect(nav).toBeHidden();
   await expect(page.getByRole('searchbox', { name: 'Search settings' })).toBeVisible();
-  await page.getByRole('combobox', { name: 'Settings page' }).selectOption('captions');
+  await chooseSelect(page, page.getByRole('combobox', { name: 'Settings page' }), 'Subtitles');
   await expect(page.getByRole('heading', { name: 'Captions', exact: true })).toBeVisible();
   await expect(page.getByRole('switch', { name: 'Autoplay next video' })).toHaveCount(0);
   await page.getByRole('button', { name: 'All settings' }).click(); await expect(page).toHaveURL(/\/settings$/);

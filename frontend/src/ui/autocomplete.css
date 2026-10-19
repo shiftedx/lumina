@@ -1,0 +1,2 @@
+.g-autocomplete { display: block; min-width: 0; width: 100%; }
+.g-autocomplete-list { max-width: calc(100vw - 16px); }

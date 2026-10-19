@@ -4,6 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 import { activeCueIndex, TranscriptPanel } from './features/watch/TranscriptPanel';
 import { listTranscriptCues, searchTranscript, type Transcript, type TranscriptCue } from './api';
+import { chooseSelect } from './test/selectChoice';
 
 vi.mock('./api', () => ({ listTranscriptCues: vi.fn(), searchTranscript: vi.fn(), listTranscripts: vi.fn() }));
 
@@ -59,7 +60,7 @@ it('test_transcript_manual_scroll_respected', async () => {
 it('test_transcript_keyboard_language', async () => {
   render(<TranscriptPanel currentTime={0} onSeek={vi.fn()} transcripts={[transcript('en', 'en'), transcript('de', 'de')]} />);
   await screen.findByText('Morning on the ridge');
-  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Transcript language' }), 'de');
+  chooseSelect(screen.getByRole('combobox', { name: 'Transcript language' }), 'German · Source captions · rev 1');
   await waitFor(() => expect(screen.getByText('Morgen auf dem Grat')).toBeTruthy());
   expect(screen.queryByText('Morning on the ridge')).toBeNull();
   expect(listTranscriptCues).toHaveBeenLastCalledWith('de', null);

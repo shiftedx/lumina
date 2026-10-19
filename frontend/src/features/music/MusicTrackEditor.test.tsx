@@ -1,3 +1,4 @@
+import { chooseSelect } from '../../test/selectChoice';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -44,7 +45,7 @@ describe('MusicTrackEditor', () => {
     await screen.findByRole('checkbox', { name: 'First light' });
     await userEvent.click(screen.getByRole('checkbox', { name: 'First light' }));
     await screen.findByText(/Protected manual value/);
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Title action' }), 'set');
+    chooseSelect(screen.getByRole('combobox', { name: 'Title action' }), 'Set a value');
     const title = screen.getByRole('textbox', { name: 'New title' });
     expect((title as HTMLInputElement).value).toBe('Protected title');
     await userEvent.clear(title);
@@ -74,10 +75,10 @@ describe('MusicTrackEditor', () => {
     await screen.findByRole('checkbox', { name: 'First light' });
     await userEvent.click(screen.getByRole('checkbox', { name: 'First light' }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Second light' }));
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Album action' }), 'set');
+    chooseSelect(screen.getByRole('combobox', { name: 'Album action' }), 'Set a value');
     await userEvent.click(screen.getByRole('button', { name: 'Load more albums' }));
     expect(api.listTitles).toHaveBeenLastCalledWith({ type: 'album', sort: 'name', cursor: 'more', limit: 60 });
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Album' }), 'album-2');
+    chooseSelect(screen.getByRole('combobox', { name: 'Album' }), /^Album Two/);
     await userEvent.click(screen.getByRole('button', { name: 'Preview changes' }));
     expect(screen.getByText('Album: Album Two')).toBeTruthy();
     expect(api.editMusicTracks).not.toHaveBeenCalled();
@@ -87,7 +88,7 @@ describe('MusicTrackEditor', () => {
     renderEditor();
     await screen.findByRole('checkbox', { name: 'First light' });
     await userEvent.click(screen.getByRole('checkbox', { name: 'First light' }));
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Genres action' }), 'set');
+    chooseSelect(screen.getByRole('combobox', { name: 'Genres action' }), 'Set a value');
     const genres = screen.getByRole('textbox', { name: 'New genres' });
     await userEvent.clear(genres);
     await userEvent.type(genres, 'Jazz');
@@ -105,8 +106,8 @@ describe('MusicTrackEditor', () => {
     await screen.findByRole('checkbox', { name: 'First light' });
     await userEvent.click(screen.getByRole('checkbox', { name: 'First light' }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Second light' }));
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Album action' }), 'set');
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Regroup tracks into' }), 'create');
+    chooseSelect(screen.getByRole('combobox', { name: 'Album action' }), 'Set a value');
+    chooseSelect(screen.getByRole('combobox', { name: 'Regroup tracks into' }), 'Create release / edition');
     await userEvent.type(screen.getByRole('textbox', { name: 'Release name' }), 'Album One Live');
     await userEvent.type(screen.getByRole('spinbutton', { name: 'Release year' }), '2025');
     await userEvent.type(screen.getByRole('textbox', { name: 'Edition' }), 'Tour edition');

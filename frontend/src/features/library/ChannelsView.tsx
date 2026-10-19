@@ -7,6 +7,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 
 import { listLibraryChannels } from '../../api';
 import type { LibraryChannelResponse } from '../../types';
+import { Select } from '../../ui';
 import { channelPagePath, followAppLink, rememberChannel } from '../channels/channelMention';
 import { ChannelAvatar } from '../gallery/ChannelAvatar';
 import { GalleryArt } from '../gallery/GalleryArt';
@@ -63,12 +64,12 @@ export function ChannelsView({ state, onWallChange, lenses, viewSwitch }: { stat
     </div>
   );
   return (
-    <div className="surface gallery g-wall g-library-channels" onKeyDown={(event) => moveFocus(event, { targets: ':is(a, button, select):not(:disabled)', horizontalExit: 'select' })}>
+    <div className="surface gallery g-wall g-library-channels" onKeyDown={(event) => moveFocus(event, { targets: ':is(a, button):not(:disabled)', horizontalExit: '[role="combobox"]' })}>
       {lenses}
       <header className="g-masthead"><h1>YouTube</h1>{channels ? <p className="g-label g-kicker">{`${channels.length} channel${channels.length === 1 ? '' : 's'}`}</p> : null}</header>
       <div className="g-toolbar">
         {viewSwitch}
-        <label className="g-sort g-select"><span className="g-label">Sort</span><select onChange={(event) => onWallChange(event.target.value === 'name' ? 'view=channels&sort=name' : 'view=channels')} value={sort}><option value="recent">Recently updated</option><option value="name">Name A–Z</option></select></label>
+        <label className="g-sort"><span className="g-label">Sort</span><Select aria-label="Sort" onChange={(event) => onWallChange(event.target.value === 'name' ? 'view=channels&sort=name' : 'view=channels')} value={sort}><option value="recent">Recently updated</option><option value="name">Name A–Z</option></Select></label>
       </div>
       {body}
     </div>

@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import type { LocalSearchResponse } from '../src/types';
 import { type GalleryWallMock, mockGalleryWall, wallTitles } from './gallery-mock';
 import { item, mockApi, signIn } from './lumina-mock';
+import { chooseSelect } from './select-helper';
 
 /** The Movies and Shows walls over the mocked API. */
 
@@ -100,7 +101,7 @@ test('the A–Z rail appears for Title A–Z and focuses the first title of a le
   await expect.poll(() => focusedName(page)).toMatch(/^M Title \d+,/);
   await page.keyboard.press('t');
   await expect.poll(() => focusedName(page)).toMatch(/^T Title \d+,/);
-  await page.getByRole('combobox', { name: 'Sort' }).selectOption('year');
+  await chooseSelect(page, page.getByRole('combobox', { name: 'Sort' }), 'Year');
   await expect(rail).toHaveCount(0);
 });
 

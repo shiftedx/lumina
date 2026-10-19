@@ -1,3 +1,4 @@
+import { chooseSelect, selectLabels } from './test/selectChoice';
 /**
  * Settings grouped into clear sections (Profile/Appearance/Playback/
  * Downloads/Discovery/Data), a display-name edit, "Export my data", and the
@@ -79,9 +80,9 @@ describe('Settings surface: grouped sections', () => {
     render(<SettingsSurface formatPreset="best" section="playback" onFormatChange={vi.fn()} onLogout={vi.fn()} onPlaybackMaxHeightChange={onPlaybackMaxHeightChange} user={user} />);
     const select = screen.getByRole('combobox', { name: 'Maximum quality' }) as HTMLSelectElement;
 
-    expect([...select.options].map((option) => option.text)).toEqual(['Best available', 'Up to 1440p', 'Up to 1080p', 'Up to 720p', 'Data saver (up to 480p)']);
-    expect(select.value).toBe('');
-    await browser.selectOptions(select, '480');
+    expect(selectLabels(select)).toEqual(['Best available', 'Up to 1440p', 'Up to 1080p', 'Up to 720p', 'Data saver (up to 480p)']);
+    expect(select.textContent).toContain('Best available');
+    chooseSelect(select, 'Data saver (up to 480p)');
     expect(onPlaybackMaxHeightChange).toHaveBeenLastCalledWith(480);
   });
 });

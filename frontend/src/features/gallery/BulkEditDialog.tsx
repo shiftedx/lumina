@@ -2,7 +2,7 @@
 import { useState } from 'react';
 
 import { bulkEditMetadata } from '../../api';
-import { Button, Dialog, Field, fieldProps, Input, Radio } from '../../ui';
+import { AutocompleteInput, Button, Dialog, Field, fieldProps, Radio } from '../../ui';
 import { ChipInput } from '../titles/editor/ChipInput';
 import { useVocabulary } from '../titles/editor/useVocabulary';
 import '../titles/editor/fields.css';
@@ -53,9 +53,8 @@ export function BulkEditDialog({ titleIds, onClose, onDone }: BulkEditDialogProp
       {listField('Add tags', 'addTags', tags)}
       {listField('Remove tags', 'removeTags', tags)}
       <Field label="Parental rating">
-        {(ids) => <Input {...fieldProps(ids)} list="bulk-rating-list" maxLength={20} onChange={(event) => set({ rating: event.target.value })} placeholder="Leave as is" value={draft.rating} />}
+        {(ids) => <AutocompleteInput {...fieldProps(ids)} options={ratings} maxLength={20} onChange={(event) => set({ rating: event.target.value })} placeholder="Leave as is" value={draft.rating} />}
       </Field>
-      <datalist id="bulk-rating-list">{ratings.map((value) => <option key={value} value={value} />)}</datalist>
       {LOCKS.map(([key, name]) => (
         <fieldset aria-label={`Lock ${name}`} key={key} role="group">
           <legend className="g-label">{`Lock ${name}`}</legend>

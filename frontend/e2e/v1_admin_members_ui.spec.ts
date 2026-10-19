@@ -1,3 +1,4 @@
+import { chooseSelect } from './select-helper';
 import { expect, test } from '@playwright/test';
 import { mockAdminFixtures, mockApi, signIn } from './lumina-mock';
 
@@ -31,7 +32,7 @@ test('members list opens a member page whose edits save in one PUT', async ({ pa
   await page.getByRole('tab', { name: 'Streaming' }).click();
   await expect(page.getByRole('list', { name: 'Followed channels' })).toContainText('Bluey Official');
   await page.getByRole('tab', { name: 'Schedule' }).click();
-  await page.getByRole('combobox', { name: 'Daily limit' }).selectOption('90');
+  await chooseSelect(page, page.getByRole('combobox', { name: 'Daily limit' }), '1 h 30 min a day');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Saved.')).toBeVisible();
   expect(saved).toMatchObject({ movie_rating_max: 'PG', daily_limit_minutes: 90, sections: ['movies', 'anime'] });

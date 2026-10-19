@@ -69,8 +69,7 @@
 .gallery.g-wall.has-rail .g-toolbar { margin-right: calc(-1 * (var(--g-gutter) + 28px)); padding-right: calc(var(--g-gutter) + 28px); }
 .gallery .g-toolbar { position: sticky; top: calc(var(--g-topbar) + env(safe-area-inset-top)); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 calc(-1 * var(--g-gutter)) 24px; padding: 12px var(--g-gutter); border-bottom: var(--g-rule); background: var(--g-paper); }
 .gallery .g-sort { display: inline-flex; align-items: center; gap: 8px; }
-.gallery .g-sort select { width: auto; background: transparent; }
-.gallery .g-sort option { background: var(--g-paper-2); color: var(--g-ink); }
+.gallery .g-sort .g-select-trigger { width: auto; background: transparent; }
 .gallery .g-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 /* A chip row that opens a line starts its first chip's text on the content edge, not its padding. */
 .gallery :is(.g-chips:first-child, .g-category-chips) { margin-inline-start: -16px; }
@@ -96,12 +95,12 @@
 .gallery .empty-shelf strong, .gallery .empty-shelf p { font-family: var(--g-serif); }
 /* Desktop and tablet: Sort reads as a button label beside the chips. */
 @media (min-width: 600px) {
-  .gallery .g-sort select { font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; }
+  .gallery .g-sort .g-select-trigger { font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; }
 }
 @media (max-width: 599px) {
   .gallery.g-wall { padding-top: 20px; }
   .gallery .g-toolbar { flex-wrap: nowrap; gap: 8px; }
-  .gallery .g-sort, .gallery .g-sort select { min-width: 0; }
+  .gallery .g-sort, .gallery .g-sort .g-select { min-width: 0; }
   .gallery .g-sort > .g-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .gallery .g-search-open { margin-left: auto; }
   .gallery .g-filters { margin-left: 0; }

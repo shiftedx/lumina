@@ -38,7 +38,7 @@ const EXTRA_LABELS: Record<ExtraType, string> = {
   trailer: 'Trailer', featurette: 'Featurette', behindthescenes: 'Behind the scenes', deletedscene: 'Deleted scene',
   interview: 'Interview', scene: 'Scene', short: 'Short', clip: 'Clip', other: 'Extra',
 };
-const TEXT_ENTRY = 'input, textarea, select, dialog, [contenteditable="true"]';
+const TEXT_ENTRY = 'input, textarea, select, [role="combobox"], [role="listbox"], dialog, [contenteditable="true"]';
 const POSTER_SIZES = '(max-width: 599px) 34vw, 168px';
 const LOGO_SIZES = '(max-width: 599px) 80vw, 600px';
 /** A logo sits on the page, never on a colour slot. */

@@ -22,8 +22,9 @@
 .t-page.is-plain .t-headline { position: relative; max-width: var(--g-page-width); }
 
 /* Body: two columns pulled up over the hero; the story sits in the main column after the actions. */
-.t-body { position: relative; display: grid; max-width: calc(var(--g-page-width) + 2 * var(--g-gutter)); margin: -120px auto 0; padding: 0 var(--g-gutter); grid-template-areas: 'main side'; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); column-gap: var(--g-space-7); align-items: start; }
+.t-body { position: relative; display: grid; max-width: calc(var(--g-page-width) + 2 * var(--g-gutter)); margin: -120px auto 0; padding: 0 var(--g-gutter); grid-template-areas: 'heading .' 'main side'; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); column-gap: var(--g-space-7); align-items: start; }
 .t-page.is-plain .t-body { margin-top: var(--g-space-6); }
+.t-heading { grid-area: heading; min-width: 0; }
 .t-main { grid-area: main; min-width: 0; }
 .t-headline { margin: 0 0 var(--g-space-4); font: var(--g-type-display); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
 /* The title's accent hairline under the masthead. */
@@ -53,8 +54,8 @@
 .t-actions .g-button:disabled { cursor: not-allowed; }
 .t-note { margin: var(--g-space-2) 0 0; color: var(--g-ink-2); }
 
-/* Side column: hairline rule, 24px in, 74px down. */
-.t-side { grid-area: side; margin: 74px 0 0; padding-left: var(--g-space-5); border-left: var(--g-hairline); }
+/* Side metadata starts beside the synopsis, below the title and its metadata line. */
+.t-side { grid-area: side; margin: 0; padding-left: var(--g-space-5); border-left: var(--g-hairline); }
 .t-side > div + div { margin-top: var(--g-space-4); }
 .gallery.t-page .t-side dt { color: var(--g-ink-3); }
 .t-side dd { margin: var(--g-space-1) 0 0; }
@@ -123,7 +124,7 @@
 /* Phone (< 600 px): one column, the side column after the actions, snapping rows. */
 @media (max-width: 599px) {
   .t-hero { height: min(75vw, 420px); padding-bottom: var(--g-space-4); }
-  .t-body { margin-top: -46px; grid-template-areas: 'main' 'side'; grid-template-columns: minmax(0, 1fr); }
+  .t-body { margin-top: -46px; grid-template-areas: 'heading' 'main' 'side'; grid-template-columns: minmax(0, 1fr); }
   .t-page.is-plain .t-body { margin-top: var(--g-space-5); }
   .t-side { margin-top: var(--g-space-5); padding: var(--g-space-5) 0 0; border-top: var(--g-rule); border-left: 0; }
   .t-actions .g-button { flex: 1 1 auto; }

@@ -287,9 +287,11 @@ export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, 
         {plain ? headline : null}
       </div>
       <div className="t-body">
-        <div className="t-main">
+        <div className="t-heading">
           {plain ? null : headline}
           {meta.length ? <p className="t-meta g-label">{meta.map((part, index) => <Fragment key={index}>{index ? ' · ' : null}<span className="t-meta-part">{part}</span></Fragment>)}</p> : null}
+        </div>
+        <div className="t-main">
           {shown.overview ? <p className={`t-lede${hasDropCap(shown.overview) ? ' has-dropcap' : ''}`}>{shown.overview}</p> : null}
           {data?.tagline ? <p className="t-tagline">{data.tagline}</p> : null}
           {data ? <TitleActions detail={data} onPatch={reloadFailed ? reload : title.patch} onPlay={onPlay} onEdit={() => onEdit(data.id)} onReload={reload} user={user} /> : null}

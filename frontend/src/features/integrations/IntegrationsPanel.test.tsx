@@ -1,16 +1,15 @@
 import { chooseSelect } from '../../test/selectChoice';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiRequestError } from '../../api';
 
-const api = vi.hoisted(() => ({ getArrObservations: vi.fn(), getArrDataset: vi.fn(), refreshArrServer: vi.fn(), getTitleIntegrations: vi.fn(), getArrControlledItem: vi.fn(), getArrReleases: vi.fn(), getArrOperations: vi.fn(), postArrOperation: vi.fn(), reconcileArrOperation: vi.fn(), getConnectors: vi.fn(), createConnector: vi.fn(), updateConnector: vi.fn(), refreshConnector: vi.fn(), getConnectorDetails: vi.fn(), disableConnector: vi.fn(), getMusicRequestTargets: vi.fn(), createMusicRequest: vi.fn(), getAdminMusicRequests: vi.fn(), approveMusicRequest: vi.fn(), reconcileMusicRequest: vi.fn(), getLidarrInventory: vi.fn() }));
+const api = vi.hoisted(() => ({ getArrObservations: vi.fn(), getArrDataset: vi.fn(), refreshArrServer: vi.fn(), getArrControlledItem: vi.fn(), getArrReleases: vi.fn(), getArrOperations: vi.fn(), postArrOperation: vi.fn(), reconcileArrOperation: vi.fn(), getConnectors: vi.fn(), createConnector: vi.fn(), updateConnector: vi.fn(), refreshConnector: vi.fn(), getConnectorDetails: vi.fn(), disableConnector: vi.fn(), getMusicRequestTargets: vi.fn(), createMusicRequest: vi.fn(), getAdminMusicRequests: vi.fn(), approveMusicRequest: vi.fn(), reconcileMusicRequest: vi.fn(), getLidarrInventory: vi.fn() }));
 vi.mock('./integrationsApi', async (original) => ({ ...(await original<typeof import('./integrationsApi')>()), ...api }));
 
 import { IntegrationsPanel } from './IntegrationsPanel';
 import { MusicReleaseRequest, MusicRequestOperations } from './MusicRequestControls';
-import { TitleIntegrationStatus } from './TitleIntegrationStatus';
 import type { ArrObservedItem, ArrObservationPage, ArrServerObservation, ArrOperationInput } from './integrationsApi';
 
 // The observer can return an empty summary for a connection without a completed collection pass.
@@ -28,7 +27,6 @@ describe('IntegrationsPanel', () => {
     api.getArrObservations.mockResolvedValue(observations([observedItem]));
     api.getArrDataset.mockResolvedValue({ items: [{ record_id: 'q1', item_id: 3, data: { status: 'Downloading' }, observed_at: '2026-10-17T12:00:00Z' }], page: 1, page_size: 50, total: 1201, total_pages: 25, stale: false });
     api.refreshArrServer.mockResolvedValue(server);
-    api.getTitleIntegrations.mockResolvedValue({ title_id: 'title-1', integrations: [] });
     api.getArrOperations.mockResolvedValue({ items: [], page: 1, page_size: 25, total: 0, total_pages: 1 });
     api.getArrControlledItem.mockResolvedValue(controlled);
     api.getArrReleases.mockResolvedValue({ items: [], revision: 'fresh-revision' });
@@ -58,6 +56,20 @@ describe('IntegrationsPanel', () => {
     expect(screen.queryByRole('button', { name: /transfer|grab/i })).toBeNull();
   });
 
+  it('explains read-only torrent observations and retains the snapshot date after a collection failure', async () => {
+    const torrent = { ...connector, kind: 'qbittorrent', name: 'Downloads', enabled: true, last_ok_at: server.last_ok_at, stale: true, last_error: 'Service unavailable', capabilities: { observe: true, control: false } };
+    api.getConnectors.mockResolvedValue({ items: [torrent] });
+    api.getConnectorDetails.mockResolvedValue({ ...torrent, dataset: 'transfers', items: [], page: 1, page_size: 50, total: 0 });
+    render(<IntegrationsPanel />);
+    const details = await screen.findByRole('region', { name: 'Collected information' });
+    expect(within(details).getByText(/Transfer states, progress/)).toBeTruthy();
+    expect(within(details).getByText(/Read-only connection/)).toBeTruthy();
+    expect(within(details).getByRole('button', { name: 'Transfers' })).toBeTruthy();
+    expect(within(details).queryByRole('button', { name: 'Health' })).toBeNull();
+    expect(screen.getAllByText(/Saved snapshot from/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Last collection failed: Service unavailable').length).toBeGreaterThan(0);
+  });
+
   it('submits an explicit release-group request to a member-safe Lidarr target', async () => {
     const user = userEvent.setup();
     api.getMusicRequestTargets.mockResolvedValue({ items: [{ id: 'lidarr-1', name: 'Music' }] });
@@ -85,9 +97,37 @@ describe('IntegrationsPanel', () => {
     expect(screen.queryByRole('button', { name: /delete|transfer|cancel/i })).toBeNull();
   });
 
+  it('explains collected information and retained library matching counts with dated freshness', async () => {
+    const saved = { ...server, stale: true, summary: { inventory_count: 1201, queue_count: 2, history_count: 8, health_count: 1, calendar_count: 3, missing_count: 4, cutoff_count: 5, import_counts: { registered: 1000, pending_import: 100, awaiting_first_import: 50, root_unavailable: 20, unmapped: 31 } } };
+    api.getArrObservations.mockResolvedValue({ ...observations([observedItem]), servers: [saved] });
+    api.getArrDataset.mockResolvedValue({ items: [{ record_id: 'q1', item_id: 3, data: { status: 'Downloading', sizeleft: 1048576, timeleft: '00:02:00', protocol: 'torrent' }, observed_at: server.last_ok_at }], page: 1, page_size: 50, total: 2, total_pages: 1, stale: true });
+    render(<IntegrationsPanel />);
+
+    const information = await screen.findByRole('region', { name: 'Information from TV' });
+    expect(within(information).getByText('1,201')).toBeTruthy();
+    expect(within(information).getByText('1,000')).toBeTruthy();
+    expect(within(information).getByText('150')).toBeTruthy();
+    expect(within(information).getByText('20')).toBeTruthy();
+    expect(within(information).getByText('31')).toBeTruthy();
+    expect(screen.getByText(/Saved snapshot from/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Queue 2 records' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Health 1 record' })).toBeTruthy();
+    expect(await screen.findByText(/1.0 MB remaining/)).toBeTruthy();
+    expect(screen.queryByText(/may be out of date/)).toBeNull();
+    expect(api.refreshArrServer).not.toHaveBeenCalled();
+    api.refreshArrServer.mockRejectedValueOnce(new Error('Connection unavailable'));
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Connection unavailable');
+    expect(within(information).getByText('1,201')).toBeTruthy();
+    expect(api.refreshArrServer).toHaveBeenCalledTimes(1);
+    api.getArrDataset.mockResolvedValueOnce({ items: [{ record_id: 'h1', item_id: 3, data: { eventType: 'downloadFolderImported', date: server.last_ok_at }, observed_at: server.last_ok_at }], page: 1, page_size: 50, total: 8, total_pages: 1, stale: true });
+    await userEvent.click(screen.getByRole('button', { name: 'History 8 records' }));
+    expect(await screen.findByText(/^Event /)).toBeTruthy();
+  });
+
   it('shows incomplete server summaries, paged observations and a deliberate refresh without request controls', async () => {
     render(<IntegrationsPanel />);
-    expect(await screen.findByText('0 observed · 0 queued')).toBeTruthy();
+    expect(await screen.findByText('Inventory not collected yet')).toBeTruthy();
     expect(await screen.findByText('Northbound')).toBeTruthy();
     expect(screen.getByText('Waiting for Lumina’s first import')).toBeTruthy();
     await userEvent.click(await screen.findByRole('button', { name: 'Queue' }));
@@ -186,20 +226,5 @@ describe('IntegrationsPanel', () => {
     await user.click(await screen.findByRole('button', { name: 'Review releases' }));
     expect(await screen.findByText('Not available to grab')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Grab release' })).toBeNull();
-  });
-});
-
-describe('TitleIntegrationStatus', () => {
-  it('offers a member-safe import explanation without changing playback', async () => {
-    api.getTitleIntegrations.mockResolvedValueOnce({ title_id: 'title-1', integrations: [{ state: 'pending_import', stale: true }] });
-    render(<TitleIntegrationStatus titleId="title-1" />);
-    expect(await screen.findByText(/waiting to import/i)).toBeTruthy();
-    expect(screen.getByText(/may be out of date/i)).toBeTruthy();
-  });
-
-  it('hides an unavailable title response', async () => {
-    api.getTitleIntegrations.mockRejectedValueOnce(new Error('Not found'));
-    const { container } = render(<TitleIntegrationStatus titleId="hidden" />);
-    await waitFor(() => expect(container.textContent).toBe(''));
   });
 });

@@ -52,7 +52,6 @@ export type ArrObservationPage = {
 
 export type ArrDatasetRecord = { record_id: string; item_id: number | null; data: Record<string, unknown>; observed_at: string };
 export type ArrDatasetPage = { items: ArrDatasetRecord[]; page: number; page_size: number; total: number; total_pages: number; stale: boolean };
-export type TitleIntegrations = { title_id: string; integrations: Array<{ state: ArrImportState; stale: boolean }> };
 export type ArrControlledSeason = { season_number: number; monitored: boolean };
 export type ArrProfile = { id: number; name: string };
 export type ArrControlledItem = {
@@ -115,7 +114,6 @@ export const getArrDataset = (serverId: string, dataset: ArrDataset, input: { pa
 
 /** The upstream call can take over 30 seconds. A timeout reports an uncertain outcome; the UI never retries it on its own. */
 export const refreshArrServer = (serverId: string) => requestJson<ArrServerObservation>(`/api/admin/arr/servers/${segment(serverId)}/refresh`, { method: 'POST' }, { timeoutMs: 35000 });
-export const getTitleIntegrations = (titleId: string) => requestJson<TitleIntegrations>(`/api/arr/titles/${segment(titleId)}`);
 export const getArrControlledItem = (serverId: string, upstreamId: number) => requestJson<ArrControlledItem>(`/api/admin/arr/servers/${segment(serverId)}/items/${upstreamId}`);
 export const getArrReleases = (serverId: string, upstreamId: number) => requestJson<ArrReleases>(`/api/admin/arr/servers/${segment(serverId)}/items/${upstreamId}/releases`);
 export const postArrOperation = (serverId: string, upstreamId: number, body: ArrOperationInput) => requestJson<ArrOperation>(`/api/admin/arr/servers/${segment(serverId)}/items/${upstreamId}/operations`, { method: 'POST', body: JSON.stringify(body) });

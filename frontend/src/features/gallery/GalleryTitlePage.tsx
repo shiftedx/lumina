@@ -24,7 +24,6 @@ import { GalleryArt } from './GalleryArt';
 import { backdropWidthFor, cardColour, cardTextColour, type GalleryTheme, renditionUrl } from './galleryModel';
 import { prefetchImage } from './imageLoader';
 import { KeyScenes } from './KeyScenes';
-import { TitleIntegrationStatus } from '../integrations/TitleIntegrationStatus';
 import { LENS_LABELS, titleLens } from './libraryLens';
 import { PosterCard } from './PosterCard';
 import { StorySoFar } from './StorySoFar';
@@ -294,7 +293,6 @@ export function GalleryTitlePage({ id, season, user, backLabel, onBack, onEdit, 
           {shown.overview ? <p className={`t-lede${hasDropCap(shown.overview) ? ' has-dropcap' : ''}`}>{shown.overview}</p> : null}
           {data?.tagline ? <p className="t-tagline">{data.tagline}</p> : null}
           {data ? <TitleActions detail={data} onPatch={reloadFailed ? reload : title.patch} onPlay={onPlay} onEdit={() => onEdit(data.id)} onReload={reload} user={user} /> : null}
-          {data ? <TitleIntegrationStatus titleId={data.id} /> : null}
           {reloadFailed ? <p className="t-note" role="alert">Lumina could not refresh this title. <button className="g-text-button" onClick={reload} type="button">Try again</button></p> : null}
           {data && storyVisible(data) && data.play_next ? <StorySoFar episodeId={data.play_next.id} /> : null}
         </div>

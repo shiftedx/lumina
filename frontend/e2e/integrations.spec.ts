@@ -4,19 +4,19 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { mockAdminFixtures, mockApi, signIn } from './lumina-mock';
 
-const server = { server_id: 'sonarr-1', kind: 'sonarr', name: 'Living room TV', enabled: true, version: '4.0', capabilities: {}, summary: { inventory_count: 1201, queue_count: 2, history_count: 0, health_count: 0, calendar_count: 0, missing_count: 0, cutoff_count: 0, import_counts: { registered: 1200, awaiting_first_import: 1 } }, last_ok_at: '2026-10-17T12:00:00Z', last_error: null, stale: false, attempted_at: '2026-10-17T12:00:00Z' };
+const server = { server_id: 'sonarr-1', kind: 'sonarr', name: 'Living room TV', enabled: true, version: '4.0', capabilities: {}, summary: { inventory_count: 1201, queue_count: 2, history_count: 0, health_count: 0, calendar_count: 0, missing_count: 0, cutoff_count: 0, import_counts: { registered: 1200, awaiting_first_import: 1, pending_import: 0, root_unavailable: 0, unmapped: 0 } }, last_ok_at: '2026-10-17T12:00:00Z', last_error: null, stale: false, attempted_at: '2026-10-17T12:00:00Z' };
 const item = { server_id: 'sonarr-1', upstream_id: 7, media_type: 'tv', tmdb_id: null, tvdb_id: 7, title: 'Harbor Lights', year: 2026, monitored: true, has_file: true, import_state: 'awaiting_first_import', details: { episodes: { episode_count: 1, file_count: 1 } }, observed_at: '2026-10-17T12:00:00Z' };
 const controlled = { server_id: 'sonarr-1', upstream_id: 7, revision: 'fresh-revision', monitored: true, quality_profile_id: 4, seasons: [{ season_number: 1, monitored: true }], profiles: [{ id: 4, name: 'HD' }, { id: 8, name: 'Archive' }], quality: { current: 'WEBDL-1080p', target: 'HD', cutoff: 'Bluray-1080p' } };
 type Mode = 'success' | 'conflict' | 'uncertain';
 
-async function mockIntegrationOperations(page: Page, state: { mode: Mode }) {
+async function mockIntegrationOperations(page: Page, state: { mode: Mode; stale?: boolean }) {
   const posted: Array<Record<string, unknown>> = [];
   const operations: Array<Record<string, unknown>> = [];
   const operation = (body: Record<string, unknown>, status: string, error: string | null = null) => ({ id: body.operation_id, server_id: 'sonarr-1', upstream_id: 7, action: body.action, status, result: {}, error, created_at: '2026-10-17T12:00:00Z', updated_at: '2026-10-17T12:00:00Z' });
   await page.route('**/api/admin/arr/**', async (route) => {
     const request = route.request(); const path = new URL(request.url()).pathname;
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
-    if (path === '/api/admin/arr/observations') { const url = new URL(request.url()); return json({ servers: [server], items: url.searchParams.get('server_id') ? [item] : [], page: 1, page_size: 50, total: url.searchParams.get('server_id') ? 1201 : 0, total_pages: url.searchParams.get('server_id') ? 25 : 1 }); }
+    if (path === '/api/admin/arr/observations') { const url = new URL(request.url()); return json({ servers: [{ ...server, stale: state.stale ?? false }], items: url.searchParams.get('server_id') ? [item] : [], page: 1, page_size: 50, total: url.searchParams.get('server_id') ? 1201 : 0, total_pages: url.searchParams.get('server_id') ? 25 : 1 }); }
     if (path === '/api/admin/arr/servers/sonarr-1/refresh') return json(server);
     if (path === '/api/admin/arr/servers/sonarr-1/items/7') return json(controlled);
     if (path === '/api/admin/arr/servers/sonarr-1/items/7/releases') return json({ revision: 'fresh-revision', items: [{ release_id: 'release-1', title: 'Harbor Lights 1080p', quality: 'WEBDL-1080p', languages: ['English'], rejections: ['Does not meet the configured cutoff'], approved: false, size: 1_200_000_000 }] });
@@ -28,7 +28,8 @@ async function mockIntegrationOperations(page: Page, state: { mode: Mode }) {
     }
     if (path === '/api/admin/arr/operations') return json({ items: operations, page: 1, page_size: 25, total: operations.length, total_pages: 1 });
     if (/^\/api\/admin\/arr\/operations\/[^/]+\/reconcile$/.test(path)) { const id = path.split('/')[5]; const result = operations.find((entry) => entry.id === id); if (result) { result.status = 'succeeded'; result.error = null; } return json(result); }
-    return json({ items: [{ record_id: 'queue-1', item_id: 7, data: { status: 'Downloading' }, observed_at: '2026-10-17T12:00:00Z' }], page: 1, page_size: 50, total: 1201, total_pages: 25, stale: false });
+    const queue = path.endsWith('/queue') ? [1, 2].map((index) => ({ record_id: `queue-${index}`, item_id: 6 + index, data: { status: 'Downloading', sizeleft: 1048576 * index, timeleft: '00:02:00', protocol: 'torrent' }, observed_at: server.last_ok_at })) : [];
+    return json({ items: queue, page: 1, page_size: 50, total: queue.length, total_pages: 1, stale: state.stale ?? false });
   });
   return { operations, posted };
 }
@@ -69,11 +70,33 @@ async function mockMusicRequests(page: Page) {
 
 async function openIntegrations(page: Page) { await mockConnectors(page); const music = await mockMusicRequests(page); await page.goto('/'); await signIn(page); await page.goto('/settings/requests?page=integrations'); await expect(page.getByRole('button', { name: 'Manage Harbor Lights' })).toBeVisible(); return music; }
 
-test('Integration operations fit desktop and a narrow phone before title controls are opened', async ({ page }) => {
-  await mockApi(page, { settings_advanced: true }); await mockAdminFixtures(page); await mockIntegrationOperations(page, { mode: 'success' }); await openIntegrations(page);
-  for (const scheme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' }); await page.goto('/settings/requests?page=integrations'); await expect(page.getByRole('button', { name: 'Manage Harbor Lights' })).toBeVisible(); expect((await new AxeBuilder({ page }).include('.arr-integrations').withRules(['color-contrast']).analyze()).violations).toEqual([]); }
-  for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: 'phone', width: 320, height: 740 }]) {
-    await page.setViewportSize(viewport); await page.goto('/settings/requests?page=integrations'); await expect(page.getByText('Page 1 of 25 · 1,201 items').first()).toBeVisible(); await page.getByRole('button', { name: 'Queue', exact: true }).focus(); await expect(page.getByRole('button', { name: 'Queue', exact: true })).toBeFocused(); await page.locator('main[aria-label="Main content"]').evaluate((node) => { node.setAttribute('tabindex', '-1'); (node as HTMLElement).focus(); }); await expect(page.getByRole('link', { name: 'Skip to main content' })).not.toBeFocused(); expect(await page.locator('.g-settings-pane').evaluate((node) => node.scrollWidth > node.clientWidth + 1 || document.documentElement.scrollWidth > innerWidth + 1)).toBe(false); await page.screenshot({ fullPage: true, path: `../output/playwright/integrations-visuals/integrations-${viewport.name}.png` });
+test('Integration information fits both themes on desktop and a narrow phone', async ({ page }) => {
+  await mockApi(page, { settings_advanced: true });
+  await mockAdminFixtures(page);
+  await mockIntegrationOperations(page, { mode: 'success', stale: true });
+  await openIntegrations(page);
+  for (const scheme of ['light', 'dark'] as const) {
+    for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: 'phone', width: 320, height: 740 }]) {
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+      await page.setViewportSize(viewport);
+      await page.goto('/settings/requests?page=integrations');
+      await expect(page.getByRole('button', { name: 'Manage Harbor Lights' })).toBeVisible();
+      const information = page.getByRole('region', { name: 'Information from Living room TV' });
+      await expect(information).toContainText('1,201');
+      await expect(information).toContainText('1,200');
+      await expect(page.getByText(/Saved snapshot from/).first()).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Queue 2 records' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Health 0 records' })).toBeVisible();
+      expect((await new AxeBuilder({ page }).include('.arr-integrations').withRules(['color-contrast']).analyze()).violations).toEqual([]);
+      await page.getByRole('button', { name: 'Queue 2 records' }).focus();
+      await expect(page.getByRole('button', { name: 'Queue 2 records' })).toBeFocused();
+      await page.locator('main[aria-label="Main content"]').evaluate((node) => { node.setAttribute('tabindex', '-1'); (node as HTMLElement).focus(); });
+      await expect(page.getByRole('link', { name: 'Skip to main content' })).not.toBeFocused();
+      await expect.poll(() => page.locator('.g-settings-pane').evaluate((node) => node.scrollWidth > node.clientWidth + 1 || document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+      await information.evaluate((node) => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+      await information.screenshot({ path: `../output/playwright/integrations-visuals/information-${scheme}-${viewport.name}.png` });
+      await page.screenshot({ fullPage: true, path: `../output/playwright/integrations-visuals/integrations-${scheme}-${viewport.name}.png` });
+    }
   }
 });
 
@@ -95,7 +118,7 @@ test('admin saves then explicitly tests a Lidarr connector, with read-only saved
   await expect(page.getByText('Connector saved. Test this connection to qualify it.')).toBeVisible(); await expect(page.getByText('Saved. Test this connection to qualify it.').first()).toBeVisible();
   await page.getByRole('button', { name: 'Test connection' }).click(); await expect(page.getByText('Connection tested. Saved observations are available below.')).toBeVisible(); await expect(page.locator('.connector-records').getByText('/music')).toBeVisible();
   await expect(page.getByRole('button', { name: /grab|transfer|start download/i })).toHaveCount(0);
-  await page.setViewportSize({ width: 320, height: 740 }); expect(await page.locator('.g-settings-pane').evaluate((node) => node.scrollWidth > node.clientWidth + 1 || document.documentElement.scrollWidth > innerWidth + 1)).toBe(false); await page.screenshot({ fullPage: true, path: '../output/playwright/integrations-visuals/connector-phone.png' });
+  await page.setViewportSize({ width: 320, height: 740 }); await expect.poll(() => page.locator('.g-settings-pane').evaluate((node) => node.scrollWidth > node.clientWidth + 1 || document.documentElement.scrollWidth > innerWidth + 1)).toBe(false); await page.screenshot({ fullPage: true, path: '../output/playwright/integrations-visuals/connector-phone.png' });
 });
 
 
@@ -104,5 +127,5 @@ test('admin approves a member album request without any transfer or deletion con
   music.requests.unshift({ id: '11111111-1111-4111-8111-111111111111', connector_id: 'lidarr-1', foreign_artist_id: '22222222-2222-4222-8222-222222222222', foreign_album_id: '33333333-3333-4333-8333-333333333333', artist_name: 'Northbound', album_name: 'Arrival', artist_id: null, album_id: null, status: 'pending_approval', result: {}, error: null, created_at: '2026-10-17T12:00:00Z', updated_at: '2026-10-17T12:00:00Z' });
   await page.getByRole('button', { name: 'Refresh requests' }).click(); await expect(page.getByText('Arrival')).toBeVisible(); await page.getByRole('button', { name: 'Approve request' }).click(); await expect(page.getByText('Waiting for import')).toBeVisible(); await expect(page.getByRole('button', { name: /delete|transfer|cancel/i })).toHaveCount(0);
   expect((await new AxeBuilder({ page }).include('.music-request-operations').withRules(['color-contrast']).analyze()).violations).toEqual([]);
-  await page.setViewportSize({ width: 320, height: 740 }); expect(await page.locator('.g-settings-pane').evaluate((node) => node.scrollWidth > node.clientWidth + 1 || document.documentElement.scrollWidth > innerWidth + 1)).toBe(false); await page.screenshot({ fullPage: true, path: '../output/playwright/integrations-visuals/music-request-phone.png' });
+  await page.setViewportSize({ width: 320, height: 740 }); await expect.poll(() => page.locator('.g-settings-pane').evaluate((node) => node.scrollWidth > node.clientWidth + 1 || document.documentElement.scrollWidth > innerWidth + 1)).toBe(false); await page.screenshot({ fullPage: true, path: '../output/playwright/integrations-visuals/music-request-phone.png' });
 });

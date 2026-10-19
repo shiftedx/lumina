@@ -34,6 +34,7 @@ _brainz_lock = threading.Lock()
 _brainz_at = 0.0
 _TIMESTAMP = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
 _PUBLIC_HOSTS = {"musicbrainz.org", "coverartarchive.org", "lrclib.net", "en.wikipedia.org", "www.wikidata.org", "commons.wikimedia.org", "api.deezer.com"}
+_GENERIC_ARTIST_NAMES = frozenset({"soundtrack", "soundtracks", "television soundtrack", "various artists"})
 _artwork = None
 
 
@@ -235,7 +236,8 @@ def video_lookup(artist: str, track: str | None = None) -> dict:
 def candidates_for(kind: str, name: str, artist: str | None = None) -> list[dict]:
     entity = "artist" if kind == "artist" else "release-group" if kind == "release-group" else "release"
     escaped = name.replace('"', " ").replace("\\", " ")[:300]
-    query = f'{entity.replace("-", "")}:"{escaped}"'
+    query = (f'(artist:"{escaped}" OR alias:"{escaped}")' if kind == "artist"
+             else f'{entity.replace("-", "")}:"{escaped}"')
     if artist:
         query += f' AND artist:"{artist.replace(chr(34), " ")[:300]}"'
     value = fetch_json(f"https://musicbrainz.org/ws/2/{entity}/?" + urlencode({"query": query, "fmt": "json", "limit": 10}))
@@ -468,6 +470,8 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
         release_group = (title.metadata_json or {}).get("release_group_id") if kind == "album" else None
         identity_before, parent_before = dict(title.provider_ids or {}), title.parent_id
         if (title.field_sources or {}).get("provider_ids") == "user" and not existing_id and not provider_id:
+            return {"unmatched": True}
+        if kind == "artist" and not provider_id and not existing_id and normalized(name) in _GENERIC_ARTIST_NAMES:
             return {"unmatched": True}
         local_albums = {value for album in db.scalars(select(MediaTitle.name).join(LibraryItem, LibraryItem.title_id == MediaTitle.id).where(
             MediaTitle.type == "album", MediaTitle.parent_id == title.id, LibraryItem.status != "missing").distinct())

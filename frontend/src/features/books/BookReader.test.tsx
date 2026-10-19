@@ -263,6 +263,32 @@ describe('BookReader', () => {
     finishPrefetch({ nodes: [{ tag: 'p', text: 'Never mounted' }] });
   });
 
+  it('starts one lookahead when advancing into a prefetched EPUB chapter', async () => {
+    const chapters = Array.from({ length: 4 }, (_, index) => ({ label: `Chapter ${index + 1}` }));
+    api.getBookReader.mockResolvedValue(ebookManifest({ chapters }));
+    const thirdSignals: AbortSignal[] = [];
+    api.getBookChapter.mockImplementation(async (_id: string, index: number, signal?: AbortSignal) => {
+      if (index === 0) return { nodes: [{ tag: 'p', text: 'Opening chapter' }] };
+      if (index === 1) return { nodes: [{ tag: 'p', text: 'Prefetched chapter' }] };
+      if (signal) thirdSignals.push(signal);
+      return new Promise(() => undefined);
+    });
+    const view = render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} userId="books-member" />);
+
+    await screen.findByText('Opening chapter');
+    await waitFor(() => expect(api.getBookChapter.mock.calls.map((call) => call[1])).toEqual([0, 1]));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await screen.findByText('Prefetched chapter');
+    await nextFrame();
+    await nextFrame();
+
+    expect(api.getBookChapter.mock.calls.map((call) => call[1])).toEqual([0, 1, 2]);
+    expect(thirdSignals).toHaveLength(1);
+    expect(thirdSignals[0].aborted).toBe(false);
+    view.unmount();
+    expect(thirdSignals[0].aborted).toBe(true);
+  });
+
   it('turns EPUB chapters with arrow keys immediately after opening', async () => {
     const browser = userEvent.setup();
     render(<BookReader bookId="ebook-1" onBack={vi.fn()} onBookChange={vi.fn()} userId="books-member" />);

@@ -58,6 +58,7 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
   const [unit, setUnit] = useState(0);
   const [pageDraft, setPageDraft] = useState('1');
   const [nodes, setNodes] = useState<BookNode[] | null>(null);
+  const [loadedChapter, setLoadedChapter] = useState<{ bookId: string; unit: number } | null>(null);
   const [prefetchedChapter, setPrefetchedChapter] = useState<{ bookId: string; index: number; nodes: BookNode[] } | null>(null);
   const [chapterError, setChapterError] = useState<string | null>(null);
   const [chapterRetry, setChapterRetry] = useState(0);
@@ -91,7 +92,7 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoadError(null); setManifest(null); setPrefetchedChapter(null); ready.current = false; pendingTurn.current = null;
+    setLoadError(null); setManifest(null); setLoadedChapter(null); setPrefetchedChapter(null); ready.current = false; pendingTurn.current = null;
     getBookReader(bookId, controller.signal).then((next) => {
       const total = next.book.format !== 'epub' ? next.page_count : next.chapters.length;
       const first = clamp(next.book.progress.unit_index, 0, Math.max(0, total - 1));
@@ -171,7 +172,7 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
 
   useEffect(() => {
     if (!manifest) return;
-    ready.current = false; setImageError(false); setChapterError(null); setNodes(null);
+    ready.current = false; setImageError(false); setChapterError(null); setNodes(null); setLoadedChapter(null);
     if (manifest.book.format !== 'epub') {
       checkpoint.current = { unit_index: unit, offset: 0 };
       readableCheckpoint.current = checkpoint.current; readableRevision.current = checkpointRevision.current;
@@ -180,23 +181,26 @@ export function BookReader({ bookId, userId, onBack, onBookChange, onFileChange 
       return;
     }
     const cached = prefetchedChapter?.bookId === bookId && prefetchedChapter.index === unit ? prefetchedChapter.nodes : null;
-    if (cached) { setNodes(cached); return; }
+    if (cached) { setNodes(cached); setLoadedChapter({ bookId, unit }); return; }
     const controller = new AbortController();
-    getBookChapter(bookId, unit, controller.signal).then((chapter) => setNodes(chapter.nodes)).catch((error: unknown) => {
+    getBookChapter(bookId, unit, controller.signal).then((chapter) => {
+      if (!controller.signal.aborted) { setNodes(chapter.nodes); setLoadedChapter({ bookId, unit }); }
+    }).catch((error: unknown) => {
       if (!controller.signal.aborted) setChapterError(error instanceof Error ? error.message : 'This chapter could not be loaded.');
     });
     return () => controller.abort();
   }, [bookId, manifest?.book.format, unit, chapterRetry, schedulePersist]);
 
+  const chapterLoaded = loadedChapter?.bookId === bookId && loadedChapter.unit === unit;
   useEffect(() => {
     const target = unit + 1;
-    if (!nodes || manifest?.book.format !== 'epub' || target >= count || (prefetchedChapter?.bookId === bookId && prefetchedChapter.index === target)) return;
+    if (!chapterLoaded || manifest?.book.format !== 'epub' || target >= count || (prefetchedChapter?.bookId === bookId && prefetchedChapter.index === target)) return;
     const controller = new AbortController();
     getBookChapter(bookId, target, controller.signal).then((chapter) => {
       if (!controller.signal.aborted) setPrefetchedChapter({ bookId, index: target, nodes: chapter.nodes });
     }).catch(() => { /* A lookahead failure must not interrupt the current chapter. */ });
     return () => controller.abort();
-  }, [bookId, count, manifest?.book.format, nodes, prefetchedChapter, unit]);
+  }, [bookId, chapterLoaded, count, manifest?.book.format, prefetchedChapter, unit]);
 
   useEffect(() => {
     if (manifest?.book.id) reading.current?.focus({ preventScroll: true });

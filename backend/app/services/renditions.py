@@ -699,17 +699,17 @@ class ArtworkRenditions:
         )
         self._progress_at = time.monotonic()
 
-    def progress(self) -> ArtworkProgress:
-        """Admin counters, recomputed at most every 30 s; running, paused and serving are always live."""
+    def progress(self, *, refresh: bool = True) -> ArtworkProgress:
+        """Return the worker snapshot; only admin diagnostics may request a fresh catalog scan."""
         with self._progress_lock:
-            if self._progress is None or time.monotonic() - self._progress_at > PROGRESS_MAX_AGE_SECONDS:
+            if refresh and (self._progress is None or time.monotonic() - self._progress_at > PROGRESS_MAX_AGE_SECONDS):
                 try:
                     with SessionLocal() as db:
-                        self._record(scan(db))
+                        self._record(scan(db, frozenset(self._skipped)))
                 except SQLAlchemyError as exc:  # Diagnostics must still answer
                     logger.warning("Artwork counters are unavailable: %.300s", repr(exc))
                     self._progress = self._progress or ArtworkProgress()
-            cached = self._progress
+            cached = self._progress or ArtworkProgress()
         return cached.model_copy(update={"running": self.running, "paused_for_playback": self._paused, "serving": serving()})
 
     def sweep(self, cap: int = CACHE_CAP_BYTES) -> None:
@@ -784,9 +784,9 @@ class ArtworkRenditions:
             elif errored:
                 self._stop.wait(ERROR_BACKOFF_SECONDS)
             else:
-                self._skipped.clear()
                 self._wake.wait(IDLE_SECONDS)
                 self._wake.clear()
+                self._skipped.clear()  # retry unavailable sources only after this wake or the idle timeout
 
 
 renditions = ArtworkRenditions()

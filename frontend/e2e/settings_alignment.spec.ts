@@ -41,7 +41,7 @@ async function alignment(scope: Locator) {
         if (Math.abs(rect(value).top - rect(other.querySelector('.activity-value')!).top) > 1) problems.push('Server metric values do not share a baseline');
       }
     }
-    for (const group of pane.querySelectorAll('.admin-test-form, .admin-rule-fields, .g-req-map-row, .g-day-range')) {
+    for (const group of pane.querySelectorAll('.admin-test-form, .admin-rule-fields, .g-compact-fields, [data-layout="fields"] > .g-settings-rows, .g-req-map-row, .g-day-range')) {
       const fields = [...group.querySelectorAll<HTMLElement>('.g-input, .g-select-trigger')].filter(visible);
       for (const field of fields) {
         const peers = fields.filter((other) => other !== field && Math.abs(rect(other).left - rect(field).left) > 1 && Math.abs(rect(other).top - rect(field).top) < 44);

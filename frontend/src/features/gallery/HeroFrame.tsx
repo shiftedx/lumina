@@ -4,7 +4,7 @@ import { getHeroFraming, type HeroFraming, type HeroFramingRegion } from '../../
 import './heroFrame.css';
 
 type Size = { width: number; height: number };
-export type HeroGeometry = { mode: 'cover'; x: number; y: number; zoom: number; originX: number; originY: number };
+export type HeroGeometry = { mode: 'cover'; x: number; y: number; zoom: number; originX: number; originY: number; parallaxScale: number; parallax: number };
 
 const EMPTY: HeroFraming = { state: 'pending' };
 const CACHE_LIMIT = 128;
@@ -50,7 +50,7 @@ function cached(src: string): HeroFraming | null {
 /** Full-bleed framing: protect heads first, then fit generic subject proposals above the text fade. */
 export function heroGeometry(raw: unknown, viewport: Size, placement: 'home' | 'title' = 'title'): HeroGeometry {
   const framing = validFraming(raw);
-  const fallback: HeroGeometry = { mode: 'cover', x: 50, y: 15, zoom: 1.025, originX: 50, originY: 15 };
+  const fallback: HeroGeometry = { mode: 'cover', x: 50, y: 15, zoom: 1.025, originX: 50, originY: 15, parallaxScale: 1, parallax: 0 };
   if (framing.state !== 'ready' || !viewport.width || !viewport.height) return fallback;
   const faces = framing.regions!.filter((item) => item.kind === 'face');
   const subjects = framing.regions!.filter((item) => item.kind === 'subject');
@@ -87,7 +87,39 @@ export function heroGeometry(raw: unknown, viewport: Size, placement: 'home' | '
   const originY = clamp((visibleBounds[2] + visibleBounds[3]) / 2, 0, 1);
   const limit = (low: number, high: number, origin: number) => Math.min(low < origin ? origin / (origin - low) : Infinity, high > origin ? (1 - origin) / (high - origin) : Infinity);
   const zoom = clamp(Math.min(limit(visibleBounds[0], visibleBounds[1], originX), limit(visibleBounds[2], visibleBounds[3], originY)), 1, 1.06);
-  return { mode: 'cover', x: cropWidth === 1 ? 50 : cropLeft / (1 - cropWidth) * 100, y: cropHeight === 1 ? 50 : cropTop / (1 - cropHeight) * 100, zoom, originX: originX * 100, originY: originY * 100 };
+  // Share the same safe crop budget with camera zoom. Reserve coverage even after that animation ends.
+  const parallaxScale = 1 + (zoom - 1) / 2;
+  const combinedZoom = 1 + (zoom - 1) * .75;
+  const parallax = Math.max(0, Math.min(24, viewport.height * (parallaxScale - 1) * originY,
+    viewport.height * (1 - originY - (visibleBounds[3] - originY) * combinedZoom)));
+  return { mode: 'cover', x: cropWidth === 1 ? 50 : cropLeft / (1 - cropWidth) * 100, y: cropHeight === 1 ? 50 : cropTop / (1 - cropHeight) * 100,
+    zoom: parallax > .5 ? combinedZoom / parallaxScale : zoom, originX: originX * 100, originY: originY * 100,
+    parallaxScale: parallax > .5 ? parallaxScale : 1, parallax: parallax > .5 ? parallax : 0 };
+}
+
+/** Event-driven only: one coalesced write per scroll frame, with no React updates or idle loop. */
+function useHeroParallax(root: RefObject<HTMLElement | null>, active: boolean, distance: number, src?: string | null) {
+  useLayoutEffect(() => {
+    if (!active || !distance || !root.current) return;
+    const node = root.current;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const rect = node.getBoundingClientRect();
+      const progress = rect.height ? clamp(-rect.top / rect.height, 0, 1) : 0;
+      node.style.setProperty('--hero-parallax-y', `${progress * distance}px`);
+    };
+    const scroll = () => { if (!frame) frame = requestAnimationFrame(update); };
+    const stop = () => { window.removeEventListener('scroll', scroll); cancelAnimationFrame(frame); frame = 0; };
+    const sync = () => {
+      stop();
+      if (!reduced.matches) { update(); window.addEventListener('scroll', scroll, { passive: true }); }
+    };
+    sync();
+    reduced.addEventListener('change', sync);
+    return () => { stop(); reduced.removeEventListener('change', sync); };
+  }, [active, distance, root, src]);
 }
 
 function useHeroFraming(src: string | null | undefined, enabled: boolean, root: RefObject<HTMLElement | null>, placement: 'home' | 'title') {
@@ -151,8 +183,9 @@ function useHeroFraming(src: string | null | undefined, enabled: boolean, root: 
 export function HeroFrame({ children, className = '', enabled = true, placement = 'title', src }: { children: ReactNode; className?: string; enabled?: boolean; placement?: 'home' | 'title'; src?: string | null }) {
   const root = useRef<HTMLSpanElement>(null);
   const { framing, geometry, revealed, active } = useHeroFraming(src, enabled, root, placement);
-  const style = { '--hero-focus-x': `${geometry.x}%`, '--hero-focus-y': `${geometry.y}%`, '--hero-zoom': geometry.zoom, '--hero-origin-x': `${geometry.originX}%`, '--hero-origin-y': `${geometry.originY}%` } as CSSProperties;
-  return <span className={`hero-frame ${className} is-cover`} data-hero-active={active} data-hero-motion={geometry.zoom > 1} data-hero-framing={framing.state} data-hero-revealed={revealed} ref={root} style={style}>
+  useHeroParallax(root, active && revealed, geometry.parallax, src);
+  const style = { '--hero-focus-x': `${geometry.x}%`, '--hero-focus-y': `${geometry.y}%`, '--hero-zoom': geometry.zoom, '--hero-origin-x': `${geometry.originX}%`, '--hero-origin-y': `${geometry.originY}%`, '--hero-parallax-scale': geometry.parallaxScale } as CSSProperties;
+  return <span className={`hero-frame ${className} is-cover`} data-hero-active={active} data-hero-motion={geometry.zoom > 1} data-hero-parallax={geometry.parallax > 0} data-hero-framing={framing.state} data-hero-revealed={revealed} ref={root} style={style}>
     <span className="hero-frame-foreground" key={src}>{children}</span>
   </span>;
 }

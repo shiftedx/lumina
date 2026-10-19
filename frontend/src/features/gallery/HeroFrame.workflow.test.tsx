@@ -7,6 +7,8 @@ vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeo
 import { HeroFrame } from './HeroFrame';
 
 let intersection: ((visible: boolean) => void) | null = null;
+let rectTop = 0;
+let setReducedMotion: ((value: boolean) => void) | null = null;
 class TestIntersectionObserver {
   constructor(callback: IntersectionObserverCallback) { intersection = (visible) => callback([{ isIntersecting: visible } as IntersectionObserverEntry], this as unknown as IntersectionObserver); }
   disconnect() {}
@@ -28,9 +30,21 @@ const child = <img className="rq-img" src="/sharp.jpg" />;
 
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 1920, 760));
+  rectTop = 0;
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, rectTop, 1920, 760));
   vi.stubGlobal('IntersectionObserver', TestIntersectionObserver);
   vi.stubGlobal('ResizeObserver', TestResizeObserver);
+  let reduced = false;
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  vi.stubGlobal('matchMedia', () => ({
+    get matches() { return reduced; }, media: '(prefers-reduced-motion: reduce)', onchange: null,
+    addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => listeners.add(listener),
+    removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener),
+    addListener: (listener: (event: MediaQueryListEvent) => void) => listeners.add(listener),
+    removeListener: (listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener),
+    dispatchEvent: () => true,
+  }));
+  setReducedMotion = (value) => { reduced = value; listeners.forEach((listener) => listener({ matches: value } as MediaQueryListEvent)); };
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   intersection = null;
   api.getHeroFraming.mockReset();
@@ -120,5 +134,54 @@ describe('HeroFrame request lifecycle', () => {
     expect(api.getHeroFraming.mock.calls.map(([src]) => src)).toContain('/second');
     expect(frame.className).toContain('is-cover');
     expect(frame.style.getPropertyValue('--hero-focus-x')).toBe('50%');
+  });
+
+  it('coalesces user scroll into one frame and stops parallax writes while inactive or reduced', async () => {
+    api.getHeroFraming.mockResolvedValue(ready);
+    const raf = vi.spyOn(window, 'requestAnimationFrame');
+    const view = render(<HeroFrame src="/parallax">{child}</HeroFrame>);
+    await act(async () => { intersection?.(true); await Promise.resolve(); });
+    const frame = view.container.querySelector('.hero-frame') as HTMLElement;
+    expect(frame.dataset.heroParallax).toBe('true');
+
+    rectTop = -380;
+    window.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('scroll'));
+    expect(raf).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    const moved = frame.style.getPropertyValue('--hero-parallax-y');
+    expect(parseFloat(moved)).toBeGreaterThan(0);
+
+    window.dispatchEvent(new Event('scroll'));
+    await act(async () => { intersection?.(false); });
+    expect(frame.dataset.heroActive).toBe('false');
+    rectTop = -760;
+    window.dispatchEvent(new Event('scroll'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    expect(frame.style.getPropertyValue('--hero-parallax-y')).toBe(moved);
+
+    await act(async () => { intersection?.(true); });
+    const reactivated = frame.style.getPropertyValue('--hero-parallax-y');
+    window.dispatchEvent(new Event('scroll'));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    rectTop = -190;
+    window.dispatchEvent(new Event('scroll'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    expect(frame.style.getPropertyValue('--hero-parallax-y')).toBe(reactivated);
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    const resumed = frame.style.getPropertyValue('--hero-parallax-y');
+    setReducedMotion?.(true);
+    window.dispatchEvent(new Event('scroll'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    expect(frame.style.getPropertyValue('--hero-parallax-y')).toBe(resumed);
+    setReducedMotion?.(false);
+    window.dispatchEvent(new Event('scroll'));
+    view.unmount();
+    window.dispatchEvent(new Event('scroll'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    expect(raf).toHaveBeenCalledTimes(4);
   });
 });

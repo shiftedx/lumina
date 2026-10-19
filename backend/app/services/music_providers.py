@@ -436,6 +436,24 @@ def linked_artist_picture(value: dict) -> dict | None:
     return None
 
 
+def standard_artist_picture(picture: dict) -> dict | None:
+    """A standard-size copy of the same identity-linked Wikimedia photograph."""
+    if not isinstance(picture.get("url"), str):
+        return None
+    try:
+        parsed = urlparse(picture["url"])
+        if (parsed.scheme != "https" or parsed.hostname not in ("upload.wikimedia.org", "thumb.wikimedia.org")
+                or parsed.username or parsed.password or parsed.port not in (None, 443)):
+            return None
+    except ValueError:
+        return None
+    match = re.fullmatch(r"/wikipedia/(commons|en)/(?:thumb/)?([a-f0-9]/[a-f0-9]{2}/([^/]+\.(?:jpe?g|png|webp)))(?:/\d+px-[^/]+)?", parsed.path, re.I)
+    if not match:
+        return None
+    url = f"https://{parsed.hostname}/wikipedia/{match[1]}/thumb/{match[2]}/500px-{match[3]}"
+    return {**picture, "url": url} if url != picture["url"] else None
+
+
 def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
     with session_scope() as db:
         title = db.get(MediaTitle, title_id)
@@ -566,6 +584,21 @@ def enrich_title(title_id: str, provider_id: str | None = None) -> dict:
             if picture["image_type"] == "Primary":
                 unavailable_primary_urls.add(picture["url"])
             primary_unavailable = primary_unavailable or (picture["image_type"] == "Primary" and urlparse(picture["url"]).hostname != "cdn-images.dzcdn.net")
+    if kind == "artist" and primary_unavailable:
+        for picture in pictures:
+            if picture["image_type"] != "Primary":
+                continue
+            standard = standard_artist_picture(picture)
+            if standard:
+                try:
+                    import_art(title_id, standard["url"], identity=chosen, credit=standard)
+                    artwork_failures.discard("Primary")
+                    primary_unavailable = False
+                except Exception as error:  # noqa: BLE001 - try the identity-linked alternative below
+                    from app.services.artwork import ArtworkNotFoundError
+                    if not isinstance(error, ArtworkNotFoundError):
+                        artwork_failures.add("Primary")
+                    unavailable_primary_urls.add(standard["url"])
     if kind == "artist" and primary_unavailable:
         fallback = None
         try:

@@ -1334,6 +1334,14 @@ export default function LuminaApp() {
   async function openRemote(item: YouTubeSearchResult) {
     if (item.reco) recordRecoOpen(item.reco);
     if (!leaveSettingsOk()) return;
+    // Discovery and Up next keep one source identity; use its saved copy when available.
+    const lifecycle = item.capabilities?.lifecycle;
+    if (lifecycle === 'vod' || lifecycle === 'completed_live' || (!lifecycle && item.kind !== 'live')) {
+      const identity = remoteSourceIdentity(item);
+      const savedId = item.saved_item_id || (identity ? state.library.find((saved) => saved.status === 'available'
+        && remoteSourceIdentity({ id: saved.remote_id, source: saved.extractor, webpage_url: saved.webpage_url }, saved.metadata_json ?? {}) === identity)?.id : null);
+      if (savedId) { openRoute({ surface: 'watch', libraryId: savedId }); return; }
+    }
     pauseMusic();
     const outputRequest = ++playbackLoadRequestRef.current;
     const outputOwner = state.currentUser?.id ?? null;

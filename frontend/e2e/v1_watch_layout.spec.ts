@@ -1,5 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { item, mockApi, signIn } from './lumina-mock';
+import { mockPreview, mockReco } from './reco-mock';
+import { pickedSnapshot, recoEntry } from '../src/test/recoFixtures';
+import { SYNTHETIC_MEDIA_BASE64, SYNTHETIC_MEDIA_TYPE } from './synthetic-media';
 
 /** Watch composition for a web video: 16:9 player with Up next beside it (under it in theater), the editorial column under the player, tools in the column. */
 
@@ -18,6 +21,47 @@ const box = async (page: Page, selector: string) => {
   if (!rect) throw new Error(`${selector} is not rendered`);
   return rect;
 };
+
+test('saved YouTube playback keeps a ranked Up next and moves between saved and streamed videos', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 1536, height: 960 });
+  await mockApi(page, { sidebar_collapsed: false, autoplay_up_next: false });
+  const streamed = recoEntry('streamed-next', 0, { title: 'A walk along the coast' });
+  const saved = recoEntry('synthetic-1', 1, { title: item.title, webpage_url: item.webpage_url, saved_item_id: item.id });
+  const log = await mockReco(page, { upNext: pickedSnapshot(0, { items: [streamed, saved] }) });
+  let previews = 0;
+  page.on('request', (request) => { if (new URL(request.url()).pathname === '/api/preview') previews += 1; });
+  await mockPreview(page, {
+    title: streamed.title, webpage_url: streamed.webpage_url,
+    capabilities: streamed.capabilities,
+    raw: { id: streamed.id, extractor: 'youtube', uploader: streamed.uploader, duration: 90 },
+    playback: { status: 'ready', stream_id: 'watch-continuity', transport: 'progressive', media_kind: 'video', playback_url: '/api/remote-streams/watch-continuity/content', content_type: SYNTHETIC_MEDIA_TYPE, has_video: true, has_audio: true, seekable: true, renditions: [] },
+  });
+  await page.route('**/api/remote-streams/**', (route) => route.request().method() === 'DELETE'
+    ? route.fulfill({ status: 204, body: '' })
+    : route.fulfill({ status: 200, contentType: SYNTHETIC_MEDIA_TYPE, body: Buffer.from(SYNTHETIC_MEDIA_BASE64, 'base64') }));
+  await page.goto(`/watch/library/${item.id}`);
+  await signIn(page);
+  const next = page.locator('.g-up-next').getByRole('button', { name: /^A walk along the coast/ });
+  await expect(next).toBeVisible();
+  expect(log.upNext[0]).toMatchObject({ source_url: item.webpage_url, source_id: item.remote_id, source: 'youtube' });
+  await expect(page.locator('.g-up-next').getByRole('button', { name: item.title })).toHaveCount(0);
+  await expect.poll(() => page.locator('video').evaluate((media: HTMLVideoElement) => media.currentTime)).toBeGreaterThan(0.2);
+  await page.locator('video').evaluate((media: HTMLVideoElement) => media.pause());
+  await page.screenshot({ path: 'test-results/visual/watch-saved-up-next-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await next.scrollIntoViewIfNeeded();
+  await expect(next).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  await page.screenshot({ path: 'test-results/visual/watch-saved-up-next-phone.png' });
+  await next.click();
+  await expect(page.getByRole('heading', { level: 1, name: streamed.title! })).toBeVisible();
+  await expect(page.locator('video')).toHaveAttribute('src', /remote-streams/);
+  await page.locator('.g-up-next').getByRole('button', { name: new RegExp(`^${item.title}`) }).click();
+  await expect(page).toHaveURL(new RegExp(`/watch/library/${item.id}`));
+  await expect(page.locator('.g-watch-kicker')).toHaveText('YouTube · In your library');
+  expect(previews).toBe(1);
+});
 
 test('test_watch_geometry', async ({ page }) => {
   await openWatch(page, { width: 1536, height: 960 });

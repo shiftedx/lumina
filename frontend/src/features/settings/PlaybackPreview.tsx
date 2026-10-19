@@ -20,6 +20,6 @@ export function PlaybackPreview() {
       <span className="settings-preview-quality">{playbackMaxHeight ? `${playbackMaxHeight}p maximum` : 'Best available quality'}</span>
       <span className="settings-preview-caption">Make time for a little wonder.</span>
     </div>
-    <figcaption><span><SkipForward aria-hidden="true" /> Autoplay {autoplayUpNext ? 'on' : 'off'}</span><span><AudioLines aria-hidden="true" /> {playbackPrefs?.normalizeLoudness ? 'Balanced sound' : 'Original sound'}</span><span>Changes below update your preview.</span></figcaption>
+    <figcaption><span><SkipForward aria-hidden="true" /> Autoplay {autoplayUpNext ? 'on' : 'off'}</span><span><AudioLines aria-hidden="true" /> {playbackPrefs?.normalizeLoudness ? 'Balanced sound' : 'Original sound'}</span></figcaption>
   </figure>;
 }

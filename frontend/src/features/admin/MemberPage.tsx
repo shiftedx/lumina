@@ -512,7 +512,7 @@ export function MemberPage({ memberId, onBack }: { memberId: string; onBack: () 
     access: draft.access, set: (patch) => { setStatus(null); setDraft({ ...draft, access: { ...draft.access, ...patch } }); },
     saved, setSaved, sections, onMember: (next) => setMember(next),
   };
-  const panel = (group: typeof MEMBER_TABS[number]) => <section aria-label={group.label} className="g-settings-group" id={`member-group-${group.id}`} key={group.id} tabIndex={-1}>
+  const panel = (group: typeof MEMBER_TABS[number]) => <section aria-label={group.label} className="g-settings-group" data-layout={group.id === 'profile' ? 'fields' : undefined} id={`member-group-${group.id}`} key={group.id} tabIndex={-1}>
     <h3 className="g-settings-group-title">{group.label}</h3>
     <div className="g-settings-rows">{group.entries.filter((entry) => !(self && (entry.id === 'members.reset' || entry.id === 'members.status'))).map(({ id, label, info, description, layout, Control }) => <SettingRow description={description} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>)}</div>
   </section>;

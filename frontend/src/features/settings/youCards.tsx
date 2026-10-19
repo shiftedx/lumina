@@ -74,7 +74,7 @@ export function RemotePlaybackCacheSettings({ onChange, value }: { value: Remote
   const selectedCount = draft.enabled ? draft.recent_video_limit : 0;
   return (
     <div className="g-stream-cache">
-      <div className="g-subrows">
+      <div className="g-subrows g-compact-fields">
         <SegmentedControl legend="Recent videos kept ready" onChange={(value) => chooseRecentVideoCount(Number(value) as 0 | 3 | 5 | 10 | 20)} options={remoteVideoCachePresets.map((preset) => ({ value: String(preset.value), label: preset.label }))} value={String(selectedCount)} />
         <Field label="Maximum storage">{(ids) => <Select {...fieldProps(ids)} disabled={!draft.enabled} onChange={(event) => void save({ ...draft, storage_limit_mb: Number(event.currentTarget.value) as RemotePlaybackCachePreferences['storage_limit_mb'] })} value={draft.storage_limit_mb}>{remoteStoragePresets.map((preset) => <option key={preset.value} value={preset.value}>{preset.label}</option>)}</Select>}</Field>
       </div>

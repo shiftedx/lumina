@@ -136,7 +136,7 @@ test('setting descriptions start below their heading at wide desktop widths', as
   await mockApi(page, {}); await mockAdminFixtures(page);
   await page.goto('/settings/playback?page=watching'); await signIn(page);
   const row = page.locator('[data-setting-id="playback.max-quality"]');
-  const heading = row.locator(':scope > .g-setting-head > .g-setting-label');
+  const heading = row.locator(':scope > .g-setting-head .g-setting-label');
   const description = row.locator(':scope > .g-setting-head > .g-setting-desc');
   for (const width of [1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
@@ -146,17 +146,18 @@ test('setting descriptions start below their heading at wide desktop widths', as
   }
 });
 
-test('phone switch rows keep their heading copy readable above auxiliary controls', async ({ page }) => {
+test('phone feature switches share their heading line and keep descriptions readable', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await mockApi(page, {}); await mockAdminFixtures(page);
   await page.goto('/settings/ai?page=features'); await signIn(page);
   const row = page.locator('[data-setting-id="ai.semantic-search"]');
-  const head = row.locator(':scope > .g-setting-head');
-  const description = head.locator('.g-setting-desc');
-  const control = row.locator(':scope > .g-setting-control');
-  const [headBox, descriptionBox, controlBox] = await Promise.all([head.boundingBox(), description.boundingBox(), control.boundingBox()]);
+  const title = row.getByRole('heading', { name: 'Semantic search', exact: true });
+  const description = row.locator('.g-setting-desc');
+  const control = row.getByRole('switch');
+  const [titleBox, descriptionBox, controlBox] = await Promise.all([title.boundingBox(), description.boundingBox(), control.boundingBox()]);
   expect(descriptionBox!.width).toBeGreaterThan(220);
-  expect(controlBox!.y).toBeGreaterThanOrEqual(headBox!.y + headBox!.height);
+  expect(descriptionBox!.y).toBeGreaterThanOrEqual(titleBox!.y + titleBox!.height);
+  expect(Math.abs(controlBox!.y + controlBox!.height / 2 - titleBox!.y - titleBox!.height / 2)).toBeLessThanOrEqual(2);
 });
 
 test('storage roots keep path and status readable at desktop and phone widths', async ({ page }) => {

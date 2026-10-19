@@ -924,7 +924,7 @@ test('walk 4: the Settings D-pad moves between the sections and the pane', async
   await expect(nav.locator('.g-settings-link:focus')).toHaveCount(1);
   await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('aria-current'))).not.toBe('page');
   await page.keyboard.press('ArrowRight');
-  await expect(page.locator('.g-settings-page-link[aria-current="page"]')).toBeFocused();
+  await expect(page.getByRole('navigation', { name: 'Jump to setting group' }).getByRole('link', { name: 'Watching', exact: true })).toBeFocused();
 });
 
 test('walk 5: a confirm dialog closes on Escape and returns focus to its trigger', async ({ page }) => {

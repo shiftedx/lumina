@@ -19,6 +19,7 @@ async function alignment(scope: Locator) {
       if (!field || !label || !visible(label)) continue;
       const l = rect(label); const c = rect(control); const f = rect(field);
       const name = label.textContent;
+      if ((name?.length ?? 0) > 12 && l.width < 80) problems.push(`${name}: label wraps into a narrow text column`);
       if (c.left < f.left - 1 || c.right > f.right + 1) problems.push(`${name}: control escapes field`);
       if (l.right <= c.left && c.left - l.left > 12) {
         if (control.tagName === 'TEXTAREA') {
@@ -28,13 +29,16 @@ async function alignment(scope: Locator) {
     }
     for (const rows of pane.querySelectorAll('.g-subrows')) {
       const fields = [...rows.querySelectorAll<HTMLElement>(':scope > .g-field .g-input, :scope > .g-field .g-select-trigger')].filter(visible);
-      if (fields.length > 1 && fields.some((field) => Math.abs(rect(field).right - rect(fields[0]).right) > 1 || Math.abs(rect(field).left - rect(fields[0]).left) > 1)) problems.push('Nested fields do not share column edges');
+      for (const field of fields) {
+        const peers = fields.filter((other) => Math.abs(rect(other).left - rect(field).left) < 12);
+        if (peers.some((other) => Math.abs(rect(other).right - rect(field).right) > 1 || Math.abs(rect(other).left - rect(field).left) > 1)) problems.push('Nested fields do not share column edges');
+      }
     }
-    const meters = [...pane.querySelectorAll('.activity-stats > .g-stat')].filter((meter) => meter.querySelector('.g-stat-figure'));
+    const meters = [...pane.querySelectorAll('.activity-stats > .activity-stat')].filter((meter) => meter.querySelector('.activity-value'));
     for (const meter of meters) {
-      const value = meter.querySelector('.g-stat-figure')!;
+      const value = meter.querySelector('.activity-value')!;
       for (const other of meters.filter((other) => other !== meter && Math.abs(rect(other).top - rect(meter).top) <= 1)) {
-        if (Math.abs(rect(value).top - rect(other.querySelector('.g-stat-figure')!).top) > 1) problems.push('Server meter values do not share a baseline');
+        if (Math.abs(rect(value).top - rect(other.querySelector('.activity-value')!).top) > 1) problems.push('Server metric values do not share a baseline');
       }
     }
     for (const group of pane.querySelectorAll('.admin-test-form, .admin-rule-fields, .g-req-map-row, .g-day-range')) {
@@ -45,7 +49,7 @@ async function alignment(scope: Locator) {
       }
       if (group.matches('.g-day-range') && fields.length === 2 && Math.abs(rect(fields[0]).left - rect(fields[1]).left) > 1 && Math.abs(rect(fields[0]).top - rect(fields[1]).top) > 1) problems.push('Viewing-hour inputs wrap into staggered rows');
     }
-    return { controls: controls.length, problems, overflow: document.documentElement.scrollWidth > innerWidth + 1 };
+    return { controls: controls.length, height: Math.round(rect(pane).height), problems, overflow: document.documentElement.scrollWidth > innerWidth + 1 };
   });
 }
 

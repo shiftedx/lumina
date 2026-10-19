@@ -128,7 +128,7 @@ export function ArrCard({ kind }: { kind: ArrKind }) {
   return (
     <div className="g-req">
       <SectionForm dirty={dirty} label={name} onDiscard={() => { setDraft(null); setStatus(null); }} onSave={() => { void save(); }} saveLabel={`Save ${name}`} saving={saving} status={status}>
-        <div className="g-subrows">
+        <div className="g-subrows g-compact-fields">
           <SettingSwitch checked={current.enabled} hint="Keeps this integration available for requests and observations. Observations continue when member Requests is off." label={`Enable ${name} integration`} onChange={(enabled) => edit({ enabled })} />
           <Field label={`${name} address`} hint={`For example http://${kind}.local:${kind === 'sonarr' ? '8989' : '7878'}. Use the address of the computer or device running ${name}; its local name may be different.`}>{(ids) => <Input {...fieldProps(ids)} autoComplete="off" inputMode="url" placeholder={`http://${kind}.local:${kind === 'sonarr' ? '8989' : '7878'}`} onChange={(event) => edit({ base_url: event.currentTarget.value })} value={current.base_url} />}</Field>
           <Field error={keyError} label={`${name} API key`} hint={keySaved ? 'A key is saved. Type a new one to replace it.' : `Copy this from ${name} → Settings → General → Security → API Key.`}>

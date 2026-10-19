@@ -21,9 +21,11 @@ export function SettingRow({ id, label, info, description, advanced = false, lay
   return (
     <div className={`setting-row g-setting-row ${layout === 'block' ? 'is-block' : layout === 'switch' ? 'is-switch' : 'is-inline'}`} data-focus-row data-setting-id={id} id={dom}>
       <div className="g-setting-head">
-        <h3 className="g-setting-label" id={`${dom}-label`}>{label}</h3>
-        <InfoButton id={`${dom}-info`} label={label} text={info} />
-        {advanced ? <span className="g-setting-tag">Advanced</span> : null}
+        <div className="g-setting-title">
+          <h3 className="g-setting-label" id={`${dom}-label`}>{label}</h3>
+          <InfoButton id={`${dom}-info`} label={label} text={info} />
+          {advanced ? <span className="g-setting-tag">Advanced</span> : null}
+        </div>
         {description ? <p className="g-setting-desc" id={descId}>{description}</p> : null}
       </div>
       <RowContext.Provider value={{ labelId: `${dom}-label`, descId }}>
@@ -37,7 +39,7 @@ export function SettingRow({ id, label, info, description, advanced = false, lay
 export type SettingSwitchProps = { label?: ReactNode; hint?: ReactNode; checked: boolean; onChange: (next: boolean) => void; busy?: boolean; disabled?: boolean; ref?: Ref<HTMLInputElement> };
 
 /**
- * Settings' on/off uses the shared Switch styles and a short text state beside standalone toggles.
+ * Settings' on/off uses the shared Switch styles.
  * With no `label` it is named by its row's heading (aria-labelledby), so the row never shows the same words twice.
  */
 export function SettingSwitch({ label, hint, checked, onChange, busy = false, disabled, ref }: SettingSwitchProps) {
@@ -47,7 +49,6 @@ export function SettingSwitch({ label, hint, checked, onChange, busy = false, di
   return (
     <label className="g-switch">
       {label ? <span className="g-switch-copy"><span className="g-switch-label" id={`${base}label`}>{label}</span>{hint ? <span className="g-switch-hint" id={`${base}hint`}>{hint}</span> : null}</span> : null}
-      {!label ? <span aria-hidden="true" className="g-switch-state">{checked ? 'On' : 'Off'}</span> : null}
       <input aria-busy={busy || undefined} aria-describedby={described} aria-labelledby={label ? `${base}label` : row?.labelId} checked={checked} disabled={disabled} onChange={(event) => { if (!busy) onChange(event.target.checked); }} ref={ref} role="switch" type="checkbox" />
       <span aria-hidden="true" className="g-switch-track" />
     </label>
@@ -57,12 +58,17 @@ export function SettingSwitch({ label, hint, checked, onChange, busy = false, di
 /** A section's rows (all, or a search's subset) inside the section Provider when it has one. */
 export function SectionRows({ section, entries = section.entries, pages }: { pages?: readonly SettingsPage[]; section: SettingsSectionDef; entries?: readonly SettingEntry[] }) {
   const renderRows = (list: readonly SettingEntry[]) => list.map(({ id, label, info, description, advanced, layout, Control, Detail }) => (
-    <SettingRow advanced={!pages && advanced} description={description ?? (pages && layout !== 'block' ? info.split(/(?<=[.!?])\s/)[0] : undefined)} detail={Detail ? <Detail /> : undefined} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>
+    <SettingRow advanced={!pages && advanced} description={description} detail={Detail ? <Detail /> : undefined} id={id} info={info} key={id} label={label} layout={layout}><Control /></SettingRow>
   ));
-  const rows = pages ? pages.map((page) => <section aria-label={page.label} className="g-settings-group" id={`settings-group-${page.id}`} key={page.id} tabIndex={-1}>
+  const rows = pages ? pages.map((page) => <section aria-label={page.label} className="g-settings-group" data-layout={page.layout} id={`settings-group-${page.id}`} key={page.id} tabIndex={-1}>
     {pages.length > 1 && page.rows.length > 1 ? <h3 className="g-settings-group-title">{page.label}</h3> : null}
     {page.id === 'watching' ? <PlaybackPreview /> : null}
-    <div className="g-settings-rows">{renderRows(entries.filter((entry) => page.rows.includes(entry.id)))}</div>
+    <div className={`g-settings-rows${page.groups ? ' g-settings-feature-groups' : ''}`}>
+      {page.groups ? page.groups.map((group) => <section aria-label={group.label} className="g-settings-feature-group" key={group.label}>
+        <p>{group.label}</p>
+        {renderRows(entries.filter((entry) => group.rows.includes(entry.id)))}
+      </section>) : renderRows(entries.filter((entry) => page.rows.includes(entry.id)))}
+    </div>
   </section>) : renderRows(entries);
   return section.Provider ? <section.Provider>{rows}</section.Provider> : <>{rows}</>;
 }

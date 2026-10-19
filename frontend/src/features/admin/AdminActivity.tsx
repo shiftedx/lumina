@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Square } from 'lucide-react';
+import { Check, Square } from 'lucide-react';
 
 import { getActivityHistory, getAdminActivity, listUsers, stopActivitySession } from '../../api';
 import type { ActivityHistoryRow, ActivityServer, ActivitySession, AdminActivity, UserProfile } from '../../types';
@@ -92,7 +92,7 @@ export function ActivityNowPlaying() {
     <div>
       {error ? <StatusText tone="danger"><span role="alert">{error} Showing the last update.</span></StatusText> : null}
       <div className="activity-live-summary"><span className="activity-live-dot" aria-hidden="true" /><strong>{data.sessions.length}</strong> stream{data.sessions.length === 1 ? '' : 's'} playing <span>Live · refreshes every 3 seconds</span></div>
-      {data.sessions.length ? <ul className="activity-list">{data.sessions.map((session) => <SessionRow key={session.id} onStop={(next) => { setStopError(null); setPending(next); }} session={session} />)}</ul> : <EmptyState title="Nothing is playing right now." />}
+      {data.sessions.length ? <ul className="activity-list">{data.sessions.map((session) => <SessionRow key={session.id} onStop={(next) => { setStopError(null); setPending(next); }} session={session} />)}</ul> : <p className="activity-idle"><Check aria-hidden="true" />Nothing is playing right now.</p>}
       <ConfirmDialog
         body={<><p>Stop this stream? {pending?.user.name} will see that the server owner stopped it.</p>{stopError ? <p role="alert"><StatusText tone="danger">{stopError}</StatusText></p> : null}</>}
         busy={busy} confirmLabel="Stop stream" danger onCancel={() => setPending(null)} onConfirm={() => { void confirm(); }} open={pending !== null} title={`Stop ${pending?.title ?? 'stream'}?`}
@@ -102,11 +102,11 @@ export function ActivityNowPlaying() {
 }
 
 const Stat = ({ label, value, note, percent }: { label: string; value: string | null; note?: string; percent?: number | null }) => (
-  <div className={`g-stat${percent != null ? ' activity-meter' : ''}`}>
-    {percent != null ? <svg aria-hidden="true" viewBox="0 0 100 100"><circle className="activity-meter-track" cx="50" cy="50" r="42" /><circle className="activity-meter-fill" cx="50" cy="50" r="42" pathLength="100" strokeDasharray={`${Math.max(0, Math.min(100, percent))} 100`} /></svg> : null}
-    <dt className="g-label">{label}</dt>
-    <dd className={value === null ? 'g-stat-note activity-na' : 'g-stat-figure'}>{value ?? NOT_AVAILABLE}</dd>
-    {note && value !== null ? <dd className="g-stat-note">{note}</dd> : null}
+  <div className="activity-stat">
+    <dt>{label}</dt>
+    <dd className={`activity-value${value === null ? ' activity-na' : ''}`}>{value ?? NOT_AVAILABLE}</dd>
+    <dd className="g-stat-note activity-stat-note">{value !== null ? note : null}</dd>
+    {percent !== undefined ? <dd aria-hidden="true" className="activity-usage"><span style={{ width: `${Math.max(0, Math.min(100, percent ?? 0))}%` }} /></dd> : null}
   </div>
 );
 const pct = (value: number | null) => (value === null ? null : `${value.toFixed(0)} %`);
@@ -118,16 +118,17 @@ export function ActivityServerStats() {
   const [tone, text] = hardwareStatus(server.hardware);
   return (
     <div>
-      <dl className="g-stat-strip activity-stats">
+      <dl aria-label="Resource usage" className="g-stat-strip activity-stats activity-resources">
         <Stat label="CPU" percent={server.cpu_percent} value={pct(server.cpu_percent)} />
         <Stat label="Memory" percent={server.memory && server.memory.total_bytes > 0 ? 100 * server.memory.used_bytes / server.memory.total_bytes : null} note={server.memory ? `of ${gigabytes(server.memory.total_bytes)}` : undefined} value={server.memory ? gigabytes(server.memory.used_bytes) : null} />
-        <Stat label="Load average" value={server.load_average ? server.load_average[0].toFixed(2) : null} note={server.load_average ? `5 min ${server.load_average[1].toFixed(2)} · 15 min ${server.load_average[2].toFixed(2)}` : undefined} />
         <Stat label="Transcoder CPU" percent={server.transcoder_cpu_percent} value={pct(server.transcoder_cpu_percent)} />
+      </dl>
+      <dl aria-label="Server details" className="g-stat-strip activity-stats activity-facts">
+        <Stat label="Load average" value={server.load_average ? server.load_average[0].toFixed(2) : null} note={server.load_average ? `5 min ${server.load_average[1].toFixed(2)} · 15 min ${server.load_average[2].toFixed(2)}` : undefined} />
         <Stat label="ffmpeg processes" value={String(server.ffmpeg_processes)} />
         <Stat label="Uptime" value={server.uptime_seconds == null ? null : uptimeLabel(server.uptime_seconds)} />
       </dl>
-      <p><StatusText tone={tone}>{text}</StatusText></p>
-      <p className="g-setting-note">{server.hardware.fallbacks} fallback{server.hardware.fallbacks === 1 ? '' : 's'} to software encoding since the server started.</p>
+      <div className="activity-encoder"><StatusText tone={tone}>{text}</StatusText><span>{server.hardware.fallbacks} fallback{server.hardware.fallbacks === 1 ? '' : 's'} to software encoding since the server started.</span></div>
     </div>
   );
 }
@@ -137,7 +138,7 @@ const RECORDING_STATUS = { queued: 'Queued', live: 'Recording live', stopping: '
 export function ActivityBackground() {
   const { data, error } = useActivity();
   if (!data) return <p aria-busy={!error || undefined} className="g-setting-note">{error ? 'Background activity is unavailable. Retry activity above.' : 'Loading…'}</p>;
-  if (!data.downloads.length && !data.recordings.length) return <EmptyState title="No downloads or recordings are running." />;
+  if (!data.downloads.length && !data.recordings.length) return <p className="activity-idle"><Check aria-hidden="true" />No downloads or recordings are running.</p>;
   return (
     <ul className="activity-list">
       {data.downloads.map((job) => (

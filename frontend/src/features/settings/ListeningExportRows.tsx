@@ -41,8 +41,8 @@ function ListeningExportSettings({ owner }: { owner: string }) {
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'The connection could not be updated.'); }
     finally { setBusy(false); }
   }
-  return <div className="g-subrows">
-    <p className="g-setting-note">Off until you connect an account. Export browser library listens longer than 30 seconds after you hear half the track or four minutes. Seeking and previews do not count. Offline listens retry with the same play identity.</p>
+  return <div className="g-subrows g-listening-export">
+    <p className="g-setting-note">Connect an account to export browser music listens. Tracks count after 30 seconds and half the track or four minutes. Seeking and previews do not count.</p>
     {error ? <p className="g-warning" role="alert">{error}</p> : null}
     <fieldset className="g-fieldset"><legend>ListenBrainz</legend>
       <p className="g-setting-note">{connections.find((row) => row.provider === 'listenbrainz')?.enabled ? `Connected as ${connections.find((row) => row.provider === 'listenbrainz')?.username}` : 'Not connected'}</p>
@@ -53,7 +53,7 @@ function ListeningExportSettings({ owner }: { owner: string }) {
       {connections.find((row) => row.provider === 'listenbrainz')?.credentials_set ? <Button disabled={busy} onClick={() => { void act(() => del('/api/me/listening-export/listenbrainz')); }} variant="secondary">Disconnect ListenBrainz</Button> : null}
     </fieldset>
     <fieldset className="g-fieldset"><legend>Last.fm</legend>
-      <p className="g-setting-note">{connections.find((row) => row.provider === 'lastfm')?.enabled ? `Connected as ${connections.find((row) => row.provider === 'lastfm')?.username}` : 'Use your Last.fm application API key and secret, then approve access in Last.fm.'}</p>
+      <p className="g-setting-note">{connections.find((row) => row.provider === 'lastfm')?.enabled ? `Connected as ${connections.find((row) => row.provider === 'lastfm')?.username}` : 'Not connected'}</p>
       <form onSubmit={(event) => { event.preventDefault(); void act(async () => { const result = await post<{ authorization_url: string }>('/api/me/listening-export/lastfm/authorize', { api_key: apiKey, api_secret: secret }); setAuthUrl(result.authorization_url); setApiKey(''); setSecret(''); }); }}>
         <Field label="Last.fm API key">{(ids) => <Input {...fieldProps(ids)} autoComplete="off" maxLength={32} minLength={32} onChange={(event) => setApiKey(event.target.value)} pattern="[a-fA-F0-9]{32}" required type="password" value={apiKey} />}</Field>
         <Field label="Last.fm API secret">{(ids) => <Input {...fieldProps(ids)} autoComplete="off" maxLength={32} minLength={32} onChange={(event) => setSecret(event.target.value)} pattern="[a-fA-F0-9]{32}" required type="password" value={secret} />}</Field>

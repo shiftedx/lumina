@@ -23,7 +23,7 @@ const parseNetworks = (value: string) => value.split(/[\n,]/).map((network) => n
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 function AllowanceFields({ draft, onChange, inherited = false, effective }: { draft: ResourceAllowances | ResourceOverrides; onChange: (next: ResourceAllowances | ResourceOverrides) => void; inherited?: boolean; effective?: ResourceAllowances }) {
-  return <div className="g-subrows">{allowanceFields.map(({ key, label, hint, rate }) => {
+  return <div className="g-subrows g-compact-fields">{allowanceFields.map(({ key, label, hint, rate }) => {
     const value = draft[key];
     const shown = value === undefined || value === null ? '' : rate ? mbps(value) : String(value);
     const suffix = inherited && value == null ? `Inherits ${rate ? `${mbps(effective?.[key] ?? 0)} Mbps` : effective?.[key] ?? 0}` : hint;

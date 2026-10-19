@@ -140,6 +140,12 @@ def test_movie_detail_trailers_logo_certification(client, fake) -> None:  # noqa
     assert request["append_to_response"] == "videos,credits,recommendations,similar,external_ids,images,release_dates"
 
 
+def test_tmdb_cast_exposes_an_optional_stable_performer_id(client, fake) -> None:  # noqa: ANN001
+    fake.tmdb["/3/movie/603"]["credits"]["cast"][0]["id"] = 6384
+    body = client.get(f"{BASE}/title/movie/603").json()
+    assert body["cast"] == [{"id": 6384, "name": "Keanu Reeves", "character": "Neo", "profile_url": "https://image.tmdb.org/t/p/w185/keanu.jpg"}]
+
+
 def test_show_detail_seasons_tvdb_and_missing_title(client, fake) -> None:  # noqa: ANN001
     body = client.get(f"{BASE}/title/show/1399").json()
     assert body["tvdb_id"] == 121361 and body["certification"] == "TV-MA" and body["networks"] == ["HBO"] and body["runtime"] == 57

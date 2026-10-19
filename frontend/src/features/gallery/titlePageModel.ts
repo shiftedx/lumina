@@ -4,6 +4,7 @@
  */
 import type { PersonType, TitleDetail, TitlePerson, TitleSummary, TitleVersion } from '../../types';
 import { formatBytes } from '../../utils';
+import { distinctCastCredits } from '../titles/castCredits';
 import { episodeCode, formatRuntime, versionQuality } from '../titles/titleModel';
 import { type GalleryTheme, posterMarker, readableAccent, safeColour } from './galleryModel';
 
@@ -66,7 +67,7 @@ function seriesLibrary(detail: TitleDetail): string {
 }
 
 /** The Cast row lists performers only; the crew is credited in the side column (cast photos addendum). */
-export const castOf = (people: TitlePerson[]): TitlePerson[] => people.filter((person) => person.type === 'Actor' || person.type === 'GuestStar');
+export const castOf = (people: TitlePerson[]): TitlePerson[] => distinctCastCredits(people.filter((person) => person.type === 'Actor' || person.type === 'GuestStar'));
 
 /** Side column blocks; a block with nothing to say is left out. "Part of" is a link, so the page adds it. */
 export function sideBlocks(detail: TitleDetail): SideBlock[] {

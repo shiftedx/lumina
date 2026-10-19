@@ -229,8 +229,19 @@ describe('Manage', () => {
 });
 
 it('a title page shows the movie and its trailer button', async () => {
-  api.getCatalogTitle.mockResolvedValue({ ...showDetail, ...movie, seasons: [], trailers: showDetail.trailers });
+  const photo = '/api/art/person-photo.jpg';
+  api.getCatalogTitle.mockResolvedValue({ ...showDetail, ...movie, seasons: [], trailers: showDetail.trailers, cast: [
+    { id: 1, name: 'Mara Quill', character: 'Keeper' },
+    { id: 1, name: ' mara  quill ', character: ' keeper ', profile_url: photo },
+    { id: 1, name: 'Mara Quill' },
+    { id: 1, name: 'Mara Quill', character: 'Narrator', profile_url: photo },
+    { id: 2, name: 'Mara Quill', character: 'Keeper', profile_url: photo },
+  ] });
   renderSurface({ surface: 'requests', view: 'title', kind: 'movie', id: 603 });
   expect(await screen.findByRole('heading', { level: 1, name: 'The Matrix' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Trailer' })).toBeTruthy();
+  const cast = screen.getByRole('region', { name: 'Cast' });
+  const performers = within(cast).getAllByRole('listitem');
+  expect(performers.map((person) => person.textContent)).toEqual(['Mara QuillKeeper', 'Mara QuillNarrator', 'Mara QuillKeeper']);
+  expect(performers[0].querySelector('img')?.getAttribute('src')).toBe(photo);
 });

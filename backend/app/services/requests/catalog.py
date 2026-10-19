@@ -399,7 +399,7 @@ def _tmdb_detail(client: TmdbClient, kind: str, tmdb_id: int) -> dict:
         ],
         trailers=_trailers(raw.get("videos")),
         cast=[
-            {k: v for k, v in {"name": c["name"], "character": tmdb._str(c.get("character")), "profile_url": _image(c.get("profile_path"), "w185")}.items() if v is not None}
+            {k: v for k, v in {"id": tmdb._positive(c.get("id")), "name": c["name"], "character": tmdb._str(c.get("character")), "profile_url": _image(c.get("profile_path"), "w185")}.items() if v is not None}
             for c in tmdb._list(tmdb._dict(raw.get("credits")).get("cast"))[:20] if c.get("name")
         ],
         crew=crew[:10], networks=tmdb._names(raw.get("networks")), studios=tmdb._names(raw.get("production_companies")),

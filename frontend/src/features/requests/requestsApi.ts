@@ -21,7 +21,7 @@ export type Trailer = { youtube_id: string; name: string; type: string; official
 export type Season = { number: number; name: string; episode_count: number; air_date?: string; poster_url?: string };
 export type CatalogDetail = CatalogItem & {
   tagline?: string; runtime?: number; certification?: string; status_text?: string; seasons: Season[]; trailers: Trailer[];
-  cast: { name: string; character?: string; profile_url?: string }[]; crew: { name: string; job: string }[]; networks: string[]; studios: string[];
+  cast: { id?: number; name: string; character?: string; profile_url?: string }[]; crew: { name: string; job: string }[]; networks: string[]; studios: string[];
   recommendations: CatalogItem[]; similar: CatalogItem[]; anime_relations?: CatalogItem[];
 };
 export type CatalogPage = { items: CatalogItem[]; page: number; total_pages: number };

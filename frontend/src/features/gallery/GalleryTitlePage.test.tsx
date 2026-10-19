@@ -304,7 +304,12 @@ describe('GalleryTitlePage: body and sections', () => {
   it('shows performers with their photo in Cast and credits director, writer and producer beside the story', async () => {
     const portrait = '/api/art/sig/person-1/Primary/key-240.webp';
     api.getTitle.mockResolvedValue({ ...movie, people: [
-      { name: 'Mara Quill', role: 'Keeper', type: 'Actor', image_url: portrait },
+      { id: 'person-1', name: 'Mara Quill', role: 'Keeper', type: 'Actor' },
+      { id: 'person-1', name: ' mara  quill ', role: ' keeper ', type: 'GuestStar', image_url: portrait },
+      { id: 'person-1', name: 'Mara Quill', type: 'Actor' },
+      { id: 'person-1', name: 'Mara Quill', role: 'Narrator', type: 'Actor', image_url: portrait },
+      // Same spelling and photo do not make two explicitly different identities the same person.
+      { id: 'person-2', name: 'Mara Quill', role: 'Keeper', type: 'Actor', image_url: portrait },
       { name: 'Andre Coutu', role: 'Post Producer', type: 'Producer' },
       // NFO <director>/<credits> arrive after the cast (title_metadata._credits), with their photo when one matched
       { id: 'person-9', name: 'Ines Varga', type: 'Director', image_url: '/api/art/sig/person-9/Primary/key-240.webp' },
@@ -312,8 +317,9 @@ describe('GalleryTitlePage: body and sections', () => {
     ] });
     render(page());
     const cast = await screen.findByRole('region', { name: 'Cast' });
-    expect(within(cast).getAllByRole('button')).toHaveLength(1);
-    expect(within(cast).getByRole('button', { name: /Mara Quill/ }).querySelector('img')?.getAttribute('src')).toBe(resolveArtworkUrl(portrait));
+    const performers = within(cast).getAllByRole('button');
+    expect(performers.map((button) => button.textContent)).toEqual(['Mara QuillKeeper', 'Mara QuillNarrator', 'Mara QuillKeeper']);
+    expect(performers[0].querySelector('img')?.getAttribute('src')).toBe(resolveArtworkUrl(portrait));
     for (const crew of [/Andre Coutu/, /Ines Varga/, /Wren Hale/]) expect(within(cast).queryByRole('button', { name: crew })).toBeNull();
     for (const text of ['Produced by', 'Andre Coutu', 'Directed by', 'Ines Varga', 'Written by', 'Wren Hale']) expect(screen.getByText(text)).toBeTruthy();
   });
@@ -321,7 +327,7 @@ describe('GalleryTitlePage: body and sections', () => {
   it('lists up to 20 people who search when chosen, extras without the trailer, and More like this', async () => {
     const people = Array.from({ length: 25 }, (_, index) => ({ name: `Person ${index + 1}`, role: index ? null : 'Keeper', type: 'Actor' as const }));
     const featurette = { item_id: 'extra-1', extra_type: 'featurette' as const, name: 'Making the lamp', duration_seconds: 300 };
-    api.getTitle.mockResolvedValue({ ...movie, people, extras: [...movie.extras, featurette] });
+    api.getTitle.mockResolvedValue({ ...movie, people: [people[0], ...people], extras: [...movie.extras, featurette] });
     const similar = movieSummary('movie-9', { name: 'Southern Lantern' });
     api.listSimilarTitles.mockResolvedValue([similar]);
     const onSearch = vi.fn();
@@ -330,6 +336,7 @@ describe('GalleryTitlePage: body and sections', () => {
     render(page({ onOpenTitle, onPlay, onSearch }));
     const cast = await screen.findByRole('region', { name: 'Cast' });
     expect(within(cast).getAllByRole('button')).toHaveLength(20);
+    expect(within(cast).getByRole('button', { name: /^Person 20(?!\d)/ })).toBeTruthy();
     await userEvent.click(within(cast).getByRole('button', { name: /^Person 1(?!\d)/ }));
     expect(onSearch).toHaveBeenCalledWith('Person 1');
     const extras = screen.getByRole('region', { name: 'Extras' });

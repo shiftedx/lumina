@@ -1,117 +1,126 @@
 # Books and manga performance audit — 2026-10-18
 
-## Scope and source
+## Scope and release provenance
 
-Audit of EPUB, PDF, CBZ and CBR catalog, series, reader startup, resume, page/chapter turns, progress writes, archive parsing, and server/browser resource bounds. Changes live on `codex/books-manga-performance` in a dedicated worktree based on `a4e01dad62fadc6186ca27ea0fbda8e3ea0d3674`. The original checkout's uncommitted integration/performance work is excluded.
+EPUB, PDF, CBZ and CBR catalog/series browsing, cold reader entry, resume, page/chapter turns, progress writes, cover delivery, archive parsing, and browser/server resource use. Work is isolated on `codex/books-manga-performance`. Performance commit `0bd0584` was reconciled with deployed schema-31 release `06a4bb96`, then with the concurrently deployed branded-dropdown release `41f91734b65d7f9b0be09ee2ffa9f4ff367f3d25` in `3822006`. The merge retains both bounded reader delivery and the branded controls. Backend source is unchanged by the latter integration. The original checkout's additional uncommitted work was not copied.
 
-Synthetic archives and disposable test databases keep private books, hostnames, credentials and reading history out of retained evidence. This work does not deploy changes or establish the cause of the specific reported comic's production delay. The deployed file, its compression method, production server load, storage latency and visitor network have not been profiled.
+The reader-entry fix is `b91faa5`; `845ec64` corrects the malformed legacy real-stack PNG fixture; `576dfd6` updates three stale native-select tests to use visible branded controls; `4dccf56` separates document-loading time from decoded resume content in the measurement harness. None of these test-only corrections relax runtime validation. Commit `550f317` separately fixes the public shell/hashed-asset cache policy without changing Books service behavior.
 
-## Findings and remediation
+Retained benchmark fixtures and databases are synthetic. Live measurements retain only action names and elapsed times; no private media identifiers, paths, hostnames, credentials or content are committed. `output/books-performance/` contains ignored local evidence. Synthetic observations establish behavior under the stated workload, not universal latency or process-memory guarantees.
 
-| Priority | Finding | Result |
-| --- | --- | --- |
-| High | Native import inspection blocks the ASGI event loop while waiting for a subprocess/semaphore. | Moved DB-free inspection to the thread pool. A public HTTP regression holds inspection open and requires an unrelated health request to finish before release. It failed before the fix and passes afterward. Upload disk writes/fsync and transaction work remain synchronous. |
-| High | Reader navigation awaits serialized progress PATCH requests before changing content. Every turn adds more saves. | Turns update immediately. A 500 ms debounce and one active plus one latest pending checkpoint bound queued requests. Opening or resuming still refreshes Continue-reading recency; that initial write is debounced and may coalesce with a turn. Failed saves remain visible/retryable, failed EPUB loads retain the last readable checkpoint, and stale prior-book responses cannot overwrite the current reader. |
-| High | Each page/cover request reopens ZIPs or starts PDF/RAR workers, including identical concurrent requests and repeated reads. | A server LRU retains encoded raster responses, bounded to 64 MiB and 128 entries; identical in-flight reads share work, with at most four uncached raster readers. Authorization and `private, no-store` remain on every HTTP delivery. File identity changes invalidate reuse. This saves server parsing/rendering, **not repeated network bytes or browser decode memory**. |
-| Medium | Every CBR read validates all archive members, including members after the requested page. | Exact-identity in-process validation reuse permits unchanged, already validated archives to stop after the requested member. First read after restart still validates the full archive. Persisted manifests alone do not grant that optimization. Solid archives can still require decoding preceding members. |
-| Medium | A series-detail request first aggregates the complete manga collection. | The service scopes summary aggregation by series ID before loading member states. Visibility and bundle-state semantics are retained. |
-| Medium | Catalog/series status classification probes physical files it does not use. | State-only classification avoids those probes; availability is still checked for actual serialized file choices. |
-| Medium | Shelves issue membership and book queries individually. | Shelf metadata and visible joined memberships/books use two bulk queries. Private books and empty shared shelves remain hidden appropriately. |
-| Medium | Manga, series and book-detail views request the complete overview despite not displaying it. | Overview loads only for Overview/Shelves or when shelf choices are requested. Existing shelf workflows remain covered. |
-| Medium | EPUB turns wait for chapter transfer and structured parsing. | One next structured chapter is prefetched and cancelled on leave. Native image prefetch is deliberately absent: under `no-store`, speculative image requests could duplicate transfers and expensive rendering. |
+## Findings resolved
 
-## Measured server effects
+| Finding | Change and observable contract |
+| --- | --- |
+| Import inspection waits for native parsing on the ASGI event loop. | DB-free inspection runs in the thread pool. An HTTP regression holds inspection open and proves an unrelated health request completes. |
+| Page turns wait for progress writes and accumulate saves. | Content changes immediately; checkpoints use a 500 ms debounce, one active write and one latest pending write. Account/book changes reject stale responses; explicit Finish and Read again retain their semantics. Initial resume still refreshes reading recency. |
+| Covers serve full scan images and compete with reader parsing. | One background cover lane creates static JPEGs of at most 600 px and 1 MiB. It leaves one of the two native parser slots available for pages. Up to 32 identities can be queued/in flight; duplicate work shares a future. Requests wait at most 50 ms before returning a private, non-cacheable 202 with Retry-After. Cards defer offscreen work and retry while mounted. |
+| Encoded file size alone does not bound decoded raster work. | Shared validation bounds canvas to 40 MP, animation to 256 frames and 80 MP aggregate, checks frame extents, and bounds expanded PNG text/profile metadata to 1 MiB. GIF, APNG and animated WebP covers use a static first frame. |
+| Repeated page requests restart parsing/rendering. | An exact-file-identity raster LRU holds at most 64 MiB/128 entries, shares identical in-flight work and allows four uncached raster readers. HTTP authorization is still checked for every delivery. |
+| Every CBR page revalidates all members. | A 128-entry in-process exact-identity validation registry permits trusted unchanged reads to stop at the target. First reads validate the whole archive; persisted manifests alone never grant this shortcut. Solid RAR may still decode preceding members. |
+| Native page turns repeat network transfer and decode speculative images. | A reader-scoped encoded Blob window reuses current/previous/one-next pages, at most four entries and 48 MiB including fetch reservations. Only visible images decode, at most two DOM images. Lookahead waits for visible decode, aborts on abandoned jumps/hidden tabs/unmount, respects data saver, and revokes object URLs. |
+| EPUB turns wait for the next chapter, and promotion can start the following request twice. | One abortable structured chapter lookahead scoped to loaded book/unit content. A promotion regression changes request sequence `[0,1,2,2]` to `[0,1,2]`; aborted current-chapter results are ignored. Failed chapter loads retain the last readable checkpoint. |
+| Direct reader entry loads unrelated surfaces and large font files. | Home and Books route modules load on demand; direct books routes suppress speculative Watch/Settings/Gallery/command-palette imports. The common Newsreader regular+italic pair is 261,884 bytes instead of 454,724 (42.4% smaller). Common punctuation stays in that tier; original supported glyphs remain available through the complementary font range. Variable axes and license are preserved. |
+| Catalog/series pagination hydrates whole collections and probes unused files. | SQL counts/pages the common catalog order. Exact normalized filters use scalar metadata and aggregate state, then hydrate the returned page. Series summaries use scalar grouping without BookItem hydration; details scope by series. Availability probes occur only where returned content requires them. |
+| Overview hydrates/probes every book, and unused views request it. | Overview uses scalar totals and bounded card hydration; Continue-reading availability checks stop after enough cards, including timestamp ties. Manga/catalog/details do not request overview unless shelf choices are needed. Shelves use two bulk queries and scalar cover metadata. |
+| Short asset freshness and a five-minute shell cache cause avoidable revalidation and deployment staleness. | The shell requires revalidation (`no-cache`); only content-hashed build assets receive one-year immutable caching. Unhashed scripts, fonts and service workers keep their existing freshness behavior. |
 
-The archive harness uses 120 units, valid 900 × 1300 PNGs of 113,943 encoded bytes, roughly 13 MiB CBZ/CBR files, a 120-page synthetic PDF and long EPUB chapters. Images are repeated deterministic artwork with an ancillary payload; they are not representative scans or a codec-complexity benchmark. RAR4 members are stored and non-solid. Each value below is the median of three samples, with warm/unknown OS filesystem cache. These are component observations under host contention, not user-perceived startup latency or tail guarantees.
+The cover cache is disposable, private on disk, atomically written, identity-versioned, and capped at 256 MiB/2,048 files. Failures have a 30-second retry cooldown. Native parsing retains two workers, 30-second wall/25-second CPU/24-MiB output limits and the Linux 1-GiB address-space limit. The shared raster validator is stdlib-only so short-lived native workers do not import ORM/metadata services.
 
-| Operation | Before ms | After ms | Interpretation |
+## Measured catalog improvements
+
+Paired 10,000-book runs compare the original starting commit with the completed implementation. Three-run wall-time medians, synthetic SQLite databases, same host. Exact differential checks cover catalog filters, NFKC/casefold search, aggregate bundle state, shelves, series and overview identities/totals.
+
+| Operation | Before ms | After ms | Other measured work |
 | --- | ---: | ---: | --- |
-| Repeat PDF page | 190.261 | 0.114 | Avoids worker spawn and rasterization. |
-| Repeat CBR page | 89.753 | 0.092 | Avoids worker spawn and archive validation/decompression. |
-| Repeat CBZ page | 0.654 | 0.018 | Avoids ZIP index/read work. |
-| Cold PDF page | 139.497 | 144.015 | No cold improvement established. |
-| Cold CBR page | 77.152 | 86.388 | No cold improvement established. |
-| EPUB chapter | 2.136 | 3.573 | Server parser unchanged; browser lookahead is separate. |
+| Added-order catalog page | 246.7 | 14.5 | Hydrated books 10,000 → 40; availability probes 10,120 → 120 |
+| Favorite catalog page | 251.6 | 33.7 | Hydrated books 10,000 → 40 |
+| Search + author page | 299.0 | 64.5 | Hydrated books 10,000 → 40 |
+| Series list | 136.1 | 42.2 | Hydrated books 5,100 → 0; availability probes 5,100 → 0 |
+| Filtered series list | 150.7 | 57.1 | Scalar grouping preserves exact semantics |
+| Series detail | 157.1 | 12.8 | Hydrated books 5,300 → 200 |
+| Overview | 326.9 | 106.7 | SELECTs 214 → 10; probes 10,108 → 90; hydrated books 10,000 → 26 |
 
-Raw `baseline.json` and `after.json` contain wall time, parent plus terminated-child CPU time, returned bytes, per-run samples, fixture facts and cache bounds under `output/books-performance/`. These are the locked final server-harness repeat; other host workloads and the full backend tests may still contend.
+Evidence: `round2-catalog-head-baseline.json`, `round2-catalog-after.json` and differential JSON. These are local benchmark observations, not service-level guarantees.
 
-The catalog harness uses SQLite in memory and substitutes a counted successful availability check. It measures ORM/query/classification work and probe counts; it does **not** measure real filesystem latency. One observation per workflow/scale is not a latency distribution.
+## Cover and archive qualification
 
-| 10,000-book case, 100 shelves, 200-volume target series | Before | After |
-| --- | ---: | ---: |
-| Catalog page of 40, availability probes | 10,120 | 120 |
-| Catalog page, ms | 292.5 | 269.1 |
-| Series-list availability probes | 5,100 | 0 |
-| Target series detail, ms | 187.8 | 15.0 |
-| Target series detail, availability probes | 5,700 | 600 |
-| Overview SELECT queries | 214 | 15 |
-| Overview, ms | 395.6 | 371.1 |
+A synthetic 2,700 × 3,900 grayscale-noise scan (10.53 MP, 10,537,168 encoded bytes) becomes a 415 × 600 JPEG of 47,107 bytes: 99.55% fewer bytes and 42.3 times fewer pixels. Observed cold generation was 40.1 ms; warm disk retrieval 0.038 ms. This is a stress fixture, not a comic image-quality evaluation or peak RSS measurement. Four-format cover tests also verify static output and dimensions.
 
-Query/probe counts establish eliminated work. The small timing difference for the overall catalog/overview does not establish a broad scalability fix. Raw 1,000/10,000-book observations are in `catalog-before.json` and `catalog-after.json`.
+A genuinely compressed solid RAR5 fixture contains 120 identical valid PNGs. Qualification observed 75 ms inspection, 77 ms cold read, 68 ms next read, 75 ms late read, and 0.07 ms repeated cached read. The small 9,689-byte fixture exercises solid/RAR5 parsing rather than representative scan entropy. It is checked in with a service-boundary regression. The optional official RAR CLI was used only to author the fixture and removed afterward; no runtime dependency was added.
 
-## Browser measurements
+An intermediate native-worker regression from importing image services was caught and corrected by extracting the shared validator. The intermediate 572 → 69 ms CBR cold result demonstrates that correction; it is **not** claimed as an improvement over the original release.
 
-`frontend/e2e/realstack/books-performance.spec.ts` imports real 120-unit fixtures through the authenticated API and uses three fresh browser contexts for every format. It verifies rendered prose or genuinely decoded image dimensions, four turns, a jump to unit 111, persisted progress and reload/resume. It checks at most two page image elements, page errors and 5xx failures. Attachments retain startup/turn/resume wall times, request statuses and declared bytes, state-write counts, and CDP heap/node/task/layout metrics. CDP heap excludes browser native image/decoder/GPU allocations; a two-image DOM bound is not a process-memory bound.
+Evidence: `cover-renditions.json`, `cover-scan-qualification.json`, `solid-rar5-qualification.json`, `rar-fixture-generator.json`, `raster-import-before.json`, `raster-import-after.json`.
 
-A second workflow imports twenty independent 28-page CBR volumes into one synthetic series, opens the series with `domcontentloaded` rather than waiting for images, and immediately clicks its read action. It records pending cover requests at click and click-to-decoded-page time across three fresh contexts. This checks cover/reader competition that a direct reader URL misses. Its profile is always unshaped loopback.
+## Browser and live verification
 
-The default main-reader profile is unshaped loopback. `BOOKS_PERF_SLOW=1` selects 2.5 Mbit/s download, 1 Mbit/s upload, 40 ms latency and 4× CPU slowdown. Fresh browser contexts do not clear server caches or OS page cache. Measurements include app/bootstrap and Playwright observation costs. There is no before/after browser speedup claim without a paired baseline.
+The real-stack harness imports 120-unit archives, uses three fresh contexts per format, records startup/actual first content, rapid and settled turns, jump, persisted resume, duplicate HTTP work, response timings and JS/DOM snapshots. It checks for page errors, Books HTTP 5xx responses and more than two reader page image elements. A separate series-entry test clicks while cover work remains outstanding and records actual DOM click-to-image-load independently of test polling. The constrained profile uses 2.5 Mbit/s down, 1 Mbit/s up, 40 ms latency and 4× CPU slowdown.
 
-Accepted full-gate Chromium 140.0.7339.186 observations (three contexts per format, unshaped loopback):
+The final runtime build (`371e98c`, including the deployed dropdown update and integration fixes) improved default-network startup from 460.8 to 227.7 ms (50.6%). Actual first content appeared at a median 153.3 ms. Settled-turn observations were effectively flat at 131.4 ms on loopback and include assertion polling. Legacy resume increased 3.7% to 149.7 ms, while actual resumed content appeared at a median 69.6 ms; a general resume improvement is not claimed.
 
-| Format | Startup ms | Turn ms | Jump to unit 111 ms | Reload/resume ms |
-| --- | ---: | ---: | ---: | ---: |
-| EPUB | 580.1 | 65.4 | 60.4 | 149.1 |
-| PDF | 852.6 | 146.7 | 153.2 | 156.1 |
-| CBZ | 496.5 | 141.1 | 154.5 | 157.7 |
-| CBR | 511.6 | 148.2 | 169.0 | 162.9 |
-
-Startup/jump/resume columns are medians of three observations. Turns are the median of twelve correlated turns across those three contexts. There is no p95 claim. Maximum final CDP JS heap observations were approximately 15.1 / 8.3 / 8.6 / 8.7 MB respectively; these are **final snapshots, not peak process or decoded-image memory**. No reader showed more than two page image elements. Actual state-write counts were one or two across the open/turn/jump/reload workflow, including recency updates rather than isolated per-turn writes.
-
-In the twenty-volume CBR series, click-to-decoded-page was 924.5 / 421.5 / 419.2 ms, with 20 / 10 / 10 cover requests still outstanding at click. Each volume was a 3,191,551-byte stored RAR4 archive. The first context has cold resources; later contexts reuse server work. This shows the real entry path while covers are outstanding, not a paired causal attribution to one subsystem or a production cold/solid-RAR guarantee.
-
-Durable raw JSON is copied under `output/books-performance/browser-accepted/`; `browser-summary.json` derives the table. The full gate’s reader and cover-grid tests both passed. The shaped run also passed (setup plus the four-format workflow):
-
-| Format | Cold-context startup ms | Turn ms | Reload/resume ms |
+| Format | Default startup before ms | Integrated startup ms | Actual first content ms |
 | --- | ---: | ---: | ---: |
-| EPUB | 4,092.6 | 176.1 | 616.0 |
-| PDF | 4,238.8 | 359.8 | 690.7 |
-| CBZ | 4,330.8 | 552.7 | 907.9 |
-| CBR | 4,313.9 | 903.6 | 895.7 |
+| EPUB | 463.4 | 220.5 | 153.4 |
+| PDF | 457.1 | 229.9 | 153.1 |
+| CBZ | 458.8 | 234.6 | 145.7 |
+| CBR | 460.2 | 232.3 | 154.5 |
 
-Profile: 2.5 Mbit/s down, 1 Mbit/s up, 40 ms latency, 4× CPU slowdown; same three-context sample size and correlated-turn definition. Raw data lives in `output/books-performance/slow-results/`, with `browser-slow-summary.json` derived from it. Four-second cold startup and roughly 0.9-second CBR turns on this profile are **remaining responsiveness findings**, not a pass against a snappiness budget. Common cold app/bootstrap resources, network bytes, decoding and native worker work need a phase breakdown before attributing one cause. Large real scan images can be more demanding than these synthetic 114 KiB pages. Whole-gate results and final-source checks are recorded below. Initial attempts are excluded: test API writes initially lacked Origin and then the session CSRF token; another attempt overlapped a frontend rebuild and loaded a stale hashed JS URL (404). The harness was corrected and assets frozen before the accepted repeat.
+In instrumented pre/post reader-entry runs, the reader request moved from approximately 302.5 ms after click to 2.0 ms. The final default run measured actual click-to-image-load at 41.0 ms. The paired older test-level click-to-observed measure fell from 403.2 to 150.1 ms (62.8%), but includes automation/polling delays. Eight covers started for the initial viewport instead of twenty; generated covers were 415 × 600 px. Fonts were loaded at click. No Books non-2xx responses or page errors occurred; default state writes remained two per workflow. Following-chapter response counts are `[1,1,1]` across the three EPUB trials, compared with `[2,2,2]` before the loaded-chapter guard.
 
-## Remaining work, ranked
+The final constrained profile improved overall startup from 4,223.0 to 3,158.9 ms (25.2%) and settled-turn observations from 651.4 to 65.0 ms (90.0%). Native format turns improved 78.7–93.7%; the EPUB chapter-turn measure increased 5.95% and is not claimed as a gain.
 
-1. **Full-resolution covers and image decode bounds.** Cards lazily load original images; they have no bounded static cover rendition. The 24 MiB encoded-member limit and signatures do not limit pixel dimensions, animated GIF/WebP frame counts, or total browser-native allocations. Measure representative scan dimensions and cover bytes, then add import-time pixel/frame validation plus bounded static cover generation. The cover-grid observation also motivates deferring cover work and prioritizing visible reader pages over background cover parsing; cancellation/queue behavior needs its own controlled test. Keep reader legibility policy separate from thumbnail sizing. The new encoded-response cache cannot solve this.
-2. **Cold app startup on constrained links.** Every format took roughly 4.1–4.3 seconds in the shaped fresh-context run, versus 0.6–0.9-second reload/resume. Profile critical JS/CSS/font transfers, parse/layout and reader resource phases separately. Do not infer that warm server caching fixes common cold app/network startup. Native-page lookahead could help turns only with bounded encoded-blob reuse, cancellation and pixel/decode policy; detached image prefetch under `no-store` would risk duplicate HTTP work.
-3. **Catalog/series pagination is still O(collection).** Catalog loads roots, bundle members and states, performs NFKC normalization/filtering/sorting in Python, then slices. Series listing groups all manga before router pagination. At 10k, full hydration dominates. A SQL change needs regression coverage for aggregate bundle checkpoints/favorites/completion, exact normalization, stable ordering, shelf ordering and visibility; do not replace it with a semantically different shortcut.
-4. **Overview still hydrates/probes the full collection.** At 10k, 10,108 availability probes remain, and visible sections are serialized through multiple queries. It also carries full shelf memberships. Request frequency is lower, but the endpoint needs state aggregation/availability profiling and bounded shelf summaries for larger collections.
-5. **Native cold/solid archive work.** Native parsers retain their existing two-worker, 30 s wall / 25 s CPU / 24 MiB output limits and Linux 1 GiB address-space bound. Concurrent distinct requests can still occupy shared request threads while awaiting these workers. No admission/fairness redesign is included. Compressed solid RAR, RAR5, corrupt/encrypted production files, slow external storage and process RSS peaks need dedicated qualification.
-6. **Checkpoint delivery on abrupt termination.** Normal navigation writes are coalesced, active requests use keepalive from dispatch, and pagehide requests a flush. A newer pending checkpoint still waits behind an active write, so abrupt browser/process termination cannot guarantee its delivery without server-side ordering tokens or a durable client queue. This is separate from keeping ordinary page turns responsive.
-7. **Deployment/device qualification.** Synthetic loopback measurements do not prove the reported production issue is fixed. Docker/Linux runtime, physical phones, Safari/WebKit and real network loss/bandwidth variation are not inferred from Chromium/macOS observations. Preserve a rollback image before deployment using the operator guide.
+| Format | Constrained startup before → after ms | Settled turn before → after ms | Actual resumed content ms, after |
+| --- | ---: | ---: | ---: |
+| EPUB | 3,967.6 → 2,930.0 | 118.7 → 125.8 | 491.2 |
+| PDF | 4,049.1 → 3,061.1 | 262.7 → 55.9 | 541.5 |
+| CBZ | 4,303.1 → 3,265.9 | 902.7 → 56.7 | 816.2 |
+| CBR | 4,301.3 → 3,275.4 | 902.2 → 65.4 | 821.5 |
+
+Constrained legacy resume/ready observations increased 18.6% overall (765.5 → 908.3 ms), while the four per-format medians increased 1.3–4.1%. The pooled observations combine distinct format distributions and scheduling variation; the aggregate does not describe a typical per-format change. Actual visible-content times above differ from the prior same-path diagnostic by −4.5%/−3.1%/−2.6%/+0.4% for EPUB/PDF/CBZ/CBR. An earlier apparent CBR regression did not reproduce once document loading and visible decode were recorded separately. A general resume improvement is not claimed. Full reloads still transfer the current page and rebuild the reader-scoped window.
+
+Final constrained workflows made three state writes for EPUB/PDF and four for CBZ/CBR, versus a baseline pooled median of 4.5. All Books responses were 2xx; the maximum native page request count per index was two across initial entry plus a fresh reload. EPUB following-chapter counts are `[1,1,1]` across trials.
+
+Evidence: `final-integrated-default/{summary,source-assets}.json` and `final-integrated-slow/{summary,source-assets}.json`, with their raw results. Both profiles use identical built assets from runtime source `371e98c`; the shaped run revision `cfb0716` adds only a test-readiness correction. Fresh browser contexts, three trials per format, warm server caches after first access, and uncontrolled OS caches are recorded. The private HTTP cache policy has separate public HTTP contracts and deployment verification. Earlier resume phase diagnostics remain in `resume-diagnosis-after-dropdown/`.
+
+The authenticated live baseline found 857 ms opening from Continue reading, 521/548 ms forward turns, and a 20,020 ms opening from series detail with covers outstanding. The original reading position was restored after the baseline. Paired post-deployment observations and rollback/health evidence are retained with the release PR; synthetic results alone do not establish that the live issue is fixed.
+
+WebKit real-reader workflows passed for all four formats. The pinned Firefox executable fails to launch an isolated blank page on this host (OS sandbox/graphics initialization), before Lumina loads. Security protections were retained; Firefox automation is unqualified on this host. The authenticated live browser provides a separate real-device path, without implying broad Firefox certification.
+
+## Transport and cache delivery
+
+The existing backend already compresses text/JSON with gzip level 3 and bypasses compressed images, media, WOFF fonts, partial responses and event streams. The real-stack harness uses that backend compression. Public-edge observations also confirm negotiated compression for HTML, JavaScript and CSS. No extra compression middleware or uncompressed-network latency adjustment is needed. The separate cache-policy change gives the shell revalidation and only content-hashed assets one-year immutable freshness; public HTTP tests and image smoke checks verify that policy. Evidence: `edge-compression-audit.json` and the ignored deployment packet.
+
+## Practical limits
+
+- Exact normalized catalog search, series grouping and affinity totals still scan scalar collection metadata. Shelf responses intentionally retain their complete ordered membership IDs. These costs are measured and substantially reduced, not constant-time at arbitrary scale.
+- The 48-MiB reader and 64-MiB server bounds account for encoded cached data. They do not bound total process RSS, transient fetch/decoder allocations, GPU memory or full-resolution visible-page decode.
+- If fewer than twelve recent books are available, overview may probe all active candidates. Solid archives and slow storage can still require substantial cold decoding.
+- Abrupt browser/process termination cannot guarantee delivery of a newer checkpoint queued behind an active write. Ordinary navigation remains responsive; failed saves remain visible.
+- Missing or permanently invalid cover inputs retain a placeholder. Failed jobs cool down rather than launching repeated background work.
 
 ## Reproduce
 
 ```bash
 mise exec -- backend/.venv/bin/python scripts/perf/audit_books.py --pages 120 --runs 3 --output output/books-performance/archive-current.json
-mise exec -- backend/.venv/bin/python scripts/perf/audit_books_catalog.py --ref HEAD --sizes 1000 10000 --shelves 100 --target-series 200 --output output/books-performance/catalog-before.json
-mise exec -- backend/.venv/bin/python scripts/perf/audit_books_catalog.py --sizes 1000 10000 --shelves 100 --target-series 200 --output output/books-performance/catalog-after.json
+mise exec -- backend/.venv/bin/python scripts/perf/audit_books_catalog.py --ref a4e01dad62fadc6186ca27ea0fbda8e3ea0d3674 --sizes 1000 10000 --shelves 100 --target-series 200 --output output/books-performance/catalog-baseline.json
+mise exec -- backend/.venv/bin/python scripts/perf/audit_books_catalog.py --sizes 1000 10000 --shelves 100 --target-series 200 --output output/books-performance/catalog-current.json
 mise exec -- make frontend-build
-mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800 sh -c 'cd frontend && npx playwright test -c playwright.realstack.config.ts books-performance.spec.ts --project=journeys'
-# Optional network/CPU profile; use the same command with BOOKS_PERF_SLOW=1.
+mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800 sh -c 'cd frontend && npx playwright test -c playwright.realstack.config.ts books-performance.spec.ts books-browsers.spec.ts --project=journeys'
+# Repeat with BOOKS_PERF_SLOW=1 for the shaped profile.
 mise exec -- make check
 ```
 
-`--ref HEAD` means the baseline commit only while changes remain uncommitted; use the recorded baseline SHA after committing. Detailed API/service regressions remain in the existing Books suites, with an added concurrent-import responsiveness workflow. No schema migration, new runtime dependency or production deployment is included.
+The optional `--solid-rar-tool /absolute/path/to/rar` fixture-authoring option is documented by `audit_books.py --help`. It is not needed to run the checked-in solid-RAR regression.
 
-## Verification record
+## Integration regressions
 
-- Full backend stage: **5,018 passed / 11 skipped** in 994.68 s under contention.
-- Final focused Books backend suites: **66 passed** in 44.05 s, including independently exercised byte and entry cache caps. The full gate started before the last reader/cache review refinements, so this final focused check and the frozen frontend rebuild supplement it.
-- Final refreshed frontend stage: **2,486 passed across 287 files**. Source/e2e TypeScript, production build, and stylesheet/bundle budgets passed, including the refreshed frozen-reader build.
-- Initial successful focused real-stack run: **3 passed**, including setup and both new reading workflows. It establishes correctness; the full-gate repeat writes the durable raw JSON evidence after the harness persistence correction.
-- Docker server-version readiness probe timed out at 10 s (`output/books-performance/docker-readiness.json`). No container was created or deployed; Linux runtime remains unqualified.
-- Whole-gate real-stack browser stage: **48 passed / 4 existing skips / 1 failed** in 10.5 minutes. Both new Books workflows passed and raw evidence was retained. `make check` exited 2 at this stage, so this is not a clean gate pass. The failure is the unchanged video Notes workflow (`watch.spec.ts`): after reload, the trace shows Details selected and the test times out waiting for its note seek control. No Watch implementation or threshold was changed. Failure trace/screenshot are preserved under `output/books-performance/check-failures/`.
-- Shaped-network run: **2 passed** in 2.9 minutes, including setup. Cold app startup remains about four seconds on the declared constrained profile.
-- Browser measurements used the static assets inventoried in `measured-frontend-assets.json`. Two subsequent completion-intent corrections preserve queued Finish commands across pagehide and keep Read again busy until its page-zero reset is accepted; these do not change the measured startup/ordinary-turn path. They passed **25 focused reader tests** and TypeScript checks. The final source refresh passed the production build, stylesheet/bundle budgets, source/e2e TypeScript, all 2,486 frontend unit tests and **592 mocked browser tests / 2 existing skips** in 8.1 minutes. This continuation used `make check -o bootstrap-test -o backend-test -o e2e-realstack`; it does not rerun or erase the initial real-stack failure. Final source hashes are recorded in `output/books-performance/source-environment.json`; measured browser asset hashes are recorded separately.
+The broad gate also checks routes outside Books. Lazy Home loading exposed a lost cross-route Edit home command; one pending intent now survives until the Home listener mounts and coalesces repeated requests. The complete 13-workflow Home-edit browser file passes, including both themes at phone and desktop widths.
+
+The concurrent dropdown release exposed a mobile people-editor wrapper sizing regression and closed-choice interception of Settings D-pad row navigation. Those behaviors retain the existing layout and keyboard contracts. Mobile gallery filter triggers also fill their shrinking flex wrappers, eliminating measured 1–19 px horizontal overflow at 390/320 px without clipping content. Browser checks now measure visible branded triggers and popup options instead of hidden native backing fields or an obsolete direct text node; touch-size, axe and overflow assertions remain. The short Watch fixture also requires accounting for visible progress actions when checking focus order.
+
+## Final release evidence
+
+Final backend source (`550f317`, unchanged by later frontend fixes): **5,143 passed, 11 skipped** in 1,245.57 seconds. The public cache-policy HTTP contracts also pass (six tests). Final runtime source is `371e98c`; frontend/e2e typecheck, production build/style budgets and **2,585 tests in 296 files** pass. Focused browser checks pass all 13 Home-edit workflows, 20 playback/People/Settings/Watch workflows, eight direct gallery overflow checks and all four full mobile axe/touch/overflow route matrices. The real-backend integrated gate passes **50 tests/5 skips**. Final default and constrained paired measurements pass; the constrained targeted run records **4 passes/1 Firefox skip**. The final complete mocked suite passes **622 tests/2 skips**. Its earlier overlay-readiness race was corrected by explicitly waiting for fixture data; the unchanged 0.01 shift threshold also passes three consecutive focused repeats. The final frontend gate exits zero with typecheck, production build/style budgets and all unit/browser tests passing. Backend and real-stack stages were retained from their passing runs because their exact inputs are unchanged; `gate-input-equivalence.json` records that comparison, and all 71 rebuilt assets match both final measured profiles.
+
+The malformed legacy real-stack PNG fixture was replaced with an existing valid fixture; its workflow now requires actual image decoding. Firefox is unqualified on this host and remains an explicit skip; Chromium and WebKit are exercised. Deployment, rollback retention and authenticated live paired observations are recorded with the release PR after cutover; the local ignored deployment packet retains the machine-readable evidence without private identifiers.

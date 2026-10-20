@@ -23,7 +23,7 @@ public final class NativeMusicTransport {
         let pcm: PCM
         let index: Int
         let node: Int
-        let hostStart: UInt64
+        var hostStart: UInt64
         let offset: Double
         let length: Double
         var end: UInt64 { hostStart + AVAudioTime.hostTime(forSeconds: length) }
@@ -65,6 +65,8 @@ public final class NativeMusicTransport {
     private var preparingNext = false
     private var blockedAdvance: (from: Int, to: Int?)?
     private var wantsPlayback = false
+    private var pausedAt: UInt64?
+    private var playbackStartsAt: UInt64 = 0
 
     public init(tracks: [MusicTrack], index: Int, position: Double, source: @escaping (Int) async throws -> PlaybackRequest) {
         self.tracks = tracks
@@ -94,7 +96,7 @@ public final class NativeMusicTransport {
         self.volume = min(1, max(0, volume))
         engine.mainMixerNode.outputVolume = self.volume
         streaming?.volume = self.volume
-        if changed, state.playing { invalidateLookahead() }
+        if changed { invalidateLookahead() }
         tick()
     }
 
@@ -123,6 +125,7 @@ public final class NativeMusicTransport {
                 guard token == generation, !Task.isCancelled else { return }
                 mode = .streaming; onMode?(mode)
                 await beginStreaming(request, playing: playing)
+                guard token == generation, !Task.isCancelled else { return }
             }
             state.playing = playing && (mode == .decoded || streaming?.timeControlStatus == .playing); state.finished = false; state.error = nil
             onChange?(state)
@@ -141,8 +144,9 @@ public final class NativeMusicTransport {
         let deadline = ContinuousClock.now.advanced(by: .seconds(min(10, max(0, timeout))))
         repeat {
             guard token == generation, wantsPlayback, !Task.isCancelled else { return false }
-            if mode == .decoded, let current, mach_absolute_time() >= current.hostStart,
-               engine.isRunning, nodes[current.node].isPlaying, nodes[current.node].lastRenderTime != nil { return true }
+            if mode == .decoded, let current, mach_absolute_time() >= playbackStartsAt,
+               engine.isRunning, nodes[current.node].isPlaying,
+               let rendered = nodes[current.node].lastRenderTime, rendered.hostTime >= playbackStartsAt { return true }
             if mode == .streaming, streaming?.currentItem?.status == .readyToPlay,
                streaming?.timeControlStatus == .playing {
                 state.playing = true
@@ -155,11 +159,55 @@ public final class NativeMusicTransport {
 
     public func pause() {
         tick()
+        if wantsPlayback, current != nil || streaming?.currentItem != nil {
+            generation += 1
+            lookaheadGeneration += 1
+            loading?.cancel(); loading = nil; preparingNext = false
+            timer?.cancel(); timer = nil
+            pausedAt = mach_absolute_time()
+            wantsPlayback = false
+            nodes.forEach { $0.pause() }
+            engine.pause()
+            streaming?.pause()
+            lastTickState = nil
+        } else if pausedAt == nil { stopRuntime() }
         state.playing = false
-        stopRuntime()
         onChange?(state)
     }
-    public func resume() async { await start() }
+
+    public func resume() async {
+        guard !wantsPlayback else { return }
+        guard let pausedAt, !state.finished else { await start(); return }
+        do {
+            if mode == .decoded, current != nil {
+                try engine.start()
+                let resumeAt = mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.08)
+                playbackStartsAt = resumeAt
+                let shift = resumeAt - pausedAt
+                // The sample timelines stay paused; move host-clock boundaries by
+                // the same interval so queued starts and overlapping fades stay aligned.
+                current?.hostStart += shift
+                next?.hostStart += shift
+                retiring?.hostStart += shift
+                for slot in [current, next, retiring].compactMap({ $0 }) {
+                    nodes[slot.node].play(at: AVAudioTime(hostTime: max(resumeAt, slot.hostStart)))
+                }
+                state.playing = true
+            } else if let streaming, let item = streaming.currentItem, item.status != .failed {
+                streaming.play()
+                state.playing = streaming.timeControlStatus == .playing
+            } else { await start(); return }
+            self.pausedAt = nil
+            wantsPlayback = true
+            tick()
+            onChange?(state)
+            startClock(); prepareNext()
+        } catch {
+            stopRuntime()
+            state.playing = false; state.error = error.localizedDescription
+            onChange?(state)
+        }
+    }
     public func seek(_ seconds: Double) async {
         let wasPlaying = wantsPlayback
         state.position = min(max(0, seconds), tracks[state.index].duration ?? max(0, seconds))
@@ -175,11 +223,11 @@ public final class NativeMusicTransport {
         gains = MusicPlaybackPolicy.queueGains(tracks, enabled: normalize, shuffle: shuffle)
         invalidateLookahead()
     }
-    public func stop() { pause(); state.finished = true; onChange?(state) }
+    public func stop() { pause(); stopRuntime(); state.finished = true; onChange?(state) }
 
     private func stopRuntime() {
         generation += 1
-        wantsPlayback = false; blockedAdvance = nil
+        wantsPlayback = false; blockedAdvance = nil; pausedAt = nil; playbackStartsAt = 0
         lastTickState = nil
         loading?.cancel(); loading = nil
         preparingNext = false; fallbackNext = nil
@@ -189,7 +237,8 @@ public final class NativeMusicTransport {
         if let streamObserver { streaming?.removeTimeObserver(streamObserver) }
         streamObserver = nil
         streaming?.pause(); streaming?.removeAllItems(); streaming = nil
-        streamItems.removeAll(); streamIndex = nil
+        streamItems.removeAll(); streamIndex = nil; streamCurrentItem = nil
+        requests.removeAll()
         current = nil; next = nil; retiring = nil
     }
 
@@ -209,6 +258,7 @@ public final class NativeMusicTransport {
     private func beginDecoded(_ pcm: PCM, index: Int, offset: Double) throws {
         let sliced = try Self.sliced(pcm, offset: offset)
         let start = mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.08)
+        playbackStartsAt = start
         current = Slot(pcm: sliced, index: index, node: 0, hostStart: start, offset: offset,
             length: Double(sliced.buffer.frameLength) / 48_000)
         engine.prepare(); try engine.start()
@@ -255,7 +305,7 @@ public final class NativeMusicTransport {
             } catch {
                 guard token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled else { return }
                 if (error as? URLError)?.code == .userAuthenticationRequired {
-                    pause()
+                    stop()
                     state.error = "Access to this track was denied. Sign in again before continuing."
                     onChange?(state)
                     return
@@ -307,14 +357,14 @@ public final class NativeMusicTransport {
             if streaming.currentItem == nil { ended() }
             else if streaming.currentItem?.status == .failed {
                 state.error = "This audio format could not stream. Try a compatible copy."
-                state.playing = false; wantsPlayback = false
-                timer?.cancel(); timer = nil
+                state.playing = false
+                stopRuntime()
             }
             if state.playing { prepareNext() }
             publishTick()
             return
         }
-        let now = mach_absolute_time()
+        let now = max(mach_absolute_time(), playbackStartsAt)
         if let queued = next, now >= queued.hostStart {
             if let outgoing = current {
                 state.position = outgoing.offset + min(AVAudioTime.seconds(forHostTime: now - outgoing.hostStart), outgoing.length)
@@ -344,7 +394,11 @@ public final class NativeMusicTransport {
             }
             if let index = fallbackNext {
                 fallbackNext = nil
-                Task { [weak self] in await self?.select(index) }
+                let token = generation
+                Task { [weak self] in
+                    guard let self, token == generation, wantsPlayback else { return }
+                    await select(index)
+                }
             } else if !preparingNext && MusicPlaybackPolicy.nextIndex(current: state.index, count: tracks.count, repeatMode: repeatMode) == nil { ended() }
         }
         publishTick()
@@ -368,13 +422,13 @@ public final class NativeMusicTransport {
             onBlockedAdvance?(blocked.from, blocked.to)
             return
         }
-        nodes.forEach { $0.stop() }; engine.stop(); wantsPlayback = false
+        stopRuntime()
         state.finished = true; state.playing = false
-        timer?.cancel(); timer = nil
         onChange?(state)
     }
 
     private func beginStreaming(_ request: PlaybackRequest, playing: Bool) async {
+        let token = generation
         let item = AVPlayerItem(url: request.url)
         item.preferredForwardBufferDuration = 8
         let queue = AVQueuePlayer(items: [item])
@@ -382,6 +436,7 @@ public final class NativeMusicTransport {
         streaming = queue
         queue.volume = volume
         if state.position > 0 { await queue.seek(to: CMTime(seconds: state.position, preferredTimescale: 600)) }
+        guard token == generation, !Task.isCancelled else { return }
         if playing { queue.play() }
     }
     private func prepareStreamingNext(_ index: Int) {
@@ -404,6 +459,12 @@ public final class NativeMusicTransport {
                 } else { fallbackNext = index }
             } catch {
                 if token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled {
+                    if (error as? URLError)?.code == .userAuthenticationRequired {
+                        stop()
+                        state.error = "Access to this track was denied. Sign in again before continuing."
+                        onChange?(state)
+                        return
+                    }
                     fallbackNext = index
                     state.error = "The next track is unavailable."; onChange?(state)
                 }

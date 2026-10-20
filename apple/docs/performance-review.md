@@ -6,6 +6,7 @@ Scope: native iPhone, iPhone Duo, iPad and tvOS clients, shared AVFoundation mus
 
 | Work | Before | After | Evidence |
 | --- | --- | --- | --- |
+| Music pause/resume over ten cycles | 11 downloads and full PCM conversions; 33,837,056 media bytes | 1 initial download/conversion; 3,076,096 media bytes | Real loopback HTTP workload; retained native player nodes/buffers, 90.9% less delivered media |
 | Steady music progress notifications over two playback seconds | 20 | 3 | Same synthetic WAV regression against original and revised transport; 85% fewer callbacks in this sample |
 | Requests for an unavailable streaming successor over 700 ms | 8 | 1 | Same failing source callback against original and revised transport; explicit queue refresh permits one new attempt |
 | Normalization work during a decoded playback tick | Queue-wide album/order scans and gain calculation | Array lookup; gains refreshed on queue/normalization/shuffle changes | Policy regression preserves album dynamics, shuffle, manual overrides and disabled normalization |
@@ -46,13 +47,32 @@ One layout risk to inspect live: the regular-width Now Playing inset attaches to
 
 ## Remaining findings, ordered by expected impact
 
-### 1. Music pause/resume repeats download and decode work
+### 1. Music pause/resume — fixed in the follow-up
 
-Source: `Core/Sources/LuminaCore/NativeMusicTransport.swift:156` and `:414`.
+Ordinary pause now uses `AVAudioPlayerNode.pause()` / `AVAudioEngine.pause()` or `AVQueuePlayer.pause()` and cancels the app's playback clock and unfinished lookahead. It retains only this transport's existing bounded decoded slots or native streaming queue. Resume starts the same nodes/player, shifting decoded host-clock boundaries by the paused interval so a scheduled successor and an in-progress fade stay aligned. It does not resolve the source, download, convert PCM, slice/copy the buffer, recreate the player, or publish another track/start event.
 
-`NativeMusicTransport.pause()` calls `stopRuntime()`, discards both decoded slots and removes streaming items. `resume()` calls `start()` and requests the source again. Remote decoded sources use an ephemeral full-file download and delete the temporary input after preparation. Repeated pause/resume can therefore fetch and decode the same track repeatedly; streaming resumes also rebuild the player and buffer.
+Stop, track selection/seek, owner replacement/sign-out, completion, terminal stream failure and explicit authorization failure still discard playback resources. Repeat/crossfade edits while paused invalidate the old scheduled successor. A source or seek finishing after Pause cannot restart playback. There is no new file cache, shared member cache, retained temporary input or new dependency. Pausing retains the existing PCM memory until teardown; this does not reduce the active-session memory ceiling. Streaming may still fetch bytes needed for ordinary buffering; reusing its item does not promise zero future network reads or system decoder work.
 
-Next change: retain the current prepared asset or paused native player for a bounded session, releasing lookahead where appropriate. Preserve owner isolation, stop/sign-out cleanup, current offset, crossfade state and interruptions. Measure request bytes, resume-to-audible latency and allocations over ten pause/resume cycles before choosing retention policy. This needs a lifecycle change, not an unbounded file cache.
+The host workload uses an eight-second synthetic stereo 48 kHz WAV (3,076,096 file bytes), an uncached loopback HTTP response with a fixed 100 ms delay, ten 40 ms pauses and ten resumes. Both versions use the same 80 ms decoded start lead. Resume latency spans Resume through `confirmPlaying()`; the revised confirmation requires a render timestamp after the resumed start, so a stale pre-pause render cannot acknowledge playback. This is engine render confirmation, not acoustic/output latency. The median is the upper middle observation of ten cycles, with a 50 ms confirmation polling interval.
+
+| Ten-cycle workload, including initial load | Before (`ff76696`) | After |
+| --- | --- | --- |
+| Source resolutions | 11 | 1 |
+| Full HTTP media downloads | 11 | 1 |
+| Full source PCM conversions | 11 | 1 |
+| Delivered media bytes (HTTP headers excluded) | 33,837,056 | 3,076,096 |
+| Resume-to-render confirmation median | 233.181 ms | 125.010 ms |
+| Streaming source resolutions (separate local-file workload) | 11 | 1 |
+
+This eliminates all ten repeat downloads/conversions in the decoded workload: 30,760,960 fewer media bytes, a 90.9% reduction including the first load, and about 46% lower measured median resume confirmation latency. The before regression failed as expected; the revised regression passed. Full PCM conversion counts were verified in isolated before/after package copies by logging successful conversion completion, before the test's ten-cycle marker; the subsequent Stop/restart converted once more in each version. This instrumentation is not in production source. The latency is a single host comparison on a shared Mac with an injected network delay, not a physical-device CPU, energy or latency guarantee.
+
+Retained public transport checks cover ten decoded HTTP cycles, ten streaming cycles, Stop forcing a new preparation, stable paused position, one track event per occurrence, startup cancellation, pause beyond a queued successor's old start, pause during a fade, Repeat changes while paused, duplicate occurrences, restored paused seek, pending Wait boundaries and invalid-output handoff refusal. Run the measurable decoded workload with:
+
+```sh
+mise exec -- swift test --package-path apple/Core --scratch-path /tmp/lumina-pause-resume-core --filter testTenDecodedPauseResumeCyclesReuseTheDownloadedAudio
+```
+
+Local evidence: `/tmp/lumina-pause-resume-before.log`, `/tmp/lumina-pause-resume-final-transport.log`, `/tmp/lumina-pause-resume-measured-before.log`, `/tmp/lumina-pause-resume-measured-after.log`, `/tmp/lumina-pause-resume-native-check.log`. The full native script passed all 44 Core tests, including three live-server cases and authorization teardown in both transport modes, and both iOS/tvOS Simulator builds. The repository gate is running; its result will be recorded before handoff. Physical interruption/route changes and output timing still need a device pass. Native API references: [player-node pause](https://developer.apple.com/documentation/avfaudio/avaudioplayernode/pause()), [engine pause](https://developer.apple.com/documentation/avfaudio/avaudioengine/pause()), [scheduled resume](https://developer.apple.com/documentation/avfaudio/avaudioplayernode/play(at:)).
 
 ### 2. Whole-track decoding still delays startup and has a substantial memory footprint
 
@@ -139,7 +159,7 @@ These are proposed product budgets for the next hardware pass, not Apple require
 
 | Platform | Required journeys | Measurements / acceptance |
 | --- | --- | --- |
-| iPhone | Cold Home, 1,000-item scroll/search, direct/HLS start and seek, background music, ten pause/resume cycles | No repeated source download on ordinary resume after lifecycle fix; no normalization queue scans in steady playback; p95 UI main-thread work below the display frame budget |
+| iPhone | Cold Home, 1,000-item scroll/search, direct/HLS start and seek, background music, ten pause/resume cycles | No repeated source download on ordinary pause/resume; no normalization queue scans in steady playback; p95 UI main-thread work below the display frame budget |
 | iPhone Duo | Closed → Book → Open → Closed on Home, deep detail and active music/video; outer landscape; inner portrait; Split View on either side | Same continuing view on the right in requested full-screen opening; no new player/session, no lost navigation/selection/scroll; no duplicated asset fetch caused only by pose; record frame hitches during transition |
 | iPad | Full width and narrow windows, live resize, destination switches during music, large queue/offline list | Preserve player identity; no layout-triggered media restart; bound image decode memory and main-thread checkpoint work; inspect exact-width invalidations |
 | tvOS | Rapid focus movement, catalog scroll, direct/remux/audio-only-convert play, remote seek/pause, Match Content | Stable remote focus and native controls; record dropped frames/stalls and first-frame p50/p95; confirm HDR/refresh/audio on real HDMI equipment |
@@ -152,8 +172,8 @@ Instrumentation: physical-device SwiftUI/Time Profiler, Allocations, energy/CPU 
 
 - Baseline Core: 35 discovered, 3 live-server cases skipped, 0 failures.
 - Original transport with the new workload regressions: failed as expected (20 progress callbacks; 8 failed-successor requests).
-- Final native script: 38 Core tests passed with no skips, including all three real-server cases; iOS Simulator and tvOS Simulator builds both succeeded.
-- Repository `make check`: bootstrap, frontend typecheck/build and backend suite passed (5,233 passed, 11 skipped). The frontend unit phase stopped with one playback-metric label failure: `localPlayerStart.test.tsx` expected `direct` and received `direct_resume` for a start clamped to zero. A focused unchanged-source rerun passed 14/14. The unchanged full frontend rerun passed 2,622/2,622 tests across 299 files. The separately run real-stack journey/performance gate passed 52 cases with 5 skips and unchanged budgets. The mocked-browser gate passed 657 cases with 2 skips (23.4 minutes). This is not one green `make check` invocation.
+- Initial review native script: 38 Core tests passed with no skips. The pause/resume follow-up script passed 44 with no skips, including all three real-server cases; iOS Simulator and tvOS Simulator builds both succeeded.
+- Initial review repository `make check`: bootstrap, frontend typecheck/build and backend suite passed (5,233 passed, 11 skipped). The frontend unit phase stopped with one playback-metric label failure: `localPlayerStart.test.tsx` expected `direct` and received `direct_resume` for a start clamped to zero. A focused unchanged-source rerun passed 14/14. The unchanged full frontend rerun passed 2,622/2,622 tests across 299 files. The separately run real-stack journey/performance gate passed 52 cases with 5 skips and unchanged budgets. The mocked-browser gate passed 657 cases with 2 skips (23.4 minutes). This is not one green `make check` invocation.
 - Focused server playback decisions: 59 passed, including new native direct/remux/audio-only/bit-depth rows.
 - Synthetic H.264+ALAC MOV advanced 0.981 seconds and H.264+MP3 MP4 advanced 1.066 seconds after approximately one second of macOS AVPlayer playback. This establishes synthetic decode on macOS only.
 

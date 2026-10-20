@@ -392,7 +392,7 @@ final class NativeAudioSession {
             message = "Your saved queue differs from the server. Choose which queue to keep."
         } catch {
             guard owner == store.music.sessionIdentity else { return }
-            if case MusicAPIError.http(let status) = error, status == 401 || status == 403 { transport?.pause() }
+            if case MusicAPIError.http(let status) = error, status == 401 || status == 403 { transport?.stop() }
             message = "Queue sync is unavailable. Changes remain on this device."
         }
     }

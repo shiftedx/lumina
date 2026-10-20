@@ -49,7 +49,7 @@ The player shows lyric source and timed lyrics when supplied; selecting a timed 
 
 ## Playback behavior
 
-Direct playback is negotiated for native MP4/M4V/MOV H.264/HEVC and AAC/AC-3/E-AC-3. Other sources use the server's HLS path when supported. **Convert to compatible video** disables direct playback and asks the server for a compatible stream; the server may retain compatible video while converting audio. Conversion does not promise source HDR, Dolby Vision, lossless audio, or Atmos preservation.
+Direct playback is negotiated for native MP4/M4V/MOV H.264 (8-bit)/HEVC (up to 10-bit) and AAC/AC-3/E-AC-3/MP3/ALAC. MP3 and ALAC additions have synthetic macOS AVPlayer decode evidence; per-device output qualification is still required. Other sources use the server's HLS path when supported. **Convert to compatible video** disables direct playback and asks the server for a compatible stream; the server may retain compatible video while converting audio. Conversion does not promise source HDR, Dolby Vision, lossless audio, or Atmos preservation.
 
 The player seeks to the saved whole-file position before reporting start, sends progress about every five seconds and on transport state changes, and sends a final stopped event on dismissal. Reports are serialized so a delayed progress request cannot overwrite the stopped position. Leaving the app pauses video; music continues in the background. Stopping also releases the server's HLS session. A network failure displays a progress-sync warning. Music keeps an owner-scoped local queue checkpoint and exposes synchronization conflicts when the server becomes reachable.
 
@@ -58,6 +58,8 @@ Apple TV uses the native focus engine, remote transport controls, a readable pos
 Native icon/top-shelf assets and internal TestFlight packaging are included. Before public App Store distribution, qualify codecs and any engine licenses, complete App Privacy and store metadata, and provide a reachable reviewer demo server. See the [App Store readiness review](docs/app-store-readiness.md) for public-release requirements and a reviewer-notes draft. The proof has not been submitted to App Review.
 
 ## Validation
+
+See the [Apple performance review](docs/performance-review.md) for measured work reductions, direct-play negotiation, remaining hotspots and the physical-device acceptance matrix.
 
 The responsive layout and bundled-font changes are implemented. Home, basic Audio, playlist/download and advanced listening workflows have retained passing cases across iOS and tvOS. The latest source removes duplicate root headings, uses explicit paper/ink music surfaces, adds an opaque pinned iOS audio toolbar and visible Crossfade caption, and preserves native playlist Save/Cancel actions with the captured queue initialized before metadata loading. All eight selected iOS/tvOS journeys have passing case-level evidence, and current iOS Home/Audio/Video/Smart Playlist/Downloaded Player/Advanced options and TV Home/Audio/Video/Smart Playlist/Player renders have been accepted. TV Album uses a retained accepted capture. Local signed test builds compiled and ran on both platforms; no distribution archive or upload was performed. See the case-level evidence in [recorded verification](docs/verification.md); this qualification covers the selected simulator workflows and visuals, with physical-device and format limits still applying.
 

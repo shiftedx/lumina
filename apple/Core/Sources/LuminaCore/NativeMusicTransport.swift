@@ -38,6 +38,8 @@ public final class NativeMusicTransport {
     public var onBlockedAdvance: ((Int, Int?) -> Void)?
     public var source: (Int) async throws -> PlaybackRequest
     private var tracks: [MusicTrack]
+    private var gains: [Float]
+    private var lastTickState: State?
     private var requests: [Int: PlaybackRequest] = [:]
     private let engine = AVAudioEngine()
     private let nodes = [AVAudioPlayerNode(), AVAudioPlayerNode()]
@@ -66,6 +68,7 @@ public final class NativeMusicTransport {
 
     public init(tracks: [MusicTrack], index: Int, position: Double, source: @escaping (Int) async throws -> PlaybackRequest) {
         self.tracks = tracks
+        self.gains = MusicPlaybackPolicy.queueGains(tracks, enabled: true, shuffle: false)
         self.state = State(index: index, position: max(0, position), playing: false)
         self.source = source
         let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
@@ -83,6 +86,9 @@ public final class NativeMusicTransport {
         let changed = self.repeatMode != repeatMode || self.crossfade != crossfade
         self.repeatMode = repeatMode
         self.crossfade = min(12, max(0, crossfade))
+        if self.normalize != normalize || self.shuffle != shuffle {
+            gains = MusicPlaybackPolicy.queueGains(tracks, enabled: normalize, shuffle: shuffle)
+        }
         self.normalize = normalize
         self.shuffle = shuffle
         self.volume = min(1, max(0, volume))
@@ -134,7 +140,7 @@ public final class NativeMusicTransport {
         let token = generation
         let deadline = ContinuousClock.now.advanced(by: .seconds(min(10, max(0, timeout))))
         repeat {
-            guard token == generation, wantsPlayback, !Task.isCancelled, state.error == nil else { return false }
+            guard token == generation, wantsPlayback, !Task.isCancelled else { return false }
             if mode == .decoded, let current, mach_absolute_time() >= current.hostStart,
                engine.isRunning, nodes[current.node].isPlaying, nodes[current.node].lastRenderTime != nil { return true }
             if mode == .streaming, streaming?.currentItem?.status == .readyToPlay,
@@ -166,6 +172,7 @@ public final class NativeMusicTransport {
     }
     public func replaceUpcoming(_ tracks: [MusicTrack]) {
         self.tracks = tracks
+        gains = MusicPlaybackPolicy.queueGains(tracks, enabled: normalize, shuffle: shuffle)
         invalidateLookahead()
     }
     public func stop() { pause(); state.finished = true; onChange?(state) }
@@ -173,6 +180,7 @@ public final class NativeMusicTransport {
     private func stopRuntime() {
         generation += 1
         wantsPlayback = false; blockedAdvance = nil
+        lastTickState = nil
         loading?.cancel(); loading = nil
         preparingNext = false; fallbackNext = nil
         timer?.cancel(); timer = nil
@@ -185,26 +193,17 @@ public final class NativeMusicTransport {
         current = nil; next = nil; retiring = nil
     }
 
-    private func gain(at index: Int) -> Float {
-        guard tracks.indices.contains(index) else { return 1 }
-        let track = tracks[index]
-        let sameAlbum = track.albumID != nil && tracks.allSatisfy { $0.albumID == track.albumID }
-        let ordered = zip(tracks, tracks.dropFirst()).allSatisfy { a, b in
-            (a.disc ?? 1) < (b.disc ?? 1) || (a.disc ?? 1) == (b.disc ?? 1) && (a.number ?? Int.max) <= (b.number ?? Int.max)
-        }
-        return MusicPlaybackPolicy.gain(enabled: normalize, manual: track.gainIsManual, trackGain: track.gainDB,
-            albumGain: track.albumGainDB, peak: track.peak, albumPeak: track.albumPeak, sequentialAlbum: sameAlbum && ordered && !shuffle)
-    }
-
     private func applyGain(index: Int, node: Int, envelope: Float) {
         // AVAudioMixing.volume is limited to 0...1. EQ stages carry positive
         // ReplayGain as decibels; the player volume remains only a fade envelope.
-        let linear = gain(at: index)
+        let linear = gains.indices.contains(index) ? gains[index] : 1
         let db = linear > 0 ? 20 * log10(linear) : -192
         let first = min(24, max(-96, db))
-        gainStages[node][0].globalGain = first
-        gainStages[node][1].globalGain = min(24, max(-96, db - first))
-        nodes[node].volume = linear > 0 ? min(1, max(0, envelope)) : 0
+        let second = min(24, max(-96, db - first))
+        let level = linear > 0 ? min(1, max(0, envelope)) : 0
+        if gainStages[node][0].globalGain != first { gainStages[node][0].globalGain = first }
+        if gainStages[node][1].globalGain != second { gainStages[node][1].globalGain = second }
+        if nodes[node].volume != level { nodes[node].volume = level }
     }
 
     private func beginDecoded(_ pcm: PCM, index: Int, offset: Double) throws {
@@ -219,7 +218,7 @@ public final class NativeMusicTransport {
     }
 
     private func prepareNext() {
-        guard state.playing, !preparingNext, next == nil, retiring == nil else { return }
+        guard state.playing, !preparingNext, fallbackNext == nil, next == nil, retiring == nil else { return }
         let candidate = MusicPlaybackPolicy.nextIndex(current: state.index, count: tracks.count, repeatMode: repeatMode)
         guard allowsAdvance?(state.index, candidate) != false else { blockedAdvance = (state.index, candidate); return }
         blockedAdvance = nil
@@ -275,6 +274,7 @@ public final class NativeMusicTransport {
         if let next { nodes[next.node].stop(); self.next = nil }
         if let streaming {
             for item in streaming.items().dropFirst() { streaming.remove(item) }
+            streamItems = streamItems.filter { $0.key == streamCurrentItem }
         }
         if state.playing { prepareNext() }
     }
@@ -299,6 +299,8 @@ public final class NativeMusicTransport {
             if seconds.isFinite { state.position = max(0, seconds) }
             if let item = streaming.currentItem, let index = streamItems[ObjectIdentifier(item)], ObjectIdentifier(item) != streamCurrentItem {
                 streamCurrentItem = ObjectIdentifier(item); streamIndex = index; state.index = index
+                let retained = Set(streaming.items().map { ObjectIdentifier($0) })
+                streamItems = streamItems.filter { retained.contains($0.key) }
                 if let request = requests[index] { onTrack?(request, index) }
                 prepareNext()
             }
@@ -306,14 +308,18 @@ public final class NativeMusicTransport {
             else if streaming.currentItem?.status == .failed {
                 state.error = "This audio format could not stream. Try a compatible copy."
                 state.playing = false; wantsPlayback = false
+                timer?.cancel(); timer = nil
             }
             if state.playing { prepareNext() }
-            streaming.volume = volume
-            onChange?(state)
+            publishTick()
             return
         }
         let now = mach_absolute_time()
         if let queued = next, now >= queued.hostStart {
+            if let outgoing = current {
+                state.position = outgoing.offset + min(AVAudioTime.seconds(forHostTime: now - outgoing.hostStart), outgoing.length)
+                onChange?(state)
+            }
             retiring = current; current = queued; next = nil
             state.index = queued.index; state.position = 0
             if let request = requests[queued.index] { onTrack?(request, queued.index) }
@@ -341,6 +347,17 @@ public final class NativeMusicTransport {
                 Task { [weak self] in await self?.select(index) }
             } else if !preparingNext && MusicPlaybackPolicy.nextIndex(current: state.index, count: tracks.count, repeatMode: repeatMode) == nil { ended() }
         }
+        publishTick()
+    }
+
+    private func publishTick() {
+        // Crossfade envelopes need the audio clock's 100 ms tick. Browsing,
+        // checkpoints and system Now Playing only need whole-second progress.
+        if let previous = lastTickState,
+           previous.index == state.index, previous.playing == state.playing,
+           previous.finished == state.finished, previous.error == state.error,
+           abs(previous.position - state.position) < 1 { return }
+        lastTickState = state
         onChange?(state)
     }
 
@@ -381,10 +398,15 @@ public final class NativeMusicTransport {
                 requests = requests.filter { $0.key == state.index }
                 requests[index] = request
                 let item = AVPlayerItem(url: request.url); item.preferredForwardBufferDuration = 8
-                streamItems[ObjectIdentifier(item)] = index
-                if streaming.canInsert(item, after: nil) { streaming.insert(item, after: nil) }
+                if streaming.canInsert(item, after: nil) {
+                    streaming.insert(item, after: nil)
+                    streamItems[ObjectIdentifier(item)] = index
+                } else { fallbackNext = index }
             } catch {
-                if token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled { state.error = "The next track is unavailable."; onChange?(state) }
+                if token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled {
+                    fallbackNext = index
+                    state.error = "The next track is unavailable."; onChange?(state)
+                }
             }
         }
     }

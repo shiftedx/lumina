@@ -323,6 +323,14 @@ final class LuminaCoreTests: XCTestCase {
         let profile = playbackBody["DeviceProfile"] as? [String: Any]
         let direct = (profile?["DirectPlayProfiles"] as? [[String: Any]])?.first?["Container"] as? String
         XCTAssertEqual(direct, "mp4,m4v,mov")
+        let audio = (profile?["DirectPlayProfiles"] as? [[String: Any]])?.first?["AudioCodec"] as? String
+        XCTAssertEqual(audio, "aac,ac3,eac3,mp3,alac")
+        let codecs = try XCTUnwrap(profile?["CodecProfiles"] as? [[String: Any]])
+        for (codec, depth) in [("h264", "8"), ("hevc", "10")] {
+            let rule = try XCTUnwrap(codecs.first { $0["Codec"] as? String == codec })
+            let condition = try XCTUnwrap((rule["Conditions"] as? [[String: String]])?.first)
+            XCTAssertEqual(condition, ["Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": depth])
+        }
         XCTAssertEqual(try body(requests.all[1])["PositionTicks"] as? Int64, 125_000_000)
         XCTAssertEqual(try body(requests.all[1])["IsPaused"] as? Bool, true)
     }

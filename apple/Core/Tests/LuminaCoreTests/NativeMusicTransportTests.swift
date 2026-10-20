@@ -120,6 +120,51 @@ final class NativeMusicTransportTests: XCTestCase {
         XCTAssertFalse(transport.state.playing)
     }
 
+    func testSteadyPlaybackPublishesWholeSecondProgressAndImmediatePause() async throws {
+        let fixture = try audioFixture(duration: 4)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let transport = transport(tracks: [fixture.track], url: fixture.url)
+        defer { transport.stop() }
+        var updates = 0
+        transport.onChange = { _ in updates += 1 }
+        await transport.start()
+        let initial = updates
+        try await observe(timeout: 5) { transport.state.position > 2 }
+        print("PERF steady progress callbacks over 2 playback seconds: \(updates - initial)")
+        XCTAssertLessThanOrEqual(updates - initial, 4, "Audio envelopes must not drive ten UI/Now Playing updates per second")
+        XCTAssertGreaterThanOrEqual(updates - initial, 2)
+        let beforePause = updates
+        transport.pause()
+        XCTAssertFalse(transport.state.playing)
+        XCTAssertGreaterThan(updates, beforePause, "Pause must publish immediately")
+    }
+
+    func testUnavailableStreamingSuccessorIsRequestedOnceUntilQueueChanges() async throws {
+        var fixture = try audioFixture(duration: 4)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        fixture.track.duration = nil
+        let track = fixture.track
+        var attempts = 0
+        let transport = NativeMusicTransport(tracks: [track, track], index: 0, position: 0) { index in
+            if index == 1 { attempts += 1; throw URLError(.cannotConnectToHost) }
+            return PlaybackRequest(id: "synthetic", item: track.mediaItem, url: fixture.url,
+                startPositionSeconds: 0, mediaSourceID: "synthetic", isTranscoding: false, methodLabel: "Test WAV")
+        }
+        defer { transport.stop() }
+        transport.configure(repeatMode: "off", crossfade: 0, normalize: true, volume: 0)
+        await transport.start()
+        try await observe(timeout: 5) { transport.state.position > 0 && attempts > 0 }
+        let confirmed = await transport.confirmPlaying()
+        XCTAssertTrue(confirmed, "An unavailable successor must not reject an already playing output handoff")
+        try await Task.sleep(for: .milliseconds(700))
+        print("PERF failed successor requests over 700 ms: \(attempts)")
+        XCTAssertEqual(attempts, 1, "A server failure must not be retried on every playback tick")
+        transport.replaceUpcoming([track, track])
+        try await observe(timeout: 5) { attempts > 1 }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(attempts, 2, "An explicit queue refresh may retry once")
+    }
+
     private func transport(tracks: [LuminaCore.MusicTrack], url: URL, crossfade: Double = 0) -> NativeMusicTransport {
         let transport = NativeMusicTransport(tracks: tracks, index: 0, position: 0) { index in
             PlaybackRequest(id: "occurrence-\(index)", item: tracks[index].mediaItem, url: url,

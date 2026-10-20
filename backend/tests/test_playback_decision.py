@@ -83,6 +83,16 @@ H264_720 = caps_from_device_profile({
         ]},
     ],
 })
+# Native AVKit client contract; serialization is also checked by LuminaCoreTests.
+NATIVE_AVKIT = caps_from_device_profile({
+    "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac"}],
+    "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264", "AudioCodec": "aac"}],
+    "CodecProfiles": [
+        {"Type": "Video", "Codec": codec, "Conditions": [{"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": depth}]}
+        for codec, depth in (("h264", "8"), ("hevc", "10"))
+    ],
+    "SubtitleProfiles": [{"Format": "vtt", "Method": "External"}],
+})
 HEVC8 = caps_from_browser_profiles(["mp4-avc-aac", "mp4-hevc-aac"])
 HEVC10 = caps_from_browser_profiles(["mp4-avc-aac", "mp4-hevc10-aac"])
 HEVC10_HDR = caps_from_browser_profiles(["mp4-hevc10-aac", "hdr"])
@@ -90,6 +100,12 @@ HDR10_4K = v("hevc", 2160, 3840, "yuv420p10le", "smpte2084")
 
 ROWS = [
     # id, caps, facts, limits, audio_index, subtitle_index -> (mode, video, audio, burn, height, bitrate, reasons)
+    ("native_mp4_mp3_direct", NATIVE_AVKIT, facts(MP4, v(), a("mp3")), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
+    ("native_mov_alac_direct", NATIVE_AVKIT, facts("mov", v(), a("alac")), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
+    ("native_mkv_hevc10_remux", NATIVE_AVKIT, facts(MKV, HDR10_4K, a()), Limits(), None, None, ("remux", "copy", "copy", None, None, None, ("ContainerNotSupported",))),
+    ("native_mkv_truehd_only_audio_encodes", NATIVE_AVKIT, facts(MKV, HDR10_4K, a("truehd", 8)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioCodecNotSupported",))),
+    ("native_h264_high10_encodes", NATIVE_AVKIT, facts(MP4, v(pix_fmt="yuv420p10le"), a()), Limits(), None, None, ("transcode", "encode", "copy", None, 1080, 8_000_000, ("VideoBitDepthNotSupported",))),
+    ("native_hevc12_encodes", NATIVE_AVKIT, facts(MP4, v("hevc", pix_fmt="yuv420p12le"), a()), Limits(), None, None, ("transcode", "encode", "copy", None, 1080, 8_000_000, ("VideoBitDepthNotSupported",))),
     ("infuse_mkv_h264_aac_direct", INFUSE, facts(MKV, v(), a()), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("infuse_hevc10_hdr10_truehd_direct", INFUSE, facts(MKV, HDR10_4K, a("truehd", 8)), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("truehd_is_an_audio_only_encode", TVOS_NO_TRUEHD, facts(MKV, v(), a("truehd", 8)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioCodecNotSupported",))),

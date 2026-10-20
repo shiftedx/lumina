@@ -28,17 +28,18 @@ const user: UserProfile = {
 };
 
 describe('test_theme_no_flash_and_persists', () => {
-  it('saves the choice in ui_prefs and the boot hint, and restores it on the next load', () => {
+  it.each(['light', 'oled'] as const)('saves %s in ui_prefs and the boot hint, and restores it on the next load', (choice) => {
     const state = createInitialWorkspaceState();
-    state.preferences.theme = 'light';
+    state.preferences.theme = choice;
     state.userSettings = { ui_prefs: { sidebar_collapsed: true } } as never;
-    expect(workspaceSettingsUpdate(state).ui_prefs).toMatchObject({ sidebar_collapsed: true, theme: 'light' });
+    expect(workspaceSettingsUpdate(state).ui_prefs).toMatchObject({ sidebar_collapsed: true, theme: choice });
 
-    applyTheme('light', false);
-    expect(document.documentElement.dataset.theme).toBe('light');
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
-    expect(storedThemePreference()).toBe('light');
-    expect(createInitialWorkspaceState().preferences.theme).toBe('light');
+    applyTheme(choice, false);
+    expect(document.documentElement.dataset.theme).toBe(choice);
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe(choice);
+    expect(storedThemePreference()).toBe(choice);
+    expect(createInitialWorkspaceState().preferences.theme).toBe(choice);
+    expect(themePreferenceFromUiPrefs({ theme: choice })).toBe(choice);
     expect(themePreferenceFromUiPrefs({ theme: 'dark' })).toBe('dark');
     expect(themePreferenceFromUiPrefs({ theme: 'neon' })).toBeUndefined();
   });
@@ -53,11 +54,11 @@ describe('test_theme_no_flash_and_persists', () => {
     expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
-  it('boot script resolves the saved choice before the app loads', () => {
+  it.each(['light', 'oled'] as const)('boot script resolves %s before the app loads', (choice) => {
     const boot = read('public/theme-boot.js');
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
+    window.localStorage.setItem(THEME_STORAGE_KEY, choice);
     new Function(boot)();
-    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(document.documentElement.dataset.theme).toBe(choice);
     expect(read('index.html')).toMatch(/<head>[\s\S]*<script src="\/theme-boot.js"><\/script>[\s\S]*<\/head>/);
   });
 });
@@ -72,6 +73,8 @@ describe('test_theme_system_changes', () => {
     expect(document.documentElement.dataset.theme).toBe('light');
     applyTheme('dark', true);
     expect(document.documentElement.dataset.theme).toBe('dark');
+    applyTheme('oled', true);
+    expect(document.documentElement.dataset.theme).toBe('oled');
   });
 
   it('settings exposes an accessible theme choice', () => {
@@ -80,5 +83,7 @@ describe('test_theme_system_changes', () => {
     expect((screen.getByRole('radio', { name: 'System' }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole('radio', { name: 'Light' }));
     expect(onThemeChange).toHaveBeenCalledWith('light');
+    fireEvent.click(screen.getByRole('radio', { name: 'OLED' }));
+    expect(onThemeChange).toHaveBeenLastCalledWith('oled');
   });
 });

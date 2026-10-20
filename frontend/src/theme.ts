@@ -1,12 +1,12 @@
 /** Member theme choice, persisted under `ui_prefs.theme`. */
-export type ThemePreference = 'system' | 'light' | 'dark';
+export type ThemePreference = 'system' | 'light' | 'dark' | 'oled';
 
 export const THEME_UI_PREF_KEY = 'theme';
 /** Boot hint read by public/theme-boot.js before first paint; holds only the choice. */
 export const THEME_STORAGE_KEY = 'lumina.theme';
 
 function isThemePreference(value: unknown): value is ThemePreference {
-  return value === 'system' || value === 'light' || value === 'dark';
+  return value === 'system' || value === 'light' || value === 'dark' || value === 'oled';
 }
 
 export function themePreferenceFromUiPrefs(uiPrefs: unknown): ThemePreference | undefined {
@@ -27,6 +27,8 @@ export function storedThemePreference(): ThemePreference {
 /** Resolves the choice against the OS scheme, sets `data-theme` and refreshes the boot hint. */
 export function applyTheme(preference: ThemePreference, prefersLight: boolean): void {
   document.documentElement.dataset.theme = preference === 'system' ? (prefersLight ? 'light' : 'dark') : preference;
+  const paper = getComputedStyle(document.documentElement).getPropertyValue('--g-paper').trim();
+  if (paper) document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => { meta.content = paper; });
   try {
     window.localStorage.setItem(THEME_STORAGE_KEY, preference);
   } catch {

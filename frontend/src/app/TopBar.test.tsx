@@ -175,6 +175,9 @@ describe('TopBar', () => {
     await userEvent.click(screen.getByRole('menuitemradio', { name: /Light/, hidden: true }));
     expect(p.onTheme).toHaveBeenCalledWith('light');
     await userEvent.click(screen.getByRole('button', { name: 'Dana Lee, account menu' }));
+    await userEvent.click(screen.getByRole('menuitemradio', { name: /OLED/, hidden: true }));
+    expect(p.onTheme).toHaveBeenLastCalledWith('oled');
+    await userEvent.click(screen.getByRole('button', { name: 'Dana Lee, account menu' }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'Sign out', hidden: true }));
     expect(p.onSignOut).toHaveBeenCalledOnce();
     stop();

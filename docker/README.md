@@ -100,6 +100,8 @@ From 1.9.0 the recommender also runs background yt-dlp searches and channel list
 
 ## Settings navigation
 
+**My Settings → Display → OLED** uses pure-black backgrounds for the page, panels and browser chrome. The account menu and command palette offer the same choice. Themes save per member; System, Light and Dark remain available.
+
 Open the header navigation button to choose **My Settings** or **Manage Server**.
 Navigation opens in a modal and closes after choosing a destination, leaving the full
 page width available for media. On phones, **More** opens the same menu.

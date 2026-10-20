@@ -23,6 +23,7 @@ function block(selector: RegExp): Record<string, string> {
 }
 const dark = block(/^:root \{/m);
 const light = { ...dark, ...block(/^:root\[data-theme='light'\] \{/m) };
+const oled = { ...dark, ...block(/^:root\[data-theme='oled'\] \{/m) };
 
 function luminance(hex: string): number {
   const value = hex.replace('#', '');
@@ -50,7 +51,7 @@ const PAIRS: Array<[string, string[], number]> = [
 ];
 
 describe('tokens.css contrast', () => {
-  for (const [name, theme] of [['dark', dark], ['light', light]] as const) {
+  for (const [name, theme] of [['dark', dark], ['light', light], ['oled', oled]] as const) {
     it(`every text token meets its ratio on every surface (${name})`, () => {
       for (const [text, surfaces, minimum] of PAIRS) {
         for (const surface of surfaces) {

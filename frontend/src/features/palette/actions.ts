@@ -48,6 +48,7 @@ export const PALETTE_ACTIONS: readonly PaletteAction[] = [
   theme('system', 'Use system theme', Monitor),
   theme('light', 'Use light theme', Sun),
   theme('dark', 'Use dark theme', Moon),
+  theme('oled', 'Use OLED theme', Moon),
   { id: 'edit-home', label: 'Edit Home', keywords: ['shelves', 'rows', 'arrange', 'reorder'], icon: Home, when: always, run: (ctx) => { ctx.navigate('/'); requestHomeEdit(); } },
   { id: 'new-collection', label: 'New collection…', keywords: ['group', 'list'], icon: FolderPlus, when: always, run: (ctx) => ctx.navigate('/library/collections?new=collection') },
   { id: 'new-smart-collection', label: 'New smart collection…', keywords: ['rules', 'automatic'], icon: Sparkles, when: always, run: (ctx) => ctx.navigate('/library/collections?new=smart') },

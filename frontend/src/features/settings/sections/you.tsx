@@ -89,6 +89,7 @@ function Theme() {
     { value: 'system', label: 'System', icon: <span className="settings-theme-sample is-system"><Monitor /></span> },
     { value: 'light', label: 'Light', icon: <span className="settings-theme-sample is-light"><Sun /></span> },
     { value: 'dark', label: 'Dark', icon: <span className="settings-theme-sample is-dark"><Moon /></span> },
+    { value: 'oled', label: 'OLED', icon: <span className="settings-theme-sample is-oled"><Moon /></span> },
   ]} value={theme} /></div>;
 }
 
@@ -164,7 +165,7 @@ export const YOU_SECTIONS: readonly SettingsSectionDef[] = [
   {
     id: 'appearance', group: 'you', label: 'Display', aliases: ['appearance'], summary: 'How Lumina looks for you.',
     entries: [
-      { id: 'appearance.theme', label: 'Theme', layout: 'block', keywords: ['dark mode', 'light mode', 'system', 'colours', 'colors'], info: "Chooses light or dark colours for Lumina. System follows your device's own light or dark setting. Affects only you, on every device you sign in to.", Control: Theme },
+      { id: 'appearance.theme', label: 'Theme', layout: 'block', keywords: ['dark mode', 'light mode', 'OLED', 'black', 'system', 'colours', 'colors'], info: "Choose Light, Dark or OLED with pure-black backgrounds. System follows your device's light or dark setting. Affects only you, on every device you sign in to.", Control: Theme },
     ],
   },
   {

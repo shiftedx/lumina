@@ -1,6 +1,7 @@
 .build/
 Core/.build/
 DerivedData/
+Build/
 DeviceDerivedData/
 SignedDerivedData/
 *.xcuserstate

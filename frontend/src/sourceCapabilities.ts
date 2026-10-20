@@ -25,7 +25,7 @@ export function capabilityActionMessage(reason: MediaCapabilityReason | null | u
   switch (reason) {
     case 'live_playback_not_supported': return 'Live playback is not available yet.';
     case 'subscriber_only': return 'This source is limited to the channel’s subscribers. Open the original link to watch it there.';
-    case 'sign_in_required': return 'This source needs a provider sign-in (age, membership or private). Lumina only plays public media; open the original link to watch it there.';
+    case 'sign_in_required': return action === 'play' ? 'This video needs a provider sign-in or permission. For YouTube, check your personal connection in Settings, or watch at the source.' : 'Saving signed-in media is unavailable. Open the original link to watch it with the provider.';
     case 'live_acquisition_not_supported': return 'Live acquisition is not available yet.';
     case 'live_record_not_supported': return 'Recording is not available for this source yet.';
     case 'upcoming_not_started': return 'This source has not started yet.';

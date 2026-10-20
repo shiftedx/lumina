@@ -84,7 +84,7 @@ class YtDlpPlaybackResolver:
 
     def resolve(self, source_url: str, owner_user_id: str) -> dict:
         with SessionLocal() as db:
-            return YtDlpService(db).resolve_remote_playback(source_url)
+            return YtDlpService(db).resolve_member_playback(source_url, owner_user_id)
 
 
 def _open_public_url(

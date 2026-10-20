@@ -228,6 +228,16 @@ class AcquisitionJobOutput(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class YouTubeSession(Base):
+    __tablename__ = "youtube_sessions"
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    encrypted_cookies: Mapped[str] = mapped_column(Text, nullable=False)
+    generation: Mapped[str] = mapped_column(String(36), nullable=False)
+    needs_reconnect: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
 class PlaybackProgress(Base):
     __tablename__ = "playback_progress"
     __table_args__ = (

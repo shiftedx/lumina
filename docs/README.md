@@ -22,3 +22,5 @@
 - [`performance/audit-remediation-2026-10-17.md`](performance/audit-remediation-2026-10-17.md): search, playback, UI and long-audio fixes with independent follow-up measurements.
 - [`design/media-discovery-reliability-2026-10-17.md`](design/media-discovery-reliability-2026-10-17.md): missing-season diagnosis, guarded production recovery, automatic discovery settings and registered-title reconciliation regression.
 - [`design/metadata-enrichment-reliability-2026-10-17.md`](design/metadata-enrichment-reliability-2026-10-17.md): delayed episode names/artwork diagnosis, production metadata recovery and incremental-import queue/race fixes.
+
+- [Personal YouTube sessions are playback-only](adr/0029-personal-youtube-sessions-are-playback-only.md)

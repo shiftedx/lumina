@@ -7,7 +7,7 @@ import type { WatchSelection } from './features/watch/WatchSurface';
 import { watchSurface } from './test/watchSurface';
 import { capabilityActionMessage } from './sourceCapabilities';
 
-/** A restricted public source keeps its link, explains itself, and never asks for a sign-in. */
+/** Restricted playback keeps a source handoff and an optional personal connection without promising access. */
 
 const SOURCE = 'https://www.youtube.com/watch?v=lumina00001';
 
@@ -15,10 +15,10 @@ function watch(selection: WatchSelection, sourceProblem: string | null = null): 
   return renderToStaticMarkup(watchSurface({ selection, sourceProblem }));
 }
 
-function expectHonestUnavailable(html: string, reason: string) {
+function expectHonestUnavailable(html: string, reason: string, originalLabel = 'Open original') {
   expect(html).toContain(reason);
   expect(html).toContain(`href="${SOURCE}"`);
-  expect(html).toContain('Open original');
+  expect(html).toContain(originalLabel);
   expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*?Save to library/);
   expect(html).not.toMatch(/cookie|sign in with|log in with|--cookies/i);
   expect(html).not.toContain('You can still download');
@@ -41,6 +41,18 @@ describe('test_restricted_source_honest', () => {
       },
     });
     expectHonestUnavailable(html, capabilityActionMessage('sign_in_required', 'play') as string);
+    expect(html).toContain('href="/settings/apps?page=youtube"');
+  });
+
+  it('keeps a source handoff and personal connection when a signed-in preview has no usable stream', () => {
+    const html = watch({ kind: 'remote', item: { id: 'lumina00001', title: 'Personal video', webpage_url: SOURCE }, preview: {
+      kind: 'video', title: 'Personal video', webpage_url: SOURCE, entries: [], raw: { extractor: 'youtube' },
+      capabilities: { provider: 'youtube', lifecycle: 'vod', can_play: true, can_acquire: false, acquire_reason: 'sign_in_required', chat: { live: 'unavailable', replay: 'unavailable' } },
+      playback: { status: 'unsupported', stream_id: 'private-stream', transport: null, media_kind: null, playback_url: null, content_type: null, has_video: false, has_audio: false, seekable: false },
+    } });
+    expectHonestUnavailable(html, 'This video cannot play in Lumina.', 'Watch on YouTube');
+    expect(html).toContain('href="/settings/apps?page=youtube"');
+    expect(html).toContain('Watch on YouTube');
   });
 
   it('keeps a playable public source free of the unavailable link', () => {

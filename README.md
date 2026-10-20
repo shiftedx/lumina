@@ -47,30 +47,33 @@
   <img src="docs/assets/library.jpg" alt="Lumina 0.3.4 Movies library with sorting, filters, and rounded artwork">
 </p>
 
-## In 0.3.4
+## In 0.4.0
 
-- **Music and artist artwork.** A dedicated listening experience with improved artist matching, photographs, credits, and consistent discographies across scans.
-- **Books and comics.** Read EPUB, PDF, CBZ, and CBR, bundle alternate formats, and resume with keyboard-friendly readers.
-- **Household setup.** Guided media-vault onboarding, clearer library grants for invitations, and accurate Sonarr/Radarr connection help.
-- **TV playback reliability.** Includes the Roku and Android TV compatibility fixes from 0.3.2.
+- YouTube: opt-in personal sessions; encrypted per-user credentials; disconnect revocation; restricted-video fallback.
+- Playback: paused-music activity cleanup; Up next preparation; protected-stream handoff; persistent player dismissal.
+- Music: shared queues; listening export; artist/album identity; artwork recovery; responsive lyrics; floating mini player.
+- Integrations: Sonarr/Radarr inventory and acquisition controls; Lidarr requests; collected-data views; Chromecast handoff.
+- Library: bounded discovery and artwork I/O; accurate scan progress; faster Books/manga loading and page turns.
+- Interface: compact settings workspaces; branded dropdowns; square gold switches; subject-aware hero framing and motion.
+- Server: household/member resource budgets; GitHub release checks; owner update notifications.
 
 See the [release notes](RELEASE_NOTES.md) for changes and upgrade details.
 
 ## Run
 
-Needs Docker with Compose, on amd64 or arm64. Lumina 0.3.4 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.3.4`.
+Needs Docker with Compose, on amd64 or arm64. Lumina 0.4.0 uses the pinned multi-platform image `ghcr.io/shiftedx/lumina:0.4.0`.
 
 ```bash
 mkdir lumina && cd lumina
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.4/docker-compose.yml
-curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.3.4/SHA256SUMS
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.4.0/docker-compose.yml
+curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.4.0/SHA256SUMS
 grep 'docker-compose.yml$' SHA256SUMS | shasum -a 256 -c -
 printf 'LUMINA_RUNTIME_UID=%s\nLUMINA_RUNTIME_GID=%s\n' "$(id -u)" "$(id -g)" > .env
 docker compose pull lumina
 docker compose up -d --no-build lumina
 ```
 
-Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.3.4/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
+Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and arm64 release images pass container smoke checks before publication. The release also includes [image digests and source revision](https://github.com/shiftedx/lumina/releases/download/v0.4.0/release-image.json). The [operator guide](docker/README.md) covers backups, upgrades, release-tag checkouts and source builds.
 
 | To | See |
 | --- | --- |
@@ -97,7 +100,7 @@ FastAPI and SQLite in `backend/`, React, TypeScript and Vite in `frontend/`. Arc
 
 ## Scope
 
-Lumina plays public sources only. It stores no provider credentials and does not handle DRM. You are responsible for following the terms of the sites you use.
+Lumina uses public sources by default. Members can optionally connect an encrypted personal YouTube session for recorded-video playback. Downloads and discovery remain anonymous; DRM is unsupported. You are responsible for following the terms of the sites you use.
 
 ## Credits
 

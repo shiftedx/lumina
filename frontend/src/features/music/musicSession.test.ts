@@ -135,6 +135,8 @@ describe('musicSession', () => {
     await vi.waitFor(() => expect(session.musicSession().queue).toEqual([server]));
     expect(session.musicSession().playback.playing).toBe(false);
     expect(mocks.putShared).not.toHaveBeenCalled();
+    session.pauseMusic();
+    await vi.waitFor(() => expect(mocks.progress).toHaveBeenCalledWith('server', expect.objectContaining({ position_seconds: 4, playing: false }), { keepalive: true }));
   });
 
   it('preserves a local rewind when its session revision still matches', async () => {
@@ -246,7 +248,20 @@ describe('musicSession', () => {
     controller.emit({ index: 1, position: 0, duration: 100, playing: true });
     await Promise.resolve();
 
-    expect(mocks.progress).toHaveBeenCalledWith('a', expect.objectContaining({ position_seconds: 100, completed: true }), { keepalive: true });
+    expect(mocks.progress).toHaveBeenCalledWith('a', expect.objectContaining({ position_seconds: 100, completed: true, playing: false }), { keepalive: true });
+  });
+
+  it('reports playback start and pause immediately between periodic checkpoints', async () => {
+    const session = await loadSession();
+    session.setMusicOwner('member');
+    await session.playMusicQueue([track('a')]);
+    const controller = mocks.engines[0];
+    controller.emit({ playing: false, loading: true });
+    mocks.progress.mockClear();
+    controller.emit({ playing: true, loading: false });
+    expect(mocks.progress).toHaveBeenLastCalledWith('a', expect.objectContaining({ playing: true }), { keepalive: true });
+    controller.emit({ playing: false });
+    expect(mocks.progress).toHaveBeenLastCalledWith('a', expect.objectContaining({ playing: false }), { keepalive: true });
   });
 
   it('pauses immediately when a music response denies access', async () => {

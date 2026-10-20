@@ -1097,6 +1097,7 @@ class PlaybackProgressUpdateRequest(BaseModel):
     position_seconds: int = Field(ge=0)
     duration_seconds: int | None = Field(default=None, ge=0)
     completed: bool = False
+    playing: bool = True
 
 
 class PlaybackProgressResponse(BaseModel):

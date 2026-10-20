@@ -598,6 +598,69 @@ class YtDlpService:
             return "audio"
         return None
 
+    def preview_for_playback(self, source_url: str, owner_user_id: str, lazy_playlist: bool = True, **kwargs) -> PreviewResponse:
+        """Anonymous by default; one explicit member session may retry a restricted video, never acquisition."""
+        from app.services import youtube_session
+
+        canonical = youtube_session.video_url(source_url)
+        if canonical is None:
+            return self.preview(source_url, lazy_playlist, **kwargs)
+        try:
+            response = self.preview(source_url, lazy_playlist, **kwargs)
+        except yt_dlp.utils.DownloadError as exc:
+            if self.classify_download_error(str(exc)) != "sign_in_required":
+                raise
+            response = None
+        if response is not None and (response.capabilities is None or response.capabilities.play_reason not in ("sign_in_required", "subscriber_only")):
+            return response
+        session = youtube_session.load(self.db, owner_user_id) if canonical else None
+        if session is None:
+            raise yt_dlp.utils.DownloadError(youtube_session.FALLBACK)
+        selection = kwargs.get("format_selection") or FormatSelection()
+        plan = FormatResolutionPolicy.resolve(selection)
+        options = self._build_acquisition_options(selection, format_plan=plan)
+        options.pop("download_archive", None)
+        options.update({"skip_download": True, "quiet": True, "extract_flat": False})
+        try:
+            with self._ydl_factory(options) as ydl, youtube_budget(canonical, options):
+                # CookieJar enforces domain/path/HTTPS scope. Nothing is written to a cookie file or options dict.
+                for cookie in session.cookies:
+                    ydl.cookiejar.set_cookie(cookie)
+                info = ydl.sanitize_info(ydl.extract_info(canonical, download=False))
+        except yt_dlp.utils.DownloadError as exc:
+            if any(marker in str(exc).lower() for marker in ("cookies are no longer valid", "cookies have expired", "session expired")):
+                youtube_session.mark_reconnect(self.db, owner_user_id, session.generation)
+            # A valid account may still lack access to this particular video; do not label it globally expired.
+            raise yt_dlp.utils.DownloadError(youtube_session.FALLBACK) from None
+        if not isinstance(info, dict) or info.get("_type") == "playlist" or info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming", "post_live"):
+            raise yt_dlp.utils.DownloadError("Signed-in playback is available for individual recorded YouTube videos. Watch this video on YouTube.")
+
+        def clean(value):  # noqa: ANN001, ANN202
+            if isinstance(value, dict):
+                return {key: clean(item) for key, item in value.items() if key.lower() not in ("cookie", "cookies", "authorization") and not key.startswith("_lumina_")}
+            if isinstance(value, list):
+                return [clean(item) for item in value]
+            return value
+
+        info = clean(info)
+        availability = info.get("availability")
+        # Access was established by a real extraction using this member's session. Acquisition stays anonymous-only.
+        info["availability"] = "public"
+        response = self._preview_response(info, selection, plan, 1)
+        info["availability"] = availability
+        info["_lumina_youtube_session"] = session.generation
+        response.availability = availability
+        if response.capabilities:
+            response.capabilities = response.capabilities.model_copy(update={"can_acquire": False, "acquire_reason": "sign_in_required"})
+        return response
+
+    def resolve_member_playback(self, source_url: str, owner_user_id: str) -> dict[str, Any]:
+        from app.services import youtube_session
+
+        if youtube_session.video_url(source_url) and youtube_session.load(self.db, owner_user_id):
+            return self.preview_for_playback(source_url, owner_user_id).raw
+        return self.resolve_remote_playback(source_url)
+
     def resolve_remote_playback(self, source_url: str) -> dict[str, Any]:
         """Resolve fresh private transport metadata for the streaming registry."""
 
@@ -1293,6 +1356,9 @@ class YtDlpService:
 
     @staticmethod
     def classify_download_error(message: str) -> AcquisitionErrorCategory | None:
+        from app.services.youtube_session import FALLBACK
+        if FALLBACK in message:
+            return "sign_in_required"
         lowered = message.strip().lower()
         if (
             "only images are available for download" in lowered
@@ -1308,6 +1374,9 @@ class YtDlpService:
 
     @staticmethod
     def explain_download_error(message: str) -> str:
+        from app.services.youtube_session import FALLBACK
+        if FALLBACK in message:
+            return FALLBACK
         normalized = message.strip()
         lowered = normalized.lower()
         if PUBLIC_SOURCE_POLICY_MESSAGE.lower() in lowered:

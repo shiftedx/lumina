@@ -1096,7 +1096,14 @@
   "watch_queues": [
    "revision",
    "user_id"
+  ],
+  "youtube_sessions": [
+   "encrypted_cookies",
+   "generation",
+   "needs_reconnect",
+   "updated_at",
+   "user_id"
   ]
  },
- "version": 31
+ "version": 32
 }

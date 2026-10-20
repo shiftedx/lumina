@@ -155,6 +155,26 @@ def test_jellyfin_stopped_ends_a_direct_session(factory, library) -> None:  # no
     assert activity.snapshot is not None and not activity._direct
 
 
+def test_inactive_music_checkpoints_save_progress_without_reviving_activity(client: TestClient, library, clock) -> None:  # noqa: ANN001
+    admin(client)
+    url = "/api/library/item-movie/playback"
+    payload = {"position_seconds": 12, "duration_seconds": 300, "playing": True}
+    assert client.put(url, json=payload).status_code == 200
+    assert len(client.get("/api/admin/activity").json()["sessions"]) == 1
+
+    payload.update(position_seconds=24, playing=False)
+    saved = client.put(url, json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["position_seconds"] == 24
+    assert client.get("/api/admin/activity").json()["sessions"] == []
+    clock["now"] += 120
+    assert client.put(url, json=payload).status_code == 200
+    assert client.get("/api/admin/activity").json()["sessions"] == []
+    payload["playing"] = True
+    assert client.put(url, json=payload).status_code == 200
+    assert len(client.get("/api/admin/activity").json()["sessions"]) == 1
+
+
 def test_stop_transcode_ends_job_records_history_and_blocks_restart(client: TestClient, factory, library, tmp_path, clock) -> None:  # noqa: ANN001
     admin(client)
     fake_session(tmp_path)

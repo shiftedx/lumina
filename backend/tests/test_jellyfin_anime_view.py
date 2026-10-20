@@ -1,4 +1,4 @@
-"""Jellyfin Anime view and the music ids Jellyfin never serves (A5).
+"""Jellyfin Anime view, explicit music browsing and member/artwork boundaries.
 
 Seeds conftest's per-test database with title_support's tree plus seed_gallery: "Show A" (an anime series, Season 1,
 "Arrival"), "Film" (an anime movie) and the album "Album One" by "Artist A" with three tracks, all alice's and shared.
@@ -19,7 +19,7 @@ from app.services.jellyfin import JellyfinMapper
 from app.services.media_titles import jellyfin_id, synthetic_id
 from test_query_plans import _seed_gallery as seed_plan_titles, explain_plan, plan_env  # noqa: F401 - plan_env is a fixture
 from title_support import (
-    ALICE, ALICE_TOKEN, ANIME_EPISODE, ANIME_FILE, ANIME_MOVIE, ANIME_SEASON, ANIME_SERIES, BOB_TOKEN, BOXSET, MOVIE, SERIES,
+    ALICE, ALICE_TOKEN, ANIME_EPISODE, ANIME_FILE, ANIME_MOVIE, ANIME_SEASON, ANIME_SERIES, BOB, BOB_TOKEN, BOXSET, MOVIE, SERIES,
     jellyfin_household, mediabrowser, seed_gallery,
 )
 
@@ -144,12 +144,14 @@ def test_shows_and_anime_split_series_seasons_and_episodes_by_category(jf: TestC
 
 
 def test_types_jellyfin_never_serves_match_nothing(jf: TestClient) -> None:
-    """IncludeItemTypes=MusicAlbum and the like match nothing (A5: no music in Jellyfin)."""
-    for types in ("MusicAlbum", "MusicArtist,Audio", "MusicAlbum,Playlist"):
+    """Books and unsupported media types stay excluded while music requires an explicit query."""
+    for types in ("Book", "AudioBook", "MusicVideo", "Book,AudioBook", "MusicAlbum,Playlist"):
         page = get(jf, "/Items", Recursive="true", IncludeItemTypes=types).json()
         assert (page["Items"], page["TotalRecordCount"]) == ([], 0), types
     assert names(get(jf, "/Items", ParentId=SHOWS, IncludeItemTypes="MusicAlbum", Recursive="true")) == []
     assert names(get(jf, "/Items", Recursive="true", IncludeItemTypes="MusicAlbum,Movie")) == ["Film", "Movie"]
+    assert names(get(jf, "/Items", Recursive="true", IncludeItemTypes="MusicAlbum")) == ["Album One"]
+    assert names(get(jf, "/Items", Recursive="true", IncludeItemTypes="MusicArtist")) == ["Artist A"]
 
 
 from test_jellyfin_api import watch  # noqa: E402
@@ -175,44 +177,52 @@ def test_resume_under_a_view_follows_the_category(jf: TestClient) -> None:
     assert names(get(jf, "/UserItems/Resume", ParentId=MOVIES)) == ["Film"]
 
 
-from app.models import AppSettings  # noqa: E402
-from app.services.connected_apps import jellyfin_server_key  # noqa: E402
-from app.services.jellyfin import title_tag  # noqa: E402
 from title_support import ALBUM, ARTIST, TRACKS  # noqa: E402
 
 
-def test_album_and_artist_ids_are_404_everywhere(jf: TestClient) -> None:
-    """A5: no music in Jellyfin. Every route that takes an id resolves through jf.resolve."""
+def test_music_ids_are_browseable_only_when_visible_and_folders_are_not_playable(jf: TestClient) -> None:
     me, headers = HEX(ALICE), mediabrowser(ALICE_TOKEN)
-    for title_id in (ALBUM, ARTIST):
+    for title_id, kind in ((ALBUM, "MusicAlbum"), (ARTIST, "MusicArtist")):
         hex_id = HEX(title_id)
-        for path in (f"/Items/{hex_id}", f"/Users/{me}/Items/{hex_id}", f"/Items/{hex_id}/Images/Primary",
-                     f"/Users/{me}/Items/{hex_id}/UserData", f"/Items/{hex_id}/SpecialFeatures"):
-            assert get(jf, path).status_code == 404, path
-        assert get(jf, f"/Shows/{hex_id}/Seasons").json()["Items"] == []  # lists below an unknown parent are empty
-        assert get(jf, "/Items", ParentId=hex_id).json()["Items"] == []
+        for path in (f"/Items/{hex_id}", f"/Users/{me}/Items/{hex_id}"):
+            assert get(jf, path).json()["Type"] == kind
+        assert get(jf, f"/Shows/{hex_id}/Seasons").json()["Items"] == []
         assert get(jf, "/Items/Latest", ParentId=hex_id).json() == []
         assert get(jf, "/UserItems/Resume", ParentId=hex_id).json()["Items"] == []
-        for path in (f"/Users/{me}/PlayedItems/{hex_id}", f"/Users/{me}/FavoriteItems/{hex_id}"):
-            assert jf.post(path, headers=headers).status_code == 404, path
         assert jf.post(f"/Items/{hex_id}/PlaybackInfo", json={}, headers=headers).status_code == 404
-    listed = get(jf, "/Items", Ids=f"{HEX(ALBUM)},{HEX(MOVIE)},{HEX(ARTIST)}").json()
-    assert ([item["Name"] for item in listed["Items"]], listed["TotalRecordCount"]) == (["Movie"], 1)
-
-
-def test_a_signed_tag_never_serves_album_art(jf: TestClient) -> None:
-    """Infuse fetches art token-less with the tag it was issued; an album's tag would be valid if one were ever signed."""
     with db_module.SessionLocal() as session:
-        pinned = session.get(AppSettings, 1)  # noqa: F841 - keeps the row alive for jellyfin_server_key
-        tag = title_tag(jellyfin_server_key(session), session.get(MediaTitle, ALBUM), "Primary")
-    assert tag is not None  # the album has a cover.jpg
-    assert jf.get(f"/Items/{HEX(ALBUM)}/Images/Primary", params={"tag": tag}).status_code == 404
+        for track in TRACKS:
+            session.get(LibraryItem, track).visibility = "private"
+        session.commit()
+    for title_id in (ALBUM, ARTIST):
+        hex_id = HEX(title_id)
+        for path in (f"/Items/{hex_id}", f"/Users/{HEX(BOB)}/Items/{hex_id}", f"/Items/{hex_id}/Images/Primary"):
+            assert get(jf, path, token=BOB_TOKEN).status_code == 404
+        for kind in ("PlayedItems", "FavoriteItems"):
+            assert jf.post(f"/Users/{HEX(BOB)}/{kind}/{hex_id}", headers=mediabrowser(BOB_TOKEN)).status_code == 404
+    assert names(get(jf, "/Items", IncludeItemTypes="MusicAlbum", token=BOB_TOKEN)) == []
+    assert names(get(jf, "/Items", IncludeItemTypes="MusicArtist", token=BOB_TOKEN)) == []
+    assert names(get(jf, "/Items", IncludeItemTypes="Audio", ParentId=HEX(ALBUM), token=BOB_TOKEN)) == []
+    assert get(jf, f"/Audio/{HEX(TRACKS[0])}/stream", token=BOB_TOKEN).status_code == 404
+
+
+def test_signed_album_art_requires_the_issued_tag_and_a_live_file(jf: TestClient) -> None:
+    """Album covers use the same item-scoped signed capability as video artwork."""
+    tag = get(jf, f"/Items/{HEX(ALBUM)}").json()["ImageTags"]["Primary"]
+    assert jf.get(f"/Items/{HEX(ALBUM)}/Images/Primary", params={"tag": tag}).status_code == 200
+    assert jf.get(f"/Items/{HEX(ALBUM)}/Images/Primary", params={"tag": "invalid"}).status_code == 404
+    assert jf.get(f"/Items/{HEX(SERIES)}/Images/Primary", params={"tag": tag}).status_code == 404
     show_tag = get(jf, f"/Items/{HEX(SERIES)}").json()["ImageTags"]["Primary"]
-    assert jf.get(f"/Items/{HEX(SERIES)}/Images/Primary", params={"tag": show_tag}).status_code == 200  # the route still works
+    assert jf.get(f"/Items/{HEX(SERIES)}/Images/Primary", params={"tag": show_tag}).status_code == 200
+    with db_module.SessionLocal() as session:
+        for track in TRACKS:
+            session.get(LibraryItem, track).status = "missing"
+        session.commit()
+    assert jf.get(f"/Items/{HEX(ALBUM)}/Images/Primary", params={"tag": tag}).status_code == 404
 
 
-def test_no_listing_ever_names_a_music_title(jf: TestClient) -> None:
-    watch(ALICE, TRACKS[0], hours=1, position=60)  # a track in progress
+def test_video_listings_stay_separate_from_explicit_music_items(jf: TestClient) -> None:
+    watch(ALICE, TRACKS[0], hours=1, position=60)
     music = {HEX(ALBUM), HEX(ARTIST)}
     listings = [
         get(jf, "/UserViews").json()["Items"],
@@ -221,11 +231,14 @@ def test_no_listing_ever_names_a_music_title(jf: TestClient) -> None:
         get(jf, "/Items/Latest").json(),
         get(jf, "/UserItems/Resume").json()["Items"],
         get(jf, "/Shows/NextUp").json()["Items"],
-        [get(jf, f"/Items/{HEX(track)}").json() for track in TRACKS],  # tracks stay items
     ]
     for dtos in listings:
         for dto in dtos:
             assert not music & {dto.get("Id"), dto.get("ParentId"), dto.get("SeriesId"), dto.get("SeasonId")}, dto
+    for track in TRACKS:
+        dto = get(jf, f"/Items/{HEX(track)}").json()
+        assert (dto["Type"], dto["ParentId"], dto["AlbumId"]) == ("Audio", HEX(ALBUM), HEX(ALBUM))
+    assert names(get(jf, "/Items", IncludeItemTypes="MusicAlbum")) == ["Album One"]
 
 
 from test_jellyfin_api import TICKS, lumina_progress, no_ffprobe  # noqa: E402,F401 - no_ffprobe is a fixture

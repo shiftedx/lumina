@@ -1,0 +1,15 @@
+Lumina native cinema beta — iPhone, iPad, and Apple TV
+
+Connect to your existing Lumina household server with a member account. The server's connected-app API must be enabled. Allow local-network access for a LAN server. No library or server credentials are bundled with the app.
+
+Please test:
+• Featured artwork and poster browsing: selection, title legibility, loading, scrolling, and rotation on iPhone/iPad.
+• iOS: a short downward pull reveals search; a deeper pull refreshes the library. Cancel closes search. Account contains Sign Out.
+• Apple TV: remote focus, featured selection, poster grids, Details, and the Account dialog.
+• Direct playback and “Convert to compatible video”: start, seek, pause, dismiss, relaunch, and synced resume between devices.
+• Empty libraries, unavailable server, invalid credentials, and recovery after a connection returns.
+• On each device: background the app and return during playback, then check audio/video state and resume position.
+
+Known issue: on tvOS, returning after pressing Home can resume playback without explicitly pressing Play. This beta does not establish HDR, Dolby Vision, Atmos, or HDMI output fidelity.
+
+For feedback, send a screenshot or TestFlight feedback with device/OS, steps, expected behavior, actual behavior, and whether playback used direct or compatible video. Avoid including server credentials or private library details.

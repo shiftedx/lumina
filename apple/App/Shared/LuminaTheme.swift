@@ -4,6 +4,13 @@ import UIKit
 /// Lumina's small shared palette. The dynamic providers keep the native clients
 /// aligned with the web paper/ink tokens while respecting the system appearance.
 public enum LuminaTheme {
+    /// The same licensed Newsreader face used by the web gallery, scaled with native text settings.
+    public static func editorial(_ size: CGFloat, relativeTo style: Font.TextStyle = .title2, italic: Bool = false) -> Font {
+        .custom(italic ? "Newsreader-16ptItalic" : "Newsreader-16ptRegular", size: size, relativeTo: style)
+    }
+
+    public static let theater = Color(red: 15 / 255, green: 14 / 255, blue: 12 / 255)
+    public static let spotlight = Color(red: 240 / 255, green: 180 / 255, blue: 58 / 255)
     public static let paper = dynamicColor(
         dark: (15, 14, 12),
         light: (244, 241, 234),
@@ -57,5 +64,38 @@ public enum LuminaTheme {
                 alpha: 1
             )
         })
+    }
+}
+
+/// The web wordmark's original flat sunrise, preserving its five detached rays.
+struct LuminaBrandMark: View {
+    var body: some View {
+        GeometryReader { geometry in
+            SunriseShape().stroke(LuminaTheme.spotlight,
+                style: StrokeStyle(lineWidth: geometry.size.width * 3 / 56, lineCap: .round, lineJoin: .round))
+        }
+        .aspectRatio(56 / 34, contentMode: .fit)
+        .accessibilityHidden(true)
+    }
+
+    private struct SunriseShape: Shape {
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            for (start, end) in [
+                (CGPoint(x: 10, y: 40), CGPoint(x: 54, y: 40)),
+                (CGPoint(x: 32, y: 12), CGPoint(x: 32, y: 21)),
+                (CGPoint(x: 18, y: 15.751), CGPoint(x: 22.5, y: 23.546)),
+                (CGPoint(x: 46, y: 15.751), CGPoint(x: 41.5, y: 23.546)),
+                (CGPoint(x: 7.751, y: 26), CGPoint(x: 15.546, y: 30.5)),
+                (CGPoint(x: 56.249, y: 26), CGPoint(x: 48.454, y: 30.5)),
+            ] {
+                path.move(to: start); path.addLine(to: end)
+            }
+            path.move(to: CGPoint(x: 21, y: 40))
+            path.addCurve(to: CGPoint(x: 32, y: 29), control1: CGPoint(x: 21, y: 33.925), control2: CGPoint(x: 25.925, y: 29))
+            path.addCurve(to: CGPoint(x: 43, y: 40), control1: CGPoint(x: 38.075, y: 29), control2: CGPoint(x: 43, y: 33.925))
+            return path.applying(CGAffineTransform(translationX: -4, y: -9)
+                .concatenating(CGAffineTransform(scaleX: rect.width / 56, y: rect.height / 34)))
+        }
     }
 }

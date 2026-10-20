@@ -12,6 +12,11 @@
 	<false/>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Newsreader-Latin-variable.ttf</string>
+		<string>Newsreader-Italic-Latin-variable.ttf</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

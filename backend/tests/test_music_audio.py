@@ -254,3 +254,12 @@ def test_wav_fallback_preserves_32_bit_source_precision(
     assert stream["sample_rate"] == "32000"
     assert stream["channels"] == 1
     playback.release()
+
+
+@pytest.mark.parametrize("suffix", ["m4a", "m4b", "mp4"])
+def test_native_mp4_audio_has_mp4_content_type(tmp_path: Path, suffix: str) -> None:
+    source = tmp_path / f"registered.{suffix}"
+    source.write_bytes(b"registered-audio")
+    playback = music_audio.playback_file(source)
+    assert playback.path == source
+    assert playback.content_type == "audio/mp4"

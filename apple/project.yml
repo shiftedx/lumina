@@ -29,6 +29,8 @@ targets:
       - path: Config/PrivacyInfo.xcprivacy
         buildPhase: resources
       - path: Assets/iOS.xcassets
+      - path: Fonts
+        buildPhase: resources
     dependencies:
       - package: LuminaCore
     settings:
@@ -47,6 +49,8 @@ targets:
       - path: Config/PrivacyInfo.xcprivacy
         buildPhase: resources
       - path: Assets/tvOS.xcassets
+      - path: Fonts
+        buildPhase: resources
     dependencies:
       - package: LuminaCore
     settings:

@@ -67,8 +67,9 @@ describe('"You" sections', () => {
     const mute = document.querySelector('[data-setting-id="playback.mute"]') as HTMLElement;
     const button = within(mute).getByRole('button', { name: 'About Mute strong language' });
     expect(document.getElementById(button.getAttribute('aria-controls') ?? '')?.textContent).toBe(MUTE_COPY);
-    expect(document.querySelector('details')).toBeNull();
-    expect(screen.getByRole('combobox', { name: 'Container' })).toBeTruthy();
+    const downloads = document.querySelector('[data-setting-id="downloads.defaults"]') as HTMLElement;
+    expect(downloads.querySelector('details')).toBeNull();
+    expect(within(downloads).getByRole('combobox', { name: 'Container' })).toBeTruthy();
   });
 });
 

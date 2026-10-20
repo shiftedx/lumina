@@ -26,51 +26,7 @@ from app.services.metadata_editor import Batch, can_edit_details, get_detail_edi
 from app.services.rate_limit import enforce_rate_limit
 
 
-class _MusicAudioResponse(MediaFileResponse):
-    """Keep a converted cache entry leased until every response exit path."""
-
-    def __init__(self, *args, release, **kwargs) -> None:  # noqa: ANN002, ANN003
-        super().__init__(*args, **kwargs)
-        self._release_music_file = release
-
-    async def __call__(self, scope, receive, send) -> None:  # noqa: ANN001
-        try:
-            await super().__call__(scope, receive, send)
-        finally:
-            self._release_music_file()
-
-
-def _music_audio_response(playback, *, headers: dict[str, str]) -> MediaFileResponse:  # noqa: ANN001
-    path, content_type = playback
-    release = getattr(playback, "release", lambda: None)
-    try:
-        return _MusicAudioResponse(path, media_type=content_type, headers=headers, release=release)
-    except BaseException:
-        release()
-        raise
-
-
-def _guard_music_resources(db: Session, request: Request, user: User, item: LibraryItem, playback, device: str) -> None:
-    from app.services.media_probe import MediaProbeService
-    from app.services.playback_decision import ANY, ClientCaps, DirectProfile
-    from app.services.playback_resources import playback_resources
-    if not playback_resources.enabled(db):
-        return
-    try:
-        facts = dict(MediaProbeService(db).facts(item))
-        path, _content_type = playback
-        duration = facts.get("duration")
-        # Compatibility WAV/FLAC can be larger than the source. Budget the file actually sent.
-        facts["bit_rate"] = int(path.stat().st_size * 8 / duration) if duration and duration > 0 else None
-        caps = ClientCaps(direct=(DirectProfile(ANY, ANY, ANY),), video={}, audio=ANY)
-        admission = playback_resources.admit_direct(db, user, request, item.id, device, facts, caps)
-        if admission is not None and admission.decision.mode != "direct":
-            playback_resources.release(admission)
-            raise HTTPException(409, "This audio format cannot fit the household playback bandwidth. Choose a smaller format or download it first.")
-        request.state.playback_admission = admission
-    except BaseException:
-        getattr(playback, "release", lambda: None)()
-        raise
+from app.services.music_audio import audio_response as _music_audio_response, guard_resources as _guard_music_resources
 
 
 def queue(body: MusicQueueRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> list[MusicTrack]:

@@ -42,6 +42,10 @@ def isolated_app_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "background_backfill_start_hour", None)
     monkeypatch.setattr(settings, "background_backfill_end_hour", None)
 
+    from app.services import art_urls
+
+    monkeypatch.setattr(art_urls, "_pending", art_urls.OrderedDict())
+
     from app.services import resource_policy
     monkeypatch.setattr(resource_policy, "_runtime", (False, 0))
 

@@ -85,7 +85,10 @@ test('rapid horizontal scrolling keeps delayed artwork bounded and fills the foc
   let completed = 0;
   let issued = 0;
   const requested = new Set<string>();
-  const artwork = (url: string) => new URL(url).pathname.startsWith('/api/art/');
+  const artwork = (url: string) => {
+    const path = new URL(url).pathname;
+    return path.startsWith('/api/art/') && path !== '/api/art/framing';
+  };
   page.on('request', (request) => {
     if (!artwork(request.url())) return;
     requested.add(new URL(request.url()).pathname);
@@ -97,6 +100,7 @@ test('rapid horizontal scrolling keeps delayed artwork bounded and fills the foc
   page.on('requestfinished', finished);
   page.on('requestfailed', (request) => { if (artwork(request.url())) { active -= 1; cancelled += 1; } });
   await page.route('**/api/art/**', async (route) => {
+    if (new URL(route.request().url()).pathname === '/api/art/framing') return route.fallback();
     if (!route.request().url().includes('/fixture/')) await new Promise((resolve) => setTimeout(resolve, 2_500));
     await route.fulfill({ status: 200, contentType: 'image/png', body: ARTWORK_PNG }).catch(() => {});
   });

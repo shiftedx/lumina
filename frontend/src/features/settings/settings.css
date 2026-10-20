@@ -444,5 +444,5 @@
 .settings-youtube-session { max-width: 68ch; }
 .settings-youtube-session p { margin: 0; }
 .settings-youtube-session details > p { margin-block: 12px; }
-.settings-youtube-session summary { cursor: pointer; padding-block: 12px; }
+.settings-youtube-session summary { min-height: max(44px, var(--g-control)); cursor: pointer; padding-block: 12px; }
 .settings-file-picker > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

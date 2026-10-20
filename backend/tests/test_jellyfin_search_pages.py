@@ -229,3 +229,49 @@ def test_card_reuse_invalidates_scope_writes_and_rollback() -> None:
         search.cached_search_cards(db, reader, query, mapper, [MOVIE])
         search.cached_search_cards(db, reader, query, mapper, [MOVIE])
         assert len(calls) == 10
+
+
+def test_search_filters_scope_before_paging_and_keep_rank_and_visibility(client) -> None:  # noqa: ANN001
+    from app.models import MemberFavorite, StorageRoot
+    from app.services.library_search import index_title
+    from app.services.media_titles import jellyfin_id, synthetic_id
+    from test_jellyfin_api import watch
+    from title_support import BOB, ROOT, ANIME_SERIES, add_file, seed_gallery, uid
+
+    first, second, hidden = uid(9101), uid(9102), uid(9103)
+    with db_module.SessionLocal() as db:
+        root = Path(db.get(StorageRoot, ROOT).path)
+        seed_gallery(db, root)
+        for title_id, name, year, genre, owner, visibility in (
+            (first, "Search One", 2023, "Drama", ALICE, "shared"),
+            (second, "Search Two", 2024, "Comedy", ALICE, "shared"),
+            (hidden, "Search Hidden", 2024, "Comedy", BOB, "private"),
+        ):
+            title = MediaTitle(id=title_id, type="movie", key=f"search-filter:{title_id}", root_id=ROOT,
+                               name=name, year=year, metadata_json={"genres": [genre]})
+            db.add(title)
+            add_file(db, root, f"filter/{title_id}.mp4", item_id=uid(int(title_id.replace("-", ""), 16) + 100),
+                     title_id=title_id, owner=owner, visibility=visibility, kind="movie", title=name)
+            db.flush()
+            index_title(db, title)
+            db.add(MemberFavorite(user_id=ALICE, target_id=title_id))
+        for title in db.query(MediaTitle).filter(MediaTitle.type == "series"):
+            index_title(db, title)
+        db.commit()
+    watch(ALICE, uid(9201), hours=1, position=1500, completed=True)
+    query = {"SearchTerm": "Search", "IncludeItemTypes": "Movie"}
+    baseline = get(client, "/Items", **query).json()
+    ranked = [item["Id"] for item in baseline["Items"]]
+    assert set(ranked) == {jellyfin_id(first), jellyfin_id(second)}
+    selected = get(client, "/Items", **query, Genres="Comedy", Years="2024", IsPlayed="false", IsFavorite="true").json()
+    assert [item["Id"] for item in selected["Items"]] == [jellyfin_id(second)]
+    assert selected["TotalRecordCount"] == 1
+    assert [item["Id"] for item in get(client, "/Items", **query, IsPlayed="false").json()["Items"]] == [jellyfin_id(second)]
+    pages = [get(client, "/Items", **query, IsFavorite="true", Limit=1, StartIndex=start).json() for start in (0, 1)]
+    assert [page["Items"][0]["Id"] for page in pages] == ranked
+    assert all(page["TotalRecordCount"] == 2 for page in pages)
+    assert get(client, "/Items", **query, ParentId=jellyfin_id(uid(9999))).json()["Items"] == []
+    anime = get(client, "/Items", SearchTerm="Show", IncludeItemTypes="Series", ParentId=jellyfin_id(synthetic_id("view:anime"))).json()
+    assert [item["Id"] for item in anime["Items"]] == [jellyfin_id(ANIME_SERIES)]
+    shows = get(client, "/Items", SearchTerm="Show", IncludeItemTypes="Series", ParentId=jellyfin_id(synthetic_id("view:tvshows"))).json()
+    assert all(item["Id"] != jellyfin_id(ANIME_SERIES) for item in shows["Items"])

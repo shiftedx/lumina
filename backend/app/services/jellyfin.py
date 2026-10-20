@@ -23,7 +23,7 @@ from sqlalchemy.sql import operators, visitors
 from sqlalchemy.sql.elements import BinaryExpression, BindParameter
 
 from app.media_schemas import TitlePerson, TitleUserData
-from app.models import AppSettings, DeviceToken, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberAccess, MemberFavorite, PlaybackProgress, StorageRoot, User
+from app.models import AppSettings, DeviceToken, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberAccess, MemberFavorite, MusicTrackOverride, PlaybackProgress, StorageRoot, User
 from app.schemas import PlaybackProgressUpdateRequest
 from app.services.artwork import ArtworkError, ArtworkService
 from app.services.connected_apps import jellyfin_server_id, jellyfin_server_key
@@ -32,7 +32,7 @@ from app.services.media_artifacts import MediaArtifactService, artifact_file
 from app.services.media_titles import jellyfin_id, parse_item_id, person_name_id, synthetic_id, to_ticks
 from app.services.transcripts import to_iso639_2 as iso639_2
 from app.services import playlists as pl
-from app.services import member_access, renditions
+from app.services import member_access, renditions, music_library
 from app.services.playback import PlaybackProgressService
 from app.services.subtitle_tracks import sidecars
 from app.services.title_metadata import _credits, people_for_titles
@@ -470,7 +470,7 @@ def resolve(db: Session, user: User, raw_id: object) -> Entity | None:
         return Entity(entity_id, view=view) if section_allows_view(db, user, view) else None
     title = TitleService(db).get_visible(entity_id, user)
     if title is not None:
-        return Entity(entity_id, title=title) if title.type in JF_TYPES else None  # album, artist: no music in Jellyfin (A5)
+        return Entity(entity_id, title=title) if title.type in JF_TYPES or title.type in ("album", "artist") else None
     item = LibraryService(db).get_item(entity_id, user)
     if item is not None and item.status != "missing":
         return Entity(entity_id, item=item)
@@ -534,6 +534,8 @@ class JellyfinMapper:
     def entity_dto(self, entity: Entity) -> dict:
         if entity.view is not None:
             return self.view_dto(entity.view)
+        if entity.title is not None and entity.title.type in ("album", "artist"):
+            return self.music_title_dto(entity.title)
         if entity.title is not None:
             return self.title_dtos([entity.title], sources=True)[0]
         if entity.channel is not None:
@@ -637,7 +639,69 @@ class JellyfinMapper:
                 if dto["MediaSources"][0].get("Path"):
                     dto["Path"] = dto["MediaSources"][0]["Path"]
             dtos.append(dto)
+        music = [item for item in items if item.kind in ("track", "audio")]
+        tracks = {track.id: track for track in music_library.manifests(self.db, self.user, music)}
+        album_ids = {track.album_id for track in tracks.values() if track.album_id}
+        albums = {title.id: title for title in self.db.scalars(select(MediaTitle).where(MediaTitle.id.in_(album_ids), self.titles.visible(self.user)))} if album_ids else {}
+        for item, dto in zip(items, dtos, strict=True):
+            if track := tracks.get(item.id):
+                dto.update(Type="Audio", MediaType="Audio", Name=track.title, Album=track.album,
+                           AlbumId=jid(track.album_id), AlbumPrimaryImageTag=title_tag(self.key, albums.get(track.album_id), "Primary", self.scope),
+                           ParentId=jid(track.album_id), Artists=[track.artist],
+                           AlbumArtist=track.album_artist, IndexNumber=track.number, ParentIndexNumber=track.disc)
+                if sources and dto.get("MediaSources"):
+                    dto["Container"] = dto["MediaSources"][0].get("Container")
         return dtos
+
+    def music_title_dto(self, title: MediaTitle) -> dict:
+        artist = self.titles.get_visible(title.parent_id, self.user) if title.parent_id else None
+        tag = title_tag(self.key, title, "Primary", self.scope)
+        return compact({
+            "Id": jid(title.id), "ServerId": self.server_id, "Name": title.name,
+            "Type": "MusicAlbum" if title.type == "album" else "MusicArtist", "IsFolder": True,
+            "MediaType": "Unknown", "ParentId": jid(title.parent_id), "ProductionYear": title.year,
+            "Overview": (title.metadata_json or {}).get("overview"), "DateCreated": jf_date(title.arrived_at),
+            "AlbumArtist": artist.name if artist else None, "ImageTags": {"Primary": tag} if tag else {},
+            "BackdropImageTags": [], "UserData": user_data_dto(title.id, TitleUserData()),
+        })
+
+    def music_items(self, q: ItemsQuery) -> dict | None:
+        asked = {value.lower() for value in q.csv("includeitemtypes")}
+        kinds = {"musicalbum": "album", "musicartist": "artist", "audio": "track"}
+        if not asked or not asked <= kinds.keys():
+            return None
+        start, limit = q.startindex, q.page_limit()
+        parent = resolve(self.db, self.user, q.parentid) if q.parentid else None
+        if q.parentid and (parent is None or parent.title is None or parent.title.type not in ("album", "artist")):
+            return query_result([], 0, start)
+        term = (q.searchterm or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        if asked == {"audio"}:
+            title = func.coalesce(func.json_extract(MusicTrackOverride.fields, "$.title"), LibraryItem.title)
+            disc = func.coalesce(func.json_extract(MusicTrackOverride.fields, "$.disc_number"), func.json_extract(LibraryItem.metadata_json, "$.disc_number"))
+            number = func.coalesce(func.json_extract(MusicTrackOverride.fields, "$.track_number"), func.json_extract(LibraryItem.metadata_json, "$.track_number"))
+            stmt = select(LibraryItem).outerjoin(MusicTrackOverride, MusicTrackOverride.item_id == LibraryItem.id).where(
+                LibraryItem.kind.in_(("track", "audio")), LibraryItem.status != "missing", LibraryService.visible_predicate(self.user),
+            )
+            if parent is not None:
+                album_ids = select(MediaTitle.id).where(MediaTitle.parent_id == parent.id) if parent.title.type == "artist" else [parent.id]
+                stmt = stmt.where(LibraryItem.title_id.in_(album_ids))
+            if term:
+                stmt = stmt.where(title.ilike(f"%{term}%", escape="\\"))
+            order = [func.lower(title), LibraryItem.id]
+            if parent is not None:
+                order = [func.coalesce(cast(disc, Integer), 1), func.coalesce(cast(number, Integer), 1_000_000),
+                         func.lower(title), LibraryItem.id]
+            total = self.db.scalar(select(func.count()).select_from(stmt.subquery()))
+            rows = list(self.db.scalars(stmt.order_by(*order).offset(start).limit(limit)))
+            return query_result(self.item_dtos(rows), total, start)
+        stmt = select(MediaTitle).where(MediaTitle.type.in_([kinds[kind] for kind in asked if kind != "audio"]), self.titles.visible(self.user))
+        if parent is not None:
+            stmt = stmt.where(MediaTitle.parent_id == parent.id)
+        if term:
+            stmt = stmt.where(MediaTitle.name.ilike(f"%{term}%", escape="\\"))
+        total = self.db.scalar(select(func.count()).select_from(stmt.subquery()))
+        rows = list(self.db.scalars(stmt.order_by(*self.order(q, None)).offset(start).limit(limit)))
+        return query_result([self.music_title_dto(title) for title in rows], total, start)
 
     # ---- /Items ------------------------------------------------------------------------
 
@@ -1381,8 +1445,8 @@ def tagged_entity(db: Session, raw_id: str, image_type: str, tag: str | None) ->
     key, entity_id = jellyfin_server_key(db), parse_item_id(raw_id) or ""
     scope = (tag or "")[32:]
     title = db.get(MediaTitle, entity_id)
-    if title is not None and title.type not in JF_TYPES:
-        raise LookupError("image")  # album, artist: no music in Jellyfin (A5)
+    if title is not None and title.type not in JF_TYPES and title.type not in ("album", "artist"):
+        raise LookupError("image")
     if title is not None:
         expected, entity, member = title_tag(key, title, image_type, scope), Entity(title.id, title=title), None
         live = has_live_file(db, title.id)

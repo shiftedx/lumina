@@ -116,6 +116,26 @@ const at = (path: string, ready?: (page: Page) => Promise<void>) => async (page:
   await ready?.(page);
 };
 
+/** Open the populated card's visible art affordance before capturing or selecting its controlled menu. */
+async function openPickedMenu(page: Page) {
+  await at('/')(page);
+  const card = page.locator('[data-shelf-section="picked_for_you"] .h-card').first();
+  const host = card.locator('.g-remote-card').first();
+  await expect(host).toBeVisible();
+  await host.scrollIntoViewIfNeeded();
+  await host.hover();
+  const trigger = host.getByRole('button', { name: /^More options for / });
+  await expect(trigger).toHaveCSS('opacity', '1');
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  const menuId = await trigger.getAttribute('aria-controls');
+  expect(menuId).toBeTruthy();
+  const menu = page.locator(`[id="${menuId}"]`);
+  await expect(menu).toHaveAttribute('role', 'menu');
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
 /** A list state opens its route with `ready` asserting a row is on screen: a populated screenshot, never an empty one under a list name. */
 const populated = (path: string, setup: (page: Page) => Promise<unknown>, ready: (page: Page) => Promise<unknown>) => async (page: Page, prefs: Prefs) => { await setup(page); await at(path, async () => { await ready(page); })(page, prefs); };
 const JOBS = [
@@ -182,7 +202,7 @@ const SCREENS: Shot[] = [
   { area: 'streaming', state: 'live', open: at('/streaming/live') },
   { area: 'streaming', state: 'live-wall', open: async (page) => { await at('/streaming/live?rail=gaming', async () => { await expect(page.locator('.g-rail-wall')).toBeVisible(); })(page); await page.locator('.g-rail-more').scrollIntoViewIfNeeded(); await page.waitForTimeout(600); } },
   { area: 'streaming', state: 'channels', open: populated('/streaming/channels', (page) => over(page, '**/api/automations', FOLLOWS), (page) => expect(page.getByText('Harbor Films').first()).toBeVisible()) },
-  { area: 'home', state: 'picked-menu', open: async (page) => { await at('/')(page); await page.locator('[data-shelf-section="picked_for_you"]').getByRole('button', { name: /^More options for / }).first().click(); await expect(page.getByRole('menu')).toBeVisible(); } },
+  { area: 'home', state: 'picked-menu', open: async (page) => { await openPickedMenu(page); } },
   { area: 'home', state: 'art-hover', open: async (page) => { await at('/')(page); await page.locator('.g-poster').first().scrollIntoViewIfNeeded(); await page.locator('.g-art-host').first().hover(); await expect(page.locator('.g-art-host').first().getByRole('button', { name: /^More options for / })).toHaveCSS('opacity', '1'); } },
   { area: 'home', state: 'art-menu', open: async (page) => { await at('/')(page); await page.locator('.g-poster').first().scrollIntoViewIfNeeded(); const host = page.locator('.g-art-host').first(); await host.hover(); await host.getByRole('button', { name: /^More options for / }).click(); await expect(page.getByRole('menu')).toBeVisible(); } },
   { area: 'library', state: 'poster-hover', open: async (page) => { await over(page, /\/api\/titles(\?|$)/, { items: [movieTitle, { ...movieTitle, id: 'movie-2', name: 'Second poster' }], next_cursor: null }); await at('/library/movies')(page); const host = page.locator('.g-art-host').first(); await host.hover(); await expect(host.getByRole('button', { name: /^More options for / })).toHaveCSS('opacity', '1'); } },
@@ -287,7 +307,7 @@ const SCREENS: Shot[] = [
     await page.goto(`/watch?url=${encodeURIComponent(url)}`);
     await expect(page.getByRole('heading', { level: 1, name: 'Harbor at night, live' })).toBeVisible(); } },
   { area: 'player', state: 'error', open: async (page) => { await over(page, `**/api/library/${item.id}/media`, { detail: 'gone' }, 500); await at(`/watch/library/${item.id}`)(page); await page.waitForTimeout(1500); } },
-  { area: 'home', state: 'undo-row', open: async (page) => { await at('/')(page); await page.locator('[data-shelf-section="picked_for_you"]').getByRole('button', { name: /^More options for / }).first().click(); await page.getByRole('menuitem', { name: 'Not interested' }).click(); await expect(page.getByRole('button', { name: 'Undo' }).first()).toBeVisible(); } },
+  { area: 'home', state: 'undo-row', open: async (page) => { const menu = await openPickedMenu(page); await menu.getByRole('menuitem', { name: 'Not interested', exact: true }).click(); await expect(page.getByRole('button', { name: 'Undo' }).first()).toBeVisible(); } },
 ];
 /** Spec 13.1 states beyond the minimum: the release review must see them, so a missing key fails this spec. */
 const REQUIRED = [
@@ -332,6 +352,7 @@ for (const scheme of ['light', 'dark'] as const) {
         for (const key of Object.keys(prefs)) delete prefs[key];
         prefs.sidebar_collapsed = false;
         prefs.settings_advanced = true; // advanced rows on, so Settings shots cover every row
+        prefs.autoplay_up_next = false;
         await screen.open(page, prefs);
         await page.waitForTimeout(300); // artwork fade and fonts settle
         await page.screenshot({ path: join(OUT, `${screen.area}-${screen.state}-${viewport.name}-${scheme}.png`) });

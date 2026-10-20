@@ -1475,6 +1475,7 @@ export interface ArtServing {
 }
 
 export interface ArtworkProgress {
+  pending: number;
   total: number;
   prepared: number;
   failed: number;

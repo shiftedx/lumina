@@ -1,9 +1,19 @@
 # App Store readiness: native Apple proof
 
 **Reviewed:** 2026-10-17
+
+**2026-10-19 update:** The [internal TestFlight packaging pass](testflight.md) adds icon/top shelf assets, a shared iOS/tvOS bundle ID and app record, version settings, and distribution tooling. The findings below retain the original pre-packaging review; those asset/identity blockers have been addressed for the internal beta. Public-release privacy, metadata, reviewer access, and hardware qualification remain outstanding.
+
+For the subsequently requested external beta, the owner selected the companion-server review model: reviewers install Lumina's self-hosted server and create their own member account. Review notes include server source/setup instructions, and developer-managed reviewer credentials are disabled. A hosted demo instance is not part of the requested distribution workflow; the original hosted-demo recommendations below describe the earlier review assumption.
 **Scope:** paid-upfront native iPhone, iPad, and Apple TV client for a user-selected, self-hosted Lumina household server. The proof supports member sign-in, browse/search, direct or compatible-HLS playback, and progress sync. It has no in-app signup, social login, advertising, analytics SDK, WebView, StoreKit/IAP, third-party acquisition, or YouTube/Twitch/Kick integration.
 
 This is a read-only review of the proof, not an approval guarantee. A passed simulator journey is evidence for the proof; it does not make the project submission-ready.
+
+## 2026-10-20 extended-audio implementation update
+
+The review below is historical. Native music now includes saved/smart playlists and mixes, read-only household sharing, member queue synchronization with revision conflicts and paused restore, owner-scoped offline audio/artwork/lyrics, timed lyrics, buffered normalization/crossfade, persistent sleep deadlines, and acknowledged Sonos output controls. See [current usage](../README.md) and [verification](verification.md) for limits and actual evidence; extended platform builds and four additional UI workflows remain pending in that record until results are entered.
+
+Update the signed candidate's reviewer steps, screenshots, privacy policy and App Privacy assessment for owner-scoped on-device downloads/checkpoints/lyrics and server-mediated playlist, queue and speaker operations. Explain explicit sign-out cleanup and tvOS cache purging. Offline downloading is limited to the member's authorized household media; it adds no third-party acquisition service. Test speaker handoff, interruptions, storage recovery and offline errors on real hardware. No new upload, approval, distribution entitlement or all-format playback qualification follows from these code changes. The original checklist and recommendations below remain historical review evidence, subject to the later selected companion-server review model above.
 
 ## 1) Executive Summary
 

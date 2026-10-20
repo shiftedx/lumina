@@ -42,8 +42,9 @@ PERF_LOCK ?= /tmp/lumina-perf.lock
 e2e-realstack: frontend-build
 	scripts/with-lock.sh $(PERF_LOCK) 1800 sh -c 'cd frontend && npx playwright test -c playwright.realstack.config.ts --project=setup --project=journeys --project=perf'
 
+E2E_WORKERS ?= 2
 e2e-mocked:
-	cd frontend && npx playwright test
+	cd frontend && npx playwright test --workers=$(E2E_WORKERS)
 
 e2e-browsers: frontend-build
 	cd frontend && npx playwright test -c playwright.realstack.config.ts --project=setup --project=webkit-playback

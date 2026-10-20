@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.media_schemas import PlaybackSessionRequest
-from app.models import DeviceToken, HouseholdCollection, LibraryItem, User
+from app.models import DeviceToken, HouseholdCollection, LibraryItem, MediaTitle, User
 from app.routers.jellyfin_probes import split_csv
 from app.routers.local_playback import open_session  # the shared start path
 from app.services import jellyfin as jf
@@ -264,13 +264,19 @@ def suggestions(
 def search_items(db: Session, user: User, query: jf.ItemsQuery) -> dict:
     """/Items?searchTerm: the ranked refs rendered by by_ids, in relevance order.
 
-    Only SortName is honoured as a client sort and other /Items filters (ParentId, IsPlayed) are ignored
-    on search results (accepted ceiling); route the refs through the filtered query if a client needs them.
+    Title parent, genre, year and member-state filters narrow the ranked refs before paging.
+    SortName remains the supported explicit client sort.
     """
     mapper = jf.JellyfinMapper(db, user, query.csv("fields"))
 
     def render() -> dict:
         refs = search_refs(db, user, query.searchterm or "", item_types(",".join(query.csv("includeitemtypes"))), SEARCH_LIMIT)
+        if query.parentid or query.genres or query.genreids or query.years or query.filters or query.isplayed is not None or query.isfavorite is not None:
+            parent = jf.resolve(db, user, query.parentid) if query.parentid else None
+            invalid_parent = query.parentid and (parent is None or parent.item is not None or parent.channel is not None or parent.view == "channels")
+            stmt = None if invalid_parent else mapper.title_filter(parent, query.model_copy(update={"searchterm": None}))
+            allowed = set(db.scalars(stmt.with_only_columns(MediaTitle.id).where(MediaTitle.id.in_(refs)))) if stmt is not None else set()
+            refs = [ref for ref in refs if ref in allowed]
         start, limit = query.startindex, query.page_limit()
         # Relevance order is already final, so an ordinary page only needs DTOs for
         # its own refs. Rendering every ranked result first made a 60-item Jellyfin

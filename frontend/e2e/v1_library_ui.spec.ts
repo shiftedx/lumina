@@ -87,11 +87,9 @@ test('test_library_views_delete_and_undo', async ({ page }) => {
   const calls = await openLibrary(page, '/library/youtube', { width: 1536, height: 960 }, 'dark');
   const canoe = page.getByRole('button', { name: /^Building a cedar canoe by hand, start to finish, / });
   await expect(canoe).toBeVisible();
-  // Imported: read-only, but every every StillCard a menu for Add to queue.
-  await page.getByRole('button', { name: /^More options for clip_0042/ }).click();
-  await expect(page.getByRole('menuitem', { name: 'Add to queue' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Delete from Lumina' })).toHaveCount(0);
-  await page.keyboard.press('Escape');
+  // Imported files stay outside the saved web-video shelf.
+  await expect(page.getByText('clip_0042', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^More options for clip_0042/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'More options for Building a cedar canoe by hand, start to finish' }).click();
   await page.getByRole('menuitem', { name: 'Delete from Lumina' }).click();
   await expect(page.locator('.g-toast').filter({ hasText: 'Deleted' })).toBeVisible();

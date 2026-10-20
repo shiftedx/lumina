@@ -69,7 +69,8 @@ test('turning on Semantic search with no model downloads it, and it works after 
   const toggle = page.getByRole('switch', { name: 'Semantic search' });
   await expect(toggle).not.toBeChecked();
 
-  await toggle.click();
+  await toggle.press('Space');
+  await expect(toggle).not.toBeChecked();
   const dialog = page.getByRole('dialog', { name: 'Turn on Semantic search?' });
   await expect(dialog).toContainText('Granite Embedding 97M multilingual');
   await expect(dialog).toContainText('115 MB download, about 913 MB of memory while running, Apache-2.0 licence.');
@@ -79,7 +80,7 @@ test('turning on Semantic search with no model downloads it, and it works after 
   await expect(toggle).toBeFocused();
   expect(fake.downloads).toEqual([]);
 
-  await toggle.click();
+  await toggle.press('Space');
   await dialog.getByRole('button', { name: 'Download and turn on' }).click();
   await expect(toggle).toBeChecked();
   expect(fake.downloads).toEqual(['granite-embedding-97m-multilingual-r2-q8']);

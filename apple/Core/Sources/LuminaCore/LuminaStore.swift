@@ -5,16 +5,43 @@ import Security
 let tickScale = 10_000_000.0
 
 @MainActor @Observable public final class LuminaStore {
-    public private(set) var session: LuminaSession?
+    public private(set) var session: LuminaSession? {
+        didSet {
+            music.configure(session: session)
+            offline.configure(session: session)
+        }
+    }
+    public let music = LuminaMusicLibrary()
+    public let offline = LuminaOfflineLibrary()
     public private(set) var items = [MediaItem]()
+    public private(set) var recentItems = [MediaItem]()
+    public private(set) var audioItems = [MediaItem]()
+    public private(set) var audioHasMore = false
+    public private(set) var isAudioBusy = false
+    public private(set) var isHomeBusy = false
+    public private(set) var nextUpItems = [MediaItem]()
     public private(set) var resumeItems = [MediaItem]()
     public private(set) var isBusy = false
     public private(set) var errorMessage: String?
     public private(set) var hasMore = false
 
+    public var featuredItems: [MediaItem] {
+        var seen = Set<String>()
+        return Array((resumeItems + recentItems).filter { seen.insert($0.id).inserted }.prefix(8))
+    }
+
     private let client: LuminaClient
     private let credentials: CredentialStore
     private var currentSearch = ""
+    private var videoKind = VideoBrowseKind.all
+    private var videoSort = VideoSort.name
+    private var videoFilters = VideoFilters()
+    private var videoParentID: String?
+    private var musicKind = MusicBrowseKind.albums
+    private var audioSearch = ""
+    private var audioIndex = 0
+    private var audioGeneration = 0
+    private var homeGeneration = 0
     private var nextIndex = 0
     private var libraryGeneration = 0
 
@@ -58,9 +85,11 @@ let tickScale = 10_000_000.0
             await refresh()
         } catch {
             if case LuminaError.http(401) = error {
+                offline.clear(session: saved)
                 credentials.deleteSession()
                 session = nil
             } else if case LuminaError.http(403) = error {
+                offline.clear(session: saved)
                 credentials.deleteSession()
                 session = nil
             } else {
@@ -72,30 +101,58 @@ let tickScale = 10_000_000.0
 
     public func signOut() async {
         let active = session
-        credentials.deleteSession()
-        session = nil
-        items = []
-        resumeItems = []
-        hasMore = false
+        if let active { offline.clear(session: active) }
+        clearSession()
         guard let active else { return }
         try? await client.logout(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
     }
 
-    public func loadLibrary(search: String = "") async {
+    private func clearSession() {
+        if let session { offline.clear(session: session) }
+        credentials.deleteSession()
+        session = nil
+        libraryGeneration += 1
+        audioGeneration += 1
+        homeGeneration += 1
+        items = []
+        recentItems = []
+        audioItems = []
+        audioHasMore = false
+        isAudioBusy = false
+        isHomeBusy = false
+        isBusy = false
+        nextUpItems = []
+        resumeItems = []
+        videoParentID = nil
+        hasMore = false
+    }
+
+    public func loadLibrary(search: String = "", kind: VideoBrowseKind = .all, sort: VideoSort = .name, filters: VideoFilters = .init()) async {
         guard let active = session else { return }
         libraryGeneration += 1
         let generation = libraryGeneration
         isBusy = true
         errorMessage = nil
-        defer { isBusy = false }
+        defer { if generation == libraryGeneration { isBusy = false } }
         do {
             currentSearch = search
-            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: search, start: 0)
+            videoKind = kind
+            videoSort = sort
+            videoFilters = filters
+            videoParentID = nil
+            if kind == .shows || kind == .anime {
+                let views = try await client.views(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
+                guard generation == libraryGeneration, isCurrent(active) else { return }
+                videoParentID = views.items.first { $0.collectionType == "tvshows" && (kind == .anime ? $0.name == "Anime" : $0.name != "Anime") }?.id
+                if videoParentID == nil { items = []; hasMore = false; nextIndex = 0; return }
+            }
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: search, start: 0, types: kind.itemTypes, sort: sort, parentID: videoParentID, filters: filters)
             guard generation == libraryGeneration, isCurrent(active) else { return }
-            items = page.items.filter(\.isPlayable)
-            nextIndex = items.count
-            hasMore = nextIndex < page.total
+            items = page.items.filter { ($0.isPlayable || $0.isCollection) && !$0.isAudio }
+            nextIndex = page.items.count
+            hasMore = !page.items.isEmpty && nextIndex < page.total
         } catch {
+            guard generation == libraryGeneration, isCurrent(active) else { return }
             errorMessage = Self.message(for: error, signingIn: false)
         }
     }
@@ -104,15 +161,16 @@ let tickScale = 10_000_000.0
         guard let active = session, hasMore, !isBusy else { return }
         let generation = libraryGeneration
         isBusy = true
-        defer { isBusy = false }
+        defer { if generation == libraryGeneration { isBusy = false } }
         do {
-            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: currentSearch, start: nextIndex)
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: currentSearch, start: nextIndex, types: videoKind.itemTypes, sort: videoSort, parentID: videoParentID, filters: videoFilters)
             guard generation == libraryGeneration, isCurrent(active) else { return }
-            let playable = page.items.filter(\.isPlayable)
+            let playable = page.items.filter { ($0.isPlayable || $0.isCollection) && !$0.isAudio }
             items.append(contentsOf: playable)
             nextIndex += page.items.count
-            hasMore = nextIndex < page.total
+            hasMore = !page.items.isEmpty && nextIndex < page.total
         } catch {
+            guard generation == libraryGeneration, isCurrent(active) else { return }
             errorMessage = Self.message(for: error, signingIn: false)
         }
     }
@@ -122,30 +180,205 @@ let tickScale = 10_000_000.0
         do {
             let loaded = try await client.resume(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
             guard isCurrent(active) else { return }
-            resumeItems = loaded.filter(\.isPlayable)
+            resumeItems = loaded.filter { $0.isPlayable && !$0.isAudio }
         } catch {
+            guard isCurrent(active) else { return }
             errorMessage = Self.message(for: error, signingIn: false)
         }
     }
 
     public func refresh() async {
-        await loadLibrary(search: currentSearch)
-        await loadResume()
+        await loadLibrary(search: currentSearch, kind: videoKind, sort: videoSort, filters: videoFilters)
+        await loadHome()
+    }
+
+    public func loadHome() async {
+        guard let active = session else { return }
+        homeGeneration += 1
+        let generation = homeGeneration
+        isHomeBusy = true
+        errorMessage = nil
+        defer { if generation == homeGeneration { isHomeBusy = false } }
+        do {
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: "", start: 0, sort: .recentlyAdded)
+            guard generation == homeGeneration, isCurrent(active) else { return }
+            recentItems = page.items.filter { $0.isPlayable && !$0.isAudio }
+            await loadResume()
+            guard generation == homeGeneration, isCurrent(active) else { return }
+            await loadNextUp()
+        } catch {
+            guard generation == homeGeneration, isCurrent(active) else { return }
+            errorMessage = Self.message(for: error, signingIn: false)
+        }
+    }
+
+    public func loadNextUp() async {
+        guard let active = session else { return }
+        do {
+            let loaded = try await client.nextUp(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
+            guard isCurrent(active) else { return }
+            nextUpItems = loaded.filter { $0.type == "Episode" }
+        } catch {
+            guard isCurrent(active) else { return }
+            errorMessage = Self.message(for: error, signingIn: false)
+        }
+    }
+
+    public func loadChildren(of item: MediaItem) async throws -> [MediaItem] {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        guard item.isCollection else { return [] }
+        var result = [MediaItem]()
+        var start = 0
+        while true {
+            let page = try await client.children(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, item: item, start: start)
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            result.append(contentsOf: page.items.filter { item.type == "Series" ? $0.type == "Season" : $0.type == "Episode" })
+            start += page.items.count
+            if item.type == "Series" || page.items.isEmpty || start >= page.total {
+                return result.sorted { ($0.indexNumber ?? Int.max, $0.id) < ($1.indexNumber ?? Int.max, $1.id) }
+            }
+        }
+    }
+
+    public func loadItem(_ item: MediaItem) async throws -> MediaItem {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        do {
+            let fresh = try await client.item(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, id: item.id, userID: active.userID)
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            replaceCachedItem(fresh)
+            return fresh
+        } catch {
+            if isCurrent(active), let failure = error as? LuminaError, failure == .http(401) || failure == .http(403) { clearSession() }
+            throw error
+        }
+    }
+
+    public func updateItemState(item: MediaItem, played: Bool? = nil, favorite: Bool? = nil) async throws -> MediaItem {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        do {
+            if played != nil || favorite != nil {
+                try await client.updateItemState(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, userID: active.userID, id: item.id, played: played, favorite: favorite)
+            }
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            return try await loadItem(item)
+        } catch {
+            if isCurrent(active), let failure = error as? LuminaError, failure == .http(401) || failure == .http(403) { clearSession() }
+            throw error
+        }
+    }
+
+    private func replaceCachedItem(_ fresh: MediaItem) {
+        items = items.compactMap { cached in
+            guard cached.id == fresh.id else { return cached }
+            if videoFilters.favoritesOnly && fresh.userData?.isFavorite != true { return nil }
+            if videoFilters.unwatchedOnly && !fresh.isCollection && fresh.userData?.played == true { return nil }
+            return fresh
+        }
+        recentItems = recentItems.map { $0.id == fresh.id ? fresh : $0 }
+        audioItems = audioItems.map { $0.id == fresh.id ? fresh : $0 }
+        resumeItems = resumeItems.map { $0.id == fresh.id ? fresh : $0 }.filter { $0.resumeSeconds > 0 && $0.userData?.played != true }
+        nextUpItems = nextUpItems.map { $0.id == fresh.id ? fresh : $0 }.filter { $0.userData?.played != true }
+    }
+
+    public func loadAudio(kind: MusicBrowseKind = .albums, search: String = "") async {
+        audioGeneration += 1
+        errorMessage = nil
+        musicKind = kind
+        audioSearch = search
+        audioIndex = 0
+        audioItems = []
+        audioHasMore = true
+        await fetchAudioPage()
+    }
+
+    public func loadMoreAudio() async {
+        guard audioHasMore, !isAudioBusy else { return }
+        await fetchAudioPage()
+    }
+
+    private func fetchAudioPage() async {
+        guard let active = session else { return }
+        let generation = audioGeneration
+        isAudioBusy = true
+        defer { if generation == audioGeneration { isAudioBusy = false } }
+        do {
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: audioSearch, start: audioIndex, types: musicKind.itemTypes)
+            guard generation == audioGeneration, isCurrent(active) else { return }
+            audioItems.append(contentsOf: page.items.filter { ["Audio", "MusicAlbum", "MusicArtist"].contains($0.type) })
+            audioIndex += page.items.count
+            audioHasMore = !page.items.isEmpty && audioIndex < page.total
+        } catch {
+            guard generation == audioGeneration, isCurrent(active) else { return }
+            audioHasMore = false
+            errorMessage = Self.message(for: error, signingIn: false)
+        }
+    }
+
+    public func musicChildren(of item: MediaItem) async throws -> [MediaItem] {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        guard ["MusicAlbum", "MusicArtist"].contains(item.type) else { return [] }
+        var result = [MediaItem]()
+        var start = 0
+        while true {
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: "", start: start, types: item.type == "MusicArtist" ? "MusicAlbum" : "Audio", parentID: item.id)
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            result.append(contentsOf: page.items)
+            start += page.items.count
+            if page.items.isEmpty || start >= page.total { return result }
+        }
     }
 
     public func clearError() { errorMessage = nil }
 
     public func imageURL(for item: MediaItem, maxWidth: Int = 400) -> URL? {
-        guard let active = session, item.imageTags?["Primary"] != nil else { return nil }
-        return client.url(origin: active.serverURL, path: "/Items/\(item.id)/Images/Primary", query: [
+        if let artwork = offline.artworkURL(for: item.id) { return artwork }
+        guard let active = session else { return nil }
+        let imageID: String
+        let tag: String
+        if item.isAudio, let albumID = item.albumID, let albumTag = item.albumPrimaryImageTag {
+            imageID = albumID
+            tag = albumTag
+        } else if let ownTag = item.imageTags?["Primary"] {
+            imageID = item.id
+            tag = ownTag
+        } else if ["Episode", "Season"].contains(item.type), let seriesID = item.seriesID, let seriesTag = item.seriesPrimaryImageTag {
+            imageID = seriesID
+            tag = seriesTag
+        } else { return nil }
+        return client.url(origin: active.serverURL, path: "/Items/\(imageID)/Images/Primary", query: [
             URLQueryItem(name: "maxWidth", value: String(max(1, maxWidth))),
+            URLQueryItem(name: "tag", value: tag),
+            URLQueryItem(name: "ApiKey", value: active.accessToken),
+        ])
+    }
+
+    public func backdropURL(for item: MediaItem, maxWidth: Int = 1920) -> URL? {
+        guard let active = session else { return nil }
+        let imageID: String
+        let tag: String
+        if let ownTag = item.backdropImageTags?.first {
+            imageID = item.id
+            tag = ownTag
+        } else if let parentID = item.parentBackdropItemID, let parentTag = item.parentBackdropImageTags?.first {
+            imageID = parentID
+            tag = parentTag
+        } else { return nil }
+        return client.url(origin: active.serverURL, path: "/Items/\(imageID)/Images/Backdrop/0", query: [
+            URLQueryItem(name: "maxWidth", value: String(max(1, maxWidth))),
+            URLQueryItem(name: "tag", value: tag),
             URLQueryItem(name: "ApiKey", value: active.accessToken),
         ])
     }
 
     public func preparePlayback(for item: MediaItem, forceTranscode: Bool = false) async throws -> PlaybackRequest {
         guard let active = session else { throw LuminaError.notSignedIn }
+        if item.isAudio, let local = offline.localURL(for: item.id) {
+            return PlaybackRequest(id: UUID().uuidString, item: item, url: local, startPositionSeconds: 0,
+                                   mediaSourceID: item.id, isTranscoding: false, methodLabel: "Downloaded audio")
+        }
         let current = try await client.item(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, id: item.id, userID: active.userID)
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        if current.isAudio { return try client.audioRequest(origin: active.serverURL, token: active.accessToken, item: current) }
         let result = try await client.playbackInfo(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, item: current, forceTranscode: forceTranscode)
         return try client.playbackRequest(origin: active.serverURL, token: active.accessToken, item: current, result: result)
     }
@@ -174,7 +407,7 @@ let tickScale = 10_000_000.0
     }
 }
 
-enum LuminaError: Error, Equatable {
+public enum LuminaError: Error, Equatable {
     case invalidOrigin, unsafeURL, notSignedIn, malformedResponse, http(Int), keychain(OSStatus)
 }
 
@@ -229,4 +462,17 @@ private final class KeychainCredentials: CredentialStore {
         guard status == errSecSuccess else { throw LuminaError.keychain(status) }
     }
     private func delete(_ key: String) { SecItemDelete(query(key) as CFDictionary) }
+}
+
+extension LuminaError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notSignedIn: return "Sign in to access your library."
+        case .http(401): return "Your session expired. Sign in again."
+        case .http(403): return "Your account cannot access this media."
+        case .http(404): return "This item is no longer available."
+        case .http(let code): return "The server returned HTTP \(code). Try again."
+        default: return nil
+        }
+    }
 }

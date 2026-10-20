@@ -962,3 +962,117 @@ def test_member_track_defaults_resolve_languages_forced_sdh_and_keep_client_over
     assert explicit.status_code == 200, explicit.text
     source = explicit.json()['MediaSources'][0]
     assert (source['DefaultAudioStreamIndex'], source['DefaultSubtitleStreamIndex']) == (1, None)
+
+
+def test_native_music_browse_playback_and_visibility(jf) -> None:  # noqa: ANN001
+    from app import db as db_module
+    from app.models import MediaTitle, MusicTrackOverride, StorageRoot
+    from title_support import ROOT, MOVIE, add_file, uid
+
+    artist, album, track, hidden = uid(810), uid(811), uid(812), uid(813)
+    with db_module.SessionLocal() as session:
+        root = Path(session.get(StorageRoot, ROOT).path)
+        session.add_all([
+            MediaTitle(id=artist, type="artist", key="music:artist", root_id=ROOT, name="Example Artist"),
+            MediaTitle(id=album, type="album", key="music:album", root_id=ROOT, parent_id=artist, name="Example Album"),
+        ])
+        session.flush()
+        add_file(session, root, "music/song.flac", item_id=track, title_id=album, owner=ALICE, kind="track", title="Song",
+                 metadata={"artist": "Example Artist", "track_number": "20", "disc_number": "2"}, duration=180)
+        add_file(session, root, "music/ten.flac", item_id=uid(814), title_id=album, owner=ALICE, kind="track", title="Earlier alphabetical title",
+                 metadata={"artist": "Example Artist", "track_number": "10", "disc_number": "1"})
+        add_file(session, root, "music/private.flac", item_id=hidden, title_id=album, owner=BOB, visibility="private", kind="track", title="Private")
+        session.add(MusicTrackOverride(item_id=track, fields={"title": "Curated Song", "track_number": "2", "disc_number": "1"}))
+        session.commit()
+    artists = get(jf, "/Items", IncludeItemTypes="MusicArtist", Recursive=True).json()
+    assert [row["Id"] for row in artists["Items"]] == [jellyfin_id(artist)]
+    albums = get(jf, "/Items", IncludeItemTypes="MusicAlbum", ParentId=jellyfin_id(artist), SearchTerm="Example").json()
+    assert [row["Name"] for row in albums["Items"]] == ["Example Album"]
+    tracks = get(jf, "/Items", IncludeItemTypes="Audio", ParentId=jellyfin_id(album), Limit=1).json()
+    assert tracks["TotalRecordCount"] == 2
+    song = tracks["Items"][0]
+    assert song["Name"] == "Curated Song"
+    curated = get(jf, "/Items", IncludeItemTypes="Audio", SearchTerm="Curated").json()
+    assert [row["Id"] for row in curated["Items"]] == [jellyfin_id(track)]
+    assert (song["Type"], song["Album"], song["Artists"], song["IndexNumber"]) == ("Audio", "Example Album", ["Example Artist"], 2)
+    assert get(jf, "/Items", IncludeItemTypes="Audio", ParentId=jellyfin_id(album), StartIndex=1).json()["Items"][0]["IndexNumber"] == 10
+    assert get(jf, "/Items", IncludeItemTypes="Audio", ParentId=jellyfin_id(album), StartIndex=2).json()["Items"] == []
+    assert get(jf, f"/Users/{jellyfin_id(ALICE)}/Items/{jellyfin_id(track)}").json()["Type"] == "Audio"
+    assert get(jf, f"/api/music/tracks/{track}").status_code == 401
+    assert get(jf, f"/Items/{jellyfin_id(hidden)}").status_code == 404
+    assert get(jf, f"/Audio/{jellyfin_id(hidden)}/stream").status_code == 404
+    assert get(jf, f"/Audio/{jellyfin_id(track)}/stream", token=None).status_code == 401
+    streamed = jf.get(f"/Audio/{jellyfin_id(track)}/stream", headers={**mediabrowser(ALICE_TOKEN), "Range": "bytes=0-31"})
+    assert streamed.status_code == 206 and len(streamed.content) == 32
+    assert get(jf, f"/Audio/{jellyfin_id(MOVIE)}/stream").status_code == 404
+    assert get(jf, "/Items", IncludeItemTypes="Audio", ParentId=jellyfin_id(uid(899))).json()["Items"] == []
+    with db_module.SessionLocal() as session:
+        from app.models import AppSettings, DeviceToken
+        from app.security import session_digest
+        from sqlalchemy import select
+        token = session.scalar(select(DeviceToken).where(DeviceToken.token_digest == session_digest(ALICE_TOKEN)))
+        session.delete(token)
+        session.commit()
+    assert get(jf, f"/Audio/{jellyfin_id(track)}/stream").status_code == 401
+    with db_module.SessionLocal() as session:
+        session.get(AppSettings, 1).jellyfin_enabled = False
+        session.commit()
+    assert get(jf, f"/Audio/{jellyfin_id(track)}/stream", token=BOB_TOKEN).status_code == 404
+
+
+def test_connected_audio_compatibility_keeps_auth_ranges_and_releases_files(jf, tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    from app import db as db_module
+    from app.models import DeviceToken, StorageRoot
+    from app.security import session_digest
+    from app.services import music_audio
+    from sqlalchemy import select
+    from title_support import ROOT, add_file, uid
+
+    track, hidden = uid(850), uid(851)
+    with db_module.SessionLocal() as db:
+        root = Path(db.get(StorageRoot, ROOT).path)
+        add_file(db, root, "compat/song.ogg", item_id=track, title_id=None, owner=ALICE, kind="track", title="Song")
+        add_file(db, root, "compat/private.ogg", item_id=hidden, title_id=None, owner=BOB, visibility="private", kind="track", title="Private")
+        db.commit()
+    converted = tmp_path / "compatible.flac"
+    converted.write_bytes(b"fLaC-compatible-audio")
+    prepared, released, admitted = [], [], []
+
+    class Playback:
+        path = converted
+        def __iter__(self):  # noqa: ANN204
+            return iter((converted, "audio/flac"))
+        def release(self) -> None:
+            released.append(True)
+
+    def prepare(source, format_):  # noqa: ANN001, ANN202
+        assert source.suffix == ".ogg" and format_ == "flac"
+        prepared.append(True)
+        return Playback()
+
+    def admit(_db, _request, user, item, playback, _device) -> None:  # noqa: ANN001
+        assert user.id == ALICE and item.id == track and playback.path == converted
+        admitted.append(True)
+
+    monkeypatch.setattr(music_audio, "playback_file", prepare)
+    monkeypatch.setattr(music_audio, "guard_resources", admit)
+    path = f"/Audio/{jellyfin_id(track)}/stream"
+    response = jf.get(path, params={"format": "flac", "ApiKey": ALICE_TOKEN}, headers={"Range": "bytes=0-3"})
+    assert response.status_code == 206 and response.content == b"fLaC"
+    assert response.headers["content-type"] == "audio/flac"
+    assert response.headers["content-range"] == f"bytes 0-3/{converted.stat().st_size}"
+    assert prepared == released == admitted == [True]
+    head = jf.head(path, params={"format": "flac"}, headers=mediabrowser(ALICE_TOKEN))
+    assert head.status_code == 200 and head.headers["content-length"] == str(converted.stat().st_size)
+    assert len(prepared) == len(released) == 2 and len(admitted) == 1
+    assert get(jf, path, token=None, format="flac").status_code == 401
+    assert get(jf, f"/Audio/{jellyfin_id(hidden)}/stream", format="flac").status_code == 404
+    assert get(jf, path, format="wav").status_code == 400
+    assert get(jf, f"/api/music/tracks/{track}/audio", format="flac").status_code == 401
+    assert len(prepared) == 2
+    with db_module.SessionLocal() as db:
+        token = db.scalar(select(DeviceToken).where(DeviceToken.token_digest == session_digest(ALICE_TOKEN)))
+        db.delete(token)
+        db.commit()
+    assert get(jf, path, format="flac").status_code == 401
+    assert len(prepared) == 2

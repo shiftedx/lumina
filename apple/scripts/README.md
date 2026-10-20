@@ -1,33 +1,72 @@
 # Native proof fixture server
 
-Run `mise exec -- backend/.venv/bin/python apple/scripts/proof_server.py` before the native simulator UI tests. It creates a fresh temporary Lumina data directory and media root, starts the production FastAPI app at `http://127.0.0.1:18743`, and writes the ignored `apple/Tests/UITests/Fixture.json` after proving the opt-in Jellyfin-compatible sign-in, items, playback negotiation, and progress APIs.
+For signed archives, IPAs, and uploads, see [TestFlight distribution](../docs/testflight.md). This disposable simulator fixture is never included in a release package.
 
-The fixture contains a random per-run Lumina username and password, three imported item IDs, and the loopback server URL. It generates long titles, portrait/landscape artwork, direct/compatible video, and a shorter completion/replay video. It is mode `0600`, is removed when the process stops, and must not be committed. The server accepts only loopback network calls and removes its generated temporary state after Ctrl-C.
-
-
-After the server prints “ready”, run the shared client/media test and UI suites sequentially (they update the same synthetic watch positions):
+From the repository root, start the production server and keep its terminal alive for the entire native run:
 
 ```sh
-cd apple
-LUMINA_NATIVE_FIXTURE="$PWD/Tests/UITests/Fixture.json" swift test --package-path Core --filter NativeServerTests
-xcodebuild -project Lumina.xcodeproj -scheme Lumina-iOS \
-  -destination 'platform=iOS Simulator,id=<your-simulator-UDID>' \
-  -derivedDataPath /tmp/lumina-native-ios test
-xcodebuild -project Lumina.xcodeproj -scheme Lumina-tvOS \
-  -destination 'platform=tvOS Simulator,id=<your-simulator-UDID>' \
-  -derivedDataPath /tmp/lumina-native-tv test
+mise exec -- backend/.venv/bin/python -u apple/scripts/proof_server.py
 ```
 
-Use `xcrun simctl list devices` to find device IDs. Do not disable simulator code signing for runtime tests: Keychain needs the generated signing entitlements. Unsigned generic builds check compilation only. Keep DerivedData and result bundles outside `apple/` to avoid local-package file-watcher rebuilds. Normal Xcode defaults already do this.
-
-The Xcode project optionally copies the generated fixture into the test bundle using a test-only build phase. Without a fixture, a clean checkout still builds and the UI test explicitly skips. This build phase has script sandboxing disabled only for the UI-test targets so its optional input can be absent; application build scripts remain sandboxed. There is no alternate test login path in the app.
-
-The XCTest UI journey signs in through native fields, opens the actual player, observes its time advance, verifies the shared server position advances beyond its initial value, reopens to check resume, and repeats with compatibility playback. It attaches a screenshot to the result. The macOS AVFoundation test provides additional real-media evidence, rather than iOS/tvOS hardware qualification. None of these tests establish HDR/HDMI/audio output quality.
-
-For Duo, select a disposable simulator in Device Hub and set each of Closed, Book, and Open in portrait and landscape. Run the following once per state, using a distinct result-bundle path:
+For visual review with original artwork, optionally supply a directory containing `cartographer.png`, `lanterns.png`, and `observatory.png` (each a PNG no larger than 12 MiB):
 
 ```sh
-xcodebuild -project Lumina.xcodeproj -scheme Lumina-iOS \
+LUMINA_NATIVE_ARTWORK_DIR="<artwork-directory>" \
+  mise exec -- backend/.venv/bin/python -u apple/scripts/proof_server.py
+```
+
+The fixture copies those files unchanged: cartographer and lanterns become their corresponding movie posters; observatory becomes the third movie poster, album cover, and artist image. Show artwork follows the lanterns poster. With the variable unset, the fast synthetic bar artwork remains the default. Restart the disposable fixture only between native runs when changing artwork.
+
+Wait for “ready” before building the UI tests: their test-only build phase copies the generated fixture into the test bundle. The server listens only at `http://127.0.0.1:18743`, creates fresh temporary data/media roots, and writes ignored `apple/Tests/UITests/Fixture.json` with mode `0600`. It contains disposable per-run member credentials, public item IDs, and the loopback URL. Ctrl-C stops the server and removes its fixture and generated state. Restart after fixture schema changes; do not reuse a test bundle containing older IDs. Never commit the JSON or copy its credentials into logs or documentation.
+
+The catalog has three generated H.264/AAC movies, a show/season/two-episode hierarchy imported through ordinary NFO metadata, and two numbered AAC sine-tone music tracks with generated album/artist artwork, timed lyrics, gain metadata and a shared read-only playlist. Episode files reuse the original synthetic movie bytes. Startup verifies public info and sign-in, video catalog/posters and direct/compatible negotiation, saved progress, show/season/episode relationships, music browsing and album children, authenticated artwork, fresh Audio detail, and audio stream bytes. The M4A stream must have the native-compatible `audio/mp4` content type.
+
+Run native checks sequentially: they mutate the same synthetic positions and member state. Use the repository's machine-wide performance lock for each finite build/test command, and keep at most one Lumina-owned simulator booted at a time. Run Lumina iOS and tvOS tests sequentially, shutting down the Lumina simulator before switching platforms. Unrelated apps may run their own simulators and Xcode tests concurrently; never stop those devices or test processes. The fixture server stays outside the lock so the test commands can acquire it. The lock coordinates cooperating jobs; it does not make an already busy host quiet.
+
+From `apple/`, run the real-server client/media integration before UI workflows:
+
+```sh
+LUMINA_NATIVE_FIXTURE="$PWD/Tests/UITests/Fixture.json" \
+  mise exec -- ../scripts/with-lock.sh /tmp/lumina-perf.lock 1800 \
+  swift test --package-path Core --filter NativeServerTests
+```
+
+The three AVFoundation cases cover direct audio, server-compatible FLAC audio, and direct/HLS video with saved progress. These macOS checks supplement platform UI evidence; they do not qualify hardware output.
+
+Use `xcrun simctl list devices` to find a disposable simulator UDID. A focused current workflow run is:
+
+```sh
+mise exec -- ../scripts/with-lock.sh /tmp/lumina-perf.lock 1800 \
+  xcodebuild -project Lumina.xcodeproj -scheme Lumina-iOS \
+  -destination 'platform=iOS Simulator,id=<your-disposable-simulator-UDID>' \
+  -parallel-testing-enabled NO -collect-test-diagnostics never \
+  -derivedDataPath /tmp/lumina-native-navigation-ios \
+  -resultBundlePath /tmp/lumina-native-navigation-ios.xcresult \
+  -only-testing:Lumina-iOS-UITests/NativeProofTests/testFeaturedTitlePreservesDetailsAndResumesPlayback \
+  -only-testing:Lumina-iOS-UITests/NativeProofTests/testAudioAlbumTrackPlaybackReportsProgress \
+  -only-testing:Lumina-iOS-UITests/NativeProofTests/testShowSeasonEpisodeBrowsingAndPlayback \
+  -only-testing:Lumina-iOS-UITests/NativeProofTests/testVideoWatchedFavoriteAndActivityFilters test
+```
+
+For Apple TV, use `Lumina-tvOS`, `platform=tvOS Simulator`, and `Lumina-tvOS-UITests`, with separate DerivedData and a fresh result-bundle path. Remove the `-only-testing` arguments to run the complete platform UI suite. Keep iOS, tvOS, and the shared real-server integration sequential. Retain local signing for runtime tests because Keychain needs the generated entitlements; unsigned generic builds check compilation only. Keep DerivedData and result bundles outside `apple/` to avoid package file-watcher rebuilds.
+
+The current UI contracts are:
+
+- Home: actual sign-in, cinematic hero, recent-shelf caption and a visible known poster, destination navigation, title selection, detail, and resumed video. iOS additionally requires idle rotation within its bounded wait, Pause, and a real horizontal swipe to another title. Automatic rotation is intentionally disabled with Reduce Motion or VoiceOver; use normal motion and VoiceOver off for that specific idle-rotation check. TV focus intentionally pauses rotation.
+- Audio: album → track → player with advancing time and server progress; iOS background playback and TV remote pause/resume; Browse retaining the now-playing bar while navigating Video/Audio; reopening without restarting; album Next, queue inspection/selection, and repeat values. Stop ends playback and removes the bar for test isolation. Browse is different from video Done, which closes the video session.
+- Extended music (both platforms): `testMusicPlaylistsSmartSelectionAndDownloadedPlayback` checks shared read-only playback, saved/smart playlists and actual local-file playback; `testMusicAdvancedControlsPausedRestoreAndQueueConflict` checks listening options, lyrics, paused restore and revision-conflict resolution. Both feature workflows have passing case-level evidence on both platforms, and the selected current simulator renders have been accepted in the verification record.
+- Shows: show → season → two episode entries → episode detail/playback, then saved progress.
+- Member activity: watched/favorite actions checked against server state; native switch values and visible filter summaries checked before catalog membership assertions; cleanup resets the fixture state.
+
+Screenshot attachments cover the hero, automatic/manual carousel changes, recent shelf, Video/Audio destinations, album tracks, persistent audio, queue, and episode list. Failed audio journeys include the accessibility hierarchy. Inspect the result images as well as test status. Catalog-specific playback/layout/discovery checks explicitly select Video; sign-in itself lands on Home. These workflows replace the old requirement that the full catalog fit on Home's first screen.
+
+`testLibraryPullRevealsSearchAndRefreshesProgress` retains iOS search/pull-refresh coverage. `testNativePlaybackReportsResumeAndConversionProgress` retains direct/HLS playback, server progress, and resume checks. `testCompatibleHLSReplayRequestsFreshSession` verifies converted-stream completion/replay and fresh persisted progress.
+
+For the existing Duo layout workflow, select a disposable simulator in Device Hub and set Closed, Book, and Open in portrait and landscape. Run once per state with a distinct result path:
+
+```sh
+mise exec -- ../scripts/with-lock.sh /tmp/lumina-perf.lock 1800 \
+  xcodebuild -project Lumina.xcodeproj -scheme Lumina-iOS \
   -destination 'platform=iOS Simulator,id=<your-disposable-simulator-UDID>' \
   -parallel-testing-enabled NO -collect-test-diagnostics never \
   -derivedDataPath /tmp/lumina-duo-matrix \
@@ -35,6 +74,15 @@ xcodebuild -project Lumina.xcodeproj -scheme Lumina-iOS \
   -only-testing:Lumina-iOS-UITests/NativeProofTests/testCurrentDuoLayoutKeepsControlsAndPlaybackReachable test
 ```
 
-The test preserves the current Device Hub layout, records actual viewport dimensions, and exercises sign-in, library, detail, player bounds, verified background pause, explicit resume, completion, Replay, and Done. XCTest's orientation/Home requests do not reliably change this Duo runtime; choose layout in Device Hub and verify visual results there. The background check explicitly activates SpringBoard and verifies application state. The test signs out any existing session, so never use a simulator holding a production login.
+This case preserves the current Device Hub layout and records actual viewport dimensions while checking sign-in, Video/detail bounds, playback, verified video background pause, explicit resume, completion, Replay, and Done. XCTest orientation/Home requests do not reliably change that Duo runtime; choose the layout in Device Hub and inspect it there. The background check activates SpringBoard and verifies application state. Test setup signs out any existing member, so never use a simulator holding a production login. Historical Duo results predate the current destination and persistent-audio changes unless explicitly rerun.
 
-`testCompatibleHLSReplayRequestsFreshSession` separately verifies completion/replay of a converted stream and its persisted progress. Keep it sequential with the other native workflows.
+Without a fixture, a clean checkout builds and the UI tests explicitly skip. The optional fixture-copy phase has script sandboxing disabled only for UI-test targets so its input may be absent; application scripts remain sandboxed. There is no alternate test login path in the app. The extended offline contracts cover bounded disk storage and owner isolation; engine contracts exercise native-clock transitions. Synthetic tests do not establish HDR/HDMI/Atmos output quality, every offline interruption/storage condition, every gapless/crossfade format, Sonos hardware behavior, or complete web-feature parity. See [verification status](../docs/verification.md) for qualification evidence and remaining hardware limits.
+
+
+For the extended music UI pass, add both test selectors above to the platform-specific command, replacing the test target prefix for tvOS. Run iOS and tvOS sequentially with separate result bundles and retained local signing. Keep the fixture terminal alive for the whole run, including source rebuilds; do not start a second server on the same port. Use the performance lock for finite commands and keep at most one Lumina-owned simulator booted, even when tests target separate platforms. The temporary global simulator guard has been stopped and its exit confirmed; do not restart it or stop unrelated apps' simulators or Xcode tests. Focused Core filters are `LuminaOfflineLibraryTests`, `LuminaMusicLibraryTests`, `NativeMusicTransportTests` and `MusicPlaybackPolicyTests`; record each actual result instead of treating an earlier green run as proof of later source changes.
+
+
+Current repository/Core qualification (2026-10-20): the final artwork Core run passed 35 cases including all three live `NativeServerTests` and Episode/Season inherited series-artwork fallback (`/tmp/lumina-audio-parity-core-art-final.log`); the focused engine/policy run passed 5 + 3 cases. The final repository invocation passed bootstrap, typecheck, web build/style gates, backend (5,233 passed, 11 skipped), and frontend unit tests (2,622 passed across 299 files). Its real-stack cohort had 51 passes, 5 skips and one first-viewport image-baseline failure; the unchanged-budget focused repair passed 2/2. The mocked-browser cohort had 656 passes, 2 skips and one catalogue menu-interaction failure; the focused dark-desktop Undo repair passed. This is full-cohort evidence plus focused repairs, not one green `make check` invocation. The selected eight native journeys and current visuals are qualified separately in [the verification record](../docs/verification.md); no release build, upload or deployment is established by these checks.
+
+
+The current native evidence table tracks eight passing journeys: Home, Audio, Advanced listening and Playlist/download on each platform. TV Home/Audio/Advanced/Playlist times are 193.410/211.004/284.025/229.279 seconds; iOS times are 142.445/183.975/144.629/147.760 seconds. Each result is case-level evidence; a bundle containing another failed/interrupted case is not reported as wholly passing. The final iOS Advanced pass followed an XCTest-only exact-button menu lookup repair, with no product change. Current iOS and TV renders have been reviewed and accepted; TV Album retains its earlier accepted capture. See [verification](../docs/verification.md) for result paths and [the local visual gallery](/Users/kmcdowell/.codex/visualizations/2026/10/20/01a15766-1f7c-7d21-b521-0604bea3306b/native-parity/extended-audio/review.md) for current captures. Signed local runtime compilation is confirmed on both platforms; no distribution archive or upload is claimed. Hardware codec/output and Sonos acceptance remain separate from this simulator qualification.

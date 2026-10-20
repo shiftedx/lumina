@@ -93,7 +93,7 @@ def test_up_next_pins_the_next_part_with_its_reason_and_every_reason_follows_the
     db = _session(member)
     part = _pooled(db, member, "part4", "Harbor walk part 4")
     for n in range(14):
-        _pooled(db, member, f"o{n}", f"Tidal pools {n}", channel=f"{CHANNEL}{n}")
+        _pooled(db, member, f"o{n}", f"Harbor walk sights {n}", channel=f"{CHANNEL}{n}")
     db.commit()
     request = UpNextRequest(source_url=_watch("part3"), source_id="part3", title="Harbor walk part 3", uploader="Harbor Films",
                             channel_id=UC)

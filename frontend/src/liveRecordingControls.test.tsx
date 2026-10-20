@@ -237,16 +237,20 @@ describe('LiveRecordingControls', () => {
   });
 
   it('discloses partial-history explicitly for an incomplete from-start recording', async () => {
-    vi.mocked(listLiveRecordings).mockResolvedValue(page([
+    let resolveListing!: (result: ReturnType<typeof page>) => void;
+    vi.mocked(listLiveRecordings).mockReturnValue(new Promise((resolve) => { resolveListing = resolve; }));
+    render(<LiveRecordingControls capabilities={upcomingCaps()} sourceUrl={SOURCE} />);
+    const panel = screen.getByRole('region', { name: 'Live recording' });
+    expect(within(panel).getByRole('button', { name: /schedule recording/i })).toBeTruthy();
+    resolveListing(page([
       {
         ...recording('partial', 'completed', 'completed'),
         capture_origin: 'source_beginning',
         history: 'partial',
       },
     ]));
-    render(<LiveRecordingControls capabilities={upcomingCaps()} sourceUrl={SOURCE} />);
-    const panel = await screen.findByRole('region', { name: 'Live recording' });
-    expect(within(panel).getByText(/began at the beginning of the broadcast/i)).toBeTruthy();
+    // The named region exists while idle; wait for the restored recording itself.
+    expect(await within(panel).findByText(/began at the beginning of the broadcast/i)).toBeTruthy();
     // The explicit partial-history disclosure — never a silent false-complete —
     // is announced as a live region (role="status"), never a silent role="note".
     const historyNote = within(panel).getByText(/Earlier history is incomplete/i);

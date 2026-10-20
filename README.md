@@ -5,6 +5,11 @@
 <h1 align="center">Lumina</h1>
 
 <p align="center">
+  <a href="https://luminamedia.app/"><b>luminamedia.app</b></a> ·
+  <a href="https://luminamedia.app/docs/">Documentation</a>
+</p>
+
+<p align="center">
   <b>Your household's own streaming service.</b><br>
   Stream and save from YouTube and Twitch, then watch it next to your movies, TV and music,<br>
   in the browser or compatible Jellyfin apps.

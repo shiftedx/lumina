@@ -1,12 +1,18 @@
 import { cx } from './cx';
 
-const RAYS = [-62, -32, 0, 32, 62];
-
-/** The 1.9.0 hairline half-sun (horizon, circle, five rays, all 1px gold) beside an uppercase tracked serif word. The art is decorative. */
+/** Flat sunrise with five detached rays, named by the accompanying word. */
 export function BrandMark({ size, compact = false }: { size: 'bar' | 'hero'; compact?: boolean }) {
   return (
     <span className={cx('g-brand', `is-${size}`, compact && 'is-compact')}>
-      <span aria-hidden="true" className="g-brand-sun">{RAYS.map((deg) => <i key={deg} style={{ rotate: `${deg}deg` }} />)}</span>
+      <svg aria-hidden="true" className="g-brand-sun" viewBox="4 9 56 34" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10 40H54" />
+        <path d="M21 40A11 11 0 0 1 43 40" />
+        <path d="M32 12V21" />
+        <path d="M18 15.751L22.5 23.546" />
+        <path d="M46 15.751L41.5 23.546" />
+        <path d="M7.751 26L15.546 30.5" />
+        <path d="M56.249 26L48.454 30.5" />
+      </svg>
       <span className={cx('g-brand-word', compact && 'sr-only')}>Lumina</span>
     </span>
   );

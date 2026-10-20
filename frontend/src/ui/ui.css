@@ -263,9 +263,7 @@ html.g-modal-open { scrollbar-gutter: stable; }
 
 .g-brand { --w: 32px; font-size: 18px; display: inline-flex; align-items: center; gap: 8px; }
 .g-brand.is-bar { align-items: baseline; }
-.g-brand-sun { position: relative; color: var(--g-gold-ink); width: var(--w); height: calc(var(--w) / 2); overflow: hidden; border-bottom: 1px solid; }
-.g-brand-sun::before { position: absolute; left: 27.5%; bottom: -50%; height: 90%; aspect-ratio: 1; border: 1px solid; border-radius: 50%; content: ''; }
-.g-brand-sun i { position: absolute; bottom: 0; left: 50%; height: 80%; border-left: 1px solid; transform-origin: bottom; }
+.g-brand-sun { color: var(--g-gold-ink); width: var(--w); height: calc(var(--w) * 34 / 56); flex: none; }
 .g-brand-word { font: 500 1em / 1 var(--g-serif); letter-spacing: .1em; text-transform: uppercase; }
 .g-brand.is-hero { --w: 42px; font-size: 30px; flex-direction: column; }
 @media (max-width: 680px) { .g-brand.is-bar { --w: 26px; font-size: 14px; } }

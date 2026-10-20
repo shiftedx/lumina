@@ -1,9 +1,13 @@
 .build/
 Core/.build/
 DerivedData/
+Build/
 DeviceDerivedData/
 SignedDerivedData/
 *.xcuserstate
 xcuserdata/
 Tests/UITests/Fixture.json
 TestResults/
+Distribution/
+*.xcarchive
+*.ipa

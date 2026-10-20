@@ -1,0 +1,15 @@
+# Approved flat sunrise
+
+The owner approved this direction and its rollout on 2026-10-19: a flat soft-gold sunrise on neutral charcoal, with all five rays detached from the sun. The material is intentionally flat. The iOS asset reproduces the approved preview pixel for pixel.
+
+The sun radius is 11 design units. Every ray's inner centerline starts at radius 19. The two 3-unit strokes leave approximately 5 units of visible clearance, including the low side rays. The same paths are used in the web brand, favicon, public media mark and native generator.
+
+Run `mise exec -- swift scripts/generate_brand_assets.swift` from `apple/` to reproduce the iOS 1024px icon, both layered tvOS icons, TV top shelf art and email marks. The native bitmap context uses sRGB, matching the reviewed master. The standalone website repository carries the same favicon and header/footer geometry.
+
+The asset catalogs are enrolled through `project.yml`. They use the existing App Store Connect identity `ai.cozylabs.lumina` on iOS and tvOS. `scripts/testflight.sh` archives, exports and uploads inspected binaries; distribution artifacts remain ignored. The private library and optional proof fixtures are not icon source material.
+
+The existing BrandMark tests retain the visible name, hidden decorative art and compact accessible-name contracts. Assertions tied to the old span/i implementation were removed when the detached geometry moved to SVG.
+
+Qualification on 2026-10-19: generic iOS and tvOS Simulator builds passed from this branch. The approved 1024px preview and iOS icon have identical pixels; every native foreground size has six painted components (five detached rays plus the sun/horizon). The 17 existing branding/header tests passed. Release archives for iOS and tvOS build 0.1.0 (3), including the owner's current native UI work, passed the archive validator; their ignored distribution directory records source provenance. Distribution signing/export is waiting for the owner's Xcode account sign-in.
+
+The required `mise exec -- make check` ran through typecheck and frontend build, then stopped at the backend suite: 5,210 passed, 11 skipped and 8 failed. Isolating those eight tests produced the same 3 failures and 5 passes on both this branch and unchanged main at `6c66068965d985992bb1719edda6572e3a3b7dbe`; no backend source changed. A separate full frontend test run had 2,619 passes and 3 failures, all three reproduced on unchanged main. The overall gate is not green, and its later browser suites did not run. No unrelated tests or behavior were changed to hide those failures.

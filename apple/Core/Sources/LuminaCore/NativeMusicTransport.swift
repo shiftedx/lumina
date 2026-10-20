@@ -201,7 +201,7 @@ public final class NativeMusicTransport {
             wantsPlayback = true
             tick()
             onChange?(state)
-            startClock(); prepareNext()
+            if wantsPlayback { startClock(); prepareNext() }
         } catch {
             stopRuntime()
             state.playing = false; state.error = error.localizedDescription

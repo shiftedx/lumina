@@ -377,9 +377,10 @@
 .settings-playback-preview figcaption svg { width: 15px; height: 15px; color: var(--g-gold-ink); }
 .settings-theme-choices .g-segmented-options { width: 100%; }
 .settings-theme-choices .g-segment { display: grid; flex: 1; gap: 12px; padding: 12px; min-width: 0; }
-.settings-theme-sample { display: grid; place-items: center; width: 100%; min-width: 60px; height: 120px; border-radius: var(--g-radius-sheet); }
+.settings-theme-sample { display: grid; place-items: center; width: 100%; min-width: 0; height: 120px; border-radius: var(--g-radius-sheet); }
 .settings-theme-sample.is-light { background: var(--g-art-paper); color: var(--g-reader-sepia-ink); }
 .settings-theme-sample.is-dark { background: var(--g-reader-dark-paper); color: var(--g-overlay-ink); }
+.settings-theme-sample.is-oled { background: var(--g-overlay-bg); color: var(--g-overlay-ink); }
 .settings-theme-sample.is-system { background: linear-gradient(90deg, var(--g-art-paper) 50%, var(--g-reader-dark-paper) 50%); color: var(--g-gold); }
 @media (max-width: 480px) {
   .settings-preview-quality { top: 52px; left: 16px; right: auto; }

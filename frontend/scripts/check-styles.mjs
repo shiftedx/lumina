@@ -13,7 +13,8 @@ const KB = 1024;
 // Creator discovery and first-owner media setup add 2.4 KB gzip of lazy CSS.
 // Shared adaptive hero framing adds less than 0.5 KB gzip across the lazy route styles.
 // Flat settings workspaces and visual capacity, playback and activity views measure 70.4 KB gzip.
-export const CSS_BUDGET = 70.5 * KB;
+// OLED adds a pure-black surface override and a fourth theme preview.
+export const CSS_BUDGET = 70.7 * KB;
 export const CORE_BUDGET = 7 * KB; // tokens.css + ui.css (spec 1.8)
 // Branded select and editable suggestion controls replace browser-native popups: UI now measures 10.0 KB gzip.
 export const CHUNK_BUDGETS = { ui: 10.5 * KB, palette: 12 * KB, BooksSurface: 15 * KB };

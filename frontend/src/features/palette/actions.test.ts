@@ -38,7 +38,7 @@ describe('palette actions', () => {
   });
 
   it('has the spec 4.4 ids, labels and pinned five', () => {
-    expect(PALETTE_ACTIONS.map((action) => action.id)).toEqual(['add-link', 'go-downloads', 'switch-member', 'theme-system', 'theme-light', 'theme-dark', 'edit-home', 'new-collection', 'new-smart-collection', 'open-navigation', 'settings-playback', 'go-streaming', 'go-live', 'go-subscriptions', 'go-channels', 'settings-discovery', 'edit-title', 'edit-title-artwork', 'scan-libraries', 'settings-library', 'sign-out']);
+    expect(PALETTE_ACTIONS.map((action) => action.id)).toEqual(['add-link', 'go-downloads', 'switch-member', 'theme-system', 'theme-light', 'theme-dark', 'theme-oled', 'edit-home', 'new-collection', 'new-smart-collection', 'open-navigation', 'settings-playback', 'go-streaming', 'go-live', 'go-subscriptions', 'go-channels', 'settings-discovery', 'edit-title', 'edit-title-artwork', 'scan-libraries', 'settings-library', 'sign-out']);
     expect(filterActions('', ctx()).map((action) => action.id)).toEqual([...PINNED_ACTION_IDS]);
   });
 
@@ -129,9 +129,11 @@ describe('palette actions', () => {
   it('marks the current theme and runs each action through the context', () => {
     const context = ctx({ theme: 'dark' });
     const themes = filterActions('theme', context);
-    expect(themes.map((action) => [action.label, action.hint ?? null])).toEqual([['Use system theme', null], ['Use light theme', null], ['Use dark theme', 'Current']]);
+    expect(themes.map((action) => [action.label, action.hint ?? null])).toEqual([['Use system theme', null], ['Use light theme', null], ['Use dark theme', 'Current'], ['Use OLED theme', null]]);
     themes[1].run(context);
     expect(context.setTheme).toHaveBeenCalledWith('light');
+    themes[3].run(context);
+    expect(context.setTheme).toHaveBeenLastCalledWith('oled');
     const picker = vi.fn(); const home = vi.fn();
     const stops = [onCommand(MEMBER_PICKER_EVENT, picker), onCommand(EDIT_HOME_EVENT, home)];
     filterActions('switch', context)[0].run(context);

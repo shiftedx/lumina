@@ -133,6 +133,13 @@
   --g-elev-2: 0 24px 64px rgb(21 19 15 / .18);
 }
 
+:root[data-theme='oled'] {
+  --g-paper: #000;
+  --g-paper-2: #000;
+  --g-paper-3: #000;
+  --g-overlay-panel: #000;
+}
+
 /* A dark subtree in the light theme (sign-in over release art): the dark set, re-declared where var() resolves. */
 :root[data-theme='light'] .g-dark {
   color-scheme: dark; --g-accent: var(--g-ink);

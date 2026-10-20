@@ -173,6 +173,7 @@ export function TopBar(props: TopBarProps) {
             { kind: 'radio', label: 'System', checked: theme === 'system', hint: theme === 'system' ? 'Current' : undefined, onSelect: () => props.onTheme('system') },
             { kind: 'radio', label: 'Light', checked: theme === 'light', hint: theme === 'light' ? 'Current' : undefined, onSelect: () => props.onTheme('light') },
             { kind: 'radio', label: 'Dark', checked: theme === 'dark', hint: theme === 'dark' ? 'Current' : undefined, onSelect: () => props.onTheme('dark') },
+            { kind: 'radio', label: 'OLED', checked: theme === 'oled', hint: theme === 'oled' ? 'Current' : undefined, onSelect: () => props.onTheme('oled') },
             { kind: 'separator' },
             { kind: 'item', label: 'Sign out', onSelect: props.onSignOut },
           ]}

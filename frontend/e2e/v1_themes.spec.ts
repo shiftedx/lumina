@@ -66,3 +66,29 @@ test('test_theme_system_changes: explicit choice ignores the OS, system follows 
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 });
+
+for (const width of [1536, 390]) test(`OLED stays pure black, readable and persistent at ${width}px`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+  await page.setViewportSize({ width, height: 960 });
+  const saved = await mockApi(page, { sidebar_collapsed: false, theme: 'light' });
+  await page.goto('/settings/appearance?page=display');
+  await signIn(page);
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Display', exact: true }).click();
+  await page.getByRole('radio', { name: 'OLED', exact: true }).check();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'oled');
+  await expect.poll(() => saved.some((body) => (body.ui_prefs as Record<string, unknown> | undefined)?.theme === 'oled')).toBe(true);
+  for (const surface of [page.locator('body'), page.locator('.g-settings-rows').first()]) {
+    await expect(surface).toHaveCSS('background-color', 'rgb(0, 0, 0)');
+  }
+  await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute('content', '#000');
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate((el) => el.clientWidth));
+  await expectReadable(page);
+  await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); window.scrollTo(0, 0); });
+  await page.screenshot({ path: `../output/oled-theme-${width}.png`, fullPage: true });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'oled');
+  await page.route('**/src/main.tsx', (route) => route.abort());
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'oled');
+  await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute('content', '#000');
+});

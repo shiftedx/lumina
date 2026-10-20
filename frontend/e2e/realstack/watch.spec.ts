@@ -46,6 +46,9 @@ test('watch queue adds, reorders across reload, and autoplays the next entry', a
   await page.goto('/library/movies');
   await page.getByRole('button', { name: /^Realstack Direct,/ }).first().click();
   await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
+  // Hold the four-second fixture while exercising queue editing; autoplay is tested explicitly below.
+  await expect(page.getByRole('region', { name: 'Realstack Direct', exact: true }).getByText(/2024/)).toBeVisible();
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
   const queue = page.getByRole('region', { name: 'Your queue' });
   const order = () => queue.getByRole('listitem').locator('strong').allTextContents();
   await expect.poll(order).toEqual(['Realstack Show S01E01', 'Realstack Show S01E02', 'Realstack Remux']);
@@ -53,6 +56,8 @@ test('watch queue adds, reorders across reload, and autoplays the next entry', a
   await queue.getByRole('button', { name: 'Move Realstack Show S01E02 up' }).click();
   await expect.poll(order).toEqual(['Realstack Show S01E02', 'Realstack Show S01E01', 'Realstack Remux']);
   await page.reload();
+  await expect(page.getByRole('region', { name: 'Realstack Direct', exact: true }).getByText(/2024/)).toBeVisible();
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
   await expect.poll(order).toEqual(['Realstack Show S01E02', 'Realstack Show S01E01', 'Realstack Remux']);
   await expect(queue.getByRole('button', { name: 'Play Realstack Show S01E02, plays next automatically' })).toBeVisible();
 

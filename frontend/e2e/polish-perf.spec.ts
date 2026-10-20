@@ -62,7 +62,7 @@ test('opening the palette, a dialog, a menu, a toast, the reco menu and the mini
     ['palette', '/settings/members', async () => { await page.keyboard.press('ControlOrMeta+k'); await expect(page.locator('dialog.g-palette').getByRole('combobox')).toBeFocused(); await page.keyboard.press('Escape'); }],
     ['menu', '/settings/members', async () => { await page.getByRole('button', { name: /, account menu$/ }).click(); await page.keyboard.press('Escape'); }],
     ['dialog', '/manage/members?page=invitations', async () => { await page.getByRole('button', { name: 'Invite someone' }).click(); await page.keyboard.press('Escape'); }],
-    ['toast', '/settings/playback', async () => { await page.getByRole('switch').first().click(); await page.waitForTimeout(300); }],
+    ['toast', '/settings/playback', async () => { const toggle = page.getByRole('switch').first(); const checked = await toggle.isChecked(); await toggle.press('Space'); await expect(toggle).toBeChecked({ checked: !checked }); await page.waitForTimeout(300); }],
     ['reco menu', '/', async () => { await page.locator('[data-shelf-section="picked_for_you"]').getByRole('button', { name: /^More options for / }).first().click(); await page.keyboard.press('Escape'); }],
     ['mini player', `/watch/library/${item.id}`, async () => { await navigateApp(page, 'Home'); await page.waitForTimeout(300); }],
   ];

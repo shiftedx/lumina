@@ -20,7 +20,7 @@ from collections import Counter
 from collections.abc import Callable
 from contextlib import AbstractContextManager, suppress
 from dataclasses import replace
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import parse_qsl, quote, urlencode
 
 import anyio
@@ -40,11 +40,11 @@ from app.persistence import read_regular_file, write_transaction
 from app.security import resolve_device_token
 from app.services.rate_limit import enforce_rate_limit, grant_address
 from app.schemas import PlaybackProgressUpdateRequest
-from app.routers import jellyfin_integration, jellyfin_probes
+from app.routers import jellyfin_integration, jellyfin_music, jellyfin_probes
 from app.routers.jellyfin_integration import JellyfinCaller, jellyfin_caller, playback_body, playlist_listing, transcript_subtitle
 from app.routers.jellyfin_probes import Caller, Db, entity_or_404, split_csv
 from app.services import activity, cast_photos, screen_time
-from app.services import jellyfin as jf
+from app.services import jellyfin as jf, music_audio
 from app.services import renditions
 from app.services import tmdb
 from app.services.playlists import has_playlists
@@ -59,7 +59,7 @@ from app.services.library import LibraryService
 from app.services.local_playback_sessions import sessions
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_probe import MediaProbeService
-from app.services.media_response import MediaFileResponse
+from app.services.media_response import MediaFileResponse, media_content_type
 from app.services.media_titles import from_ticks, parse_item_id
 from app.services.playback_decision import caps_from_device_profile
 from app.services.playback_resources import playback_resources
@@ -312,6 +312,9 @@ def item_filters2(user: Caller, db: Db, query: Annotated[jf.ItemsQuery, Query()]
 @router.get("/items")
 @router.get("/users/{uid}/items")
 def list_items(user: Caller, db: Db, query: Annotated[jf.ItemsQuery, Query()]) -> dict:
+    asked = {value.lower() for value in query.csv("includeitemtypes")}
+    if asked and asked <= {"musicartist", "musicalbum", "audio"}:
+        return jf.JellyfinMapper(db, user, query.csv("fields")).music_items(query)
     if query.searchterm:
         return jellyfin_integration.search_items(db, user, query)  # the ranked search; the LIKE filter never runs for a term
     if query.parentid and (listing := playlist_listing(db, user, query)) is not None:
@@ -525,6 +528,39 @@ def video_stream(
         return media_file(item_id, request, caller.user, db, mediasourceid, credential_resolution=caller.resolution)
 
 
+@router.api_route("/audio/{item_id}/stream", methods=["GET", "HEAD"])
+def audio_stream(item_id: str, request: Request, user: Caller, db: Db, format_: Literal["native", "flac"] = Query("native", alias="format")) -> MediaFileResponse:
+    """Registered audio only, with the same visibility, range and resource admission as video."""
+    entity = jf.resolve(db, user, item_id)
+    if entity is None or entity.item is None or entity.item.kind not in ("track", "audio"):
+        raise HTTPException(status_code=404, detail="Item not found")
+    screen_time.enforce(db, user, fresh=True)
+    if format_ == "native":
+        return media_file(item_id, request, user, db, None, audio=True)
+    try:
+        found = jf.stream_file(db, user, item_id, None)
+        if found is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+        version_id, path = found
+        if playback_resources.enabled(db):
+            from app.services.resource_policy import playback_device
+            device = playback_device(request)
+        else:
+            device = getattr(request.state, "connected_app_id", None) or "web"
+        activity.guard(user.id, version_id, device)
+        playback = music_audio.playback_file(path, "flac")
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from exc
+    try:
+        if request.method == "GET":
+            music_audio.guard_resources(db, request, user, entity.item, playback, device)
+            activity.touch(user.id, version_id, device)
+        return music_audio.audio_response(playback, headers={"Cache-Control": "private, max-age=600"})
+    except BaseException:
+        playback.release()
+        raise
+
+
 @router.api_route("/items/{item_id}/download", methods=["GET", "HEAD"])
 def download(item_id: str, request: Request, user: Caller, db: Db, mediasourceid: str | None = Query(None, max_length=64)) -> MediaFileResponse:
     """The version's file as an attachment: allowed exactly when streaming is. A token is required (no PlaybackInfo grant)."""
@@ -539,6 +575,7 @@ def media_file(
     mediasourceid: str | None,
     *,
     attachment: bool = False,
+    audio: bool = False,
     credential_resolution: jf.CredentialStreamFile | None = None,
 ) -> MediaFileResponse:
     try:
@@ -579,7 +616,7 @@ def media_file(
         stat_result = path.stat()
     except OSError as exc:
         raise HTTPException(status_code=404, detail=MEDIA_UNAVAILABLE) from exc
-    return MediaFileResponse(path, filename=path.name if attachment else None, stat_result=stat_result)
+    return MediaFileResponse(path, filename=path.name if attachment else None, stat_result=stat_result, media_type=media_content_type(path, audio=audio))
 
 
 @router.get("/videos/{item_id}/{source_id}/subtitles/{index}/stream.{fmt}")
@@ -888,10 +925,11 @@ def register(app: FastAPI, artwork: ArtworkService) -> None:
     """Call after jellyfin_auth.register(app) so its routes precede this catch-all."""
     app.state.artwork = artwork
     jellyfin_integration.register(app)  # before this router: its routes win over the stubs and the catch-all
+    app.include_router(jellyfin_music.router)
     app.include_router(jellyfin_probes.router)
     app.add_api_websocket_route("/socket", jellyfin_socket)  # before main.py mounts the SPA, which closes websockets
     app.include_router(router)
     # app.routes lists the auth and integration routes; these routers are included as opaque entries, so read their own routes.
     app.add_middleware(JellyfinPathMiddleware, root_segments=jellyfin_segments([
-        *app.routes, *jellyfin_probes.router.routes, *stream_router.routes, *router.routes,
+        *app.routes, *jellyfin_music.router.routes, *jellyfin_probes.router.routes, *stream_router.routes, *router.routes,
     ]))

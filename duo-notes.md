@@ -1,42 +1,31 @@
 # iPhone Duo validation notes
-Journey: Sign in → Video library and Continue Watching → Title detail → Player
-Stack: SwiftUI, iOS 18 minimum, Xcode/iOS 27.1 SDK; Device Hub available.
-Stage: 5 complete  Next: Retain release regressions and qualify physical-device media behavior.
+Journey: Home → Account appearance → selected feature → detail → Back, then Closed → Book → Open → Closed.
+Stack: SwiftUI, iOS 18 minimum, Xcode/iOS 27.1 SDK; native Device Hub review.
+Stage: 5 verification in progress. Next: finish bounded native regression checks and merge; live Duo opening remains blocked by Device Hub discovery.
 
-## Findings
-- Library: Change — loaded artwork and long titles exceed card bounds; reproduced in simulator.
-- Library: Change — foreground must respect asymmetric side controls [HIG: designing-for-iphone-duo].
-- Navigation: Ready — native NavigationSplitView/NavigationStack with labeled system toolbar items [HIG].
-- Detail: Audit constrained artwork and text under resizing; maintain selection and playback state [HIG].
-- Camera, multiwindow extras and custom hinge effects: N/A to the existing journey.
+## Current findings
+- The old iPhone Account toolbar reserved 44 pt above Welcome home; the account action now lives in native navigation.
+- iPhone and iPad share Home, Video, Audio, and Account destinations. Web and TV retain their top-right account control.
+- The prior NavigationSplitView description was historical; the current shell uses a stable TabView with one NavigationStack per destination.
+- The first adaptive-tab sidebar overlaid iPad Home. A balanced native NavigationSplitView now gives leading navigation and trailing content separate panes.
+- No custom per-pose layouts, screen coordinates, hinge animation, or display-transition anchor API is introduced.
 
-## Decisions
-- Keep existing library/detail hierarchy and visual identity; fix sizing within proposed space (agent, user-authorized repair).
-- Use native safe areas and adaptive layout; no display coordinates or custom per-pose layouts [HIG].
-- Verify with synthetic long titles and artwork, then inspect the existing production session.
+## Decisions — user-authorized PM pass
+- Use a balanced native split view with a stable TabView in its detail pane; compact iPhone navigation remains native tabs, and expanded navigation is a sidebar.
+- Keep selected destination, Home carousel, navigation history, and the root audio coordinator alive through resizing.
+- Hide the unused navigation bar only on Home and Account; media destinations explicitly restore the native Back bar.
+- Respect the system's asymmetric safe areas and default placement of Duo controls.
+- Keep the Home artwork, Newsreader typography, and paper/ink/gold palette; reclaim space with tighter content spacing.
 
-## Done / verified
-- Production sign-in succeeded, as confirmed by the user.
-- Misleading HTTP 404 explanation corrected; regression test and nine core tests passed.
-- Native iOS build passed before layout fixes.
-- Fresh Duo simulator boots and launches after shared simulator service recovery.
-- Bounded artwork/card layout, clipped rail and safe player controls build successfully.
-- Closed, book and open library observed with native navigation and contained content.
-- Synthetic long-title/mixed-artwork regression fails against original UI (poster/card geometry).
-- Accessibility categories use one grid column; rail width is capped by its scroll container.
-- Increased-contrast palette, prominent-button contrast and large-text detail stacking repaired.
-- Sign-in fields expose explicit labels and native URL/username/password content types.
-- iOS EOF retains the player with Done/Replay; Replay negotiates a fresh Direct/HLS session.
-- Completed player items are detached so native transport cannot restart a stopped stream.
-- Independent playback review passed; request identity is retained by queued progress reports.
-- XCTest orientation reports do not rotate this Duo; use Device Hub and record actual viewport dimensions.
-- Native simulator journey passed: geometry, button roles, direct playback, resume, HLS conversion and progress.
-- Standard, AX3 and AX5 library layouts inspected; normal text size restored.
-- Portrait/landscape and closed/book/open library inspected; production session preserved.
-- Backend: 5011 passed; frontend unit: 2478 passed; mocked browser: 592 passed, 2 skipped.
-- Full make check passed on the expanded audit (47 real-stack/perf passed, 4 skipped).
-- Closed/book/open in both physical orientations passed the full layout/background/resume/EOF/replay/Done journey.
-- Converted HLS replay passed with a fresh session and persisted server progress.
-- AX5 + dark + increased contrast passed the full journey and strict HLS replay progress/full-button visibility checks.
-- Live folding/rotation retained direct playback (15s → 67s+) and returned to the same detail; production login retained.
-- Physical hinge/camera, multitasking/PiP, RTL, Reduce Transparency and spoken VoiceOver not run.
+## Current evidence
+- iPhone Home/carousel/video journey passed (136.576 s), including Details, Back, resumed playback and deliberate Account sign-out.
+- Rendered iPhone Home starts 44 pt higher; actual captures are retained in the local home-navigation gallery.
+- The first shell passed Account appearance/state checks on iPhone (100.534 s) and Duo Closed (79.262 s). The split-shell refinement is being qualified separately.
+- Refined iPad navigation passed (102.525 s): separate trailing content, no duplicate tabs, Account appearance, selected feature and Back. iPhone navigation passed (102.733 s); remaining queued journeys are being recorded.
+- Device Hub keeps a stale inventory even after safe UI creation/new-window attempts, blocking a genuine live Duo opening/closing check; no shared simulator services were restarted.
+
+## Historical limits retained
+- XCTest orientation requests do not reliably rotate Duo; use Device Hub and record the actual viewport.
+- Physical hinge comfort, inner-camera avoidance, multitasking/PiP, RTL, Reduce Transparency and spoken VoiceOver still need device qualification.
+- Format/output and Sonos hardware qualification remain separate from simulator navigation evidence.
+- Never stop another app's simulator. Lumina tests and manual review use only one Lumina-owned simulator at a time.

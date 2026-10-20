@@ -41,15 +41,22 @@ final class LuminaClient: @unchecked Sendable {
         _ = try await send(request(origin: origin, path: "/Sessions/Logout", method: "POST", token: token, deviceID: deviceID))
     }
 
-    func items(origin: URL, token: String, deviceID: String, search: String, start: Int) async throws -> ItemPage {
+    func items(origin: URL, token: String, deviceID: String, search: String, start: Int, types: String = "Movie,Episode,Video", sort: VideoSort = .name, parentID: String? = nil, filters: VideoFilters = .init()) async throws -> ItemPage {
         var query = [
-            URLQueryItem(name: "IncludeItemTypes", value: "Movie,Episode,Video"),
+            URLQueryItem(name: "IncludeItemTypes", value: types),
             URLQueryItem(name: "Recursive", value: "true"),
             URLQueryItem(name: "Fields", value: "Overview,UserData,ImageTags"),
-            URLQueryItem(name: "SortBy", value: "SortName"),
+            URLQueryItem(name: "SortBy", value: sort.field),
+            URLQueryItem(name: "SortOrder", value: sort == .name ? "Ascending" : "Descending"),
             URLQueryItem(name: "StartIndex", value: String(start)),
             URLQueryItem(name: "Limit", value: "50"),
         ]
+        let genre = filters.genre.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !genre.isEmpty { query.append(URLQueryItem(name: "Genres", value: genre)) }
+        if let year = filters.year { query.append(URLQueryItem(name: "Years", value: String(year))) }
+        if filters.unwatchedOnly { query.append(URLQueryItem(name: "IsPlayed", value: "false")) }
+        if filters.favoritesOnly { query.append(URLQueryItem(name: "IsFavorite", value: "true")) }
+        if let parentID { query.append(URLQueryItem(name: "ParentId", value: parentID)) }
         if !search.isEmpty { query.append(URLQueryItem(name: "SearchTerm", value: search)) }
         return try await json(request(origin: origin, path: "/Items", query: query, token: token, deviceID: deviceID))
     }
@@ -68,6 +75,42 @@ final class LuminaClient: @unchecked Sendable {
         ]
         let page: ItemPage = try await json(request(origin: origin, path: "/UserItems/Resume", query: query, token: token, deviceID: deviceID))
         return page.items
+    }
+
+    func views(origin: URL, token: String, deviceID: String) async throws -> ItemPage {
+        try await json(request(origin: origin, path: "/UserViews", token: token, deviceID: deviceID))
+    }
+
+    func children(origin: URL, token: String, deviceID: String, item: MediaItem, start: Int) async throws -> ItemPage {
+        if item.type == "Series" {
+            return try await json(request(origin: origin, path: "/Shows/\(item.id)/Seasons", token: token, deviceID: deviceID))
+        }
+        let query = [URLQueryItem(name: "ParentId", value: item.id), URLQueryItem(name: "IncludeItemTypes", value: "Episode"),
+                     URLQueryItem(name: "SortBy", value: "IndexNumber"), URLQueryItem(name: "SortOrder", value: "Ascending"),
+                     URLQueryItem(name: "StartIndex", value: String(start)), URLQueryItem(name: "Limit", value: "50"),
+                     URLQueryItem(name: "Fields", value: "Overview,UserData,ImageTags")]
+        return try await json(request(origin: origin, path: "/Items", query: query, token: token, deviceID: deviceID))
+    }
+
+    func nextUp(origin: URL, token: String, deviceID: String) async throws -> [MediaItem] {
+        let page: ItemPage = try await json(request(origin: origin, path: "/Shows/NextUp", query: [URLQueryItem(name: "Limit", value: "50")], token: token, deviceID: deviceID))
+        return page.items
+    }
+
+    func updateItemState(origin: URL, token: String, deviceID: String, userID: String, id: String, played: Bool?, favorite: Bool?) async throws {
+        var body = [String: Any]()
+        if let played { body["Played"] = played }
+        if let favorite { body["IsFavorite"] = favorite }
+        _ = try await send(request(origin: origin, path: "/Users/\(userID)/Items/\(id)/UserData", method: "POST", token: token, deviceID: deviceID, body: body))
+    }
+
+    func audioRequest(origin: URL, token: String, item: MediaItem) throws -> PlaybackRequest {
+        let nativeContainers = ["mp3", "aac", "m4a", "mp4", "m4b", "flac", "wav", "wave", "aif", "aiff", "caf", "alac"]
+        let compatible = item.container.map { !nativeContainers.contains($0.lowercased()) } ?? false
+        var query = [URLQueryItem(name: "ApiKey", value: token)]
+        if compatible { query.append(URLQueryItem(name: "format", value: "flac")) }
+        guard item.isAudio, let stream = url(origin: origin, path: "/Audio/\(item.id)/stream", query: query), sameOrigin(origin, stream) else { throw LuminaError.unsafeURL }
+        return PlaybackRequest(id: UUID().uuidString, item: item, url: stream, startPositionSeconds: 0, mediaSourceID: item.id, isTranscoding: false, methodLabel: compatible ? "Compatible audio" : "Direct audio")
     }
 
     func playbackInfo(origin: URL, token: String, deviceID: String, item: MediaItem, forceTranscode: Bool) async throws -> PlaybackInfo {
@@ -118,7 +161,7 @@ final class LuminaClient: @unchecked Sendable {
         _ = try await send(httpRequest)
     }
 
-    private func request(origin: URL, path: String, method: String = "GET", query: [URLQueryItem] = [], token: String? = nil, deviceID: String = "", body: [String: Any]? = nil) -> URLRequest {
+    func request(origin: URL, path: String, method: String = "GET", query: [URLQueryItem] = [], token: String? = nil, deviceID: String = "", body: [String: Any]? = nil) -> URLRequest {
         var request = URLRequest(url: url(origin: origin, path: path, query: query)!)
         request.httpMethod = method
         request.setValue(mediaBrowserHeader(token: token, deviceID: deviceID), forHTTPHeaderField: "Authorization")
@@ -141,10 +184,15 @@ final class LuminaClient: @unchecked Sendable {
         return "MediaBrowser " + values.joined(separator: ", ")
     }
 
-    private func send(_ request: URLRequest) async throws -> Data {
+    func send(_ request: URLRequest) async throws -> Data {
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw LuminaError.malformedResponse }
-        guard (200..<300).contains(response.statusCode) else { throw LuminaError.http(response.statusCode) }
+        guard (200..<300).contains(response.statusCode) else {
+            if response.statusCode == 409, let conflict = try? JSONDecoder().decode(MusicSessionConflict.self, from: data) {
+                throw MusicAPIError.conflict(conflict.detail.session)
+            }
+            throw LuminaError.http(response.statusCode)
+        }
         return data
     }
 

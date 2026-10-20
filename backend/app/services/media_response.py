@@ -1,5 +1,6 @@
 """File response tuned for video-sized local and cached playback bodies."""
 import os
+import mimetypes
 import tempfile
 from collections.abc import Callable, Iterable
 from contextvars import ContextVar
@@ -29,12 +30,23 @@ def _open_seek_read(path: str, start: int, size: int) -> tuple[BinaryIO, bytes]:
         raise
 
 
+def media_content_type(path: str | os.PathLike[str], *, audio: bool = False) -> str:
+    """MP4 audio is not LATM; platform MIME registries disagree on M4A/M4B."""
+    suffix = Path(path).suffix.lower()
+    if suffix in {".m4a", ".m4b"} or (audio and suffix == ".mp4"):
+        return "audio/mp4"
+    return mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+
+
 class MediaFileResponse(FileResponse):
     """Start ranges with a small read, then amortize worker calls with media-sized chunks."""
 
     chunk_size = MEDIA_FILE_CHUNK_SIZE
     first_chunk_size = 64 * 1024
     initial_chunk_size = 128 * 1024
+
+    def __init__(self, path: str | os.PathLike[str], *, media_type: str | None = None, **kwargs: Any) -> None:
+        super().__init__(path, media_type=media_type or media_content_type(path), **kwargs)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         token = _file_receive.set(receive)

@@ -14,6 +14,7 @@ const loading: MediaLoading = {
   image_failure_rate_week: 0,
 };
 const artwork: ArtworkProgress = {
+  pending: 3046,
   total: 41200, prepared: 38112, failed: 12, unsupported: 30, cache_bytes: 2_147_483_648, running: true, paused_for_playback: true,
   failure_reasons: { timeout: 7, ffmpeg_failed: 5 }, updated_at: null,
   serving: { hits_memory: 900, hits_disk: 80, misses: 20, generated: 18, fallback_original: 1, fallback_unavailable: 1, failures: 0 },

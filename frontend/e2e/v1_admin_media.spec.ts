@@ -56,7 +56,10 @@ test('TMDB key, Jellyfin toggle and Infuse instructions', async ({ page }) => {
   await page.getByRole('button', { name: 'Test key' }).click();
   await expect(page.getByText('The key works.')).toBeVisible();
   await page.getByRole('link', { name: 'Media apps', exact: true }).click();
-  await page.getByRole('switch', { name: 'Let apps like Infuse connect' }).check();
+  const appsToggle = page.getByRole('switch', { name: 'Let apps like Infuse connect' });
+  await expect(appsToggle).not.toBeChecked();
+  await appsToggle.press('Space');
+  await expect(appsToggle).toBeChecked();
   await page.getByRole('button', { name: 'Save media server settings' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
   expect(puts).toEqual([{ tmdb_api_key: 'tmdb-e2e-key' }, { jellyfin_enabled: true }]);

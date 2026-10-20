@@ -357,3 +357,34 @@ def test_shared_response_keeps_disconnect_receivers_request_scoped(tmp_path: Pat
     abandoned, complete = asyncio.run(both())
     assert len(abandoned) <= 128 * 1024 + MEDIA_FILE_CHUNK_SIZE
     assert complete == payload[13:2097153]
+
+
+@pytest.mark.parametrize(("suffix", "expected"), [("m4a", "audio/mp4"), ("m4b", "audio/mp4"), ("mp4", "video/mp4")])
+def test_mp4_file_media_types_are_correct_for_extensionless_streams(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suffix: str, expected: str,
+) -> None:
+    import mimetypes
+    monkeypatch.setitem(mimetypes.types_map, ".m4a", "audio/mp4a-latm")
+    monkeypatch.setitem(mimetypes.types_map, ".m4b", "audio/x-m4b")
+    media = tmp_path / f"registered.{suffix}"
+    media.write_bytes(b"registered-file")
+
+    async def request(method: str) -> list[dict]:
+        messages = []
+
+        async def receive() -> dict:
+            return {"type": "http.request"}
+
+        async def send(message: dict) -> None:
+            messages.append(message)
+
+        headers = [(b"range", b"bytes=0-3")] if method == "GET" else []
+        await MediaFileResponse(media, filename=media.name)(
+            {"type": "http", "method": method, "headers": headers}, receive, send,
+        )
+        return messages
+
+    for method in ("HEAD", "GET"):
+        messages = asyncio.run(request(method))
+        assert dict(messages[0]["headers"])[b"content-type"] == expected.encode()
+        assert messages[0]["status"] == (200 if method == "HEAD" else 206)

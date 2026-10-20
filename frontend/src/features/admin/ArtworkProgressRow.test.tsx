@@ -9,6 +9,7 @@ vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeo
 
 const serving = { hits_memory: 0, hits_disk: 0, misses: 0, generated: 0, fallback_original: 0, fallback_unavailable: 0, failures: 0 };
 const progress = (patch: Partial<ArtworkProgress> = {}): ArtworkProgress => ({
+  pending: 3_084,
   total: 41_200, prepared: 38_112, failed: 3, unsupported: 1, cache_bytes: 1.2e9, running: true, paused_for_playback: false,
   failure_reasons: { timeout: 3 }, serving, updated_at: null, ...patch,
 });

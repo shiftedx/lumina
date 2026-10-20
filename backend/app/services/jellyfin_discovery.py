@@ -172,7 +172,7 @@ def cached_search_page(
         connection.info[_SEARCH_PAGE_CACHE] = (version, pages)
     # Default movie cards depend only on DB rows, caller limits and signing key.
     # ServerId identifies the current key without keeping that secret in the cache.
-    key = (ref_key, query.startindex, query.page_limit(), mapper.server_id, mapper.scope)
+    key = (ref_key, query.model_dump_json(), mapper.server_id, mapper.scope)
     if key in pages:
         pages.move_to_end(key)
         return json.loads(pages[key])

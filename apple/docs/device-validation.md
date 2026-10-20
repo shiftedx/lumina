@@ -6,6 +6,7 @@ Record the commit, Apple TV model, tvOS version, TV model/firmware, HDMI path (d
 
 - [ ] Enable Lumina's **Apps like Infuse** API in the web UI; copy its displayed origin.
 - [ ] Pair Apple TV in Xcode **Window → Devices and Simulators**. Enable Developer Mode if requested. Select the tvOS scheme, your development team, and the paired Apple TV; Run.
+- [ ] Alternatively, install the assigned beta through TestFlight on iPhone/iPad and Apple TV; record its marketing version and build number. This path does not require registering the TV for development. See [TestFlight distribution](testflight.md).
 - [ ] Use your existing, supported HTTPS or LAN HTTP configuration. Sign in with a household member account (or an app password for two-step verification).
 - [ ] Confirm the connected app appears in Lumina **Settings → Connected apps**.
 - [ ] On Apple TV, enable **Settings → Video and Audio → Match Content → Match Dynamic Range / Match Frame Rate** for the matching tests. Note the base output mode and TV processing settings.
@@ -39,6 +40,15 @@ These checks measure delivered output. A source label or “Direct” badge alon
 - [ ] AAC stereo, AC-3 and E-AC-3 surround: confirm receiver channel output. For Atmos, record the source encoding and receiver's actual Atmos indication.
 - [ ] TrueHD/DTS-HD/image subtitles: record whether playback converts or fails. These formats are not promised natively by this proof; do not mark Infuse parity based on these builds.
 - [ ] Force compatible playback on an HDR source: record the resulting output and any tone-mapping/color issue. HDR preservation through conversion is not promised.
+
+## Extended audio acceptance (2026-10-20; physical results pending)
+
+- [ ] Create/edit/delete saved and smart playlists; check resolved tracks, mixes, and a different member's shared read-only playlist.
+- [ ] Restore a terminated app's queue and position paused. Change the same member's queue on another device; verify revision conflict choices preserve the selected queue and isolate other members.
+- [ ] Save an album, artwork and available lyrics; disconnect the network with the session retained, play local audio, seek and advance tracks. Exercise cancel/retry/remove/clear and budget failures without silent eviction. Sign out and verify owner cleanup. On Apple TV, verify recovery after cache purge; cache storage is not permanent.
+- [ ] Check lyric source and timed-line seeking. Compare manual, album and track gain with peak limiting. Verify Off/3/6/12-second crossfade and gapless transitions audibly on eligible buffered tracks; verify the source-loudness streaming label and disabled effects for oversized/unsupported buffering. The buffered path uses bounded current/next-track 48 kHz stereo PCM; do not label it bit-perfect or qualify other hardware formats by inference.
+- [ ] Set a sleep deadline, background/relaunch, and verify expiry pauses without automatic restart. Check system interruption and headphone removal.
+- [ ] With authorized Sonos hardware, acknowledge handoff before local playback pauses; verify status, play/pause/seek/next/previous, debounced volume, failed acknowledgement/retry, and acknowledged return. Local effects/repeat/sleep must be unavailable on remote output. Record actual speaker compatibility and network behavior.
 
 ## Failure paths and access
 

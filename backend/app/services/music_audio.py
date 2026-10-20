@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import mimetypes
 import os
 import shutil
 import subprocess
@@ -11,9 +10,12 @@ import threading
 from pathlib import Path
 from typing import Any, Iterator
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
+from sqlalchemy.orm import Session
+from app.models import LibraryItem, User
 
 from app.config import settings
+from app.services.media_response import MediaFileResponse, media_content_type
 
 _encoding = threading.BoundedSemaphore(2)
 _cache_lock = threading.Lock()
@@ -128,7 +130,7 @@ def _evict_locked(root: Path, incoming_size: int) -> None:
 
 def playback_file(source: Path, format_: str = "native") -> PlaybackFile:
     if format_ == "native":
-        return PlaybackFile(source, mimetypes.guess_type(source.name)[0] or "application/octet-stream")
+        return PlaybackFile(source, media_content_type(source, audio=True))
     if format_ not in ("flac", "wav", "sonos", "sonos_s1"):
         raise HTTPException(422, "Unsupported audio output")
     ffmpeg = shutil.which("ffmpeg")
@@ -191,3 +193,50 @@ def playback_file(source: Path, format_: str = "native") -> PlaybackFile:
 
 
 __all__ = ["MAX_CACHE_BYTES", "PlaybackFile", "playback_file"]
+
+
+class _MusicAudioResponse(MediaFileResponse):
+    """Keep a converted cache entry leased until every response exit path."""
+
+    def __init__(self, *args, release, **kwargs) -> None:  # noqa: ANN002, ANN003
+        super().__init__(*args, **kwargs)
+        self._release_music_file = release
+
+    async def __call__(self, scope, receive, send) -> None:  # noqa: ANN001
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._release_music_file()
+
+
+def audio_response(playback, *, headers: dict[str, str]) -> MediaFileResponse:  # noqa: ANN001
+    path, content_type = playback
+    release = getattr(playback, "release", lambda: None)
+    try:
+        return _MusicAudioResponse(path, media_type=content_type, headers=headers, release=release)
+    except BaseException:
+        release()
+        raise
+
+
+def guard_resources(db: Session, request: Request, user: User, item: LibraryItem, playback, device: str) -> None:
+    from app.services.media_probe import MediaProbeService
+    from app.services.playback_decision import ANY, ClientCaps, DirectProfile
+    from app.services.playback_resources import playback_resources
+    if not playback_resources.enabled(db):
+        return
+    try:
+        facts = dict(MediaProbeService(db).facts(item))
+        path, _content_type = playback
+        duration = facts.get("duration")
+        # Compatibility WAV/FLAC can be larger than the source. Budget the file actually sent.
+        facts["bit_rate"] = int(path.stat().st_size * 8 / duration) if duration and duration > 0 else None
+        caps = ClientCaps(direct=(DirectProfile(ANY, ANY, ANY),), video={}, audio=ANY)
+        admission = playback_resources.admit_direct(db, user, request, item.id, device, facts, caps)
+        if admission is not None and admission.decision.mode != "direct":
+            playback_resources.release(admission)
+            raise HTTPException(409, "This audio format cannot fit the household playback bandwidth. Choose a smaller format or download it first.")
+        request.state.playback_admission = admission
+    except BaseException:
+        getattr(playback, "release", lambda: None)()
+        raise

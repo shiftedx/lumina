@@ -77,7 +77,7 @@ type PhaseEvidence = {
   selections: Record<string, number>;
 };
 
-const IMAGE_ROUTE = /^\/api\/(?:art\/|artwork\/|titles\/[^/]+\/images\/|library\/[^/]+\/artwork$)/;
+const IMAGE_ROUTE = /^\/api\/(?:art\/(?!framing$)|artwork\/|titles\/[^/]+\/images\/|library\/[^/]+\/artwork$)/;
 const emptyNetworkPhase = (): NetworkPhase => ({ active: 0, activeUrls: new Map(), duplicateConcurrentRequests: 0, duplicates: 0, failures: [], issued: 0, maxActive: 0, requestAborted: 0, requestFailed: 0, routes: {}, seen: new Set(), selections: {} });
 const median = (values: number[]): number => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
 const summary = (values: number[]): { median: number; max: number } => ({ median: Math.round(median(values)), max: Math.round(Math.max(0, ...values)) });
@@ -260,6 +260,12 @@ async function exerciseScrollAndFocus(page: import('@playwright/test').Page) {
   await expect.poll(visibleDecoded, { timeout: 30_000 }).toBeGreaterThan(0);
   const bottomVisibleDecoded = await visibleDecoded();
   const sharpElements = await page.locator('img.g-art-image').count();
+  // The next warm phase measures the initial viewport, not the bottom reached by this exercise.
+  await page.evaluate(async () => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
+  await expect.poll(() => page.evaluate(() => window.scrollY), { message: 'initial viewport restored after scroll/focus coverage' }).toBe(0);
   return { bottomVisibleDecoded, focusedCardReadyAtMs: Math.round(focusedCardReadyAtMs), sharpElements };
 }
 
@@ -273,7 +279,7 @@ async function preScrollPoint(page: import('@playwright/test').Page, phase: Netw
     });
     const resources = (performance.getEntriesByType('resource') as PerformanceResourceTiming[]).filter((entry) => {
       const path = new URL(entry.name).pathname;
-      return /^\/api\/(?:art\/|artwork\/|titles\/[^/]+\/images\/|library\/[^/]+\/artwork$)/.test(path);
+      return /^\/api\/(?:art\/(?!framing$)|artwork\/|titles\/[^/]+\/images\/|library\/[^/]+\/artwork$)/.test(path);
     });
     return {
       atMs: Math.round(performance.now()),
@@ -295,6 +301,8 @@ test('Home visible artwork decodes within a bounded real-image pipeline, cold an
 
   for (let run = 0; run < RUNS; run += 1) {
     const page = await perfTitlesPage(browser, 'lan');
+    // Cold and warm measurements share the same first-screen origin, independent of browser reload restoration.
+    await page.context().addInitScript(() => { history.scrollRestoration = 'manual'; });
     await page.context().addInitScript(homeImageProbe);
     let current: Phase = 'cold';
     const network: Record<Phase, NetworkPhase> = { cold: emptyNetworkPhase(), warm: emptyNetworkPhase() };
@@ -365,7 +373,7 @@ test('Home visible artwork decodes within a bounded real-image pipeline, cold an
         const resources = await page.evaluate(() => {
           const entries = (performance.getEntriesByType('resource') as PerformanceResourceTiming[]).filter((entry) => {
             const path = new URL(entry.name).pathname;
-            return /^\/api\/(?:art\/|artwork\/|titles\/[^/]+\/images\/|library\/[^/]+\/artwork$)/.test(path);
+            return /^\/api\/(?:art\/(?!framing$)|artwork\/|titles\/[^/]+\/images\/|library\/[^/]+\/artwork$)/.test(path);
           });
           return {
             durations: entries.map((entry) => entry.duration),

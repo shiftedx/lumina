@@ -19,7 +19,9 @@ def test_progress_polling_allows_idle_but_browsing_still_pauses_background_work(
     monkeypatch.setattr(work_module.time, "monotonic", lambda: now[0])
     monkeypatch.setattr(security, "resolve_user_from_request", lambda *args, **kwargs: SimpleNamespace(id="member"))
     monkeypatch.setattr(admin_library_automation, "automation_service", lambda: SimpleNamespace(
-        public_activity=lambda: LibraryActivity().model_dump()))
+        public_activity=lambda: LibraryActivity().model_dump(exclude={
+            "artwork_pending", "artwork_failed", "artwork_missing", "artwork_paused",
+        })))
     app = FastAPI()
     app.add_middleware(AuthenticatedActivityMiddleware)
     app.dependency_overrides[get_db] = lambda: None

@@ -95,7 +95,7 @@ for (const scheme of ['light', 'dark'] as const) {
       const shot = (name: string) => shots ? page.screenshot({ path: `../output/playwright/s70/${name}-${scheme}-${viewport.width}.png` }) : undefined;
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
       await page.setViewportSize(viewport);
-      await mockApi(page, { sidebar_collapsed: false });
+      await mockApi(page, { sidebar_collapsed: false, autoplay_up_next: false });
       await mockTranscripts(page);
       await mockAdminFixtures(page);
       await mockTitles(page);
@@ -780,7 +780,7 @@ test('forced colours: focus, selection rules and poster markers stay visible', a
   await page.setViewportSize({ width: 1536, height: 960 });
   await sweepMocks(page);
   const found: string[] = [];
-  const visible = async (selector: string, property: 'outlineColor' | 'borderInlineStartColor' | 'borderTopColor' | 'borderBottomColor') => {
+  const visible = async (selector: string, property: 'outlineColor' | 'borderInlineStartColor' | 'borderTopColor' | 'borderBottomColor' | 'textDecorationColor') => {
     const value = await page.locator(selector).first().evaluate((element, name) => getComputedStyle(element)[name as 'outlineColor'], property);
     if (!value || value === 'transparent' || value === 'rgba(0, 0, 0, 0)') found.push(`${selector} ${property} invisible`);
   };
@@ -794,7 +794,9 @@ test('forced colours: focus, selection rules and poster markers stay visible', a
   await page.keyboard.press('ControlOrMeta+k'); await page.getByRole('combobox').fill('alp');
   await page.keyboard.press('ArrowDown'); await visible('.g-palette-option[aria-selected="true"]', 'borderInlineStartColor'); // palette
   await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
-  await page.goto('/settings/playback'); await visible('.g-settings-page-link[aria-current="page"]', 'borderBottomColor'); // settings
+  await page.goto('/settings/playback');
+  await expect(page.locator('.g-settings-link[aria-current="page"]')).toHaveCSS('text-decoration-line', 'underline');
+  await visible('.g-settings-link[aria-current="page"]', 'textDecorationColor'); // settings selection
   await page.goto('/library/movies'); await settle(page); await visible('.g-marker-triangle', 'borderTopColor'); // poster markers
   await page.goto('/streaming/live'); await settle(page); await visible('.g-live', 'borderTopColor'); // the LIVE badge keeps an edge
   expect(found).toEqual([]);

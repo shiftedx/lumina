@@ -165,7 +165,7 @@ export const YOU_SECTIONS: readonly SettingsSectionDef[] = [
   {
     id: 'appearance', group: 'you', label: 'Display', aliases: ['appearance'], summary: 'How Lumina looks for you.',
     entries: [
-      { id: 'appearance.theme', label: 'Theme', layout: 'block', keywords: ['dark mode', 'light mode', 'OLED', 'black', 'system', 'colours', 'colors'], info: "Choose Light, Dark or OLED with pure-black backgrounds. System follows your device's light or dark setting. Affects only you, on every device you sign in to.", Control: Theme },
+      { id: 'appearance.theme', label: 'Theme', layout: 'block', keywords: ['dark mode', 'light mode', 'oled', 'black', 'system', 'colours', 'colors'], info: "Choose Light, Dark or OLED with pure-black backgrounds. System follows your device's light or dark setting. Affects only you, on every device you sign in to.", Control: Theme },
     ],
   },
   {

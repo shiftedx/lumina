@@ -8,19 +8,35 @@
 
 /* Begin PBXBuildFile section */
 		018BCDC4C4249F4ADDA89769 /* LuminaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 91193C60B39E98FA6332ED6A /* LuminaCore */; };
+		0C4CA8C5C41074C7B65AA6DB /* Newsreader-Latin-variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4C28F4FC69F8D5727468CEFE /* Newsreader-Latin-variable.ttf */; };
 		11174E8432685EE26A18174F /* LuminaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */; };
 		256B066751245D56CA2F482F /* PlaybackScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */; };
+		292EEFC353A11406224E2843 /* MediaPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68AC6F32440233FD42862758 /* MediaPresentation.swift */; };
+		2CEAF8FBA29533FA96FEE29E /* NativeAudioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */; };
 		3D9A96C5CA2959005785C51A /* LuminaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */; };
+		45DB9B713333B1F5EE006402 /* Newsreader-Italic-Latin-variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 01EEA20B6CF700D7722A04BD /* Newsreader-Italic-Latin-variable.ttf */; };
 		4EF0451490EA651843F91037 /* MobileRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 579E2238336BCFC991DB98C2 /* MobileRootView.swift */; };
+		5013B17FF57D5CE82C72C57A /* iOS.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 819800A042573CF485DA0430 /* iOS.xcassets */; };
+		53E17F15274AA35430FEB51B /* Newsreader-Latin-variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4C28F4FC69F8D5727468CEFE /* Newsreader-Latin-variable.ttf */; };
 		612AF373518D002E141520EE /* LuminaProofApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */; };
 		6FF87874D2D2C10672F2A68E /* PlaybackScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */; };
 		71B5458C8B9AAF9AC7FFCD2A /* TVRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF579594D69A5C4AE1BC2F04 /* TVRootView.swift */; };
+		74F4535D3D19BBC26A64C7F0 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 941181C235A2128516EAE516 /* OFL.txt */; };
+		772908CFEACA2FD9906A96F3 /* MediaPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68AC6F32440233FD42862758 /* MediaPresentation.swift */; };
 		9229344A0A1CADBFB77AB753 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */; };
+		9249D589D38569A775ACC901 /* NativeAudioOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */; };
 		96DB4422EEADE5D883592A69 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */; };
 		B58C903FC35688BDA8AF2B0E /* LuminaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 132B0C8FC5C18B467CE10EEE /* LuminaCore */; };
 		B66CA5BFC0A18CF26EDB28B3 /* NativeProofTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60BC5C5F0113F2BAB1CBB46C /* NativeProofTests.swift */; };
+		B84363C8E8679421FC58F162 /* NativeAudioOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */; };
+		BFBEE442FF886AA4193C8D6B /* Newsreader-Italic-Latin-variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 01EEA20B6CF700D7722A04BD /* Newsreader-Italic-Latin-variable.ttf */; };
 		C2E4D0D64204BA92A4770A5D /* NativeProofTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60BC5C5F0113F2BAB1CBB46C /* NativeProofTests.swift */; };
+		C3CDF44890749BE14C5012EE /* NativeMusicLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */; };
+		C6D69D97B34EB0282F10D0EB /* NativeAudioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */; };
 		CE8AD71742A6E9BA9EAF9FF1 /* LuminaProofApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */; };
+		D2AAF52A2A5C9C7FC5004281 /* tvOS.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6AC830D81757A02673E5F7D0 /* tvOS.xcassets */; };
+		EEC01442ED927D3E33D7E216 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 941181C235A2128516EAE516 /* OFL.txt */; };
+		F8A8360A940EA872E7A225DF /* NativeMusicLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -41,16 +57,25 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		01EEA20B6CF700D7722A04BD /* Newsreader-Italic-Latin-variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Newsreader-Italic-Latin-variable.ttf"; sourceTree = "<group>"; };
+		05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAudioSession.swift; sourceTree = "<group>"; };
 		15A0B5445C7C3DAFCEF9B848 /* Lumina-iOS-UITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "Lumina-iOS-UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		498D77C6C2E6F8875A165336 /* Lumina-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Lumina-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		4C28F4FC69F8D5727468CEFE /* Newsreader-Latin-variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Newsreader-Latin-variable.ttf"; sourceTree = "<group>"; };
 		579E2238336BCFC991DB98C2 /* MobileRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRootView.swift; sourceTree = "<group>"; };
 		59710991D50763A6B5E76AE1 /* Lumina-tvOS-UITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "Lumina-tvOS-UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		60BC5C5F0113F2BAB1CBB46C /* NativeProofTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeProofTests.swift; sourceTree = "<group>"; };
+		68AC6F32440233FD42862758 /* MediaPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPresentation.swift; sourceTree = "<group>"; };
+		6AC830D81757A02673E5F7D0 /* tvOS.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = tvOS.xcassets; sourceTree = "<group>"; };
+		6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMusicLibraryView.swift; sourceTree = "<group>"; };
+		819800A042573CF485DA0430 /* iOS.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = iOS.xcassets; sourceTree = "<group>"; };
 		8C6468BFA4B1AB57D0097FC4 /* Lumina-tvOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Lumina-tvOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		941181C235A2128516EAE516 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaTheme.swift; sourceTree = "<group>"; };
 		C12B74A2009E288A90BCA744 /* Core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Core; path = Core; sourceTree = SOURCE_ROOT; };
 		CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackScreen.swift; sourceTree = "<group>"; };
+		D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAudioOptions.swift; sourceTree = "<group>"; };
 		E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaProofApp.swift; sourceTree = "<group>"; };
 		FF579594D69A5C4AE1BC2F04 /* TVRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVRootView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -87,7 +112,9 @@
 		141108036DE9CC099AD87480 = {
 			isa = PBXGroup;
 			children = (
+				F4828A5EF9DFD3EAF1844149 /* Assets */,
 				46F4D5C4DE8639EC0EB7744A /* Config */,
+				C8546FE3266B00F735C361A1 /* Fonts */,
 				CC169E5289CF31A0E56000A5 /* iOS */,
 				561B0D79C0D90DC81230A559 /* Packages */,
 				35D48A4E22DFA746CBEA2D3E /* Shared */,
@@ -102,6 +129,10 @@
 			children = (
 				E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */,
 				9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */,
+				68AC6F32440233FD42862758 /* MediaPresentation.swift */,
+				D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */,
+				05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */,
+				6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */,
 				CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */,
 			);
 			name = Shared;
@@ -144,6 +175,16 @@
 			path = Tests/UITests;
 			sourceTree = "<group>";
 		};
+		C8546FE3266B00F735C361A1 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				01EEA20B6CF700D7722A04BD /* Newsreader-Italic-Latin-variable.ttf */,
+				4C28F4FC69F8D5727468CEFE /* Newsreader-Latin-variable.ttf */,
+				941181C235A2128516EAE516 /* OFL.txt */,
+			);
+			path = Fonts;
+			sourceTree = "<group>";
+		};
 		CC169E5289CF31A0E56000A5 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
@@ -151,6 +192,15 @@
 			);
 			name = iOS;
 			path = App/iOS;
+			sourceTree = "<group>";
+		};
+		F4828A5EF9DFD3EAF1844149 /* Assets */ = {
+			isa = PBXGroup;
+			children = (
+				819800A042573CF485DA0430 /* iOS.xcassets */,
+				6AC830D81757A02673E5F7D0 /* tvOS.xcassets */,
+			);
+			path = Assets;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -289,7 +339,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				45DB9B713333B1F5EE006402 /* Newsreader-Italic-Latin-variable.ttf in Resources */,
+				53E17F15274AA35430FEB51B /* Newsreader-Latin-variable.ttf in Resources */,
+				EEC01442ED927D3E33D7E216 /* OFL.txt in Resources */,
 				96DB4422EEADE5D883592A69 /* PrivacyInfo.xcprivacy in Resources */,
+				5013B17FF57D5CE82C72C57A /* iOS.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -297,7 +351,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BFBEE442FF886AA4193C8D6B /* Newsreader-Italic-Latin-variable.ttf in Resources */,
+				0C4CA8C5C41074C7B65AA6DB /* Newsreader-Latin-variable.ttf in Resources */,
+				74F4535D3D19BBC26A64C7F0 /* OFL.txt in Resources */,
 				9229344A0A1CADBFB77AB753 /* PrivacyInfo.xcprivacy in Resources */,
+				D2AAF52A2A5C9C7FC5004281 /* tvOS.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -359,6 +417,10 @@
 			files = (
 				CE8AD71742A6E9BA9EAF9FF1 /* LuminaProofApp.swift in Sources */,
 				11174E8432685EE26A18174F /* LuminaTheme.swift in Sources */,
+				772908CFEACA2FD9906A96F3 /* MediaPresentation.swift in Sources */,
+				9249D589D38569A775ACC901 /* NativeAudioOptions.swift in Sources */,
+				C6D69D97B34EB0282F10D0EB /* NativeAudioSession.swift in Sources */,
+				F8A8360A940EA872E7A225DF /* NativeMusicLibraryView.swift in Sources */,
 				256B066751245D56CA2F482F /* PlaybackScreen.swift in Sources */,
 				71B5458C8B9AAF9AC7FFCD2A /* TVRootView.swift in Sources */,
 			);
@@ -370,7 +432,11 @@
 			files = (
 				612AF373518D002E141520EE /* LuminaProofApp.swift in Sources */,
 				3D9A96C5CA2959005785C51A /* LuminaTheme.swift in Sources */,
+				292EEFC353A11406224E2843 /* MediaPresentation.swift in Sources */,
 				4EF0451490EA651843F91037 /* MobileRootView.swift in Sources */,
+				B84363C8E8679421FC58F162 /* NativeAudioOptions.swift in Sources */,
+				2CEAF8FBA29533FA96FEE29E /* NativeAudioSession.swift in Sources */,
+				C3CDF44890749BE14C5012EE /* NativeMusicLibraryView.swift in Sources */,
 				6FF87874D2D2C10672F2A68E /* PlaybackScreen.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -403,12 +469,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
-				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
+				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.tvos;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.cozylabs.lumina;
 				SDKROOT = appletvos;
 				TARGETED_DEVICE_FAMILY = 3;
 			};
@@ -425,7 +491,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.cozylabs.lumina;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -442,7 +508,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.cozylabs.lumina;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -659,12 +725,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
-				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
+				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.lumina.proof.tvos;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.cozylabs.lumina;
 				SDKROOT = appletvos;
 				TARGETED_DEVICE_FAMILY = 3;
 			};

@@ -5,7 +5,9 @@ import { expect, test } from './realstack';
 
 async function allowApps(page: Page, on: boolean) {
   await page.goto('/settings/media?page=players');
-  await page.getByRole('switch', { name: 'Let apps like Infuse connect' }).setChecked(on);
+  const toggle = page.getByRole('switch', { name: 'Let apps like Infuse connect' });
+  if (await toggle.isChecked() !== on) await toggle.press('Space');
+  await expect(toggle).toBeChecked({ checked: on });
   await page.getByRole('button', { name: 'Save media server settings' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
 }

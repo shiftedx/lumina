@@ -247,7 +247,7 @@ test.describe('Up next on the watch page', () => {
     await signIn(page);
     const upNext = page.getByRole('region', { name: 'Up next' });
     await expect(upNext.getByRole('button', { name: /^More options for / }).first()).toBeVisible();
-    await expect(upNext.getByText('Because you finished Harbor walk at dawn')).toHaveCount(0);
+    await expect(upNext.getByText('Because you finished Harbor walk at dawn')).toHaveCount(4);
     expect(log.upNext[0]).toMatchObject({ channel_id: 'UCabcdefghijklmnopqrstuv' });
     await upNext.getByRole('button', { name: /^More options for / }).first().click();
     await page.getByRole('menuitem', { name: /^Don't recommend / }).click();

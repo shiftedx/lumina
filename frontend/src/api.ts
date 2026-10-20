@@ -473,7 +473,7 @@ export const stopDirectPlayback = (itemId: string): Promise<void> => requestJson
 
 export const listContinueWatching = (): Promise<PlaybackProgress[]> => requestJson('/api/playback/continue');
 export const getPlaybackProgress = (id: string): Promise<PlaybackProgress | null> => requestJson(`/api/library/${enc(id)}/playback`, undefined, { timeoutMs: 2500 });
-export const updatePlaybackProgress = (id: string, payload: { position_seconds: number; duration_seconds?: number | null; completed?: boolean }, options?: { keepalive?: boolean }): Promise<PlaybackProgress> => {
+export const updatePlaybackProgress = (id: string, payload: { position_seconds: number; duration_seconds?: number | null; completed?: boolean; playing?: boolean }, options?: { keepalive?: boolean }): Promise<PlaybackProgress> => {
   const request = requestJson<PlaybackProgress>(`/api/library/${enc(id)}/playback`, { method: 'PUT', body: json(payload), keepalive: options?.keepalive });
   return options?.keepalive ? trackKeepalive(request) : request;
 };

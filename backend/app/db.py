@@ -263,6 +263,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     31: (
         "CREATE INDEX IF NOT EXISTS ix_media_artifacts_root_size ON media_artifacts (root_id, size)",
     ),
+    32: (),  # Encrypted member-owned YouTube sessions; create_all adds the table.
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

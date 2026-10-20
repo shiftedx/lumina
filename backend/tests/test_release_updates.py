@@ -13,6 +13,11 @@ from app.services import release_updates
 from support import file_backed_session_factory, make_user, seed_app_settings
 
 
+@pytest.fixture(autouse=True)
+def installed_version(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr(release_updates, "APP_VERSION", "0.3.4")
+
+
 def latest(version: str = "0.4.0") -> release_updates.LatestRelease:
     return release_updates.LatestRelease(
         version=version,

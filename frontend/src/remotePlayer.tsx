@@ -12,6 +12,7 @@ type RemotePlayerProps = {
   poster: string | null;
   title: string;
   extensions?: LuminaPlayerExtensions;
+  allowAcquisition?: boolean;
   onMediaRef?: (media: HTMLMediaElement | null) => void;
   onReacquire?: () => Promise<boolean>;
   onEnded?: (media: HTMLMediaElement) => void;
@@ -86,7 +87,7 @@ function retainRemoteStream(streamId: string): () => void {
   };
 }
 
-export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onPause, onReacquire, onSeeked, onTimeUpdate, playback, poster, resumePosition, title }: RemotePlayerProps) {
+export function RemotePlayer({ allowAcquisition = true, extensions, onEnded, onLiveEnded, onMediaRef, onPause, onReacquire, onSeeked, onTimeUpdate, playback, poster, resumePosition, title }: RemotePlayerProps) {
   const qualityAvailabilityId = useId();
   const [descriptor, setDescriptor] = useState<RemotePlayback | null | undefined>(playback);
   const [attempt, setAttempt] = useState(0);
@@ -542,6 +543,7 @@ export function RemotePlayer({ extensions, onEnded, onLiveEnded, onMediaRef, onP
     state: playbackProblem ? 'failed' : unsupported ? 'unsupported' : 'loading',
     message: playbackProblem
       || descriptor?.fallback_message
+      || (!allowAcquisition ? 'This video cannot play in Lumina. Check your YouTube connection or continue on YouTube.' : null)
       || (!descriptor?.has_audio && descriptor?.media_kind !== 'audio' ? 'This source has no compatible stream with audio. You can still download it to the vault.' : null)
       || 'You can still download this video to the vault.',
     // An ended broadcast has nothing to refresh; offering it would only fail.

@@ -358,6 +358,7 @@ class _StreamRecord:
     rendition_ids: dict[_RenditionKey, str] = field(default_factory=dict, repr=False)
     pinned_rendition_key: _RenditionKey | None = field(default=None, repr=False)
     generation: int = 1
+    personal_youtube_generation: str | None = field(default=None, repr=False)
     refresh_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
     presentations: dict[int, HlsPresentation] = field(default_factory=dict, repr=False)
     dash_presentations: dict[int, DashPresentation] = field(default_factory=dict, repr=False)
@@ -433,7 +434,7 @@ class RemoteStreamingService:
         self._reads_per_user_limit = max_concurrent_reads_per_user
         self._reads_by_user: dict[str, threading.BoundedSemaphore] = {}
         # signed track address -> (expires at, its probed index); private, in memory only.
-        self._dash_indexes: dict[str, tuple[float, Future[DashIndex]]] = {}
+        self._dash_indexes: dict[tuple[str, str], tuple[float, Future[DashIndex]]] = {}
         self._max_bytes_per_response = max_bytes_per_response
         self._stream_cache = stream_cache
         self._records: dict[str, _StreamRecord] = {}
@@ -472,6 +473,7 @@ class RemoteStreamingService:
                 browser_capabilities=capabilities,
                 rendition_ids=rendition_ids,
                 provider=str(info.get("extractor_key") or info.get("extractor") or "unknown").lower(),
+                personal_youtube_generation=info.get("_lumina_youtube_session"),
             )
             self._records[stream_id] = record
             self._tracked_records[stream_id] = record
@@ -861,6 +863,17 @@ class RemoteStreamingService:
         if should_clean:
             self._cleanup_record(record)
 
+    def revoke_personal_youtube(self, owner_user_id: str) -> None:
+        with self._records_lock:
+            streams = [r.stream_id for r in self._records.values() if r.owner_user_id == owner_user_id and r.personal_youtube_generation]
+            for key in [key for key in self._dash_indexes if key[0] == owner_user_id]:
+                self._dash_indexes.pop(key, None)
+        for stream_id in streams:
+            try:
+                self.release(owner_user_id, stream_id)
+            except StreamNotFoundError:
+                pass
+
     def expire_idle(self) -> int:
         now = self._clock()
         expired: list[_StreamRecord] = []
@@ -893,10 +906,14 @@ class RemoteStreamingService:
         raise RuntimeError("Could not allocate an opaque remote stream identifier.")
 
     def _acquire_record(self, owner_user_id: str, stream_id: str) -> _StreamRecord:
+        from app.services import youtube_session
+
         with self._records_lock:
             record = self._records.get(stream_id)
             if record is None or record.owner_user_id != owner_user_id:
                 raise StreamNotFoundError("Remote stream not found.")
+            if record.personal_youtube_generation and not youtube_session.generation_valid(owner_user_id, record.personal_youtube_generation):
+                raise StreamNotFoundError("YouTube session changed. Reopen this video or watch it on YouTube.")
             with record.lifecycle_lock:
                 if record.retired:
                     raise StreamNotFoundError("Remote stream not found.")
@@ -1135,14 +1152,15 @@ class RemoteStreamingService:
         An index read (or still being read) in the last ``_DASH_INDEX_TTL_SECONDS`` for the same signed address, by an
         intent prefetch or the previous generation, is joined instead of read again; a failed read is forgotten.
         """
+        cache_key = (owner_user_id, track.url)
         with self._records_lock:
-            cached = self._dash_indexes.get(track.url)
+            cached = self._dash_indexes.get(cache_key)
             leading = cached is None or cached[0] <= monotonic()
             if leading:
                 if len(self._dash_indexes) >= _DASH_INDEX_CACHE_ENTRIES:
                     self._dash_indexes.pop(next(iter(self._dash_indexes)), None)
                 probe: Future[DashIndex] = Future()
-                self._dash_indexes[track.url] = (monotonic() + _DASH_INDEX_TTL_SECONDS, probe)
+                self._dash_indexes[cache_key] = (monotonic() + _DASH_INDEX_TTL_SECONDS, probe)
             else:
                 probe = cached[1]
         if not leading:
@@ -1151,8 +1169,8 @@ class RemoteStreamingService:
             index = self._probe_dash_index(owner_user_id, track, slots=slots)
         except BaseException as exc:
             with self._records_lock:
-                if self._dash_indexes.get(track.url, (0, None))[1] is probe:
-                    self._dash_indexes.pop(track.url, None)
+                if self._dash_indexes.get(cache_key, (0, None))[1] is probe:
+                    self._dash_indexes.pop(cache_key, None)
             probe.set_exception(exc)
             raise
         probe.set_result(index)
@@ -1244,6 +1262,7 @@ class RemoteStreamingService:
     ) -> StreamCacheKey | None:
         if (
             self._stream_cache is None
+            or record.personal_youtube_generation is not None
             or byte_range is None
             or byte_range.start is None
             or byte_range.end is None

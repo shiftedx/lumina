@@ -292,7 +292,7 @@ function reportTrack(track: MusicTrack, playback: MusicEngineState, complete: bo
   const key = completionKey(track);
   if (complete && lastCompleted === key) return;
   if (complete) lastCompleted = key;
-  void reportProgress(track.id, playback, complete);
+  void reportProgress(track.id, { ...playback, playing: false }, complete);
 }
 
 function entryForFlatIndex(entries: readonly MusicQueueEntry[], index: number): number | null {
@@ -329,7 +329,7 @@ function playbackChanged(playback: MusicEngineState): void {
   const entryIndex = entryForFlatIndex(state.sharedEntries, playback.index);
   emit({ playback, sharedEntryIndex: entryIndex ?? state.sharedEntryIndex });
   if (playback.index !== previous.index) applyGain();
-  if (Date.now() - checkpointAt > 10_000 || (previous.playing && !playback.playing)) void checkpointMusic();
+  if (Date.now() - checkpointAt > 10_000 || previous.playing !== playback.playing || previous.index !== playback.index) void checkpointMusic();
 }
 
 function primeEngine(): MusicEngine {
@@ -389,7 +389,7 @@ export function checkpointMusic(): Promise<void> {
 async function reportProgress(id: string, playback: MusicEngineState, complete: boolean): Promise<void> {
   const owner = state.owner;
   try {
-    await updatePlaybackProgress(id, { position_seconds: Math.floor(playback.position), duration_seconds: Math.round(playback.duration), completed: complete }, { keepalive: true });
+    await updatePlaybackProgress(id, { position_seconds: Math.floor(playback.position), duration_seconds: Math.round(playback.duration), completed: complete, playing: playback.playing }, { keepalive: true });
   } catch (error) {
     if (owner === state.owner && error instanceof ApiRequestError && (error.status === 401 || error.status === 403)) stopForAccess(error);
   }

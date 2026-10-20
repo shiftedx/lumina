@@ -219,7 +219,7 @@ export function WatchSurface({
   const sourceHeight = readNumber(raw, 'height');
   const knownResolution = readString(raw, 'resolution') || (sourceHeight ? `${sourceHeight}p` : null);
   const sourceUrl = preview?.webpage_url || remote?.webpage_url || local?.webpage_url || null;
-  const provider = watchProvider(raw, remote, local);
+  const provider = capabilities?.provider === 'youtube' ? 'YouTube' : watchProvider(raw, remote, local);
   // Acquisition owns Up Next for remote playback. A saved YouTube video has no
   // acquisition preview, so it makes the same member-scoped request here.
   const savedYoutubeId = local?.remote_id || readString(raw, 'id') || youtubeVideoId({ webpage_url: sourceUrl });
@@ -284,8 +284,9 @@ export function WatchSurface({
   // A web video (remote, or saved with no Media title) reads like a title page under its player.
   const webVideo = isWebVideo(selection);
   const handoffProvider = provider === 'Web' ? siteName(sourceUrl) === 'twitch.tv' ? 'Twitch' : siteName(sourceUrl) : provider;
-  const unavailableAction = remote && sourceUrl && playUnavailable ? (
-    <a aria-label={`Watch on ${handoffProvider || 'source'} (opens in a new tab)`} className="g-button is-primary" href={sourceUrl} rel="noreferrer noopener" target="_blank"><ExternalLink aria-hidden="true" /> Watch on {handoffProvider || 'source'}</a>
+  const unavailableAction = remote && sourceUrl ? (
+    <><a aria-label={`Watch on ${handoffProvider || 'source'} (opens in a new tab)`} className="g-button is-primary" href={sourceUrl} rel="noreferrer noopener" target="_blank"><ExternalLink aria-hidden="true" /> Watch on {handoffProvider || 'source'}</a>
+      {provider === 'YouTube' && (capabilities?.play_reason === 'sign_in_required' || capabilities?.play_reason === 'subscriber_only' || capabilities?.acquire_reason === 'sign_in_required' || /sign.in|session|membership|private/i.test(inspectionProblem || '')) ? <a className="g-text-button" href="/settings/apps?page=youtube">Manage my YouTube connection</a> : null}</>
   ) : null;
   const badge = webVideo ? watchBadge(capabilities?.lifecycle, liveEnded) : null;
   const liveNow = badge === 'live';
@@ -439,6 +440,7 @@ export function WatchSurface({
   );
   const descriptionTimestamps = mediaTitle?.overview ? [] : preview?.description_timestamps || local?.description_timestamps || [];
   const playerExtensions = {
+    ...(remote ? { unavailableAction } : {}),
     chapters: duration && markers.length ? <ChapterSeekMarkers chapters={markers} currentTime={currentTime} duration={duration} interactive={false} onSeek={seekPlayback} /> : undefined,
     theater: <TheaterModeControl onTheaterModeChange={onTheaterModeChange} shortcutEnabled={!mini} theaterMode={theaterMode} />,
     ...(local && !mini ? {
@@ -820,7 +822,7 @@ export function WatchSurface({
           <div className={`player-frame${audio ? ' has-audio-stage' : ''}`}>
             {audio ? <AudioStage album={album} item={audio} next={nextTrack} onPlayItem={(itemId) => onOpenLibraryItem?.(itemId)} onSeek={seekPlayback} previous={previousTrack} /> : null}
             <PlayerPreferencesContext.Provider value={playerPreferences}>
-              {previewLoading ? <RemotePlayerLoading /> : local ? <LocalLibraryPlayer audio={playerAudio} extensions={playerExtensions} mediaRef={playerRef} onEnded={handlePlaybackEnded} onLoadedMetadata={(media) => { playerRef.current = media; if (Number.isFinite(media.duration)) setMediaDuration(media.duration); showTextTrack(media.textTracks, selectedTextTrack); }} onOptions={setPlaybackOptions} onRequestChange={changeSessionRequest} request={sessionRequest} startAt={startAt} startKey={startRef.current?.key} tracks={playerTracks} onPause={() => checkpointPlayer(true)} onSeeked={(media) => { resetAutoplayCycle(media); checkpointPlayer(true); }} onTimeUpdate={(media) => { resetAutoplayCycle(media); setCurrentTime(media.currentTime); checkpointPlayer(); }} itemId={local.id} kind={isAudioItem(local) ? 'audio' : 'video'} poster={thumbnail} title={title} /> : remote && !playUnavailable ? <RemotePlayer extensions={playerExtensions} onEnded={handlePlaybackEnded} onLiveEnded={() => setLiveEnded(true)} onMediaRef={(media) => { playerRef.current = media; }} onPause={() => checkpointPlayer(true)} onReacquire={onReacquireRemote ? () => onReacquireRemote(remote) : undefined} onSeeked={(media) => { resetAutoplayCycle(media); checkpointPlayer(true); }} onTimeUpdate={(media) => { resetAutoplayCycle(media); setCurrentTime(media.currentTime); checkpointPlayer(); }} playback={preview?.playback} poster={thumbnail} resumePosition={preview?.playback?.live ? null : remoteProgress && !remoteProgress.completed ? remoteProgress.position_seconds : null} title={title} /> : <LuminaPlayer extensions={{ ...playerExtensions, unavailableAction }} source={{ id: 'unavailable', kind: 'video', src: null, state: 'unsupported', message: playUnavailableCopy || 'You can still download this video to the vault.' }} title={title} />}
+              {previewLoading ? <RemotePlayerLoading /> : local ? <LocalLibraryPlayer audio={playerAudio} extensions={playerExtensions} mediaRef={playerRef} onEnded={handlePlaybackEnded} onLoadedMetadata={(media) => { playerRef.current = media; if (Number.isFinite(media.duration)) setMediaDuration(media.duration); showTextTrack(media.textTracks, selectedTextTrack); }} onOptions={setPlaybackOptions} onRequestChange={changeSessionRequest} request={sessionRequest} startAt={startAt} startKey={startRef.current?.key} tracks={playerTracks} onPause={() => checkpointPlayer(true)} onSeeked={(media) => { resetAutoplayCycle(media); checkpointPlayer(true); }} onTimeUpdate={(media) => { resetAutoplayCycle(media); setCurrentTime(media.currentTime); checkpointPlayer(); }} itemId={local.id} kind={isAudioItem(local) ? 'audio' : 'video'} poster={thumbnail} title={title} /> : remote && !playUnavailable ? <RemotePlayer allowAcquisition={!acquireUnavailable} extensions={playerExtensions} onEnded={handlePlaybackEnded} onLiveEnded={() => setLiveEnded(true)} onMediaRef={(media) => { playerRef.current = media; }} onPause={() => checkpointPlayer(true)} onReacquire={onReacquireRemote ? () => onReacquireRemote(remote) : undefined} onSeeked={(media) => { resetAutoplayCycle(media); checkpointPlayer(true); }} onTimeUpdate={(media) => { resetAutoplayCycle(media); setCurrentTime(media.currentTime); checkpointPlayer(); }} playback={preview?.playback} poster={thumbnail} resumePosition={preview?.playback?.live ? null : remoteProgress && !remoteProgress.completed ? remoteProgress.position_seconds : null} title={title} /> : <LuminaPlayer extensions={{ ...playerExtensions, unavailableAction }} source={{ id: 'unavailable', kind: 'video', src: null, state: 'unsupported', message: playUnavailableCopy || 'You can still download this video to the vault.' }} title={title} />}
             </PlayerPreferencesContext.Provider>
           </div>
           {local && !isAudioItem(local) && !mini ? <ChromecastPanel audioIndex={sessionRequest.audio_index ?? null} getMedia={() => playerRef.current} itemId={sessionRequest.version_id || local.id} key={sessionRequest.version_id || local.id} onProgress={(position, duration) => onPlaybackCheckpoint(local, position, duration, duration !== null && position >= duration - 1)} subtitle={subtitle} /> : null}

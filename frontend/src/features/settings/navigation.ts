@@ -34,6 +34,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
   { id: 'watch-history', category: 'privacy', section: 'privacy', label: 'Import watch history', summary: 'Preview your watched state from Jellyfin before importing it.', rows: ['privacy.jellyfin-history'] },
   { id: 'listening-export', category: 'playback', section: 'playback', label: 'Listening history export', summary: 'Optionally connect your Last.fm or ListenBrainz account.', rows: ['playback.listening-export'] },
   { id: 'apps', category: 'privacy', section: 'apps', label: 'Connected apps', summary: 'Review players and tokens that can access your account.', rows: ['apps.connected'] },
+  { id: 'youtube', category: 'privacy', section: 'apps', label: 'YouTube', summary: 'An optional personal session for signed-in video playback.', rows: ['apps.youtube'] },
   { id: 'about', category: 'privacy', section: 'about', label: 'About Lumina', summary: 'Credits for the details and artwork Lumina shows.', rows: ['about.credits'] },
   { id: 'dashboard', category: 'overview', section: 'overview', label: 'Dashboard', summary: 'Library health and download activity across the vault.', rows: ['overview.status'] },
   { id: 'playing', category: 'overview', section: 'activity', label: 'Now playing', summary: 'Active streams, server load and background work.', rows: ['activity.now', 'activity.server', 'activity.background'] },

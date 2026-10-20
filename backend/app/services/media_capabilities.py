@@ -217,7 +217,8 @@ def _access_gate(info: Mapping[str, Any]) -> str | None:
     yt-dlp's ``availability`` marks subscriber/membership gating
     (``subscriber_only``/``needs_subscription``) and account gating
     (``needs_auth`` for age/sign-in, ``premium_only``, ``private``). Lumina never
-    signs in, so these are distinct not-available states, never a cookie prompt.
+    signs in by default, so these are distinct unavailable states. A verified
+    personal-session extraction may separately enable playback without acquisition.
     """
 
     availability = info.get("availability")

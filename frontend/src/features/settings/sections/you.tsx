@@ -13,6 +13,7 @@ import { TwoFactorSettings } from '../TwoFactorSettings';
 import { JellyfinHistoryImport } from '../JellyfinHistoryImport';
 import { PersonalResources } from '../HouseholdResources';
 import { ListeningExportRows } from '../ListeningExportRows';
+import { YouTubeSessionSettings } from '../YouTubeSessionSettings';
 import { useSettingsHost } from '../settingsHost';
 import type { SettingsSectionDef } from '../settingsTypes';
 import {
@@ -210,6 +211,7 @@ export const YOU_SECTIONS: readonly SettingsSectionDef[] = [
   {
     id: 'apps', group: 'you', label: 'Connected apps', aliases: ['devices', 'quick connect'], summary: 'Players and tools that reach the vault as you.',
     entries: [
+      { id: 'apps.youtube', label: 'Personal YouTube session', layout: 'block', keywords: ['youtube', 'cookies', 'session', 'sign in', 'connect', 'disconnect'], info: 'An optional browser session for your own recorded YouTube playback. Encrypted on this server and never shared with other members. Downloads and discovery remain anonymous.', Control: YouTubeSessionSettings },
       { id: 'apps.connected', label: 'Connected apps', layout: 'block', keywords: ['infuse', 'swiftfin', 'jellyfin', 'devices', 'agent token', 'api token', 'revoke', 'home assistant'], info: "Players like Infuse, and tools you gave a token, that reach the vault as you. A token sees only what you can see and is shown once when you create it; revoke anything you no longer use. Vault owners also see everyone's apps here.", Control: Apps },
     ],
   },

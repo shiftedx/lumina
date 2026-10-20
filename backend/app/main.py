@@ -53,7 +53,7 @@ from app.routers import library_sections  # library gallery sections
 from app.routers import requests as requests_routes  # 2.6.0 Requests (BE-B)
 from app.services.requests.catalog import warm_loop as catalog_warm_loop
 from app.services.requests.sync import request_sync_loop
-from app.routers import arr_observations
+from app.routers import arr_observations, youtube_session as youtube_session_routes
 from app.services.arr_observer import observer_loop
 from app.services.infrastructure_connectors import observer_loop as connector_observer_loop
 from app.routers import arr_operations, music_listening_session, service_connectors, listening_export, music_requests, chromecast
@@ -1096,6 +1096,7 @@ arr_operations.register(app)
 music_listening_session.register(app)
 service_connectors.register(app)
 listening_export.register(app)
+youtube_session_routes.register(app)
 music_requests.register(app)
 chromecast.register(app)
 art.register(app)
@@ -1928,8 +1929,9 @@ async def preview(
 
     def run_preview() -> PreviewResponse:
         with SessionLocal() as thread_db:
-            return YtDlpService(thread_db).preview(
+            return YtDlpService(thread_db).preview_for_playback(
                 payload.source_url,
+                current_user.id,
                 payload.lazy_playlist,
                 format_selection=payload.format_selection,
                 entries_limit=payload.entries_limit,
@@ -1964,7 +1966,7 @@ async def preview(
             info=response.raw,
             browser_capabilities=browser_capabilities,
         ))
-        if registrar is remote_streams and playback.transport == "dash":
+        if registrar is remote_streams and playback.transport == "dash" and not response.raw.get("_lumina_youtube_session"):
             # The manifest request comes ~0.4 s after this answer (render, dash.js import): read the indexes meanwhile.
             raw = response.raw
             remote_prefetch.submit(current_user.id, f"dash:{playback.stream_id}", lambda: remote_streams.warm_dash(
@@ -1975,7 +1977,7 @@ async def preview(
         if response.kind == "playlist"
         else YtDlpService.resolve_search_thumbnail(response.raw)
     )
-    preview_artwork_url = _remote_artwork_url(preview_artwork_source)
+    preview_artwork_url = None if response.raw.get("_lumina_youtube_session") else _remote_artwork_url(preview_artwork_source)
     timeline = normalize_chapters(
         provider_chapters=response.raw.get("chapters"),
         description=response.raw.get("description"),
@@ -3833,8 +3835,11 @@ def update_playback_progress(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     device = resource_policy.playback_device(request) if resource_policy.runtime_state()[0] else getattr(request.state, "connected_app_id", None) or "web"
-    activity.touch(current_user.id, item_id, device, position=payload.position_seconds, duration=payload.duration_seconds)
-    screen_time.heartbeat(db, current_user)
+    if payload.playing:
+        activity.touch(current_user.id, item_id, device, position=payload.position_seconds, duration=payload.duration_seconds)
+        screen_time.heartbeat(db, current_user)
+    else:
+        activity.finish(current_user.id, item_id, device)
     return serialized
 
 

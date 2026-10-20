@@ -29,6 +29,7 @@ class RateLimitEvent:
 
 
 RATE_LIMIT_RULES: dict[str, RateLimitRule] = {
+    "youtube_session": RateLimitRule(10, 60),
     "bootstrap_admin": RateLimitRule(max_requests=3, window_seconds=600),
     "session_login": RateLimitRule(max_requests=10, window_seconds=300),
     # Per-username failures across all IPs. Full = that account is locked on the public address (never on the LAN or

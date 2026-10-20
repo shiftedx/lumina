@@ -438,3 +438,11 @@
 @container (min-width: 760px) {
   .g-settings-feature-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
 }
+
+.settings-youtube-session, .settings-youtube-session form { display: grid; gap: 12px; }
+.settings-youtube-session { max-width: 68ch; }
+.settings-youtube-session p { margin: 0; }
+.settings-youtube-session details > p { margin-block: 12px; }
+.settings-youtube-session summary { cursor: pointer; padding-block: 12px; }
+.settings-youtube-session label:has(input) { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.settings-youtube-session input { max-width: 100%; }

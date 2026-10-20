@@ -1,5 +1,17 @@
 # Release notes
 
+## Lumina 0.4.0
+
+- YouTube: opt-in personal sessions; encrypted per-user credentials; disconnect revocation; restricted-video fallback.
+- Playback: paused-music activity cleanup; Up next preparation; protected-stream handoff; persistent player dismissal.
+- Music: shared queues; listening export; artist/album identity; artwork recovery; responsive lyrics; floating mini player.
+- Integrations: Sonarr/Radarr inventory and acquisition controls; Lidarr requests; collected-data views; Chromecast handoff.
+- Library: bounded discovery and artwork I/O; accurate scan progress; faster Books/manga loading and page turns.
+- Interface: compact settings workspaces; branded dropdowns; square gold switches; subject-aware hero framing and motion.
+- Server: household/member resource budgets; GitHub release checks; owner update notifications.
+- Apple: native iOS/tvOS playback proof; Duo layout and playback lifecycle fixes.
+- Upgrade: schema 32; automatic pre-upgrade backup; retain `app-data/totp-key`; Linux amd64/arm64.
+
 ## Lumina 0.3.4
 
 This release includes every change merged since 0.3.2 and the remaining music, Books, member-access, and connection-guidance fixes.

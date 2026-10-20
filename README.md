@@ -2,7 +2,7 @@
   <img src="frontend/public/favicon.svg" width="88" alt="">
 </p>
 
-<h1 align="center">Lumina</h1>
+<h1 align="center">Lumina — Self-hosted media server</h1>
 
 <p align="center">
   <a href="https://luminamedia.app/"><b>luminamedia.app</b></a> ·
@@ -14,6 +14,10 @@
   Stream and save from YouTube and Twitch, then watch it next to your movies, TV and music,<br>
   in the browser or compatible Jellyfin apps.
 </p>
+
+**Lumina is an open-source, self-hosted media server for movies, TV, music, YouTube and Twitch.** It combines your local library with online video search, playback and saving through yt-dlp, in one household streaming service. Run it with Docker and watch in Lumina's browser player or compatible Jellyfin apps, including Infuse.
+
+Considering a **Plex or Jellyfin alternative**? Lumina is worth trying when you want creator videos and live streams alongside your own files. It runs its own server with an opt-in Jellyfin-compatible API; it does not require a Jellyfin server or connect to Plex apps. Start with the [Lumina vs Plex vs Jellyfin comparison](docs/lumina-vs-plex-vs-jellyfin.md), [client compatibility guide](docs/jellyfin-clients.md), or [FAQ](docs/faq.md).
 
 <p align="center">
   <a href="https://github.com/shiftedx/lumina/releases/latest"><img src="https://img.shields.io/github/v/release/shiftedx/lumina?color=e5a00d&label=release" alt="Release"></a>
@@ -85,7 +89,10 @@ Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and a
 | Configure, add media folders, back up, upgrade | [Operator guide](docker/README.md) |
 | Reach it from other devices | [Remote HTTPS](docker/README.md#remote-https) · [LAN HTTP mode](docker/README.md#lan-http-mode) |
 | Use hardware transcoding | [Intel QSV/VAAPI](docker/README.md#hardware-transcoding-intel-qsvvaapi) |
-| Connect Infuse or another Jellyfin app | [Jellyfin apps](docker/README.md#jellyfin-apps-infuse-swiftfin) |
+| Compare self-hosted media servers | [Lumina vs Plex vs Jellyfin](docs/lumina-vs-plex-vs-jellyfin.md) |
+| Connect Infuse or another Jellyfin app | [Client compatibility](docs/jellyfin-clients.md) · [Connection setup](docker/README.md#jellyfin-apps-infuse-swiftfin) |
+| Bring Jellyfin watch history and favorites | [Moving from Jellyfin](docs/jellyfin-clients.md#can-i-move-from-jellyfin-to-lumina) |
+| Understand requirements, licensing and limitations | [Frequently asked questions](docs/faq.md) |
 | Report a vulnerability | [Security policy](SECURITY.md) |
 
 ## Develop
@@ -109,7 +116,7 @@ Lumina uses public sources by default. Members can optionally connect an encrypt
 
 ## Credits
 
-Lumina stands on [yt-dlp](https://github.com/yt-dlp/yt-dlp), [FFmpeg](https://ffmpeg.org) (via [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg)), [llama.cpp](https://github.com/ggml-org/llama.cpp) and [faster-whisper](https://github.com/SYSTRAN/faster-whisper), with metadata from [TMDB](https://www.themoviedb.org) and [AniList](https://anilist.co). Full list and licenses: [CREDITS.md](CREDITS.md). This product uses the TMDB API but is not endorsed or certified by TMDB. Lumina is not affiliated with Jellyfin, YouTube, Twitch or any other project or service it works with.
+Lumina stands on [yt-dlp](https://github.com/yt-dlp/yt-dlp), [FFmpeg](https://ffmpeg.org) (via [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg)), [llama.cpp](https://github.com/ggml-org/llama.cpp) and [faster-whisper](https://github.com/SYSTRAN/faster-whisper), with metadata from [TMDB](https://www.themoviedb.org) and [AniList](https://anilist.co). Full list and licenses: [CREDITS.md](CREDITS.md). This product uses the TMDB API but is not endorsed or certified by TMDB. Lumina is not affiliated with Plex, Jellyfin, YouTube, Twitch or any other project or service it works with.
 
 Screenshots show Blender Studio open movies in the 0.3.4 interface. Film stills and posters are credited in [CREDITS.md](CREDITS.md#readme-screenshots).
 

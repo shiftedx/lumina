@@ -8,7 +8,7 @@ public enum MusicPlaybackPolicy {
         guard let duration, duration.isFinite, duration > 0,
               let sampleRate, sampleRate > 0, let channels, (1...2).contains(channels) else { return false }
         // Include both source PCM and the hardware-rate stereo conversion estimate.
-        return duration * Double(max(sampleRate, 48_000)) * Double(max(channels, 2)) * 4 <= Double(maximumTrackBytes)
+        return duration * (Double(sampleRate) * Double(channels) + 48_000 * 2) * 4 + 8 <= Double(maximumTrackBytes)
     }
 
     public static func gain(enabled: Bool, manual: Bool, trackGain: Double?, albumGain: Double?,
@@ -19,6 +19,19 @@ public enum MusicPlaybackPolicy {
         var value = db.flatMap { $0.isFinite ? pow(10, $0 / 20) : nil } ?? 1
         if let limit = album ? albumPeak : peak, limit.isFinite, limit > 0 { value = min(value, 1 / limit) }
         return value.isFinite ? Float(min(value, Double(Float.greatestFiniteMagnitude))) : 1
+    }
+
+    static func queueGains(_ tracks: [MusicTrack], enabled: Bool, shuffle: Bool) -> [Float] {
+        let albumID = tracks.first?.albumID
+        let sameAlbum = albumID != nil && tracks.allSatisfy { $0.albumID == albumID }
+        let ordered = zip(tracks, tracks.dropFirst()).allSatisfy { a, b in
+            (a.disc ?? 1) < (b.disc ?? 1) || (a.disc ?? 1) == (b.disc ?? 1) && (a.number ?? Int.max) <= (b.number ?? Int.max)
+        }
+        let sequential = sameAlbum && ordered && !shuffle
+        return tracks.map { track in
+            gain(enabled: enabled, manual: track.gainIsManual, trackGain: track.gainDB,
+                 albumGain: track.albumGainDB, peak: track.peak, albumPeak: track.albumPeak, sequentialAlbum: sequential)
+        }
     }
 
     public static func nextIndex(current: Int, count: Int, repeatMode: String) -> Int? {

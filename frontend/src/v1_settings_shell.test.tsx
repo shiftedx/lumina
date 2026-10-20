@@ -23,7 +23,7 @@ function shell(props: Partial<Parameters<typeof SettingsSurface>[0]> = {}) {
 }
 const nav = () => screen.getByRole('navigation', { name: 'Settings sections' });
 const categoryNames = () => within(nav()).getAllByRole('link').map((link) => link.getAttribute('aria-label') ?? link.textContent);
-const personal = ['Profile & security', 'Playback', 'Display', 'Discovery & streaming', 'Downloads', 'Privacy & connected apps', 'About Lumina'];
+const personal = ['Profile & security', 'Playback', 'Display', 'Discovery & streaming', 'Downloads', 'Privacy & apps', 'About Lumina'];
 const server = ['Overview & activity', 'Household', 'Library & storage', 'Connections', 'AI features', 'Maintenance', 'About Lumina'];
 
 describe('flat settings workspaces', () => {

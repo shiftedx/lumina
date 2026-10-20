@@ -84,7 +84,7 @@ test('test_remove_one_and_clear_all: single-entry removal and Settings clear bot
   await search(page, 'another search');
   await page.getByRole('button', { name: /, account menu$/ }).click();
   await page.getByRole('menuitem', { name: 'My Settings' }).click();
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Privacy & connected apps' }).click();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Privacy & apps' }).click();
   await expect(page.getByRole('heading', { name: 'Search history' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search history' }).click();
   await expect(page.getByText('No search history yet.')).toBeVisible();

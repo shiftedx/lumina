@@ -94,7 +94,7 @@ A fresh install has no accounts and no default password. Open the loopback URL (
 
 Add people under **Settings → Members**: issue an invitation link (shown once; revocable) or a password-reset link. Sessions are opaque server-side records in the database, so restarts keep people signed in.
 
-Lumina uses anonymous extraction by default. Members may opt in to encrypted personal YouTube sessions for restricted recorded-video playback under **My Settings → Privacy & connected apps → YouTube**. Saved sessions are isolated by member; acquisition, discovery and live capture remain anonymous. yt-dlp options retain their closed allowlist; the personal playback retry injects only validated YouTube cookies into an in-memory cookie jar. Acquisition accepts public HTTP(S) destinations only; private and LAN addresses are refused.
+Lumina uses anonymous extraction by default. Members may opt in to encrypted personal YouTube sessions for restricted recorded-video playback under **My Settings → Privacy & apps → YouTube**. Saved sessions are isolated by member; acquisition, discovery and live capture remain anonymous. yt-dlp options retain their closed allowlist; the personal playback retry injects only validated YouTube cookies into an in-memory cookie jar. Acquisition accepts public HTTP(S) destinations only; private and LAN addresses are refused.
 
 From 1.9.0 the recommender also runs background yt-dlp searches and channel listings for each member who has watched or followed something. The whole household stays within 40 calls an hour and 300 a day, one at a time, and no search text is stored or logged. An admin can turn it off under **Manage Server → AI features → Personalised recommendations**, and a member can erase their recommendation history under **Settings → You**.
 
@@ -105,7 +105,7 @@ Navigation opens in a modal and closes after choosing a destination, leaving the
 page width available for media. On phones, **More** opens the same menu.
 
 **My Settings** (`/settings`) contains six categories for your profile: Profile & security,
-Playback, Display, Discovery & streaming, Downloads, and Privacy & connected apps.
+Playback, Display, Discovery & streaming, Downloads, and Privacy & apps.
 **Manage Server** (`/manage`) is available to vault owners and contains Overview & activity,
 Household, Library & storage, Connections, AI features, and Maintenance.
 
@@ -857,7 +857,7 @@ Existing replay assets flattened before emote support retain their saved text. R
 
 ### Personal YouTube playback sessions
 
-Members may opt in under **My Settings → Privacy & connected apps → YouTube** by importing their own Netscape-format YouTube cookie file and explicitly allowing its use. This grants only their recorded-video playback a signed-in retry. Search, discovery, follows, downloads and live capture remain anonymous. A session cannot grant access that the member's YouTube account lacks, and provider challenges or unsupported streams may still require **Watch on YouTube**.
+Members may opt in under **My Settings → Privacy & apps → YouTube** by importing their own Netscape-format YouTube cookie file and explicitly allowing its use. This grants only their recorded-video playback a signed-in retry. Search, discovery, follows, downloads and live capture remain anonymous. A session cannot grant access that the member's YouTube account lacks, and provider challenges or unsupported streams may still require **Watch on YouTube**.
 
 Session cookies are password-equivalent credentials. Lumina stores only encrypted, member-bound YouTube cookies, never a plaintext export, and never returns the saved cookies through the API or profile export. Database backups therefore contain encrypted sessions. Keep `app-data/totp-key` in a separate protected backup; it seals both two-step secrets and personal YouTube sessions with separate member bindings. Losing the key requires reconnecting YouTube. A vault owner with access to both the database and key can decrypt saved sessions; encryption does not protect against a compromised server.
 

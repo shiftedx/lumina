@@ -17,10 +17,12 @@ it('requires a file and explicit consent, clears it after saving, and disconnect
   const file = new File(['synthetic-cookie-export'], 'cookies.txt', { type: 'text/plain' });
   Object.defineProperty(file, 'text', { value: async () => 'synthetic-cookie-export' });
   fireEvent.change(screen.getByLabelText('YouTube cookie file'), { target: { files: [file] } });
+  expect(screen.getByText('cookies.txt')).toBeTruthy();
   expect((connect as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole('checkbox'));
   fireEvent.click(connect);
   await screen.findByText('Session saved');
+  expect(screen.getByText('No file selected')).toBeTruthy();
   expect(JSON.parse(mocks.request.mock.calls.find((call) => call[1]?.method === 'PUT')![1].body)).toEqual({ cookies: 'synthetic-cookie-export', consent: true });
   expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
   expect((screen.getByLabelText('YouTube cookie file') as HTMLInputElement).value).toBe('');

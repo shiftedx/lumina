@@ -77,7 +77,7 @@ export const SETTINGS_CATEGORIES: ReadonlyArray<{ id: SettingsCategory; space: S
   { id: 'display', space: 'personal', label: 'Display', summary: 'How Lumina looks for you.', page: 'display' },
   { id: 'discovery', space: 'personal', label: 'Discovery & streaming', summary: 'Recommendations, interests and streaming providers.', page: 'interests' },
   { id: 'downloads', space: 'personal', label: 'Downloads', summary: 'Quality and format for your new saves.', page: 'downloads' },
-  { id: 'privacy', space: 'personal', label: 'Privacy & connected apps', summary: 'Your data, history and app access.', page: 'data' },
+  { id: 'privacy', space: 'personal', label: 'Privacy & apps', summary: 'Your data, history and app access.', page: 'data' },
   { id: 'overview', space: 'server', label: 'Overview & activity', summary: 'Server health and household playback.', page: 'dashboard' },
   { id: 'household', space: 'server', label: 'Household', summary: 'Members, invitations and request rules.', page: 'members' },
   { id: 'library', space: 'server', label: 'Library & storage', summary: 'Folders, imports and library upkeep.', page: 'folders' },

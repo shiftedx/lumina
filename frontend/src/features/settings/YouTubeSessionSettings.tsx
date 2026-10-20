@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { Upload } from 'lucide-react';
 import { requestJson } from '../../api';
-import { Button, ButtonLink, Input } from '../../ui';
+import { Button, ButtonLink } from '../../ui';
 import { useSettingsHost } from './settingsHost';
 
 type Connection = { status: 'not_connected' | 'connected' | 'needs_reconnect'; updated_at: string | null };
@@ -54,7 +55,7 @@ function PersonalYouTubeSession() {
     } finally { if (mounted.current) setBusy(false); }
   }
 
-  return <div className="settings-youtube-session">
+  return <div className="g-subrows settings-youtube-session">
     <p>Your session is encrypted on this server and belongs only to you. YouTube checks access separately for each video.</p>
     {connection ? <p role="status">{connection.status === 'connected' ? 'Session saved' : connection.status === 'needs_reconnect' ? 'Needs reconnecting — choose a fresh cookie file.' : 'Not connected'}</p> : !error ? <p role="status">Loading your connection…</p> : null}
     <details><summary>How to connect safely</summary>
@@ -62,10 +63,14 @@ function PersonalYouTubeSession() {
       <p>Treat the file like a password. Google may restrict accounts used with third-party tools. Sessions can expire, and connecting does not grant access to videos your account cannot watch.</p>
       <ButtonLink href="https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies" target="_blank" rel="noreferrer noopener" variant="quiet">YouTube session export guide</ButtonLink>
     </details>
-    {connection ? <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
+    {connection ? <form className="g-subrows" onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <label htmlFor="youtube-session-file">YouTube cookie file</label>
-      <Input accept=".txt,text/plain" disabled={busy} id="youtube-session-file" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setConsent(false); setError(null); }} ref={input} type="file" />
-      <label><input checked={consent} disabled={busy} onChange={(event) => setConsent(event.target.checked)} type="checkbox" /> Allow Lumina to use this session for my YouTube playback.</label>
+      <input accept=".txt,text/plain" disabled={busy} hidden id="youtube-session-file" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setConsent(false); setError(null); }} ref={input} type="file" />
+      <div className="g-actions settings-file-picker">
+        <Button aria-label="Choose YouTube cookie file" disabled={busy} icon={<Upload />} onClick={() => input.current?.click()}>Choose file</Button>
+        <span aria-live="polite" title={file?.name}>{file?.name ?? 'No file selected'}</span>
+      </div>
+      <label className="g-check"><input checked={consent} disabled={busy} onChange={(event) => setConsent(event.target.checked)} type="checkbox" /> Allow Lumina to use this session for my YouTube playback.</label>
       <div className="settings-inline-actions"><Button disabled={busy || !file || !consent} type="submit">{busy ? 'Saving…' : connection.status === 'not_connected' ? 'Connect YouTube' : 'Replace session'}</Button>
         {connection.status !== 'not_connected' ? <Button disabled={busy} onClick={() => void save(true)} variant="quiet">Disconnect YouTube</Button> : null}</div>
     </form> : error ? <Button onClick={() => setReload((value) => value + 1)} variant="quiet">Try again</Button> : null}

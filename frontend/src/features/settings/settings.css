@@ -67,9 +67,9 @@
 .g-settings textarea.g-input { padding: 12px; }
 .g-settings-search .g-input { padding: 0 12px; }
 .g-settings .g-input::placeholder { color: var(--g-ink-2); }
-.g-settings-sidebar { grid-area: side; align-self: start; display: grid; gap: 20px; }
+.g-settings-sidebar { display: grid; gap: 20px; }
 .g-settings-sidebar ul { display: grid; margin: 0; padding: 0; list-style: none; }
-.g-settings-link { display: flex; gap: 12px; min-height: var(--g-control); align-items: center; padding: 7px 12px; border-radius: var(--g-radius); color: var(--g-ink-2); font: var(--g-type-ui); text-decoration: none; transition: background-color var(--g-hover); }
+.g-settings-link { display: flex; gap: 12px; min-height: var(--g-control); align-items: center; padding: 7px 12px; border-radius: var(--g-radius); color: var(--g-ink-2); font: var(--g-type-ui); text-decoration: none; white-space: nowrap; transition: background-color var(--g-hover); }
 .g-settings-link > svg { width: 18px; height: 18px; flex: none; }
 .g-settings-link[aria-current='page'] { color: var(--g-ink); font: var(--g-type-ui-strong); text-decoration: underline 2px var(--g-gold-ink); text-underline-offset: 7px; }
 .g-settings-pane { container-type: inline-size; grid-area: pane; min-width: 0; max-width: 900px; }
@@ -106,7 +106,7 @@
   .g-settings { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'head' 'search' 'side' 'pane'; grid-template-rows: auto; gap: 16px; padding-top: 20px; }
   .g-settings-header .g-masthead h1 { font-size: 30px; }
   .g-settings-sidebar { border-bottom: var(--g-rule); }
-  .g-settings-link { gap: 8px; white-space: nowrap; padding-inline: 8px; }
+  .g-settings-link { gap: 8px; padding-inline: 8px; }
   .g-settings-header { margin: 0; gap: 8px 16px; }
   .g-settings-welcome { font-size: 16px; }
   .g-settings-section-head h2 { font-size: 30px; }
@@ -439,10 +439,9 @@
   .g-settings-feature-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
 }
 
-.settings-youtube-session, .settings-youtube-session form { display: grid; gap: 12px; }
+.settings-youtube-session, .settings-youtube-session form { gap: 12px; }
 .settings-youtube-session { max-width: 68ch; }
 .settings-youtube-session p { margin: 0; }
 .settings-youtube-session details > p { margin-block: 12px; }
 .settings-youtube-session summary { cursor: pointer; padding-block: 12px; }
-.settings-youtube-session label:has(input) { display: flex; align-items: center; gap: 8px; min-height: 44px; }
-.settings-youtube-session input { max-width: 100%; }
+.settings-file-picker > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

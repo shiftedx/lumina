@@ -7,3 +7,6 @@ SignedDerivedData/
 xcuserdata/
 Tests/UITests/Fixture.json
 TestResults/
+Distribution/
+*.xcarchive
+*.ipa

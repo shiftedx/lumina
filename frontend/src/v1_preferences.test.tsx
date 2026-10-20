@@ -33,7 +33,7 @@ describe('Settings surface: grouped sections', () => {
   it('test_settings_grouped_sections: renders one heading and one nav link per group', () => {
     render(<SettingsSurface formatPreset="best" onFormatChange={vi.fn()} onLogout={vi.fn()} user={user} />);
     const nav = screen.getByRole('navigation', { name: 'Settings sections' });
-    for (const label of ['Profile & security', 'Playback', 'Display', 'Discovery & streaming', 'Downloads', 'Privacy & connected apps']) {
+    for (const label of ['Profile & security', 'Playback', 'Display', 'Discovery & streaming', 'Downloads', 'Privacy & apps']) {
       expect(within(nav).getByRole('link', { name: label })).toBeTruthy();
     }
     expect(within(nav).getAllByRole('link')).toHaveLength(7); // six categories plus About

@@ -1,5 +1,14 @@
 # Documentation
 
+## Choosing and using Lumina
+
+- [Lumina vs Plex vs Jellyfin](lumina-vs-plex-vs-jellyfin.md): compare media servers by household needs, client support and operating model.
+- [Jellyfin clients and migration](jellyfin-clients.md): connect Infuse, Swiftfin, Roku and Android TV; understand compatibility limits and import watch history.
+- [Frequently asked questions](faq.md): what Lumina does, Docker requirements, licensing, online sources and local AI.
+
+## Operating and developing Lumina
+
+- [Maintaining public discoverability](discoverability.md): source-backed descriptions, website follow-through and search measurement.
 - [`../docker/README.md`](../docker/README.md): operator guide for the Docker deployment (startup, remote access, volumes, backup and restore, upgrades and rollbacks).
 - [`../RELEASE_NOTES.md`](../RELEASE_NOTES.md): changelog.
 - [`../SECURITY.md`](../SECURITY.md): supported versions and how to report a vulnerability.

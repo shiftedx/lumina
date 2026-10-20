@@ -232,6 +232,11 @@ private struct LibraryShellView: View {
             destinations
         }
         .navigationSplitViewStyle(.balanced)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if widthClass == .regular {
+                NativeNowPlayingBar(store: store)
+            }
+        }
     }
 
     private var destinations: some View {
@@ -251,15 +256,12 @@ private struct LibraryShellView: View {
                 destinationStack { AccountView(store: store) }
             }
         }
-        // One player bar belongs to the shared detail shell, above every destination's navigation stack.
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            NativeNowPlayingBar(store: store)
-        }
     }
 
     private func destinationStack<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         NavigationStack {
             content()
+                .safeAreaInset(edge: .bottom, spacing: 0) { compactPlayerBar }
                 .toolbarVisibility(widthClass == .regular && columnVisibility != .detailOnly ? .hidden : .visible, for: .tabBar)
                 .navigationDestination(for: MediaItem.self) { item in
                     Group {
@@ -272,7 +274,15 @@ private struct LibraryShellView: View {
                         }
                     }
                     .toolbarVisibility(.visible, for: .navigationBar)
+                    .safeAreaInset(edge: .bottom, spacing: 0) { compactPlayerBar }
                 }
+        }
+    }
+
+    @ViewBuilder
+    private var compactPlayerBar: some View {
+        if widthClass != .regular {
+            NativeNowPlayingBar(store: store)
         }
     }
 }

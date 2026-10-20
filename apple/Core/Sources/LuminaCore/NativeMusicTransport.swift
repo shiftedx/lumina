@@ -200,7 +200,6 @@ public final class NativeMusicTransport {
             self.pausedAt = nil
             wantsPlayback = true
             tick()
-            onChange?(state)
             if wantsPlayback { startClock(); prepareNext() }
         } catch {
             stopRuntime()

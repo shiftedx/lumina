@@ -284,7 +284,7 @@ final class NativeMusicTransportTests: XCTestCase {
         let server = try AudioHTTPFixture(bytes: bytes)
         let url = try await server.start()
         defer { server.stop() }
-        var resolutions = 0, trackEvents = 0
+        var resolutions = 0, trackEvents = 0, stateEvents = 0
         let transport = NativeMusicTransport(tracks: [fixture.track], index: 0, position: 0) { _ in
             resolutions += 1
             return PlaybackRequest(id: "synthetic", item: fixture.track.mediaItem, url: url,
@@ -293,6 +293,7 @@ final class NativeMusicTransportTests: XCTestCase {
         defer { transport.stop() }
         transport.configure(repeatMode: "off", crossfade: 0, normalize: true, volume: 0)
         transport.onTrack = { _, _ in trackEvents += 1 }
+        transport.onChange = { _ in stateEvents += 1 }
         await transport.start()
         XCTAssertEqual(transport.mode, .decoded)
         try await observe(timeout: 5) { transport.state.position > 0.1 }
@@ -302,8 +303,10 @@ final class NativeMusicTransportTests: XCTestCase {
             let paused = transport.state.position
             try await Task.sleep(for: .milliseconds(40))
             XCTAssertEqual(transport.state.position, paused)
+            let beforeResume = stateEvents
             let duration = await ContinuousClock().measure {
                 await transport.resume()
+                XCTAssertEqual(stateEvents, beforeResume + 1, "Resume must publish the new state once, immediately")
                 let confirmed = await transport.confirmPlaying(timeout: 2)
                 XCTAssertTrue(confirmed)
             }

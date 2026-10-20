@@ -254,6 +254,10 @@ final class NativeMusicTransportTests: XCTestCase {
     func testAuthorizationFailureDiscardsPreparedPlaybackInBothModes() async throws {
         let fixture = try audioFixture(duration: 2)
         defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let existingInputs = try privateAudioInputs()
+        let server = try AudioHTTPFixture(bytes: Data(contentsOf: fixture.url))
+        let remote = try await server.start()
+        defer { server.stop() }
         for decoded in [true, false] {
             var track = fixture.track
             if !decoded { track.duration = nil }
@@ -261,7 +265,7 @@ final class NativeMusicTransportTests: XCTestCase {
             let transport = NativeMusicTransport(tracks: [track, track], index: 0, position: 0) { index in
                 resolutions += 1
                 if revoked || index == 1 { revoked = true; throw URLError(.userAuthenticationRequired) }
-                return PlaybackRequest(id: "synthetic", item: track.mediaItem, url: fixture.url,
+                return PlaybackRequest(id: "synthetic", item: track.mediaItem, url: decoded ? remote : fixture.url,
                     startPositionSeconds: 0, mediaSourceID: "synthetic", isTranscoding: false, methodLabel: "Test WAV")
             }
             transport.configure(repeatMode: "off", crossfade: 0, normalize: true, volume: 0)
@@ -269,6 +273,8 @@ final class NativeMusicTransportTests: XCTestCase {
             try await observe(timeout: 5) { revoked && transport.state.error != nil }
             XCTAssertFalse(transport.state.playing)
             XCTAssertTrue(transport.state.finished)
+            XCTAssertTrue(try privateAudioInputs().subtracting(existingInputs).isEmpty,
+                "Authorization failure must release the downloaded input")
             await transport.resume()
             let confirmed = await transport.confirmPlaying(timeout: 0.2)
             XCTAssertFalse(confirmed, "Revoked audio must not resume from retained resources")
@@ -277,10 +283,50 @@ final class NativeMusicTransportTests: XCTestCase {
         }
     }
 
+    func testFileSegmentsResampleMixedRateQueueAndSeekWithoutDeletingLocalInputs() async throws {
+        var first = try audioFixture(duration: 2.4, sampleRate: 44_100, channelCount: 1, aac: true)
+        let second = try audioFixture(duration: 1.6, sampleRate: 96_000, channelCount: 2)
+        defer {
+            try? FileManager.default.removeItem(at: first.url)
+            try? FileManager.default.removeItem(at: second.url)
+        }
+        first.track.gainIsManual = true
+        first.track.gainDB = 6
+        let fixtures = [first, second]
+        var played = [Int]()
+        let transport = NativeMusicTransport(tracks: fixtures.map(\.track), index: 0, position: 0) { index in
+            PlaybackRequest(id: "occurrence-\(index)", item: fixtures[index].track.mediaItem, url: fixtures[index].url,
+                startPositionSeconds: 0, mediaSourceID: "synthetic", isTranscoding: false, methodLabel: "Mixed-rate audio")
+        }
+        defer { transport.stop() }
+        transport.configure(repeatMode: "off", crossfade: 0.6, normalize: true, volume: 0)
+        transport.onTrack = { _, index in played.append(index) }
+        await transport.start()
+        let initial = await transport.confirmPlaying(timeout: 2)
+        XCTAssertTrue(initial)
+        XCTAssertEqual(transport.mode, .decoded)
+        try await observe(timeout: 5) { transport.state.index == 1 && transport.state.position > 0.1 }
+        transport.pause()
+        await transport.resume()
+        let resumed = await transport.confirmPlaying(timeout: 2)
+        XCTAssertTrue(resumed)
+        await transport.seek(0.4)
+        let sought = await transport.confirmPlaying(timeout: 2)
+        XCTAssertTrue(sought)
+        try await observe(timeout: 5) { transport.state.finished }
+        XCTAssertEqual(played, [0, 1, 1], "Only the explicit seek restarts the current occurrence")
+        XCTAssertEqual(transport.state.position, 1.6, accuracy: 0.05)
+        XCTAssertNil(transport.state.error)
+        transport.stop()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.url.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: second.url.path))
+    }
+
     func testTenDecodedPauseResumeCyclesReuseTheDownloadedAudio() async throws {
         let fixture = try audioFixture(duration: 8)
         defer { try? FileManager.default.removeItem(at: fixture.url) }
         let bytes = try Data(contentsOf: fixture.url)
+        let existingInputs = try privateAudioInputs()
         let server = try AudioHTTPFixture(bytes: bytes)
         let url = try await server.start()
         defer { server.stop() }
@@ -296,6 +342,12 @@ final class NativeMusicTransportTests: XCTestCase {
         transport.onChange = { _ in stateEvents += 1 }
         await transport.start()
         XCTAssertEqual(transport.mode, .decoded)
+        let preparedInputs = try privateAudioInputs().subtracting(existingInputs)
+        XCTAssertEqual(preparedInputs.count, 1, "Only the active private input may be retained")
+        for input in preparedInputs {
+            let attributes = try FileManager.default.attributesOfItem(atPath: input.path)
+            XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        }
         try await observe(timeout: 5) { transport.state.position > 0.1 }
         var latencies = [Double]()
         for _ in 0..<10 {
@@ -317,7 +369,10 @@ final class NativeMusicTransportTests: XCTestCase {
         XCTAssertEqual(server.requests, 1, "Resuming prepared audio must not download it again")
         XCTAssertEqual(resolutions, 1)
         XCTAssertEqual(trackEvents, 1, "Pause/resume must not create another track/start event")
+        XCTAssertEqual(try privateAudioInputs().subtracting(existingInputs), preparedInputs,
+            "Pause/resume must reuse exactly the same bounded private input")
         transport.stop()
+        XCTAssertTrue(try privateAudioInputs().subtracting(existingInputs).isEmpty, "Stop must remove retained input files")
         await transport.resume()
         let restarted = await transport.confirmPlaying(timeout: 2)
         XCTAssertTrue(restarted)
@@ -353,6 +408,80 @@ final class NativeMusicTransportTests: XCTestCase {
         XCTAssertEqual(resolutions, 1, "The current AVQueuePlayer item must survive a pause")
     }
 
+    func testRemoteInputsAreBoundedDuringCrossfadeAndRemovedOnCompletion() async throws {
+        let fixture = try audioFixture(duration: 2.4)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let existingInputs = try privateAudioInputs()
+        let server = try AudioHTTPFixture(bytes: Data(contentsOf: fixture.url))
+        let remote = try await server.start()
+        defer { server.stop() }
+        let transport = transport(tracks: [fixture.track, fixture.track], url: remote, crossfade: 0.6)
+        defer { transport.stop() }
+        await transport.start()
+        try await observe(timeout: 5) { (try? privateAudioInputs().subtracting(existingInputs).count) == 2 }
+        XCTAssertEqual(server.requests, 2)
+        try await observe(timeout: 5) { transport.state.index == 1 && transport.state.position > 0.8 }
+        XCTAssertEqual(try privateAudioInputs().subtracting(existingInputs).count, 1,
+            "The retired occurrence must release its private input")
+        try await observe(timeout: 5) { transport.state.finished }
+        XCTAssertTrue(try privateAudioInputs().subtracting(existingInputs).isEmpty)
+        XCTAssertNil(transport.state.error)
+    }
+
+    func testStopReleasesInputEvenWhenLookaheadIgnoresCancellation() async throws {
+        let fixture = try audioFixture(duration: 2.4)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let existingInputs = try privateAudioInputs()
+        let server = try AudioHTTPFixture(bytes: Data(contentsOf: fixture.url))
+        let remote = try await server.start()
+        defer { server.stop() }
+        var pending: CheckedContinuation<Void, Never>?
+        var returned = false
+        let transport = NativeMusicTransport(tracks: [fixture.track, fixture.track], index: 0, position: 0) { index in
+            if index == 1 {
+                await withCheckedContinuation { pending = $0 }
+                returned = true
+            }
+            return PlaybackRequest(id: "occurrence-\(index)", item: fixture.track.mediaItem, url: remote,
+                startPositionSeconds: 0, mediaSourceID: "synthetic", isTranscoding: false, methodLabel: "HTTP WAV")
+        }
+        defer { transport.stop() }
+        transport.configure(repeatMode: "off", crossfade: 0, normalize: true, volume: 0)
+        await transport.start()
+        try await observe(timeout: 2) { pending != nil }
+        XCTAssertEqual(try privateAudioInputs().subtracting(existingInputs).count, 1)
+        transport.stop()
+        XCTAssertTrue(try privateAudioInputs().subtracting(existingInputs).isEmpty,
+            "A canceled lookahead must not retain the stopped occurrence's file")
+        pending?.resume(); pending = nil
+        try await observe(timeout: 2) { returned }
+        XCTAssertFalse(transport.state.playing)
+        XCTAssertEqual(server.requests, 1, "A late source must not begin another download")
+    }
+
+    func testPauseDuringDownloadCannotRetainOrStartTheLateInput() async throws {
+        let fixture = try audioFixture(duration: 2)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let existingInputs = try privateAudioInputs()
+        let server = try AudioHTTPFixture(bytes: Data(contentsOf: fixture.url))
+        let remote = try await server.start()
+        defer { server.stop() }
+        let transport = transport(tracks: [fixture.track], url: remote)
+        defer { transport.stop() }
+        let starting = Task { await transport.start() }
+        try await observe(timeout: 2) { server.requests == 1 }
+        transport.pause()
+        await starting.value
+        XCTAssertFalse(transport.state.playing)
+        XCTAssertTrue(try privateAudioInputs().subtracting(existingInputs).isEmpty)
+        await transport.resume()
+        let confirmed = await transport.confirmPlaying(timeout: 2)
+        XCTAssertTrue(confirmed)
+        XCTAssertEqual(server.requests, 2)
+        transport.stop()
+        XCTAssertTrue(try privateAudioInputs().subtracting(existingInputs).isEmpty)
+    }
+
     private func transport(tracks: [LuminaCore.MusicTrack], url: URL, crossfade: Double = 0) -> NativeMusicTransport {
         let transport = NativeMusicTransport(tracks: tracks, index: 0, position: 0) { index in
             PlaybackRequest(id: "occurrence-\(index)", item: tracks[index].mediaItem, url: url,
@@ -370,24 +499,31 @@ final class NativeMusicTransportTests: XCTestCase {
         XCTAssertTrue(predicate(), "The live audio engine did not reach the expected playback state")
     }
 
-    private func audioFixture(duration: Double) throws -> (url: URL, track: LuminaCore.MusicTrack) {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lumina-engine-\(UUID()).wav")
-        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
-        let frames = AVAudioFrameCount(duration * 48_000)
+    private func privateAudioInputs() throws -> Set<URL> {
+        Set(try FileManager.default.contentsOfDirectory(at: FileManager.default.temporaryDirectory,
+            includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("lumina-audio-") })
+    }
+
+    private func audioFixture(duration: Double, sampleRate: Double = 48_000, channelCount: UInt32 = 2, aac: Bool = false) throws -> (url: URL, track: LuminaCore.MusicTrack) {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lumina-engine-\(UUID()).\(aac ? "m4a" : "wav")")
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channelCount))
+        let frames = AVAudioFrameCount(duration * sampleRate)
         let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
         buffer.frameLength = frames
         let channels = try XCTUnwrap(buffer.floatChannelData)
-        for channel in 0..<2 {
+        for channel in 0..<Int(channelCount) {
             for frame in 0..<Int(frames) {
-                channels[channel][frame] = Float(sin(Double(frame) * 2 * .pi * 440 / 48_000)) * 0.01
+                channels[channel][frame] = Float(sin(Double(frame) * 2 * .pi * 440 / sampleRate)) * 0.01
             }
         }
-        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        let settings: [String: Any] = aac ? [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: channelCount, AVEncoderBitRateKey: 128_000] : format.settings
+        let file = try AVAudioFile(forWriting: url, settings: settings)
         try file.write(from: buffer)
         let data = try JSONSerialization.data(withJSONObject: [
             "id": "00000000-0000-0000-0000-000000000001", "title": "Synthetic tone", "artist": "Test",
             "album_artist": "Test", "album": "Engine proof", "audio_url": "", "duration": duration,
-            "sample_rate": 48_000, "channels": 2, "gain_is_manual": false, "genres": [],
+            "sample_rate": Int(sampleRate), "channels": Int(channelCount), "gain_is_manual": false, "genres": [],
         ])
         return (url, try JSONDecoder().decode(LuminaCore.MusicTrack.self, from: data))
     }

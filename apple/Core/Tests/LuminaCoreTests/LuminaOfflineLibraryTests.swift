@@ -64,6 +64,7 @@ final class LuminaOfflineLibraryTests: XCTestCase {
         XCTAssertEqual(restored.usedBytes, 38)
         XCTAssertEqual(restored.artworkURL(for: track.id), artwork)
         try FileManager.default.removeItem(at: local)
+        XCTAssertNil(restored.localURL(for: track.id), "Opening a purged file must reconcile without requiring an explicit Refresh")
         restored.refresh()
         XCTAssertNil(restored.localURL(for: track.id))
         XCTAssertTrue(restored.downloadedItems.isEmpty)
@@ -74,6 +75,26 @@ final class LuminaOfflineLibraryTests: XCTestCase {
         restored.clear(session: owner)
         restored.configure(session: owner)
         XCTAssertTrue(restored.downloadedItems.isEmpty, "Explicit sign-out cleanup removes only the requested owner's files")
+    }
+
+    func testChangedOfflineFilesAreRejectedBeforePlayback() async throws {
+        OfflineURLProtocol.stub.handler = { $0.respond(bytes: 32) }
+        let library = library()
+        library.configure(session: session())
+        let track = try item("one")
+        await library.download(item: track, request: request("one"))
+        let local = try XCTUnwrap(library.localURL(for: track.id))
+        try Data(repeating: 0, count: 31).write(to: local)
+        XCTAssertNil(library.localURL(for: track.id), "A metadata snapshot must not authorize a truncated file")
+        XCTAssertTrue(library.downloadedItems.isEmpty)
+        await library.download(item: track, request: request("one"))
+        let replaced = try XCTUnwrap(library.localURL(for: track.id))
+        try FileManager.default.removeItem(at: replaced)
+        let target = root.appendingPathComponent("synthetic-link-target")
+        try Data(repeating: 0, count: 32).write(to: target)
+        try FileManager.default.createSymbolicLink(at: replaced, withDestinationURL: target)
+        XCTAssertNil(library.localURL(for: track.id), "A replacement symlink must not become playable")
+        XCTAssertTrue(library.downloadedItems.isEmpty)
     }
 
     func testBudgetAndTrackCapsDoNotEvictAndAllowExplicitRemoveClearAndRetry() async throws {

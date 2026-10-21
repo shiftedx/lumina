@@ -18,7 +18,8 @@ import Observation
     public private(set) var usedBytes: Int64 = 0
     public private(set) var downloadStates = [String: DownloadState]()
     public private(set) var errorMessage: String?
-    public var downloadedItems: [MediaItem] { entries.filter { existingURL($0) != nil }.map(\.item) }
+    /// Metadata snapshot reconciled on refresh; opening media still revalidates the actual file.
+    public var downloadedItems: [MediaItem] { entries.map(\.item) }
     public var pendingItems: [MediaItem] { knownItems.filter { downloadStates[$0.id] != .downloaded } }
 
     private struct Entry: Codable {
@@ -102,6 +103,8 @@ import Observation
             }
             refresh()
         } catch {
+            entries = []
+            knownItems = []
             errorMessage = "Saved downloads could not be read. Clear downloads to recover storage."
             updateUsedBytes()
         }

@@ -45,6 +45,9 @@ signed = (app / "_CodeSignature").is_dir()
 require(signed or not is_ipa, "Exported IPA must be signed")
 if signed:
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
+    # A parent seal can pass while an embedded framework fails its own designated requirement.
+    for framework in sorted((app / "Frameworks").glob("*.framework")):
+        subprocess.run(["codesign", "--verify", "--strict", "--verbose=2", str(framework)], check=True)
 if is_ipa:
     output = subprocess.run(["codesign", "-d", "--entitlements", ":-", str(app)], check=True, capture_output=True)
     entitlements = plistlib.loads(output.stdout)

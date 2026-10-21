@@ -114,3 +114,9 @@ same `NativeVideoSource` used by the app; its Swift source is a symlink to the s
 AVFoundation benchmark, so frame/seek measurement stays shared. Add
 `--bytes-per-second 2097152 --runs 1` for paced HTTP qualification. Exact commands and
 tradeoffs are in performance review §2e and ADR 0031.
+
+TestFlight export clears inherited signatures in unsigned archives with `prepare_archive.py`;
+Xcode then signs each embedded framework using its current bundle identity. The archive/IPA
+validator checks individual framework designated requirements as well as the parent app seal.
+Run `mise exec -- python3 apple/scripts/test_archive_signing.py` for the synthetic signing
+regression. The helper refuses a signed application archive.

@@ -364,37 +364,23 @@ struct PlaybackScreen: View {
                     .accessibilityIdentifier("audioQueueDoneButton")
             }
             .padding(.horizontal)
-            List {
-                ForEach(playback.queueRows) { row in
-                    let index = row.index
-                    let item = row.item
-                    HStack(spacing: 16) {
-                        Button {
-                            Task { await playback.playOccurrence(row.id) }
-                        } label: {
-                            HStack(spacing: 16) {
-                                Image(systemName: index == playback.queueIndex ? "speaker.wave.2.fill" : "music.note")
-                                Text(item.name).frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                        .disabled(playback.isReplaying || audioSession.isSonos)
-                        .accessibilityIdentifier(row.accessibilityID)
-                        if index > playback.queueIndex {
-                            Menu("Track actions", systemImage: "ellipsis") {
-                                Button("Play next") { playback.moveOccurrence(row.id) }
-                                Button("Move up") { playback.moveOccurrence(row.id, offset: -1) }
-                                    .disabled(index == playback.queueIndex + 1)
-                                Button("Move down") { playback.moveOccurrence(row.id, offset: 1) }
-                                    .disabled(index == playback.queue.count - 1)
-                                Button("Remove from queue", role: .destructive) { playback.removeOccurrence(row.id) }
-                            }
-                            .labelStyle(.iconOnly)
-                            .disabled(audioSession.isSonos)
-                        }
-                    }
+            #if os(tvOS)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    audioQueueRows
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                .padding(.vertical, 24)
+            }
+            .buttonStyle(.bordered)
+            .focusSection()
+            #else
+            List {
+                audioQueueRows
             }
             .listStyle(.plain)
+            #endif
         }
         #if os(tvOS)
         .frame(width: 1000, height: 650)
@@ -402,6 +388,37 @@ struct PlaybackScreen: View {
         .padding(.vertical)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("audioQueueScreen")
+    }
+
+    @ViewBuilder private var audioQueueRows: some View {
+        ForEach(playback.queueRows) { row in
+            let index = row.index
+            let item = row.item
+            HStack(spacing: 16) {
+                Button {
+                    Task { await playback.playOccurrence(row.id) }
+                } label: {
+                    HStack(spacing: 16) {
+                        Image(systemName: index == playback.queueIndex ? "speaker.wave.2.fill" : "music.note")
+                        Text(item.name).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .disabled(playback.isReplaying || audioSession.isSonos)
+                .accessibilityIdentifier(row.accessibilityID)
+                if index > playback.queueIndex {
+                    Menu("Track actions", systemImage: "ellipsis") {
+                        Button("Play next") { playback.moveOccurrence(row.id) }
+                        Button("Move up") { playback.moveOccurrence(row.id, offset: -1) }
+                            .disabled(index == playback.queueIndex + 1)
+                        Button("Move down") { playback.moveOccurrence(row.id, offset: 1) }
+                            .disabled(index == playback.queue.count - 1)
+                        Button("Remove from queue", role: .destructive) { playback.removeOccurrence(row.id) }
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(audioSession.isSonos)
+                }
+            }
+        }
     }
 
     private func finish() {

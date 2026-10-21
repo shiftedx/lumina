@@ -28,8 +28,8 @@ def v(codec="h264", height=1080, width=1920, pix_fmt="yuv420p", transfer=None, d
             "color_transfer": transfer, "dv_profile": dv, "dv_compat": compat, "default": True}
 
 
-def a(codec="aac", channels=2, index=1, default=True):
-    return {"index": index, "type": "audio", "codec": codec, "channels": channels, "default": default}
+def a(codec="aac", channels=2, index=1, default=True, bit_depth=16):
+    return {"index": index, "type": "audio", "codec": codec, "channels": channels, "default": default, "bit_depth": bit_depth}
 
 
 def s(codec="subrip", index=2):
@@ -85,12 +85,12 @@ H264_720 = caps_from_device_profile({
 })
 # Native AVKit client contract; serialization is also checked by LuminaCoreTests.
 NATIVE_AVKIT = caps_from_device_profile({
-    "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac"}],
+    "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac,flac"}],
     "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264", "AudioCodec": "aac"}],
     "CodecProfiles": [
         {"Type": "Video", "Codec": codec, "Conditions": [{"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": depth}]}
         for codec, depth in (("h264", "8"), ("hevc", "10"))
-    ],
+    ] + [{"Type": "VideoAudio", "Codec": "flac", "Conditions": [{"Property": "AudioBitDepth", "Condition": "LessThanEqual", "Value": "24"}]}],
     "SubtitleProfiles": [{"Format": "vtt", "Method": "External"}],
 })
 HEVC8 = caps_from_browser_profiles(["mp4-avc-aac", "mp4-hevc-aac"])
@@ -100,6 +100,11 @@ HDR10_4K = v("hevc", 2160, 3840, "yuv420p10le", "smpte2084")
 
 ROWS = [
     # id, caps, facts, limits, audio_index, subtitle_index -> (mode, video, audio, burn, height, bitrate, reasons)
+    ("native_flac32_audio_only_encode", NATIVE_AVKIT, facts(MP4, v(), a("flac", bit_depth=32)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioBitDepthNotSupported",))),
+    ("native_flac_unknown_depth_audio_only_encode", NATIVE_AVKIT, facts(MKV, v(), a("flac", bit_depth=None)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioBitDepthNotSupported",))),
+    ("native_mp4_flac_direct", NATIVE_AVKIT, facts(MP4, v(), a("flac", 8, bit_depth=24)), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
+    ("native_mkv_flac_remux", NATIVE_AVKIT, facts(MKV, HDR10_4K, a("flac", 6)), Limits(), None, None, ("remux", "copy", "copy", None, None, None, ("ContainerNotSupported",))),
+    ("native_flac_channel_limit", NATIVE_AVKIT, facts(MP4, v(), a("flac", 9)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioChannelsNotSupported",))),
     ("native_mp4_mp3_direct", NATIVE_AVKIT, facts(MP4, v(), a("mp3")), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("native_mov_alac_direct", NATIVE_AVKIT, facts("mov", v(), a("alac")), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("native_mkv_hevc10_remux", NATIVE_AVKIT, facts(MKV, HDR10_4K, a()), Limits(), None, None, ("remux", "copy", "copy", None, None, None, ("ContainerNotSupported",))),
@@ -179,6 +184,22 @@ def test_malformed_device_profiles_never_raise(profile) -> None:
 def test_an_empty_video_codec_list_means_any_codec() -> None:
     anything = caps_from_device_profile({"DirectPlayProfiles": [{"Type": "Video", "Container": "mkv"}]})
     assert decide(anything, facts(MKV, v("vc1"), a("dts", 6))).mode == "direct"
+
+
+@pytest.mark.parametrize("depth_rules", [(24, 16), (16, 24)])
+def test_audio_depth_limits_combine_and_keep_supported_video(depth_rules) -> None:
+    profile = {
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mkv", "VideoCodec": "h264", "AudioCodec": "flac"}],
+        "CodecProfiles": [
+            {"Type": "VideoAudio", **({"Codec": "flac"} if index else {}), "Conditions": [
+                {"Property": "AudioBitDepth", "Condition": "LessThanEqual", "Value": str(depth)},
+            ]} for index, depth in enumerate(depth_rules)
+        ],
+    }
+    caps = caps_from_device_profile(profile)
+    assert decide(caps, facts(MKV, v(), a("flac", bit_depth=16))).mode == "direct"
+    decision = decide(caps, facts(MKV, v(), a("flac", bit_depth=24)))
+    assert (decision.video, decision.audio, decision.reasons) == ("copy", "encode", ("AudioBitDepthNotSupported",))
 
 
 def test_conditional_codec_profiles_are_skipped_not_applied() -> None:

@@ -365,13 +365,13 @@ The 2026-10-21 follow-up starts Recently Added, Resume and Next Up concurrently 
 
 The same asynchronous fixture with a 100 ms response delay per shelf measured original-store completion at 311 ms versus 105 ms concurrently (five-run medians), with first-response medians of 104 ms for both. See the [Home/artwork report](home-artwork-performance-2026-10-21.md) for source provenance and retained regression checks. This is API completion on a synthetic host fixture, not rendered Home or physical-network latency. Invisible-catalog suppression remains separate work because current refresh callers expect the catalog to stay current.
 
-### 6. Queue presentation and persistence still perform work proportional to queue size
+### 6. Queue presentation and persistence — bounded in the queue follow-up
 
-Source: `App/Shared/PlaybackScreen.swift:481`, `Core/Sources/LuminaCore/LuminaMusicLibrary.swift:164`.
+The 2026-10-21 queue follow-up moves recurring checkpoint sanitization, JSON encoding and atomic file replacement to a private serial utility writer, retaining one active snapshot and the newest pending replacement. In-memory state remains immediate. Account changes drain accepted writes before reload/sign-out; backgrounding awaits a flush under a background execution task. The existing owner isolation, URL stripping and 8 MiB encoded ceiling remain. Account transitions can still wait for bounded disk work on the main actor.
 
-`PlaybackModel.queueRows` groups/maps the full queue whenever requested. Lyrics and playback progress share observable state with queue controls. `LuminaMusicLibrary.persistCheckpoint()` sanitizes/encodes the full queue and writes it atomically on the main actor; active playback checkpoints can repeat roughly every five seconds. `LuminaOfflineLibrary.downloadedItems` resolves local-file existence while deriving display data.
+Playback queue rows now rebuild on membership/order/metadata changes and retain their occurrence UUIDs. Rows carry their positions, removing per-row linear occurrence lookup. Cursor/repeat-only changes retain the cached rows. See the [queue measurement and regression report](music-queue-performance-2026-10-21.md) for methods, before/after results and limitations.
 
-Next change: trace a 1,000-entry queue and large offline library. Cache queue rows when queue membership changes; separate frequently changing position from stable queue metadata; move bounded encoding/file work off the main actor with ordered owner/generation checks. Measure p95 main-thread duration, bytes written per minute and queue-panel body updates. Retain duplicate-occurrence identities and offline/member correctness.
+The later offline-library follow-up below already removed filesystem validation from repeated `downloadedItems` presentation reads. Initial/explicit offline reconciliation still performs filesystem work; physical-device UI traces remain separate qualification.
 
 ### 7. Format capability and playback cost reporting need to become more precise
 

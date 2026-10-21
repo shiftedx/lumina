@@ -52,6 +52,8 @@ public struct TVRootView: View {
             if phase == .active {
                 audioSession.resumeAfterActivation()
                 Task { await audioSession.refreshSharedQueue() }
+            } else if phase == .background {
+                Task { await audioSession.flushCheckpoint() }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {

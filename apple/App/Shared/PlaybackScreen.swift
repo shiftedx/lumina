@@ -8,6 +8,10 @@ import MediaPlayer
 import UIKit
 #endif
 
+extension QueuePresentationRow where Item == MediaItem {
+    var accessibilityID: String { "audioQueueItem-\(item.id)" + (duplicated ? "-\(id.uuidString)" : "") }
+}
+
 /// AVKit owns video transport; the listening stage shares its audio model with the app shell.
 struct PlaybackScreen: View {
     @Environment(\.dismiss) private var dismiss
@@ -362,7 +366,7 @@ struct PlaybackScreen: View {
             .padding(.horizontal)
             List {
                 ForEach(playback.queueRows) { row in
-                    let index = playback.occurrenceIndex(row.id) ?? -1
+                    let index = row.index
                     let item = row.item
                     HStack(spacing: 16) {
                         Button {
@@ -472,16 +476,13 @@ final class PlaybackModel {
     var isPlaying = false
     private(set) var queue: [MediaItem]
     private var occurrenceIDs: [UUID]
-    struct QueueRow: Identifiable {
-        let id: UUID
-        let item: MediaItem
-        let duplicated: Bool
-        var accessibilityID: String { "audioQueueItem-\(item.id)" + (duplicated ? "-\(id.uuidString)" : "") }
+    typealias QueueRow = QueuePresentationRow<MediaItem>
+    private(set) var queueRows: [QueueRow]
+
+    private static func makeQueueRows(items: [MediaItem], occurrenceIDs: [UUID]) -> [QueueRow] {
+        QueuePresentation.rows(items: items, occurrenceIDs: occurrenceIDs, itemID: { $0.id })
     }
-    var queueRows: [QueueRow] {
-        let counts = Dictionary(grouping: queue, by: \.id).mapValues(\.count)
-        return zip(occurrenceIDs, queue).map { QueueRow(id: $0.0, item: $0.1, duplicated: (counts[$0.1.id] ?? 0) > 1) }
-    }
+    private func rebuildQueueRows() { queueRows = Self.makeQueueRows(items: queue, occurrenceIDs: occurrenceIDs) }
     func occurrenceIndex(_ id: UUID) -> Int? { occurrenceIDs.firstIndex(of: id) }
     func playOccurrence(_ id: UUID) async {
         guard let index = occurrenceIndex(id) else { return }
@@ -518,8 +519,10 @@ final class PlaybackModel {
         self.request = request
         self.store = store
         let resolvedQueue = request.item.isAudio && queue.isEmpty ? [request.item] : queue
+        let resolvedOccurrences = resolvedQueue.map { _ in UUID() }
         self.queue = resolvedQueue
-        self.occurrenceIDs = resolvedQueue.map { _ in UUID() }
+        self.occurrenceIDs = resolvedOccurrences
+        self.queueRows = Self.makeQueueRows(items: resolvedQueue, occurrenceIDs: resolvedOccurrences)
         self.queueIndex = min(max(0, queueIndex ?? resolvedQueue.firstIndex(where: { $0.id == request.item.id }) ?? 0), max(0, resolvedQueue.count - 1))
         self.initiallyPaused = initiallyPaused
         elapsedSeconds = request.startPositionSeconds
@@ -659,10 +662,12 @@ final class PlaybackModel {
         guard queue.indices.contains(source), queue.indices.contains(target) else { return }
         let item = queue.remove(at: source), occurrence = occurrenceIDs.remove(at: source)
         queue.insert(item, at: target); occurrenceIDs.insert(occurrence, at: target)
+        rebuildQueueRows()
     }
     func reflectQueueRemoval(at index: Int) {
         guard queue.indices.contains(index) else { return }
         queue.remove(at: index); occurrenceIDs.remove(at: index)
+        rebuildQueueRows()
     }
 
     func removeQueued(at index: Int) {
@@ -672,10 +677,14 @@ final class PlaybackModel {
     }
 
     func configureAudioQueue(_ items: [MediaItem], index: Int, repeatMode: String) {
-        if queue.map(\.id) != items.map(\.id) { occurrenceIDs = items.map { _ in UUID() } }
-        queue = items
-        queueIndex = index
-        self.repeatMode = repeatMode == "one" ? .one : repeatMode == "all" ? .all : .off
+        if queue != items {
+            if queue.map(\.id) != items.map(\.id) { occurrenceIDs = items.map { _ in UUID() } }
+            queue = items
+            rebuildQueueRows()
+        }
+        if queueIndex != index { queueIndex = index }
+        let nextRepeatMode: RepeatMode = repeatMode == "one" ? .one : repeatMode == "all" ? .all : .off
+        if self.repeatMode != nextRepeatMode { self.repeatMode = nextRepeatMode }
     }
 
     func receiveAudioTrack(_ request: PlaybackRequest, index: Int) {

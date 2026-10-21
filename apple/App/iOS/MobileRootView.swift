@@ -32,6 +32,8 @@ struct MobileRootView: View {
             if phase == .active {
                 audioSession.resumeAfterActivation()
                 Task { await audioSession.refreshSharedQueue() }
+            } else if phase == .background {
+                Task { await audioSession.flushCheckpoint() }
             }
         }
     }

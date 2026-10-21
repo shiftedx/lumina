@@ -19,6 +19,8 @@ On reconnect, unchanged revisions can accept the local snapshot, including a low
 
 Remote output transfer must acknowledge the target queue/item/position before stopping or revoking the source. Sonos/Chromecast credentials and media capability lifecycles remain separate from the session row. A credential-free output descriptor alone never claims an output is still playing.
 
+Native device checkpoints update the in-memory snapshot immediately and serialize credential stripping, bounded JSON encoding and atomic file replacement on a private utility queue. Retain at most one active snapshot and the newest pending replacement. Drain accepted writes before changing the configured account or reloading its saved queue; backgrounding also awaits a flush under a background execution task. Account transitions may wait for those bounded writes, while regular playback checkpoints do not perform file work on the main actor. Checkpoints remain provisional member-scoped device state; server revisions and explicit conflict resolution retain authority.
+
 An acknowledged transfer performs one serialized session transition and adopts its returned revision before ordinary checkpoints resume. Exact queue-index mappings preserve duplicate tracks and filtered output queues. A remote descriptor requires a live owner-bound ticket/status; visibility pruning also invalidates an output whose granted items were removed.
 
 ## Consequences

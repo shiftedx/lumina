@@ -28,17 +28,27 @@ describe('index.html and the brand assets', () => {
   it('declares a paper theme-color per scheme and busts the favicon cache', () => {
     expect(html).toContain('<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f1ea" />');
     expect(html).toContain('<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0e0c" />');
-    expect(html).toContain('/favicon.svg?v=lumina-3');
+    expect(html).toContain('/favicon.svg?v=lumina-5');
+    for (const shell of [html, readFileSync('music-offline.html', 'utf8')]) {
+      expect(shell).toContain('/favicon.ico?v=lumina-5');
+      expect(shell).toContain('/apple-touch-icon.png?v=lumina-5');
+    }
+    const touch = readFileSync('public/apple-touch-icon.png');
+    expect(touch.readUInt32BE(16)).toBe(180);
+    expect(touch.readUInt32BE(20)).toBe(180);
+    const ico = readFileSync('public/favicon.ico');
+    expect(ico.subarray(0, 6).toString('hex')).toBe('000001000200');
   });
-  it('restores the 1.9.0 hairline-sun favicon, not the 2.0.0 paper/ink/gold mark', () => {
-    expect(favicon).toContain('stroke="#D2A875"');
+  it('ships the approved soft-gold sunrise favicon', () => {
+    expect(favicon).toContain('stroke="#DBB688"');
+    expect(favicon).not.toContain('<rect');
     expect(favicon).not.toContain('#E5A00D'.toLowerCase());
     expect(favicon).not.toContain('#f4f1ea');
   });
 });
 
 describe('social preview images', () => {
-  it.each(['share-v1', 'share-v2', 'invite-v1'])('ships a compact 1200×630 JPEG for %s links', (kind) => {
+  it.each(['share-v1', 'share-v2', 'share-v3', 'invite-v1', 'invite-v2'])('ships a compact 1200×630 JPEG for %s links', (kind) => {
     const bytes = readFileSync(`public/social/lumina-${kind}.jpg`);
     expect(bytes.subarray(0, 2).toString('hex')).toBe('ffd8');
     const frame = bytes.indexOf(Buffer.from([0xff, 0xc0]));

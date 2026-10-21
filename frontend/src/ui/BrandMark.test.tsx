@@ -8,6 +8,8 @@ describe('BrandMark', () => {
     expect(screen.getByText('Lumina')).not.toBeNull();
     const sun = container.querySelector('.g-brand-sun');
     expect(sun?.getAttribute('aria-hidden')).toBe('true');
+    expect(sun?.getAttribute('src')).toBe('/media-mark.svg?v=lumina-5');
+    expect(sun?.getAttribute('alt')).toBe('');
   });
   it('keeps the word for assistive tech when compact', () => {
     render(<BrandMark compact size="bar" />);

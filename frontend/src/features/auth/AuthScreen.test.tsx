@@ -64,7 +64,9 @@ describe('AuthScreen', () => {
 
   it('keeps library artwork off the page before sign-in', () => {
     const { container } = render(<AuthScreen {...props()} />);
-    expect(container.querySelector('img')).toBeNull();
+    for (const image of container.querySelectorAll('img')) {
+      expect(image.getAttribute('src')).toBe('/media-mark.svg?v=lumina-5');
+    }
   });
 
   it('asks nobody for the ring on setup, invite or reset', () => {

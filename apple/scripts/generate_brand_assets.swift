@@ -117,3 +117,28 @@ try png(at: publicAssets.appendingPathComponent("email-mark.png"), width: 128, h
         background: true, foreground: true)
 try png(at: publicAssets.appendingPathComponent("email/mark-v1.png"), width: 144, height: 112,
         background: false, foreground: true, markWidth: 128)
+
+// Browser and home-screen icons use the same approved native artwork.
+for size in [32, 48, 180, 512] {
+    let name = size == 180 ? "apple-touch-icon.png" : (size == 512 ? "app-icon.png" : "icon-\(size).png")
+    try png(at: publicAssets.appendingPathComponent(name), width: size, height: size,
+            background: size >= 180, foreground: true)
+}
+// ICO supports PNG payloads; include small native sizes for browser fallback.
+var ico = Data([0, 0, 1, 0, 2, 0])
+var payloads = [Data]()
+var offset: UInt32 = 6 + 2 * 16
+for size in [32, 48] {
+    let url = publicAssets.appendingPathComponent("icon-\(size).png")
+    let payload = try Data(contentsOf: url)
+    ico.append(contentsOf: [UInt8(size), UInt8(size), 0, 0, 1, 0, 32, 0])
+    for value in [UInt32(payload.count), offset] {
+        var little = value.littleEndian
+        withUnsafeBytes(of: &little) { ico.append(contentsOf: $0) }
+    }
+    payloads.append(payload)
+    offset += UInt32(payload.count)
+    try FileManager.default.removeItem(at: url)
+}
+for payload in payloads { ico.append(payload) }
+try ico.write(to: publicAssets.appendingPathComponent("favicon.ico"))

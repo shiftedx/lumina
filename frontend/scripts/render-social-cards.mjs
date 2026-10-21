@@ -9,6 +9,8 @@ const vault = await data('social/share-art.png', 'image/png');
 const archive = await data('public/onboarding/film-archive-v1.jpg', 'image/jpeg');
 const roman = await data('public/fonts/Newsreader-variable.woff2', 'font/woff2');
 const italic = await data('public/fonts/Newsreader-Italic-variable.woff2', 'font/woff2');
+const icon = await data('public/media-mark.svg', 'image/svg+xml');
+const mark = `<img src="${icon}" alt="" width="64" height="39">`;
 const output = new URL('public/social/', root);
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch();
@@ -26,17 +28,17 @@ try {
       * { box-sizing: border-box; } html, body { width: 1200px; height: 630px; margin: 0; overflow: hidden; }
       body { background: #0f0e0c url('${art}') ${artSize} no-repeat; color: #f4f1ea; }
       .brand { position: absolute; left: 64px; top: 59px; display: flex; align-items: center; gap: 17px; }
-      .brand svg { width: 59px; height: 43px; color: #edb71b; }
+      .brand img { width: 64px; height: 39px; }
       .brand span { padding-top: 6px; font: 500 34px / 1 Newsreader, serif; letter-spacing: 4px; }
-      .kicker { position: absolute; left: 68px; top: 180px; margin: 0; color: #edb71b; font: 600 13px / 1.4 Arial, sans-serif; letter-spacing: 2.3px; }
+      .kicker { position: absolute; left: 68px; top: 180px; margin: 0; color: #D2A875; font: 600 13px / 1.4 Arial, sans-serif; letter-spacing: 2.3px; }
       h1 { position: absolute; left: 64px; top: 217px; width: 455px; margin: 0; font: italic 700 72px / 1.02 Newsreader, serif; letter-spacing: -1.5px; }
       .copy { position: absolute; left: 68px; top: 430px; margin: 0; color: #ded7c9; font: 400 22px / 1.55 Arial, sans-serif; }
-      .horizon { position: absolute; left: 68px; bottom: 74px; width: 64px; height: 3px; background: #edb71b; }
+      .horizon { position: absolute; left: 68px; bottom: 74px; width: 64px; height: 3px; background: #D2A875; }
     </style></head><body>
-      <div class="brand"><svg viewBox="8 10 48 33" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M11 40H53 M21 40A11 11 0 0 1 43 40 M32 11V21 M18.5 16.5L24.5 23.5 M45.5 16.5L39.5 23.5 M12.5 28L21.5 31 M51.5 28L42.5 31"/></g></svg><span>LUMINA</span></div>
+      <div class="brand">${mark}<span>LUMINA</span></div>
       <p class="kicker">${kicker}</p><h1>${headline}</h1><p class="copy">${copy}</p><span class="horizon"></span>
     </body></html>`);
     await page.evaluate(() => document.fonts.ready);
-    await page.screenshot({ path: fileURLToPath(new URL(`lumina-${kind}-v${kind === 'share' ? 2 : 1}.jpg`, output)), type: 'jpeg', quality: 90 });
+    await page.screenshot({ path: fileURLToPath(new URL(`lumina-${kind}-v${kind === 'share' ? 3 : 2}.jpg`, output)), type: 'jpeg', quality: 90 });
   }
 } finally { await browser.close(); }

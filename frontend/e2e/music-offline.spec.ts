@@ -112,6 +112,10 @@ test('built shell recursively caches hashed dependencies and remains usable with
     return requests.map((request) => new URL(request.url).pathname + new URL(request.url).search).sort();
   });
   expect(resources).toContain('/music-offline.html');
+  expect(resources).toContain('/media-mark.svg?v=lumina-5');
+  expect(resources).toContain('/favicon.svg?v=lumina-5');
+  expect(resources).toContain('/favicon.ico?v=lumina-5');
+  expect(resources).toContain('/apple-touch-icon.png?v=lumina-5');
   expect(resources.some((url) => /^\/assets\/[^/]+-[A-Za-z0-9_-]+\.js$/.test(url))).toBe(true);
   expect(resources.some((url) => /^\/assets\/[^/]+-[A-Za-z0-9_-]+\.css$/.test(url))).toBe(true);
   expect(resources).toContain('/fonts/Newsreader-variable.woff2');
@@ -126,6 +130,7 @@ test('built shell recursively caches hashed dependencies and remains usable with
   await expect(page.getByRole('heading', { name: 'Offline listening' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Play Offline One' })).toBeVisible();
   await expect(page.getByText(/could not (?:finish preparing|be prepared)/i)).toHaveCount(0);
+  await expect(page.locator('.offline-wordmark img')).toHaveJSProperty('naturalWidth', 56);
 
   await page.getByRole('button', { name: 'Play Offline One' }).click();
   await expect(page.getByRole('button', { name: 'Pause music' })).toBeVisible({ timeout: 15_000 });

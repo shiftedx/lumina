@@ -605,6 +605,14 @@ final class NativeAudioSession {
         if isSonos { Task { await pollStatus() } }
     }
 
+    func flushCheckpoint() async {
+        guard let store, identity == store.music.sessionIdentity else { return }
+        let task = UIApplication.shared.beginBackgroundTask(withName: "Music checkpoint")
+        defer { if task != .invalid { UIApplication.shared.endBackgroundTask(task) } }
+        persist()
+        await store.music.flushCheckpoint()
+    }
+
     func discoverSpeakers() async {
         guard let store else { return }
         let owner = identity

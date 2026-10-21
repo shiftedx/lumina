@@ -174,6 +174,45 @@ final class LuminaMusicLibraryTests: XCTestCase {
         XCTAssertEqual(library.cachedSession?.queue.count, 0)
     }
 
+    func testCheckpointWriterRestoresLatestDuplicateQueueAcrossSignOutAndAccountSwitch() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = library(root: root)
+        let alice = session()
+        let bob = session(user: "bob", token: "music-test-token-bob")
+        library.configure(session: alice)
+        for revision in 4...104 {
+            let intermediate = try JSONDecoder().decode(MusicListeningSnapshot.self, from: musicJSON(snapshotJSON(revision: revision, position: Double(revision))))
+            library.persistCheckpoint(snapshot: intermediate)
+        }
+        let latest = try JSONDecoder().decode(MusicListeningSnapshot.self, from: musicJSON(snapshotJSON(revision: 105, position: 7)))
+        library.persistCheckpoint(snapshot: latest)
+        XCTAssertEqual(library.cachedSession?.revision, 105, "The current playback snapshot remains available before background writing completes")
+        await library.flushCheckpoint()
+        library.configure(session: nil)
+        library.configure(session: alice)
+        XCTAssertEqual(library.cachedSession?.revision, 105)
+        XCTAssertEqual(library.cachedSession?.positionSeconds, 7, "A deliberate rewind must win over an earlier higher position")
+        XCTAssertEqual(library.cachedSession?.queue.map(\.id), [musicTrackID, musicTrackTwoID, musicTrackID])
+        XCTAssertEqual(library.cachedSession?.repeatMode, "all")
+        XCTAssertTrue(library.cachedSession?.shuffle == true)
+        let aliceIdentity = try XCTUnwrap(library.sessionIdentity)
+        var final = latest
+        final.revision = 106; final.positionSeconds = 6
+        library.persistCheckpoint(snapshot: final)
+        library.configure(session: nil)
+        let restored = self.library(root: root)
+        restored.configure(session: alice)
+        XCTAssertEqual(restored.cachedSession?.revision, 106, "Signing out must drain an accepted checkpoint before a new library restores it")
+        XCTAssertEqual(restored.cachedSession?.positionSeconds, 6)
+        restored.configure(session: bob)
+        restored.persistCheckpoint(snapshot: latest, owner: aliceIdentity)
+        await restored.flushCheckpoint()
+        XCTAssertNil(restored.cachedSession, "A former member cannot replace the active member's checkpoint")
+        restored.configure(session: alice)
+        XCTAssertEqual(restored.cachedSession?.revision, 106, "A rejected stale checkpoint must not overwrite the member's latest queue")
+    }
+
     func testDownloadRequestUsesOwnOriginNativeFormatAndMediaBrowserHeaderOnly() throws {
         let library = library()
         library.configure(session: session())

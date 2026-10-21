@@ -16,6 +16,7 @@ import Observation
     private var lyricCache: [String: MusicLyrics] = [:]
     private var generation = 0
     private var playlistGeneration = 0
+    private let checkpointWriter = CheckpointWriter()
 
     public convenience init() { self.init(client: LuminaClient()) }
 
@@ -32,6 +33,7 @@ import Observation
 
     public func configure(session: LuminaSession?) {
         guard self.session?.accessToken != session?.accessToken || self.session?.serverURL != session?.serverURL else { return }
+        checkpointWriter.flushSynchronously()
         generation += 1
         self.session = session
         playlists = []; metadata = [:]; lyricCache = [:]; cachedSession = nil
@@ -165,23 +167,11 @@ import Observation
         guard sessionIdentity != nil, owner == nil || owner == sessionIdentity else { return }
         cachedSession = snapshot
         guard let directory = ownerDirectory else { return }
-        var safe = snapshot
-        func sanitized(_ track: MusicTrack) -> MusicTrack {
-            var value = track
-            value.audioURL = ""
-            value.artworkURL = nil
-            return value
-        }
-        safe.queue = snapshot.queue.map(sanitized)
-        safe.entries = snapshot.entries.map { entry in
-            var value = entry
-            value.tracks = entry.tracks?.map(sanitized)
-            return value
-        }
-        guard let data = try? JSONEncoder().encode(safe), data.count <= 8 * 1024 * 1024 else { return }
-        try? prepareDirectory(directory)
-        try? data.write(to: directory.appending(path: "queue.json"), options: .atomic)
+        checkpointWriter.enqueue(snapshot: snapshot, directory: directory)
     }
+
+    /// Waits for the latest accepted checkpoint before the app is suspended or tests read it back.
+    public func flushCheckpoint() async { await checkpointWriter.flush() }
 
     public func speakers() async throws -> [MusicSpeaker] { try await request("sonos") }
 
@@ -251,3 +241,77 @@ import Observation
 }
 
 private struct Deleted: Decodable { var deleted: Bool }
+
+/// Keeps checkpoint work off the main actor while retaining only an active write and its newest replacement.
+private final class CheckpointWriter: @unchecked Sendable {
+    private struct Work: Sendable {
+        let snapshot: MusicListeningSnapshot
+        let directory: URL
+    }
+
+    private let queue = DispatchQueue(label: "app.lumina.music-checkpoint", qos: .utility)
+    private let lock = NSLock()
+    private var pending: Work?
+    private var draining = false
+
+    func enqueue(snapshot: MusicListeningSnapshot, directory: URL) {
+        lock.lock()
+        pending = Work(snapshot: snapshot, directory: directory)
+        if !draining {
+            draining = true
+            queue.async { self.drain() }
+        }
+        lock.unlock()
+    }
+
+    func flushSynchronously() { queue.sync {} }
+
+    func flush() async {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume() }
+        }
+    }
+
+    private func drain() {
+        while let work = next() { write(work) }
+    }
+
+    private func next() -> Work? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let pending else {
+            draining = false
+            return nil
+        }
+        self.pending = nil
+        return pending
+    }
+
+    private func write(_ work: Work) {
+        var safe = work.snapshot
+        func sanitized(_ track: MusicTrack) -> MusicTrack {
+            var value = track
+            value.audioURL = ""
+            value.artworkURL = nil
+            return value
+        }
+        safe.queue = safe.queue.map(sanitized)
+        safe.entries = safe.entries.map { entry in
+            var value = entry
+            value.tracks = entry.tracks?.map(sanitized)
+            return value
+        }
+        guard let data = try? JSONEncoder().encode(safe), data.count <= 8 * 1024 * 1024 else { return }
+        do {
+            try FileManager.default.createDirectory(at: work.directory, withIntermediateDirectories: true)
+            var resource = work.directory
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try resource.setResourceValues(values)
+            #if os(iOS)
+            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: work.directory.path)
+            #endif
+            try data.write(to: work.directory.appending(path: "queue.json"), options: .atomic)
+        } catch {}
+    }
+}

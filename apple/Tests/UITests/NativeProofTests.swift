@@ -442,6 +442,11 @@ final class NativeProofTests: XCTestCase {
         let queuedTime = element("playbackTime")
         let queuedInitial = try waitForPlaybackValue(queuedTime, timeout: 15) { _ in true }
         _ = try waitForPlaybackValue(queuedTime, timeout: 20) { $0 >= queuedInitial + 5 }
+        try activate(element("audioQueueButton"))
+        try waitForExistence(element("audioQueueScreen"), timeout: 15, named: "queue after progress updates")
+        XCTAssertTrue(element("audioQueueItem-\(fixture.audioTrackID)").label.contains(fixture.audioTrackTitle))
+        XCTAssertTrue(element("audioQueueItem-\(fixture.audioSecondTrackID)").label.contains(fixture.audioSecondTrackTitle))
+        try activate(element("audioQueueDoneButton"))
         try attachFrame(named: "Album queue advanced to second track")
         try activate(element("audioStopButton"))
         guard disappears(element("playbackScreen"), timeout: 15), disappears(element("nowPlayingBar"), timeout: 15) else {
@@ -600,6 +605,19 @@ final class NativeProofTests: XCTestCase {
         let lyric = try XCTUnwrap(fixture.audioLyric)
         try waitForExistence(menuAction(lyric), timeout: 20, named: "timed synthetic lyrics")
         try attachFrame(named: "Native listening options and imported timed lyrics")
+        let pausedBeforeBackground = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+        #if os(iOS)
+        try backgroundApplication()
+        #else
+        XCUIRemote.shared.press(.home)
+        #endif
+        try await Task.sleep(for: .seconds(3))
+        application!.activate()
+        try waitForExistence(element("audioPlayerStage"), timeout: 20, named: "paused queue after background flush")
+        let pausedAfterBackground = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+        XCTAssertLessThanOrEqual(pausedAfterBackground, pausedBeforeBackground + 0.5,
+                                 "Backgrounding resumed the paused queue before it could be restored.")
+        XCTAssertEqual(element("nowPlayingTitle").label, fixture.audioTrackTitle)
         // Pause is a user action; relaunch must restore that intention without starting audio.
         application!.terminate()
         application!.launch()
@@ -612,7 +630,9 @@ final class NativeProofTests: XCTestCase {
         let stillPaused = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
         XCTAssertLessThanOrEqual(stillPaused, paused + 0.5)
         // A second real API client changes the queue, then this device's repeat edit must conflict.
-        try await api.replaceProofMusicSession(identity: identity, itemID: fixture.audioSecondTrackID, position: 12)
+        try await api.replaceProofMusicSession(identity: identity,
+                                                itemIDs: [fixture.audioSecondTrackID, fixture.audioSecondTrackID, fixture.audioTrackID],
+                                                position: 12)
         try revealMusicControl(element("audioRepeatButton"))
         try activate(element("audioRepeatButton"))
         try revealMusicControl(element("audioUseServerButton"))
@@ -623,6 +643,44 @@ final class NativeProofTests: XCTestCase {
             throw ProofFailure.ui("Choosing the server queue did not install its selected track")
         }
         XCTAssertEqual(element("audioPlayPauseButton").label, "Play")
+        try revealMusicControl(element("audioQueueButton"))
+        try activate(element("audioQueueButton"))
+        try waitForExistence(element("audioQueueScreen"), timeout: 15, named: "server queue with duplicate tracks")
+        let duplicateRows = application!.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                                                                         "audioQueueItem-\(fixture.audioSecondTrackID)-"))
+        guard waitUntil(timeout: 10, condition: { duplicateRows.count == 2 }) else {
+            throw ProofFailure.ui("Duplicate queue entries did not keep distinct stable identities.")
+        }
+        let duplicateIDs = Set(duplicateRows.allElementsBoundByIndex.map(\.identifier))
+        #if os(tvOS)
+        // TV places the menu label on its image rather than the containing button.
+        let queueActions = element("audioQueueScreen").buttons.containing(.image, identifier: "ellipsis")
+        #else
+        let queueActions = application!.buttons.matching(NSPredicate(format: "label == %@", "Track actions"))
+        #endif
+        try waitForExistence(queueActions.element(boundBy: 0), timeout: 10, named: "first duplicate queue action")
+        try activate(queueActions.element(boundBy: 0))
+        try activate(menuAction("Move down"))
+        XCTAssertEqual(Set(duplicateRows.allElementsBoundByIndex.map(\.identifier)), duplicateIDs,
+                       "Reordering must preserve both duplicate occurrence identities.")
+        try activate(element("audioQueueDoneButton"))
+        try activate(element("audioNextButton"))
+        guard waitUntil(timeout: 20, condition: { self.element("nowPlayingTitle").label == fixture.audioTrackTitle }) else {
+            throw ProofFailure.ui("Moving a duplicate queue entry did not preserve the next occurrence.")
+        }
+        try revealMusicControl(element("audioQueueButton"))
+        try activate(element("audioQueueButton"))
+        try waitForExistence(queueActions.element(boundBy: 0), timeout: 10, named: "remaining duplicate queue action")
+        try activate(queueActions.element(boundBy: 0))
+        try activate(menuAction("Remove from queue"))
+        guard waitUntil(timeout: 10, condition: {
+            duplicateRows.count == 0 && self.element("audioQueueItem-\(fixture.audioSecondTrackID)").exists
+                && self.element("audioQueueItem-\(fixture.audioTrackID)").exists
+        }) else {
+            throw ProofFailure.ui("Removing a duplicate queue entry did not preserve the currently selected occurrence.")
+        }
+        XCTAssertEqual(element("nowPlayingTitle").label, fixture.audioTrackTitle)
+        try activate(element("audioQueueDoneButton"))
         try revealMusicControl(element("audioStopButton"))
         try activate(element("audioStopButton"))
         guard disappears(element("playbackScreen"), timeout: 20) else {
@@ -2029,8 +2087,8 @@ final class NativeProofTests: XCTestCase {
 
     private func focusedElement() -> XCUIElement? {
         let query = application!.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true"))
-        let focused = query.firstMatch
-        return focused.exists ? focused : nil
+        // Bind identity before reading metadata; focus can move during a menu animation.
+        return query.allElementsBoundByAccessibilityElement.first
     }
 
     private func directionToward(
@@ -2042,6 +2100,9 @@ final class NativeProofTests: XCTestCase {
         let targetFrame = target.frame
         let currentFrame = current.frame
         if !targetFrame.isEmpty && !currentFrame.isEmpty {
+            // A wide inset can overlap a scaled card while its focus lane is below it.
+            if targetFrame.midY > currentFrame.maxY { return .down }
+            if targetFrame.midY < currentFrame.minY { return .up }
             // Native card focus scales the current view; adjacent focus bounds can overlap.
             if targetFrame.intersects(currentFrame) {
                 let dx = targetFrame.midX - currentFrame.midX
@@ -2191,11 +2252,11 @@ private struct ProofAPI {
         }
     }
 
-    @MainActor func replaceProofMusicSession(identity: APIIdentity, itemID: String, position: Int) async throws {
+    @MainActor func replaceProofMusicSession(identity: APIIdentity, itemIDs: [String], position: Int) async throws {
         guard let current = try await musicJSON(identity: identity, path: "session") as? [String: Any],
               let revision = current["revision"] as? Int else { throw ProofAPIError.malformedResponse }
         _ = try await musicJSON(identity: identity, path: "session", method: "PUT", body: [
-            "base_revision": revision, "item_ids": [itemID], "current_index": 0, "position_seconds": position,
+            "base_revision": revision, "item_ids": itemIDs, "current_index": 0, "position_seconds": position,
             "repeat": "off", "shuffle": false, "active_output": ["kind": "browser"],
         ])
     }

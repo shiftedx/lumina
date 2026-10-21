@@ -652,7 +652,12 @@ final class NativeProofTests: XCTestCase {
             throw ProofFailure.ui("Duplicate queue entries did not keep distinct stable identities.")
         }
         let duplicateIDs = Set(duplicateRows.allElementsBoundByIndex.map(\.identifier))
+        #if os(tvOS)
+        // TV places the menu label on its image rather than the containing button.
+        let queueActions = element("audioQueueScreen").buttons.containing(.image, identifier: "ellipsis")
+        #else
         let queueActions = application!.buttons.matching(NSPredicate(format: "label == %@", "Track actions"))
+        #endif
         try waitForExistence(queueActions.element(boundBy: 0), timeout: 10, named: "first duplicate queue action")
         try activate(queueActions.element(boundBy: 0))
         try activate(menuAction("Move down"))

@@ -17,7 +17,7 @@ final class NativeAudioSession {
     private(set) var snapshot = MusicListeningSnapshot()
     private(set) var message: String?
     private(set) var busy = false
-    private(set) var decodedPlayback = false
+    private(set) var playbackMode = NativeMusicTransport.Mode.streaming
     var compatibility = false { didSet { persistPreferences() } }
     var normalization = true { didSet { configureTransport(); persistPreferences() } }
     var crossfadeSeconds = 0.0 {
@@ -204,7 +204,7 @@ final class NativeAudioSession {
                 }
                 self.enforceSleepDeadline()
             }
-            transport.onMode = { [weak self] mode in self?.decodedPlayback = mode == .decoded }
+            transport.onMode = { [weak self] mode in self?.playbackMode = mode }
             configureTransport()
             if isSonos {
                 await transport.start(playing: false)

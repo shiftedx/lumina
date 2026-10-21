@@ -6,7 +6,8 @@ Scope: native iPhone, iPhone Duo, iPad and tvOS clients, shared AVFoundation mus
 
 | Work | Before | After | Evidence |
 | --- | --- | --- | --- |
-| Native whole-track preparation, local 120 s two-track queue | 195.4 ms startup; 139.53 MiB peak footprint; 173.1 ms process CPU | 133.7 ms startup; 8.84 MiB peak; 45.9 ms CPU | Median of five fresh processes; gain/crossfade enabled, two-second post-confirmation window |
+| Progressive remote MP3, admitted gain-free queue | 8.21 s startup; complete input sent | 0.59 s startup; 4.5% sent | Five fresh processes/revision on an eight-second paced delivery; higher native-player memory/CPU costs detailed in §2a |
+| File scheduling at `595d9a3`, local 120 s two-track queue | 195.4 ms startup; 139.53 MiB peak footprint; 173.1 ms process CPU | 133.7 ms startup; 8.84 MiB peak; 45.9 ms CPU | Median of five fresh processes; gain/crossfade enabled, two-second post-confirmation window |
 | Music pause/resume follow-up, ten cycles | 11 downloads and full PCM conversions; 33,837,056 media bytes | 1 initial download/conversion; 3,076,096 media bytes | Real loopback HTTP workload; retained native player nodes/buffers, 90.9% less delivered media |
 | Steady music progress notifications over two playback seconds | 20 | 3 | Same synthetic WAV regression against original and revised transport; 85% fewer callbacks in this sample |
 | Requests for an unavailable streaming successor over 700 ms | 8 | 1 | Same failing source callback against original and revised transport; explicit queue refresh permits one new attempt |
@@ -121,6 +122,56 @@ mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800 python3 -u apple/sc
 The final native script passed **48 Core tests with no skips**, including three live-server cases, plus iOS/tvOS Simulator builds. Retained/extended transport contracts cover mixed-rate mono AAC/stereo 96 kHz WAV playback, crossfade and seek; pause/resume without a new input; private mode-0600 input reuse and Stop cleanup; bounded current/lookahead files; retirement/completion cleanup; authorization cleanup; cancellation during download; and Stop while a source ignores cancellation. Existing gain, invalid-stream handoff, duplicate-occurrence and pending-Wait contracts remain. Required coverage completed with passing unchanged-source rechecks; this was **not one green `make check` invocation**. `mise exec -- make check` passed bootstrap, frontend typecheck/build, 5,239 backend tests (11 skipped), and 2,622 frontend tests across 299 files. Real-stack checks finished with 49 passed, 5 skipped and three scroll-budget failures: movie-wall fling median 7 long tasks, Home scroll median 4, and Live fling median 5, each against a limit of 2. A fresh unchanged `mise exec -- make e2e-realstack e2e-mocked` invocation stopped at real-stack with 50 passed, 5 skipped and two failures: cold movie-wall sharp-image median 3,256 ms against 2,500 ms, and movie-wall fling median 5 long tasks against 2. Home and Live passed the second run. The web/backend sources, harness and budgets are unchanged from `ac5f5ee`; concurrent host workloads were observed, but contention has not been established as the cause. No budgets were relaxed. The separately run `mise exec -- make e2e-mocked` finished with 656 passed, 2 skipped and one phone-dark Requests evidence screenshot timeout (15 seconds). With the broad suites finished, a focused real-stack recheck passed setup and both remaining movie-wall cases (3/3): sharp-image median 678 ms against 2,500 ms; fling long-task samples 0, 2, 0 against a median limit of 2, at 60 fps. The unchanged phone-dark Requests evidence recheck then passed (1/1, 12.5-second test). Every failed case has a subsequent pass, with no source, timeout, budget or assertion changes. The variability remains a test-environment/performance investigation item; these rechecks do not establish its cause.
 
 Local evidence: `/tmp/lumina-file-scheduling-final-measurements.log`, `/tmp/lumina-file-scheduling-native-check.log`, `/tmp/lumina-file-scheduling-transport.log`, `/tmp/lumina-file-scheduling-channels.log`, `/tmp/lumina-file-scheduling-isolated-make-check.log`, `/tmp/lumina-file-scheduling-browser-recheck.log`, `/tmp/lumina-file-scheduling-mocked-check.log`, `/tmp/lumina-file-scheduling-perf-focused-recheck.log`, and `/tmp/lumina-file-scheduling-requests-focused-recheck.log`. The durable artifacts are this table, the two benchmark scripts and the retained public-boundary regressions.
+
+### 2a. Remote music startup — progressive source playback
+
+Qualified, admitted queues with crossfade off and unity effective gains now use native AVQueuePlayer source playback for remote files. Queue eligibility is cached alongside gain policy; a queue requiring processing or an unqualified source format keeps engine preloading from the first occurrence. Local/offline successors can join a source-playback queue without a download. Enabling processing switches the current occurrence to the engine at its saved position without another track-start event. **Normalization that changes gain and crossfade still require complete bounded engine input in this slice.** Unknown/large inputs retain the prior streaming fallback.
+
+`ProgressiveMusicAsset` forwards AVFoundation's byte-range requests incrementally through an ephemeral, cookie/credential/cache-free URLSession. Same-origin redirects are allowed; cross-origin redirects, invalid lengths and inputs over 128 MiB are rejected. There is no app-owned whole-input allocation or persistent progressive cache. The common complete network chunk is passed through without another Data copy. Native decoding/read-ahead stays in AVFoundation, with a two-second forward-buffer preference (not a hard memory bound). The engine and EQ units are created only when processing is needed.
+
+Stop, retirement, queue invalidation, owner release and authorization loss cancel owned transfers. Authorization callbacks use active asset identity so they still apply after pause/resume and cannot act on a retired owner. Failed lookahead is dropped until the real boundary, including Repeat One's separate occurrence of the same index; it neither stops current audio nor retries on the 100 ms clock. Canceled lookahead checks its generation before resolving a URL. Progressive seek and pause/resume reuse the current asset.
+
+#### Measured results
+
+| Source | Startup confirmation, ms | Bytes sent at startup, before → after | Peak process footprint, MiB | Process CPU, ms |
+| --- | --- | --- | --- | --- |
+| WAV (PCM16) | 8242 → 1052 | 100% → 7.5% | 8.77 → 27.95 | 203.1 → 168.3 |
+| FLAC | 8224 → 689 | 100% → 4.9% | 9.19 → 14.69 | 90.6 → 100.8 |
+| MP3 | 8211 → 587 | 100% → 4.5% | 8.97 → 13.36 | 81.2 → 86.6 |
+| AAC / M4A | 8235 → 3924 | 100% → 43.0% | 8.99 → 15.06 | 76.1 → 129.4 |
+| ALAC / M4A | 8244 → 2048 | 100% → 20.5% | 9.11 → 16.02 | 93.7 → 122.7 |
+
+MP3 startup confirmation is **92.9% lower** in this paced workload, beginning after **4.5%** of input bytes have been sent. Across the five formats, startup improves by roughly **52–93%**. Host: Apple M4 Max, macOS 27.0.1, FFmpeg 8.0.1.
+
+The comparison uses five fresh native processes per revision/format (50 total), alternating revision order, against `595d9a3` (the previous file-scheduling implementation). Both binaries use the same Swift 6 optimized harness, a single 120-second stereo 48 kHz synthetic file, crossfade off, normalization off, and muted output. Each format's full-body delivery is paced to eight seconds with 100 ms per-response delay; simultaneous range requests share a per-run bandwidth budget. Thus before/after throughput is equal within a format, while byte rates differ between formats. All inputs are generated ahead of time with deterministic pink noise; M4A files use FFmpeg's ordinary trailing-metadata layout. OS caches are not flushed, and unrelated host load can still affect timing despite the shared performance lock.
+
+Startup spans `transport.start()` through native confirmation, polled every 50 ms. Before uses engine render-time confirmation; after uses AVPlayer item-ready/playing confirmation. This excludes manifest/API lookup and transport construction latency and is not acoustic-output or physical-device timing. The server snapshots body bytes sent when the harness emits its confirmation marker; this can slightly overestimate client-consumed bytes. Every revised sample must confirm before the whole input is sent, and must subsequently seek to the midpoint, advance beyond it and pause/resume without another source resolution. These extra qualification operations occur after the measured window.
+
+Peak process physical footprint and user + system CPU include construction, startup/transfer and two seconds after confirmation. They exclude fixture-server/system-audio-helper work and later seek/resume qualification. **The progressive player has higher host component memory and, for some codecs, CPU cost than the file-backed engine.** This is a startup-latency improvement with a runtime tradeoff, not another general memory reduction. These are single-process measurements through a short playback window, not whole-app percentages, a long-run memory plateau or device energy results.
+
+#### Reproduction and focused validation
+
+From the repository root:
+
+```sh
+remote_bench_root="$(mktemp -d)"
+mkdir -p "$remote_bench_root/before" "$remote_bench_root/fixtures"
+git archive 595d9a3 apple/Core/Sources | tar -x -C "$remote_bench_root/before"
+mise exec -- swiftc -swift-version 6 -O -parse-as-library "$remote_bench_root"/before/apple/Core/Sources/LuminaCore/*.swift apple/scripts/benchmark_music_startup.swift -o "$remote_bench_root/before-player"
+mise exec -- swiftc -swift-version 6 -O -parse-as-library apple/Core/Sources/LuminaCore/*.swift apple/scripts/benchmark_music_startup.swift -o "$remote_bench_root/after-player"
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i 'anoisesrc=color=pink:amplitude=0.02:sample_rate=48000:duration=120:seed=123' -ac 2 -c:a pcm_s16le "$remote_bench_root/fixtures/noise-120.wav"
+ffmpeg -hide_banner -loglevel error -y -i "$remote_bench_root/fixtures/noise-120.wav" -c:a flac "$remote_bench_root/fixtures/noise-120.flac"
+ffmpeg -hide_banner -loglevel error -y -i "$remote_bench_root/fixtures/noise-120.wav" -c:a libmp3lame -b:a 192k "$remote_bench_root/fixtures/noise-120.mp3"
+ffmpeg -hide_banner -loglevel error -y -i "$remote_bench_root/fixtures/noise-120.wav" -c:a aac -b:a 192k "$remote_bench_root/fixtures/noise-120.aac.m4a"
+ffmpeg -hide_banner -loglevel error -y -i "$remote_bench_root/fixtures/noise-120.wav" -c:a alac "$remote_bench_root/fixtures/noise-120.alac.m4a"
+mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800 python3 apple/scripts/benchmark_music_remote.py "$remote_bench_root/before-player" "$remote_bench_root/after-player" "$remote_bench_root/fixtures" --runs 5
+```
+
+The final focused gate passed **27 tests with no skips** (26 transport workflows and the new authenticated real-server progressive audio workflow), plus **iOS and tvOS Simulator builds**. Extended coverage includes startup before whole delivery, same-asset pause/seek, Stop and owner-release cancellation, same-origin redirect/Range-ignoring delivery, cookie isolation, 401/403 and cross-origin/oversized rejection, post-pause authorization loss, duplicate/mixed offline queues, Repeat One failed-lookahead isolation, processing-queue preloading, and active/paused processing upgrades without duplicate track events. The full repository suite is intentionally deferred until the release gate at the user's request. No backend, schema, server encoding or runtime dependency changes.
+
+Local evidence: `/tmp/lumina-progressive-focused-final.log`, `/tmp/lumina-progressive-final-measurements.log`, `/tmp/lumina-progressive-queue-before-fix.log`, `/tmp/lumina-progressive-queue-after-fix.log`, and `/tmp/lumina-progressive-paused-upgrade-before.log`. The last focused run includes the final paused-processing event guard; the gain-free source-playback path measured in the 50-process cohort is unchanged by that guard. Reproduce focused coverage with `swift test --package-path apple/Core --filter 'NativeMusicTransportTests|NativeServerTests/testNativeProgressiveAudioPlaybackAgainstFixture'` under `mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800`, setting `LUMINA_NATIVE_FIXTURE` to the ignored, currently running fixture file. Then build both Simulator schemes using the existing `apple/scripts/check.sh` build commands; do not print or commit the fixture credentials.
+
+Native API references: [resource loading delegate](https://developer.apple.com/documentation/avfoundation/avassetresourceloaderdelegate), [incremental data delivery](https://developer.apple.com/documentation/avfoundation/avassetresourceloadingdatarequest/respond(with:)), [resource length/type/range information](https://developer.apple.com/documentation/avfoundation/avassetresourceloadingcontentinformationrequest). Physical-device interruption, route, background-network and sustained-memory qualification remains separate.
 
 ### 3. Polling and background publication still have room to improve
 

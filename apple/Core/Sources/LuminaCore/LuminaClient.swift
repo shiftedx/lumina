@@ -115,7 +115,8 @@ final class LuminaClient: @unchecked Sendable {
 
     func playbackInfo(origin: URL, token: String, deviceID: String, item: MediaItem, forceTranscode: Bool) async throws -> PlaybackInfo {
         let profile: [String: Any] = [
-            "DirectPlayProfiles": [["Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac,flac"]],
+            "DirectPlayProfiles": [["Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac,flac"],
+                                   ["Type": "Video", "Container": "mkv", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,alac,flac"]],
             "TranscodingProfiles": [["Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264", "AudioCodec": "aac"]],
             "SubtitleProfiles": [["Format": "vtt", "Method": "External"]],
             "CodecProfiles": [
@@ -140,7 +141,7 @@ final class LuminaClient: @unchecked Sendable {
                 URLQueryItem(name: "Static", value: "true"),
                 URLQueryItem(name: "ApiKey", value: token),
             ]), sameOrigin(origin, direct) else { throw LuminaError.unsafeURL }
-            return PlaybackRequest(id: result.playSessionID, item: item, url: direct, startPositionSeconds: item.resumeSeconds, mediaSourceID: source.id, isTranscoding: false, methodLabel: "Direct")
+            return PlaybackRequest(id: result.playSessionID, item: item, url: direct, startPositionSeconds: item.resumeSeconds, mediaSourceID: source.id, isTranscoding: false, methodLabel: "Direct", usesClientDemux: !item.isAudio && ["mkv", "matroska"].contains((source.container ?? item.container ?? "").lowercased()))
         }
         guard source.supportsTranscoding, let raw = source.transcodingURL,
               let hls = URL(string: raw, relativeTo: origin)?.absoluteURL, sameOrigin(origin, hls) else { throw LuminaError.unsafeURL }
@@ -282,9 +283,11 @@ struct PlaybackInfo: Decodable {
 struct MediaSource: Decodable {
     let id: String
     let supportsDirectPlay: Bool
+    let container: String?
     let supportsTranscoding: Bool
     let transcodingURL: String?
     enum CodingKeys: String, CodingKey {
+        case container = "Container"
         case id = "Id", supportsDirectPlay = "SupportsDirectPlay", supportsTranscoding = "SupportsTranscoding", transcodingURL = "TranscodingUrl"
     }
 }

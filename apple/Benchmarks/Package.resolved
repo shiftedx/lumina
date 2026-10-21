@@ -1,0 +1,24 @@
+{
+  "originHash" : "324875d4638ada882c89b08449db893190263ba885a1d4cc3cd11f99fc64699c",
+  "pins" : [
+    {
+      "identity" : "mpvkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Wenzlik/MPVKit.git",
+      "state" : {
+        "revision" : "fa0f4e20f1bea49a8cc35766ba8f4981e1d651c0",
+        "version" : "1.0.1"
+      }
+    },
+    {
+      "identity" : "prismcore",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Wenzlik/PrismCore.git",
+      "state" : {
+        "revision" : "93fc45df25d1d29e2b339561f1ef0b13eae76a0e",
+        "version" : "3.8.1"
+      }
+    }
+  ],
+  "version" : 3
+}

@@ -85,7 +85,8 @@ H264_720 = caps_from_device_profile({
 })
 # Native AVKit client contract; serialization is also checked by LuminaCoreTests.
 NATIVE_AVKIT = caps_from_device_profile({
-    "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac,flac"}],
+    "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac,flac"},
+                           {"Type": "Video", "Container": "mkv", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,alac,flac"}],
     "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264", "AudioCodec": "aac"}],
     "CodecProfiles": [
         {"Type": "Video", "Codec": codec, "Conditions": [{"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": depth}]}
@@ -103,11 +104,12 @@ ROWS = [
     ("native_flac32_audio_only_encode", NATIVE_AVKIT, facts(MP4, v(), a("flac", bit_depth=32)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioBitDepthNotSupported",))),
     ("native_flac_unknown_depth_audio_only_encode", NATIVE_AVKIT, facts(MKV, v(), a("flac", bit_depth=None)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioBitDepthNotSupported",))),
     ("native_mp4_flac_direct", NATIVE_AVKIT, facts(MP4, v(), a("flac", 8, bit_depth=24)), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
-    ("native_mkv_flac_remux", NATIVE_AVKIT, facts(MKV, HDR10_4K, a("flac", 6)), Limits(), None, None, ("remux", "copy", "copy", None, None, None, ("ContainerNotSupported",))),
+    ("native_mkv_mp3_keeps_server_remux", NATIVE_AVKIT, facts(MKV, v(), a("mp3")), Limits(), None, None, ("remux", "copy", "copy", None, None, None, ("ContainerNotSupported",))),
+    ("native_mkv_flac_direct", NATIVE_AVKIT, facts(MKV, HDR10_4K, a("flac", 6)), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("native_flac_channel_limit", NATIVE_AVKIT, facts(MP4, v(), a("flac", 9)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioChannelsNotSupported",))),
     ("native_mp4_mp3_direct", NATIVE_AVKIT, facts(MP4, v(), a("mp3")), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("native_mov_alac_direct", NATIVE_AVKIT, facts("mov", v(), a("alac")), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
-    ("native_mkv_hevc10_remux", NATIVE_AVKIT, facts(MKV, HDR10_4K, a()), Limits(), None, None, ("remux", "copy", "copy", None, None, None, ("ContainerNotSupported",))),
+    ("native_mkv_hevc10_direct", NATIVE_AVKIT, facts(MKV, HDR10_4K, a()), Limits(), None, None, ("direct", "copy", "copy", None, None, None, ())),
     ("native_mkv_truehd_only_audio_encodes", NATIVE_AVKIT, facts(MKV, HDR10_4K, a("truehd", 8)), Limits(), None, None, ("transcode", "copy", "encode", None, None, None, ("AudioCodecNotSupported",))),
     ("native_h264_high10_encodes", NATIVE_AVKIT, facts(MP4, v(pix_fmt="yuv420p10le"), a()), Limits(), None, None, ("transcode", "encode", "copy", None, 1080, 8_000_000, ("VideoBitDepthNotSupported",))),
     ("native_hevc12_encodes", NATIVE_AVKIT, facts(MP4, v("hevc", pix_fmt="yuv420p12le"), a()), Limits(), None, None, ("transcode", "encode", "copy", None, 1080, 8_000_000, ("VideoBitDepthNotSupported",))),

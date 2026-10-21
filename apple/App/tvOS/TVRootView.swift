@@ -169,6 +169,7 @@ private struct TVLibraryView: View {
     let onSignOut: () -> Void
     @State private var destination: TVDestination = .home
     @State private var accountPresented = false
+    @State private var licensesPresented = false
     @FocusState private var focusedDestination: TVDestination?
 
     var body: some View {
@@ -189,6 +190,7 @@ private struct TVLibraryView: View {
         }
         .background(LuminaTheme.theater.ignoresSafeArea())
         .onExitCommand { focusedDestination = destination }
+        .sheet(isPresented: $licensesPresented) { PlaybackLicensesView() }
     }
 
     private var header: some View {
@@ -226,6 +228,7 @@ private struct TVLibraryView: View {
             .accessibilityLabel("Account")
             .accessibilityIdentifier("accountMenuButton")
             .confirmationDialog("Account", isPresented: $accountPresented, titleVisibility: .visible) {
+                Button("Open-source licenses") { licensesPresented = true }
                 Button("Refresh library") { Task { await store.refresh() } }
                 Button("Sign out", role: .destructive) {
                     Task { await store.signOut(); onSignOut() }

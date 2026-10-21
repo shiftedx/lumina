@@ -6,6 +6,7 @@ Scope: native iPhone, iPhone Duo, iPad and tvOS clients, shared AVFoundation mus
 
 | Work | Before | After | Evidence |
 | --- | --- | --- | --- |
+| Qualified MKV original delivery | Server HLS remux per playback | On-device stream copy; zero server FFmpeg jobs | 60-second synthetic cohorts: client peak RSS −3–10%, client CPU +22–30%; §2e |
 | FLAC video in native MP4, 12-second synthetic fixtures | FFmpeg AAC encode, 130–470 ms process CPU | Direct original; no FFmpeg process | H.264/HEVC, 24-bit stereo/5.1/7.1; detailed qualification and client tradeoffs in §2d |
 | HEVC + 7.1 FLAC in MKV, 12-second fixture | 466 ms FFmpeg CPU; 37.47 MiB child peak RSS | 26.4 ms CPU (−94%); 25.97 MiB RSS (−31%) | Audio/video stream copy; retains 8 channels rather than the previous stereo AAC fallback; §2d |
 | Active progressive WAV, startup plus ten seconds playing | 46.27 MiB peak; 409.3 ms process CPU | 27.05 MiB peak (−42%); 158.8 ms CPU (−61%) | Three fresh processes/revision; all five formats and window limits in §2c |
@@ -295,6 +296,49 @@ Host evidence: `/tmp/lumina-video-flac-host-final.log` (36 remote playback runs,
 
 Focused validation passed: 152 backend cases across playback decisions, Jellyfin integration, seekable HLS and playback startup; three native client contract cases (profile serialization, stale-detail refresh, cross-origin refusal); one real fixture-server direct/HLS playback/progress integration; and both generic iOS/tvOS Simulator app builds. No simulator app was replaced. Evidence: `/tmp/lumina-video-flac-ios-final.log`, `/tmp/lumina-video-flac-tvos-final.log`, `/tmp/lumina-video-device-smoke.log`, `/tmp/lumina-video-focused-backend.log`, `/tmp/lumina-video-focused-swift.log`, `/tmp/lumina-video-unsafe-url.log`, `/tmp/lumina-video-live-server.log`, `/tmp/lumina-video-build-iOS.log`, `/tmp/lumina-video-build-tvOS.log`. The full suite remains reserved for release, as requested.
 
+### 2e. Video: original MKV delivery with on-device stream copy
+
+The native client now advertises MKV only when it can feed the original into the new `NativeVideoSource` adapter. Exactly pinned [PrismCore 3.8.1](https://github.com/Wenzlik/PrismCore/tree/3.8.1) demuxes and packages compatible streams on demand; the existing AVPlayer/AVKit UI still decodes, renders, seeks and reports progress. This is **direct original delivery with local remuxing**, not native AVFoundation Matroska demuxing and not zero client work. No server remux process is started for qualified MKV. The initial native-only reproduction failed with AVFoundation `-11828`, unsupported format.
+
+The adapter uses loopback-only delivery, coordinated range reads, one combined video/default-audio stream, a 64 MiB segment retention budget and a four-second forward-buffer preference. Stop/cancellation/replay invalidate session ownership. The workflow regression requires real frames, enabled audio, advancing playback, seek, listener shutdown, canceled startup and a fresh replay URL. The real backend fixture test additionally negotiates MKV direct delivery and saves playback progress, then checks the explicit forced-HLS fallback. See [ADR 0031](../../docs/adr/0031-client-side-matroska-packaging.md).
+
+#### Measured results
+
+Three fresh processes per route/case, alternating order on the same M4 Max/macOS 27.0.1 host with optimized Swift 6 compilation. Three synthetic **60-second** 720p/24 fps fixtures use H.264+24-bit FLAC stereo/5.1 at 48 kHz and HEVC 10-bit+24-bit FLAC 7.1 at 96 kHz. Both paths use the current client binary, probed facts and production decision/FFmpeg builder; the baseline removes MKV from direct profiles. Its HLS is prepared before client timing, while the new first-frame/CPU window includes on-device preparation. First-frame timing therefore does not compare complete server startup/API/network latency. CPU is process CPU time, not a percentage of one core; client CPU covers preparation through one playback second, server CPU covers packaging the entire short fixture.
+
+| MKV source | Server FFmpeg CPU ms, before → after | Server child peak RSS MiB, before → after | Client CPU ms, before → after | Client peak RSS MiB, before → after |
+| --- | ---: | ---: | ---: | ---: |
+| H.264 stereo FLAC | 55.7 → 0 | 77.97 → 0 | 142.1 → 184.5 | 91.56 → 86.72 |
+| H.264 5.1 FLAC | 61.0 → 0 | 90.05 → 0 | 155.9 → 190.6 | 105.39 → 101.89 |
+| HEVC 7.1 FLAC | 45.8 → 0 | 28.00 → 0 | 161.2 → 196.2 | 94.09 → 84.38 |
+
+All three avoid the server FFmpeg job. Client peak RSS falls about 3–10%; client CPU rises about 22–30% as packaging moves onto the device. Child and client peaks are separate process high-water marks and must not be summed into a simultaneous-memory claim. The initial multi-rendition local prototype consumed substantially more CPU/RSS; using a single muxed stream avoids duplicating demux/packaging work for this first default-track slice.
+
+Prepared-HLS versus original-MKV first-frame medians were 203→214, 200→224 and 193→217 ms. Seek plus 200 ms of subsequent advancing playback was 336→338, 328→337 and 330→341 ms. This does not establish an end-to-end latency win or an Infuse performance comparison. The native pixel-output/polling harness adds work beyond the app UI. Framework/cache warm-up, filesystem caches and other host work remain limits of this small sample.
+
+The optimized host harness grows from 105,424 bytes without LuminaCore/PrismCore to 38,885,552 bytes with the complete Core/media dependency graph. This is a standalone binary comparison, not an IPA/download-size delta; shipping app thinning/stripping differs. The dependency is explicit and its notices are bundled and accessible from Account. The library's native archives support arm64 tvOS Simulator; the project explicitly excludes unsupported x86_64 tvOS Simulator builds.
+
+#### Reproduction
+
+```sh
+mise exec -- swift build --package-path apple/Benchmarks \
+  --scratch-path /tmp/lumina-mkv-benchmark -c release
+mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800 \
+  backend/.venv/bin/python apple/scripts/benchmark_video_formats.py \
+  /tmp/lumina-mkv-benchmark/release/VideoBenchmark /tmp/lumina-mkv-new \
+  --client-mkv --seconds 60 --runs 3
+```
+
+The output directory must be new. The runner's `--bytes-per-second 2097152 --runs 1` mode checks paced HTTP startup rather than claiming a slow-link speed from an unpaced loopback result. JSON records actual bytes sent at the first decoded frame and at the end of the playback/seek workload; transferred bytes may include repeated ranges. Simulator probes use the same package-built executable with `--simulator <UDID>`. The original standalone AVFoundation-only harness remains available for baseline format rejection. Raw host measurements: `/tmp/lumina-mkv-measured-muxed.log`.
+
+At 2 MiB/s per-response pacing (one process per route/case), original-MKV first frames arrived in 2.26/4.14/2.21 seconds, with 7.8%/12.0%/8.5% of original bytes sent. Playback therefore did not require a complete download. Prepared-server-HLS first frames in the same paced cases were 1.97/2.05/0.94 seconds: the new path is slower in this sample. These are deliberately disclosed startup costs, not evidence of a latency win. Seeking plus 200 ms of playback took 1.88/2.38/1.95 seconds on the local path. Pacing is per response and does not model a shared Wi-Fi bandwidth budget or real network RTT. Evidence: `/tmp/lumina-mkv-paced.log`.
+
+Focused checks passed: 153 backend playback/decision/Jellyfin/startup cases; five native request and decoded-MKV lifecycle cases; and the extended real-backend direct-MP4/direct-MKV/forced-HLS progress workflow. Both generic iOS and arm64 tvOS Simulator app builds passed. Original-MKV frame/audio-track/advance/seek probes passed on iPhone (iOS 26.5), Duo (iOS 27.1), iPad (27.0) and tvOS (27.0): three H.264/HEVC+FLAC cases and four additional H.264+5.1 AAC/AC-3/E-AC-3/ALAC cases per device. This is 28 simulator playback probes, not hardware output or full app UI qualification; installed apps were not replaced. ALAC cases emitted native mux timestamp warnings but passed these frame/track/time/seek checks; long-duration audio/video synchronization remains unqualified.
+
+Evidence: `/tmp/lumina-mkv-focused-backend.log`, `/tmp/lumina-mkv-focused-core-final.log`, `/tmp/lumina-mkv-live-server.log`, `/tmp/lumina-mkv-simulators.log`, `/tmp/lumina-mkv-audio-check.log`, `/tmp/lumina-mkv-build-iOS.log`, `/tmp/lumina-mkv-build-tvOS.log`.
+
+MKV+MP3 keeps the existing server remux. Unknown/32-bit FLAC, excessive channels, DTS/TrueHD and unsupported video retain server conversion as dictated by the existing constraints. This slice carries the default audio track, without claiming native image-subtitle rendering, arbitrary codecs, Dolby Vision/HDMI output, AirPlay/PiP or Infuse parity. Full-suite testing remains reserved for release.
+
 ### 3. Polling and background publication still have room to improve
 
 Source: `Core/Sources/LuminaCore/NativeMusicTransport.swift:282`, `App/Shared/PlaybackScreen.swift:852`.
@@ -346,7 +390,8 @@ This table describes negotiation and server work, not blanket physical-device ce
 | MP4/M4V/MOV, H.264 8-bit or HEVC up to 10-bit, AAC/AC-3/E-AC-3 | Direct file | Existing AVKit route; actual device, HDR and sound output still need qualification |
 | MP4 H.264/HEVC with FLAC ≤24-bit, up to 8 channels | Direct file | Actual stereo/5.1/7.1 video/audio/frame/seek qualification; unknown/32-bit depth falls back to audio encode (§2d) |
 | Same containers/video, MP3 or ALAC audio | Direct file | Newly advertised; synthetic H.264+MP3 MP4 and H.264+ALAC MOV advanced in macOS AVPlayer |
-| MKV, supported H.264/HEVC + AAC/AC-3/E-AC-3/MP3/FLAC ≤24-bit | HLS remux | Server copies video/audio; container work remains, no video encoder |
+| MKV, H.264/HEVC + AAC/AC-3/E-AC-3/ALAC/FLAC ≤24-bit | Direct original, on-device remux | New PrismCore adapter; AVPlayer hardware decoding/controls retained; §2e |
+| MKV + MP3 with supported video | HLS remux | Retains server copy rather than enabling a local audio bridge |
 | MKV with supported video and DTS/TrueHD | HLS audio conversion | Copy video, encode compatible audio; no claim of lossless/Atmos preservation |
 | H.264 High 10 / HEVC 12-bit | Compatible video conversion | Newly constrained to prevent false direct capability |
 | Unsupported video codec or selected unsupported image subtitle | Compatible video conversion/burn-in | Genuine video encode; qualification and server hardware matter |
@@ -373,7 +418,7 @@ Infuse is a **feature target**, not a measured performance baseline in this revi
 
 | Priority | Remaining gap | Next measurable acceptance criterion |
 | --- | --- | --- |
-| 1 | Original MKV delivery needs a client demux path; current compatible MKV uses server HLS remux | Same synthetic H.264/HEVC corpus starts and seeks from original range-served MKV with zero server FFmpeg jobs; compare client CPU/RSS, stalls and first frame against current remux |
+| 1 | Initial MKV direct-delivery path implemented in §2e; larger/unindexed files and output fidelity remain | Qualify multi-hour/irregular-Cues sources, slow/disconnecting networks, alternate tracks, resume and physical HDR/audio output; retain zero server media jobs for supported originals |
 | 2 | DTS/TrueHD currently require server AAC conversion | Qualified client decode retains channel/sample data on synthetic assets; zero server audio encoder; measure device decode cost and verify actual multichannel output on hardware |
 | 3 | Image subtitles burn into video; ASS styling is not equivalent to original rendering | PGS/DVD/ASS samples render with correct timing/position and seek while video stays copied; measure overlay CPU and memory |
 | 4 | AV1 and legacy video codec support are not established by the static native profile | Gate hardware capability by device/OS, qualify actual frames and seek; measure software fallback before enabling it |

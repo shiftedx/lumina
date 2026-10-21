@@ -2087,8 +2087,8 @@ final class NativeProofTests: XCTestCase {
 
     private func focusedElement() -> XCUIElement? {
         let query = application!.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true"))
-        let focused = query.firstMatch
-        return focused.exists ? focused : nil
+        // Bind identity before reading metadata; focus can move during a menu animation.
+        return query.allElementsBoundByAccessibilityElement.first
     }
 
     private func directionToward(

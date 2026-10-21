@@ -6,21 +6,24 @@ import Foundation
 // From apple/: swiftc -swift-version 6 -O -parse-as-library Core/Sources/LuminaCore/*.swift scripts/benchmark_music_startup.swift -o /tmp/lumina-music-startup
 // /tmp/lumina-music-startup /tmp/tone-120.flac 120 48000 2 0
 // Arguments: file path or HTTP URL, duration, sample rate, queue count (1/2), seek offset.
+// Optional final codec argument benchmarks crossfade-off, source-loudness progressive eligibility.
 @main
 struct MusicStartupBenchmark {
     @MainActor
     static func main() async throws {
         let arguments = CommandLine.arguments
-        guard arguments.count == 6, let duration = Double(arguments[2]), duration.isFinite, duration > 0,
+        guard (6...7).contains(arguments.count), let duration = Double(arguments[2]), duration.isFinite, duration > 0,
               let rate = Int(arguments[3]), rate > 0, let count = Int(arguments[4]), (1...2).contains(count),
               let offset = Double(arguments[5]), offset.isFinite, offset >= 0, offset < duration else {
             throw NSError(domain: "MusicStartupBenchmark", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Expected: path-or-url duration sample-rate queue-count seek-offset"])
+                userInfo: [NSLocalizedDescriptionKey: "Expected: path-or-url duration sample-rate queue-count seek-offset [codec]"])
         }
+        let progressive = arguments.count == 7
+        let codec = progressive ? arguments[6] : "flac"
         let url = arguments[1].contains("://") ? URL(string: arguments[1])! : URL(fileURLWithPath: arguments[1])
         let tracks = try (0..<count).map { index in
             let data = try JSONSerialization.data(withJSONObject: [
-                "id": "synthetic-\(index)", "title": "Synthetic tone", "artist": "Test", "album_artist": "Test",
+                "codec": codec, "id": "synthetic-\(index)", "title": "Synthetic tone", "artist": "Test", "album_artist": "Test",
                 "album": "Startup proof", "album_id": "synthetic-album", "number": index + 1,
                 "audio_url": "", "duration": duration, "sample_rate": rate, "channels": 2,
                 "gain_is_manual": false, "gain_db": -6, "album_gain_db": -3, "genres": [],
@@ -36,25 +39,28 @@ struct MusicStartupBenchmark {
                 startPositionSeconds: offset, mediaSourceID: "synthetic", isTranscoding: false, methodLabel: "Benchmark")
         }
         defer { transport.stop() }
-        transport.configure(repeatMode: "off", crossfade: 3, normalize: true, volume: 0)
+        transport.configure(repeatMode: "off", crossfade: progressive ? 0 : 3, normalize: !progressive, volume: 0)
         let clock = ContinuousClock()
         let started = clock.now
         await transport.start()
         let confirmed = await transport.confirmPlaying(timeout: 10)
         let latency = started.duration(to: clock.now)
-        guard confirmed, transport.mode == .decoded else {
+        guard confirmed, transport.mode != .streaming else {
             throw NSError(domain: "MusicStartupBenchmark", code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "The workload did not render through the audio engine"])
+                userInfo: [NSLocalizedDescriptionKey: "The workload did not confirm native playback"])
         }
-        // Include successor preparation and two seconds of real engine playback.
+        let startup: [String: Any] = ["startup_ms": milliseconds(latency), "mode": String(describing: transport.mode)]
+        let startupData = try JSONSerialization.data(withJSONObject: startup, options: .sortedKeys)
+        FileHandle.standardOutput.write(Data("STARTUP ".utf8) + startupData + Data("\n".utf8))
+        // Include successor preparation and two seconds of native playback.
         try await Task.sleep(for: .seconds(2))
         guard resolutions == count, transport.state.playing, transport.state.error == nil else {
             throw NSError(domain: "MusicStartupBenchmark", code: 3,
                 userInfo: [NSLocalizedDescriptionKey: "The workload did not retain the expected active queue"])
         }
         let final = try memory()
-        let results: [String: Any] = [
-            "duration_seconds": duration, "sample_rate": rate, "queue_count": count, "offset_seconds": offset,
+        var results: [String: Any] = [
+            "mode": String(describing: transport.mode), "codec": codec, "duration_seconds": duration, "sample_rate": rate, "queue_count": count, "offset_seconds": offset,
             "startup_ms": milliseconds(latency), "source_resolutions": resolutions,
             "active_index": transport.state.index, "position_seconds": transport.state.position,
             "baseline_footprint_bytes": initial.ri_phys_footprint,
@@ -62,6 +68,27 @@ struct MusicStartupBenchmark {
             "active_footprint_bytes": final.ri_phys_footprint,
             "workload_cpu_ms": try cpuMilliseconds() - initialCPU,
         ]
+        if progressive, String(describing: transport.mode) == "progressive" {
+            // Qualify range seeking and reuse after the measured CPU/footprint window.
+            let seek = duration / 2
+            await transport.seek(seek)
+            let deadline = clock.now.advanced(by: .seconds(5))
+            while transport.state.position < seek + 0.05, clock.now < deadline {
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            guard transport.state.position >= seek + 0.05, transport.state.error == nil else {
+                throw NSError(domain: "MusicStartupBenchmark", code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: "Progressive seek did not render beyond the requested position"])
+            }
+            transport.pause()
+            try await Task.sleep(for: .milliseconds(50))
+            await transport.resume()
+            guard await transport.confirmPlaying(timeout: 3), resolutions == count else {
+                throw NSError(domain: "MusicStartupBenchmark", code: 5,
+                    userInfo: [NSLocalizedDescriptionKey: "Progressive pause/resume did not reuse the source"])
+            }
+            results["seek_resume_verified"] = true
+        }
         print(String(decoding: try JSONSerialization.data(withJSONObject: results, options: .sortedKeys), as: UTF8.self))
     }
 

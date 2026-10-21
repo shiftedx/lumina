@@ -78,33 +78,39 @@ final class NativeMusicTransportTests: XCTestCase {
     }
 
     func testPendingWaitBoundaryFinishesCurrentWithoutPrefetchingOrStartingTheLaterTrack() async throws {
-        let fixture = try audioFixture(duration: 0.6)
+        var fixture = try audioFixture(duration: 0.6)
+        fixture.track.codec = "pcm_f32le"
         defer { try? FileManager.default.removeItem(at: fixture.url) }
-        let transport = transport(tracks: [fixture.track, fixture.track], url: fixture.url)
-        defer { transport.stop() }
-        var played: [Int] = []
-        var waiting = false
-        transport.onTrack = { _, index in played.append(index) }
-        transport.allowsAdvance = { _, next in next != 1 }
-        transport.onBlockedAdvance = { from, next in
-            XCTAssertEqual(from, 0); XCTAssertEqual(next, 1)
-            waiting = true
+        let server = try ProgressiveAudioHTTPFixture(bytes: Data(contentsOf: fixture.url), delay: 0)
+        let remote = try await server.start()
+        defer { server.stop() }
+        for url in [fixture.url, remote] {
+            let transport = transport(tracks: [fixture.track, fixture.track], url: url)
+            defer { transport.stop() }
+            var played: [Int] = []
+            var waiting = false
+            transport.onTrack = { _, index in played.append(index) }
+            transport.allowsAdvance = { _, next in next != 1 }
+            transport.onBlockedAdvance = { from, next in
+                XCTAssertEqual(from, 0); XCTAssertEqual(next, 1)
+                waiting = true
+            }
+            await transport.start()
+            let confirmed = await transport.confirmPlaying()
+            XCTAssertTrue(confirmed)
+            try await observe(timeout: 5) { waiting }
+            XCTAssertEqual(played, [0])
+            XCTAssertEqual(transport.state.index, 0)
+            XCTAssertFalse(transport.state.playing)
+            XCTAssertFalse(transport.state.finished, "A pending acquisition is a paused boundary, not a completed queue")
+            XCTAssertEqual(transport.state.position, 0.6, accuracy: 0.05)
+            // Choosing Skip and Play is explicit; refreshing a pending request never starts audio.
+            transport.allowsAdvance = nil
+            await transport.select(1)
+            let resumed = await transport.confirmPlaying()
+            XCTAssertTrue(resumed)
+            XCTAssertEqual(played, [0, 1])
         }
-        await transport.start()
-        let confirmed = await transport.confirmPlaying()
-        XCTAssertTrue(confirmed)
-        try await observe(timeout: 5) { waiting }
-        XCTAssertEqual(played, [0])
-        XCTAssertEqual(transport.state.index, 0)
-        XCTAssertFalse(transport.state.playing)
-        XCTAssertFalse(transport.state.finished, "A pending acquisition is a paused boundary, not a completed queue")
-        XCTAssertEqual(transport.state.position, 0.6, accuracy: 0.05)
-        // Choosing Skip and Play is explicit; refreshing a pending request never starts audio.
-        transport.allowsAdvance = nil
-        await transport.select(1)
-        let resumed = await transport.confirmPlaying()
-        XCTAssertTrue(resumed)
-        XCTAssertEqual(played, [0, 1])
     }
 
     func testInvalidStreamingAssetNeverAcknowledgesAnOutputHandoff() async throws {
@@ -480,6 +486,265 @@ final class NativeMusicTransportTests: XCTestCase {
         XCTAssertEqual(server.requests, 2)
         transport.stop()
         XCTAssertTrue(try privateAudioInputs().subtracting(existingInputs).isEmpty)
+    }
+
+    func testProgressiveRemoteStartsBeforeFullDeliveryAndKeepsPauseAndSeekInTheSameOccurrence() async throws {
+        var fixture = try audioFixture(duration: 60)
+        fixture.track.codec = "pcm_f32le"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let bytes = try Data(contentsOf: fixture.url)
+        let existing = try privateAudioInputs()
+        let server = try ProgressiveAudioHTTPFixture(bytes: bytes)
+        let url = try await server.start()
+        defer { server.stop() }
+        var resolutions = 0, played = [Int]()
+        let transport = NativeMusicTransport(tracks: [fixture.track], index: 0, position: 0) { _ in
+            resolutions += 1
+            return PlaybackRequest(id: "progressive", item: fixture.track.mediaItem, url: url,
+                startPositionSeconds: 0, mediaSourceID: "synthetic", isTranscoding: false, methodLabel: "Test WAV")
+        }
+        defer { transport.stop() }
+        transport.configure(repeatMode: "off", crossfade: 0, normalize: true, volume: 0)
+        transport.onTrack = { _, index in played.append(index) }
+        await transport.start()
+        let confirmed = await transport.confirmPlaying(timeout: 5)
+        XCTAssertTrue(confirmed)
+        XCTAssertEqual(transport.mode, .progressive)
+        XCTAssertLessThan(server.deliveredBytes, bytes.count, "Playback must start before whole-track delivery")
+        try await observe(timeout: 3) { transport.state.position > 0.1 }
+        for _ in 0..<2 {
+            transport.pause()
+            let paused = transport.state.position
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(transport.state.position, paused)
+            await transport.resume()
+            let resumed = await transport.confirmPlaying(timeout: 2)
+            XCTAssertTrue(resumed)
+        }
+        await transport.seek(40)
+        try await observe(timeout: 3) { transport.state.position > 40.05 }
+        XCTAssertEqual(resolutions, 1, "Progressive seek and pause reuse the current asset")
+        XCTAssertEqual(played, [0])
+        XCTAssertTrue(try privateAudioInputs().subtracting(existing).isEmpty)
+        transport.stop()
+        try await observe(timeout: 3) { server.activeConnections == 0 }
+        let stoppedBytes = server.deliveredBytes
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(server.deliveredBytes, stoppedBytes, "Stop must cancel network read-ahead")
+        XCTAssertNil(transport.state.error)
+    }
+
+    func testEnablingCrossfadeUpgradesProgressivePlaybackWithoutAnotherTrackEvent() async throws {
+        var fixture = try audioFixture(duration: 6)
+        fixture.track.codec = "pcm_f32le"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let server = try ProgressiveAudioHTTPFixture(bytes: Data(contentsOf: fixture.url), delay: 0)
+        let url = try await server.start()
+        defer { server.stop() }
+        let transport = transport(tracks: [fixture.track], url: url)
+        defer { transport.stop() }
+        var events = 0
+        transport.onTrack = { _, _ in events += 1 }
+        await transport.start()
+        let confirmed = await transport.confirmPlaying(timeout: 3)
+        XCTAssertTrue(confirmed)
+        XCTAssertEqual(transport.mode, .progressive)
+        try await observe(timeout: 3) { transport.state.position > 0.2 }
+        let position = transport.state.position
+        transport.configure(repeatMode: "off", crossfade: 3, normalize: true, volume: 0)
+        try await observe(timeout: 3) { transport.mode == .decoded && transport.state.playing }
+        XCTAssertGreaterThanOrEqual(transport.state.position, position - 0.05)
+        XCTAssertEqual(events, 1)
+        XCTAssertNil(transport.state.error)
+    }
+
+    func testProgressiveDeliveryRejectsCrossOriginRedirectsDenialsAndOversizedInput() async throws {
+        var fixture = try audioFixture(duration: 2)
+        fixture.track.codec = "pcm_f32le"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let bytes = try Data(contentsOf: fixture.url)
+        let destination = try ProgressiveAudioHTTPFixture(bytes: bytes, delay: 0)
+        let destinationURL = try await destination.start()
+        defer { destination.stop() }
+        let existing = try privateAudioInputs()
+        let servers = try [
+            ProgressiveAudioHTTPFixture(bytes: bytes, redirect: destinationURL),
+            ProgressiveAudioHTTPFixture(bytes: bytes, status: 401),
+            ProgressiveAudioHTTPFixture(bytes: bytes, status: 403),
+            ProgressiveAudioHTTPFixture(bytes: bytes, advertisedLength: MusicPlaybackPolicy.maximumTrackBytes + 1),
+        ]
+        for (index, server) in servers.enumerated() {
+            let url = try await server.start()
+            let transport = transport(tracks: [fixture.track], url: url)
+            await transport.start()
+            try await observe(timeout: 4) { transport.state.error != nil }
+            XCTAssertFalse(transport.state.playing)
+            let confirmed = await transport.confirmPlaying(timeout: 0.1)
+            XCTAssertFalse(confirmed)
+            if index == 1 || index == 2 {
+                XCTAssertTrue(transport.state.finished, "Authorization denial tears down the active owner")
+                XCTAssertTrue(transport.state.error?.contains("Access to this track was denied") == true)
+            }
+            transport.stop()
+            server.stop()
+        }
+        XCTAssertEqual(destination.requestCount, 0, "A redirect must not forward private playback to another origin")
+        XCTAssertTrue(try privateAudioInputs().subtracting(existing).isEmpty)
+    }
+
+    func testProgressiveSameOriginRedirectAndRangeIgnoringServerKeepSeekAndPrivacy() async throws {
+        var fixture = try audioFixture(duration: 6)
+        fixture.track.codec = "pcm_f32le"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let bytes = try Data(contentsOf: fixture.url)
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [.domain: "127.0.0.1", .path: "/", .name: "lumina-synthetic", .value: "test-only"]))
+        HTTPCookieStorage.shared.setCookie(cookie)
+        defer { HTTPCookieStorage.shared.deleteCookie(cookie) }
+        for ranges in [true, false] {
+            let server = try ProgressiveAudioHTTPFixture(bytes: bytes, delay: 0, ranges: ranges, relativeRedirect: true)
+            let url = try await server.start().appendingPathComponent("redirect")
+            let transport = transport(tracks: [fixture.track], url: url)
+            await transport.start()
+            let confirmed = await transport.confirmPlaying(timeout: 4)
+            XCTAssertTrue(confirmed)
+            XCTAssertEqual(transport.mode, .progressive)
+            await transport.seek(3)
+            try await observe(timeout: 3) { transport.state.position > 3.05 }
+            XCTAssertFalse(server.receivedCredentials, "The shared cookie jar must not enter progressive audio requests")
+            XCTAssertNil(transport.state.error)
+            transport.stop()
+            try await observe(timeout: 3) { server.activeConnections == 0 }
+            server.stop()
+        }
+    }
+
+    func testProgressiveDuplicateQueueAndProcessingQueueBothKeepTheirOccurrences() async throws {
+        var fixture = try audioFixture(duration: 0.8)
+        fixture.track.codec = "pcm_f32le"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let server = try ProgressiveAudioHTTPFixture(bytes: Data(contentsOf: fixture.url), delay: 0)
+        let url = try await server.start()
+        defer { server.stop() }
+        for (processing, localNext) in [(false, false), (false, true), (true, false)] {
+            var successor = fixture.track
+            if processing { successor.gainDB = -6 }
+            let transport = NativeMusicTransport(tracks: [fixture.track, successor], index: 0, position: 0) { index in
+                PlaybackRequest(id: "occurrence-\(index)", item: fixture.track.mediaItem,
+                    url: localNext && index == 1 ? fixture.url : url, startPositionSeconds: 0,
+                    mediaSourceID: "synthetic", isTranscoding: false, methodLabel: "Mixed source queue")
+            }
+            transport.configure(repeatMode: "off", crossfade: 0, normalize: true, volume: 0)
+            defer { transport.stop() }
+            var played = [Int]()
+            transport.onTrack = { _, index in played.append(index) }
+            await transport.start()
+            let expected: NativeMusicTransport.Mode = processing ? .decoded : .progressive
+            XCTAssertEqual(transport.mode, expected, "A queue needing processing keeps engine preloading from the start")
+            try await observe(timeout: 5) { transport.state.index == 1 }
+            XCTAssertEqual(transport.mode, expected)
+            try await observe(timeout: 5) { transport.state.finished }
+            XCTAssertEqual(played, [0, 1])
+            XCTAssertNil(transport.state.error)
+            try await observe(timeout: 3) { server.activeConnections == 0 }
+        }
+    }
+
+    func testEnablingNormalizationWhilePausedRetainsPositionAndRequiresTheEngine() async throws {
+        var fixture = try audioFixture(duration: 6)
+        fixture.track.codec = "pcm_f32le"; fixture.track.gainDB = 6
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let server = try ProgressiveAudioHTTPFixture(bytes: Data(contentsOf: fixture.url), delay: 0)
+        let url = try await server.start()
+        defer { server.stop() }
+        let transport = transport(tracks: [fixture.track], url: url)
+        defer { transport.stop() }
+        var trackEvents = 0
+        transport.onTrack = { _, _ in trackEvents += 1 }
+        transport.configure(repeatMode: "off", crossfade: 0, normalize: false, volume: 0)
+        await transport.start()
+        XCTAssertEqual(transport.mode, .progressive)
+        try await observe(timeout: 3) { transport.state.position > 0.2 }
+        transport.pause()
+        let paused = transport.state.position
+        transport.configure(repeatMode: "off", crossfade: 0, normalize: true, volume: 0)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(transport.state.playing)
+        XCTAssertEqual(transport.state.position, paused)
+        await transport.resume()
+        let confirmed = await transport.confirmPlaying(timeout: 3)
+        XCTAssertTrue(confirmed)
+        XCTAssertEqual(transport.mode, .decoded, "Positive normalization must never be clamped to AVPlayer volume")
+        XCTAssertEqual(trackEvents, 1, "Changing processing while paused must retain the occurrence on Resume")
+        XCTAssertNil(transport.state.error)
+    }
+
+    func testProgressiveAuthorizationDenialAfterPauseAndSeekStillTearsDownTheOwner() async throws {
+        var fixture = try audioFixture(duration: 60)
+        fixture.track.codec = "pcm_f32le"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let server = try ProgressiveAudioHTTPFixture(bytes: Data(contentsOf: fixture.url))
+        let url = try await server.start()
+        defer { server.stop() }
+        let transport = transport(tracks: [fixture.track], url: url)
+        defer { transport.stop() }
+        await transport.start()
+        let confirmed = await transport.confirmPlaying(timeout: 5)
+        XCTAssertTrue(confirmed)
+        transport.pause()
+        await transport.resume()
+        server.reject(403)
+        await transport.seek(50)
+        try await observe(timeout: 4) { transport.state.finished }
+        XCTAssertFalse(transport.state.playing)
+        XCTAssertTrue(transport.state.error?.contains("Access to this track was denied") == true)
+        try await observe(timeout: 3) { server.activeConnections == 0 }
+    }
+
+    func testProgressiveFailedLookaheadKeepsCurrentAudioAndRetriesOnlyAtTheBoundary() async throws {
+        var fixture = try audioFixture(duration: 4)
+        fixture.track.codec = "pcm_f32le"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let bytes = try Data(contentsOf: fixture.url)
+        let server = try ProgressiveAudioHTTPFixture(bytes: bytes, delay: 0)
+        let failing = try ProgressiveAudioHTTPFixture(bytes: bytes, status: 500)
+        let url = try await server.start(), failureURL = try await failing.start()
+        defer { server.stop(); failing.stop() }
+        for repeatMode in ["off", "one"] {
+            var resolutions = [Int]()
+            let transport = NativeMusicTransport(tracks: [fixture.track, fixture.track], index: 0, position: 0) { index in
+                let remote = resolutions.isEmpty ? url : failureURL
+                resolutions.append(index)
+                return PlaybackRequest(id: "occurrence-\(index)", item: fixture.track.mediaItem, url: remote,
+                    startPositionSeconds: 0, mediaSourceID: "synthetic", isTranscoding: false, methodLabel: "Test WAV")
+            }
+            defer { transport.stop() }
+            transport.configure(repeatMode: repeatMode, crossfade: 0, normalize: true, volume: 0)
+            await transport.start()
+            try await observe(timeout: 3) { transport.state.error?.contains("next track") == true }
+            XCTAssertTrue(transport.state.playing)
+            XCTAssertEqual(transport.state.index, 0)
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertEqual(resolutions, [0, repeatMode == "one" ? 0 : 1], "A failed progressive preload must not retry on every clock tick")
+            try await observe(timeout: 6) { transport.state.finished }
+            XCTAssertEqual(resolutions, repeatMode == "one" ? [0, 0, 0] : [0, 1, 1], "Only the actual boundary may retry the failed occurrence")
+            XCTAssertFalse(transport.state.playing)
+        }
+    }
+
+    func testDroppingTheProgressiveOwnerCancelsItsReadAhead() async throws {
+        var fixture = try audioFixture(duration: 60)
+        fixture.track.codec = "pcm_f32le"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let server = try ProgressiveAudioHTTPFixture(bytes: Data(contentsOf: fixture.url))
+        let url = try await server.start()
+        defer { server.stop() }
+        var owner: NativeMusicTransport? = transport(tracks: [fixture.track], url: url)
+        weak var released = owner
+        await owner?.start()
+        let confirmed = await owner?.confirmPlaying(timeout: 5)
+        XCTAssertEqual(confirmed, true)
+        owner = nil
+        try await observe(timeout: 3) { released == nil && server.activeConnections == 0 }
     }
 
     private func transport(tracks: [LuminaCore.MusicTrack], url: URL, crossfade: Double = 0) -> NativeMusicTransport {

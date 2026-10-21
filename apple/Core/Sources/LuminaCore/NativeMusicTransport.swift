@@ -31,7 +31,7 @@ public final class NativeMusicTransport {
         let length: Double
         var end: UInt64 { hostStart + AVAudioTime.hostTime(forSeconds: length) }
     }
-    public enum Mode: Sendable { case decoded, streaming }
+    public enum Mode: Sendable { case decoded, progressive, streaming }
     public private(set) var mode = Mode.streaming
     public private(set) var state: State
     public var onChange: ((State) -> Void)?
@@ -41,16 +41,18 @@ public final class NativeMusicTransport {
     public var onBlockedAdvance: ((Int, Int?) -> Void)?
     public var source: (Int) async throws -> PlaybackRequest
     private var tracks: [MusicTrack]
-    private var gains: [Float]
+    private var gains: [Float] = []
+    private var sourceQueueEligible = false
     private var lastTickState: State?
     private var requests: [Int: PlaybackRequest] = [:]
-    private let engine = AVAudioEngine()
-    private let nodes = [AVAudioPlayerNode(), AVAudioPlayerNode()]
-    private let gainStages = (0..<2).map { _ in [AVAudioUnitEQ(numberOfBands: 0), AVAudioUnitEQ(numberOfBands: 0)] }
+    private var engine: AVAudioEngine?
+    private var nodes: [AVAudioPlayerNode] = []
+    private var gainStages: [[AVAudioUnitEQ]] = []
     private var current: Slot?
     private var next: Slot?
     private var retiring: Slot?
     private var streaming: AVQueuePlayer?
+    private var progressiveAssets: [ObjectIdentifier: ProgressiveMusicAsset] = [:]
     private var streamItems: [ObjectIdentifier: Int] = [:]
     private var streamObserver: Any?
     private var timer: Task<Void, Never>?
@@ -73,9 +75,20 @@ public final class NativeMusicTransport {
 
     public init(tracks: [MusicTrack], index: Int, position: Double, source: @escaping (Int) async throws -> PlaybackRequest) {
         self.tracks = tracks
-        self.gains = MusicPlaybackPolicy.queueGains(tracks, enabled: true, shuffle: false)
         self.state = State(index: index, position: max(0, position), playing: false)
         self.source = source
+        rebuildGainPolicy()
+    }
+
+    deinit { progressiveAssets.values.forEach { $0.cancel() } }
+
+    private func prepareEngine() -> AVAudioEngine {
+        if let engine { return engine }
+        let engine = AVAudioEngine()
+        self.engine = engine
+        nodes = [AVAudioPlayerNode(), AVAudioPlayerNode()]
+        gainStages = (0..<2).map { _ in [AVAudioUnitEQ(numberOfBands: 0), AVAudioUnitEQ(numberOfBands: 0)] }
+        engine.mainMixerNode.outputVolume = volume
         let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
         for index in nodes.indices {
             let node = nodes[index], stages = gainStages[index]
@@ -85,41 +98,50 @@ public final class NativeMusicTransport {
             engine.connect(stages[0], to: stages[1], format: format)
             engine.connect(stages[1], to: engine.mainMixerNode, format: format)
         }
+        return engine
     }
 
     public func configure(repeatMode: String, crossfade: Double, normalize: Bool, volume: Float, shuffle: Bool = false) {
         let changed = self.repeatMode != repeatMode || self.crossfade != crossfade
         self.repeatMode = repeatMode
         self.crossfade = min(12, max(0, crossfade))
-        if self.normalize != normalize || self.shuffle != shuffle {
-            gains = MusicPlaybackPolicy.queueGains(tracks, enabled: normalize, shuffle: shuffle)
-        }
+        let gainsChanged = self.normalize != normalize || self.shuffle != shuffle
         self.normalize = normalize
         self.shuffle = shuffle
+        if gainsChanged { rebuildGainPolicy() }
         self.volume = min(1, max(0, volume))
-        engine.mainMixerNode.outputVolume = self.volume
+        engine?.mainMixerNode.outputVolume = self.volume
         streaming?.volume = self.volume
         if changed { invalidateLookahead() }
         tick()
+        requireProcessingIfNeeded()
     }
 
-    public func start(playing: Bool = true) async {
+    public func start(playing: Bool = true) async { await start(playing: playing, reusing: nil) }
+
+    private func start(playing: Bool, reusing request: PlaybackRequest?) async {
         stopRuntime()
         wantsPlayback = playing
         let token = generation
         guard tracks.indices.contains(state.index) else { return }
         do {
-            let request = try await source(state.index)
+            let resolved = request
+            let request: PlaybackRequest
+            if let resolved { request = resolved } else { request = try await source(state.index) }
             guard token == generation, !Task.isCancelled else { return }
             requests = [state.index: request]
-            onTrack?(request, state.index)
+            if resolved == nil { onTrack?(request, state.index) }
             let track = tracks[state.index]
             if !playing {
                 state.playing = false; state.finished = false; state.error = nil
                 onChange?(state)
                 return
             }
-            if MusicPlaybackPolicy.canBuffer(duration: track.duration, sampleRate: track.sampleRate, channels: track.channels),
+            if !request.url.isFileURL, canUseSourcePlayer(request, index: state.index) {
+                mode = .progressive; onMode?(mode)
+                try await beginStreaming(request, playing: playing)
+                guard token == generation, !Task.isCancelled else { return }
+            } else if MusicPlaybackPolicy.canBuffer(duration: track.duration, sampleRate: track.sampleRate, channels: track.channels),
                let audio = try await Self.prepare(request.url) {
                 guard token == generation, !Task.isCancelled else { return }
                 mode = .decoded; onMode?(mode)
@@ -127,7 +149,7 @@ public final class NativeMusicTransport {
             } else {
                 guard token == generation, !Task.isCancelled else { return }
                 mode = .streaming; onMode?(mode)
-                await beginStreaming(request, playing: playing)
+                try await beginStreaming(request, playing: playing)
                 guard token == generation, !Task.isCancelled else { return }
             }
             state.playing = playing && (mode == .decoded || streaming?.timeControlStatus == .playing); state.finished = false; state.error = nil
@@ -148,9 +170,9 @@ public final class NativeMusicTransport {
         repeat {
             guard token == generation, wantsPlayback, !Task.isCancelled else { return false }
             if mode == .decoded, let current, mach_absolute_time() >= playbackStartsAt,
-               engine.isRunning, nodes[current.node].isPlaying,
+               engine?.isRunning == true, nodes[current.node].isPlaying,
                let rendered = nodes[current.node].lastRenderTime, rendered.hostTime >= playbackStartsAt { return true }
-            if mode == .streaming, streaming?.currentItem?.status == .readyToPlay,
+            if mode != .decoded, streaming?.currentItem?.status == .readyToPlay,
                streaming?.timeControlStatus == .playing {
                 state.playing = true
                 return true
@@ -170,7 +192,7 @@ public final class NativeMusicTransport {
             pausedAt = mach_absolute_time()
             wantsPlayback = false
             nodes.forEach { $0.pause() }
-            engine.pause()
+            engine?.pause()
             streaming?.pause()
             lastTickState = nil
         } else if pausedAt == nil { stopRuntime() }
@@ -180,9 +202,13 @@ public final class NativeMusicTransport {
 
     public func resume() async {
         guard !wantsPlayback else { return }
+        if mode == .progressive, let request = requests[state.index], !canUseSourcePlayer(request, index: state.index) {
+            await start(playing: true, reusing: request)
+            return
+        }
         guard let pausedAt, !state.finished else { await start(); return }
         do {
-            if mode == .decoded, current != nil {
+            if mode == .decoded, current != nil, let engine {
                 try engine.start()
                 let resumeAt = mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.08)
                 playbackStartsAt = resumeAt
@@ -213,7 +239,12 @@ public final class NativeMusicTransport {
     public func seek(_ seconds: Double) async {
         let wasPlaying = wantsPlayback
         state.position = min(max(0, seconds), tracks[state.index].duration ?? max(0, seconds))
-        await start(playing: wasPlaying)
+        if mode == .progressive, let streaming, streaming.currentItem != nil {
+            let token = generation
+            await streaming.seek(to: CMTime(seconds: state.position, preferredTimescale: 600))
+            guard token == generation else { return }
+            onChange?(state)
+        } else { await start(playing: wasPlaying) }
     }
     public func select(_ index: Int, position: Double = 0, playing: Bool = true) async {
         guard tracks.indices.contains(index) else { return }
@@ -222,8 +253,9 @@ public final class NativeMusicTransport {
     }
     public func replaceUpcoming(_ tracks: [MusicTrack]) {
         self.tracks = tracks
-        gains = MusicPlaybackPolicy.queueGains(tracks, enabled: normalize, shuffle: shuffle)
+        rebuildGainPolicy()
         invalidateLookahead()
+        requireProcessingIfNeeded()
     }
     public func stop() { pause(); stopRuntime(); state.finished = true; onChange?(state) }
 
@@ -235,10 +267,11 @@ public final class NativeMusicTransport {
         preparingNext = false; fallbackNext = nil
         timer?.cancel(); timer = nil
         nodes.forEach { $0.stop() }
-        engine.stop()
+        engine?.stop()
         if let streamObserver { streaming?.removeTimeObserver(streamObserver) }
         streamObserver = nil
         streaming?.pause(); streaming?.removeAllItems(); streaming = nil
+        progressiveAssets.values.forEach { $0.cancel() }; progressiveAssets.removeAll()
         streamItems.removeAll(); streamIndex = nil; streamCurrentItem = nil
         requests.removeAll()
         current = nil; next = nil; retiring = nil
@@ -258,6 +291,7 @@ public final class NativeMusicTransport {
     }
 
     private func beginDecoded(_ audio: PreparedAudio, index: Int, offset: Double) throws {
+        let engine = prepareEngine()
         let file = audio.file
         let rate = file.processingFormat.sampleRate
         let frame = AVAudioFramePosition(min(Double(file.length - 1), max(0, offset) * rate))
@@ -275,11 +309,12 @@ public final class NativeMusicTransport {
 
     private func prepareNext() {
         guard state.playing, !preparingNext, fallbackNext == nil, next == nil, retiring == nil else { return }
+        guard mode != .progressive || sourceQueueEligible && crossfade == 0 else { return }
         let candidate = MusicPlaybackPolicy.nextIndex(current: state.index, count: tracks.count, repeatMode: repeatMode)
         guard allowsAdvance?(state.index, candidate) != false else { blockedAdvance = (state.index, candidate); return }
         blockedAdvance = nil
         guard let index = candidate else { return }
-        if mode == .streaming { prepareStreamingNext(index); return }
+        if mode != .decoded { prepareStreamingNext(index); return }
         guard let slot = current else { return }
         // A suspended source must not retain the outgoing file after Stop.
         let playing = (hostStart: slot.hostStart, length: slot.length, end: slot.end, node: slot.node)
@@ -290,6 +325,7 @@ public final class NativeMusicTransport {
             guard let self else { return }
             defer { if token == generation, lookaheadToken == lookaheadGeneration { preparingNext = false } }
             do {
+                guard token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled else { return }
                 let request = try await source(index)
                 guard token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled else { return }
                 requests = requests.filter { $0.key == state.index }
@@ -335,6 +371,7 @@ public final class NativeMusicTransport {
         if let streaming {
             for item in streaming.items().dropFirst() { streaming.remove(item) }
             streamItems = streamItems.filter { $0.key == streamCurrentItem }
+            discardProgressiveAssets(except: Set(streamItems.keys))
         }
         if state.playing { prepareNext() }
     }
@@ -352,7 +389,7 @@ public final class NativeMusicTransport {
 
     private func tick() {
         guard wantsPlayback else { return }
-        if mode == .streaming {
+        if mode != .decoded {
             guard let streaming else { return }
             state.playing = streaming.timeControlStatus == .playing
             let seconds = streaming.currentTime().seconds
@@ -361,10 +398,20 @@ public final class NativeMusicTransport {
                 streamCurrentItem = ObjectIdentifier(item); streamIndex = index; state.index = index
                 let retained = Set(streaming.items().map { ObjectIdentifier($0) })
                 streamItems = streamItems.filter { retained.contains($0.key) }
+                discardProgressiveAssets(except: retained)
                 if let request = requests[index] { onTrack?(request, index) }
                 prepareNext()
             }
-            if streaming.currentItem == nil { ended() }
+            if streaming.currentItem == nil {
+                if let index = fallbackNext {
+                    fallbackNext = nil
+                    let token = generation
+                    Task { [weak self] in
+                        guard let self, token == generation, wantsPlayback else { return }
+                        await select(index)
+                    }
+                } else { ended() }
+            }
             else if streaming.currentItem?.status == .failed {
                 state.error = "This audio format could not stream. Try a compatible copy."
                 state.playing = false
@@ -437,10 +484,72 @@ public final class NativeMusicTransport {
         onChange?(state)
     }
 
-    private func beginStreaming(_ request: PlaybackRequest, playing: Bool) async {
+    private func rebuildGainPolicy() {
+        gains = MusicPlaybackPolicy.queueGains(tracks, enabled: normalize, shuffle: shuffle)
+        let codecs = ["mp3", "aac", "alac", "flac", "pcm_s16le", "pcm_s24le", "pcm_s32le", "pcm_f32le"]
+        // Keep engine preloading if any occurrence needs processing or an unqualified source format.
+        sourceQueueEligible = zip(tracks, gains).allSatisfy { track, gain in
+            gain == 1 && codecs.contains(track.codec?.lowercased() ?? "")
+                && MusicPlaybackPolicy.canBuffer(duration: track.duration, sampleRate: track.sampleRate, channels: track.channels)
+        }
+    }
+
+    private func canUseSourcePlayer(_ request: PlaybackRequest, index: Int) -> Bool {
+        sourceQueueEligible && crossfade == 0 && tracks.indices.contains(index)
+            && !request.isTranscoding && request.url.pathExtension.lowercased() != "m3u8"
+    }
+
+    private func requireProcessingIfNeeded() {
+        guard wantsPlayback, mode == .progressive, let request = requests[state.index],
+              !canUseSourcePlayer(request, index: state.index) else { return }
         let token = generation
-        let item = AVPlayerItem(url: request.url)
-        item.preferredForwardBufferDuration = 8
+        Task { [weak self] in
+            guard let self, token == generation, wantsPlayback, !canUseSourcePlayer(request, index: state.index) else { return }
+            // Retain the occurrence identity when a listening option requires the engine.
+            await start(playing: true, reusing: request)
+        }
+    }
+
+    private func discardProgressiveAssets(except retained: Set<ObjectIdentifier>) {
+        for (id, asset) in progressiveAssets where !retained.contains(id) { asset.cancel() }
+        progressiveAssets = progressiveAssets.filter { retained.contains($0.key) }
+    }
+
+    private func streamingItem(_ request: PlaybackRequest) throws -> AVPlayerItem {
+        let item: AVPlayerItem
+        if mode == .progressive, !request.url.isFileURL {
+            let input = try ProgressiveMusicAsset(url: request.url) { [weak self] id, code in
+                Task { @MainActor in
+                    guard let self, let itemID = self.progressiveAssets.first(where: { $0.value.id == id })?.key else { return }
+                    let active = self.streaming?.currentItem.map(ObjectIdentifier.init) ?? self.streamCurrentItem
+                    if code != .userAuthenticationRequired, itemID != active, let index = self.streamItems[itemID] {
+                        if let item = self.streaming?.items().first(where: { ObjectIdentifier($0) == itemID }) { self.streaming?.remove(item) }
+                        self.progressiveAssets.removeValue(forKey: itemID)?.cancel()
+                        self.streamItems.removeValue(forKey: itemID)
+                        self.fallbackNext = index
+                        self.state.error = "The next track could not preload. It will be tried at the boundary."
+                    } else {
+                        self.stop()
+                        self.state.error = code == .userAuthenticationRequired
+                            ? "Access to this track was denied. Sign in again before continuing."
+                            : "This audio could not stream. Try again."
+                    }
+                    self.onChange?(self.state)
+                }
+            }
+            item = AVPlayerItem(asset: input.asset)
+            progressiveAssets[ObjectIdentifier(item)] = input
+            item.preferredForwardBufferDuration = 2
+        } else {
+            item = AVPlayerItem(url: request.url)
+            item.preferredForwardBufferDuration = mode == .progressive ? 2 : 8
+        }
+        return item
+    }
+
+    private func beginStreaming(_ request: PlaybackRequest, playing: Bool) async throws {
+        let token = generation
+        let item = try streamingItem(request)
         let queue = AVQueuePlayer(items: [item])
         streamItems[ObjectIdentifier(item)] = state.index; streamIndex = state.index; streamCurrentItem = ObjectIdentifier(item)
         streaming = queue
@@ -458,15 +567,23 @@ public final class NativeMusicTransport {
             guard let self else { return }
             defer { if token == generation, lookaheadToken == lookaheadGeneration { preparingNext = false } }
             do {
+                guard token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled else { return }
                 let request = try await source(index)
                 guard token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled else { return }
                 requests = requests.filter { $0.key == state.index }
                 requests[index] = request
-                let item = AVPlayerItem(url: request.url); item.preferredForwardBufferDuration = 8
+                if mode == .progressive, !canUseSourcePlayer(request, index: index) {
+                    fallbackNext = index
+                    return
+                }
+                let item = try streamingItem(request)
                 if streaming.canInsert(item, after: nil) {
                     streaming.insert(item, after: nil)
                     streamItems[ObjectIdentifier(item)] = index
-                } else { fallbackNext = index }
+                } else {
+                    progressiveAssets.removeValue(forKey: ObjectIdentifier(item))?.cancel()
+                    fallbackNext = index
+                }
             } catch {
                 if token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled {
                     if (error as? URLError)?.code == .userAuthenticationRequired {

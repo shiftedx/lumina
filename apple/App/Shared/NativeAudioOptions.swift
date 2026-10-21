@@ -20,7 +20,7 @@ struct NativeAudioOptions: View {
             }
             NativeAudioDisclosure("Listening options", identifier: "audioListeningOptions") {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(session.isSonos ? "Sonos output" : session.decodedPlayback ? "Gapless buffer · 48 kHz" : "Streaming source audio")
+                    Text(session.isSonos ? "Sonos output" : session.playbackMode == .progressive ? "Progressive source audio" : session.playbackMode == .decoded ? "Gapless buffer · 48 kHz" : "Streaming source audio")
                         .font(.caption).foregroundStyle(.secondary)
                     if let sourceFormat {
                         Text(sourceFormat).font(.caption).foregroundStyle(.secondary)
@@ -28,11 +28,11 @@ struct NativeAudioOptions: View {
                     }
                     Toggle("Normalize loudness", isOn: $session.normalization)
                         .accessibilityIdentifier("audioNormalizeToggle")
-                        .disabled(session.isSonos || !session.decodedPlayback || !hasLoudnessMetadata)
+                        .disabled(session.isSonos || session.playbackMode == .streaming || !hasLoudnessMetadata)
                     if !hasLoudnessMetadata {
                         Text("Loudness metadata is not available for this recording yet.").font(.caption)
                     }
-                    if !session.decodedPlayback && !session.isSonos {
+                    if session.playbackMode == .streaming && !session.isSonos {
                         Text("Streaming preserves source loudness. Normalization and crossfade use buffered playback.")
                             .font(.caption)
                     }
@@ -44,7 +44,7 @@ struct NativeAudioOptions: View {
                         Text("12 seconds").tag(12.0)
                     }
                     .pickerStyle(.menu)
-                    .disabled(session.isSonos || !session.decodedPlayback)
+                    .disabled(session.isSonos || session.playbackMode == .streaming)
                     .accessibilityIdentifier("audioCrossfadePicker")
                     Menu {
                         Button("Off") { session.setSleep(minutes: nil) }

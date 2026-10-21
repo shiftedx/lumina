@@ -56,6 +56,48 @@ final class NativeServerTests: XCTestCase {
         try await checkAudioPlayback(compatible: true)
     }
 
+    func testNativeProgressiveAudioPlaybackAgainstFixture() async throws {
+        guard let fixturePath = ProcessInfo.processInfo.environment["LUMINA_NATIVE_FIXTURE"] else {
+            throw XCTSkip("LUMINA_NATIVE_FIXTURE is not configured")
+        }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: URL(fileURLWithPath: fixturePath)))
+        let audioID = try XCTUnwrap(fixture.audioTrackID)
+        let client = LuminaClient()
+        let deviceID = "native-progressive-proof-\(UUID().uuidString.lowercased())"
+        let signedIn = try await client.authenticate(origin: fixture.serverURL, username: fixture.username, password: fixture.password, deviceID: deviceID)
+        do {
+            let item = try await client.item(origin: fixture.serverURL, token: signedIn.token, deviceID: deviceID, id: audioID)
+            let metadata = client.request(origin: fixture.serverURL, path: "/Lumina/Music/tracks/\(item.id)", token: signedIn.token, deviceID: deviceID)
+            let track = try JSONDecoder().decode(MusicTrack.self, from: await client.send(metadata))
+            let audio = try client.audioRequest(origin: fixture.serverURL, token: signedIn.token, item: item)
+            var resolutions = 0
+            let transport = NativeMusicTransport(tracks: [track], index: 0, position: 0) { _ in
+                resolutions += 1
+                return audio
+            }
+            defer { transport.stop() }
+            transport.configure(repeatMode: "off", crossfade: 0, normalize: false, volume: 0)
+            await transport.start()
+            let confirmed = await transport.confirmPlaying(timeout: 5)
+            XCTAssertTrue(confirmed)
+            XCTAssertEqual(transport.mode, .progressive)
+            await transport.seek(0.5)
+            transport.pause()
+            await transport.resume()
+            let resumed = await transport.confirmPlaying(timeout: 3)
+            XCTAssertTrue(resumed)
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertGreaterThan(transport.state.position, 0.5)
+            XCTAssertEqual(resolutions, 1)
+            XCTAssertNil(transport.state.error)
+            transport.stop()
+            try await client.logout(origin: fixture.serverURL, token: signedIn.token, deviceID: deviceID)
+        } catch {
+            try? await client.logout(origin: fixture.serverURL, token: signedIn.token, deviceID: deviceID)
+            throw error
+        }
+    }
+
     private func checkAudioPlayback(compatible: Bool) async throws {
         guard let fixturePath = ProcessInfo.processInfo.environment["LUMINA_NATIVE_FIXTURE"] else {
             throw XCTSkip("LUMINA_NATIVE_FIXTURE is not configured")

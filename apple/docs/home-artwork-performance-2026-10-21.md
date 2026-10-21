@@ -84,3 +84,9 @@ The final `apple/scripts/check.sh` run passed all 52 Core tests with no skips, i
 The existing `NativeProofTests/testFeaturedTitlePreservesDetailsAndResumesPlayback` workflow passed on fresh iPhone, iPad and Apple TV simulators. It covers Home, carousel navigation, details and resumed playback, with focus-paused rotation on tvOS. All three hero screenshot attachments were inspected: compact portrait artwork, wide iPad artwork and landscape TV artwork rendered with their controls present. Logs and exported screenshots are retained under `output/native-home-performance/{ios,ipad,tv}-{home.log,attachments/}`; result bundles are `/tmp/lumina-home-performance-{ios,ipad,tv}.xcresult`. Workflow durations were 124.080, 109.515 and 168.348 seconds respectively; these are automation durations, not app latency comparisons.
 
 All 27 recorded native source/test hashes matched after these checks, and `git diff --check` passed. Physical-device frame hitches, energy use, total process-memory peaks and the full Duo pose/output matrix remain unmeasured by this follow-up.
+
+## PR integration on current main
+
+PR #138 applies the eight Home/artwork files to `72fdeea`, preserving the intervening progressive-music, MKV, offline-library and progress-cadence changes. The branding files in the original checkout match already-merged PR #126 byte-for-byte and are outside this PR's diff. Independent standards and specification reviews found no actionable issues.
+
+Fresh native validation on this integrated base passed all 73 Core tests with no skips, including four live-server cases, and both iOS/tvOS Simulator builds. The Home regression printed a 310 ms serial comparator and 105 ms concurrent completion, with overlap 1 versus 3. This confirms the final integration separately from the original measurements and UI journeys above. Local log: `output/native-home-performance/pr-native-check.log`.

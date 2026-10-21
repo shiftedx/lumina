@@ -13,16 +13,20 @@
 		256B066751245D56CA2F482F /* PlaybackScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */; };
 		292EEFC353A11406224E2843 /* MediaPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68AC6F32440233FD42862758 /* MediaPresentation.swift */; };
 		2CEAF8FBA29533FA96FEE29E /* NativeAudioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */; };
+		3C819D1678BE15AE0B6A8104 /* PlaybackNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = F55F2C18A68824D28C25F076 /* PlaybackNotices.txt */; };
 		3D9A96C5CA2959005785C51A /* LuminaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */; };
 		45DB9B713333B1F5EE006402 /* Newsreader-Italic-Latin-variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 01EEA20B6CF700D7722A04BD /* Newsreader-Italic-Latin-variable.ttf */; };
 		4EF0451490EA651843F91037 /* MobileRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 579E2238336BCFC991DB98C2 /* MobileRootView.swift */; };
 		5013B17FF57D5CE82C72C57A /* iOS.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 819800A042573CF485DA0430 /* iOS.xcassets */; };
 		53E17F15274AA35430FEB51B /* Newsreader-Latin-variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4C28F4FC69F8D5727468CEFE /* Newsreader-Latin-variable.ttf */; };
+		582C1C1D789C242C7DFCC995 /* PrismCoreLicense.txt in Resources */ = {isa = PBXBuildFile; fileRef = A051F7F9433944FC188C5610 /* PrismCoreLicense.txt */; };
 		612AF373518D002E141520EE /* LuminaProofApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */; };
+		68516C2E1D2949F8B961E71B /* PlaybackNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = F55F2C18A68824D28C25F076 /* PlaybackNotices.txt */; };
 		6FF87874D2D2C10672F2A68E /* PlaybackScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */; };
 		71B5458C8B9AAF9AC7FFCD2A /* TVRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF579594D69A5C4AE1BC2F04 /* TVRootView.swift */; };
 		74F4535D3D19BBC26A64C7F0 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 941181C235A2128516EAE516 /* OFL.txt */; };
 		772908CFEACA2FD9906A96F3 /* MediaPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68AC6F32440233FD42862758 /* MediaPresentation.swift */; };
+		7771EE13DD444B8EA69B1F6C /* PrismCoreLicense.txt in Resources */ = {isa = PBXBuildFile; fileRef = A051F7F9433944FC188C5610 /* PrismCoreLicense.txt */; };
 		9229344A0A1CADBFB77AB753 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */; };
 		9249D589D38569A775ACC901 /* NativeAudioOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */; };
 		96DB4422EEADE5D883592A69 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */; };
@@ -35,6 +39,8 @@
 		C6D69D97B34EB0282F10D0EB /* NativeAudioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */; };
 		CE8AD71742A6E9BA9EAF9FF1 /* LuminaProofApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */; };
 		D2AAF52A2A5C9C7FC5004281 /* tvOS.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6AC830D81757A02673E5F7D0 /* tvOS.xcassets */; };
+		E6A9A5DDAAF69D216B778C98 /* MPVKitLicense.txt in Resources */ = {isa = PBXBuildFile; fileRef = CC99B1B20959608AD9B2CF88 /* MPVKitLicense.txt */; };
+		E7362ADB5C9D56280AFD0B88 /* MPVKitLicense.txt in Resources */ = {isa = PBXBuildFile; fileRef = CC99B1B20959608AD9B2CF88 /* MPVKitLicense.txt */; };
 		EEC01442ED927D3E33D7E216 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 941181C235A2128516EAE516 /* OFL.txt */; };
 		F8A8360A940EA872E7A225DF /* NativeMusicLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */; };
 /* End PBXBuildFile section */
@@ -73,10 +79,13 @@
 		8C6468BFA4B1AB57D0097FC4 /* Lumina-tvOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Lumina-tvOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		941181C235A2128516EAE516 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaTheme.swift; sourceTree = "<group>"; };
+		A051F7F9433944FC188C5610 /* PrismCoreLicense.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = PrismCoreLicense.txt; sourceTree = "<group>"; };
 		C12B74A2009E288A90BCA744 /* Core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Core; path = Core; sourceTree = SOURCE_ROOT; };
+		CC99B1B20959608AD9B2CF88 /* MPVKitLicense.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = MPVKitLicense.txt; sourceTree = "<group>"; };
 		CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackScreen.swift; sourceTree = "<group>"; };
 		D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAudioOptions.swift; sourceTree = "<group>"; };
 		E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaProofApp.swift; sourceTree = "<group>"; };
+		F55F2C18A68824D28C25F076 /* PlaybackNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = PlaybackNotices.txt; sourceTree = "<group>"; };
 		FF579594D69A5C4AE1BC2F04 /* TVRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVRootView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -116,6 +125,7 @@
 				46F4D5C4DE8639EC0EB7744A /* Config */,
 				C8546FE3266B00F735C361A1 /* Fonts */,
 				CC169E5289CF31A0E56000A5 /* iOS */,
+				41C59FC84D1AC3FDFDE4F38D /* Notices */,
 				561B0D79C0D90DC81230A559 /* Packages */,
 				35D48A4E22DFA746CBEA2D3E /* Shared */,
 				0C084956839F9A46A2528779 /* tvOS */,
@@ -137,6 +147,16 @@
 			);
 			name = Shared;
 			path = App/Shared;
+			sourceTree = "<group>";
+		};
+		41C59FC84D1AC3FDFDE4F38D /* Notices */ = {
+			isa = PBXGroup;
+			children = (
+				CC99B1B20959608AD9B2CF88 /* MPVKitLicense.txt */,
+				F55F2C18A68824D28C25F076 /* PlaybackNotices.txt */,
+				A051F7F9433944FC188C5610 /* PrismCoreLicense.txt */,
+			);
+			path = Notices;
 			sourceTree = "<group>";
 		};
 		463083206E6F3BD093827132 /* Products */ = {
@@ -339,9 +359,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E6A9A5DDAAF69D216B778C98 /* MPVKitLicense.txt in Resources */,
 				45DB9B713333B1F5EE006402 /* Newsreader-Italic-Latin-variable.ttf in Resources */,
 				53E17F15274AA35430FEB51B /* Newsreader-Latin-variable.ttf in Resources */,
 				EEC01442ED927D3E33D7E216 /* OFL.txt in Resources */,
+				3C819D1678BE15AE0B6A8104 /* PlaybackNotices.txt in Resources */,
+				582C1C1D789C242C7DFCC995 /* PrismCoreLicense.txt in Resources */,
 				96DB4422EEADE5D883592A69 /* PrivacyInfo.xcprivacy in Resources */,
 				5013B17FF57D5CE82C72C57A /* iOS.xcassets in Resources */,
 			);
@@ -351,9 +374,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E7362ADB5C9D56280AFD0B88 /* MPVKitLicense.txt in Resources */,
 				BFBEE442FF886AA4193C8D6B /* Newsreader-Italic-Latin-variable.ttf in Resources */,
 				0C4CA8C5C41074C7B65AA6DB /* Newsreader-Latin-variable.ttf in Resources */,
 				74F4535D3D19BBC26A64C7F0 /* OFL.txt in Resources */,
+				68516C2E1D2949F8B961E71B /* PlaybackNotices.txt in Resources */,
+				7771EE13DD444B8EA69B1F6C /* PrismCoreLicense.txt in Resources */,
 				9229344A0A1CADBFB77AB753 /* PrivacyInfo.xcprivacy in Resources */,
 				D2AAF52A2A5C9C7FC5004281 /* tvOS.xcassets in Resources */,
 			);
@@ -470,6 +496,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = "";
+				"EXCLUDED_ARCHS[sdk=appletvsimulator*]" = x86_64;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -726,6 +753,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = "";
+				"EXCLUDED_ARCHS[sdk=appletvsimulator*]" = x86_64;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

@@ -289,6 +289,7 @@ private struct LibraryShellView: View {
 
 @MainActor
 private struct AccountView: View {
+    @State private var licensesPresented = false
     let store: LuminaStore
     @AppStorage("lumina.appearance") private var appearance = "dark"
 
@@ -306,6 +307,8 @@ private struct AccountView: View {
                 .padding(.vertical, 12)
             }
             .listRowBackground(Color.clear)
+
+            Section { Button("Open-source licenses") { licensesPresented = true } }
 
             Section("Appearance") {
                 Picker("Appearance", selection: $appearance) {
@@ -336,6 +339,7 @@ private struct AccountView: View {
         .background(LuminaTheme.paper)
         .toolbarVisibility(.hidden, for: .navigationBar)
         .accessibilityIdentifier("accountScreen")
+        .sheet(isPresented: $licensesPresented) { PlaybackLicensesView() }
     }
 }
 

@@ -108,8 +108,9 @@ public struct PlaybackRequest: Identifiable, Sendable {
     public let mediaSourceID: String
     public let isTranscoding: Bool
     public let methodLabel: String
+    public let usesClientDemux: Bool
 
-    public init(id: String, item: MediaItem, url: URL, startPositionSeconds: Double, mediaSourceID: String, isTranscoding: Bool, methodLabel: String) {
+    public init(id: String, item: MediaItem, url: URL, startPositionSeconds: Double, mediaSourceID: String, isTranscoding: Bool, methodLabel: String, usesClientDemux: Bool = false) {
         self.id = id
         self.item = item
         self.url = url
@@ -117,6 +118,7 @@ public struct PlaybackRequest: Identifiable, Sendable {
         self.mediaSourceID = mediaSourceID
         self.isTranscoding = isTranscoding
         self.methodLabel = methodLabel
+        self.usesClientDemux = usesClientDemux
     }
 }
 

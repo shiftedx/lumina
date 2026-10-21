@@ -31,6 +31,13 @@ final class NativeServerTests: XCTestCase {
             XCTAssertLessThan(abs(refreshedDirect.resumeSeconds - directPosition), 2)
 
             let convertedItem = try await client.item(origin: fixture.serverURL, token: signedIn.token, deviceID: deviceID, id: fixture.convertedItemID)
+            let mkvInfo = try await client.playbackInfo(origin: fixture.serverURL, token: signedIn.token, deviceID: deviceID, item: convertedItem, forceTranscode: false)
+            let mkv = try client.playbackRequest(origin: fixture.serverURL, token: signedIn.token, item: convertedItem, result: mkvInfo)
+            XCTAssertTrue(mkv.usesClientDemux)
+            XCTAssertFalse(mkv.isTranscoding)
+            let mkvPosition = try await playAndReport(mkv, client: client, origin: fixture.serverURL, token: signedIn.token, deviceID: deviceID)
+            XCTAssertGreaterThan(mkvPosition, mkv.startPositionSeconds + 2)
+
             let convertedInfo = try await client.playbackInfo(origin: fixture.serverURL, token: signedIn.token, deviceID: deviceID, item: convertedItem, forceTranscode: true)
             let converted = try client.playbackRequest(origin: fixture.serverURL, token: signedIn.token, item: convertedItem, result: convertedInfo)
             XCTAssertTrue(converted.isTranscoding)
@@ -127,7 +134,9 @@ final class NativeServerTests: XCTestCase {
     }
 
     private func playAndReport(_ request: PlaybackRequest, client: LuminaClient, origin: URL, token: String, deviceID: String) async throws -> Double {
-        let player = AVPlayer(url: request.url)
+        let source = NativeVideoSource()
+        let player = AVPlayer(playerItem: try await source.prepare(url: request.url, usesClientDemux: request.usesClientDemux))
+        defer { source.stop() }
         player.isMuted = true
         defer { player.pause(); player.replaceCurrentItem(with: nil) }
 

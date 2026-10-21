@@ -2,6 +2,9 @@ import AVFoundation
 import CoreVideo
 import Darwin
 import Foundation
+#if canImport(LuminaCore)
+import LuminaCore
+#endif
 
 // Synthetic video qualification: actual frames, advancing time and a seek, rather than readiness alone.
 // Compile with swiftc -swift-version 6 -O -parse-as-library; accepts a file path or loopback HTTP URL.
@@ -9,19 +12,25 @@ import Foundation
 struct VideoPlaybackBenchmark {
     @MainActor
     static func main() async throws {
-        guard CommandLine.arguments.count == 2 else { throw POSIXError(.EINVAL) }
+        guard (2...3).contains(CommandLine.arguments.count) else { throw POSIXError(.EINVAL) }
         let input = CommandLine.arguments[1]
         let url = input.contains("://") ? URL(string: input)! : URL(fileURLWithPath: input)
+        let started = ContinuousClock.now
+        let cpu = cpuMilliseconds()
         let asset = AVURLAsset(url: url)
-        let item = AVPlayerItem(asset: asset)
+        let item: AVPlayerItem
+#if canImport(LuminaCore)
+        let videoSource = NativeVideoSource()
+        item = try await videoSource.prepare(url: url, usesClientDemux: CommandLine.arguments.count == 3)
+#else
+        item = AVPlayerItem(asset: asset)
+#endif
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
         ])
         item.add(output)
         let player = AVPlayer(playerItem: item)
         player.volume = 0
-        let started = ContinuousClock.now
-        let cpu = cpuMilliseconds()
         player.play()
         var firstFrame: Double?
         var frames = 0
@@ -30,7 +39,11 @@ struct VideoPlaybackBenchmark {
             if output.hasNewPixelBuffer(forItemTime: time),
                output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) != nil {
                 frames += 1
-                if firstFrame == nil { firstFrame = milliseconds(since: started) }
+                if firstFrame == nil {
+                    firstFrame = milliseconds(since: started)
+                    print("FIRST_FRAME")
+                    fflush(stdout)
+                }
             }
             if item.status == .failed { throw item.error ?? POSIXError(.EIO) }
             if frames > 0, time.seconds >= 1 { break }
@@ -63,7 +76,7 @@ struct VideoPlaybackBenchmark {
             "seek_plus_200ms_ms": milliseconds(since: seekStarted), "decoded_frames": frames,
         ]
         // AVAssetReader needs a local file. Qualify the same compressed audio separately from HTTP timing.
-        if url.isFileURL {
+        if url.isFileURL && url.pathExtension != "mkv" {
             guard let audio = try await asset.loadTracks(withMediaType: .audio).first else { throw POSIXError(.ENODATA) }
             let reader = try AVAssetReader(asset: asset)
             let output = AVAssetReaderTrackOutput(track: audio, outputSettings: [
@@ -77,6 +90,9 @@ struct VideoPlaybackBenchmark {
         }
         print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: .sortedKeys), as: UTF8.self))
         player.replaceCurrentItem(with: nil)
+#if canImport(LuminaCore)
+        await videoSource.stop().value
+#endif
     }
 
     static func milliseconds(since start: ContinuousClock.Instant) -> Double {

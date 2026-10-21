@@ -107,3 +107,10 @@ Video format/performance qualification is reproducible with `benchmark_video_for
 fixtures, exercises the production decision/FFmpeg command, and compares native HTTP
 playback and seek. See [performance review §2d](../docs/performance-review.md#2d-video-retain-flac-instead-of-unnecessarily-encoding-aac)
 for compilation, simulator execution, measurements and output limits.
+
+For on-device MKV, build `apple/Benchmarks` and pass its `VideoBenchmark` executable to
+`benchmark_video_formats.py --client-mkv --seconds 60`. The benchmark package links the
+same `NativeVideoSource` used by the app; its Swift source is a symlink to the standalone
+AVFoundation benchmark, so frame/seek measurement stays shared. Add
+`--bytes-per-second 2097152 --runs 1` for paced HTTP qualification. Exact commands and
+tradeoffs are in performance review §2e and ADR 0031.

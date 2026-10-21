@@ -323,6 +323,9 @@ final class LuminaCoreTests: XCTestCase {
         let profile = playbackBody["DeviceProfile"] as? [String: Any]
         let direct = (profile?["DirectPlayProfiles"] as? [[String: Any]])?.first?["Container"] as? String
         XCTAssertEqual(direct, "mp4,m4v,mov")
+        let mkv = (profile?["DirectPlayProfiles"] as? [[String: Any]])?.last
+        XCTAssertEqual(mkv?["Container"] as? String, "mkv")
+        XCTAssertEqual(mkv?["AudioCodec"] as? String, "aac,ac3,eac3,alac,flac")
         let audio = (profile?["DirectPlayProfiles"] as? [[String: Any]])?.first?["AudioCodec"] as? String
         XCTAssertEqual(audio, "aac,ac3,eac3,mp3,alac,flac")
         let codecs = try XCTUnwrap(profile?["CodecProfiles"] as? [[String: Any]])
@@ -362,6 +365,26 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(request.startPositionSeconds, 25)
         let infoRequest = requests.all.first(where: { $0.url?.path == "/Items/movie-1/PlaybackInfo" })!
         XCTAssertEqual(try body(infoRequest)["StartTimeTicks"] as? Int64, 250_000_000)
+    }
+
+    func testDirectMKVUsesClientDemuxWhileHLSDoesNot() throws {
+        let client = LuminaClient(configuration: mockConfiguration())
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let direct = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "mkv", "MediaSources": [["Id": "source", "Container": "mkv",
+                "SupportsDirectPlay": true, "SupportsTranscoding": false]],
+        ]))
+        let request = try client.playbackRequest(origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: direct)
+        XCTAssertTrue(request.usesClientDemux)
+        XCTAssertFalse(request.isTranscoding)
+        XCTAssertEqual(request.url.path, "/Videos/movie-1/stream")
+        let hls = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "fallback", "MediaSources": [["Id": "source", "Container": "mkv",
+                "SupportsDirectPlay": false, "SupportsTranscoding": true, "TranscodingUrl": "/Videos/source/master.m3u8"]],
+        ]))
+        let fallback = try client.playbackRequest(origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: hls)
+        XCTAssertFalse(fallback.usesClientDemux)
+        XCTAssertTrue(fallback.isTranscoding)
     }
 
     func testRefusesCrossOriginPlaybackURL() throws {

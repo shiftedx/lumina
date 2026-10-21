@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import select
 import statistics
 import subprocess
 import sys
@@ -29,11 +30,14 @@ from app.services.playback_decision import caps_from_device_profile, decide
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('binary', type=Path)
 parser.add_argument('output', type=Path)
+parser.add_argument('--client-mkv', action='store_true', help='Compare server remux with native on-device MKV demux')
+parser.add_argument('--bytes-per-second', type=int, default=0, help='Optional per-response pacing for startup qualification')
+parser.add_argument('--seconds', type=int, default=12)
 parser.add_argument('--runs', type=int, default=3)
 parser.add_argument('--simulator', help='Run the native binary inside this booted simulator')
 args = parser.parse_args()
-if args.runs < 1:
-    parser.error('--runs must be positive')
+if args.runs < 1 or args.seconds < 12 or args.bytes_per_second < 0:
+    parser.error('runs must be positive, seconds at least 12, and pacing nonnegative')
 root = args.output.resolve()
 root.mkdir(parents=True, exist_ok=False)
 binary = args.binary.resolve(strict=True)
@@ -44,12 +48,17 @@ if not ffmpeg or not ffprobe:
 source = Path(__file__).resolve().parents[1] / 'Core/Sources/LuminaCore/LuminaClient.swift'
 audio = re.search(r'"AudioCodec": "([^"]+)"', source.read_text()).group(1)
 caps = caps_from_device_profile({'DirectPlayProfiles': [{'Type': 'Video',
-    'Container': 'mp4,m4v,mov', 'VideoCodec': 'h264,hevc', 'AudioCodec': audio}],
+    'Container': 'mp4,m4v,mov,mkv' if args.client_mkv else 'mp4,m4v,mov', 'VideoCodec': 'h264,hevc', 'AudioCodec': audio}],
     'CodecProfiles': [{'Type': 'Video', 'Codec': 'hevc', 'Conditions': [
         {'Property': 'VideoBitDepth', 'Condition': 'LessThanEqual', 'Value': '10'}]}, {'Type': 'VideoAudio', 'Codec': 'flac', 'Conditions': [
         {'Property': 'AudioBitDepth', 'Condition': 'LessThanEqual', 'Value': '24'}]}]})
 old = replace(caps, audio=caps.audio - {'flac'}, direct=tuple(
     replace(profile, audio=profile.audio - {'flac'}) for profile in caps.direct))
+
+if args.client_mkv:
+    old = replace(caps, direct=tuple(replace(profile, containers=profile.containers - {'mkv', 'matroska'}) for profile in caps.direct))
+byte_counts = {}
+count_lock = threading.Lock()
 
 
 class Media(http.server.BaseHTTPRequestHandler):
@@ -86,7 +95,12 @@ class Media(http.server.BaseHTTPRequestHandler):
                 remaining = end - start + 1
                 while remaining:
                     chunk = stream.read(min(65536, remaining))
+                    if args.bytes_per_second:
+                        time.sleep(len(chunk) / args.bytes_per_second)
                     self.wfile.write(chunk)
+                    with count_lock:
+                        key = str(path.relative_to(root))
+                        byte_counts[key] = byte_counts.get(key, 0) + len(chunk)
                     remaining -= len(chunk)
         except (BrokenPipeError, ConnectionResetError):
             pass
@@ -107,19 +121,19 @@ try:
             '-x265-params', 'pools=1:frame-threads=1:log-level=error', '-tag:v', 'hvc1']
         tones = '|'.join(f'0.04*sin(2*PI*{440 + 110*i}*t)' for i in range(channels))
         subprocess.run([ffmpeg, '-v', 'error', '-f', 'lavfi', '-i',
-            'testsrc2=size=1280x720:rate=24:duration=12', '-f', 'lavfi', '-i',
-            f'aevalsrc={tones}:s={rate}:d=12', *encoder, '-g', '48', '-c:a', 'flac',
+            f'testsrc2=size=1280x720:rate=24:duration={args.seconds}', '-f', 'lavfi', '-i',
+            f'aevalsrc={tones}:s={rate}:d={args.seconds}', *encoder, '-g', '48', '-c:a', 'flac',
             '-sample_fmt', 's32', '-bits_per_raw_sample', '24', '-strict', 'experimental', '-movflags', '+faststart', str(path)],
             check=True, timeout=120)
         prefix = ['xcrun', 'simctl', 'spawn', args.simulator] if args.simulator else []
         subprocess.run([*prefix, str(binary), str(path)], check=True, capture_output=True, timeout=45)
         mkv = path.with_suffix('.mkv')
         subprocess.run([ffmpeg, '-v', 'error', '-i', str(path), '-c', 'copy', str(mkv)], check=True, timeout=30)
-        for source in (path, mkv):
+        for source in ((mkv,) if args.client_mkv else (path, mkv)):
             facts = normalize(run_ffprobe(ffprobe, source), source.name)
             decisions = {'before': decide(old, facts), 'after': decide(caps, facts)}
-            expected = 'direct' if source.suffix == '.mp4' else 'remux'
-            assert decisions['before'].audio == 'encode' and decisions['after'].mode == expected
+            expected = 'direct' if args.client_mkv or source.suffix == '.mp4' else 'remux'
+            assert decisions['before'].audio == ('copy' if args.client_mkv else 'encode') and decisions['after'].mode == expected
             assert decisions['after'].video == 'copy' and decisions['after'].audio == 'copy'
             for iteration in range(args.runs):
                 for variant in (('before', 'after') if iteration % 2 == 0 else ('after', 'before')):
@@ -147,16 +161,32 @@ try:
                         probe = json.loads(subprocess.check_output([ffprobe, '-v', 'error', '-show_streams',
                             '-of', 'json', str(target)], timeout=30))
                         audio_stream = next(s for s in probe['streams'] if s['codec_type'] == 'audio')
-                        assert audio_stream['codec_name'] == ('flac' if variant == 'after' else 'aac')
+                        assert audio_stream['codec_name'] == ('flac' if args.client_mkv or variant == 'after' else 'aac')
                         if variant == 'after':
                             assert audio_stream['channels'] == channels
                     url = f'http://127.0.0.1:{server.server_port}/{target.relative_to(root)}'
                     prefix = ['xcrun', 'simctl', 'spawn', args.simulator] if args.simulator else []
-                    result = subprocess.run([*prefix, str(binary), url],
-                        capture_output=True, text=True, timeout=45)
-                    if result.returncode:
-                        raise RuntimeError(f'Native qualification failed: {result.stderr[:1500]}')
-                    row.update(json.loads(result.stdout.strip().splitlines()[-1]))
+                    with count_lock:
+                        byte_counts[str(source.relative_to(root))] = 0
+                    mode = ['mkv'] if args.client_mkv and variant == 'after' else []
+                    process = subprocess.Popen([*prefix, str(binary), url, *mode], stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE, text=True)
+                    try:
+                        if not select.select([process.stdout], [], [], 45)[0] or process.stdout.readline().strip() != 'FIRST_FRAME':
+                            raise RuntimeError('Native workload did not confirm a decoded first frame')
+                        with count_lock:
+                            row['source_bytes_at_first_frame'] = byte_counts.get(str(source.relative_to(root)), 0)
+                        output, errors = process.communicate(timeout=45)
+                        if process.returncode:
+                            raise RuntimeError(f'Native qualification failed: {errors[:1500]}')
+                        row.update(json.loads(output.strip().splitlines()[-1]))
+                    finally:
+                        if process.poll() is None:
+                            process.kill()
+                            process.communicate()
+                    with count_lock:
+                        row['source_bytes_sent'] = byte_counts.get(str(source.relative_to(root)), 0)
+                    row['source_bytes'] = source.stat().st_size
                     rows.append(row)
                     print(json.dumps(row), flush=True)
             summary = {variant: {key: statistics.median(row[key] for row in rows

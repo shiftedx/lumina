@@ -502,6 +502,7 @@ final class PlaybackModel {
     private var timeObserver: Any?
     private var controlObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
+    private let videoSource = NativeVideoSource()
     private var reportQueue: Task<Void, Never>?
     private var pendingReports: [(event: PlaybackEvent, request: PlaybackRequest, seconds: Double, paused: Bool)] = []
     private var didSeek = false
@@ -522,7 +523,7 @@ final class PlaybackModel {
         self.queueIndex = min(max(0, queueIndex ?? resolvedQueue.firstIndex(where: { $0.id == request.item.id }) ?? 0), max(0, resolvedQueue.count - 1))
         self.initiallyPaused = initiallyPaused
         elapsedSeconds = request.startPositionSeconds
-        player = request.item.isAudio ? AVPlayer() : AVPlayer(url: request.url)
+        player = request.item.isAudio || request.usesClientDemux ? AVPlayer() : AVPlayer(url: request.url)
         player.preventsDisplaySleepDuringVideoPlayback = true
         if !request.item.isAudio { player.audiovisualBackgroundPlaybackPolicy = .pauses }
     }
@@ -545,7 +546,18 @@ final class PlaybackModel {
         started = true
         if request.item.isAudio { installRemoteControls() }
         defer {
-            if !didSeek { started = false }
+            if !didSeek { started = false; videoSource.stop() }
+        }
+        if request.usesClientDemux {
+            do {
+                let item = try await videoSource.prepare(url: request.url, usesClientDemux: request.usesClientDemux)
+                guard !closed, !Task.isCancelled else { videoSource.stop(); return }
+                player.replaceCurrentItem(with: item)
+            } catch {
+                videoSource.stop()
+                errorMessage = "This video could not be played. Try Convert to compatible video."
+                return
+            }
         }
         // Do not report a zero position while the item is loading or seeking to resume.
         for _ in 0..<300 {
@@ -748,7 +760,14 @@ final class PlaybackModel {
         request = newRequest
         elapsedSeconds = 0
         didReportCompletion = false
-        player.replaceCurrentItem(with: AVPlayerItem(url: newRequest.url))
+        do {
+            let item = try await videoSource.prepare(url: newRequest.url, usesClientDemux: newRequest.usesClientDemux)
+            guard !closed, !Task.isCancelled else { videoSource.stop(); return }
+            player.replaceCurrentItem(with: item)
+        } catch {
+            failReplay("Replay could not start. Try Convert to compatible video.")
+            return
+        }
         installEndObserver()
         for _ in 0..<300 {
             guard !Task.isCancelled, !closed else { return }
@@ -776,6 +795,7 @@ final class PlaybackModel {
     func close() {
         guard !closed else { return }
         closed = true
+        videoSource.stop()
         updatePosition()
         audioTransport?.stop()
         audioTransport = nil
@@ -799,6 +819,7 @@ final class PlaybackModel {
         guard !closed, !hasFinished else { return }
         updatePosition()
         hasFinished = true
+        videoSource.stop()
         autoplayWhenReady = false
         player.pause()
         isPlaying = false
@@ -816,6 +837,7 @@ final class PlaybackModel {
     }
 
     private func failReplay(_ message: String) {
+        videoSource.stop()
         errorMessage = message
         player.replaceCurrentItem(with: nil)
         didReportCompletion = true

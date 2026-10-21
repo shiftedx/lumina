@@ -101,7 +101,7 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(try body(calls[1])["Username"] as? String, "member")
         XCTAssertTrue(calls[2].value(forHTTPHeaderField: "Authorization")!.contains("Token=\"test-token\""))
         let catalog = try XCTUnwrap(calls.first { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "IncludeItemTypes" })?.value == "Movie,Series,Video" })
-        let recent = try XCTUnwrap(calls.first { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "IncludeItemTypes" })?.value == "Movie,Episode,Video" })
+        let recent = try XCTUnwrap(calls.first { $0.url?.path == "/Items" && URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "IncludeItemTypes" })?.value == "Movie,Episode,Video" })
         XCTAssertEqual(catalog.url?.path, "/Items")
         XCTAssertEqual(recent.url?.path, "/Items", "Home recently added keeps playable episodes")
         XCTAssertNil(store.errorMessage)

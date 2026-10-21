@@ -7,10 +7,10 @@ from html import escape
 
 GENERIC_TITLE = "Lumina — Your household media vault"
 GENERIC_DESCRIPTION = "Movies, music, and favorites. One household. One media vault."
-GENERIC_IMAGE = "/social/lumina-share-v2.jpg"
+GENERIC_IMAGE = "/social/lumina-share-v3.jpg"
 INVITE_TITLE = "You’re invited to a Lumina media vault"
 INVITE_DESCRIPTION = "You’re invited to explore a Lumina media vault. Movies, music, and favorites, ready to discover."
-INVITE_IMAGE = "/social/lumina-invite-v1.jpg"
+INVITE_IMAGE = "/social/lumina-invite-v2.jpg"
 IMAGE_PATHS = frozenset({GENERIC_IMAGE.removeprefix("/"), INVITE_IMAGE.removeprefix("/")})
 
 

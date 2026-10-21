@@ -262,10 +262,10 @@ html.g-modal-open { scrollbar-gutter: stable; }
 .g-notice .g-text-button { padding: 0 var(--g-space-3); font: var(--g-type-button); letter-spacing: var(--g-track-button); text-decoration: underline; text-transform: uppercase; }
 
 .g-brand { --w: 32px; font-size: 18px; display: inline-flex; align-items: center; gap: 8px; }
-.g-brand.is-bar { align-items: baseline; }
-.g-brand-sun { color: var(--g-gold-ink); width: var(--w); height: calc(var(--w) * 34 / 56); flex: none; }
+.g-brand.is-bar { align-items: center; }
+.g-brand-sun { width: var(--w); height: calc(var(--w) * 34 / 56); flex: none; }
 .g-brand-word { font: 500 1em / 1 var(--g-serif); letter-spacing: .1em; text-transform: uppercase; }
-.g-brand.is-hero { --w: 42px; font-size: 30px; flex-direction: column; }
+.g-brand.is-hero { --w: 64px; font-size: 30px; flex-direction: column; }
 @media (max-width: 680px) { .g-brand.is-bar { --w: 26px; font-size: 14px; } }
 .g-tabular { font-variant-numeric: tabular-nums; }
 

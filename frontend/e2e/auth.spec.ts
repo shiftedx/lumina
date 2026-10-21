@@ -5,6 +5,9 @@ test('login renders its title, fields and primary button', async ({ page }) => {
   await mockApi(page, {});
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
+  const brand = page.locator('.g-brand-sun:visible').first();
+  await expect(brand).toHaveAttribute('src', '/media-mark.svg?v=lumina-5');
+  await expect(brand).toHaveJSProperty('naturalWidth', 56);
   await expect(page.getByText('Sign in with your Lumina account.')).toBeVisible();
   await expect(page.getByLabel('Username')).toBeVisible();
   await expect(page.getByLabel('Password', { exact: true })).toBeVisible();

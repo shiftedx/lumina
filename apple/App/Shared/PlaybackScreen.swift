@@ -580,12 +580,18 @@ final class PlaybackModel {
         didSeek = true
         updatePosition()
         enqueue(.start, paused: !autoplayWhenReady)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main) { [weak self] _ in
+        let progressInterval = request.item.isAudio
+            ? CMTime(seconds: 1, preferredTimescale: 600)
+            : NativeVideoSource.progressObservationInterval
+        timeObserver = player.addPeriodicTimeObserver(forInterval: progressInterval, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, !self.closed, !self.hasFinished else { return }
                 self.isPlaying = self.player.timeControlStatus == .playing
                 self.updatePosition()
-                if abs(self.elapsedSeconds - self.lastReport) >= 5 {
+                let shouldReport = self.request.item.isAudio
+                    ? abs(self.elapsedSeconds - self.lastReport) >= 5
+                    : self.elapsedSeconds != self.lastReport
+                if shouldReport {
                     self.enqueue(.progress, paused: self.player.timeControlStatus != .playing)
                 }
                 if self.player.currentItem?.status == .failed {

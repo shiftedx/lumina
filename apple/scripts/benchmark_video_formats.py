@@ -31,6 +31,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('binary', type=Path)
 parser.add_argument('output', type=Path)
 parser.add_argument('--baseline-binary', type=Path, help='Compare two client MKV builds, both using original delivery')
+parser.add_argument('--video-bitrate', type=int, default=0, help='H.264 constant bitrate in bits/sec for cache/read-ahead stress')
 parser.add_argument('--case', choices=['avc-stereo', 'avc-51', 'hevc-71'], help='Run one source case')
 parser.add_argument('--caption-stress', action='store_true', help='Add four dense synthetic subtitle tracks (stress, not typical dialogue)')
 parser.add_argument('--steady-seconds', type=int, default=0, help='Measure 1..30 seconds of sustained playback after startup')
@@ -42,6 +43,8 @@ parser.add_argument('--simulator', help='Run the native binary inside this boote
 args = parser.parse_args()
 if args.runs < 1 or args.seconds < 12 or args.bytes_per_second < 0:
     parser.error('runs must be positive, seconds at least 12, and pacing nonnegative')
+if args.video_bitrate and (args.video_bitrate < 1000000 or args.case not in ('avc-stereo', 'avc-51')):
+    parser.error('--video-bitrate requires an H.264 --case and at least 1000000 bits/sec')
 if args.baseline_binary and not args.client_mkv:
     parser.error('--baseline-binary requires --client-mkv')
 if not 0 <= args.steady_seconds <= 30 or args.steady_seconds + 2 >= args.seconds:
@@ -136,6 +139,10 @@ try:
         encoder = ['-c:v', 'libx264', '-preset', 'ultrafast'] if video == 'h264' else [
             '-c:v', 'libx265', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p10le',
             '-x265-params', 'pools=1:frame-threads=1:log-level=error', '-tag:v', 'hvc1']
+        if args.video_bitrate:
+            encoder += ['-b:v', str(args.video_bitrate), '-minrate', str(args.video_bitrate),
+                '-maxrate', str(args.video_bitrate), '-bufsize', str(args.video_bitrate * 2),
+                '-x264-params', 'nal-hrd=cbr:force-cfr=1']
         tones = '|'.join(f'0.04*sin(2*PI*{440 + 110*i}*t)' for i in range(channels))
         subprocess.run([ffmpeg, '-v', 'error', '-f', 'lavfi', '-i',
             f'testsrc2=size=1280x720:rate=24:duration={args.seconds}', '-f', 'lavfi', '-i',

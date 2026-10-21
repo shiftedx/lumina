@@ -8,6 +8,9 @@ public final class NativeVideoSource {
     private var demux: PrismCoreSession?
     private var statusObservation: NSKeyValueObservation?
 
+    // AVKit owns the visible timeline; app progress only needs the server reporting cadence.
+    public static let progressObservationInterval = CMTime(seconds: 5, preferredTimescale: 600)
+
     public init() {}
 
     // Internal accounting for the host cue replay cache, independent of HLS subtitle files.

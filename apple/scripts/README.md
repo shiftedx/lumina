@@ -122,3 +122,5 @@ Run `mise exec -- python3 apple/scripts/test_archive_signing.py` for the synthet
 regression. The helper refuses a signed application archive.
 
 Video playback probes accept `LUMINA_VIDEO_WAIT_MODE=event` to exercise native screen readiness, or `poll` to compare the former 100 ms loop. `LUMINA_VIDEO_STEADY_SECONDS=12` adds sustained frame/advance validation, process CPU and pause CPU measurements before the existing seek check. Use identical inputs/frame settings for comparisons; this host probe's BGRA sampling is measurement overhead, not the app's AVKit rendering path.
+
+`mise exec -- swift run --package-path apple/Benchmarks -c release OfflineLibraryBenchmark 1000` creates a temporary synthetic owner-scoped offline library and reports 21-sample median CPU/wall cost for reading its metadata list. It checks purge handling and owner hiding afterward, removes its files on exit, and makes no network requests. File decoding, initial reconciliation and cold-storage costs are outside this metric.

@@ -78,6 +78,7 @@ struct NativeMusicLibraryLinks: View {
 
 /// The same listening library adapts to touch navigation and the Siri Remote.
 struct NativeMusicLibraryView: View {
+    @Environment(\.scenePhase) private var scenePhase
     let store: LuminaStore
     @Environment(NativeAudioSession.self) private var audioSession
     @State private var section: NativeMusicSection
@@ -129,6 +130,9 @@ struct NativeMusicLibraryView: View {
         } message: { Text("Playback stops and the saved queue is cleared for your account.") }
         .fullScreenCover(isPresented: Binding(get: { playback != nil }, set: { if !$0 { playback = nil } })) {
             if let playback { PlaybackScreen(playback: playback, store: store) }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, section == .downloads { store.offline.refresh() }
         }
         .task(id: section) {
             if section == .playlists { await store.music.refresh() }

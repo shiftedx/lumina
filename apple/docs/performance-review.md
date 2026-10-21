@@ -471,3 +471,18 @@ The old loop made three readiness checks in each run; the new path makes zero ti
 `LUMINA_VIDEO_STEADY_SECONDS=12` additionally checks frame delivery and at least 90% playhead advancement, reports process CPU across that interval and a two-second pause, then verifies seeking. An initial H.264 MKV run used 330.19 ms CPU over 12.01 seconds (2.75% of one core), 288 sampled frames, and 8.61 ms CPU during the pause. The probe polls/copies BGRA frames; it is not the app's rendering/energy measurement and is not physical-device evidence. The current offline download product supports music only: local-file video probes do not establish a video-download workflow.
 
 Focused validation: native MKV decoded-frame/audio-track/advance/seek/teardown/replay and readiness failure/cancellation checks; generic iOS and arm64 tvOS Simulator app builds. Full suite remains deferred to release per the requested workflow. Real-device video energy, large/unindexed sources, network stalls and saved-video product support remain open.
+
+## Offline library presentation cost, 2026-10-20
+
+`downloadedItems` previously walked the filesystem to validate every audio file on every read. The native Downloads screen reads this property several times during presentation. It now maps reconciled entry metadata without touching disk. Configure/refresh still validate all files; `localURL(for:)` and artwork lookup still validate the actual file before use. The Downloads screen refreshes on entry and foreground activation. A failed manifest/configuration clears presentation metadata rather than exposing entries that never completed reconciliation. A purge can leave a displayed row until refresh/open, but cannot authorize a missing or replaced file for playback.
+
+An optimized macOS host benchmark creates 1,000 synthetic 32-byte files and a valid owner-scoped manifest, configures the real library, then takes 21 repeated list-read samples with an identical consumed checksum. Setup, initial reconciliation and post-measurement purge/owner checks are outside the timing window. This measures metadata access, not decoding or cold storage.
+
+| Median per 1,000-entry list read | Before | After | Reduction |
+| --- | ---: | ---: | ---: |
+| Main-thread process CPU | 38.859 ms | 0.201 ms | 99.48% |
+| Wall time | 38.919 ms | 0.201 ms | 99.48% |
+
+No additional metadata cache or playback buffer is allocated; filesystem work moves out of repeated presentation reads, not out of validation. Initial/explicit reconciliation still scans storage and is not made asynchronous in this slice. These are existing **offline music** improvements; saved video downloads remain an unimplemented product path.
+
+Reproduce: `mise exec -- swift run --package-path apple/Benchmarks -c release OfflineLibraryBenchmark 1000` (the same scratch/build configuration should be used across revisions). The benchmark verifies purge detection on playback lookup and owner hiding after measurement. Six focused offline boundary cases pass, including a retained purge workflow and new truncated/same-size-symlink replacement checks; the two focused video checks also pass. Both generic Apple client builds pass. Full-suite validation remains reserved for release.

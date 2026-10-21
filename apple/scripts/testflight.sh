@@ -37,8 +37,10 @@ for platform in ${LUMINA_PLATFORMS:-iOS tvOS}; do
             -archivePath "$archive" -derivedDataPath "${TMPDIR:-/tmp}/lumina-testflight-build/$version-$LUMINA_BUILD_NUMBER/$platform" \
             CODE_SIGNING_ALLOWED=NO DEVELOPMENT_TEAM="$LUMINA_DEVELOPMENT_TEAM" \
             MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$LUMINA_BUILD_NUMBER" archive
+        python3 scripts/prepare_archive.py "$archive"
         python3 scripts/validate_archive.py "$archive" "$platform" "$version" "$LUMINA_BUILD_NUMBER"
     else
+        python3 scripts/prepare_archive.py "$archive"
         python3 scripts/validate_archive.py "$archive" "$platform" "$version" "$LUMINA_BUILD_NUMBER"
         xcodebuild -exportArchive -archivePath "$archive" \
             -exportOptionsPlist "$options" -exportPath "$release_root/$mode-$platform" \

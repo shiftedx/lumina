@@ -101,3 +101,9 @@ Pass an optional codec to `benchmark_music_startup.swift` for a crossfade-off, s
 Use `--before-mode progressive --pause-seconds 10` to compare progressive revisions during a ten-second pause immediately after confirmation. Compile both revisions with the current Swift harness. `MEASURED` marks the end of the CPU/footprint window; the driver also snapshots delivered bytes then, before resume/seek qualification. `--formats wav mp3` narrows an investigation; omit it to qualify all five formats. The default remains the two-second active playback workload.
 
 Use `--before-mode progressive --play-seconds 10` for an active progressive comparison. The harness requires at least 9.5 seconds of playhead advancement over a ten-second window, then qualifies seek and pause/resume after recording CPU/memory. `--play-seconds` defaults to two and is ignored when `--pause-seconds` is positive. Compile both baseline and revised sources with the same current harness. See [active results](../docs/performance-review.md#2c-active-progressive-playback--control-read-ahead-and-use-the-native-clock).
+
+Video format/performance qualification is reproducible with `benchmark_video_formats.py` and
+`benchmark_video_playback.swift`. The runner generates synthetic H.264/HEVC + FLAC MP4/MKV
+fixtures, exercises the production decision/FFmpeg command, and compares native HTTP
+playback and seek. See [performance review §2d](../docs/performance-review.md#2d-video-retain-flac-instead-of-unnecessarily-encoding-aac)
+for compilation, simulator execution, measurements and output limits.

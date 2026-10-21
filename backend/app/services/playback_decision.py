@@ -55,6 +55,7 @@ class ClientCaps:
     max_bitrate: int | None = None
     selects_audio: bool = False  # can pick a non-default audio track of a direct-played file
     channel_limits: Mapping[str, int] = field(default_factory=dict)  # per-codec AudioChannels limits
+    audio_bit_depth_limits: Mapping[str, int] = field(default_factory=dict)  # codec or "*"; missing probe depth fails a limit
 
 
 @dataclass(frozen=True)
@@ -153,10 +154,13 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
 
     codec_reasons: list[str] = []
     if audio is not None:
+        depth_limit = min((limit for codec, limit in client.audio_bit_depth_limits.items() if codec in ("*", audio.get("codec"))), default=None)
         if audio.get("codec") not in client.audio and "*" not in client.audio:
             codec_reasons.append("AudioCodecNotSupported")
         elif (audio.get("channels") or 2) > client.channel_limits.get(audio.get("codec") or "", client.max_channels):
             codec_reasons.append("AudioChannelsNotSupported")
+        elif depth_limit is not None and (audio.get("bit_depth") is None or audio["bit_depth"] > depth_limit):
+            codec_reasons.append("AudioBitDepthNotSupported")
         elif limits.force_audio_encode:
             codec_reasons.append("AudioBitrateExceedsLimit")
     secondary = audio is not None and audio is not default_audio and not client.selects_audio
@@ -253,7 +257,7 @@ _CAP_FIELDS = {"Width": "max_width", "Height": "max_height", "VideoBitDepth": "m
 def caps_from_device_profile(profile: Any) -> ClientCaps:
     """ClientCaps from a Jellyfin DeviceProfile (PlaybackInfo body).
 
-    Only Width, Height, VideoBitDepth, VideoRangeType, AudioChannels and VideoBitrate conditions
+    Only Width, Height, VideoBitDepth, VideoRangeType, AudioChannels, AudioBitDepth and VideoBitrate conditions
     are read. Every other property or condition is ignored on purpose: Jellyfin 10.11 treated
     unknown conditions as failures and transcoded everything.
     """
@@ -276,6 +280,7 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
     caps: dict[str, dict[str, Any]] = {codec: {"max_bit_depth": 16, "ranges": ALL_RANGES} for codec in video_codecs}
     max_channels, max_bitrate = 8, _number(profile.get("MaxStreamingBitrate"))
     channel_limits: dict[str, int] = {}
+    audio_bit_depth_limits: dict[str, int] = {}
     for entry in _dicts(profile.get("CodecProfiles")):
         if entry.get("ApplyConditions"):
             continue  # Conditional profiles are skipped (more permissive); evaluate them if a client needs one
@@ -297,6 +302,9 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
                     channel_limits[codec] = min(channel_limits.get(codec, number), number)
                 if not codecs:
                     max_channels = min(max_channels, number)
+            elif entry.get("Type") in ("VideoAudio", "Audio") and prop == "AudioBitDepth" and op == "LessThanEqual" and number:
+                for codec in codecs or {"*"}:
+                    audio_bit_depth_limits[codec] = min(audio_bit_depth_limits.get(codec, number), number)
     subtitles = _dicts(profile.get("SubtitleProfiles"))
     image = any(_tokens(e.get("Format")) & IMAGE_SUBTITLE_FORMATS and e.get("Method") == "Embed" for e in subtitles)
     return ClientCaps(
@@ -309,4 +317,5 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         max_bitrate=max_bitrate,
         selects_audio=True,
         channel_limits=channel_limits,
+        audio_bit_depth_limits=audio_bit_depth_limits,
     )

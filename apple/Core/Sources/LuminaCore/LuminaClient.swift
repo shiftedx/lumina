@@ -115,12 +115,13 @@ final class LuminaClient: @unchecked Sendable {
 
     func playbackInfo(origin: URL, token: String, deviceID: String, item: MediaItem, forceTranscode: Bool) async throws -> PlaybackInfo {
         let profile: [String: Any] = [
-            "DirectPlayProfiles": [["Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac"]],
+            "DirectPlayProfiles": [["Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac,flac"]],
             "TranscodingProfiles": [["Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264", "AudioCodec": "aac"]],
             "SubtitleProfiles": [["Format": "vtt", "Method": "External"]],
             "CodecProfiles": [
                 ["Type": "Video", "Codec": "h264", "Conditions": [["Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "8"]]],
                 ["Type": "Video", "Codec": "hevc", "Conditions": [["Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"]]],
+                ["Type": "VideoAudio", "Codec": "flac", "Conditions": [["Property": "AudioBitDepth", "Condition": "LessThanEqual", "Value": "24"]]],
             ],
         ]
         let body: [String: Any] = [

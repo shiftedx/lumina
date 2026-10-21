@@ -6,6 +6,8 @@ Scope: native iPhone, iPhone Duo, iPad and tvOS clients, shared AVFoundation mus
 
 | Work | Before | After | Evidence |
 | --- | --- | --- | --- |
+| FLAC video in native MP4, 12-second synthetic fixtures | FFmpeg AAC encode, 130–470 ms process CPU | Direct original; no FFmpeg process | H.264/HEVC, 24-bit stereo/5.1/7.1; detailed qualification and client tradeoffs in §2d |
+| HEVC + 7.1 FLAC in MKV, 12-second fixture | 466 ms FFmpeg CPU; 37.47 MiB child peak RSS | 26.4 ms CPU (−94%); 25.97 MiB RSS (−31%) | Audio/video stream copy; retains 8 channels rather than the previous stereo AAC fallback; §2d |
 | Active progressive WAV, startup plus ten seconds playing | 46.27 MiB peak; 409.3 ms process CPU | 27.05 MiB peak (−42%); 158.8 ms CPU (−61%) | Three fresh processes/revision; all five formats and window limits in §2c |
 | Paused progressive WAV, startup plus ten-second pause | 42.39 MiB peak; 358.5 ms process CPU | 22.49 MiB peak (−47%); 108.0 ms CPU (−70%) | Three fresh processes/revision, native host benchmark; all five formats in §2b |
 | Progressive remote MP3, admitted gain-free queue | 8.21 s startup; complete input sent | 0.59 s startup; 4.5% sent | Five fresh processes/revision on an eight-second paced delivery; higher native-player memory/CPU costs detailed in §2a |
@@ -241,6 +243,58 @@ The final gate passed **30 tests without skips** (29 native transport workflows 
 
 Local evidence: `/tmp/lumina-active-red.log`, `/tmp/lumina-active-green.log`, `/tmp/lumina-active-transition-timing.log`, `/tmp/lumina-active-transition-preroll.log`, `/tmp/lumina-active-focused-final.log`, and `/tmp/lumina-active-final-measurements.log`. APIs: [loaded time ranges](https://developer.apple.com/documentation/avfoundation/avplayeritem/loadedtimeranges), [native periodic clock](https://developer.apple.com/documentation/avfoundation/avplayer/addperiodictimeobserver(forinterval:queue:using:)), [forward-buffer preference](https://developer.apple.com/documentation/avfoundation/avplayeritem/preferredforwardbufferduration).
 
+### 2d. Video: retain FLAC instead of unnecessarily encoding AAC
+
+The native request now advertises FLAC alongside its existing video audio codecs, with a codec-specific `AudioBitDepth <= 24` condition. The server honors that condition before choosing either direct delivery or an HLS stream copy. Missing depth and 32-bit FLAC retain audio-only conversion; compatible video is still copied. The existing eight-channel ceiling remains. The conservative 32-bit fallback is intentional: an actual synthetic 32-bit FLAC MP4 failed AVAssetReader decoding with `AVFoundationErrorDomain -11855` / `!dat`, whereas the qualified 16/24-bit files decoded. Request serialization and server decision regressions cover this distinction; no new runtime dependency or player engine was added.
+
+The previous client profile was the cause of avoidable audio encoding. The feedback loop first failed both direct-MP4 and remux-MKV expectations, then failed the 32-bit/unknown-depth safety cases before the constraint implementation. The native qualification requires actual pixel buffers, an enabled audio track, advancing time and an accurate seek to six seconds followed by further playback. Direct-file counterparts also decode audio to nonempty PCM with AVAssetReader. HLS compressed audio/channel counts are checked with ffprobe. These checks do not establish acoustic fidelity, speaker mapping, HDMI or Atmos output.
+
+#### Measured results
+
+Three fresh processes per route/revision, alternating revision order, on the same M4 Max/macOS 27.0.1 host, Swift 6 optimized build and FFmpeg 8.0.1. Synthetic clips are 12 seconds, 1280×720 at 24 fps, with 24-bit FLAC: H.264 8-bit at stereo/5.1 48 kHz, and HEVC 10-bit with 7.1 96 kHz. The baseline removes FLAC from the native capability contract; both versions use the actual probed facts, production decision and production FFmpeg command builder. Thus these are route comparisons, not binaries with different AVPlayer implementations. The old default audio fallback is stereo AAC; copied FLAC preserves the original channels. CPU amounts below cover preparing the complete short clip; they are not percentages of one CPU core or whole-film forecasts.
+
+| Source | FFmpeg CPU ms, before → after | FFmpeg child peak RSS MiB, before → after | Client first frame ms, before → after |
+| --- | ---: | ---: | ---: |
+| H.264 + stereo FLAC, MP4 | 129.6 → 0 | 33.97 → 0 | 167 → 195 |
+| H.264 + stereo FLAC, MKV | 133.2 → 33.2 (−75%) | 34.25 → 37.48 | 171 → 162 |
+| H.264 + 5.1 FLAC, MP4 | 241.2 → 0 | 46.48 → 0 | 162 → 192 |
+| H.264 + 5.1 FLAC, MKV | 246.0 → 34.6 (−86%) | 45.64 → 38.64 | 168 → 168 |
+| HEVC + 7.1 FLAC, MP4 | 469.7 → 0 | 37.72 → 0 | 166 → 199 |
+| HEVC + 7.1 FLAC, MKV | 466.0 → 26.4 (−94%) | 37.47 → 25.97 | 161 → 171 |
+
+Zero means no FFmpeg child is needed for direct original delivery, not zero server HTTP or device decode cost. Stereo MKV RSS rose slightly despite lower CPU; memory does not uniformly improve.
+
+Client timing uses a loopback range server and **already prepared** HLS, excluding server packaging, API negotiation and network latency. It cannot establish an end-to-end startup improvement. Seek plus 200 ms of advancing playback remained 320–336 ms across these host route medians. The BGRA pixel-output/polling measurement harness adds rendering work and is not the app UI's own CPU profile.
+
+| Source | Client CPU ms, startup plus one playback second, before → after | Client process peak RSS MiB, before → after |
+| --- | ---: | ---: |
+| H.264 stereo, MP4 | 86 → 277 | 56.6 → 85.2 |
+| H.264 stereo, MKV/HLS | 87 → 86 | 54.8 → 56.4 |
+| H.264 5.1, MP4 | 88 → 333 | 57.3 → 93.5 |
+| H.264 5.1, MKV/HLS | 89 → 95 | 58.6 → 62.3 |
+| HEVC 7.1, MP4 | 88 → 378 | 49.5 → 98.9 |
+| HEVC 7.1, MKV/HLS | 86 → 110 | 49.2 → 61.8 |
+
+Preserving lossless audio and additional channels carries a client cost, especially the host's direct-file path. This slice removes unnecessary server encoding and fidelity loss; it does **not** establish lower combined client/server CPU or memory. Treat the direct-file CPU/RSS difference as the next profiling target. Device energy, thermals, sustained large files, older OS runtimes and actual receiver output remain unqualified.
+
+#### Reproduction and focused validation
+
+The output directory must be new. The Python runner generates only synthetic media, serves loopback byte ranges, validates real encoded/remuxed stream facts, and emits per-run JSON plus medians. Its baseline is the previous native audio contract with FLAC omitted. It does not compare Infuse's runtime performance.
+
+```sh
+mise exec -- swiftc -swift-version 6 -O -parse-as-library \
+  apple/scripts/benchmark_video_playback.swift -o /tmp/lumina-video-playback
+mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800 \
+  backend/.venv/bin/python apple/scripts/benchmark_video_formats.py \
+  /tmp/lumina-video-playback /tmp/lumina-video-formats-new --runs 3
+```
+
+For simulator qualification, compile the Swift harness with `xcrun --sdk iphonesimulator swiftc -target arm64-apple-ios18.0-simulator` (or `appletvsimulator` / `arm64-apple-tvos18.0-simulator`) and the same Swift flags. Pass the resulting executable and `--simulator <booted-UDID> --runs 1` to the Python runner, using another new output directory. Simulator execution qualifies decoder/seek behavior; its resource numbers are not physical-device estimates.
+
+Host evidence: `/tmp/lumina-video-flac-host-final.log` (36 remote playback runs, plus three direct-file audio qualifications). Both iOS 26.5 and tvOS 27.0 simulators passed all six HTTP routes with frames, enabled audio, seek and subsequent advancement (one before/after process per case, plus local audio decode). iPhone Duo on iOS 27.1 and iPad on iPadOS 27.0 additionally passed all three direct-file decode/frame/seek smoke cases. These command-line simulator probes exercise AVFoundation, not the app's entire UI or hardware output. The Duo continuity layout is unchanged.
+
+Focused validation passed: 152 backend cases across playback decisions, Jellyfin integration, seekable HLS and playback startup; three native client contract cases (profile serialization, stale-detail refresh, cross-origin refusal); one real fixture-server direct/HLS playback/progress integration; and both generic iOS/tvOS Simulator app builds. No simulator app was replaced. Evidence: `/tmp/lumina-video-flac-ios-final.log`, `/tmp/lumina-video-flac-tvos-final.log`, `/tmp/lumina-video-device-smoke.log`, `/tmp/lumina-video-focused-backend.log`, `/tmp/lumina-video-focused-swift.log`, `/tmp/lumina-video-unsafe-url.log`, `/tmp/lumina-video-live-server.log`, `/tmp/lumina-video-build-iOS.log`, `/tmp/lumina-video-build-tvOS.log`. The full suite remains reserved for release, as requested.
+
 ### 3. Polling and background publication still have room to improve
 
 Source: `Core/Sources/LuminaCore/NativeMusicTransport.swift:282`, `App/Shared/PlaybackScreen.swift:852`.
@@ -290,15 +344,16 @@ This table describes negotiation and server work, not blanket physical-device ce
 | Source | Intended route | Cost / qualification |
 | --- | --- | --- |
 | MP4/M4V/MOV, H.264 8-bit or HEVC up to 10-bit, AAC/AC-3/E-AC-3 | Direct file | Existing AVKit route; actual device, HDR and sound output still need qualification |
+| MP4 H.264/HEVC with FLAC ≤24-bit, up to 8 channels | Direct file | Actual stereo/5.1/7.1 video/audio/frame/seek qualification; unknown/32-bit depth falls back to audio encode (§2d) |
 | Same containers/video, MP3 or ALAC audio | Direct file | Newly advertised; synthetic H.264+MP3 MP4 and H.264+ALAC MOV advanced in macOS AVPlayer |
-| MKV, supported H.264/HEVC + AAC/AC-3/E-AC-3/MP3 | HLS remux | Server copies video/audio; container work remains, no video encoder |
+| MKV, supported H.264/HEVC + AAC/AC-3/E-AC-3/MP3/FLAC ≤24-bit | HLS remux | Server copies video/audio; container work remains, no video encoder |
 | MKV with supported video and DTS/TrueHD | HLS audio conversion | Copy video, encode compatible audio; no claim of lossless/Atmos preservation |
 | H.264 High 10 / HEVC 12-bit | Compatible video conversion | Newly constrained to prevent false direct capability |
 | Unsupported video codec or selected unsupported image subtitle | Compatible video conversion/burn-in | Genuine video encode; qualification and server hardware matter |
 | MP3/AAC/M4A/FLAC/WAV/AIFF/CAF and other audio containers already on the native list | Direct audio URL | Short admitted sources may still be locally decoded/resampled; “direct” does not mean zero client DSP |
 | Unsupported music container | Cached compatible FLAC endpoint | Existing server conversion path; not an HLS session |
 
-Next format candidates: FLAC in supported video/HLS containers, PCM in MOV, and hardware-gated AV1. Test each real container/codec/profile/channel combination before advertising it, including seek, resume, track selection and fallback. Adding `mkv` or `dts` to AVKit’s static profile would make a capability claim the app does not currently establish. Apple’s [HLS authoring specification](https://developer.apple.com/streaming/hls-authoring-specification-for-apple-devices.html) documents lossless audio carriage and its restrictions; [AVPlayer](https://developer.apple.com/documentation/avfoundation/avplayer) supports local/remote file media and HLS. Published carriage support does not replace output testing.
+FLAC up to 24-bit is now qualified in MP4 and stream-copied fMP4 HLS (§2d); unknown/32-bit depth keeps audio conversion. Next format candidates are PCM in MOV and hardware-gated AV1. Test each real container/codec/profile/channel combination before advertising it, including seek, resume, track selection and fallback. Adding `mkv` or `dts` to AVKit’s static profile would make a capability claim the app does not currently establish. Apple’s [HLS authoring specification](https://developer.apple.com/streaming/hls-authoring-specification-for-apple-devices.html) documents lossless audio carriage and its restrictions; [AVPlayer](https://developer.apple.com/documentation/avfoundation/avplayer) supports local/remote file media and HLS. Published carriage support does not replace output testing.
 
 ## Route to broader direct playback
 
@@ -310,7 +365,22 @@ Direct file playback, stream-copy remux and decoding are different costs. Direct
 | Add client container demux feeding native hardware decode | Could permit original MKV delivery for supported elementary streams | New seek/timing/subtitle/buffering work; requires a playback architecture decision and format/output qualification |
 | Add a general media engine with hardware decode and software fallback | Potentially wider container/audio/video reach | Dependency/license/binary-size tradeoffs; fallback CPU, HDR, audio output and background behavior need per-device measurement |
 
-Near-term recommendation: maximize direct files and stream copies through the existing engine, then qualify FLAC/PCM and hardware-specific codecs. If original MKV delivery or unsupported lossless audio is a firm requirement, prototype a client demux/engine path against the same format corpus and compare server CPU, device energy, first-frame/seek latency and output fidelity. A codec-name allowlist alone cannot provide that support. No new media-engine dependency or architecture migration was introduced by this review.
+Near-term recommendation: maximize direct files and stream copies through the existing engine, then qualify PCM and hardware-specific codecs. FLAC qualification and its bit-depth fallback are now covered in §2d. If original MKV delivery or unsupported lossless audio is a firm requirement, prototype a client demux/engine path against the same format corpus and compare server CPU, device energy, first-frame/seek latency and output fidelity. A codec-name allowlist alone cannot provide that support. No new media-engine dependency or architecture migration was introduced by this review.
+
+## Video format target: Infuse
+
+Infuse is a **feature target**, not a measured performance baseline in this review. Firecore documents broad container support including MKV, AVI, transport streams and disc structures; DTS-family/FLAC audio; and image/styled subtitle formats. Its [format list](https://support.firecore.com/hc/en-us/articles/360045051934-What-is-Infuse) is materially broader than our current AVKit route. Its [audio capabilities](https://support.firecore.com/hc/en-us/articles/217735707-Audio-Options-Capabilities) also distinguish lossless PCM decoding from immersive passthrough: TrueHD Atmos and DTS:X should not be assumed to retain their object metadata. Match output behavior, not codec names alone.
+
+| Priority | Remaining gap | Next measurable acceptance criterion |
+| --- | --- | --- |
+| 1 | Original MKV delivery needs a client demux path; current compatible MKV uses server HLS remux | Same synthetic H.264/HEVC corpus starts and seeks from original range-served MKV with zero server FFmpeg jobs; compare client CPU/RSS, stalls and first frame against current remux |
+| 2 | DTS/TrueHD currently require server AAC conversion | Qualified client decode retains channel/sample data on synthetic assets; zero server audio encoder; measure device decode cost and verify actual multichannel output on hardware |
+| 3 | Image subtitles burn into video; ASS styling is not equivalent to original rendering | PGS/DVD/ASS samples render with correct timing/position and seek while video stays copied; measure overlay CPU and memory |
+| 4 | AV1 and legacy video codec support are not established by the static native profile | Gate hardware capability by device/OS, qualify actual frames and seek; measure software fallback before enabling it |
+| 5 | PCM container/sample-entry variants need precise qualification | Distinguish MOV LPCM from ISO MP4 PCM and older runtimes before advertising; prevent container aliases from creating false support |
+| 6 | All HLS is still labeled as transcoding; actual first-frame/stall metrics are absent from app diagnostics | Distinguish direct/remux/audio/video conversion using server decisions, without logging source URLs or credentials; record decoder failures, first frame and stalls |
+
+Keep compatible compressed video copied throughout these slices. HDR/Dolby Vision variants, subtitle selection, alternate audio, resume, and output fidelity must remain separate qualification dimensions. The current change closes one unnecessary-conversion gap; it does not reach Infuse's full format coverage or demonstrate faster playback than Infuse.
 
 ## Device measurement and acceptance matrix
 

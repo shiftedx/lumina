@@ -6,19 +6,21 @@ import Foundation
 // From apple/: swiftc -swift-version 6 -O -parse-as-library Core/Sources/LuminaCore/*.swift scripts/benchmark_music_startup.swift -o /tmp/lumina-music-startup
 // /tmp/lumina-music-startup /tmp/tone-120.flac 120 48000 2 0
 // Arguments: file path or HTTP URL, duration, sample rate, queue count (1/2), seek offset.
-// Optional final codec argument benchmarks crossfade-off, source-loudness progressive eligibility.
+// Optional codec benchmarks crossfade-off, source-loudness eligibility; pause-seconds replaces the 2 s playback window.
 @main
 struct MusicStartupBenchmark {
     @MainActor
     static func main() async throws {
         let arguments = CommandLine.arguments
-        guard (6...7).contains(arguments.count), let duration = Double(arguments[2]), duration.isFinite, duration > 0,
+        guard (6...8).contains(arguments.count), let duration = Double(arguments[2]), duration.isFinite, duration > 0,
               let rate = Int(arguments[3]), rate > 0, let count = Int(arguments[4]), (1...2).contains(count),
               let offset = Double(arguments[5]), offset.isFinite, offset >= 0, offset < duration else {
             throw NSError(domain: "MusicStartupBenchmark", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Expected: path-or-url duration sample-rate queue-count seek-offset [codec]"])
+                userInfo: [NSLocalizedDescriptionKey: "Expected: path-or-url duration sample-rate queue-count seek-offset [codec [pause-seconds]]"])
         }
-        let progressive = arguments.count == 7
+        let progressive = arguments.count >= 7
+        let pauseSeconds = arguments.count == 8 ? Double(arguments[7]) ?? -1 : 0
+        guard pauseSeconds.isFinite, pauseSeconds >= 0 else { throw POSIXError(.EINVAL) }
         let codec = progressive ? arguments[6] : "flac"
         let url = arguments[1].contains("://") ? URL(string: arguments[1])! : URL(fileURLWithPath: arguments[1])
         let tracks = try (0..<count).map { index in
@@ -52,15 +54,18 @@ struct MusicStartupBenchmark {
         let startup: [String: Any] = ["startup_ms": milliseconds(latency), "mode": String(describing: transport.mode)]
         let startupData = try JSONSerialization.data(withJSONObject: startup, options: .sortedKeys)
         FileHandle.standardOutput.write(Data("STARTUP ".utf8) + startupData + Data("\n".utf8))
-        // Include successor preparation and two seconds of native playback.
-        try await Task.sleep(for: .seconds(2))
-        guard resolutions == count, transport.state.playing, transport.state.error == nil else {
+        // The optional pause workload measures retained resources without rendering audio.
+        if pauseSeconds > 0 { transport.pause() }
+        let pausedPosition = transport.state.position
+        try await Task.sleep(for: .seconds(pauseSeconds > 0 ? pauseSeconds : 2))
+        guard resolutions == count, transport.state.playing == (pauseSeconds == 0), transport.state.error == nil,
+              pauseSeconds == 0 || transport.state.position == pausedPosition else {
             throw NSError(domain: "MusicStartupBenchmark", code: 3,
                 userInfo: [NSLocalizedDescriptionKey: "The workload did not retain the expected active queue"])
         }
         let final = try memory()
         var results: [String: Any] = [
-            "mode": String(describing: transport.mode), "codec": codec, "duration_seconds": duration, "sample_rate": rate, "queue_count": count, "offset_seconds": offset,
+            "pause_seconds": pauseSeconds, "mode": String(describing: transport.mode), "codec": codec, "duration_seconds": duration, "sample_rate": rate, "queue_count": count, "offset_seconds": offset,
             "startup_ms": milliseconds(latency), "source_resolutions": resolutions,
             "active_index": transport.state.index, "position_seconds": transport.state.position,
             "baseline_footprint_bytes": initial.ri_phys_footprint,
@@ -68,6 +73,11 @@ struct MusicStartupBenchmark {
             "active_footprint_bytes": final.ri_phys_footprint,
             "workload_cpu_ms": try cpuMilliseconds() - initialCPU,
         ]
+        FileHandle.standardOutput.write(Data("MEASURED\n".utf8))
+        if pauseSeconds > 0 {
+            await transport.resume()
+            guard await transport.confirmPlaying(timeout: 3) else { throw POSIXError(.EIO) }
+        }
         if progressive, String(describing: transport.mode) == "progressive" {
             // Qualify range seeking and reuse after the measured CPU/footprint window.
             let seek = duration / 2

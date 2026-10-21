@@ -21,11 +21,14 @@ parser.add_argument('before', type=Path)
 parser.add_argument('after', type=Path)
 parser.add_argument('fixtures', type=Path)
 parser.add_argument('--runs', type=int, default=5)
+parser.add_argument('--pause-seconds', type=float, default=0)
+parser.add_argument('--before-mode', choices=('decoded', 'progressive'), default='decoded')
+parser.add_argument('--formats', nargs='+', choices=('wav', 'flac', 'mp3', 'aac.m4a', 'alac.m4a'))
 parser.add_argument('--transfer-seconds', type=float, default=8)
 parser.add_argument('--latency-ms', type=float, default=100)
 args = parser.parse_args()
-if args.runs < 1 or args.transfer_seconds <= 0 or args.latency_ms < 0:
-    parser.error('runs/transfer-seconds must be positive; latency-ms must be nonnegative')
+if args.runs < 1 or args.transfer_seconds <= 0 or args.latency_ms < 0 or args.pause_seconds < 0:
+    parser.error('runs/transfer-seconds must be positive; latency-ms/pause-seconds must be nonnegative')
 scenarios = [
     ('wav', 'pcm_s16le', 'audio/wav'),
     ('flac', 'flac', 'audio/flac'),
@@ -33,6 +36,8 @@ scenarios = [
     ('aac.m4a', 'aac', 'audio/mp4'),
     ('alac.m4a', 'alac', 'audio/mp4'),
 ]
+if args.formats:
+    scenarios = [scenario for scenario in scenarios if scenario[0] in args.formats]
 files = {f'noise-120.{suffix}': ((args.fixtures / f'noise-120.{suffix}').read_bytes(), mime)
     for suffix, _, mime in scenarios}
 binaries = {'before': args.before.resolve(strict=True), 'after': args.after.resolve(strict=True)}
@@ -103,10 +108,10 @@ try:
                 with lock:
                     stats[run] = {'bytes': 0, 'requests': 0, 'next_send': 0.0}
                 url = f'http://127.0.0.1:{server.server_port}/{run}/{filename}'
-                process = subprocess.Popen([str(binaries[variant]), url, '120', '48000', '1', '0', codec],
+                process = subprocess.Popen([str(binaries[variant]), url, '120', '48000', '1', '0', codec, str(args.pause_seconds)],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 try:
-                    # Native harness emits this immediately at confirmation, before its 2 s playback window.
+                    # Native harness confirms startup before the playback or optional pause window.
                     if not select.select([process.stdout], [], [], 45)[0]:
                         raise TimeoutError('Native workload did not confirm playback within 45 seconds')
                     marker = process.stdout.readline()
@@ -114,15 +119,21 @@ try:
                         raise RuntimeError('Native workload did not emit startup confirmation')
                     with lock:
                         startup_bytes = stats[run]['bytes']
+                    if not select.select([process.stdout], [], [], max(45, args.pause_seconds + 10))[0]:
+                        raise TimeoutError('Native workload did not finish its measured window')
+                    if process.stdout.readline().strip() != 'MEASURED':
+                        raise RuntimeError('Native workload did not emit its measurement marker')
+                    with lock:
+                        measured_bytes = stats[run]['bytes']
                     remaining, errors = process.communicate(timeout=45)
                     if process.returncode:
                         raise RuntimeError(f'Native workload failed ({process.returncode}): {errors[-1000:]}')
                     value = json.loads(remaining.strip().splitlines()[-1])
-                    expected = 'decoded' if variant == 'before' else 'progressive'
-                    if value['mode'] != expected or (variant == 'after' and (startup_bytes >= size or not value.get('seek_resume_verified'))):
+                    expected = args.before_mode if variant == 'before' else 'progressive'
+                    if value['mode'] != expected or (expected == 'progressive' and (startup_bytes >= size or not value.get('seek_resume_verified'))):
                         raise RuntimeError('Workload did not use the expected route/start before whole delivery')
                     value.update(scenario=suffix, variant=variant, iteration=iteration,
-                        input_bytes=size, bytes_sent_at_confirmation=startup_bytes,
+                        input_bytes=size, bytes_sent_at_confirmation=startup_bytes, bytes_sent_at_measurement=measured_bytes,
                         transfer_seconds=args.transfer_seconds, response_latency_ms=args.latency_ms)
                     rows.append(value)
                     print(json.dumps(value), flush=True)
@@ -132,7 +143,7 @@ try:
                         process.communicate()
         summary = {variant: {field: statistics.median(row[field] for row in rows
             if row['scenario'] == suffix and row['variant'] == variant)
-            for field in ('startup_ms', 'bytes_sent_at_confirmation', 'peak_footprint_bytes', 'workload_cpu_ms')}
+            for field in ('startup_ms', 'bytes_sent_at_confirmation', 'bytes_sent_at_measurement', 'peak_footprint_bytes', 'workload_cpu_ms')}
             for variant in ('before', 'after')}
         print('SUMMARY ' + json.dumps({suffix: summary}), flush=True)
 finally:

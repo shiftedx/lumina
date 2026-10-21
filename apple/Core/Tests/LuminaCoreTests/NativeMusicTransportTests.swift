@@ -546,6 +546,63 @@ final class NativeMusicTransportTests: XCTestCase {
         XCTAssertNil(transport.state.error)
     }
 
+    func testActiveProgressivePlaybackLimitsReadAheadAndRefillsWithoutStalling() async throws {
+        var fixture = try audioFixture(duration: 60)
+        fixture.track.codec = "pcm_f32le"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let bytes = try Data(contentsOf: fixture.url)
+        let server = try ProgressiveAudioHTTPFixture(bytes: bytes)
+        defer { server.stop() }
+        let url = try await server.start()
+        let transport = transport(tracks: [fixture.track], url: url)
+        defer { transport.stop() }
+        await transport.start()
+        let confirmed = await transport.confirmPlaying(timeout: 5)
+        XCTAssertTrue(confirmed)
+        var interruptions = 0
+        transport.onChange = { if !$0.playing && !$0.finished { interruptions += 1 } }
+        try await observe(timeout: 13) { transport.state.position > 10 }
+        let firstWindow = server.deliveredBytes
+        XCTAssertLessThan(firstWindow, bytes.count / 2, "Active playback must not fetch the entire track far ahead of the playhead")
+        try await observe(timeout: 11) { transport.state.position > 18 }
+        XCTAssertGreaterThan(server.deliveredBytes, firstWindow, "Consumption must restart suspended read-ahead")
+        print("PERF active read-ahead: \(firstWindow)/\(bytes.count) bytes at 10 s, \(server.deliveredBytes) at 18 s; interruptions=\(interruptions)")
+        XCTAssertEqual(interruptions, 0)
+        XCTAssertNil(transport.state.error)
+    }
+
+    func testLimitedProgressiveLookaheadStillStartsAtTheTrackBoundary() async throws {
+        var first = try audioFixture(duration: 12), next = try audioFixture(duration: 60)
+        first.track.codec = "pcm_f32le"; next.track.codec = "pcm_f32le"
+        defer { try? FileManager.default.removeItem(at: first.url); try? FileManager.default.removeItem(at: next.url) }
+        let servers = try [first, next].map { try ProgressiveAudioHTTPFixture(bytes: Data(contentsOf: $0.url)) }
+        defer { servers.forEach { $0.stop() } }
+        var urls = [URL]()
+        for server in servers { urls.append(try await server.start()) }
+        let tracks = [first.track, next.track]
+        var resolutions = [Int](), played = [Int]()
+        let transport = NativeMusicTransport(tracks: tracks, index: 0, position: 0) { index in
+            resolutions.append(index)
+            return PlaybackRequest(id: "limited-\(index)", item: tracks[index].mediaItem, url: urls[index],
+                startPositionSeconds: 0, mediaSourceID: "synthetic", isTranscoding: false, methodLabel: "Test WAV")
+        }
+        defer { transport.stop() }
+        transport.configure(repeatMode: "off", crossfade: 0, normalize: true, volume: 0)
+        transport.onTrack = { _, index in played.append(index) }
+        await transport.start()
+        let confirmed = await transport.confirmPlaying(timeout: 5)
+        XCTAssertTrue(confirmed)
+        try await observe(timeout: 9) { transport.state.position > 6 }
+        let nextBytes = try Data(contentsOf: next.url).count
+        XCTAssertLessThan(servers[1].deliveredBytes, nextBytes / 2, "Lookahead must retain a reserve rather than receive a whole later track")
+        try await observe(timeout: 9) { transport.state.index == 1 && transport.state.position > 0.1 }
+        XCTAssertEqual(transport.mode, .progressive)
+        XCTAssertEqual(resolutions, [0, 1])
+        XCTAssertEqual(played, [0, 1])
+        XCTAssertTrue(transport.state.playing)
+        XCTAssertNil(transport.state.error)
+    }
+
     func testPausedProgressiveQueueRetainsBothInputsWithoutContinuingReadAhead() async throws {
         var fixture = try audioFixture(duration: 60)
         fixture.track.codec = "pcm_f32le"

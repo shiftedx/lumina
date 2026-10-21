@@ -6,6 +6,7 @@ Scope: native iPhone, iPhone Duo, iPad and tvOS clients, shared AVFoundation mus
 
 | Work | Before | After | Evidence |
 | --- | --- | --- | --- |
+| Active progressive WAV, startup plus ten seconds playing | 46.27 MiB peak; 409.3 ms process CPU | 27.05 MiB peak (−42%); 158.8 ms CPU (−61%) | Three fresh processes/revision; all five formats and window limits in §2c |
 | Paused progressive WAV, startup plus ten-second pause | 42.39 MiB peak; 358.5 ms process CPU | 22.49 MiB peak (−47%); 108.0 ms CPU (−70%) | Three fresh processes/revision, native host benchmark; all five formats in §2b |
 | Progressive remote MP3, admitted gain-free queue | 8.21 s startup; complete input sent | 0.59 s startup; 4.5% sent | Five fresh processes/revision on an eight-second paced delivery; higher native-player memory/CPU costs detailed in §2a |
 | File scheduling at `595d9a3`, local 120 s two-track queue | 195.4 ms startup; 139.53 MiB peak footprint; 173.1 ms process CPU | 133.7 ms startup; 8.84 MiB peak; 45.9 ms CPU | Median of five fresh processes; gain/crossfade enabled, two-second post-confirmation window |
@@ -206,13 +207,47 @@ The focused gate passed **28 tests without skips** (27 transport workflows plus 
 
 Local evidence: `/tmp/lumina-overhead-paused-red.log`, `/tmp/lumina-overhead-paused-green.log`, `/tmp/lumina-overhead-focused-final.log`, `/tmp/lumina-overhead-paused-recheck.log`, and `/tmp/lumina-overhead-final-measurements.log`.
 
+### 2c. Active progressive playback — control read-ahead and use the native clock
+
+At baseline `6179de9`, a paced sixty-second synthetic WAV was completely delivered after about seven seconds of active playback despite the two-second forward-buffer preference. The new active workflow failed on that baseline behavior. The resource loader now suspends HTTP transfers when the contiguous loaded range reaches eight seconds ahead, and resumes below four seconds. The same policy applies to lookahead at position zero. Waiting playback and app-initiated seeks permit reads; lookahead is released two seconds before the current item's actual native duration ends so AVFoundation can preroll the successor. This is a reserve policy in media time, not a hard byte or memory ceiling: native caching, TCP data in flight and transition preroll can exceed the target.
+
+The initial flow-control implementation exposed a second problem while lookahead transfers were suspended: synchronous `AVQueuePlayer.currentTime()` blocked the main actor for **6.86 seconds** at a queue handoff. Position now comes from AVFoundation's periodic time observer; its callback keeps the same 100 ms progress/control cadence without that synchronous query. The app's source-playback fallback check runs once per second for failure/completion; decoded crossfade retains its 100 ms timer. The observer is removed on runtime replacement and owner destruction. A dedicated twelve-second-to-sixty-second queue test verifies that the limited successor remains prepared and advances at the boundary. The ordinary automatic stall-wait policy remains enabled.
+
+#### Measured results
+
+| Format | Peak process MiB, before → after | Process CPU ms, before → after | Delivered MiB, before → after | Startup ms, before → after |
+| --- | ---: | ---: | ---: | ---: |
+| WAV | 46.27 → 27.05 | 409.3 → 158.8 | 21.99 → 3.60 | 1050 → 1051 |
+| FLAC | 18.44 → 15.94 | 215.0 → 138.8 | 5.45 → 1.53 | 683 → 690 |
+| MP3 | 15.31 → 15.13 | 181.3 → 142.1 | 2.75 → 1.14 | 585 → 585 |
+| AAC/M4A | 16.08 → 14.28 | 193.2 → 155.5 | 2.80 → 1.85 | 3922 → 3951 |
+| ALAC/M4A | 18.80 → 14.52 | 226.8 → 151.9 | 5.48 → 1.81 | 2036 → 2042 |
+
+WAV peak footprint fell 42% and CPU 61%; FLAC, AAC and ALAC also reduced both. MP3 CPU fell 22%, while its 0.19 MiB peak-memory difference is essentially unchanged at this sample size. All startup medians remained comparable.
+
+Baseline **`6179de9`** and the revised sources are compiled with the same current Swift 6 `-O` harness. The method, host and five synthetic 120-second/48 kHz stereo files match §2a; the server budgets eight seconds for full-input delivery with 100 ms response latency. Three alternating fresh-process pairs per format, 30 processes. The window includes transport construction, startup and **ten seconds of active playback, with no pause**. Every sample must advance the playhead by at least 9.5 seconds during that ten-second window. After measurement it must seek past the midpoint and pause/resume with one source resolution. CPU excludes the fixture server and system audio helpers; bytes are cumulative server body bytes at the end-of-window marker, not unique input bytes.
+
+The improvement avoids premature transfer/copy/cache work during active playback. Reading the rest of a track is deferred until it is needed, and may be avoided entirely if playback stops or selects another track. These short-window host measurements do not establish whole-track CPU/energy savings, an indefinite memory plateau, or physical iPhone/iPad/tvOS results. Startup keeps the existing native buffer preference and automatic waiting policy.
+
+#### Reproduction and focused validation
+
+Reuse §2a's fixture generation, archive baseline `6179de9`, and compile both source revisions with the current Swift harness. Then run:
+
+```sh
+mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800 python3 apple/scripts/benchmark_music_remote.py "$remote_bench_root/before-player" "$remote_bench_root/after-player" "$remote_bench_root/fixtures" --before-mode progressive --play-seconds 10 --runs 3
+```
+
+The final gate passed **30 tests without skips** (29 native transport workflows plus authenticated real-server progressive playback), and both **iOS/tvOS Simulator builds**. The active read-ahead contract failed on the merged baseline and passes with the final implementation; it verifies consumption-driven refill through eighteen seconds without a reported interruption. The queued-track contract checks that a limited sixty-second successor advances after the twelve-second outgoing item. Existing gain/crossfade, pause/seek, authorization, redirect, privacy, bounded input and teardown workflows remain passing. Production source is the same as the measured and platform-built source. The full repository suite remains deferred to the release gate at the user's request. No backend/schema, codec-policy, dependency or deployment changes.
+
+Local evidence: `/tmp/lumina-active-red.log`, `/tmp/lumina-active-green.log`, `/tmp/lumina-active-transition-timing.log`, `/tmp/lumina-active-transition-preroll.log`, `/tmp/lumina-active-focused-final.log`, and `/tmp/lumina-active-final-measurements.log`. APIs: [loaded time ranges](https://developer.apple.com/documentation/avfoundation/avplayeritem/loadedtimeranges), [native periodic clock](https://developer.apple.com/documentation/avfoundation/avplayer/addperiodictimeobserver(forinterval:queue:using:)), [forward-buffer preference](https://developer.apple.com/documentation/avfoundation/avplayeritem/preferredforwardbufferduration).
+
 ### 3. Polling and background publication still have room to improve
 
 Source: `Core/Sources/LuminaCore/NativeMusicTransport.swift:282`, `App/Shared/PlaybackScreen.swift:852`.
 
-`NativeMusicTransport.startClock()` still wakes ten times per second in both modes. Throttling notifications removes most downstream SwiftUI, checkpoint checks and Now Playing writes, but does not eliminate those timer wakeups. `PlaybackModel.receiveAudioState()` rebuilds system Now Playing metadata on each delivered state, and lyrics/queue presentation can depend on the same playback model.
+`NativeMusicTransport.startClock()` retains its ten-times-per-second decoded crossfade clock. Source playback now receives native clock callbacks and uses a once-per-second fallback check (§2c). Throttling notifications removes most downstream SwiftUI, checkpoint checks and Now Playing writes, but does not eliminate those timer wakeups. `PlaybackModel.receiveAudioState()` rebuilds system Now Playing metadata on each delivered state, and lyrics/queue presentation can depend on the same playback model.
 
-Next change: use AVPlayer item/transport/end observations and a native progress observer for streaming; use a coarser decoded clock outside a fade/boundary and the existing fine clock only where envelopes need it. Keep audio progress reporting and sleep deadlines correct in background. Measure callbacks, timer wakeups and SwiftUI body updates while the music screen is visible, while browsing another destination and while backgrounded. Avoid a global timer or broad state migration without a trace showing the benefit.
+Next change: measure whether source item/transport/end observations can replace the fallback check; use a coarser decoded clock outside a fade/boundary and the existing fine clock only where envelopes need it. Keep audio progress reporting and sleep deadlines correct in background. Measure callbacks, timer wakeups and SwiftUI body updates while the music screen is visible, while browsing another destination and while backgrounded. Avoid a global timer or broad state migration without a trace showing the benefit.
 
 ### 4. Artwork decode and resize churn can block rendering
 

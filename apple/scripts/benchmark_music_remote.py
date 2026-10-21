@@ -21,14 +21,15 @@ parser.add_argument('before', type=Path)
 parser.add_argument('after', type=Path)
 parser.add_argument('fixtures', type=Path)
 parser.add_argument('--runs', type=int, default=5)
+parser.add_argument('--play-seconds', type=float, default=2)
 parser.add_argument('--pause-seconds', type=float, default=0)
 parser.add_argument('--before-mode', choices=('decoded', 'progressive'), default='decoded')
 parser.add_argument('--formats', nargs='+', choices=('wav', 'flac', 'mp3', 'aac.m4a', 'alac.m4a'))
 parser.add_argument('--transfer-seconds', type=float, default=8)
 parser.add_argument('--latency-ms', type=float, default=100)
 args = parser.parse_args()
-if args.runs < 1 or args.transfer_seconds <= 0 or args.latency_ms < 0 or args.pause_seconds < 0:
-    parser.error('runs/transfer-seconds must be positive; latency-ms/pause-seconds must be nonnegative')
+if args.runs < 1 or args.transfer_seconds <= 0 or args.latency_ms < 0 or args.pause_seconds < 0 or args.play_seconds <= 0:
+    parser.error('runs/transfer-seconds/play-seconds must be positive; latency-ms/pause-seconds must be nonnegative')
 scenarios = [
     ('wav', 'pcm_s16le', 'audio/wav'),
     ('flac', 'flac', 'audio/flac'),
@@ -108,7 +109,7 @@ try:
                 with lock:
                     stats[run] = {'bytes': 0, 'requests': 0, 'next_send': 0.0}
                 url = f'http://127.0.0.1:{server.server_port}/{run}/{filename}'
-                process = subprocess.Popen([str(binaries[variant]), url, '120', '48000', '1', '0', codec, str(args.pause_seconds)],
+                process = subprocess.Popen([str(binaries[variant]), url, '120', '48000', '1', '0', codec, str(args.pause_seconds), str(args.play_seconds)],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 try:
                     # Native harness confirms startup before the playback or optional pause window.
@@ -119,7 +120,7 @@ try:
                         raise RuntimeError('Native workload did not emit startup confirmation')
                     with lock:
                         startup_bytes = stats[run]['bytes']
-                    if not select.select([process.stdout], [], [], max(45, args.pause_seconds + 10))[0]:
+                    if not select.select([process.stdout], [], [], max(45, args.pause_seconds + args.play_seconds + 10))[0]:
                         raise TimeoutError('Native workload did not finish its measured window')
                     if process.stdout.readline().strip() != 'MEASURED':
                         raise RuntimeError('Native workload did not emit its measurement marker')

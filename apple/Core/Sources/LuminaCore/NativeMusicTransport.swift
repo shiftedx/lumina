@@ -53,6 +53,7 @@ public final class NativeMusicTransport {
     private var retiring: Slot?
     private var streaming: AVQueuePlayer?
     private var progressiveAssets: [ObjectIdentifier: ProgressiveMusicAsset] = [:]
+    private var bufferedStreams: Set<ObjectIdentifier> = []
     private var streamItems: [ObjectIdentifier: Int] = [:]
     private var streamObserver: Any?
     private var timer: Task<Void, Never>?
@@ -80,7 +81,10 @@ public final class NativeMusicTransport {
         rebuildGainPolicy()
     }
 
-    deinit { progressiveAssets.values.forEach { $0.cancel() } }
+    isolated deinit {
+        if let streamObserver { streaming?.removeTimeObserver(streamObserver) }
+        progressiveAssets.values.forEach { $0.cancel() }
+    }
 
     private func prepareEngine() -> AVAudioEngine {
         if let engine { return engine }
@@ -276,7 +280,7 @@ public final class NativeMusicTransport {
         if let streamObserver { streaming?.removeTimeObserver(streamObserver) }
         streamObserver = nil
         streaming?.pause(); streaming?.removeAllItems(); streaming = nil
-        progressiveAssets.values.forEach { $0.cancel() }; progressiveAssets.removeAll()
+        progressiveAssets.values.forEach { $0.cancel() }; progressiveAssets.removeAll(); bufferedStreams.removeAll()
         streamItems.removeAll(); streamIndex = nil; streamCurrentItem = nil
         requests.removeAll()
         current = nil; next = nil; retiring = nil
@@ -383,9 +387,10 @@ public final class NativeMusicTransport {
 
     private func startClock() {
         timer?.cancel()
+        let interval: Duration = mode == .decoded ? .milliseconds(100) : .seconds(1)
         timer = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(100))
+                try? await Task.sleep(for: interval)
                 guard !Task.isCancelled, let self else { return }
                 tick()
             }
@@ -397,8 +402,6 @@ public final class NativeMusicTransport {
         if mode != .decoded {
             guard let streaming else { return }
             state.playing = streaming.timeControlStatus == .playing
-            let seconds = streaming.currentTime().seconds
-            if seconds.isFinite { state.position = max(0, seconds) }
             if let item = streaming.currentItem, let index = streamItems[ObjectIdentifier(item)], ObjectIdentifier(item) != streamCurrentItem {
                 streamCurrentItem = ObjectIdentifier(item); streamIndex = index; state.index = index
                 let retained = Set(streaming.items().map { ObjectIdentifier($0) })
@@ -407,6 +410,7 @@ public final class NativeMusicTransport {
                 if let request = requests[index] { onTrack?(request, index) }
                 prepareNext()
             }
+            if mode == .progressive { updateProgressiveBuffers(streaming) }
             if streaming.currentItem == nil {
                 if let index = fallbackNext {
                     fallbackNext = nil
@@ -515,7 +519,33 @@ public final class NativeMusicTransport {
         }
     }
 
+    private func updateProgressiveBuffers(_ player: AVQueuePlayer) {
+        let currentItem = player.currentItem
+        let playing = player.timeControlStatus == .playing
+        let remaining = (currentItem?.duration.seconds ?? 0) - state.position
+        for item in player.items() {
+            let id = ObjectIdentifier(item)
+            guard let input = progressiveAssets[id] else { continue }
+            let position = item === currentItem ? state.position : 0
+            let ranges = item.loadedTimeRanges
+            let ahead = ranges.compactMap { value -> Double? in
+                let range = value.timeRangeValue
+                guard range.start.seconds <= position, range.end.seconds > position else { return nil }
+                return range.end.seconds - position
+            }.max() ?? 0
+            let wasLimited = bufferedStreams.contains(id)
+            // Keep a reserve without receiving the whole track. Hysteresis avoids rapid suspend/resume.
+            // Let waiting playback recover and let the successor preroll before the real item boundary.
+            let canLimit = playing && (item === currentItem || remaining.isFinite && remaining > 2)
+            let limited = canLimit && (ahead >= 8 || wasLimited && ahead > 4)
+            guard limited != wasLimited else { continue }
+            if limited { bufferedStreams.insert(id) } else { bufferedStreams.remove(id) }
+            input.setReadAheadLimited(limited)
+        }
+    }
+
     private func discardProgressiveAssets(except retained: Set<ObjectIdentifier>) {
+        bufferedStreams.formIntersection(retained)
         for (id, asset) in progressiveAssets where !retained.contains(id) { asset.cancel() }
         progressiveAssets = progressiveAssets.filter { retained.contains($0.key) }
     }
@@ -530,6 +560,7 @@ public final class NativeMusicTransport {
                     if code != .userAuthenticationRequired, itemID != active, let index = self.streamItems[itemID] {
                         if let item = self.streaming?.items().first(where: { ObjectIdentifier($0) == itemID }) { self.streaming?.remove(item) }
                         self.progressiveAssets.removeValue(forKey: itemID)?.cancel()
+                        self.bufferedStreams.remove(itemID)
                         self.streamItems.removeValue(forKey: itemID)
                         self.fallbackNext = index
                         self.state.error = "The next track could not preload. It will be tried at the boundary."
@@ -558,6 +589,14 @@ public final class NativeMusicTransport {
         let queue = AVQueuePlayer(items: [item])
         streamItems[ObjectIdentifier(item)] = state.index; streamIndex = state.index; streamCurrentItem = ObjectIdentifier(item)
         streaming = queue
+        // Native clock delivery avoids synchronous currentTime() calls across queue handoffs.
+        streamObserver = queue.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self, weak queue] time in
+            MainActor.assumeIsolated {
+                guard let self, let queue, self.streaming === queue, self.wantsPlayback else { return }
+                if time.seconds.isFinite { self.state.position = max(0, time.seconds) }
+                self.tick()
+            }
+        }
         queue.volume = volume
         if state.position > 0 { await queue.seek(to: CMTime(seconds: state.position, preferredTimescale: 600)) }
         guard token == generation, !Task.isCancelled else { return }

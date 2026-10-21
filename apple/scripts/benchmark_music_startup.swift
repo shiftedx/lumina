@@ -6,21 +6,22 @@ import Foundation
 // From apple/: swiftc -swift-version 6 -O -parse-as-library Core/Sources/LuminaCore/*.swift scripts/benchmark_music_startup.swift -o /tmp/lumina-music-startup
 // /tmp/lumina-music-startup /tmp/tone-120.flac 120 48000 2 0
 // Arguments: file path or HTTP URL, duration, sample rate, queue count (1/2), seek offset.
-// Optional codec benchmarks crossfade-off, source-loudness eligibility; pause-seconds replaces the 2 s playback window.
+// Optional codec benchmarks source-loudness playback; pause-seconds/play-seconds select the measurement window.
 @main
 struct MusicStartupBenchmark {
     @MainActor
     static func main() async throws {
         let arguments = CommandLine.arguments
-        guard (6...8).contains(arguments.count), let duration = Double(arguments[2]), duration.isFinite, duration > 0,
+        guard (6...9).contains(arguments.count), let duration = Double(arguments[2]), duration.isFinite, duration > 0,
               let rate = Int(arguments[3]), rate > 0, let count = Int(arguments[4]), (1...2).contains(count),
               let offset = Double(arguments[5]), offset.isFinite, offset >= 0, offset < duration else {
             throw NSError(domain: "MusicStartupBenchmark", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Expected: path-or-url duration sample-rate queue-count seek-offset [codec [pause-seconds]]"])
+                userInfo: [NSLocalizedDescriptionKey: "Expected: path-or-url duration sample-rate queue-count seek-offset [codec [pause-seconds [play-seconds]]]"])
         }
         let progressive = arguments.count >= 7
-        let pauseSeconds = arguments.count == 8 ? Double(arguments[7]) ?? -1 : 0
-        guard pauseSeconds.isFinite, pauseSeconds >= 0 else { throw POSIXError(.EINVAL) }
+        let pauseSeconds = arguments.count >= 8 ? Double(arguments[7]) ?? -1 : 0
+        let playSeconds = arguments.count == 9 ? Double(arguments[8]) ?? -1 : 2
+        guard pauseSeconds.isFinite, pauseSeconds >= 0, playSeconds.isFinite, playSeconds > 0 else { throw POSIXError(.EINVAL) }
         let codec = progressive ? arguments[6] : "flac"
         let url = arguments[1].contains("://") ? URL(string: arguments[1])! : URL(fileURLWithPath: arguments[1])
         let tracks = try (0..<count).map { index in
@@ -57,15 +58,16 @@ struct MusicStartupBenchmark {
         // The optional pause workload measures retained resources without rendering audio.
         if pauseSeconds > 0 { transport.pause() }
         let pausedPosition = transport.state.position
-        try await Task.sleep(for: .seconds(pauseSeconds > 0 ? pauseSeconds : 2))
+        try await Task.sleep(for: .seconds(pauseSeconds > 0 ? pauseSeconds : playSeconds))
         guard resolutions == count, transport.state.playing == (pauseSeconds == 0), transport.state.error == nil,
-              pauseSeconds == 0 || transport.state.position == pausedPosition else {
+              pauseSeconds == 0 || transport.state.position == pausedPosition,
+              pauseSeconds > 0 || transport.state.position >= pausedPosition + playSeconds - 0.5 else {
             throw NSError(domain: "MusicStartupBenchmark", code: 3,
                 userInfo: [NSLocalizedDescriptionKey: "The workload did not retain the expected active queue"])
         }
         let final = try memory()
         var results: [String: Any] = [
-            "pause_seconds": pauseSeconds, "mode": String(describing: transport.mode), "codec": codec, "duration_seconds": duration, "sample_rate": rate, "queue_count": count, "offset_seconds": offset,
+            "play_seconds": playSeconds, "pause_seconds": pauseSeconds, "mode": String(describing: transport.mode), "codec": codec, "duration_seconds": duration, "sample_rate": rate, "queue_count": count, "offset_seconds": offset,
             "startup_ms": milliseconds(latency), "source_resolutions": resolutions,
             "active_index": transport.state.index, "position_seconds": transport.state.position,
             "baseline_footprint_bytes": initial.ri_phys_footprint,

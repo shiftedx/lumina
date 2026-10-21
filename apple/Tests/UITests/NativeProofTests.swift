@@ -651,10 +651,13 @@ final class NativeProofTests: XCTestCase {
         guard waitUntil(timeout: 10, condition: { duplicateRows.count == 2 }) else {
             throw ProofFailure.ui("Duplicate queue entries did not keep distinct stable identities.")
         }
+        let duplicateIDs = Set(duplicateRows.allElementsBoundByIndex.map(\.identifier))
         let queueActions = application!.buttons.matching(NSPredicate(format: "label == %@", "Track actions"))
         try waitForExistence(queueActions.element(boundBy: 0), timeout: 10, named: "first duplicate queue action")
         try activate(queueActions.element(boundBy: 0))
         try activate(menuAction("Move down"))
+        XCTAssertEqual(Set(duplicateRows.allElementsBoundByIndex.map(\.identifier)), duplicateIDs,
+                       "Reordering must preserve both duplicate occurrence identities.")
         try activate(element("audioQueueDoneButton"))
         try activate(element("audioNextButton"))
         guard waitUntil(timeout: 20, condition: { self.element("nowPlayingTitle").label == fixture.audioTrackTitle }) else {
@@ -665,9 +668,13 @@ final class NativeProofTests: XCTestCase {
         try waitForExistence(queueActions.element(boundBy: 0), timeout: 10, named: "remaining duplicate queue action")
         try activate(queueActions.element(boundBy: 0))
         try activate(menuAction("Remove from queue"))
-        guard waitUntil(timeout: 10, condition: { duplicateRows.count == 1 }) else {
+        guard waitUntil(timeout: 10, condition: {
+            duplicateRows.count == 0 && self.element("audioQueueItem-\(fixture.audioSecondTrackID)").exists
+                && self.element("audioQueueItem-\(fixture.audioTrackID)").exists
+        }) else {
             throw ProofFailure.ui("Removing a duplicate queue entry did not preserve the currently selected occurrence.")
         }
+        XCTAssertEqual(element("nowPlayingTitle").label, fixture.audioTrackTitle)
         try activate(element("audioQueueDoneButton"))
         try revealMusicControl(element("audioStopButton"))
         try activate(element("audioStopButton"))

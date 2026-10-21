@@ -453,3 +453,21 @@ Instrumentation: physical-device SwiftUI/Time Profiler, Allocations, energy/CPU 
 - Synthetic H.264+ALAC MOV advanced 0.981 seconds and H.264+MP3 MP4 advanced 1.066 seconds after approximately one second of macOS AVPlayer playback. This establishes synthetic decode on macOS only.
 
 Local evidence logs: `/tmp/lumina-apple-performance-gain6.log`, `/tmp/lumina-apple-performance-before.log`, `/tmp/lumina-apple-performance-final-core.log`, `/tmp/lumina-apple-performance-final-native.log`, `/tmp/lumina-apple-performance-decisions.log`, and `/tmp/lumina-apple-performance-make-check.log`, and `/tmp/lumina-apple-performance-remaining-checks.log`. These are local, temporary artifacts; the durable result is this report plus the retained regression tests. No signed archive, upload or deployment was requested or performed.
+
+## Video readiness latency, 2026-10-20
+
+The native video screen previously checked `AVPlayerItem.status` every 100 ms before starting playback. It now awaits KVO readiness/failure directly, with a cancellable 30-second deadline. Replacing/removing the item ends the wait; an already-ready item completes immediately. Resume seek and playback reporting still happen after readiness. No decoding, buffer or format policy changed.
+
+Three optimized macOS host runs per synthetic local 60-second source, using the same benchmark, frame-output settings and production preparation. `LUMINA_VIDEO_WAIT_MODE=poll` retains the former screen's readiness loop as a comparison; `event` calls the production readiness helper. First frame includes preparation, readiness and actual decoded-frame delivery.
+
+| Source | Median first frame, polling → event | Change | Readiness wait, polling → event |
+| --- | ---: | ---: | ---: |
+| H.264 + stereo FLAC MP4 | 239.32 → 224.11 ms | −6.4% | 203.93 → 170.66 ms |
+| H.264 + stereo FLAC MKV | 259.18 → 183.49 ms | −29.2% | 204.64 → 123.79 ms |
+| HEVC + 7.1 FLAC MKV | 252.51 → 186.14 ms | −26.3% | 202.00 → 129.38 ms |
+
+The old loop made three readiness checks in each run; the new path makes zero timer-driven readiness checks. This is a startup improvement, not evidence of sustained CPU or memory reduction. Startup-plus-one-second CPU medians were 191.31 → 188.42 ms, 132.68 → 129.58 ms and 134.98 → 143.28 ms respectively; peak RSS was effectively unchanged. Do not interpret those small/noisy changes as CPU wins.
+
+`LUMINA_VIDEO_STEADY_SECONDS=12` additionally checks frame delivery and at least 90% playhead advancement, reports process CPU across that interval and a two-second pause, then verifies seeking. An initial H.264 MKV run used 330.19 ms CPU over 12.01 seconds (2.75% of one core), 288 sampled frames, and 8.61 ms CPU during the pause. The probe polls/copies BGRA frames; it is not the app's rendering/energy measurement and is not physical-device evidence. The current offline download product supports music only: local-file video probes do not establish a video-download workflow.
+
+Focused validation: native MKV decoded-frame/audio-track/advance/seek/teardown/replay and readiness failure/cancellation checks; generic iOS and arm64 tvOS Simulator app builds. Full suite remains deferred to release per the requested workflow. Real-device video energy, large/unindexed sources, network stalls and saved-video product support remain open.

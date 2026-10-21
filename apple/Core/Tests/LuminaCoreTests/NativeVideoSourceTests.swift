@@ -7,6 +7,23 @@ import XCTest
 
 @MainActor
 final class NativeVideoSourceTests: XCTestCase {
+    func testReadinessPropagatesFailureAndCancellation() async throws {
+        let empty = AVPlayer()
+        do { try await NativeVideoSource.waitUntilReady(empty); XCTFail("Missing items cannot become ready") }
+        catch is CancellationError { }
+        let cancelled = Task { try await NativeVideoSource.waitUntilReady(empty) }
+        cancelled.cancel()
+        do { try await cancelled.value; XCTFail("Cancelled preparation must terminate") }
+        catch is CancellationError { }
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+        let failed = AVPlayer(url: missing)
+        do { try await NativeVideoSource.waitUntilReady(failed, timeout: .seconds(2)); XCTFail("Missing files must fail") }
+        catch {
+            XCTAssertEqual(failed.currentItem?.status, .failed, "Propagate asset failure rather than waiting for the deadline")
+        }
+        failed.replaceCurrentItem(with: nil)
+    }
+
     func testOriginalMKVDecodesSeeksAndReleasesItsLoopbackSession() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -28,6 +45,10 @@ final class NativeVideoSourceTests: XCTestCase {
         item.add(frames)
         let player = AVPlayer(playerItem: item)
         player.volume = 0
+        try await NativeVideoSource.waitUntilReady(player)
+        XCTAssertEqual(item.status, .readyToPlay)
+        // An already-ready item must also complete; no future KVO change is required.
+        try await NativeVideoSource.waitUntilReady(player)
         player.play()
         var decoded = false
         let deadline = ContinuousClock.now.advanced(by: .seconds(15))

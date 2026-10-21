@@ -560,21 +560,18 @@ final class PlaybackModel {
             }
         }
         // Do not report a zero position while the item is loading or seeking to resume.
-        for _ in 0..<300 {
-            guard !Task.isCancelled, !closed else { return }
-            guard let item = player.currentItem else { return }
-            if item.status == .failed {
-                errorMessage = request.item.isAudio ? "This track could not be played. Check its format and try again." : "This video could not be played. Try Convert to compatible video."
-                return
-            }
-            if item.status == .readyToPlay { break }
-            try? await Task.sleep(for: .milliseconds(100))
-        }
-        guard !closed, !Task.isCancelled else { return }
-        guard player.currentItem?.status == .readyToPlay else {
-            errorMessage = "The media did not become ready. Check the server connection."
+        guard let item = player.currentItem else { return }
+        do {
+            try await NativeVideoSource.waitUntilReady(player)
+        } catch is CancellationError {
+            return
+        } catch {
+            errorMessage = item.status == .failed
+                ? (request.item.isAudio ? "This track could not be played. Check its format and try again." : "This video could not be played. Try Convert to compatible video.")
+                : "The media did not become ready. Check the server connection."
             return
         }
+        guard !closed, !Task.isCancelled else { return }
         if request.startPositionSeconds > 0 {
             await player.seek(to: CMTime(seconds: request.startPositionSeconds, preferredTimescale: 600),
                               toleranceBefore: .zero, toleranceAfter: .zero)

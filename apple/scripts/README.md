@@ -120,3 +120,5 @@ Xcode then signs each embedded framework using its current bundle identity. The 
 validator checks individual framework designated requirements as well as the parent app seal.
 Run `mise exec -- python3 apple/scripts/test_archive_signing.py` for the synthetic signing
 regression. The helper refuses a signed application archive.
+
+Video playback probes accept `LUMINA_VIDEO_WAIT_MODE=event` to exercise native screen readiness, or `poll` to compare the former 100 ms loop. `LUMINA_VIDEO_STEADY_SECONDS=12` adds sustained frame/advance validation, process CPU and pause CPU measurements before the existing seek check. Use identical inputs/frame settings for comparisons; this host probe's BGRA sampling is measurement overhead, not the app's AVKit rendering path.

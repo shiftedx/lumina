@@ -12,6 +12,7 @@ final class ProgressiveMusicAsset: NSObject, AVAssetResourceLoaderDelegate, URLS
     private var pending: [Int: Load] = [:]
     private var stopped = false
     private var paused = false
+    private var readAheadLimited = false
     private var seeks = 0
     private let failed: @Sendable (UUID, URLError.Code) -> Void
 
@@ -55,6 +56,10 @@ final class ProgressiveMusicAsset: NSObject, AVAssetResourceLoaderDelegate, URLS
         queue.async { [self] in self.paused = paused; updateTransfers() }
     }
 
+    func setReadAheadLimited(_ limited: Bool) {
+        queue.async { [self] in readAheadLimited = limited; updateTransfers() }
+    }
+
     // A paused seek still needs metadata/audio bytes. Overlapping seeks share this lease.
     func beginSeek() { queue.async { [self] in seeks += 1; updateTransfers() } }
     func endSeek() { queue.async { [self] in seeks -= 1; updateTransfers() } }
@@ -63,7 +68,7 @@ final class ProgressiveMusicAsset: NSObject, AVAssetResourceLoaderDelegate, URLS
         guard !stopped else { return }
         for load in pending.values {
             guard let task = load.task else { continue }
-            if paused && seeks == 0 {
+            if (paused || readAheadLimited) && seeks == 0 {
                 if task.state == .running { task.suspend() }
             } else if task.state == .suspended { task.resume() }
         }
@@ -96,7 +101,7 @@ final class ProgressiveMusicAsset: NSObject, AVAssetResourceLoaderDelegate, URLS
         let task = session.dataTask(with: http)
         load.task = task
         pending[task.taskIdentifier] = load
-        if !paused || seeks > 0 { task.resume() }
+        if (!paused && !readAheadLimited) || seeks > 0 { task.resume() }
         return true
     }
 

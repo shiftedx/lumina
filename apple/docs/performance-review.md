@@ -486,3 +486,22 @@ An optimized macOS host benchmark creates 1,000 synthetic 32-byte files and a va
 No additional metadata cache or playback buffer is allocated; filesystem work moves out of repeated presentation reads, not out of validation. Initial/explicit reconciliation still scans storage and is not made asynchronous in this slice. These are existing **offline music** improvements; saved video downloads remain an unimplemented product path.
 
 Reproduce: `mise exec -- swift run --package-path apple/Benchmarks -c release OfflineLibraryBenchmark 1000` (the same scratch/build configuration should be used across revisions). The benchmark verifies purge detection on playback lookup and owner hiding after measurement. Six focused offline boundary cases pass, including a retained purge workflow and new truncated/same-size-symlink replacement checks; the two focused video checks also pass. Both generic Apple client builds pass. Full-suite validation remains reserved for release.
+
+## Sustained MKV subtitle-history retention, 2026-10-21
+
+The MKV session inherited PrismCore's `.complete` host cue replay history. Lumina registers no host subtitle overlay: AVKit consumes packaged media, and subtitle WebVTT files are produced independently of this replay cache. Every encountered text cue and its deduplication key nevertheless stayed in memory for the session's lifetime. Configure the existing `.bounded(maxCues: 1, maxBytes: 1)` live-only policy. This removes lifetime host-history retention while keeping packaged subtitle production, video/audio stream copy and current buffering policies. The one-byte limit bounds this cache, not process RSS, decoder buffers or segment storage.
+
+The focused decoded-MKV workflow was extended with actual embedded text captions. Before the configuration change, `swift test --package-path apple/Core --scratch-path /tmp/lumina-mkv-core --filter testOriginalMKVDecodesSeeksAndReleasesItsLoopbackSession` failed because 114 bytes remained in the unused host replay history. Afterward, retained history is zero, and a fetched loopback WebVTT segment still contains the opening caption. Audio track, decoded frames, advancement, seek, cancellation, listener teardown and replay checks pass.
+
+Both comparison binaries use the same optimized host harness and new one-second RSS sampler. Inputs are original MKVs over range HTTP; there are no server FFmpeg jobs in either variant. Three pairs alternate order before/after. The stress fixture contains four text subtitle tracks with 24 synthetic cues/second/track, around 1 KiB/cue. This deliberately exercises dense caption retention; it is not representative of ordinary dialogue. The subtitle-free control is HEVC with 7.1 FLAC. Raw samples and medians are retained in `apple/Benchmarks/results/2026-10-21-mkv-subtitle-history.json`.
+
+| Median | Caption stress: before → after | Subtitle-free control: before → after |
+| --- | ---: | ---: |
+| Sampled peak resident memory during playback (decimal MB) | 142.23 → 130.58 (−8.19%; 11.65 MB saved) | 103.12 → 101.70 (−1.38%) |
+| Process CPU over steady window | 1,204.34 → 1,232.91 ms over 30 s (+2.37%) | 573.48 → 563.90 ms over 12 s (−1.67%) |
+| First decoded frame | 242.93 → 240.65 ms | 208.23 → 206.04 ms |
+| Seek plus 200 ms playback | 345.49 → 347.05 ms | 347.57 → 348.41 ms |
+
+All twelve HTTP runs advanced through at least 90% of their steady window and delivered frames, then paused and sought successfully. Source byte counts match between variants in each case. CPU changes are small and mixed; **no sustained CPU improvement is established**. This slice lands the verified memory-retention benefit. The BGRA frame-copy probe adds overhead and is not AVKit UI rendering, hardware energy, or Apple TV thermal qualification. Other buffers still contribute to RSS growth; this does not establish a global memory plateau or a hard process budget.
+
+Focused native tests and generic iOS/arm64 tvOS Simulator builds pass. The full suite remains a release gate, as requested. Future host-drawn subtitles must explicitly choose a replay window. Large/unindexed sources, producer read-ahead and device CPU/energy remain separate follow-up measurements.

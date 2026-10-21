@@ -124,3 +124,15 @@ regression. The helper refuses a signed application archive.
 Video playback probes accept `LUMINA_VIDEO_WAIT_MODE=event` to exercise native screen readiness, or `poll` to compare the former 100 ms loop. `LUMINA_VIDEO_STEADY_SECONDS=12` adds sustained frame/advance validation, process CPU and pause CPU measurements before the existing seek check. Use identical inputs/frame settings for comparisons; this host probe's BGRA sampling is measurement overhead, not the app's AVKit rendering path.
 
 `mise exec -- swift run --package-path apple/Benchmarks -c release OfflineLibraryBenchmark 1000` creates a temporary synthetic owner-scoped offline library and reports 21-sample median CPU/wall cost for reading its metadata list. It checks purge handling and owner hiding afterward, removes its files on exit, and makes no network requests. File decoding, initial reconciliation and cold-storage costs are outside this metric.
+
+For sustained MKV comparisons, build the same `VideoBenchmark` harness against the baseline and candidate Core configurations, keeping separate binaries, then run:
+
+```sh
+mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800 \
+  backend/.venv/bin/python apple/scripts/benchmark_video_formats.py \
+  <candidate-binary> <fresh-output-directory> --client-mkv \
+  --baseline-binary <baseline-binary> --case avc-stereo \
+  --caption-stress --seconds 60 --steady-seconds 30 --runs 3
+```
+
+Both variants use client-side MKV packaging; the order alternates across pairs. The optional caption fixture is a four-track, dense synthetic stress case, not ordinary dialogue. Omit `--caption-stress` and use `--case hevc-71 --steady-seconds 12` for the subtitle-free control. The native probe samples resident memory once per second and retains peak/start/end/samples alongside process CPU, actual frame/advance checks, pause and seek. Keep frame sampling identical across binaries; a lower-cost probe alone is not an app improvement.

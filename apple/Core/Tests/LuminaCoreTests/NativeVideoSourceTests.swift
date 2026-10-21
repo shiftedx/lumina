@@ -29,10 +29,12 @@ final class NativeVideoSourceTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = directory.appendingPathComponent("synthetic.mkv")
+        let captions = directory.appendingPathComponent("synthetic.srt")
+        try "1\n00:00:00,100 --> 00:00:01,000\nSynthetic opening caption\n\n2\n00:00:06,000 --> 00:00:07,000\nSynthetic seek caption\n".write(to: captions, atomically: true, encoding: .utf8)
         let generate = Process()
         generate.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         generate.arguments = ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=12",
-            "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-c:v", "libx264", "-preset", "ultrafast",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-i", captions.path, "-c:s", "srt", "-c:v", "libx264", "-preset", "ultrafast",
             "-g", "48", "-c:a", "aac", source.path]
         try generate.run()
         generate.waitUntilExit()
@@ -61,6 +63,17 @@ final class NativeVideoSourceTests: XCTestCase {
         XCTAssertTrue(decoded)
         XCTAssertGreaterThan(item.currentTime().seconds, 0.5)
         XCTAssertTrue(item.tracks.contains { $0.isEnabled && $0.assetTrack?.mediaType == .audio })
+        XCTAssertEqual(owner.retainedSubtitleHistoryBytes, 0, "AVKit does not consume the host cue replay cache")
+        let subtitlePlaylist = playlist.deletingLastPathComponent().appendingPathComponent("subs0/index.m3u8")
+        let (subtitleData, subtitleResponse) = try await URLSession.shared.data(from: subtitlePlaylist)
+        XCTAssertEqual((subtitleResponse as? HTTPURLResponse)?.statusCode, 200)
+        let subtitleText = String(decoding: subtitleData, as: UTF8.self)
+        let segmentName = try XCTUnwrap(subtitleText.split(separator: "\n").first { !$0.hasPrefix("#") })
+        let segment = try XCTUnwrap(URL(string: String(segmentName), relativeTo: subtitlePlaylist))
+        let (cueData, cueResponse) = try await URLSession.shared.data(from: segment)
+        XCTAssertEqual((cueResponse as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertTrue(String(decoding: cueData, as: UTF8.self).contains("Synthetic opening caption"),
+                      "Bounding host replay must preserve the packaged subtitle cues")
         let sought = await player.seek(to: CMTime(seconds: 6, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         XCTAssertTrue(sought)
         try await Task.sleep(for: .milliseconds(400))

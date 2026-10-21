@@ -8,6 +8,7 @@ final class LuminaCoreTests: XCTestCase {
     override func setUp() {
         super.setUp()
         MockURLProtocol.handler = nil
+        HomeDelayedURLProtocol.reset()
     }
 
     func testConnectLoadsLibraryAndSendsMediaBrowserCredentials() async throws {
@@ -91,13 +92,18 @@ final class LuminaCoreTests: XCTestCase {
         let withoutArtwork = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
         XCTAssertNil(store.backdropURL(for: withoutArtwork))
         let calls = requests.all
-        XCTAssertEqual(calls.compactMap(\.url?.path), ["/System/Info/Public", "/Users/AuthenticateByName", "/Users/Me", "/Items", "/Items", "/UserItems/Resume", "/Shows/NextUp"])
+        XCTAssertEqual(Array(calls.compactMap(\.url?.path).prefix(3)), ["/System/Info/Public", "/Users/AuthenticateByName", "/Users/Me"])
+        XCTAssertEqual(calls.filter { $0.url?.path == "/Items" }.count, 2)
+        XCTAssertEqual(calls.filter { $0.url?.path == "/UserItems/Resume" }.count, 1)
+        XCTAssertEqual(calls.filter { $0.url?.path == "/Shows/NextUp" }.count, 1)
         XCTAssertEqual(calls[1].httpMethod, "POST")
         XCTAssertTrue(calls[1].value(forHTTPHeaderField: "Authorization")!.contains("DeviceId=\"test-device\""))
         XCTAssertEqual(try body(calls[1])["Username"] as? String, "member")
         XCTAssertTrue(calls[2].value(forHTTPHeaderField: "Authorization")!.contains("Token=\"test-token\""))
-        XCTAssertEqual(URLComponents(url: calls[3].url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "IncludeItemTypes" })?.value, "Movie,Series,Video")
-        XCTAssertEqual(URLComponents(url: calls[4].url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "IncludeItemTypes" })?.value, "Movie,Episode,Video", "Home recently added keeps playable episodes")
+        let catalog = try XCTUnwrap(calls.first { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "IncludeItemTypes" })?.value == "Movie,Series,Video" })
+        let recent = try XCTUnwrap(calls.first { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "IncludeItemTypes" })?.value == "Movie,Episode,Video" })
+        XCTAssertEqual(catalog.url?.path, "/Items")
+        XCTAssertEqual(recent.url?.path, "/Items", "Home recently added keeps playable episodes")
         XCTAssertNil(store.errorMessage)
     }
 
@@ -127,6 +133,259 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertFalse(store.hasMore)
         await store.loadMore()
         XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items" }.count, 3)
+    }
+
+    func testHomeLoadsShelvesConcurrentlyWithTheSameFirstShelfTime() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        let timeline = HomeRequestTimeline()
+        HomeDelayedURLProtocol.timeline = timeline
+        HomeDelayedURLProtocol.delay = { request in
+            ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) ? 0.1 : 0
+        }
+        HomeDelayedURLProtocol.handler = { request in
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items":
+                var recent = movie()
+                recent["Id"] = "recent"
+                return response(request, json: page(items: [recent]))
+            case "/UserItems/Resume":
+                var resume = movie(positionTicks: 10_000_000)
+                resume["Id"] = "resume"
+                return response(request, json: page(items: [resume]))
+            case "/Shows/NextUp":
+                return response(request, json: page(items: [["Id": "next", "Name": "Next", "Type": "Episode"]]))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        timeline.start()
+        let baseline = LuminaClient(configuration: homeConfiguration())
+        _ = try await baseline.items(origin: saved.serverURL, token: saved.accessToken, deviceID: saved.deviceID, search: "", start: 0, sort: .recentlyAdded)
+        _ = try await baseline.resume(origin: saved.serverURL, token: saved.accessToken, deviceID: saved.deviceID)
+        _ = try await baseline.nextUp(origin: saved.serverURL, token: saved.accessToken, deviceID: saved.deviceID)
+        let before = timeline.measurement
+        timeline.start()
+        await store.loadHome()
+        let after = timeline.measurement
+        print("PERF native Home: before completion ms=\(before.elapsedMilliseconds), first shelf ms=\(before.firstCompletionMilliseconds), max concurrent requests=\(before.maxConcurrent); after completion ms=\(after.elapsedMilliseconds), first shelf ms=\(after.firstCompletionMilliseconds), max concurrent requests=\(after.maxConcurrent)")
+
+        XCTAssertGreaterThanOrEqual(before.elapsedMilliseconds, 280)
+        XCTAssertEqual(before.maxConcurrent, 1)
+        XCTAssertLessThan(after.elapsedMilliseconds, 180)
+        XCTAssertGreaterThanOrEqual(after.maxConcurrent, 3)
+        XCTAssertLessThanOrEqual(after.firstCompletionMilliseconds, before.firstCompletionMilliseconds + 30)
+        XCTAssertEqual(store.recentItems.map(\.id), ["recent"])
+        XCTAssertEqual(store.resumeItems.map(\.id), ["resume"])
+        XCTAssertEqual(store.nextUpItems.map(\.id), ["next"])
+    }
+
+    func testHomePublishesAnAvailableShelfWhileAnotherShelfIsStillLoading() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        let counts = PathCounter()
+        HomeDelayedURLProtocol.delay = { request in
+            switch request.url?.path {
+            case "/Items": 0.3
+            case "/UserItems/Resume": 0.05
+            case "/Shows/NextUp": 0.1
+            default: 0
+            }
+        }
+        HomeDelayedURLProtocol.handler = { request in
+            let sort = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "SortBy" }?.value
+            let count = counts.next("\(request.url!.path):\(sort ?? "")")
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items": return response(request, json: page(items: [["Id": count == 1 ? "old-recent" : "recent", "Name": "Recent", "Type": "Movie"]]))
+            case "/UserItems/Resume": return response(request, json: page(items: [["Id": count == 1 ? "old-resume" : "resume", "Name": "Resume", "Type": "Movie"]]))
+            case "/Shows/NextUp": return response(request, json: page(items: [["Id": "next", "Name": "Next", "Type": "Episode"]]))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        let resumePublished = expectation(description: "resume shelf published")
+        withObservationTracking {
+            _ = store.resumeItems
+        } onChange: {
+            resumePublished.fulfill()
+        }
+        let load = Task { await store.loadHome() }
+        await fulfillment(of: [resumePublished], timeout: 1)
+        XCTAssertEqual(store.resumeItems.map(\.id), ["resume"])
+        XCTAssertEqual(store.recentItems.map(\.id), ["old-recent"])
+        await load.value
+        XCTAssertEqual(store.recentItems.map(\.id), ["recent"])
+        XCTAssertEqual(store.nextUpItems.map(\.id), ["next"])
+    }
+
+    func testHomeKeepsSuccessfulShelvesWhenRecentFails() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        HomeDelayedURLProtocol.handler = { request in
+            let sort = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "SortBy" }?.value
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items" where sort == "DateCreated": return response(request, status: 404)
+            case "/Items": return response(request, json: page(items: []))
+            case "/UserItems/Resume": return response(request, json: page(items: [["Id": "resume", "Name": "Resume", "Type": "Movie"]]))
+            case "/Shows/NextUp": return response(request, json: page(items: [["Id": "next", "Name": "Next", "Type": "Episode"]]))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        XCTAssertEqual(store.resumeItems.map(\.id), ["resume"])
+        XCTAssertEqual(store.nextUpItems.map(\.id), ["next"])
+        XCTAssertEqual(store.errorMessage, "The server returned HTTP 404 (not found). Check the server address and that Apps like Infuse is enabled in Lumina Settings.")
+    }
+
+    func testNewHomeLoadCancelsTheObsoleteShelfRequests() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        let counts = PathCounter()
+        HomeDelayedURLProtocol.handler = { request in
+            let sort = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "SortBy" }?.value
+            let count = counts.next("\(request.url!.path):\(sort ?? "")")
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items": return response(request, json: page(items: [["Id": count == 1 ? "restore-recent" : "current-recent", "Name": "Recent", "Type": "Movie"]]))
+            case "/UserItems/Resume": return response(request, json: page(items: [["Id": count == 1 ? "restore-resume" : "current-resume", "Name": "Resume", "Type": "Movie"]]))
+            case "/Shows/NextUp": return response(request, json: page(items: [["Id": count == 1 ? "restore-next" : "current-next", "Name": "Next", "Type": "Episode"]]))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        HomeDelayedURLProtocol.delay = { request in
+            ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) ? 0.3 : 0
+        }
+        let obsoleteStarts = RequestStartRecorder()
+        HomeDelayedURLProtocol.onStart = { obsoleteStarts.record($0) }
+        let obsolete = Task { await store.loadHome() }
+        await obsoleteStarts.waitForThree()
+        HomeDelayedURLProtocol.delay = { _ in 0.01 }
+        let current = Task { await store.loadHome() }
+        await current.value
+        await obsolete.value
+
+        XCTAssertGreaterThanOrEqual(HomeDelayedURLProtocol.cancelledRequests, 3)
+        XCTAssertEqual(store.recentItems.map(\.id), ["current-recent"])
+        XCTAssertEqual(store.resumeItems.map(\.id), ["current-resume"])
+        XCTAssertEqual(store.nextUpItems.map(\.id), ["current-next"])
+
+        HomeDelayedURLProtocol.delay = { request in
+            ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) ? 0.3 : 0
+        }
+        let cancelledStarts = RequestStartRecorder()
+        HomeDelayedURLProtocol.onStart = { cancelledStarts.record($0) }
+        let cancelled = Task { await store.loadHome() }
+        await cancelledStarts.waitForThree()
+        cancelled.cancel()
+        await cancelled.value
+        XCTAssertGreaterThanOrEqual(HomeDelayedURLProtocol.cancelledRequests, 6)
+        XCTAssertFalse(store.isHomeBusy)
+    }
+
+    func testSignOutCancelsPendingHomeBeforeReconnect() async throws {
+        let old = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "old-token", userID: "old-user", username: "old member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: old))
+        HomeDelayedURLProtocol.handler = { request in
+            let token = request.value(forHTTPHeaderField: "Authorization")?.contains("new-token") == true
+            switch request.url!.path {
+            case "/System/Info/Public": return response(request, json: ["ServerName": "Lumina"])
+            case "/Users/AuthenticateByName": return response(request, json: ["AccessToken": "new-token", "User": ["Id": "new-user", "Name": "new member", "ServerName": "Lumina"]])
+            case "/Users/Me": return response(request, json: ["Id": token ? "new-user" : "old-user", "Name": token ? "new member" : "old member"])
+            case "/Sessions/Logout": return response(request, status: 204)
+            case "/Items": return response(request, json: page(items: [["Id": token ? "new-recent" : "old-recent", "Name": "Recent", "Type": "Movie"]]))
+            case "/UserItems/Resume": return response(request, json: page(items: [["Id": token ? "new-resume" : "old-resume", "Name": "Resume", "Type": "Movie"]]))
+            case "/Shows/NextUp": return response(request, json: page(items: [["Id": token ? "new-next" : "old-next", "Name": "Next", "Type": "Episode"]]))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        let starts = RequestStartRecorder()
+        HomeDelayedURLProtocol.onStart = { request in
+            if ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) { starts.record(request) }
+        }
+        HomeDelayedURLProtocol.delay = { request in
+            ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) ? 0.3 : 0
+        }
+        let oldHome = Task { await store.loadHome() }
+        await starts.waitForThree()
+        await store.signOut()
+        await oldHome.value
+
+        XCTAssertNil(store.session)
+        XCTAssertGreaterThanOrEqual(HomeDelayedURLProtocol.cancelledRequests, 3)
+        HomeDelayedURLProtocol.delay = { _ in 0 }
+        await store.connect(server: "http://127.0.0.1:8765", username: "new member", password: "test-password")
+        XCTAssertEqual(store.session?.userID, "new-user")
+        XCTAssertEqual(store.recentItems.map(\.id), ["new-recent"])
+        XCTAssertEqual(store.resumeItems.map(\.id), ["new-resume"])
+        XCTAssertEqual(store.nextUpItems.map(\.id), ["new-next"])
+    }
+
+    func testRefreshPublishesHomeWhileCatalogIsSlowAndKeepsCatalogError() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        let counts = PathCounter()
+        HomeDelayedURLProtocol.delay = { request in
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let sort = query.first { $0.name == "SortBy" }?.value
+            return request.url?.path == "/Items" && sort == "SortName" ? 0.3 : 0.03
+        }
+        HomeDelayedURLProtocol.handler = { request in
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let sort = query.first { $0.name == "SortBy" }?.value
+            let count = counts.next("\(request.url!.path):\(sort ?? "")")
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items" where sort == "SortName":
+                return response(request, json: page(items: [["Id": "catalog-\(count)", "Name": "Catalog", "Type": "Movie"]]))
+            case "/Items":
+                return response(request, json: page(items: [["Id": "recent-\(count)", "Name": "Recent", "Type": "Movie"]]))
+            case "/UserItems/Resume": return response(request, json: page(items: []))
+            case "/Shows/NextUp": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        let homePublished = expectation(description: "Home recent shelf published")
+        withObservationTracking {
+            _ = store.recentItems
+        } onChange: {
+            homePublished.fulfill()
+        }
+        let refresh = Task { await store.refresh() }
+        await fulfillment(of: [homePublished], timeout: 1)
+        XCTAssertEqual(store.recentItems.map(\.id), ["recent-2"])
+        XCTAssertEqual(store.items.map(\.id), ["catalog-1"])
+        await refresh.value
+        XCTAssertEqual(store.items.map(\.id), ["catalog-2"])
+
+        HomeDelayedURLProtocol.delay = { request in
+            let sort = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "SortBy" }?.value
+            return request.url?.path == "/Items" && sort == "SortName" ? 0 : 0.1
+        }
+        HomeDelayedURLProtocol.handler = { request in
+            switch request.url!.path {
+            case "/Items":
+                let sort = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "SortBy" }?.value
+                if sort == "SortName" { return response(request, status: 404) }
+                return response(request, json: page(items: [["Id": "recent-after-error", "Name": "Recent", "Type": "Movie"]]))
+            case "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+        await store.refresh()
+        XCTAssertEqual(store.recentItems.map(\.id), ["recent-after-error"])
+        XCTAssertEqual(store.errorMessage, "The server returned HTTP 404 (not found). Check the server address and that Apps like Infuse is enabled in Lumina Settings.")
     }
 
     func testHomeRemainsStableWhileVideoAndMusicBrowseIndependently() async throws {
@@ -518,6 +777,96 @@ private final class RequestRecorder: @unchecked Sendable {
     var all: [URLRequest] { lock.withLock { requests } }
 }
 
+private final class HomeRequestTimeline: @unchecked Sendable {
+    struct Measurement {
+        let elapsedMilliseconds: Int
+        let firstCompletionMilliseconds: Int
+        let maxConcurrent: Int
+    }
+
+    private let lock = NSLock()
+    private var startedAt: Date?
+    private var firstCompletedAt: Date?
+    private var activeRequests = 0
+    private var peakRequests = 0
+
+    var isMeasuring: Bool { lock.withLock { startedAt != nil } }
+
+    func start() {
+        lock.withLock {
+            startedAt = Date()
+            firstCompletedAt = nil
+            activeRequests = 0
+            peakRequests = 0
+        }
+    }
+
+    func begin(_ path: String) {
+        lock.withLock {
+            guard startedAt != nil else { return }
+            activeRequests += 1
+            peakRequests = max(peakRequests, activeRequests)
+        }
+    }
+
+    func end(_ path: String) {
+        lock.withLock {
+            guard activeRequests > 0 else { return }
+            activeRequests -= 1
+            if firstCompletedAt == nil { firstCompletedAt = Date() }
+        }
+    }
+
+    var measurement: Measurement {
+        lock.withLock {
+            Measurement(
+                elapsedMilliseconds: Int(Date().timeIntervalSince(startedAt ?? Date()) * 1_000),
+                firstCompletionMilliseconds: Int((firstCompletedAt ?? Date()).timeIntervalSince(startedAt ?? Date()) * 1_000),
+                maxConcurrent: peakRequests
+            )
+        }
+    }
+}
+
+private final class PathCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var counts = [String: Int]()
+
+    func next(_ path: String) -> Int {
+        lock.withLock {
+            counts[path, default: 0] += 1
+            return counts[path]!
+        }
+    }
+}
+
+private final class RequestStartRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func record(_ request: URLRequest) {
+        let waiter = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            count += 1
+            guard let waiter, count >= 3 else { return nil }
+            self.waiter = nil
+            return waiter
+        }
+        waiter?.resume()
+    }
+
+    func waitForThree() async {
+        await withCheckedContinuation { continuation in
+            let resume = lock.withLock { () -> Bool in
+                guard count < 3 else { return true }
+                waiter = continuation
+                return false
+            }
+            if resume { continuation.resume() }
+        }
+    }
+}
+
 private final class MockURLProtocol: URLProtocol {
     nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -540,6 +889,92 @@ private func mockConfiguration() -> URLSessionConfiguration {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [MockURLProtocol.self]
     return configuration
+}
+
+private func homeConfiguration() -> URLSessionConfiguration {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [HomeDelayedURLProtocol.self]
+    return configuration
+}
+
+private final class HomeDelayedURLProtocol: URLProtocol {
+    private struct Pending {
+        let `protocol`: HomeDelayedURLProtocol
+        let timeline: HomeRequestTimeline?
+        let path: String
+    }
+
+    nonisolated(unsafe) static var handler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
+    nonisolated(unsafe) static var delay: @Sendable (URLRequest) -> TimeInterval = { _ in 0 }
+    nonisolated(unsafe) static var onStart: (@Sendable (URLRequest) -> Void)?
+    nonisolated(unsafe) static weak var timeline: HomeRequestTimeline?
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var pending = [UUID: Pending]()
+    nonisolated(unsafe) private static var cancellationCount = 0
+
+    private var identifier: UUID?
+
+    static var cancelledRequests: Int { lock.withLock { cancellationCount } }
+
+    static func reset() {
+        let pending = lock.withLock { () -> [Pending] in
+            let pending = Array(Self.pending.values)
+            Self.pending.removeAll()
+            Self.handler = nil
+            Self.delay = { _ in 0 }
+            Self.onStart = nil
+            Self.timeline = nil
+            Self.cancellationCount = 0
+            return pending
+        }
+        pending.forEach { $0.timeline?.end($0.path) }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let request = request
+        let timeline = Self.timeline
+        let path = request.url?.path ?? ""
+        let identifier = UUID()
+        self.identifier = identifier
+        let handler = Self.handler
+        let delay = Self.delay(request)
+        timeline?.begin(path)
+        Self.lock.withLock {
+            Self.pending[identifier] = Pending(protocol: self, timeline: timeline, path: path)
+        }
+        Self.onStart?(request)
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay) {
+            Self.complete(identifier: identifier, request: request, handler: handler)
+        }
+    }
+
+    override func stopLoading() {
+        guard let identifier else { return }
+        self.identifier = nil
+        let pending = Self.lock.withLock { () -> Pending? in
+            guard let pending = Self.pending.removeValue(forKey: identifier) else { return nil }
+            Self.cancellationCount += 1
+            return pending
+        }
+        if let pending { pending.timeline?.end(pending.path) }
+    }
+
+    private static func complete(identifier: UUID, request: URLRequest, handler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?) {
+        guard let pending = lock.withLock({ Self.pending.removeValue(forKey: identifier) }) else { return }
+        defer { pending.timeline?.end(pending.path) }
+        do {
+            guard let handler else { throw URLError(.badServerResponse) }
+            let (response, data) = try handler(request)
+            pending.protocol.client?.urlProtocol(pending.protocol, didReceive: response, cacheStoragePolicy: .notAllowed)
+            pending.protocol.client?.urlProtocol(pending.protocol, didLoad: data)
+            pending.protocol.client?.urlProtocolDidFinishLoading(pending.protocol)
+        } catch {
+            pending.protocol.client?.urlProtocol(pending.protocol, didFailWithError: error)
+        }
+    }
 }
 
 private func response(_ request: URLRequest, status: Int = 200, json object: Any = [:]) -> (HTTPURLResponse, Data) {

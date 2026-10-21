@@ -11,11 +11,14 @@ final class ProgressiveMusicAsset: NSObject, AVAssetResourceLoaderDelegate, URLS
     private var session: URLSession!
     private var pending: [Int: Load] = [:]
     private var stopped = false
+    private var paused = false
+    private var seeks = 0
     private let failed: @Sendable (UUID, URLError.Code) -> Void
 
     private final class Load {
         let request: AVAssetResourceLoadingRequest
         let offset: Int64
+        var task: URLSessionDataTask?
         var skip: Int64 = 0
         var remaining: Int64 = 0
         init(_ request: AVAssetResourceLoadingRequest) {
@@ -48,6 +51,24 @@ final class ProgressiveMusicAsset: NSObject, AVAssetResourceLoaderDelegate, URLS
         asset.resourceLoader.setDelegate(self, queue: queue)
     }
 
+    func setPaused(_ paused: Bool) {
+        queue.async { [self] in self.paused = paused; updateTransfers() }
+    }
+
+    // A paused seek still needs metadata/audio bytes. Overlapping seeks share this lease.
+    func beginSeek() { queue.async { [self] in seeks += 1; updateTransfers() } }
+    func endSeek() { queue.async { [self] in seeks -= 1; updateTransfers() } }
+
+    private func updateTransfers() {
+        guard !stopped else { return }
+        for load in pending.values {
+            guard let task = load.task else { continue }
+            if paused && seeks == 0 {
+                if task.state == .running { task.suspend() }
+            } else if task.state == .suspended { task.resume() }
+        }
+    }
+
     func cancel() {
         queue.async { [self] in
             stopped = true
@@ -73,15 +94,15 @@ final class ProgressiveMusicAsset: NSObject, AVAssetResourceLoaderDelegate, URLS
         let end = load.offset + min(length, Int64(MusicPlaybackPolicy.maximumTrackBytes) - load.offset) - 1
         http.setValue(data?.requestsAllDataToEndOfResource == true ? "bytes=\(load.offset)-" : "bytes=\(load.offset)-\(end)", forHTTPHeaderField: "Range")
         let task = session.dataTask(with: http)
+        load.task = task
         pending[task.taskIdentifier] = load
-        task.resume()
+        if !paused || seeks > 0 { task.resume() }
         return true
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel request: AVAssetResourceLoadingRequest) {
         let identifiers = pending.filter { $0.value.request === request }.map(\.key)
-        for id in identifiers { pending.removeValue(forKey: id) }
-        session.getAllTasks { tasks in tasks.filter { identifiers.contains($0.taskIdentifier) }.forEach { $0.cancel() } }
+        for id in identifiers { pending.removeValue(forKey: id)?.task?.cancel() }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,

@@ -6,6 +6,7 @@ Scope: native iPhone, iPhone Duo, iPad and tvOS clients, shared AVFoundation mus
 
 | Work | Before | After | Evidence |
 | --- | --- | --- | --- |
+| Paused progressive WAV, startup plus ten-second pause | 42.39 MiB peak; 358.5 ms process CPU | 22.49 MiB peak (−47%); 108.0 ms CPU (−70%) | Three fresh processes/revision, native host benchmark; all five formats in §2b |
 | Progressive remote MP3, admitted gain-free queue | 8.21 s startup; complete input sent | 0.59 s startup; 4.5% sent | Five fresh processes/revision on an eight-second paced delivery; higher native-player memory/CPU costs detailed in §2a |
 | File scheduling at `595d9a3`, local 120 s two-track queue | 195.4 ms startup; 139.53 MiB peak footprint; 173.1 ms process CPU | 133.7 ms startup; 8.84 MiB peak; 45.9 ms CPU | Median of five fresh processes; gain/crossfade enabled, two-second post-confirmation window |
 | Music pause/resume follow-up, ten cycles | 11 downloads and full PCM conversions; 33,837,056 media bytes | 1 initial download/conversion; 3,076,096 media bytes | Real loopback HTTP workload; retained native player nodes/buffers, 90.9% less delivered media |
@@ -172,6 +173,38 @@ The final focused gate passed **27 tests with no skips** (26 transport workflows
 Local evidence: `/tmp/lumina-progressive-focused-final.log`, `/tmp/lumina-progressive-final-measurements.log`, `/tmp/lumina-progressive-queue-before-fix.log`, `/tmp/lumina-progressive-queue-after-fix.log`, and `/tmp/lumina-progressive-paused-upgrade-before.log`. The last focused run includes the final paused-processing event guard; the gain-free source-playback path measured in the 50-process cohort is unchanged by that guard. Reproduce focused coverage with `swift test --package-path apple/Core --filter 'NativeMusicTransportTests|NativeServerTests/testNativeProgressiveAudioPlaybackAgainstFixture'` under `mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800`, setting `LUMINA_NATIVE_FIXTURE` to the ignored, currently running fixture file. Then build both Simulator schemes using the existing `apple/scripts/check.sh` build commands; do not print or commit the fixture credentials.
 
 Native API references: [resource loading delegate](https://developer.apple.com/documentation/avfoundation/avassetresourceloaderdelegate), [incremental data delivery](https://developer.apple.com/documentation/avfoundation/avassetresourceloadingdatarequest/respond(with:)), [resource length/type/range information](https://developer.apple.com/documentation/avfoundation/avassetresourceloadingcontentinformationrequest). Physical-device interruption, route, background-network and sustained-memory qualification remains separate.
+
+### 2b. Paused progressive playback — suspend unused read-ahead
+
+At `85a22f9` the native player paused audio, but its private resource-loader HTTP tasks kept receiving the remaining input. The regression reproduced another **1,572,864 bytes delivered in 500 ms while paused**. A process memory capture identified several MiB of CoreMedia HTTP cache during WAV startup. Smaller forward-buffer preferences and media-type lookup changes did not materially reduce that footprint; changing the pitch algorithm increased it. Those probes were discarded.
+
+Pause now suspends the current and lookahead assets' existing URLSession tasks, and requests created while paused stay suspended. Resume reactivates them without another source resolution or whole-track restart. A paused seek temporarily permits reads on the current asset; overlapping seeks must all finish before suspension resumes. Cancellation retains direct task references instead of asynchronously enumerating every session task. Stop, replacement and owner release still cancel suspended transfers. Apple's [task suspension contract](https://developer.apple.com/documentation/foundation/urlsessiontask/suspend()) also excludes suspended tasks from timeouts.
+
+#### Measured results
+
+| Format | Peak process MiB, before → after | Process CPU ms, before → after | Delivered MiB, before → after | Startup ms, before → after |
+| --- | ---: | ---: | ---: | ---: |
+| WAV | 42.39 → 22.49 | 358.5 → 108.0 | 21.99 → 2.35 | 1056 → 1054 |
+| FLAC | 18.16 → 13.16 | 170.5 → 90.5 | 5.45 → 0.81 | 687 → 683 |
+| MP3 | 15.05 → 12.84 | 127.4 → 86.9 | 2.75 → 0.77 | 591 → 583 |
+| AAC/M4A | 15.91 → 14.39 | 148.8 → 120.6 | 2.80 → 1.85 | 3924 → 3939 |
+| ALAC/M4A | 18.53 → 14.66 | 166.3 → 108.6 | 5.48 → 1.81 | 2039 → 2051 |
+
+These measurements use the same host, synthetic 120-second/48 kHz stereo fixtures and paced HTTP server as §2a. Both revisions are progressive: baseline **`85a22f9`**, compared with this slice, compiled with the same current Swift 6 `-O` harness. Three alternating fresh-process pairs per format, 30 processes total; eight-second full-input delivery budget and 100 ms response latency. Each workload confirms playback, immediately pauses for ten seconds, then samples process footprint/CPU. CPU includes construction and startup plus the pause, and excludes the fixture server/system audio helpers. Delivered bytes are cumulative at the end-of-window marker, including startup, metadata probes and TCP data already in flight; marker delivery can slightly overestimate bytes before resume. They are not unique file-byte counts.
+
+Every sample must start before whole-input delivery, retain its paused position, resume, seek past the midpoint, and pause/resume again with **one source resolution**. Those qualification actions occur after the measured window. The savings concern **paused read-ahead**, especially work wasted when the member subsequently stops or changes tracks. Active playback still needs native buffers and will transfer more data as listening continues; this is not a new active-playback memory cap or a physical-device energy measurement.
+
+#### Reproduction and focused validation
+
+Reuse the fixture-generation commands in §2a, replacing that section's archived baseline with `85a22f9`. Compile both source revisions with the current `benchmark_music_startup.swift`, then run:
+
+```sh
+mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800 python3 apple/scripts/benchmark_music_remote.py "$remote_bench_root/before-player" "$remote_bench_root/after-player" "$remote_bench_root/fixtures" --before-mode progressive --pause-seconds 10 --runs 3
+```
+
+The focused gate passed **28 tests without skips** (27 transport workflows plus authenticated real-server progressive playback), and both **iOS/tvOS Simulator builds**. The extended regression failed on the baseline and passed after suspension. Coverage includes paused current/lookahead transfers, same-source resume, paused/overlapping seek without resuming playback, Stop and owner release while suspended, processing upgrades, queue boundaries, redirects, authorization and size/privacy controls. Production source was unchanged after that gate. The full repository suite remains at the release gate, as requested. No deployment, backend, schema, dependency or server format-policy changes.
+
+Local evidence: `/tmp/lumina-overhead-paused-red.log`, `/tmp/lumina-overhead-paused-green.log`, `/tmp/lumina-overhead-focused-final.log`, `/tmp/lumina-overhead-paused-recheck.log`, and `/tmp/lumina-overhead-final-measurements.log`.
 
 ### 3. Polling and background publication still have room to improve
 

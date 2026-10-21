@@ -512,6 +512,14 @@ final class NativeMusicTransportTests: XCTestCase {
         XCTAssertEqual(transport.mode, .progressive)
         XCTAssertLessThan(server.deliveredBytes, bytes.count, "Playback must start before whole-track delivery")
         try await observe(timeout: 3) { transport.state.position > 0.1 }
+        transport.pause()
+        // Allow already-buffered TCP data to drain, then require read-ahead to stop.
+        try await Task.sleep(for: .seconds(1))
+        let settledBytes = server.deliveredBytes
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(server.deliveredBytes, settledBytes, "Paused playback must suspend HTTP read-ahead")
+        XCTAssertLessThan(settledBytes, bytes.count, "Pause must not download the remaining track")
+        await transport.resume()
         for _ in 0..<2 {
             transport.pause()
             let paused = transport.state.position
@@ -521,17 +529,63 @@ final class NativeMusicTransportTests: XCTestCase {
             let resumed = await transport.confirmPlaying(timeout: 2)
             XCTAssertTrue(resumed)
         }
+        transport.pause()
         await transport.seek(40)
+        XCTAssertFalse(transport.state.playing, "A paused seek must not resume audio")
+        await transport.resume()
         try await observe(timeout: 3) { transport.state.position > 40.05 }
         XCTAssertEqual(resolutions, 1, "Progressive seek and pause reuse the current asset")
         XCTAssertEqual(played, [0])
         XCTAssertTrue(try privateAudioInputs().subtracting(existing).isEmpty)
+        transport.pause()
         transport.stop()
         try await observe(timeout: 3) { server.activeConnections == 0 }
         let stoppedBytes = server.deliveredBytes
         try await Task.sleep(for: .milliseconds(150))
         XCTAssertEqual(server.deliveredBytes, stoppedBytes, "Stop must cancel network read-ahead")
         XCTAssertNil(transport.state.error)
+    }
+
+    func testPausedProgressiveQueueRetainsBothInputsWithoutContinuingReadAhead() async throws {
+        var fixture = try audioFixture(duration: 60)
+        fixture.track.codec = "pcm_f32le"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let bytes = try Data(contentsOf: fixture.url)
+        let servers = try (0..<2).map { _ in try ProgressiveAudioHTTPFixture(bytes: bytes) }
+        defer { servers.forEach { $0.stop() } }
+        var urls = [URL]()
+        for server in servers { urls.append(try await server.start()) }
+        var resolutions = [Int]()
+        let transport = NativeMusicTransport(tracks: [fixture.track, fixture.track], index: 0, position: 0) { index in
+            resolutions.append(index)
+            return PlaybackRequest(id: "paused-\(index)", item: fixture.track.mediaItem, url: urls[index],
+                startPositionSeconds: 0, mediaSourceID: "synthetic", isTranscoding: false, methodLabel: "Test WAV")
+        }
+        defer { transport.stop() }
+        transport.configure(repeatMode: "off", crossfade: 0, normalize: true, volume: 0)
+        await transport.start()
+        let confirmed = await transport.confirmPlaying(timeout: 5)
+        XCTAssertTrue(confirmed)
+        try await observe(timeout: 3) { servers[1].requestCount > 0 && transport.state.position > 0.1 }
+        transport.pause()
+        try await Task.sleep(for: .seconds(1))
+        let settled = servers.map(\.deliveredBytes)
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(servers.map(\.deliveredBytes), settled)
+        XCTAssertTrue(settled.allSatisfy { $0 < bytes.count })
+        let earlierSeek = Task { await transport.seek(20) }
+        try await observe(timeout: 3) { transport.state.position == 20 }
+        await transport.seek(40)
+        await earlierSeek.value
+        XCTAssertFalse(transport.state.playing)
+        await transport.resume()
+        let resumed = await transport.confirmPlaying(timeout: 5)
+        XCTAssertTrue(resumed)
+        try await observe(timeout: 3) { transport.state.position > 40.05 }
+        XCTAssertEqual(resolutions, [0, 1], "Both prepared occurrences must survive pause and overlapping seeks")
+        transport.pause()
+        transport.stop()
+        try await observe(timeout: 3) { servers.allSatisfy { $0.activeConnections == 0 } }
     }
 
     func testEnablingCrossfadeUpgradesProgressivePlaybackWithoutAnotherTrackEvent() async throws {
@@ -743,6 +797,7 @@ final class NativeMusicTransportTests: XCTestCase {
         await owner?.start()
         let confirmed = await owner?.confirmPlaying(timeout: 5)
         XCTAssertEqual(confirmed, true)
+        owner?.pause()
         owner = nil
         try await observe(timeout: 3) { released == nil && server.activeConnections == 0 }
     }

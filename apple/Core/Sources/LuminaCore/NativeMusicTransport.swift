@@ -193,6 +193,7 @@ public final class NativeMusicTransport {
             wantsPlayback = false
             nodes.forEach { $0.pause() }
             engine?.pause()
+            progressiveAssets.values.forEach { $0.setPaused(true) }
             streaming?.pause()
             lastTickState = nil
         } else if pausedAt == nil { stopRuntime() }
@@ -223,6 +224,7 @@ public final class NativeMusicTransport {
                 }
                 state.playing = true
             } else if let streaming, let item = streaming.currentItem, item.status != .failed {
+                progressiveAssets.values.forEach { $0.setPaused(false) }
                 streaming.play()
                 state.playing = streaming.timeControlStatus == .playing
             } else { await start(); return }
@@ -241,6 +243,9 @@ public final class NativeMusicTransport {
         state.position = min(max(0, seconds), tracks[state.index].duration ?? max(0, seconds))
         if mode == .progressive, let streaming, streaming.currentItem != nil {
             let token = generation
+            let input = streaming.currentItem.flatMap { progressiveAssets[ObjectIdentifier($0)] }
+            input?.beginSeek()
+            defer { input?.endSeek() }
             await streaming.seek(to: CMTime(seconds: state.position, preferredTimescale: 600))
             guard token == generation else { return }
             onChange?(state)

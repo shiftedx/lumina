@@ -653,13 +653,13 @@ final class NativeProofTests: XCTestCase {
         }
         let duplicateIDs = Set(duplicateRows.allElementsBoundByIndex.map(\.identifier))
         #if os(tvOS)
-        // TV places the menu label on its image rather than the containing button.
-        let queueActions = element("audioQueueScreen").buttons.containing(.image, identifier: "ellipsis")
+        // TV exposes focus on the row, including when its nested menu is highlighted.
+        let queueActions = element("audioQueueScreen").cells.containing(.image, identifier: "ellipsis")
         #else
         let queueActions = application!.buttons.matching(NSPredicate(format: "label == %@", "Track actions"))
         #endif
         try waitForExistence(queueActions.element(boundBy: 0), timeout: 10, named: "first duplicate queue action")
-        try activate(queueActions.element(boundBy: 0))
+        try activateQueueActions(queueActions.element(boundBy: 0))
         try activate(menuAction("Move down"))
         XCTAssertEqual(Set(duplicateRows.allElementsBoundByIndex.map(\.identifier)), duplicateIDs,
                        "Reordering must preserve both duplicate occurrence identities.")
@@ -671,7 +671,7 @@ final class NativeProofTests: XCTestCase {
         try revealMusicControl(element("audioQueueButton"))
         try activate(element("audioQueueButton"))
         try waitForExistence(queueActions.element(boundBy: 0), timeout: 10, named: "remaining duplicate queue action")
-        try activate(queueActions.element(boundBy: 0))
+        try activateQueueActions(queueActions.element(boundBy: 0))
         try activate(menuAction("Remove from queue"))
         guard waitUntil(timeout: 10, condition: {
             duplicateRows.count == 0 && self.element("audioQueueItem-\(fixture.audioSecondTrackID)").exists
@@ -717,6 +717,18 @@ final class NativeProofTests: XCTestCase {
         try revealMusicControl(element("audioStopButton"))
         try activate(element("audioStopButton"))
         completed = true
+    }
+
+    private func activateQueueActions(_ control: XCUIElement) throws {
+        #if os(tvOS)
+        guard focus(control, timeout: 20) else {
+            throw ProofFailure.ui("The remote could not focus the queue row's actions.")
+        }
+        XCUIRemote.shared.press(.right)
+        XCUIRemote.shared.press(.select)
+        #else
+        try activate(control)
+        #endif
     }
 
     private func revealMusicControl(_ control: XCUIElement) throws {

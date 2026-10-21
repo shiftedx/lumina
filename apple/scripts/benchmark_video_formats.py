@@ -30,6 +30,10 @@ from app.services.playback_decision import caps_from_device_profile, decide
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('binary', type=Path)
 parser.add_argument('output', type=Path)
+parser.add_argument('--baseline-binary', type=Path, help='Compare two client MKV builds, both using original delivery')
+parser.add_argument('--case', choices=['avc-stereo', 'avc-51', 'hevc-71'], help='Run one source case')
+parser.add_argument('--caption-stress', action='store_true', help='Add four dense synthetic subtitle tracks (stress, not typical dialogue)')
+parser.add_argument('--steady-seconds', type=int, default=0, help='Measure 1..30 seconds of sustained playback after startup')
 parser.add_argument('--client-mkv', action='store_true', help='Compare server remux with native on-device MKV demux')
 parser.add_argument('--bytes-per-second', type=int, default=0, help='Optional per-response pacing for startup qualification')
 parser.add_argument('--seconds', type=int, default=12)
@@ -38,9 +42,18 @@ parser.add_argument('--simulator', help='Run the native binary inside this boote
 args = parser.parse_args()
 if args.runs < 1 or args.seconds < 12 or args.bytes_per_second < 0:
     parser.error('runs must be positive, seconds at least 12, and pacing nonnegative')
+if args.baseline_binary and not args.client_mkv:
+    parser.error('--baseline-binary requires --client-mkv')
+if not 0 <= args.steady_seconds <= 30 or args.steady_seconds + 2 >= args.seconds:
+    parser.error('steady seconds must be 0..30 and leave two seconds before the source ends')
 root = args.output.resolve()
 root.mkdir(parents=True, exist_ok=False)
 binary = args.binary.resolve(strict=True)
+baseline_binary = args.baseline_binary.resolve(strict=True) if args.baseline_binary else binary
+native_env = os.environ.copy()
+if args.steady_seconds:
+    for key, value in {'LUMINA_VIDEO_STEADY_SECONDS': str(args.steady_seconds), 'LUMINA_VIDEO_WAIT_MODE': 'event'}.items():
+        native_env[('SIMCTL_CHILD_' if args.simulator else '') + key] = value
 ffmpeg, ffprobe = (shutil.which(tool) for tool in ('ffmpeg', 'ffprobe'))
 if not ffmpeg or not ffprobe:
     parser.error('ffmpeg and ffprobe are required')
@@ -57,6 +70,8 @@ old = replace(caps, audio=caps.audio - {'flac'}, direct=tuple(
 
 if args.client_mkv:
     old = replace(caps, direct=tuple(replace(profile, containers=profile.containers - {'mkv', 'matroska'}) for profile in caps.direct))
+if args.baseline_binary:
+    old = caps
 byte_counts = {}
 count_lock = threading.Lock()
 
@@ -115,6 +130,8 @@ rows = []
 try:
     for name, video, channels, rate in [('avc-stereo', 'h264', 2, 48000),
                                       ('avc-51', 'h264', 6, 48000), ('hevc-71', 'hevc', 8, 96000)]:
+        if args.case and name != args.case:
+            continue
         path = root / f'{name}.mp4'
         encoder = ['-c:v', 'libx264', '-preset', 'ultrafast'] if video == 'h264' else [
             '-c:v', 'libx265', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p10le',
@@ -128,7 +145,22 @@ try:
         prefix = ['xcrun', 'simctl', 'spawn', args.simulator] if args.simulator else []
         subprocess.run([*prefix, str(binary), str(path)], check=True, capture_output=True, timeout=45)
         mkv = path.with_suffix('.mkv')
-        subprocess.run([ffmpeg, '-v', 'error', '-i', str(path), '-c', 'copy', str(mkv)], check=True, timeout=30)
+        subtitle_inputs, subtitle_maps = [], []
+        if args.caption_stress:
+            subtitles = root / 'dense.srt'
+            def timestamp(milliseconds):
+                hours, milliseconds = divmod(milliseconds, 3600000)
+                minutes, milliseconds = divmod(milliseconds, 60000)
+                seconds, milliseconds = divmod(milliseconds, 1000)
+                return f'{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}'
+            with subtitles.open('w') as stream:
+                for index in range(args.seconds * 24):
+                    stream.write(f'{index+1}\n{timestamp(round(index*1000/24))} --> '
+                        f'{timestamp(round((index+1)*1000/24))}\nSynthetic caption {index} ' + 'caption ' * 125 + '\n\n')
+            subtitle_inputs = ['-i', str(subtitles)]
+            subtitle_maps = ['-map', '0', *['-map', '1'] * 4, '-disposition:s', '0']
+        subprocess.run([ffmpeg, '-v', 'error', '-i', str(path), *subtitle_inputs, *subtitle_maps,
+            '-c', 'copy', str(mkv)], check=True, timeout=30)
         for source in ((mkv,) if args.client_mkv else (path, mkv)):
             facts = normalize(run_ffprobe(ffprobe, source), source.name)
             decisions = {'before': decide(old, facts), 'after': decide(caps, facts)}
@@ -168,8 +200,9 @@ try:
                     prefix = ['xcrun', 'simctl', 'spawn', args.simulator] if args.simulator else []
                     with count_lock:
                         byte_counts[str(source.relative_to(root))] = 0
-                    mode = ['mkv'] if args.client_mkv and variant == 'after' else []
-                    process = subprocess.Popen([*prefix, str(binary), url, *mode], stdout=subprocess.PIPE,
+                    mode = ['mkv'] if args.client_mkv and (variant == 'after' or args.baseline_binary) else []
+                    client_binary = baseline_binary if variant == 'before' else binary
+                    process = subprocess.Popen([*prefix, str(client_binary), url, *mode], env=native_env, stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE, text=True)
                     try:
                         if not select.select([process.stdout], [], [], 45)[0] or process.stdout.readline().strip() != 'FIRST_FRAME':
@@ -189,10 +222,13 @@ try:
                     row['source_bytes'] = source.stat().st_size
                     rows.append(row)
                     print(json.dumps(row), flush=True)
+            metrics = ('ffmpeg_cpu_ms', 'ffmpeg_wall_ms', 'ffmpeg_peak_rss_bytes', 'first_frame_ms',
+                'startup_plus_one_second_cpu_ms', 'seek_plus_200ms_ms', 'native_peak_rss_bytes')
+            if args.steady_seconds:
+                metrics += ('steady_cpu_ms', 'steady_rss_start_bytes', 'steady_rss_end_bytes', 'steady_rss_peak_bytes',
+                            'steady_advanced_seconds', 'paused_two_seconds_cpu_ms')
             summary = {variant: {key: statistics.median(row[key] for row in rows
-                if row['case'] == source.name and row['variant'] == variant) for key in (
-                'ffmpeg_cpu_ms', 'ffmpeg_wall_ms', 'ffmpeg_peak_rss_bytes', 'first_frame_ms',
-                'startup_plus_one_second_cpu_ms', 'seek_plus_200ms_ms', 'native_peak_rss_bytes')}
+                if row['case'] == source.name and row['variant'] == variant) for key in metrics}
                 for variant in ('before', 'after')}
             print('SUMMARY ' + json.dumps({source.name: summary}), flush=True)
 finally:

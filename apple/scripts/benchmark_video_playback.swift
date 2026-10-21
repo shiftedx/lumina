@@ -77,19 +77,30 @@ struct VideoPlaybackBenchmark {
             let beginCPU = cpuMilliseconds()
             let beginPosition = item.currentTime().seconds
             var sampledFrames = 0
+            var residentSamples = [residentBytes()]
+            var nextMemorySample = begin.advanced(by: .seconds(1))
             while ContinuousClock.now < begin.advanced(by: .seconds(seconds)) {
                 let time = item.currentTime()
                 if output.hasNewPixelBuffer(forItemTime: time),
                    output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) != nil { sampledFrames += 1 }
                 if item.status == .failed { throw item.error ?? POSIXError(.EIO) }
+                if ContinuousClock.now >= nextMemorySample {
+                    residentSamples.append(residentBytes())
+                    nextMemorySample = ContinuousClock.now.advanced(by: .seconds(1))
+                }
                 try await Task.sleep(for: .milliseconds(10))
             }
+            residentSamples.append(residentBytes())
             let elapsed = milliseconds(since: begin)
             let advanced = item.currentTime().seconds - beginPosition
             guard advanced >= seconds * 0.9, sampledFrames > 0 else { throw POSIXError(.ETIMEDOUT) }
             steady = ["steady_cpu_ms": cpuMilliseconds() - beginCPU,
                       "steady_wall_ms": elapsed, "steady_advanced_seconds": advanced,
-                      "steady_sampled_frames": sampledFrames]
+                      "steady_sampled_frames": sampledFrames,
+                      "steady_rss_start_bytes": residentSamples[0],
+                      "steady_rss_end_bytes": residentSamples.last!,
+                      "steady_rss_peak_bytes": residentSamples.max()!,
+                      "steady_rss_samples_bytes": residentSamples]
             player.pause()
             let pauseCPU = cpuMilliseconds()
             try await Task.sleep(for: .seconds(2))
@@ -142,6 +153,18 @@ struct VideoPlaybackBenchmark {
     static func milliseconds(since start: ContinuousClock.Instant) -> Double {
         let elapsed = start.duration(to: .now).components
         return Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
+    }
+
+    static func residentBytes() -> UInt64 {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<integer_t>.size)
+        let status = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        precondition(status == KERN_SUCCESS)
+        return info.resident_size
     }
 
     static func cpuMilliseconds() -> Double {

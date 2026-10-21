@@ -10,11 +10,16 @@ public final class NativeVideoSource {
 
     public init() {}
 
+    // Internal accounting for the host cue replay cache, independent of HLS subtitle files.
+    var retainedSubtitleHistoryBytes: Int { demux?.subtitleCueHistoryStats.retainedBytes ?? 0 }
+
     public func prepare(url: URL, usesClientDemux: Bool) async throws -> AVPlayerItem {
         stop()
         guard usesClientDemux else { return AVPlayerItem(url: url) }
         let session = try PrismCoreSession(url: url, display: .current(),
-                                          segmentCacheBytes: 64 << 20, forceMuxedShape: true, coordinatedHTTP: true)
+                                          segmentCacheBytes: 64 << 20, forceMuxedShape: true, coordinatedHTTP: true,
+                                          // No host overlay needs cue replay; packaged subtitle files are independent.
+                                          subtitleCueHistory: .bounded(maxCues: 1, maxBytes: 1))
         demux = session
         do {
             let playlist = try await session.start()

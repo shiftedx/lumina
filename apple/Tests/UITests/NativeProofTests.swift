@@ -973,6 +973,49 @@ final class NativeProofTests: XCTestCase {
         #endif
     }
 
+    func testOriginalMKVReportsPeriodicProgressAndResumes() async throws {
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.convertedItemID, seconds: 0)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.convertedItemID)
+        let playbackTime = try startPlayback(using: "playButton")
+        // Verify periodic reporting while still playing, before pause/close can flush progress.
+        let periodic = try await waitForServerProgress(
+            api, identity: identity, itemID: fixture.convertedItemID, minimum: 4
+        )
+        XCTAssertGreaterThan(periodic, 4)
+        #if os(tvOS)
+        _ = try waitForPlaybackValue(playbackTime, timeout: 15) { $0 >= periodic + 2 }
+        XCUIRemote.shared.press(.playPause)
+        try await Task.sleep(for: .seconds(1))
+        let paused = try waitForPlaybackValue(playbackTime, timeout: 5) { _ in true }
+        _ = try await waitForServerProgress(
+            api, identity: identity, itemID: fixture.convertedItemID,
+            minimum: max(0, paused - 1), maximum: paused + 2
+        )
+        try await Task.sleep(for: .seconds(2))
+        let stillPaused = try waitForPlaybackValue(playbackTime, timeout: 5) { _ in true }
+        XCTAssertLessThanOrEqual(stillPaused, paused + 1)
+        #endif
+        try closePlayer()
+        let saved = try await waitForServerProgress(
+            api, identity: identity, itemID: fixture.convertedItemID, minimum: 4
+        )
+        try returnToLibrary()
+        try refreshLibrary(waitingForResumeOf: fixture.convertedItemID)
+        try openLibraryItem(id: fixture.convertedItemID)
+        let resumed = try startPlayback(using: "playButton")
+        _ = try waitForPlaybackValue(resumed, timeout: 15) { $0 >= saved - 1 }
+        _ = try waitForPlaybackValue(resumed, timeout: 15) { $0 >= saved + 4 }
+        try closePlayer()
+    }
+
     func testCompatibleHLSReplayRequestsFreshSession() async throws {
         #if os(iOS)
         var completed = false

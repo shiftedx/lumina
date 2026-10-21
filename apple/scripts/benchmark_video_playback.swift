@@ -6,6 +6,11 @@ import Foundation
 import LuminaCore
 #endif
 
+@MainActor
+private final class ProgressProbe {
+    var positions = [Double]()
+}
+
 // Synthetic video qualification: actual frames, advancing time and a seek, rather than readiness alone.
 // Compile with swiftc -swift-version 6 -O -parse-as-library; accepts a file path or loopback HTTP URL.
 @main
@@ -31,6 +36,18 @@ struct VideoPlaybackBenchmark {
         item.add(output)
         let player = AVPlayer(playerItem: item)
         player.volume = 0
+        let progressProbe = ProgressProbe()
+        var progressObserver: Any?
+        if ProcessInfo.processInfo.environment["LUMINA_VIDEO_PROGRESS_PROBE"] == "1" {
+#if canImport(LuminaCore)
+            progressObserver = player.addPeriodicTimeObserver(forInterval: NativeVideoSource.progressObservationInterval, queue: .main) { time in
+                Task { @MainActor in progressProbe.positions.append(time.seconds) }
+            }
+#else
+            throw POSIXError(.EINVAL)
+#endif
+        }
+        defer { if let progressObserver { player.removeTimeObserver(progressObserver) } }
         let waitStarted = ContinuousClock.now
         var readinessPolls = 0
         if ProcessInfo.processInfo.environment["LUMINA_VIDEO_WAIT_MODE"] == "poll" {
@@ -78,6 +95,7 @@ struct VideoPlaybackBenchmark {
             let beginPosition = item.currentTime().seconds
             var sampledFrames = 0
             var residentSamples = [residentBytes()]
+            var cpuSamples: [Double] = [0]
             var nextMemorySample = begin.advanced(by: .seconds(1))
             while ContinuousClock.now < begin.advanced(by: .seconds(seconds)) {
                 let time = item.currentTime()
@@ -86,13 +104,16 @@ struct VideoPlaybackBenchmark {
                 if item.status == .failed { throw item.error ?? POSIXError(.EIO) }
                 if ContinuousClock.now >= nextMemorySample {
                     residentSamples.append(residentBytes())
+                    cpuSamples.append(cpuMilliseconds() - beginCPU)
                     nextMemorySample = ContinuousClock.now.advanced(by: .seconds(1))
                 }
                 try await Task.sleep(for: .milliseconds(10))
             }
             residentSamples.append(residentBytes())
+            cpuSamples.append(cpuMilliseconds() - beginCPU)
             let elapsed = milliseconds(since: begin)
-            let advanced = item.currentTime().seconds - beginPosition
+            let endPosition = item.currentTime().seconds
+            let advanced = endPosition - beginPosition
             guard advanced >= seconds * 0.9, sampledFrames > 0 else { throw POSIXError(.ETIMEDOUT) }
             steady = ["steady_cpu_ms": cpuMilliseconds() - beginCPU,
                       "steady_wall_ms": elapsed, "steady_advanced_seconds": advanced,
@@ -100,11 +121,15 @@ struct VideoPlaybackBenchmark {
                       "steady_rss_start_bytes": residentSamples[0],
                       "steady_rss_end_bytes": residentSamples.last!,
                       "steady_rss_peak_bytes": residentSamples.max()!,
-                      "steady_rss_samples_bytes": residentSamples]
+                      "steady_rss_samples_bytes": residentSamples,
+                      "steady_cpu_samples_ms": cpuSamples]
             player.pause()
             let pauseCPU = cpuMilliseconds()
             try await Task.sleep(for: .seconds(2))
             steady["paused_two_seconds_cpu_ms"] = cpuMilliseconds() - pauseCPU
+            if progressObserver != nil {
+                steady["steady_progress_callbacks"] = progressProbe.positions.filter { $0 > beginPosition && $0 <= endPosition }.count
+            }
             player.play()
         }
         let seekStarted = ContinuousClock.now

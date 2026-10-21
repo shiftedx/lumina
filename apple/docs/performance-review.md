@@ -505,3 +505,28 @@ Both comparison binaries use the same optimized host harness and new one-second 
 All twelve HTTP runs advanced through at least 90% of their steady window and delivered frames, then paused and sought successfully. Source byte counts match between variants in each case. CPU changes are small and mixed; **no sustained CPU improvement is established**. This slice lands the verified memory-retention benefit. The BGRA frame-copy probe adds overhead and is not AVKit UI rendering, hardware energy, or Apple TV thermal qualification. Other buffers still contribute to RSS growth; this does not establish a global memory plateau or a hard process budget.
 
 Focused native tests and generic iOS/arm64 tvOS Simulator builds pass. The full suite remains a release gate, as requested. Future host-drawn subtitles must explicitly choose a replay window. Large/unindexed sources, producer read-ahead and device CPU/energy remain separate follow-up measurements.
+
+## Sustained MKV CPU investigation and progress cadence, 2026-10-21
+
+The video screen polled playback state every second, although it sends watch progress every five seconds and AVKit owns the visible video timeline. Video now uses a five-second media-time observer and reports each changed position tick. The fallback audio observer retains its one-second cadence. Pause/control-state, close/stop, completion, and resume-seek paths remain in place. Reporting each video tick avoids an extra five-second gap when a pause/seek or floating-point rounding resets the old delta threshold. Audio controls and listening progress are unchanged.
+
+Three alternating before/after pairs use identical optimized host probes with a real periodic AVPlayer observer, an original 60-second HEVC/7.1 FLAC MKV over range HTTP, and a 30-second steady window. The observer uses the production interval; its body records media time rather than executing the full app reporting path. Each run verifies decoded frames, enabled audio, playhead advancement, pause, and seek. Raw samples are in `apple/Benchmarks/results/2026-10-21-mkv-progress-cadence.json`.
+
+| Median over 30 seconds | Before | After |
+| --- | ---: | ---: |
+| App progress observer callbacks | 30 | 6 (80% fewer) |
+| Whole-process CPU, including frame-copy probe | 1414.83 ms | 1438.04 ms |
+| Sampled peak RSS, decimal MB | 121.39 | 121.42 |
+| First decoded frame | 205.32 ms | 210.15 ms |
+
+**This establishes fewer callbacks, not a reliable reduction in total playback CPU or memory.** All six runs delivered the original source without server FFmpeg work. The cadence applies to native video generally; it does not alter format support or decode quality.
+
+An Instruments host Time Profiler capture (2–30 s, 1,370 ms sampled CPU weight) attributes substantial cost to native FLAC reconstruction, residual decoding, AudioToolbox conversion/mixing and memory copies. A separate steady sample found the packaging producer waiting for demand. The signed Release tvOS Simulator app also completed a 45-second playback probe and a 15-second process sample; the main thread was predominantly waiting, with native media/AVKit work visible. These are diagnostic profiles, not a physical-device energy result or proof that the full app shares the host probe's exact cost distribution.
+
+Rejected probes: varispeed/spectral audio time-pitch settings, 10-second packaging segments, and a 256 MiB cache produced no convincing sustained CPU win. The larger cache returned the same source byte count and higher RSS. An isolated upstream prototype wrapping segment emission in an autorelease pool did not remove RSS growth. Reducing producer lead from 30 to 8 seconds reduced startup/source delivery work in one high-bitrate probe but increased measured steady CPU and did not reduce RSS; no fork or producer policy change ships. The harness adds `--video-bitrate` for reproducing H.264 cache/read-ahead stress and cumulative one-second CPU samples alongside RSS samples.
+
+Reproduce the callback comparison with two optimized benchmark binaries built with one-second and five-second `NativeVideoSource.progressObservationInterval` respectively: `LUMINA_VIDEO_PROGRESS_PROBE=1 backend/.venv/bin/python apple/scripts/benchmark_video_formats.py AFTER_BINARY OUTPUT_DIR --client-mkv --baseline-binary BEFORE_BINARY --case hevc-71 --seconds 60 --steady-seconds 30 --runs 3`. Hold the repository's performance lock and keep other workloads consistent.
+
+Focused validation: generic iOS and tvOS Simulator Release app builds pass; two native MKV/readiness tests pass; the signed Release tvOS Simulator workflow passes with no skips, checking periodic server progress before pause/close, pause stability, close, saved-position seek, and continued playback after reopening. Four earlier CLI decoder probes (H.264/stereo FLAC and HEVC/7.1 FLAC on tvOS Simulator and iPhone Duo Simulator) delivered frames/audio, advanced and sought; their baseline CPU values are retained in the result JSON and are not comparative app CPU measurements.
+
+Physical Apple TV CPU/energy/thermal validation remains pending because the device is unavailable. Full-suite testing remains reserved for release, as requested.

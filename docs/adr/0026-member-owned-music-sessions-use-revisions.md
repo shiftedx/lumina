@@ -24,3 +24,9 @@ An acknowledged transfer performs one serialized session transition and adopts i
 ## Consequences
 
 Schema 25 adds `music_listening_sessions`. Rollback preserves the table and stamps schema 24; older releases ignore shared queue state while retaining per-item progress. Two-client API/browser workflow checks accompany persistence. Offline saved audio remains member-scoped. Current visibility, capability revocation, decoding memory limits and household resource admission still apply at playback time.
+
+## Native preparation lifetime
+
+The native audio engine schedules file segments instead of materializing whole source/converted PCM buffers. Each prepared slot owns its `AVAudioFile` and, for remote input, the private bounded download backing it. Retain at most the current and scheduled/retiring inputs; the existing conservative admission estimate and 128 MiB input-file limit remain. A suspended source lookup retains only scheduling scalars, so cancellation cannot pin a stopped slot's input.
+
+Keep remote input files mode 0600 with the existing iOS data protection. Pause retains the prepared input without another download; retirement, completion, Stop, owner teardown, authorization failure and canceled preparation release it. Original/offline local inputs stay owned by their existing library. This is active-session temporary storage, not a durable or shared member cache. Full remote delivery still precedes engine scheduling; native read-ahead removes whole-track PCM preparation, not network admission or delivery policy.

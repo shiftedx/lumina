@@ -1,7 +1,7 @@
 import AVFoundation
 import Darwin
 
-/// Two decoded slots at most. Unknown or large files use AVQueuePlayer instead.
+/// Two file-backed engine slots at most. Unknown or large files use AVQueuePlayer instead.
 /// Only the decoded path schedules its successor against the same audio clock.
 @MainActor
 public final class NativeMusicTransport {
@@ -15,12 +15,15 @@ public final class NativeMusicTransport {
             self.index = index; self.position = position; self.playing = playing; self.finished = finished; self.error = error
         }
     }
-    private final class PCM: @unchecked Sendable {
-        let buffer: AVAudioPCMBuffer
-        init(_ buffer: AVAudioPCMBuffer) { self.buffer = buffer }
+    private final class PreparedAudio: @unchecked Sendable {
+        let file: AVAudioFile
+        let temporary: URL?
+        var duration: Double { Double(file.length) / file.processingFormat.sampleRate }
+        init(file: AVAudioFile, temporary: URL?) { self.file = file; self.temporary = temporary }
+        deinit { if let temporary { try? FileManager.default.removeItem(at: temporary) } }
     }
     private struct Slot {
-        let pcm: PCM
+        let audio: PreparedAudio
         let index: Int
         let node: Int
         var hostStart: UInt64
@@ -117,10 +120,10 @@ public final class NativeMusicTransport {
                 return
             }
             if MusicPlaybackPolicy.canBuffer(duration: track.duration, sampleRate: track.sampleRate, channels: track.channels),
-               let pcm = try await Self.prepare(request.url) {
+               let audio = try await Self.prepare(request.url) {
                 guard token == generation, !Task.isCancelled else { return }
                 mode = .decoded; onMode?(mode)
-                if playing { try beginDecoded(pcm, index: state.index, offset: state.position) }
+                if playing { try beginDecoded(audio, index: state.index, offset: state.position) }
             } else {
                 guard token == generation, !Task.isCancelled else { return }
                 mode = .streaming; onMode?(mode)
@@ -132,7 +135,7 @@ public final class NativeMusicTransport {
             if playing { startClock(); prepareNext() }
         } catch {
             guard token == generation, !Task.isCancelled else { return }
-            wantsPlayback = false; state.playing = false
+            stopRuntime(); state.playing = false
             state.error = error.localizedDescription
             onChange?(state)
         }
@@ -254,15 +257,19 @@ public final class NativeMusicTransport {
         if nodes[node].volume != level { nodes[node].volume = level }
     }
 
-    private func beginDecoded(_ pcm: PCM, index: Int, offset: Double) throws {
-        let sliced = try Self.sliced(pcm, offset: offset)
+    private func beginDecoded(_ audio: PreparedAudio, index: Int, offset: Double) throws {
+        let file = audio.file
+        let rate = file.processingFormat.sampleRate
+        let frame = AVAudioFramePosition(min(Double(file.length - 1), max(0, offset) * rate))
+        let count = AVAudioFrameCount(file.length - frame)
+        nodes[0].scheduleSegment(file, startingFrame: frame, frameCount: count, at: nil, completionHandler: nil)
+        nodes[0].prepare(withFrameCount: 4_096)
+        engine.prepare(); try engine.start()
         let start = mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.08)
         playbackStartsAt = start
-        current = Slot(pcm: sliced, index: index, node: 0, hostStart: start, offset: offset,
-            length: Double(sliced.buffer.frameLength) / 48_000)
-        engine.prepare(); try engine.start()
+        current = Slot(audio: audio, index: index, node: 0, hostStart: start, offset: Double(frame) / rate,
+            length: Double(count) / rate)
         applyGain(index: index, node: 0, envelope: 1)
-        nodes[0].scheduleBuffer(sliced.buffer, completionHandler: nil)
         nodes[0].play(at: AVAudioTime(hostTime: start))
     }
 
@@ -273,7 +280,9 @@ public final class NativeMusicTransport {
         blockedAdvance = nil
         guard let index = candidate else { return }
         if mode == .streaming { prepareStreamingNext(index); return }
-        guard let playing = current else { return }
+        guard let slot = current else { return }
+        // A suspended source must not retain the outgoing file after Stop.
+        let playing = (hostStart: slot.hostStart, length: slot.length, end: slot.end, node: slot.node)
         preparingNext = true
         let token = generation
         let lookaheadToken = lookaheadGeneration
@@ -287,19 +296,21 @@ public final class NativeMusicTransport {
                 requests[index] = request
                 let track = tracks[index]
                 guard MusicPlaybackPolicy.canBuffer(duration: track.duration, sampleRate: track.sampleRate, channels: track.channels),
-                      let pcm = try await Self.prepare(request.url) else {
+                      let audio = try await Self.prepare(request.url) else {
                     fallbackNext = index
                     return
                 }
                 guard token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled, current?.hostStart == playing.hostStart else { return }
-                let overlap = min(crossfade, playing.length / 2, Double(pcm.buffer.frameLength) / 48_000 / 2)
+                let overlap = min(crossfade, playing.length / 2, audio.duration / 2)
+                let node = 1 - playing.node
+                nodes[node].scheduleSegment(audio.file, startingFrame: 0, frameCount: AVAudioFrameCount(audio.file.length),
+                    at: nil, completionHandler: nil)
+                nodes[node].prepare(withFrameCount: 4_096)
                 let wanted = playing.end - AVAudioTime.hostTime(forSeconds: overlap)
                 let host = max(wanted, mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.04))
-                let slot = Slot(pcm: pcm, index: index, node: 1 - playing.node, hostStart: host, offset: 0,
-                    length: Double(pcm.buffer.frameLength) / 48_000)
+                let slot = Slot(audio: audio, index: index, node: node, hostStart: host, offset: 0, length: audio.duration)
                 next = slot
                 applyGain(index: index, node: slot.node, envelope: overlap > 0 ? 0 : 1)
-                nodes[slot.node].scheduleBuffer(pcm.buffer, completionHandler: nil)
                 nodes[slot.node].play(at: AVAudioTime(hostTime: host))
             } catch {
                 guard token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled else { return }
@@ -471,7 +482,7 @@ public final class NativeMusicTransport {
         }
     }
 
-    nonisolated private static func prepare(_ url: URL) async throws -> PCM? {
+    nonisolated private static func prepare(_ url: URL) async throws -> PreparedAudio? {
         var temporary: URL?
         let local: URL
         if url.isFileURL { local = url }
@@ -487,42 +498,23 @@ public final class NativeMusicTransport {
         try Task.checkCancellation()
         let size = try local.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         guard size <= MusicPlaybackPolicy.maximumTrackBytes else { return nil }
-        return await Task.detached(priority: .userInitiated) {
+        let downloaded = temporary
+        let audio = await Task.detached(priority: .userInitiated) {
             do {
                 let file = try AVAudioFile(forReading: local)
-                let frames = file.length
-                let input = file.processingFormat
-                guard frames > 0, frames <= Int64(UInt32.max),
-                      Double(frames) * Double(input.channelCount) * 4 <= Double(MusicPlaybackPolicy.maximumTrackBytes) else { return nil as PCM? }
-                let output = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
-                let count = ceil(Double(frames) * 48_000 / input.sampleRate) + 1
-                guard count * 8 + Double(frames) * Double(input.channelCount) * 4 <= Double(MusicPlaybackPolicy.maximumTrackBytes),
-                      let source = AVAudioPCMBuffer(pcmFormat: input, frameCapacity: AVAudioFrameCount(frames)),
-                      let target = AVAudioPCMBuffer(pcmFormat: output, frameCapacity: AVAudioFrameCount(count)),
-                      let converter = AVAudioConverter(from: input, to: output) else { return nil }
-                try file.read(into: source)
-                var consumed = false
-                var error: NSError?
-                let status = converter.convert(to: target, error: &error) { _, result in
-                    if consumed { result.pointee = .endOfStream; return nil }
-                    consumed = true; result.pointee = .haveData; return source
-                }
-                guard status != .error, target.frameLength > 0 else { return nil }
-                return PCM(target)
+                let format = file.processingFormat
+                guard file.length > 0, file.length <= Int64(UInt32.max),
+                      format.sampleRate.isFinite, format.sampleRate > 0, (1...2).contains(format.channelCount) else { return nil as PreparedAudio? }
+                // Keep the existing admission ceiling; no whole-track PCM is allocated.
+                let convertedFrames = ceil(Double(file.length) * 48_000 / format.sampleRate) + 1
+                guard convertedFrames * 8 + Double(file.length) * Double(format.channelCount) * 4
+                    <= Double(MusicPlaybackPolicy.maximumTrackBytes) else { return nil }
+                return PreparedAudio(file: file, temporary: downloaded)
             } catch { return nil }
         }.value
-    }
-
-    private static func sliced(_ pcm: PCM, offset: Double) throws -> PCM {
-        guard offset > 0 else { return pcm }
-        let start = min(Int(pcm.buffer.frameLength) - 1, max(0, Int(offset * 48_000)))
-        let count = Int(pcm.buffer.frameLength) - start
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: pcm.buffer.format, frameCapacity: AVAudioFrameCount(count)),
-              let source = pcm.buffer.floatChannelData, let target = buffer.floatChannelData else { throw URLError(.cannotDecodeContentData) }
-        buffer.frameLength = AVAudioFrameCount(count)
-        for channel in 0..<Int(buffer.format.channelCount) {
-            target[channel].update(from: source[channel].advanced(by: start), count: count)
-        }
-        return PCM(buffer)
+        try Task.checkCancellation()
+        // Transfer the private download's lifetime to its active/scheduled slot.
+        if audio != nil { temporary = nil }
+        return audio
     }
 }

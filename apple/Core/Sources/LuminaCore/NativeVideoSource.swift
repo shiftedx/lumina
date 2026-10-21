@@ -37,6 +37,38 @@ public final class NativeVideoSource {
         }
     }
 
+    /// Resume on readiness, failure, item replacement or cancellation without a recurring timer.
+    public static func waitUntilReady(_ player: AVPlayer, timeout: Duration = .seconds(30)) async throws {
+        try Task.checkCancellation()
+        guard let item = player.currentItem else { throw CancellationError() }
+        let (statuses, continuation) = AsyncStream.makeStream(of: AVPlayerItem.Status.self, bufferingPolicy: .bufferingNewest(1))
+        let observation = item.observe(\.status, options: [.initial, .new]) { item, _ in
+            continuation.yield(item.status)
+        }
+        let replacement = player.observe(\.currentItem, options: [.new]) { player, _ in
+            if player.currentItem !== item { continuation.finish() }
+        }
+        defer { observation.invalidate(); replacement.invalidate(); continuation.finish() }
+        let status = try await withThrowingTaskGroup(of: AVPlayerItem.Status.self) { group in
+            group.addTask {
+                for await status in statuses {
+                    try Task.checkCancellation()
+                    if status == .readyToPlay || status == .failed { return status }
+                }
+                throw CancellationError()
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw POSIXError(.ETIMEDOUT)
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
+        }
+        try Task.checkCancellation()
+        guard player.currentItem === item else { throw CancellationError() }
+        if status == .failed { throw item.error ?? POSIXError(.EIO) }
+    }
+
     @discardableResult
     public func stop() -> Task<Void, Never> {
         let session = demux

@@ -31,6 +31,23 @@ struct VideoPlaybackBenchmark {
         item.add(output)
         let player = AVPlayer(playerItem: item)
         player.volume = 0
+        let waitStarted = ContinuousClock.now
+        var readinessPolls = 0
+        if ProcessInfo.processInfo.environment["LUMINA_VIDEO_WAIT_MODE"] == "poll" {
+            for _ in 0..<300 {
+                readinessPolls += 1
+                if item.status == .failed { throw item.error ?? POSIXError(.EIO) }
+                if item.status == .readyToPlay { break }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            guard item.status == .readyToPlay else { throw POSIXError(.ETIMEDOUT) }
+        }
+#if canImport(LuminaCore)
+        if ProcessInfo.processInfo.environment["LUMINA_VIDEO_WAIT_MODE"] == "event" {
+            try await NativeVideoSource.waitUntilReady(player)
+        }
+#endif
+        let readinessWait = milliseconds(since: waitStarted)
         player.play()
         var firstFrame: Double?
         var frames = 0
@@ -54,6 +71,31 @@ struct VideoPlaybackBenchmark {
             throw POSIXError(.ENODATA)
         }
         let startupCPU = cpuMilliseconds() - cpu
+        var steady: [String: Any] = [:]
+        if let seconds = Double(ProcessInfo.processInfo.environment["LUMINA_VIDEO_STEADY_SECONDS"] ?? ""), seconds > 0 {
+            let begin = ContinuousClock.now
+            let beginCPU = cpuMilliseconds()
+            let beginPosition = item.currentTime().seconds
+            var sampledFrames = 0
+            while ContinuousClock.now < begin.advanced(by: .seconds(seconds)) {
+                let time = item.currentTime()
+                if output.hasNewPixelBuffer(forItemTime: time),
+                   output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) != nil { sampledFrames += 1 }
+                if item.status == .failed { throw item.error ?? POSIXError(.EIO) }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            let elapsed = milliseconds(since: begin)
+            let advanced = item.currentTime().seconds - beginPosition
+            guard advanced >= seconds * 0.9, sampledFrames > 0 else { throw POSIXError(.ETIMEDOUT) }
+            steady = ["steady_cpu_ms": cpuMilliseconds() - beginCPU,
+                      "steady_wall_ms": elapsed, "steady_advanced_seconds": advanced,
+                      "steady_sampled_frames": sampledFrames]
+            player.pause()
+            let pauseCPU = cpuMilliseconds()
+            try await Task.sleep(for: .seconds(2))
+            steady["paused_two_seconds_cpu_ms"] = cpuMilliseconds() - pauseCPU
+            player.play()
+        }
         let seekStarted = ContinuousClock.now
         let sought = await player.seek(to: CMTime(seconds: 6, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         guard sought else { throw POSIXError(.EIO) }
@@ -70,11 +112,13 @@ struct VideoPlaybackBenchmark {
         player.pause()
         var usage = rusage()
         getrusage(RUSAGE_SELF, &usage)
-        let result: [String: Any] = [
+        var result: [String: Any] = [
             "native_peak_rss_bytes": usage.ru_maxrss,
+            "readiness_wait_ms": readinessWait, "readiness_polls": readinessPolls,
             "first_frame_ms": firstFrame, "startup_plus_one_second_cpu_ms": startupCPU,
             "seek_plus_200ms_ms": milliseconds(since: seekStarted), "decoded_frames": frames,
         ]
+        result.merge(steady) { _, new in new }
         // AVAssetReader needs a local file. Qualify the same compressed audio separately from HTTP timing.
         if url.isFileURL && url.pathExtension != "mkv" {
             guard let audio = try await asset.loadTracks(withMediaType: .audio).first else { throw POSIXError(.ENODATA) }

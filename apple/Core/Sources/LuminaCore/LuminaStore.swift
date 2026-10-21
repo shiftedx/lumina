@@ -42,6 +42,7 @@ let tickScale = 10_000_000.0
     private var audioIndex = 0
     private var audioGeneration = 0
     private var homeGeneration = 0
+    private var homeTask: Task<Void, Never>?
     private var nextIndex = 0
     private var libraryGeneration = 0
 
@@ -108,6 +109,8 @@ let tickScale = 10_000_000.0
     }
 
     private func clearSession() {
+        homeTask?.cancel()
+        homeTask = nil
         if let session { offline.clear(session: session) }
         credentials.deleteSession()
         session = nil
@@ -128,11 +131,15 @@ let tickScale = 10_000_000.0
     }
 
     public func loadLibrary(search: String = "", kind: VideoBrowseKind = .all, sort: VideoSort = .name, filters: VideoFilters = .init()) async {
+        await loadLibrary(search: search, kind: kind, sort: sort, filters: filters, clearsError: true)
+    }
+
+    private func loadLibrary(search: String, kind: VideoBrowseKind, sort: VideoSort, filters: VideoFilters, clearsError: Bool) async {
         guard let active = session else { return }
         libraryGeneration += 1
         let generation = libraryGeneration
         isBusy = true
-        errorMessage = nil
+        if clearsError { errorMessage = nil }
         defer { if generation == libraryGeneration { isBusy = false } }
         do {
             currentSearch = search
@@ -188,26 +195,78 @@ let tickScale = 10_000_000.0
     }
 
     public func refresh() async {
-        await loadLibrary(search: currentSearch, kind: videoKind, sort: videoSort, filters: videoFilters)
-        await loadHome()
+        errorMessage = nil
+        async let home: Void = loadHome(clearsError: false)
+        await loadLibrary(search: currentSearch, kind: videoKind, sort: videoSort, filters: videoFilters, clearsError: false)
+        await home
     }
 
     public func loadHome() async {
-        guard let active = session else { return }
+        await loadHome(clearsError: true)
+    }
+
+    private func loadHome(clearsError: Bool) async {
+        guard !Task.isCancelled else { return }
         homeGeneration += 1
         let generation = homeGeneration
+        homeTask?.cancel()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performHomeLoad(generation: generation, clearsError: clearsError)
+        }
+        homeTask = task
+        defer {
+            if generation == homeGeneration {
+                isHomeBusy = false
+                homeTask = nil
+            }
+        }
+        await withTaskCancellationHandler(operation: {
+            await task.value
+        }, onCancel: {
+            task.cancel()
+        })
+    }
+
+    private func performHomeLoad(generation: Int, clearsError: Bool) async {
+        guard !Task.isCancelled, let active = session, generation == homeGeneration else { return }
         isHomeBusy = true
-        errorMessage = nil
-        defer { if generation == homeGeneration { isHomeBusy = false } }
+        if clearsError { errorMessage = nil }
+        async let recent: Void = loadHomeRecent(active, generation: generation)
+        async let resume: Void = loadHomeResume(active, generation: generation)
+        async let nextUp: Void = loadHomeNextUp(active, generation: generation)
+        _ = await (recent, resume, nextUp)
+    }
+
+    private func loadHomeRecent(_ active: LuminaSession, generation: Int) async {
         do {
             let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: "", start: 0, sort: .recentlyAdded)
-            guard generation == homeGeneration, isCurrent(active) else { return }
+            guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
             recentItems = page.items.filter { $0.isPlayable && !$0.isAudio }
-            await loadResume()
-            guard generation == homeGeneration, isCurrent(active) else { return }
-            await loadNextUp()
         } catch {
-            guard generation == homeGeneration, isCurrent(active) else { return }
+            guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
+            errorMessage = Self.message(for: error, signingIn: false)
+        }
+    }
+
+    private func loadHomeResume(_ active: LuminaSession, generation: Int) async {
+        do {
+            let items = try await client.resume(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
+            guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
+            resumeItems = items.filter { $0.isPlayable && !$0.isAudio }
+        } catch {
+            guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
+            errorMessage = Self.message(for: error, signingIn: false)
+        }
+    }
+
+    private func loadHomeNextUp(_ active: LuminaSession, generation: Int) async {
+        do {
+            let items = try await client.nextUp(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
+            guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
+            nextUpItems = items.filter { $0.type == "Episode" }
+        } catch {
+            guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
             errorMessage = Self.message(for: error, signingIn: false)
         }
     }

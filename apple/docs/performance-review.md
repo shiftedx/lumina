@@ -347,23 +347,23 @@ Source: `Core/Sources/LuminaCore/NativeMusicTransport.swift:282`, `App/Shared/Pl
 
 Next change: measure whether source item/transport/end observations can replace the fallback check; use a coarser decoded clock outside a fade/boundary and the existing fine clock only where envelopes need it. Keep audio progress reporting and sleep deadlines correct in background. Measure callbacks, timer wakeups and SwiftUI body updates while the music screen is visible, while browsing another destination and while backgrounded. Avoid a global timer or broad state migration without a trace showing the benefit.
 
-### 4. Artwork decode and resize churn can block rendering
+### 4. Artwork decode and resize churn — bounded in the Home follow-up
 
 Source: `App/Shared/MediaPresentation.swift:7`, `:122` and `:321`.
 
-`BillboardArtwork` loads up to 12 MiB of encoded data and constructs `UIImage(data:)` on the view task. The encoded-byte limit does not bound decoded dimensions. There is no explicit thumbnail decode/preparation off the main actor. Hero artwork requests up to 1920 pixels; a portrait source can then incur a large blurred background. Carousel prefetch warms URLSession bytes but does not establish a prepared image-cache hit.
+The 2026-10-21 follow-up replaces full-resolution image construction with off-main ImageIO thumbnail preparation, keeping the 12 MiB encoded limit and capping the longest decoded edge at 1,920 pixels. It applies orientation and retains cancellation checks before publication. There is no new persistent or cross-member image cache. Carousel prefetch still warms URLSession bytes rather than a prepared image cache.
 
-`MediaBillboard` and `FeaturedShelf` publish exact layout widths through `@State` for every geometry change although their layout decisions mostly need a compact/wide threshold. Duo opening and iPad live resizing can therefore repeatedly invalidate artwork/copy subtrees; branch changes can recreate the artwork task.
+`MediaBillboard` and `FeaturedShelf` now publish only compact/wide geometry changes. The synthetic 4,000 × 3,000 JPEG comparison measured decoded pixel storage of 48.0 → 11.1 MB and preparation/draw medians of 38.323 → 27.138 ms. See the [Home/artwork report](home-artwork-performance-2026-10-21.md) for reproducible commands, input details and limitations.
 
-Next change: trace image decoding and body invalidation during resize/scroll. Downsample to an explicit pixel budget off the main actor; reuse prepared images with bounded cost and owner-aware cleanup. Publish a layout category where raw dimensions are unnecessary. Measure decoded bytes, image GET counts, long main-thread tasks and hitches; do not add another image library before checking native APIs and the existing system cache.
+Remaining qualification: trace real-device body invalidation, image requests, main-thread work and hitches during resize/scroll. The host microbenchmark does not establish those device results or total process memory.
 
-### 5. Home latency is unnecessarily sequential
+### 5. Home loading — concurrent in the Home follow-up
 
 Source: `Core/Sources/LuminaCore/LuminaStore.swift:190` and `:195`.
 
-`LuminaStore.loadHome()` awaits recently added items, then resume items, then next-up items. `refresh()` loads the current video catalog before Home. These independent reads can add their network round trips to the visible refresh path. Generations reject stale results but do not themselves cancel an obsolete in-flight request.
+The 2026-10-21 follow-up starts Recently Added, Resume and Next Up concurrently and publishes each shelf independently. Refresh overlaps Home with the current video catalog, preserving the catalog query and clearing the shared error once. Superseded loads, caller cancellation and sign-out cancel Home requests; generation and session checks also reject obsolete results.
 
-Next change: run independent Home reads concurrently, committing only the current generation, and avoid refreshing invisible catalogs after every playback stop. Preserve partial-error behavior and member isolation. On a controlled 100 ms RTT fixture, record request overlap, time to first usable shelf, total refresh latency and canceled requests. No latency savings are claimed from source inspection alone.
+The same asynchronous fixture with a 100 ms response delay per shelf measured original-store completion at 311 ms versus 105 ms concurrently (five-run medians), with first-response medians of 104 ms for both. See the [Home/artwork report](home-artwork-performance-2026-10-21.md) for source provenance and retained regression checks. This is API completion on a synthetic host fixture, not rendered Home or physical-network latency. Invisible-catalog suppression remains separate work because current refresh callers expect the catalog to stay current.
 
 ### 6. Queue presentation and persistence still perform work proportional to queue size
 

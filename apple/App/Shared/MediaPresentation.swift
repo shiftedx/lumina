@@ -53,8 +53,12 @@ private struct BillboardArtwork: View {
                     (data, response) = try await URLSession.shared.data(from: url)
                     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return }
                 }
-                guard !Task.isCancelled, data.count <= 12 * 1024 * 1024 else { return }
-                source = UIImage(data: data)
+                guard !Task.isCancelled, data.count <= BillboardArtworkPreparation.maximumEncodedBytes else { return }
+                let image = await Task.detached(priority: .userInitiated) {
+                    BillboardArtworkPreparation.image(from: data)
+                }.value
+                guard !Task.isCancelled, let image else { return }
+                source = UIImage(cgImage: image)
             } catch { /* Keep the finished text and theater field when artwork is unavailable. */ }
         }
         .accessibilityHidden(true)
@@ -75,7 +79,7 @@ struct MediaBillboard<Actions: View>: View {
     var showsOverview = true
     var featured = false
     @ViewBuilder let actions: Actions
-    @State private var layoutWidth: CGFloat = 0
+    @State private var compactLayout = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorSchemeContrast) private var contrast
     #if !os(tvOS)
@@ -119,7 +123,9 @@ struct MediaBillboard<Actions: View>: View {
                     }
             }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { layoutWidth = $0 }
+        #if !os(tvOS)
+        .onGeometryChange(for: Bool.self) { $0.size.width < minimumWideWidth } action: { compactLayout = $0 }
+        #endif
         .tint(compact ? LuminaTheme.ink : .white)
     }
 
@@ -168,7 +174,7 @@ struct MediaBillboard<Actions: View>: View {
         false
         #else
         // A regular window can still contain a narrow split-view detail pane.
-        layoutWidth == 0 || layoutWidth < minimumWideWidth
+        compactLayout
         #endif
     }
     private var titleFont: Font {
@@ -259,7 +265,7 @@ struct FeaturedShelf<Actions: View>: View {
     @State private var hovered = false
     @State private var dragging = false
     @State private var paused = false
-    @State private var layoutWidth: CGFloat = 0
+    @State private var compactLayout = true
     @FocusState private var focusedID: String?
     #if os(tvOS)
     @FocusedValue(\.featuredBillboard) private var billboardHasFocus
@@ -289,7 +295,7 @@ struct FeaturedShelf<Actions: View>: View {
         #if os(tvOS)
         false
         #else
-        layoutWidth == 0 || layoutWidth < minimumWideWidth
+        compactLayout
         #endif
     }
 
@@ -318,7 +324,9 @@ struct FeaturedShelf<Actions: View>: View {
                         .frame(maxHeight: .infinity, alignment: .top)
                 }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { layoutWidth = $0 }
+            #if !os(tvOS)
+            .onGeometryChange(for: Bool.self) { $0.size.width < minimumWideWidth } action: { compactLayout = $0 }
+            #endif
             #if os(tvOS)
             .focusedValue(\.featuredBillboard, true)
             #endif

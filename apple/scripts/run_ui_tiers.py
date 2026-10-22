@@ -98,16 +98,6 @@ def delete_own_simulators(run_id: str) -> None:
                 command("xcrun", "simctl", "delete", device["udid"])
 
 
-def wait_for_load(seconds: int, ceiling: float, purpose: str) -> float:
-    started = time.monotonic()
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if os.getloadavg()[0] < ceiling:
-            return time.monotonic() - started
-        time.sleep(2)
-    raise RuntimeError(f"timed out waiting for load1 < {ceiling:g} before {purpose}")
-
-
 def run_xcode(arguments: list[str], log: Path) -> tuple[int, float]:
     started = time.monotonic()
     with log.open("w", encoding="utf-8") as stream:
@@ -119,10 +109,6 @@ def run_xcode(arguments: list[str], log: Path) -> tuple[int, float]:
             while process.poll() is None:
                 load = os.getloadavg()[0]
                 peak_load = max(peak_load, load)
-                if load >= 20:
-                    stream.write(f"\nHost load1 exceeded 20 ({load:.2f}); cancelling this owned run.\n")
-                    stream.flush()
-                    raise RuntimeError("host load exceeded the qualification ceiling")
                 if time.monotonic() >= deadline:
                     raise subprocess.TimeoutExpired(arguments, 3000)
                 time.sleep(1)
@@ -164,12 +150,11 @@ def split_shards(values: list[str], count: int = 2) -> list[list[str]]:
     return [values[index::count] for index in range(count)]
 
 
-def boot_simulators(platform: str, run_id: str, host_wait_seconds: int) -> tuple[list[str], float, float]:
+def boot_simulators(platform: str, run_id: str) -> tuple[list[str], float, float]:
     started = time.monotonic()
     waited = 0.0
     simulators: list[str] = []
     for number in range(1, 3):
-        waited += wait_for_load(host_wait_seconds, 20, f"booting {platform} simulator {number}")
         simulator = create_simulator(platform, run_id, number)
         simulators.append(simulator)
         # Fresh iOS homes otherwise eagerly render stock widgets and index an empty library.
@@ -198,17 +183,17 @@ def xctestrun_path(derived: Path, scheme: str) -> Path:
 
 
 def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_file: Path, run_id: str,
-                 host_wait_seconds: int, derived_root: Path | None = None) -> dict[str, object]:
+                 derived_root: Path | None = None) -> dict[str, object]:
     scheme = f"Lumina-{platform}"
     derived = (derived_root or output) / f"derived-{platform}"
     build_log = output / f"{platform}-build.log"
     simulators: list[str] = []
     try:
-        simulators, setup_seconds, setup_wait_seconds = boot_simulators(platform, run_id, host_wait_seconds)
+        simulators, setup_seconds, setup_wait_seconds = boot_simulators(platform, run_id)
         base = ["xcodebuild", "-jobs", "2", "-project", "Lumina.xcodeproj", "-scheme", scheme,
                 "-destination", f"platform={platform} Simulator,id={simulators[0]}",
                 "-derivedDataPath", str(derived), f"LUMINA_NATIVE_BROKER_FILE={broker_file}"]
-        build_wait_seconds = wait_for_load(host_wait_seconds, 20, f"building {platform}")
+        build_wait_seconds = 0.0
         code, build_seconds = run_xcode([*base, "build-for-testing"], build_log)
         outcome: dict[str, object] = {
             "setupSeconds": round(setup_seconds, 3), "setupWaitSeconds": round(setup_wait_seconds, 3),
@@ -221,7 +206,7 @@ def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_fil
         selected = selectors(platform, tier)
         shards = split_shards(selected)
         for index in range(repeat):
-            test_wait_seconds = wait_for_load(host_wait_seconds, 10, f"starting {platform} repeat {index + 1}")
+            test_wait_seconds = 0.0
             started = time.monotonic()
             def run_shard(number: int) -> dict[str, object]:
                 result = output / f"{platform}-{tier}-{index + 1}-shard-{number + 1}.xcresult"
@@ -251,7 +236,6 @@ def main() -> None:
     parser.add_argument("--platform", choices=("iOS", "tvOS", "all"), default="all")
     parser.add_argument("--repeat", type=int, default=2)
     parser.add_argument("--ios-runtime", help="pin an installed iPadOS runtime version for qualification")
-    parser.add_argument("--host-wait-seconds", type=int, default=1800)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--derived-data", type=Path, help="reuse this run-owned build root for warm qualification")
     args = parser.parse_args()
@@ -275,7 +259,7 @@ def main() -> None:
         if not broker_file.exists():
             raise RuntimeError("fixture broker did not start")
         platforms = [args.platform] if args.platform != "all" else ["tvOS", "iOS"]
-        results = {platform: one_platform(platform, args.tier, args.repeat, args.output, broker_file, run_id, args.host_wait_seconds, args.derived_data) for platform in platforms}
+        results = {platform: one_platform(platform, args.tier, args.repeat, args.output, broker_file, run_id, args.derived_data) for platform in platforms}
     finally:
         if broker.poll() is None:
             os.killpg(broker.pid, signal.SIGTERM)

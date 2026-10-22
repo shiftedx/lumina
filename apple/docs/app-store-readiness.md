@@ -134,7 +134,7 @@ mise exec -- python3 apple/scripts/run_ui_tiers.py --tier full --repeat 2 --outp
 
 Use a fresh output directory. The runner reports build time separately and sums
 iOS plus tvOS test invocation wall times for each repeat, including simulator
-startup and fixture provisioning; waiting for host load is recorded separately.
+startup and fixture provisioning.
 The platforms run sequentially. Each platform warms two owned simulators serially,
 then runs two explicit XCTest shards concurrently against those devices. Each shard
 disables Xcode's internal clone scheduling; the overall cohort remains parallel.
@@ -142,8 +142,8 @@ Fresh iOS devices disable only the stock widget renderer, empty Photos analysis 
 CoreSpotlight indexing jobs, which are outside Lumina's tested integrations. A full pass requires
 exact expected executed/passed counts and zero failures or skips, twice. A green
 empty selection cannot qualify. The report contains total invocation wall time
-as well as per-repeat test wall time; build/bootstrap and waiting for the shared
-host are recorded separately from test execution qualification.
+as well as per-repeat test wall time; build/bootstrap is recorded separately
+from test execution qualification.
 
 Each journey is a separate XCTest scheduling class. Its fixture broker allocates
 an exclusive loopback port, database, media root and disposable member; teardown
@@ -153,15 +153,11 @@ There is no application App Group entitlement; Xcode workers use separate app
 sandboxes, and persisted downloads/queue files are scoped by the unique member
 and origin. Only Debug builds accept the test preference/credential namespace.
 
-The user explicitly authorized running alongside other agents' Xcode jobs on
-2026-10-21, superseding the original host exclusivity requirement. The
-runner does not wait for other Xcode jobs or take the shared performance lock.
-It waits for load1 <20 for setup/build and <10 before starting parallel test
-shards to leave startup headroom; it cancels only its own process groups if load1
-reaches 20 during Xcode execution.
-The runner creates its own simulators
-and removes only its recorded devices/clones and child processes. It never stops
-another agent's Xcode run or simulator. `--host-wait-seconds` bounds the load wait.
+The user explicitly authorized running alongside other agents' Xcode jobs and
+removed the host-load ceiling on 2026-10-21. The runner records peak load for
+measurement context without waiting or cancelling because of load. It creates
+its own simulators and removes only its recorded devices/clones and child
+processes. It never stops another agent's Xcode run or simulator.
 
 **Qualification is pending.** No before/after wall-time claim, two-pass parallel
 qualification or budget claim is established until actual result bundles and

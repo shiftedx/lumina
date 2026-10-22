@@ -2,7 +2,7 @@
 
 Only text every viewer of a target may see is embedded: a Media title's name, series name, overview,
 genres and people; a summarized item's title, description and latest summary. Never tags or notes.
-Vectors are unit-length float32, so cosine is ``math.sumprod``. One model's vectors never mix with
+Vectors are unit-length float32, so cosine uses NumPy's float64 dot product. One model's vectors never mix with
 another's: rows are keyed by model id ("local:<catalog id>" for an on-device model, else the external
 model name), and readers ask for one model only.
 
@@ -25,6 +25,7 @@ from array import array
 from datetime import timedelta
 from functools import lru_cache
 
+import numpy as np
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
@@ -103,7 +104,9 @@ def unit(values) -> array:  # noqa: ANN001 - any float iterable
 
 
 def cosine(left: array, right: array) -> float:
-    return math.sumprod(left, right) if len(left) == len(right) else 0.0
+    if len(left) != len(right):
+        return 0.0
+    return float(np.dot(np.asarray(left, dtype=np.float64), np.asarray(right, dtype=np.float64)))
 
 
 def vector_map(db: Session, model_id: str) -> dict[str, tuple[str, array]]:

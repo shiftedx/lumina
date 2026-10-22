@@ -279,3 +279,36 @@ p95 failure (127.2/120 ms); diagnostics passed at 39.5/80 ms. This attempt is
 recorded as failed, not qualified. Logs:
 `/tmp/lumina-reco-pool-streaming-{before,after,after-2,after-3,reverted,restored}.log`
 and `/tmp/lumina-pytest-merge-perf-1.log`.
+
+
+The seeded similarity API still exceeded 120 ms at load 8.6/16 after bounded
+fetching. In-app-thread profiling attributed 87% of candidate-building CPU to
+cosine calls: candidates took 72.0 ms median, base loading 24.3 ms and ranking
+12.7 ms. The policy knew the requested media types but filtered them only after
+nomination. It now restricts eligibility before every nomination source, so
+wrong-type series neither consume scoring work nor crowd movies out of quotas.
+The existing like-with-like service contract was extended with 101 competing
+series: reverting the filter lost a valid matching movie; restoring it returns
+the movie and only movies. This extension accompanies its fix and is not
+claimed as historical regression evidence. The focused policy, visibility,
+flat-query, annotation, privacy and pool cohort passed 56 cases. Candidate
+median fell to 65.0 ms, but fresh seeded API attempts still failed at 121.9 and
+125.1 ms. Those are failed attempts, not qualification. Artifacts:
+`/tmp/lumina-reco-seeded-diagnosis-20261022T164630/`.
+
+
+With the type filter in place, vector arithmetic remained the dominant cost.
+The existing NumPy runtime dependency performs the same unit-vector dot product
+with float64 inputs, avoiding Python float boxing while iterating float32 arrays.
+A private 7 × 8,192-call, 768-dimension comparison measured 65.408 ms versus
+12.438 ms median (5.26×), maximum numerical delta 5.33e-15, and no retained
+allocation. Each call uses two temporary 6,144-byte float64 arrays. The initial
+NumPy import measured 45–51 ms. Length mismatch still returns 0.0, empty vectors
+still return 0.0, and ranking's separate cosine function is unchanged.
+Embedding, policy, ranking, replay and search contracts passed 140 cases.
+A diagnostic full serial run passed all seven other cases but failed title API
+home next-up/live snapshot p95 timing; that failed attempt is retained in
+`/tmp/lumina-embeddings-numpy-perf.log` (61.54 s pytest / 68.79 s wall).
+Numerical and focused evidence: `/tmp/lumina-numpy-cosine-bench/results.json` and
+`/tmp/lumina-embeddings-numpy-focused.log`. Final qualification below supersedes
+these diagnostic attempts only when both independent runs are green.

@@ -123,9 +123,10 @@ diagnostic image remains available for review.
 checks, TypeScript, production build, backend, **2,659 Vitest tests**, and
 **650 Playwright cases in 1,116.555 s**. Its log is
 `/tmp/lumina-pytest-make-check-final.log`. After subsequent media/cache repairs,
-the final backend head was independently qualified twice as above; the final
+the prior backend code at `5512fe1` was independently qualified twice as above; its
 bootstrap/runner lane also passed **15 tests**. Standards/spec and targeted media
-reviews found no remaining actionable issues. Exact set reconciliation confirms
+reviews then found no remaining actionable issues. Current-head smoke/full and serial
+qualification are pending after the merge-review corrections described in history. Exact set reconciliation confirms
 all 5,290 original cases map to 5,284 retained cases plus six deletions; the new cover-art/HDR contract brings collection to 5,285 cases, allowing
 only the seven caption labels and two documented cache-test renames.
 
@@ -144,14 +145,14 @@ count. A fresh-seed replay of only the two failing cases at unchanged base
 `b3c5ff7` also failed: reco similar 129.2/120 ms, diagnostics 154.5/80 ms,
 10k-title similar median 57/72 ms (pass), p95 133.854/120 ms. That baseline
 assertion recorded load 17.0/16, limiting direct timing comparison. The relevant
-recommendation/diagnostics/perf source is unchanged by this audit; profiling
-found expected ranking/query work and no audit-added hotspot. The existing 10k
-test explicitly documents GC-sensitive p95 tails. This establishes a pre-existing
-qualification problem, not a justified app optimization or threshold change.
+recommendation/diagnostics/perf source was unchanged at that stage. Subsequent
+merge-review profiling identified ORM result buffering and redundant wrong-type
+vector scoring; current qualification of those bounded repairs is pending. The
+existing 10k test explicitly documents GC-sensitive p95 tails.
 
 Logs: `/tmp/lumina-pytest-perf-final-{1,2}.log` and
 `/tmp/lumina-pytest-perf-baseline-replay.log`. No budgets were relaxed, retries
 were not counted as qualification, and the two failing checks are retained.
 The PR stays draft until valid serial performance qualification or a supported
 fix resolves these failures. The requested all-kept-tests completion criterion
-is **not met**. No merge is requested by this audit.
+is **not met**. Current merge qualification is pending.

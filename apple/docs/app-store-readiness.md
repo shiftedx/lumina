@@ -128,11 +128,13 @@ is needed for the current-viewport check on that iPad.
 Run from the repository root with locked dependencies installed:
 
 ```sh
-mise exec -- python3 apple/scripts/run_ui_tiers.py --tier smoke --repeat 2 --output /tmp/lumina-ui-smoke-<unique-run>
-mise exec -- python3 apple/scripts/run_ui_tiers.py --tier full --repeat 2 --output /tmp/lumina-ui-full-<unique-run>
+mise exec -- python3 apple/scripts/run_ui_tiers.py --tier smoke --repeat 2 --ios-runtime 26.5 --output /tmp/lumina-ui-smoke-<unique-run>
+mise exec -- python3 apple/scripts/run_ui_tiers.py --tier full --repeat 2 --ios-runtime 26.5 --output /tmp/lumina-ui-full-<unique-run>
 ```
 
-Use a fresh output directory. The runner reports build time separately and measures
+The qualification commands pin installed iPadOS 26.5 on an iPad Pro 11-inch
+(M5); tvOS uses the available compatible 27.0 runtime. Other runtime versions
+need their own qualification. Use a fresh output directory. The runner reports build time separately and measures
 the complete concurrent iOS/tvOS test cohort wall for each repeat, including simulator
 startup and fixture provisioning.
 The platforms run concurrently with separate fixture brokers. Each platform warms

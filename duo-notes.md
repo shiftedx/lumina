@@ -21,7 +21,8 @@ Stage: Functional reader and visual library; UI redesign is a separate follow-up
 - Full-to-bounded decoded bitmap storage: 96,000,000 → 25,165,824 bytes (73.8% smaller).
 - Preparation/materialization median: 65.341 → 116.671 ms; no latency gain claimed.
 - Actual Device Hub pose checks covered outer/inner, both rotations, both fold directions, keyboard, accessibility and both Split View sides.
-- Pose checks preceded the final library/default/toolbar refinements; latest native workflow results are in the reader report.
+- Final native workflows pass: iPhone library + four-format Fit/zoom/actual rotation/restore; Duo library + four-format RTL/right/Fill/zoom/restore.
+- Final-build outer Page 3 → unfolded Page 3 physically right verified in Device Hub; Page 4 is the left companion. Other pose checks preceded library refinements.
 - XCTest orientation does not resize Duo here; actual automated resizing uses standard iPhone.
 - External Safari PiP was not exposed in this simulator and remains unverified.
 - No tvOS reader was added; the existing tvOS app builds against shared Core changes.

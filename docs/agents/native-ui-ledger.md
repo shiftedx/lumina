@@ -6,7 +6,7 @@ Scope: all 16 native UI methods at `f912b52`. Updated after the user's
 Before: **16 iOS + 8 executable tvOS = 24 platform cases** (tvOS also discovered
 three intentional skips). After: **7 iOS + 5 tvOS = 12 cases**, with no
 intentionally skipped selected cases. Smoke contains four playback cases.
-The reduced full cohort passed twice in parallel; smoke timing is pending.
+Both reduced tiers passed twice in parallel within their budgets.
 
 Evidence answers **“Has this ever failed in a way that indicated an actual
 regression?”** Only an existing failure leading to an app-code fix counts.
@@ -91,7 +91,7 @@ the user redirected work toward contracts that survive the redesign.
   52 / 5 skipped; mocked browser 657 / 2 skipped. No product code changed after it
   except removing redundant explicit AppStorage stores in favor of the scene store.
 - Core: 74 passed / 5 optional live-server skips. The 16 focused retained Core
-  contracts above passed again (1.983 seconds). Nine broker/runner checks pass.
+  contracts above passed again (1.983 seconds). Ten broker/runner checks pass.
 - Historical helpers had real current failures: TV geometric navigation chose a
   lower row for horizontally separated controls; iPad identifiers resolved static
   label children rather than their sidebar cells; AVKit replaced clock/control
@@ -125,4 +125,25 @@ tvOS 14.061 seconds. Total invocation including builds, both repeats and cleanup
 Evidence: `/tmp/lumina-ui-signal-durable-full-1/full-report.json` and eight
 `*-full-{1,2}-shard-{1,2}.xcresult` bundles. Both historical regression methods
 and all-format reader restoration passed on each selected platform twice.
-The four-case smoke tier's independent two-pass measurement remains pending.
+The independent smoke tier passed **4/4 each repeat**, zero failures/skips,
+with all four one-case shards green. Cross-platform walls were **447.462 seconds
+(7m27s)** and **196.621 seconds (3m17s)**, both below 600 seconds. The first
+includes 235.773 seconds of cold setup. Builds: iOS 15.078 seconds; tvOS 37.518
+seconds. Total invocation for builds, both repeats and cleanup: 667.910 seconds.
+Budget applies to each complete two-platform pass, not the sum of two repeats.
+Evidence: `/tmp/lumina-ui-signal-durable-smoke-2/smoke-report.json` and eight
+smoke result bundles. The preceding smoke attempt timed out during simulator
+boot before executing a test; no app/test failure was hidden. The runner now
+boots each owned simulator pair concurrently, allows 300 seconds per boot,
+and retains platform setup errors in its report. Full's green runs preceded
+that startup-only change; retained tests and four-worker execution are unchanged.
+
+| Tier | Before → after cases | Qualified pass 1 | Qualified pass 2 | Budget per pass |
+| --- | --- | --- | --- | --- |
+| smoke | 4 critical playback cases → 4 | 7m27s | 3m17s | <10m |
+| full | 24 → 12 | 12m13s | 9m37s | <45m |
+
+Original smoke has only an iOS serial before measurement (397.97 seconds);
+original full has no complete before wall. No speedup ratio is claimed.
+Machine-readable measured reports are retained in [native-ui-timings.json](native-ui-timings.json).
+Cleanup verified zero remaining audit simulators or fixture server processes.

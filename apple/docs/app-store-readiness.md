@@ -105,7 +105,7 @@ The native connection, library, error, empty, and sign-out states make the core 
 Before submission, perform a release-candidate pass covering the final signed archive, assets, policy/labels, App Store Connect record, reviewer demo, universal-versus-separate purchase decision, NAT64/IPv6, and physical-device video/audio qualification.
 
 
-## Native UI signal gate (2026-10-21, qualification pending)
+## Native UI signal gate (2026-10-22)
 
 The audit ledger is [native-ui-ledger.md](../../docs/agents/native-ui-ledger.md);
 its linked history report distinguishes existing-test regression catches from
@@ -165,7 +165,14 @@ measurement context without waiting or cancelling because of load. It creates
 its own simulators and removes only its recorded devices/clones and child
 processes. It never stops another agent's Xcode run or simulator.
 
-**Qualification is pending.** No before/after wall-time claim, two-pass parallel
-qualification or budget claim is established until actual result bundles and
-counts are recorded in the ledger. Passing this suite does not replace the
-physical-device format/output and App Store requirements above.
+**Qualified twice in parallel on 2026-10-22:** smoke 4/4 each in 447.462 / 196.621
+seconds (<600); full 12/12 each in 733.433 / 576.970 seconds (<2,700). Every
+selected case passed with zero skips/failures. First-pass times include cold
+setup; builds are recorded separately. The full runs preceded the startup-only
+change to concurrent pair boot; selected tests and four-worker execution are
+unchanged. See the ledger and its machine-readable timing reports for counts,
+setup/build spans, failed startup attempt and cleanup. All owned devices and
+fixture processes were removed. The suite was reduced from 24 to 12 platform
+cases. The obsolete full baseline was stopped under the user's UI-rework
+direction, so no full before wall or speedup is claimed. Passing this suite does
+not replace physical-device format/output and App Store requirements above.

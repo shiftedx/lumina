@@ -1,0 +1,298 @@
+{
+  "full": {
+    "tier": "full",
+    "budgetSeconds": 2700,
+    "wallSeconds": 1331.75,
+    "perRepeatWallSeconds": [
+      733.433,
+      576.97
+    ],
+    "withinBudget": true,
+    "platforms": {
+      "tvOS": {
+        "setupSeconds": 20.716,
+        "setupWaitSeconds": 0.0,
+        "setupStartedMonotonic": 17633.0507055,
+        "setupFinishedMonotonic": 17653.766553083,
+        "buildSeconds": 14.061,
+        "buildWaitSeconds": 0.0,
+        "buildExit": 0,
+        "runtime": "com.apple.CoreSimulator.SimRuntime.tvOS-27-0",
+        "tests": [
+          {
+            "repeat": 1,
+            "seconds": 466.91,
+            "startedMonotonic": 17887.171222625,
+            "finishedMonotonic": 18353.818242875,
+            "waitSeconds": 0.0,
+            "shards": [
+              {
+                "shard": 1,
+                "tests": 3,
+                "seconds": 395.426,
+                "startedMonotonic": 17887.171222625,
+                "finishedMonotonic": 18282.59719825,
+                "exit": 0,
+                "passed": true
+              },
+              {
+                "shard": 2,
+                "tests": 2,
+                "seconds": 466.647,
+                "startedMonotonic": 17887.171438916,
+                "finishedMonotonic": 18353.818242875,
+                "exit": 0,
+                "passed": true
+              }
+            ],
+            "passed": true
+          },
+          {
+            "repeat": 2,
+            "seconds": 540.194,
+            "startedMonotonic": 18377.608633791,
+            "finishedMonotonic": 18917.503197375,
+            "waitSeconds": 0.0,
+            "shards": [
+              {
+                "shard": 1,
+                "tests": 3,
+                "seconds": 465.607,
+                "startedMonotonic": 18377.608633791,
+                "finishedMonotonic": 18843.215520541,
+                "exit": 0,
+                "passed": true
+              },
+              {
+                "shard": 2,
+                "tests": 2,
+                "seconds": 539.891,
+                "startedMonotonic": 18377.612361833,
+                "finishedMonotonic": 18917.503197375,
+                "exit": 0,
+                "passed": true
+              }
+            ],
+            "passed": true
+          }
+        ]
+      },
+      "iOS": {
+        "setupSeconds": 243.793,
+        "setupWaitSeconds": 0.0,
+        "setupStartedMonotonic": 17633.052161083,
+        "setupFinishedMonotonic": 17876.84534225,
+        "buildSeconds": 10.026,
+        "buildWaitSeconds": 0.0,
+        "buildExit": 0,
+        "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+        "tests": [
+          {
+            "repeat": 1,
+            "seconds": 490.432,
+            "startedMonotonic": 17887.1652175,
+            "finishedMonotonic": 18376.803921166,
+            "waitSeconds": 0.0,
+            "shards": [
+              {
+                "shard": 1,
+                "tests": 4,
+                "seconds": 489.639,
+                "startedMonotonic": 17887.1652175,
+                "finishedMonotonic": 18376.803921166,
+                "exit": 0,
+                "passed": true
+              },
+              {
+                "shard": 2,
+                "tests": 3,
+                "seconds": 334.257,
+                "startedMonotonic": 17887.165368875,
+                "finishedMonotonic": 18221.422307708,
+                "exit": 0,
+                "passed": true
+              }
+            ],
+            "passed": true
+          },
+          {
+            "repeat": 2,
+            "seconds": 577.424,
+            "startedMonotonic": 18377.597681625,
+            "finishedMonotonic": 18954.567312916,
+            "waitSeconds": 0.0,
+            "shards": [
+              {
+                "shard": 1,
+                "tests": 4,
+                "seconds": 576.97,
+                "startedMonotonic": 18377.597681625,
+                "finishedMonotonic": 18954.567312916,
+                "exit": 0,
+                "passed": true
+              },
+              {
+                "shard": 2,
+                "tests": 3,
+                "seconds": 405.526,
+                "startedMonotonic": 18377.59923175,
+                "finishedMonotonic": 18783.125120875,
+                "exit": 0,
+                "passed": true
+              }
+            ],
+            "passed": true
+          }
+        ]
+      }
+    }
+  },
+  "smoke": {
+    "tier": "smoke",
+    "budgetSeconds": 600,
+    "wallSeconds": 667.91,
+    "perRepeatWallSeconds": [
+      447.462,
+      196.621
+    ],
+    "withinBudget": true,
+    "platforms": {
+      "tvOS": {
+        "setupSeconds": 17.992,
+        "setupWaitSeconds": 0.0,
+        "setupStartedMonotonic": 19371.012117125,
+        "setupFinishedMonotonic": 19389.003735416,
+        "buildSeconds": 37.518,
+        "buildWaitSeconds": 0.0,
+        "buildExit": 0,
+        "runtime": "com.apple.CoreSimulator.SimRuntime.tvOS-27-0",
+        "tests": [
+          {
+            "repeat": 1,
+            "seconds": 211.832,
+            "startedMonotonic": 19622.272367916,
+            "finishedMonotonic": 19833.961160791,
+            "waitSeconds": 0.0,
+            "shards": [
+              {
+                "shard": 1,
+                "tests": 1,
+                "seconds": 166.616,
+                "startedMonotonic": 19622.272367916,
+                "finishedMonotonic": 19788.888631458,
+                "exit": 0,
+                "passed": true
+              },
+              {
+                "shard": 2,
+                "tests": 1,
+                "seconds": 211.687,
+                "startedMonotonic": 19622.274185625,
+                "finishedMonotonic": 19833.961160791,
+                "exit": 0,
+                "passed": true
+              }
+            ],
+            "passed": true
+          },
+          {
+            "repeat": 2,
+            "seconds": 196.744,
+            "startedMonotonic": 19834.104991791,
+            "finishedMonotonic": 20030.726056958,
+            "waitSeconds": 0.0,
+            "shards": [
+              {
+                "shard": 1,
+                "tests": 1,
+                "seconds": 151.48,
+                "startedMonotonic": 19834.104991791,
+                "finishedMonotonic": 19985.584940083,
+                "exit": 0,
+                "passed": true
+              },
+              {
+                "shard": 2,
+                "tests": 1,
+                "seconds": 196.621,
+                "startedMonotonic": 19834.105095958,
+                "finishedMonotonic": 20030.726056958,
+                "exit": 0,
+                "passed": true
+              }
+            ],
+            "passed": true
+          }
+        ]
+      },
+      "iOS": {
+        "setupSeconds": 235.773,
+        "setupWaitSeconds": 0.0,
+        "setupStartedMonotonic": 19371.012572125,
+        "setupFinishedMonotonic": 19606.785381958,
+        "buildSeconds": 15.078,
+        "buildWaitSeconds": 0.0,
+        "buildExit": 0,
+        "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+        "tests": [
+          {
+            "repeat": 1,
+            "seconds": 191.812,
+            "startedMonotonic": 19622.272173958,
+            "finishedMonotonic": 19813.915078458,
+            "waitSeconds": 0.0,
+            "shards": [
+              {
+                "shard": 1,
+                "tests": 1,
+                "seconds": 144.514,
+                "startedMonotonic": 19622.272173958,
+                "finishedMonotonic": 19766.786341916,
+                "exit": 0,
+                "passed": true
+              },
+              {
+                "shard": 2,
+                "tests": 1,
+                "seconds": 191.637,
+                "startedMonotonic": 19622.27781425,
+                "finishedMonotonic": 19813.915078458,
+                "exit": 0,
+                "passed": true
+              }
+            ],
+            "passed": true
+          },
+          {
+            "repeat": 2,
+            "seconds": 174.63,
+            "startedMonotonic": 19834.105233458,
+            "finishedMonotonic": 20008.595407416,
+            "waitSeconds": 0.0,
+            "shards": [
+              {
+                "shard": 1,
+                "tests": 1,
+                "seconds": 123.433,
+                "startedMonotonic": 19834.105233458,
+                "finishedMonotonic": 19957.538021916,
+                "exit": 0,
+                "passed": true
+              },
+              {
+                "shard": 2,
+                "tests": 1,
+                "seconds": 174.49,
+                "startedMonotonic": 19834.105331666,
+                "finishedMonotonic": 20008.595407416,
+                "exit": 0,
+                "passed": true
+              }
+            ],
+            "passed": true
+          }
+        ]
+      }
+    }
+  }
+}

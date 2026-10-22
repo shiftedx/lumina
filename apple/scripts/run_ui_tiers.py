@@ -20,12 +20,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 APPLE = ROOT / "apple"
 SMOKE = [
+    "NativeAudioAlbumTrackPlaybackReportsProgressTests",
+    "NativeNativePlaybackReportsResumeAndConversionProgressTests",
+]
+IOS_FULL = [
     "NativeFeaturedTitlePreservesDetailsAndResumesPlaybackTests",
     "NativeAudioAlbumTrackPlaybackReportsProgressTests",
     "NativeShowSeasonEpisodeBrowsingAndPlaybackTests",
     "NativeNativePlaybackReportsResumeAndConversionProgressTests",
-]
-IOS_FULL = SMOKE + [
     "NativeNativeBooksLibraryBrowsesShelvesAndMangaStacksTests",
     "NativeNativeBooksReadTurnResizeAndRestoreAllFormatsTests",
     "NativeNativeBooksKeepPhysicalRightInRTLLocaleTests",
@@ -48,6 +50,7 @@ TVOS_FULL = [name for name in IOS_FULL if name not in {
     "NativeCurrentDuoLayoutKeepsControlsAndPlaybackReachableTests",
 }]
 BUDGET = {"smoke": 600, "full": 2700}
+IOS_RUNTIME: str | None = None
 
 
 def command(*parts: str, cwd: Path = ROOT, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -61,8 +64,10 @@ def latest_runtime(platform: str) -> str:
     candidates = [entry for entry in data["runtimes"] if entry.get("isAvailable")
                   and entry["identifier"].startswith(prefix)
                   and any(device["identifier"] == required for device in entry.get("supportedDeviceTypes", []))]
+    if platform == "iOS" and IOS_RUNTIME:
+        candidates = [entry for entry in candidates if entry["version"] == IOS_RUNTIME]
     if not candidates:
-        raise RuntimeError(f"no available {platform} simulator runtime")
+        raise RuntimeError(f"no compatible available {platform} simulator runtime")
     return max(candidates, key=lambda entry: tuple(int(part) for part in entry["version"].split(".")))["identifier"]
 
 
@@ -179,7 +184,7 @@ def boot_simulators(platform: str, run_id: str, host_wait_seconds: int) -> tuple
                                 cwd=ROOT, text=True, capture_output=True, timeout=180)
         if status.returncode:
             raise RuntimeError(status.stderr.strip() or f"{platform} simulator {number} did not finish booting")
-    return simulators, time.monotonic() - started, waited
+    return simulators, time.monotonic() - started - waited, waited
 
 
 def xctestrun_path(derived: Path, scheme: str) -> Path:
@@ -208,7 +213,7 @@ def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_fil
         outcome: dict[str, object] = {
             "setupSeconds": round(setup_seconds, 3), "setupWaitSeconds": round(setup_wait_seconds, 3),
             "buildSeconds": round(build_seconds, 3), "buildWaitSeconds": round(build_wait_seconds, 3),
-            "buildExit": code, "tests": [],
+            "buildExit": code, "runtime": latest_runtime(platform), "tests": [],
         }
         if code:
             return outcome
@@ -245,10 +250,13 @@ def main() -> None:
     parser.add_argument("--tier", choices=BUDGET, required=True)
     parser.add_argument("--platform", choices=("iOS", "tvOS", "all"), default="all")
     parser.add_argument("--repeat", type=int, default=2)
+    parser.add_argument("--ios-runtime", help="pin an installed iPadOS runtime version for qualification")
     parser.add_argument("--host-wait-seconds", type=int, default=1800)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--derived-data", type=Path, help="reuse this run-owned build root for warm qualification")
     args = parser.parse_args()
+    global IOS_RUNTIME
+    IOS_RUNTIME = args.ios_runtime
     if args.repeat < 1:
         parser.error("--repeat must be positive")
     if args.output.exists() and any(args.output.iterdir()):
@@ -266,7 +274,7 @@ def main() -> None:
             time.sleep(0.1)
         if not broker_file.exists():
             raise RuntimeError("fixture broker did not start")
-        platforms = [args.platform] if args.platform != "all" else ["iOS", "tvOS"]
+        platforms = [args.platform] if args.platform != "all" else ["tvOS", "iOS"]
         results = {platform: one_platform(platform, args.tier, args.repeat, args.output, broker_file, run_id, args.host_wait_seconds, args.derived_data) for platform in platforms}
     finally:
         if broker.poll() is None:

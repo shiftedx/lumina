@@ -115,11 +115,12 @@ Tests that previously caused an app-code fix are never deleted.
 
 | Tier | Intended use | Selected journeys | Budget |
 | --- | --- | --- | --- |
-| smoke | Merge bar for native UI changes | Home/detail/resume, audio/now-playing, show/season/episode, direct/conversion playback on both platforms (8 cases) | <10 minutes wall per complete two-platform run |
+| smoke | Merge bar for native UI changes | Audio/now-playing/background/queue and direct/conversion/resume/background video on both platforms (4 broad cases) | <10 minutes wall per complete two-platform run |
 | full | Pre-release | All 15 iOS and 8 executable tvOS cases | <45 minutes wall per complete two-platform run |
 
 The suite has fewer than 50 critical journeys, so smoke retains the relevant
-critical paths without adding tests to meet a count. iOS runs on an isolated
+critical playback paths without adding tests to meet a count. Home carousel,
+hierarchy navigation, Books and advanced music remain in full. iOS runs on an isolated
 regular-width iPad to exercise RTL spread geometry; hardware Duo pose selection
 remains an additional manual device qualification. No automatic serial exception
 is needed for the current-viewport check on that iPad.
@@ -133,8 +134,12 @@ mise exec -- python3 apple/scripts/run_ui_tiers.py --tier full --repeat 2 --outp
 
 Use a fresh output directory. The runner reports build time separately and sums
 iOS plus tvOS test invocation wall times for each repeat, including simulator
-startup and fixture provisioning. The two platforms use separate xcodebuild
-invocations; tests within each platform run with two workers. A full pass requires
+startup and fixture provisioning; waiting for host load is recorded separately.
+The platforms run sequentially. Each platform warms two owned simulators serially,
+then runs two explicit XCTest shards concurrently against those devices. Each shard
+disables Xcode's internal clone scheduling; the overall cohort remains parallel.
+Fresh iOS devices disable only the stock widget renderer, empty Photos analysis and
+CoreSpotlight indexing jobs, which are outside Lumina's tested integrations. A full pass requires
 exact expected executed/passed counts and zero failures or skips, twice. A green
 empty selection cannot qualify. The report contains total invocation wall time
 as well as per-repeat test wall time; build/bootstrap and waiting for the shared
@@ -149,11 +154,12 @@ sandboxes, and persisted downloads/queue files are scoped by the unique member
 and origin. Only Debug builds accept the test preference/credential namespace.
 
 The user explicitly authorized running alongside other agents' Xcode jobs on
-2026-10-21, superseding the original host exclusivity requirement. The mkdir
-lock `/tmp/lumina-xcodebuild.lock` serializes this runner's own invocations; it
-no longer waits for other Xcode jobs or takes the shared performance lock.
-It waits for load1 <20 and cancels only its own process group if load1 reaches 20.
-Do not remove a lock owned by another run. The runner creates its own simulators
+2026-10-21, superseding the original host exclusivity requirement. The
+runner does not wait for other Xcode jobs or take the shared performance lock.
+It waits for load1 <20 for setup/build and <10 before starting parallel test
+shards to leave startup headroom; it cancels only its own process groups if load1
+reaches 20 during Xcode execution.
+The runner creates its own simulators
 and removes only its recorded devices/clones and child processes. It never stops
 another agent's Xcode run or simulator. `--host-wait-seconds` bounds the load wait.
 

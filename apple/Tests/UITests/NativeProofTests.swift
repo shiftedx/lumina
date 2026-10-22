@@ -1290,7 +1290,7 @@ class NativeProofJourney: XCTestCase {
         let stillPaused = try waitForPlaybackValue(playbackTime, timeout: 5) { _ in true }
         XCTAssertLessThanOrEqual(afterHome, beforeHome + 2, "Playback continued while the app was in the background.")
         XCTAssertLessThanOrEqual(stillPaused, afterHome + 1, "Returning to the app resumed playback without a user action.")
-        _ = try resumeNativePlayer(playbackTime, pausedAt: stillPaused)
+        _ = try resumeNativePlayer(pausedAt: stillPaused)
 
         let replay = element("replayButton")
         try waitForExistence(replay, timeout: 50, named: "replay button at end of media")
@@ -1641,7 +1641,9 @@ class NativeProofJourney: XCTestCase {
         let nativeTab = application!.tabBars.buttons[title]
         if hasVisibleFrame(nativeTab) && nativeTab.isHittable { return nativeTab }
         let label = NSPredicate(format: "label == %@", title)
-        let sidebarCells = application!.collectionViews.cells.matching(label).allElementsBoundByIndex
+        let sidebarCells = application!.collectionViews.cells.containing(.staticText, identifier: identifier).allElementsBoundByIndex
+            + application!.tables.cells.containing(.staticText, identifier: identifier).allElementsBoundByIndex
+            + application!.collectionViews.cells.matching(label).allElementsBoundByIndex
             + application!.tables.cells.matching(label).allElementsBoundByIndex
         if let row = sidebarCells.first(where: { hasVisibleFrame($0) && $0.isHittable }) { return row }
         return application!.descendants(matching: .any).matching(label).firstMatch
@@ -1966,20 +1968,29 @@ class NativeProofJourney: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: end)
     }
 
-    private func resumeNativePlayer(_ playbackTime: XCUIElement, pausedAt: Double) throws -> Double {
+    private func resumeNativePlayer(pausedAt: Double) throws -> Double {
         let player = element("nativeVideoPlayer")
         try waitForExistence(player, timeout: 10, named: "native player after returning from Home")
         player.tap()
-        if let advanced = try? waitForPlaybackValue(playbackTime, timeout: 4, where: { $0 >= pausedAt + 1 }) {
-            return advanced
-        }
-
         let play = player.descendants(matching: .button).matching(
             NSPredicate(format: "label == %@ OR label == %@", "Play", "Resume")
         ).firstMatch
-        try waitForExistence(play, timeout: 8, named: "native Play control")
-        try activate(play)
-        return try waitForPlaybackValue(playbackTime, timeout: 10) { $0 >= pausedAt + 1 }
+        let deadline = Date().addingTimeInterval(15)
+        var activatedPlay = false
+        while Date() < deadline {
+            // AVKit replaces accessibility nodes when its controls appear. Re-query
+            // the clock, and observe playback while Play is still visible.
+            let clock = element("playbackTime")
+            if clock.exists, let value = Self.numericAccessibilityValue(of: clock), value >= pausedAt + 1 {
+                return value
+            }
+            if !activatedPlay, play.exists, play.isHittable {
+                try activate(play)
+                activatedPlay = true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        throw ProofFailure.timeout("The native player's clock did not advance after resume.")
     }
 
     private func backgroundApplication() throws {

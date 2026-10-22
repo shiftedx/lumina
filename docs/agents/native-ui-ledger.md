@@ -135,3 +135,17 @@ platform runs; the new unified concurrent cohort still needs its own measured
 wall-time qualification. The original iOS serial smoke passed 2/2 in 397.97
 seconds after the sidebar-query drift repair; its raw helper failure (0/2 in
 114.48 seconds) is preserved separately and excluded from the passing baseline.
+
+The first unified full run found a current-viewport resume-helper failure on
+regular iPadOS 26.5. Background pause assertions passed; after tapping the player,
+the helper's sequential four-second clock poll and later Play lookup timed out.
+The captured hierarchy/screenshot show actual playback at 25 seconds, with no
+Play control because playback was already running. The repair observes a freshly
+queried clock and an available native Play control in one bounded loop, retaining
+the actual clock-advancement assertion. Focused rerun pending; this is not yet
+claimed as an app regression or a complete passing full cohort.
+
+Original-revision Books diagnosis also identified visible iPad sidebar cells
+whose *children* carry the tab identifiers. Destination lookup now selects the
+containing hittable cell before falling back to labels. The baseline agent is
+rerunning the original Books duplicate before its deletion verdict is finalized.

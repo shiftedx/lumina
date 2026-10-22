@@ -12,6 +12,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -98,7 +99,7 @@ def delete_own_simulators(run_id: str) -> None:
                 command("xcrun", "simctl", "delete", device["udid"])
 
 
-def run_xcode(arguments: list[str], log: Path) -> tuple[int, float]:
+def run_xcode(arguments: list[str], log: Path) -> tuple[int, float, float, float]:
     started = time.monotonic()
     with log.open("w", encoding="utf-8") as stream:
         process = subprocess.Popen(arguments, cwd=APPLE, text=True, stdout=stream, stderr=subprocess.STDOUT,
@@ -121,7 +122,8 @@ def run_xcode(arguments: list[str], log: Path) -> tuple[int, float]:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
             raise
-    return process.returncode, time.monotonic() - started
+    finished = time.monotonic()
+    return process.returncode, finished - started, started, finished
 
 
 def result_ok(result: Path, log: Path, expected_count: int) -> bool:
@@ -148,6 +150,46 @@ def selectors(platform: str, tier: str) -> list[str]:
 
 def split_shards(values: list[str], count: int = 2) -> list[list[str]]:
     return [values[index::count] for index in range(count)]
+
+
+def broker_config_path(output: Path, platform: str) -> Path:
+    return output / f"{platform}-broker.json"
+
+
+def start_broker(output: Path, platform: str) -> tuple[subprocess.Popen[bytes], Path]:
+    config = broker_config_path(output, platform)
+    broker = subprocess.Popen([sys.executable, str(APPLE / "scripts" / "ui_suite.py"), "--output", str(config)],
+                              cwd=ROOT, start_new_session=True)
+    deadline = time.monotonic() + 15
+    while not config.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    if not config.exists():
+        os.killpg(broker.pid, signal.SIGTERM)
+        broker.wait(timeout=30)
+        raise RuntimeError(f"{platform} fixture broker did not start")
+    return broker, config
+
+
+def wait_for_cohort(cohort: threading.Barrier | None, timeout: int) -> None:
+    if cohort is not None:
+        cohort.wait(timeout=timeout)
+
+
+def per_repeat_walls(results: dict[str, dict[str, object]], platforms: list[str], repeat: int) -> list[float]:
+    if (set(results) != set(platforms) or any(results[platform]["buildExit"] != 0 for platform in platforms)
+            or any(len(results[platform]["tests"]) < repeat for platform in platforms)):
+        return []
+    walls = []
+    for index in range(repeat):
+        tests = [results[platform]["tests"][index] for platform in platforms]
+        try:
+            wall = max(float(test["finishedMonotonic"]) for test in tests) - min(float(test["startedMonotonic"]) for test in tests)
+            if index == 0:
+                wall += max(float(results[platform]["setupFinishedMonotonic"]) for platform in platforms) - min(float(results[platform]["setupStartedMonotonic"]) for platform in platforms)
+        except (KeyError, TypeError):
+            return []
+        walls.append(wall)
+    return walls
 
 
 def boot_simulators(platform: str, run_id: str) -> tuple[list[str], float, float]:
@@ -183,29 +225,35 @@ def xctestrun_path(derived: Path, scheme: str) -> Path:
 
 
 def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_file: Path, run_id: str,
-                 derived_root: Path | None = None) -> dict[str, object]:
+                 derived_root: Path | None = None, cohort: threading.Barrier | None = None) -> dict[str, object]:
     scheme = f"Lumina-{platform}"
     derived = (derived_root or output) / f"derived-{platform}"
     build_log = output / f"{platform}-build.log"
     simulators: list[str] = []
     try:
+        setup_started = time.monotonic()
         simulators, setup_seconds, setup_wait_seconds = boot_simulators(platform, run_id)
+        setup_finished = time.monotonic()
         base = ["xcodebuild", "-jobs", "2", "-project", "Lumina.xcodeproj", "-scheme", scheme,
                 "-destination", f"platform={platform} Simulator,id={simulators[0]}",
                 "-derivedDataPath", str(derived), f"LUMINA_NATIVE_BROKER_FILE={broker_file}"]
         build_wait_seconds = 0.0
-        code, build_seconds = run_xcode([*base, "build-for-testing"], build_log)
+        code, build_seconds, _, _ = run_xcode([*base, "build-for-testing"], build_log)
         outcome: dict[str, object] = {
             "setupSeconds": round(setup_seconds, 3), "setupWaitSeconds": round(setup_wait_seconds, 3),
+            "setupStartedMonotonic": setup_started, "setupFinishedMonotonic": setup_finished,
             "buildSeconds": round(build_seconds, 3), "buildWaitSeconds": round(build_wait_seconds, 3),
             "buildExit": code, "runtime": latest_runtime(platform), "tests": [],
         }
         if code:
+            if cohort is not None:
+                cohort.abort()
             return outcome
         xctestrun = xctestrun_path(derived, scheme)
         selected = selectors(platform, tier)
         shards = split_shards(selected)
         for index in range(repeat):
+            wait_for_cohort(cohort, BUDGET[tier] + 600)
             test_wait_seconds = 0.0
             started = time.monotonic()
             def run_shard(number: int) -> dict[str, object]:
@@ -215,15 +263,23 @@ def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_fil
                         "-destination", f"platform={platform} Simulator,id={simulators[number]}",
                         "-parallel-testing-enabled", "NO", "-collect-test-diagnostics", "never",
                         "-resultBundlePath", str(result), *shards[number]]
-                code, seconds = run_xcode(test, log)
+                code, seconds, shard_started, shard_finished = run_xcode(test, log)
                 return {"shard": number + 1, "tests": len(shards[number]), "seconds": round(seconds, 3),
+                        "startedMonotonic": shard_started, "finishedMonotonic": shard_finished,
                         "exit": code, "passed": code == 0 and result_ok(result, log, len(shards[number]))}
             with ThreadPoolExecutor(max_workers=2) as pool:
                 shard_results = list(pool.map(run_shard, range(2)))
             outcome["tests"].append({"repeat": index + 1, "seconds": round(time.monotonic() - started, 3),
+                                     "startedMonotonic": min(item["startedMonotonic"] for item in shard_results),
+                                     "finishedMonotonic": max(item["finishedMonotonic"] for item in shard_results),
                                      "waitSeconds": round(test_wait_seconds, 3), "shards": shard_results,
                                      "passed": all(item["passed"] for item in shard_results)})
+            wait_for_cohort(cohort, BUDGET[tier] + 600)
         return outcome
+    except BaseException:
+        if cohort is not None:
+            cohort.abort()
+        raise
     finally:
         for simulator in simulators:
             command("xcrun", "simctl", "shutdown", simulator)
@@ -248,34 +304,41 @@ def main() -> None:
     args.output.mkdir(parents=True, mode=0o700, exist_ok=True)
     os.chmod(args.output, 0o700)
     run_id = f"{os.getpid()}-{int(time.time())}"
-    broker_file = args.output / "broker.json"
-    broker = subprocess.Popen([sys.executable, str(APPLE / "scripts" / "ui_suite.py"), "--output", str(broker_file)], cwd=ROOT, start_new_session=True)
     started = time.monotonic()
-    results: dict[str, object] = {}
+    results: dict[str, dict[str, object]] = {}
+    brokers: list[subprocess.Popen[bytes]] = []
     try:
-        deadline = time.monotonic() + 15
-        while not broker_file.exists() and time.monotonic() < deadline:
-            time.sleep(0.1)
-        if not broker_file.exists():
-            raise RuntimeError("fixture broker did not start")
         platforms = [args.platform] if args.platform != "all" else ["tvOS", "iOS"]
-        results = {platform: one_platform(platform, args.tier, args.repeat, args.output, broker_file, run_id, args.derived_data) for platform in platforms}
+        broker_files: dict[str, Path] = {}
+        for platform in platforms:
+            broker, config = start_broker(args.output, platform)
+            brokers.append(broker)
+            broker_files[platform] = config
+        cohort = threading.Barrier(len(platforms)) if len(platforms) > 1 else None
+        with ThreadPoolExecutor(max_workers=len(platforms)) as pool:
+            futures = {
+                platform: pool.submit(one_platform, platform, args.tier, args.repeat, args.output,
+                                      broker_files[platform], run_id, args.derived_data, cohort)
+                for platform in platforms
+            }
+            for platform, future in futures.items():
+                results[platform] = future.result()
     finally:
-        if broker.poll() is None:
-            os.killpg(broker.pid, signal.SIGTERM)
-            broker.wait(timeout=30)
+        for broker in brokers:
+            if broker.poll() is None:
+                os.killpg(broker.pid, signal.SIGTERM)
+                broker.wait(timeout=30)
         delete_own_simulators(run_id)
     total = time.monotonic() - started
-    repeat_walls = [sum(platform["tests"][index]["seconds"] + (platform["setupSeconds"] if index == 0 else 0)
-                        for platform in results.values() if platform["buildExit"] == 0 and len(platform["tests"]) > index)
-                    for index in range(args.repeat)]
+    repeat_walls = per_repeat_walls(results, platforms, args.repeat)
     report = {"tier": args.tier, "budgetSeconds": BUDGET[args.tier], "wallSeconds": round(total, 3),
               "perRepeatWallSeconds": [round(value, 3) for value in repeat_walls],
               "withinBudget": len(repeat_walls) == args.repeat and all(value < BUDGET[args.tier] for value in repeat_walls),
               "platforms": results}
     (args.output / f"{args.tier}-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
-    passed = report["withinBudget"] and all(test["passed"] for platform in results.values() if platform["buildExit"] == 0 for test in platform["tests"])
+    passed = (set(results) == set(platforms) and report["withinBudget"]
+              and all(test["passed"] for platform in results.values() if platform["buildExit"] == 0 for test in platform["tests"]))
     if not passed or any(platform["buildExit"] for platform in results.values()):
         raise SystemExit(1)
 

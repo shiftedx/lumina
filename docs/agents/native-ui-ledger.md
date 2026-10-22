@@ -112,3 +112,16 @@ First repaired parallel iPad smoke pass: Audio 191.894 seconds; native direct /
 conversion / resume video 186.792 seconds, both passed. The second pass and
 rebuilt tvOS smoke/full runs remain pending. These case times are not yet a
 complete tier wall-time or budget claim.
+
+
+Both repaired iPad smoke repeats passed (Audio 191.894 / 166.495 seconds;
+video 186.792 / 159.840 seconds). Rebuilt tvOS smoke first repeat passed
+(Audio 219.009, video 188.777 seconds); the full Home journey passed in
+184.751 seconds. Original failures remain recorded, rather than being hidden
+by these reruns.
+
+With exclusivity removed, the runner now schedules iOS and tvOS concurrently,
+with separate fixture brokers and cohort barriers. Monotonic phase timestamps
+measure cross-platform wall spans, including cold setup on the first repeat;
+build times remain separate. Eight harness checks pass, including staggered
+starts, incomplete-result rejection and aborted-barrier release.

@@ -77,6 +77,28 @@ class FixtureBrokerTests(unittest.TestCase):
 
 
 class UITierRunnerTests(unittest.TestCase):
+    def test_platforms_use_distinct_broker_configs_and_parallel_wall_time(self) -> None:
+        output = Path("/private/tmp/lumina-run")
+        self.assertEqual(
+            {run_ui_tiers.broker_config_path(output, platform) for platform in ["iOS", "tvOS"]},
+            {output / "iOS-broker.json", output / "tvOS-broker.json"},
+        )
+        results = {
+            "iOS": {"buildExit": 0, "setupStartedMonotonic": 0, "setupFinishedMonotonic": 40,
+                      "tests": [{"startedMonotonic": 50, "finishedMonotonic": 170}, {"startedMonotonic": 10, "finishedMonotonic": 20}]},
+            "tvOS": {"buildExit": 0, "setupStartedMonotonic": 5, "setupFinishedMonotonic": 35,
+                       "tests": [{"startedMonotonic": 55, "finishedMonotonic": 155}, {"startedMonotonic": 15, "finishedMonotonic": 25}]},
+        }
+        self.assertEqual(run_ui_tiers.per_repeat_walls(results, ["iOS", "tvOS"], 2), [160, 15])
+        self.assertEqual(run_ui_tiers.per_repeat_walls({"iOS": results["iOS"]}, ["iOS", "tvOS"], 2), [])
+        self.assertEqual(run_ui_tiers.per_repeat_walls({"iOS": {**results["iOS"], "tests": []}, "tvOS": results["tvOS"]}, ["iOS", "tvOS"], 2), [])
+
+    def test_aborted_cohort_releases_waiting_platform(self) -> None:
+        cohort = threading.Barrier(2)
+        cohort.abort()
+        with self.assertRaises(threading.BrokenBarrierError):
+            run_ui_tiers.wait_for_cohort(cohort, 1)
+
     def test_shards_partition_every_selected_test_exactly_once(self) -> None:
         for platform in ["iOS", "tvOS"]:
             for tier in ["smoke", "full"]:

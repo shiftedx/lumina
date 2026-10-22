@@ -132,14 +132,16 @@ mise exec -- python3 apple/scripts/run_ui_tiers.py --tier smoke --repeat 2 --out
 mise exec -- python3 apple/scripts/run_ui_tiers.py --tier full --repeat 2 --output /tmp/lumina-ui-full-<unique-run>
 ```
 
-Use a fresh output directory. The runner reports build time separately and sums
-iOS plus tvOS test invocation wall times for each repeat, including simulator
+Use a fresh output directory. The runner reports build time separately and measures
+the complete concurrent iOS/tvOS test cohort wall for each repeat, including simulator
 startup and fixture provisioning.
-The platforms run sequentially. Each platform warms two owned simulators serially,
-then runs two explicit XCTest shards concurrently against those devices. Each shard
+The platforms run concurrently with separate fixture brokers. Each platform warms
+two owned simulators serially, then runs two explicit XCTest shards concurrently.
+Cohort barriers align both platform repeats. Each shard
 disables Xcode's internal clone scheduling; the overall cohort remains parallel.
 Fresh iOS devices disable only the stock widget renderer, empty Photos analysis and
-CoreSpotlight indexing jobs, which are outside Lumina's tested integrations. A full pass requires
+CoreSpotlight indexing jobs, which are outside Lumina's tested integrations. Monotonic start/end timestamps measure the actual cross-platform setup and test
+phase spans; the first repeat includes cold simulator setup. A full pass requires
 exact expected executed/passed counts and zero failures or skips, twice. A green
 empty selection cannot qualify. The report contains total invocation wall time
 as well as per-repeat test wall time; build/bootstrap is recorded separately

@@ -107,3 +107,8 @@ video journey still asserts persisted API progress plus the reopened player's
 actual resumed clock, direct/conversion advancement and Home/background lifecycle.
 Only the duplicate label detour was removed; neither regression-catching journey
 was deleted. Intermediate owned runs were stopped to rebuild the repaired tests.
+
+First repaired parallel iPad smoke pass: Audio 191.894 seconds; native direct /
+conversion / resume video 186.792 seconds, both passed. The second pass and
+rebuilt tvOS smoke/full runs remain pending. These case times are not yet a
+complete tier wall-time or budget claim.

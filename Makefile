@@ -1,12 +1,14 @@
 PYTHON ?= python3
 
-.PHONY: help bootstrap bootstrap-test backend-test frontend-test frontend-typecheck frontend-build e2e-realstack e2e-mocked e2e-smoke e2e-full e2e-tier-test e2e-browsers playperf models-smoke perf check
+.PHONY: help bootstrap bootstrap-test backend-test backend-smoke backend-full frontend-test frontend-typecheck frontend-build e2e-realstack e2e-mocked e2e-smoke e2e-full e2e-tier-test e2e-browsers playperf models-smoke perf check
 
 help:
 	@echo "Available targets:"
 	@echo "  bootstrap          Install locked backend and frontend dependencies"
 	@echo "  bootstrap-test     Test platform-specific bootstrap behavior"
-	@echo "  backend-test       Run the Python test suite"
+	@echo "  backend-test       Full backend tier: parallel pytest contracts, under 45 minutes"
+	@echo "  backend-smoke      Critical backend contracts, under 10 minutes"
+	@echo "  backend-full       Full parallel backend contract tier, under 45 minutes"
 	@echo "  frontend-test      Run deterministic frontend module tests"
 	@echo "  frontend-typecheck Type-check the React application"
 	@echo "  frontend-build     Type-check and build the React application"
@@ -26,8 +28,18 @@ bootstrap:
 bootstrap-test:
 	$(PYTHON) -m unittest discover -s scripts -p 'test_*.py'
 
-backend-test:
-	$(PYTHON) scripts/run_backend_tests.py
+# Each driver invocation owns an empty, private output root.  Override the knobs
+# when retaining a report at a known path or qualifying a repeated tier.
+BACKEND_REPEAT ?= 1
+BACKEND_WORKERS ?= 4
+BACKEND_OUTPUT ?= $(shell mktemp -d /tmp/lumina-backend-tier.XXXXXX)
+backend-test: backend-full
+
+backend-smoke:
+	$(PYTHON) scripts/run_backend_tests.py --tier smoke --repeat $(BACKEND_REPEAT) --workers $(BACKEND_WORKERS) --output "$(BACKEND_OUTPUT)"
+
+backend-full:
+	$(PYTHON) scripts/run_backend_tests.py --tier full --repeat $(BACKEND_REPEAT) --workers $(BACKEND_WORKERS) --output "$(BACKEND_OUTPUT)"
 
 frontend-typecheck:
 	npm --prefix frontend run typecheck

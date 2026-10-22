@@ -1,0 +1,110 @@
+{
+  "tiers": {
+    "smoke": {
+      "selectors": [
+        "tests/test_auth_lockout.py::test_public_account_lockout_then_lan_sign_in_lifts_it",
+        "tests/test_connected_apps.py::test_write_agent_token_mutates_without_cookie_origin_or_csrf",
+        "tests/test_connected_apps.py::test_read_agent_token_lists_the_library_but_every_mutation_is_403",
+        "tests/test_connected_apps.py::test_cookie_session_still_needs_csrf_even_with_a_valid_bearer",
+        "tests/test_connected_apps.py::test_unknown_wrong_kind_oversized_and_deleted_tokens_are_401",
+        "tests/test_connected_apps.py::test_password_change_reset_and_deactivation_revoke_every_connected_app",
+        "tests/test_connected_apps.py::test_agent_token_is_shown_once_hashed_at_rest_and_usable",
+        "tests/test_connected_apps.py::test_redaction_covers_jellyfin_token_headers_and_query_keys",
+        "tests/test_public_source_policy.py::test_policy_rejects_encoded_loopback_and_mixed_dns_answers",
+        "tests/test_public_source_policy.py::test_redirect_target_is_revalidated_before_following",
+        "tests/test_public_source_policy.py::test_connection_rechecks_dns_and_rejects_rebinding",
+        "tests/test_public_source_policy.py::test_policy_ytdlp_transport_blocks_extractor_generated_private_requests",
+        "tests/test_v1_account_lifecycle.py::test_password_change_requires_current",
+        "tests/test_v1_account_lifecycle.py::test_admin_reset_link_is_single_use",
+        "tests/test_v1_account_lifecycle.py::test_disabled_user_no_new_or_existing_work",
+        "tests/test_v1_artifacts.py::test_download_registers_root_relative_artifact",
+        "tests/test_v1_artifacts.py::test_out_of_root_path_not_served",
+        "tests/test_v1_artifacts.py::test_symlink_swapped_into_root_not_served",
+        "tests/test_v1_csrf.py::test_bogus_bearer_cookie_requires_csrf",
+        "tests/test_v1_csrf.py::test_untrusted_origin_valid_basic_rejected",
+        "tests/test_v1_csrf.py::test_csrf_token_is_session_bound",
+        "tests/test_v1_security_fixes.py::test_hls_subtitle_track_never_reaches_ffmpeg",
+        "tests/test_v1_security_fixes.py::test_gate_validates_requested_subtitles",
+        "tests/test_v1_security_fixes.py::test_live_hls_is_never_handed_to_ffmpeg",
+        "tests/test_v1_security_fixes.py::test_household_webhook_never_carries_member_private_details",
+        "tests/test_v1_security_fixes.py::test_inactive_owner_automations_never_run",
+        "tests/test_v1_security_fixes.py::test_automation_count_and_cadence_are_bounded",
+        "tests/test_v1_security_fixes.py::test_inactive_owner_queued_job_never_starts",
+        "tests/test_v1_security_fixes.py::test_cancel_terminates_only_that_jobs_ytdlp_children",
+        "tests/test_v1_security_fixes.py::test_deactivation_stops_live_recordings",
+        "tests/test_v1_security_fixes.py::test_playback_session_files_recheck_access",
+        "tests/test_v1_security_fixes.py::test_local_media_reads_refuse_playlists",
+        "tests/test_v1_security_fixes.py::test_nfo_dtd_rejected_in_any_encoding",
+        "tests/test_v1_sessions.py::test_raw_bearer_absent_database",
+        "tests/test_v1_sessions.py::test_absolute_expiry_cannot_slide",
+        "tests/test_v1_sessions.py::test_idle_expiry",
+        "tests/test_v1_sessions.py::test_session_upgrade_restart",
+        "tests/test_schema_version.py::test_fresh_database_is_created_and_stamped",
+        "tests/test_schema_version.py::test_older_database_is_backed_up_then_upgraded_in_place",
+        "tests/test_import_scope.py::test_deep_root_scope_is_a_full_run",
+        "tests/test_v1_roots.py::test_members_cannot_see_or_register_roots",
+        "tests/test_music_api.py::test_queue_keeps_requested_order_and_hides_private_and_missing_tracks",
+        "tests/test_jellyfin_music_native.py::test_member_queue_duplicates_rewind_conflict_and_visibility_pruning",
+        "tests/test_library_search_fts.py::test_item_visibility_is_enforced_for_item_text",
+        "tests/test_playback_storage.py::test_full_ram_playback_storage_refuses_a_new_session",
+        "tests/test_media_response.py::test_media_file_response_keeps_head_and_multipart_range_semantics",
+        "tests/test_music_api.py::test_create_release_checks_album_bases_uses_destination_artist_and_undoes_atomically",
+        "tests/test_jellyfin_playlists.py::test_remove_and_move_by_entry_id_and_a_stale_revision_conflicts",
+        "tests/test_library_automation_safety.py::test_a_scheduled_run_left_running_is_adopted_after_restart",
+        "tests/test_remote_playback_progress_api.py::test_atomic_clear_beats_an_older_concurrent_checkpoint_from_the_same_player"
+      ],
+      "expected_skips": []
+    },
+    "full": {
+      "selectors": [
+        "tests"
+      ],
+      "expected_skips": [
+        {
+          "nodeid": "tests/perf/test_live_youtube_budgets.py::test_library_channels_on_5000_videos_and_400_channels",
+          "reason": "set PERF_TITLES_ROOT (make perf-titles)"
+        },
+        {
+          "nodeid": "tests/perf/test_live_youtube_budgets.py::test_annotation_of_120_entries_is_two_queries_within_10_ms",
+          "reason": "set PERF_TITLES_ROOT (make perf-titles)"
+        },
+        {
+          "nodeid": "tests/perf/test_live_youtube_budgets.py::test_live_with_50_follows_and_a_96_item_snapshot",
+          "reason": "set PERF_TITLES_ROOT (make perf-titles)"
+        },
+        {
+          "nodeid": "tests/perf/test_live_youtube_budgets.py::test_a_channel_page_cache_hit",
+          "reason": "set PERF_TITLES_ROOT (make perf-titles)"
+        },
+        {
+          "nodeid": "tests/perf/test_reco_budgets.py::test_reco_api_budgets",
+          "reason": "set PERF_TITLES_ROOT (make perf-titles)"
+        },
+        {
+          "nodeid": "tests/perf/test_reco_title_budgets.py::test_more_like_this_on_10000_titles",
+          "reason": "set PERF_TITLES_ROOT (make perf-titles)"
+        },
+        {
+          "nodeid": "tests/perf/test_reco_title_budgets.py::test_title_rows_on_10000_titles",
+          "reason": "set PERF_TITLES_ROOT (make perf-titles)"
+        },
+        {
+          "nodeid": "tests/perf/test_title_budgets.py::test_title_api_budgets",
+          "reason": "set PERF_TITLES_ROOT (make perf-titles)"
+        },
+        {
+          "nodeid": "tests/test_media_segments.py::test_fingerprint_finds_a_shared_intro_at_different_offsets[chromaprint]",
+          "reason": "this ffmpeg has no chromaprint muxer (jellyfin-ffmpeg has)"
+        },
+        {
+          "nodeid": "tests/test_title_image_upload.py::test_an_encoder_past_its_address_space_fails_cleanly",
+          "reason": "RLIMIT_AS is enforced on Linux only"
+        },
+        {
+          "nodeid": "tests/test_v1_transcode.py::test_hdr10_tone_maps_in_software",
+          "reason": "needs libx265 and zscale (jellyfin-ffmpeg has both)"
+        }
+      ]
+    }
+  }
+}

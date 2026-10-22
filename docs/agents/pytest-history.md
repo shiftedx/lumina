@@ -365,6 +365,9 @@ therefore executed and passed twice. The only serial exceptions are the eight
 seeded p95 measurements documented in the ledger.
 
 Reports, executable commands, source version and exact reconciliation are in
-[readiness](../BACKEND_READINESS.md). The final repository gate is still running
-its browser phase; backend, bootstrap, TypeScript, bundle and all 2,659 Vitest
-tests have passed. The earlier failure logs above remain part of the evidence.
+[readiness](../BACKEND_READINESS.md). The final repository gate exited 0:
+bootstrap/runner (15), tier-driver (3), TypeScript, bundle, both backend
+repetitions, 2,659 Vitest tests across 305 files, and all 650 Playwright cases
+(1,031.952 s; zero skips, unexpected failures or flaky results). The app source
+remained `b8d52f7`; subsequent commits only record verification evidence.
+The earlier failure logs above remain part of the evidence.

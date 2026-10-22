@@ -3,8 +3,8 @@
 The audit starts at `b3c5ff7`: **5,290 expanded cases / 3,860 authored templates**.
 After pruning: **5,285 cases / 3,855 templates**, with six deletions, one new cover-art/HDR contract, and no moves.
 
-**Backend qualification is green.** The repository-wide gate is awaiting its
-browser phase; its final result will be recorded below.
+**Qualification is complete.** Every retained backend case passed twice in its
+appropriate cohort, and the full repository gate passed at the same app source.
 
 The [case ledger](agents/pytest-ledger.md) records every original case. The
 [history and negative controls](agents/pytest-history.md) name retained coverage
@@ -132,7 +132,12 @@ including seven caption labels and two documented cache-test renames.
 The wall-time improvement includes parallel execution and readable parameter
 IDs; it is not attributed to deleting six tests.
 
-Repository gate: pending browser completion. Its bootstrap/runner checks,
-TypeScript, production build, both backend repetitions, and **2,659 Vitest
-tests** have passed. Log: `/tmp/lumina-pytest-merge-check.log`.
-Standards and Spec source reviews found no remaining actionable issues.
+`mise exec -- make check BACKEND_REPEAT=2` exited 0 at app source `b8d52f7`:
+bootstrap/runner checks (15), tier-driver checks (3), TypeScript, production
+build, both backend repetitions, **2,659 Vitest tests / 305 files**, and
+**650 Playwright cases in 1,031.952 s**. Browser skips, unexpected failures and
+flaky results were all zero; its 2,700 s budget was met. Later commits only
+record this evidence in documentation. Log: `/tmp/lumina-pytest-merge-check.log`;
+browser report: `/tmp/lumina-playwright-tier.ytF4v1/full-report.json`.
+Standards and Spec source/documentation reviews found no remaining actionable
+issues.

@@ -141,8 +141,20 @@ def run_xcode(arguments: list[str], log: Path, host_wait_seconds: int) -> tuple[
             process = subprocess.Popen(wrapped, cwd=APPLE, text=True, stdout=stream, stderr=subprocess.STDOUT,
                                        start_new_session=True)
             try:
-                process.wait(timeout=3000)
-            except (KeyboardInterrupt, subprocess.TimeoutExpired):
+                deadline = time.monotonic() + 3000
+                peak_load = 0.0
+                while process.poll() is None:
+                    load = os.getloadavg()[0]
+                    peak_load = max(peak_load, load)
+                    if load >= 20:
+                        stream.write(f"\nHost load1 exceeded 20 ({load:.2f}); cancelling this owned run.\n")
+                        stream.flush()
+                        raise RuntimeError("host load exceeded the qualification ceiling")
+                    if time.monotonic() >= deadline:
+                        raise subprocess.TimeoutExpired(arguments, 3000)
+                    time.sleep(1)
+                stream.write(f"\nPeak host load1: {peak_load:.2f}\n")
+            except (KeyboardInterrupt, subprocess.TimeoutExpired, RuntimeError):
                 os.killpg(process.pid, signal.SIGTERM)
                 try:
                     process.wait(timeout=30)
@@ -182,7 +194,7 @@ def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_fil
     derived = output / f"derived-{platform}"
     build_log = output / f"{platform}-build.log"
     try:
-        base = ["xcodebuild", "-project", "Lumina.xcodeproj", "-scheme", scheme,
+        base = ["xcodebuild", "-jobs", "2", "-project", "Lumina.xcodeproj", "-scheme", scheme,
                 "-destination", f"platform={platform} Simulator,id={simulator}",
                 "-derivedDataPath", str(derived), f"LUMINA_NATIVE_BROKER_FILE={broker_file}"]
         code, build_seconds = run_xcode([*base, "build-for-testing"], build_log, host_wait_seconds)

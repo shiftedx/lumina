@@ -4,9 +4,9 @@ Scope: all 16 native UI methods at `f912b52`. Updated after the user's
 2026-10-21 direction to avoid investing in UI that is being replaced.
 
 Before: **16 iOS + 8 executable tvOS = 24 platform cases** (tvOS also discovered
-three intentional skips). Proposed after: **7 iOS + 5 tvOS = 12 cases**, with no
+three intentional skips). After: **7 iOS + 5 tvOS = 12 cases**, with no
 intentionally skipped selected cases. Smoke contains four playback cases.
-Runtime qualification of this reduced cohort is pending.
+The reduced full cohort passed twice in parallel; smoke timing is pending.
 
 Evidence answers **“Has this ever failed in a way that indicated an actual
 regression?”** Only an existing failure leading to an app-code fix counts.
@@ -112,5 +112,18 @@ the user redirected work toward contracts that survive the redesign.
   cannot support a before/after speedup claim. A complete obsolete-UI baseline
   will not be run merely to produce a number.
 
-Reduced-cohort parallel passes and tier wall times remain pending. Do not claim
-completion or budget success until the exact retained selections pass twice.
+## Reduced-cohort qualification
+
+The committed reduced full tier passed twice: **12/12 each repeat**, zero failures,
+zero skips, all four explicit shards green (iOS 4+3; tvOS 3+2). Cross-platform
+wall times were **733.433 seconds (12m13s)** and **576.970 seconds (9m37s)**,
+both below 2,700 seconds. The first includes 243.001 seconds of actual concurrent
+cold-simulator setup span. Builds were separately recorded: iOS 10.026 seconds,
+tvOS 14.061 seconds. Total invocation including builds, both repeats and cleanup:
+1,331.750 seconds. Peak observed load1 reached 1,004.95; no delay was subtracted.
+
+Evidence: `/tmp/lumina-ui-signal-durable-full-1/full-report.json` and eight
+`*-full-{1,2}-shard-{1,2}.xcresult` bundles. Both historical regression methods
+and all-format reader restoration passed on each selected platform twice.
+The four-case smoke tier's independent two-pass measurement remains pending.
+

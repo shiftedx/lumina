@@ -23,7 +23,8 @@ class AuthenticatedActivityMiddleware:
                 (value for name, value in message.get("headers", ()) if name.lower() == b"content-type"),
                 b"",
             )
-            if content_type.split(b";", 1)[0].strip().lower() == b"text/event-stream":
+            # GET subscriptions are passive; finite POST imports remain active through their last result.
+            if scope.get("method") == "GET" and content_type.split(b";", 1)[0].strip().lower() == b"text/event-stream":
                 background_work.end_request(scope)
 
         try:

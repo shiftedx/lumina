@@ -710,7 +710,7 @@ describe('browser routes', () => {
     act(() => { openAppPath('/watch/library/track-1?t=19'); });
 
     await waitFor(() => expect(mocks.playMusic).toHaveBeenCalledWith('user-1', { item_ids: ['track-1'] }, 'track-1', 19));
-    expect(window.location.pathname).toBe('/audio/title/artist-1');
+    await waitFor(() => expect(window.location.pathname).toBe('/audio/title/artist-1'));
   });
 
   it('reports a rejected foreground music start through the shell error UI', async () => {

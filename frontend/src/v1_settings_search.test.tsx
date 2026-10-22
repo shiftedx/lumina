@@ -12,7 +12,7 @@ afterEach(() => { vi.resetAllMocks(); vi.restoreAllMocks(); });
 const base = { id: 'u1', username: 'dana', display_name: 'Dana', is_active: true, bio: '', created_at: '', updated_at: '' };
 const viewer = { ...base, role: 'viewer' as const };
 const admin = { ...base, role: 'admin' as const };
-const media: MediaServerSettings = { jellyfin_enabled: false, jellyfin_url: null, has_tmdb_key: false, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10 };
+const media: MediaServerSettings = { jellyfin_enabled: false, jellyfin_url: null, has_tmdb_key: false, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, plex_import_url: null };
 const prefs = { normalizeLoudness: false, autoSkip: { intro: false, credits: false, recap: false }, profanity: { enabled: false, words: [] } };
 function shell(owner = false, start: SettingsLocation = { section: null, page: null, space: 'personal' }) {
   api.listBackups.mockResolvedValue({ backups: [], schedule: { daily: false, keep: 7 } });

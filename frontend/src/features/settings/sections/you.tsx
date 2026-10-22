@@ -11,6 +11,7 @@ import { RequestNotifications } from './requestsNotifications';
 import { ConnectedApps } from '../ConnectedApps';
 import { TwoFactorSettings } from '../TwoFactorSettings';
 import { JellyfinHistoryImport } from '../JellyfinHistoryImport';
+import { PlexHistoryImport } from '../PlexHistoryImport';
 import { PersonalResources } from '../HouseholdResources';
 import { ListeningExportRows } from '../ListeningExportRows';
 import { YouTubeSessionSettings } from '../YouTubeSessionSettings';
@@ -221,6 +222,7 @@ export const YOU_SECTIONS: readonly SettingsSectionDef[] = [
     entries: [
       { id: 'privacy.export', label: 'Data export', keywords: ['export my data', 'download my data', 'json', 'portable', 'copy'], info: 'Downloads a JSON file of your own preferences, follows, watch queue, notes, search history and playback progress. Nothing is shared or synced; it is a private copy for you.', Control: DataExportCard },
       { id: 'privacy.jellyfin-history', label: 'Watch history from Jellyfin', layout: 'block', keywords: ['import', 'jellyfin', 'migrate', 'move from jellyfin', 'watched', 'resume', 'favorites', 'preview', 'import history'], info: "Brings what you watched, where you stopped and your favorites over from the household's Jellyfin server, for the movies and episodes Lumina also has. Preview shows what would change first; nothing you watched more recently in Lumina is overwritten, and your Jellyfin password is used once and never saved. Affects only you.", Control: JellyfinHistoryImport },
+      { id: 'privacy.plex-history', label: 'Watch history from Plex', layout: 'block', keywords: ['import', 'plex', 'migrate', 'move from plex', 'watched', 'resume', 'preview', 'import history'], info: "Brings what you watched and where you stopped over from the household's Plex server, for movies and episodes Lumina also has. Preview shows what would change first; nothing you watched more recently in Lumina is overwritten, and your Plex token is used once and never saved. Affects only you.", Control: PlexHistoryImport },
       { id: 'privacy.search-history', label: 'Search history', keywords: ['recent searches', 'clear', 'suggestions'], info: 'Your recent searches, used for search suggestions. Clearing removes them all, and you can also remove one from the suggestions list. Affects only you.', Control: SearchHistory },
     ],
   },

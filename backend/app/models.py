@@ -726,6 +726,7 @@ class AppSettings(Base):
     model_threads: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # The household's old Jellyfin server that members import watch history from; NULL = importing off (ADR 0010).
     jellyfin_import_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plex_import_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Folder names whose titles are Anime rather than Movies or Shows; [] = nothing is anime.
     anime_folders: Mapped[list] = mapped_column(JSON, default=lambda: ["Anime"], server_default=text("'[\"Anime\"]'"), nullable=False)
     # 2.1.0 (ADR 0016): household members may edit title details too; vault owners always can.

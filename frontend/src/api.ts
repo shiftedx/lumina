@@ -83,6 +83,11 @@ import type {
   JellyfinHousehold,
   JellyfinImportStatus,
   JellyfinImportSummary,
+  PlexHousehold,
+  PlexImportStatus,
+  HouseholdTransfer,
+  HouseholdTransferProvider,
+  HouseholdTransferRequest,
   MediaSegmentList,
   MediaServerSettings,
   MediaServerSettingsUpdate,
@@ -245,7 +250,7 @@ export async function requestJson<T>(path: string, init?: RequestInit, options?:
 const enc = encodeURIComponent;
 const json = (payload: unknown) => (payload === undefined ? undefined : JSON.stringify(payload));
 export const post = <T>(path: string, payload?: unknown, options?: RequestJsonOptions) => requestJson<T>(path, { method: 'POST', body: json(payload) }, options);
-export const put = <T>(path: string, payload: unknown) => requestJson<T>(path, { method: 'PUT', body: json(payload) });
+export const put = <T>(path: string, payload: unknown, options?: RequestJsonOptions) => requestJson<T>(path, { method: 'PUT', body: json(payload) }, options);
 const patch = <T>(path: string, payload: unknown) => requestJson<T>(path, { method: 'PATCH', body: json(payload) });
 export const del = <T = void>(path: string) => requestJson<T>(path, { method: 'DELETE' });
 
@@ -289,6 +294,13 @@ export const runJellyfinImport = (username: string, password: string): Promise<J
 const JELLYFIN_HOUSEHOLD_TIMEOUT = { timeoutMs: 600000 };
 export const previewJellyfinHousehold = (username: string, password: string): Promise<JellyfinHousehold> => post('/api/admin/jellyfin-household/preview', { username, password }, JELLYFIN_HOUSEHOLD_TIMEOUT);
 export const runJellyfinHousehold = (username: string, password: string, jellyfinIds: string[]): Promise<JellyfinHousehold> => post('/api/admin/jellyfin-household', { username, password, jellyfin_ids: jellyfinIds }, JELLYFIN_HOUSEHOLD_TIMEOUT);
+export const getPlexImport = (): Promise<PlexImportStatus> => requestJson('/api/me/plex-import');
+export const previewPlexImport = (token: string): Promise<JellyfinImportSummary> => post('/api/me/plex-import/preview', { token }, JELLYFIN_IMPORT_TIMEOUT);
+export const runPlexImport = (token: string): Promise<JellyfinImportSummary> => post('/api/me/plex-import', { token }, JELLYFIN_IMPORT_TIMEOUT);
+// Plex household discovery and history reads may span every accessible shared user.
+const PLEX_HOUSEHOLD_TIMEOUT = { timeoutMs: 600000 };
+export const previewPlexHousehold = (token: string): Promise<PlexHousehold> => post('/api/admin/plex-household/preview', { token }, PLEX_HOUSEHOLD_TIMEOUT);
+export const runPlexHousehold = (token: string, plexIds: string[]): Promise<PlexHousehold> => post('/api/admin/plex-household', { token, plex_ids: plexIds }, PLEX_HOUSEHOLD_TIMEOUT);
 
 /** Warm the preview a click on this source would run. */
 export const prefetchRemote = (sourceUrl: string): Promise<{ accepted: boolean }> => post('/api/remote/prefetch', { source_url: sourceUrl, supported_profiles: browserSupportedPlaybackProfiles() });
@@ -943,7 +955,9 @@ export const disableTwoFactor = (password: string, code: string): Promise<void> 
 export const regenerateRecoveryCodes = (password: string, code: string): Promise<{ recovery_codes: string[] }> => post('/api/me/two-factor/recovery-codes', { password, code });
 export const resetMemberTwoFactor = (userId: string): Promise<void> => del(`/api/admin/users/${enc(userId)}/two-factor`);
 export const getMediaServerSettings = (): Promise<MediaServerSettings> => requestJson('/api/admin/media-server');
-export const updateMediaServerSettings = (payload: MediaServerSettingsUpdate): Promise<MediaServerSettings> => put('/api/admin/media-server', payload);
+export const updateMediaServerSettings = (payload: MediaServerSettingsUpdate, options?: RequestJsonOptions): Promise<MediaServerSettings> => put('/api/admin/media-server', payload, options);
+export const discoverHouseholdTransfer = (provider: HouseholdTransferProvider, payload: HouseholdTransferRequest, signal?: AbortSignal): Promise<HouseholdTransfer> =>
+  post(`/api/admin/household-transfer/${provider}/discover`, payload, { signal, timeoutMs: 120000 });
 export const runTranscodeDiagnostics = (): Promise<TranscodeDiagnostics> => post('/api/admin/media-server/transcode-diagnostics', undefined, { timeoutMs: 60000 });
 
 export const listSubtitleTracks = (itemId: string): Promise<SubtitleTrack[]> => requestJson(`/api/library/${enc(itemId)}/subtitle-tracks`, undefined, BACKGROUND);

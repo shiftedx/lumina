@@ -1613,6 +1613,7 @@ export interface MediaServerSettings {
   max_playback_sessions: number;
   transcode_cache_gb: number;
   jellyfin_import_url?: string | null;
+  plex_import_url: string | null;
   anime_folders?: string[];
   recategorising?: boolean;
   members_edit_metadata?: boolean;
@@ -1627,6 +1628,7 @@ export interface MediaServerSettingsUpdate {
   max_playback_sessions?: number | null;
   transcode_cache_gb?: number | null;
   jellyfin_import_url?: string | null;
+  plex_import_url?: string | null;
   anime_folders?: string[] | null;
   members_edit_metadata?: boolean | null;
 }
@@ -1674,6 +1676,68 @@ export interface JellyfinHouseholdMember {
 export interface JellyfinHousehold {
   members: JellyfinHouseholdMember[];
 }
+
+export interface PlexImportRequest {
+  token: string;
+}
+
+export interface PlexHouseholdRequest extends PlexImportRequest {
+  plex_ids: string[];
+}
+
+export interface PlexImportStatus {
+  server: string | null;
+}
+
+export interface PlexHouseholdMember {
+  plex_id: string;
+  plex_name: string;
+  disabled: boolean;
+  action: 'import' | 'create' | 'skip';
+  lumina_username?: string | null;
+  reason?: string | null;
+  error?: string | null;
+  summary?: JellyfinImportSummary | null;
+  reset_url?: string | null;
+  reset_expires_at?: string | null;
+}
+
+export interface PlexHousehold {
+  members: PlexHouseholdMember[];
+}
+
+export type HouseholdTransferProvider = 'plex' | 'jellyfin';
+
+export interface HouseholdTransferRequest {
+  username?: string;
+  password?: string;
+  token?: string;
+  member_ids?: string[];
+}
+
+export interface HouseholdTransferMember {
+  source_id: string;
+  source_name: string;
+  disabled: boolean;
+  action: 'import' | 'create' | 'skip';
+  lumina_username?: string | null;
+  reason?: string | null;
+  error?: string | null;
+  summary?: JellyfinImportSummary | null;
+  reset_url?: string | null;
+  reset_expires_at?: string | null;
+}
+
+export interface HouseholdTransfer {
+  members: HouseholdTransferMember[];
+}
+
+export type HouseholdTransferEvent =
+  | { type: 'connecting' }
+  | { type: 'progress'; source_id: string; source_name: string; completed: number; total: number }
+  | { type: 'member'; member: HouseholdTransferMember; completed: number; total: number }
+  | { type: 'complete'; completed: number; total: number }
+  | { type: 'error'; message: string };
 
 export interface TranscodeDiagnostics {
   hwaccel: HwaccelMode;

@@ -182,6 +182,12 @@ def test_v5_adds_the_jellyfin_import_address(tmp_path, monkeypatch) -> None:  # 
     assert "jellyfin_import_url" in columns["app_settings"]
 
 
+def test_v33_adds_the_plex_import_address(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    columns = _columns(_init(tmp_path, monkeypatch))
+    assert db_module.SCHEMA_VERSION >= 33
+    assert "plex_import_url" in columns["app_settings"]
+
+
 def _sqlite_indexes(engine, table: str) -> set[str]:  # noqa: ANN001
     """Index names from sqlite_master: the inspector skips expression indexes such as ix_media_titles_type_sort."""
     with engine.connect() as connection:

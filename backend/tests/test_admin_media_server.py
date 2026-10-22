@@ -18,7 +18,7 @@ from support import make_user
 DEFAULTS = {
     "jellyfin_enabled": False, "jellyfin_url": None, "jellyfin_public_url": None, "has_tmdb_key": False, "metadata_language": "en-US",
     "introdb_enabled": False, "hwaccel": "auto", "max_playback_sessions": 2, "transcode_cache_gb": 10,
-    "jellyfin_import_url": None, "anime_folders": ["Anime"], "recategorising": False,
+    "jellyfin_import_url": None, "plex_import_url": None, "anime_folders": ["Anime"], "recategorising": False,
     "members_edit_metadata": False,
 }
 
@@ -75,6 +75,8 @@ def test_env_key_and_public_url_are_reported(admin, monkeypatch) -> None:
     {"max_playback_sessions": 17}, {"jellyfin_server_key": "ab" * 32}, {"tmdb_api_key": "k" * 513},
     {"jellyfin_import_url": "ftp://jf.lan"}, {"jellyfin_import_url": "http://alice:pw@jf.lan:8096"},
     {"jellyfin_import_url": "http://jf.lan:8096/?api_key=x"}, {"jellyfin_import_url": "jf.lan:8096"},
+    {"plex_import_url": "ftp://plex.lan"}, {"plex_import_url": "http://alice:token@plex.lan:32400"},
+    {"plex_import_url": "http://plex.lan:32400/?X-Plex-Token=secret"}, {"plex_import_url": "plex.lan:32400"},
     {"anime_folders": ["TV/Anime"]}, {"anime_folders": [".."]},
 ])
 def test_invalid_updates_are_422_and_change_nothing(admin, payload) -> None:
@@ -83,14 +85,18 @@ def test_invalid_updates_are_422_and_change_nothing(admin, payload) -> None:
     assert client.get("/api/admin/media-server").json() == DEFAULTS
 
 
-def test_jellyfin_import_address_is_saved_trimmed_and_cleared(admin) -> None:
+@pytest.mark.parametrize(("field", "address"), [
+    ("jellyfin_import_url", "http://192.168.1.20:8096"),
+    ("plex_import_url", "http://192.168.1.21:32400"),
+])
+def test_import_address_is_saved_trimmed_and_cleared(admin, field, address) -> None:  # noqa: ANN001
     client, *_ = admin
-    saved = client.put("/api/admin/media-server", json={"jellyfin_import_url": " http://192.168.1.20:8096/ "})
+    saved = client.put("/api/admin/media-server", json={field: f" {address}/ "})
     assert saved.status_code == 200, saved.text
-    assert saved.json()["jellyfin_import_url"] == "http://192.168.1.20:8096"
-    assert client.put("/api/admin/media-server", json={}).json()["jellyfin_import_url"] == "http://192.168.1.20:8096"
-    assert client.get("/api/admin/media-server").json()["jellyfin_import_url"] == "http://192.168.1.20:8096"
-    assert client.put("/api/admin/media-server", json={"jellyfin_import_url": ""}).json()["jellyfin_import_url"] is None
+    assert saved.json()[field] == address
+    assert client.put("/api/admin/media-server", json={}).json()[field] == address
+    assert client.get("/api/admin/media-server").json()[field] == address
+    assert client.put("/api/admin/media-server", json={field: ""}).json()[field] is None
 
 
 def test_members_cannot_read_or_change_media_server_settings(admin) -> None:

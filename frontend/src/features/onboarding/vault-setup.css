@@ -45,7 +45,7 @@
 .g-vault-actions .g-button { min-height: 44px; }
 
 @media (max-width: 1199px) {
-  .g-vault-setup { grid-template-columns: 1fr; }
+  .g-vault-setup { grid-template-columns: 1fr; grid-template-rows: 160px auto; }
   .g-vault-art { position: relative; height: 160px; }
   .g-vault-workspace { padding-top: var(--g-space-5); }
   .g-vault-root { grid-template-columns: minmax(0, 1fr) auto; }
@@ -54,6 +54,7 @@
 }
 
 @media (max-width: 599px) {
+  .g-vault-setup { grid-template-rows: 120px auto; }
   .g-vault-art { height: 120px; }
   .g-vault-workspace { padding: var(--g-space-4) var(--g-gutter) calc(var(--g-space-4) + env(safe-area-inset-bottom)); }
   .g-vault-header { gap: var(--g-space-2); padding-bottom: var(--g-space-5); }

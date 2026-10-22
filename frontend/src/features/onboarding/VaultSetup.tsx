@@ -58,7 +58,7 @@ function ScanStatus({ state }: { state: ScanState }) {
   return <p className="g-vault-scan-status">Ready to scan when you are.</p>;
 }
 
-export function VaultSetup({ onContinue, error = null }: { onContinue: () => Promise<void>; error?: string | null }) {
+export function VaultSetup({ onContinue, error = null, active = true }: { onContinue: () => Promise<void>; error?: string | null; active?: boolean }) {
   const alive = useRef(true);
   const loadGeneration = useRef(0);
   const latestRunIds = useRef<Record<string, string>>({});
@@ -116,14 +116,15 @@ export function VaultSetup({ onContinue, error = null }: { onContinue: () => Pro
 
   useEffect(() => {
     alive.current = true;
-    headingRef.current?.focus({ preventScroll: true });
     void load();
     return () => { alive.current = false; loadGeneration.current += 1; };
   }, []);
 
+  useEffect(() => { if (active) headingRef.current?.focus({ preventScroll: true }); }, [active]);
+
   useEffect(() => {
     const activeRootIds = new Set(Object.entries(scanStates).filter(([, state]) => state.kind === 'active').map(([id]) => id));
-    if (!activeRootIds.size) return;
+    if (!active || !activeRootIds.size) return;
     const generation = loadGeneration.current;
     let current = true;
     let timer: number;
@@ -138,7 +139,7 @@ export function VaultSetup({ onContinue, error = null }: { onContinue: () => Pro
     };
     schedule();
     return () => { current = false; window.clearTimeout(timer); };
-  }, [scanStates]);
+  }, [active, scanStates]);
 
   const interactionBusy = loadState === 'loading' || busy !== null;
   const allowedLocationHint = mountParents.length

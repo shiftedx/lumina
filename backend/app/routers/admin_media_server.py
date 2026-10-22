@@ -33,6 +33,7 @@ def serialize_media_server(record: AppSettings) -> MediaServerSettings:
         max_playback_sessions=record.max_playback_sessions or 2,
         transcode_cache_gb=record.transcode_cache_gb or 10,
         jellyfin_import_url=record.jellyfin_import_url or None,
+        plex_import_url=record.plex_import_url or None,
         anime_folders=list(record.anime_folders) if record.anime_folders is not None else ["Anime"],
         recategorising=categories.recategorising(),
         members_edit_metadata=bool(record.members_edit_metadata),
@@ -52,7 +53,7 @@ def update_media_server_settings(payload: MediaServerSettingsUpdate, db: Session
                 value = value.strip() or None  # "" removes the saved key; the env default applies again
             elif value is None:
                 continue
-            elif field == "jellyfin_import_url":
+            elif field in ("jellyfin_import_url", "plex_import_url"):
                 value = value or None  # "" (already validated) turns importing off
             setattr(record, field, value)
         if payload.anime_folders is not None and not categories.same_folders(payload.anime_folders, folders):

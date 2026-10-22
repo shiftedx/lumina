@@ -66,6 +66,11 @@ def media_tool(db: Session, name: str) -> str | None:
     return shutil.which(name)
 
 
+def _attached_picture(stream: dict[str, Any]) -> bool:
+    disposition = stream.get("disposition")
+    return isinstance(disposition, dict) and bool(disposition.get("attached_pic"))
+
+
 def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
     """ffprobe JSON for one file; bounded time and output, no shell."""
     try:
@@ -94,7 +99,7 @@ def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
         stream for stream in streams
         if isinstance(stream, dict)
         and stream.get("codec_type") == "video"
-        and not (stream.get("disposition") or {}).get("attached_pic")
+        and not _attached_picture(stream)
     ), None)
     transfer = first_video.get("color_transfer") if first_video else None
     if (
@@ -203,7 +208,7 @@ def _stream(raw: dict[str, Any]) -> dict[str, Any]:
 def normalize(raw: dict[str, Any], filename: str) -> dict[str, Any]:
     """Compact facts (container, first real video/audio stream, subtitle codecs) plus every stream."""
     streams = [s for s in raw.get("streams") or [] if isinstance(s, dict)]
-    video = next((s for s in streams if s.get("codec_type") == "video" and not (s.get("disposition") or {}).get("attached_pic")), None)
+    video = next((s for s in streams if s.get("codec_type") == "video" and not _attached_picture(s)), None)
     audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
     fmt = raw.get("format") or {}
     try:
@@ -213,7 +218,7 @@ def normalize(raw: dict[str, Any], filename: str) -> dict[str, Any]:
     listed = [
         _stream(s) for s in streams
         if s.get("codec_type") in _STREAM_TYPES and _int(s.get("index")) is not None
-        and not (s.get("codec_type") == "video" and (s.get("disposition") or {}).get("attached_pic"))
+        and not (s.get("codec_type") == "video" and _attached_picture(s))
     ]
     return {
         "container": str(fmt.get("format_name") or ""),

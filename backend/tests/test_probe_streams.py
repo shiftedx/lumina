@@ -54,7 +54,7 @@ def test_frame_colors_follow_playable_video_when_cover_art_comes_first(monkeypat
             "streams": [
                 {"index": 0, "codec_type": "video", "codec_name": "mjpeg", "disposition": {"attached_pic": 1}},
                 {"index": 1, "codec_type": "audio", "codec_name": "aac"},
-                {"index": 2, "codec_type": "video", "codec_name": "hevc", "color_space": "bt2020nc"},
+                {"index": 2, "codec_type": "video", "codec_name": "hevc", "color_space": "bt2020nc", "disposition": "bad"},
             ],
         },
         {"frames": [{"stream_index": 2, "color_space": "bt2020nc", "color_transfer": "smpte2084", "color_primaries": "bt2020"}]},

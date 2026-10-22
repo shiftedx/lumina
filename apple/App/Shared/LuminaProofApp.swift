@@ -16,6 +16,7 @@ struct LuminaProofApp: App {
                 MobileRootView(store: store)
                 #endif
             }
+            .defaultAppStorage(LuminaPreferences.defaults)
             .task {
                 guard !didRestore else { return }
                 didRestore = true
@@ -48,4 +49,17 @@ struct PlaybackLicensesView: View {
             }
         }
     }
+}
+
+@MainActor
+enum LuminaPreferences {
+    static let defaults: UserDefaults = {
+        #if DEBUG
+        if let namespace = ProcessInfo.processInfo.environment["LUMINA_UI_TEST_NAMESPACE"],
+           UUID(uuidString: namespace) != nil {
+            return UserDefaults(suiteName: "dev.lumina.ui-test.\(namespace)")!
+        }
+        #endif
+        return .standard
+    }()
 }

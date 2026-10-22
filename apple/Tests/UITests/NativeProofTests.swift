@@ -4,9 +4,122 @@ import XCTest
 import UIKit
 #endif
 
+#if os(iOS)
 @MainActor
-final class NativeProofTests: XCTestCase {
+final class NativeNativeBooksLibraryBrowsesShelvesAndMangaStacksTests: NativeProofJourney {
+    func testNativeBooksLibraryBrowsesShelvesAndMangaStacks() async throws { try await journeyNativeBooksLibraryBrowsesShelvesAndMangaStacks() }
+}
+#endif
+
+#if os(iOS)
+@MainActor
+final class NativeNativeBooksReadTurnResizeAndRestoreAllFormatsTests: NativeProofJourney {
+    func testNativeBooksReadTurnResizeAndRestoreAllFormats() async throws { try await journeyNativeBooksReadTurnResizeAndRestoreAllFormats() }
+}
+#endif
+
+#if os(iOS)
+@MainActor
+final class NativeNativeBooksKeepPhysicalRightInRTLLocaleTests: NativeProofJourney {
+    func testNativeBooksKeepPhysicalRightInRTLLocale() async throws { try await journeyNativeBooksKeepPhysicalRightInRTLLocale() }
+}
+#endif
+
+@MainActor
+final class NativeFeaturedTitlePreservesDetailsAndResumesPlaybackTests: NativeProofJourney {
+    func testFeaturedTitlePreservesDetailsAndResumesPlayback() async throws { try await journeyFeaturedTitlePreservesDetailsAndResumesPlayback() }
+}
+
+#if os(iOS)
+@MainActor
+final class NativeAccountTabAppearancePreservesHomeSelectionAndCompactHeaderTests: NativeProofJourney {
+    func testAccountTabAppearancePreservesHomeSelectionAndCompactHeader() async throws { try await journeyAccountTabAppearancePreservesHomeSelectionAndCompactHeader() }
+}
+#endif
+
+@MainActor
+final class NativeLibraryPullRevealsSearchAndRefreshesProgressTests: NativeProofJourney {
+    func testLibraryPullRevealsSearchAndRefreshesProgress() async throws { try await journeyLibraryPullRevealsSearchAndRefreshesProgress() }
+}
+
+@MainActor
+final class NativeAudioAlbumTrackPlaybackReportsProgressTests: NativeProofJourney {
+    func testAudioAlbumTrackPlaybackReportsProgress() async throws { try await journeyAudioAlbumTrackPlaybackReportsProgress() }
+}
+
+@MainActor
+final class NativeMusicPlaylistsSmartSelectionAndDownloadedPlaybackTests: NativeProofJourney {
+    func testMusicPlaylistsSmartSelectionAndDownloadedPlayback() async throws { try await journeyMusicPlaylistsSmartSelectionAndDownloadedPlayback() }
+}
+
+@MainActor
+final class NativeMusicAdvancedControlsPausedRestoreAndQueueConflictTests: NativeProofJourney {
+    func testMusicAdvancedControlsPausedRestoreAndQueueConflict() async throws { try await journeyMusicAdvancedControlsPausedRestoreAndQueueConflict() }
+}
+
+@MainActor
+final class NativeShowSeasonEpisodeBrowsingAndPlaybackTests: NativeProofJourney {
+    func testShowSeasonEpisodeBrowsingAndPlayback() async throws { try await journeyShowSeasonEpisodeBrowsingAndPlayback() }
+}
+
+@MainActor
+final class NativeVideoWatchedFavoriteAndActivityFiltersTests: NativeProofJourney {
+    func testVideoWatchedFavoriteAndActivityFilters() async throws { try await journeyVideoWatchedFavoriteAndActivityFilters() }
+}
+
+@MainActor
+final class NativeNativePlaybackReportsResumeAndConversionProgressTests: NativeProofJourney {
+    func testNativePlaybackReportsResumeAndConversionProgress() async throws { try await journeyNativePlaybackReportsResumeAndConversionProgress() }
+}
+
+@MainActor
+final class NativeCurrentDuoLayoutKeepsControlsAndPlaybackReachableTests: NativeProofJourney {
+    func testCurrentDuoLayoutKeepsControlsAndPlaybackReachable() async throws { try await journeyCurrentDuoLayoutKeepsControlsAndPlaybackReachable() }
+}
+
+@MainActor
+final class NativeOriginalMKVReportsPeriodicProgressAndResumesTests: NativeProofJourney {
+    func testOriginalMKVReportsPeriodicProgressAndResumes() async throws { try await journeyOriginalMKVReportsPeriodicProgressAndResumes() }
+}
+
+@MainActor
+final class NativeCompatibleHLSReplayRequestsFreshSessionTests: NativeProofJourney {
+    func testCompatibleHLSReplayRequestsFreshSession() async throws { try await journeyCompatibleHLSReplayRequestsFreshSession() }
+}
+
+@MainActor
+class NativeProofJourney: XCTestCase {
     private var application: XCUIApplication?
+    private let isolationID = UUID().uuidString
+    private var brokerFixtureURL: URL?
+    private var cachedFixture: ProofFixture?
+    private var expectedBookFill = true
+
+    override func tearDownWithError() throws {
+        application?.terminate()
+        if let url = brokerFixtureURL {
+            var request = URLRequest(url: url)
+            request.httpMethod = "DELETE"
+            _ = try brokerRequest(request)
+        }
+        try super.tearDownWithError()
+    }
+
+    private func brokerRequest(_ request: URLRequest) throws -> Data {
+        let semaphore = DispatchSemaphore(value: 0)
+        let response = BrokerResponse()
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        session.dataTask(with: request) { data, reply, error in
+            response.data = data
+            response.succeeded = error == nil && (reply as? HTTPURLResponse)?.statusCode == 200
+            semaphore.signal()
+        }.resume()
+        guard semaphore.wait(timeout: .now() + 300) == .success, response.succeeded,
+              let data = response.data else { throw ProofFailure.invalidFixture }
+        return data
+    }
+
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -14,7 +127,7 @@ final class NativeProofTests: XCTestCase {
     }
 
     #if os(iOS)
-    func testNativeBooksLibraryBrowsesShelvesAndMangaStacks() async throws {
+    func journeyNativeBooksLibraryBrowsesShelvesAndMangaStacks() async throws {
         let fixture = try loadFixture()
         guard let shelf = fixture.bookShelfID, let series = fixture.comicSeriesID, let comic = fixture.comicBookID else {
             throw XCTSkip("Generate the current visual Books fixture.")
@@ -37,15 +150,11 @@ final class NativeProofTests: XCTestCase {
         try waitForExistence(element("book-\(comic)"), timeout: 20, named: "volume belonging to the selected manga stack")
     }
 
-    func testNativeBooksReadTurnAndRestoreAllFormats() async throws {
-        try await readTurnAndRestoreBooks(rightToLeft: false)
-    }
-
-    func testNativeBooksReadTurnResizeAndRestoreAllFormats() async throws {
+    func journeyNativeBooksReadTurnResizeAndRestoreAllFormats() async throws {
         try await readTurnAndRestoreBooks(rightToLeft: false, resizing: true, fillByDefault: false)
     }
 
-    func testNativeBooksKeepPhysicalRightInRTLLocale() async throws {
+    func journeyNativeBooksKeepPhysicalRightInRTLLocale() async throws {
         try await readTurnAndRestoreBooks(rightToLeft: true)
     }
 
@@ -60,10 +169,11 @@ final class NativeProofTests: XCTestCase {
         }
     }
 
-    private func readTurnAndRestoreBooks(rightToLeft: Bool, resizing: Bool = false, fillByDefault: Bool = true) async throws {
+    private func readTurnAndRestoreBooks(rightToLeft: Bool, resizing: Bool = false, fillByDefault expectedFill: Bool? = nil) async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
+        let fillByDefault = expectedFill ?? expectedBookFill
         guard let comic = fixture.comicBookID, let prose = fixture.proseBookID,
               let pdf = fixture.pdfBookID, let cbr = fixture.cbrBookID else { throw XCTSkip("Generate the current native Books fixture.") }
         let origin = try localOrigin(from: fixture.serverURL)
@@ -181,7 +291,7 @@ final class NativeProofTests: XCTestCase {
     }
     #endif
 
-    func testFeaturedTitlePreservesDetailsAndResumesPlayback() async throws {
+    func journeyFeaturedTitlePreservesDetailsAndResumesPlayback() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
@@ -351,7 +461,7 @@ final class NativeProofTests: XCTestCase {
     }
 
     #if os(iOS)
-    func testAccountTabAppearancePreservesHomeSelectionAndCompactHeader() async throws {
+    func journeyAccountTabAppearancePreservesHomeSelectionAndCompactHeader() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
@@ -441,7 +551,7 @@ final class NativeProofTests: XCTestCase {
     }
     #endif
 
-    func testLibraryPullRevealsSearchAndRefreshesProgress() async throws {
+    func journeyLibraryPullRevealsSearchAndRefreshesProgress() async throws {
         #if os(iOS)
         let fixture = try loadFixture()
         let origin = try localOrigin(from: fixture.serverURL)
@@ -482,7 +592,7 @@ final class NativeProofTests: XCTestCase {
         #endif
     }
 
-    func testAudioAlbumTrackPlaybackReportsProgress() async throws {
+    func journeyAudioAlbumTrackPlaybackReportsProgress() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
@@ -626,7 +736,7 @@ final class NativeProofTests: XCTestCase {
         completed = true
     }
 
-    func testMusicPlaylistsSmartSelectionAndDownloadedPlayback() async throws {
+    func journeyMusicPlaylistsSmartSelectionAndDownloadedPlayback() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
@@ -729,7 +839,7 @@ final class NativeProofTests: XCTestCase {
         completed = true
     }
 
-    func testMusicAdvancedControlsPausedRestoreAndQueueConflict() async throws {
+    func journeyMusicAdvancedControlsPausedRestoreAndQueueConflict() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
@@ -925,7 +1035,7 @@ final class NativeProofTests: XCTestCase {
         #endif
     }
 
-    func testShowSeasonEpisodeBrowsingAndPlayback() async throws {
+    func journeyShowSeasonEpisodeBrowsingAndPlayback() async throws {
         let fixture = try loadFixture()
         let origin = try localOrigin(from: fixture.serverURL)
         let session = makeTestAPISession(origin: origin)
@@ -969,7 +1079,7 @@ final class NativeProofTests: XCTestCase {
         _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.episodeID, minimum: 2)
     }
 
-    func testVideoWatchedFavoriteAndActivityFilters() async throws {
+    func journeyVideoWatchedFavoriteAndActivityFilters() async throws {
         let fixture = try loadFixture()
         let origin = try localOrigin(from: fixture.serverURL)
         let session = makeTestAPISession(origin: origin)
@@ -1045,7 +1155,7 @@ final class NativeProofTests: XCTestCase {
         try await api.setItemState(identity: identity, itemID: fixture.directItemID, played: false, favorite: false)
     }
 
-    func testNativePlaybackReportsResumeAndConversionProgress() async throws {
+    func journeyNativePlaybackReportsResumeAndConversionProgress() async throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
 
@@ -1138,7 +1248,7 @@ final class NativeProofTests: XCTestCase {
         completed = true
     }
 
-    func testCurrentDuoLayoutKeepsControlsAndPlaybackReachable() async throws {
+    func journeyCurrentDuoLayoutKeepsControlsAndPlaybackReachable() async throws {
         #if os(iOS)
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
@@ -1199,7 +1309,7 @@ final class NativeProofTests: XCTestCase {
         #endif
     }
 
-    func testOriginalMKVReportsPeriodicProgressAndResumes() async throws {
+    func journeyOriginalMKVReportsPeriodicProgressAndResumes() async throws {
         let fixture = try loadFixture()
         let origin = try localOrigin(from: fixture.serverURL)
         let session = makeTestAPISession(origin: origin)
@@ -1242,7 +1352,7 @@ final class NativeProofTests: XCTestCase {
         try closePlayer()
     }
 
-    func testCompatibleHLSReplayRequestsFreshSession() async throws {
+    func journeyCompatibleHLSReplayRequestsFreshSession() async throws {
         #if os(iOS)
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
@@ -1341,7 +1451,22 @@ final class NativeProofTests: XCTestCase {
     }
 
     private func loadFixture() throws -> ProofFixture {
+        if let cachedFixture { return cachedFixture }
         let bundle = Bundle(for: Self.self)
+        if let config = bundle.url(forResource: "FixtureBroker", withExtension: "json") {
+            let settings = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: config))
+            // The tier runner owns an unhinged iPad; legacy Duo fixture runs retain Fill.
+            expectedBookFill = false
+            guard let value = settings["brokerURL"], let broker = URL(string: value) else { throw ProofFailure.invalidFixture }
+            _ = try localOrigin(from: "http://\(broker.host ?? ""):\(broker.port ?? 80)")
+            let url = broker.appendingPathComponent(String(describing: type(of: self)))
+            brokerFixtureURL = url
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 295
+            let fixture = try JSONDecoder().decode(ProofFixture.self, from: brokerRequest(request))
+            cachedFixture = fixture
+            return fixture
+        }
         guard let url = bundle.url(forResource: "Fixture", withExtension: "json") else {
             throw XCTSkip(
                 "Fixture.json is absent from the UI-test bundle. The proof harness must generate it with local serverURL, username, password, item ID, and item title strings."
@@ -1386,6 +1511,7 @@ final class NativeProofTests: XCTestCase {
         let app = XCUIApplication()
         application = app
         app.launchArguments.append("--ui-testing")
+        app.launchEnvironment["LUMINA_UI_TEST_NAMESPACE"] = isolationID
         app.launch()
 
         let loginField = element("serverURLField")
@@ -2557,7 +2683,7 @@ private func effectivePort(_ components: URLComponents?) -> Int? {
     }
 }
 
-private extension NativeProofTests {
+private extension NativeProofJourney {
     func waitForServerProgress(
         _ api: ProofAPI,
         identity: APIIdentity,
@@ -2581,4 +2707,10 @@ private extension NativeProofTests {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
+}
+
+// The completion runs off the blocked test actor; the semaphore publishes these values.
+private final class BrokerResponse: @unchecked Sendable {
+    var data: Data?
+    var succeeded = false
 }

@@ -232,7 +232,7 @@ final class NativeAudioSession {
         sleepTimer?.cancel(); sleepTimer = nil; sleepUntil = nil
         restorePreferences(owner: owner)
         guard let owner else { return }
-        dirty = UserDefaults.standard.bool(forKey: "lumina.music.dirty.\(owner)")
+        dirty = LuminaPreferences.defaults.bool(forKey: "lumina.music.dirty.\(owner)")
         let cached = store.music.cachedSession
         if let cached { snapshot = cached }
         do {
@@ -422,7 +422,7 @@ final class NativeAudioSession {
     }
     private func persist() {
         store?.music.persistCheckpoint(snapshot: snapshot, owner: identity)
-        if let identity { UserDefaults.standard.set(dirty, forKey: "lumina.music.dirty.\(identity)") }
+        if let identity { LuminaPreferences.defaults.set(dirty, forKey: "lumina.music.dirty.\(identity)") }
     }
 
     func toggle() async {
@@ -554,7 +554,7 @@ final class NativeAudioSession {
     private func restorePreferences(owner: String?) {
         restoringPreferences = true
         defer { restoringPreferences = false }
-        let values = owner.flatMap { UserDefaults.standard.dictionary(forKey: "lumina.music.preferences.\($0)") }
+        let values = owner.flatMap { LuminaPreferences.defaults.dictionary(forKey: "lumina.music.preferences.\($0)") }
         normalization = values?["normalization"] as? Bool ?? true
         crossfadeSeconds = values?["crossfadeSeconds"] as? Double ?? 0
         volume = Float(values?["volume"] as? Double ?? 0.8)
@@ -564,7 +564,7 @@ final class NativeAudioSession {
         guard !restoringPreferences, let identity, identity == store?.music.sessionIdentity else { return }
         let values: [String: Any] = ["normalization": normalization, "crossfadeSeconds": crossfadeSeconds,
                                      "volume": Double(volume), "compatibility": compatibility]
-        UserDefaults.standard.set(values, forKey: "lumina.music.preferences.\(identity)")
+        LuminaPreferences.defaults.set(values, forKey: "lumina.music.preferences.\(identity)")
     }
 
     private func configureTransport() {
@@ -575,8 +575,8 @@ final class NativeAudioSession {
         sleepUntil = minutes.map { Date().addingTimeInterval(Double($0) * 60) }
         if let identity {
             let key = "lumina.music.sleep.\(identity)"
-            if let sleepUntil { UserDefaults.standard.set(sleepUntil.timeIntervalSince1970, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
+            if let sleepUntil { LuminaPreferences.defaults.set(sleepUntil.timeIntervalSince1970, forKey: key) }
+            else { LuminaPreferences.defaults.removeObject(forKey: key) }
         }
         guard let deadline = sleepUntil else { return }
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
@@ -585,7 +585,7 @@ final class NativeAudioSession {
         sleepTimer = timer; timer.resume()
     }
     private func restoreSleepDeadline(owner: String) {
-        let value = UserDefaults.standard.double(forKey: "lumina.music.sleep.\(owner)")
+        let value = LuminaPreferences.defaults.double(forKey: "lumina.music.sleep.\(owner)")
         if value > Date().timeIntervalSince1970 {
             sleepUntil = Date(timeIntervalSince1970: value)
             let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))

@@ -494,7 +494,13 @@ protocol CredentialStore: AnyObject {
 }
 
 private final class KeychainCredentials: CredentialStore {
-    private let service = "dev.lumina.apple"
+    private let service: String = {
+        #if DEBUG
+        if let namespace = ProcessInfo.processInfo.environment["LUMINA_UI_TEST_NAMESPACE"],
+           UUID(uuidString: namespace) != nil { return "dev.lumina.apple.ui-test.\(namespace)" }
+        #endif
+        return "dev.lumina.apple"
+    }()
     private let deviceKey = "device-id"
     private let sessionKey = "session"
 

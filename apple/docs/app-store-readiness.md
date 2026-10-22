@@ -116,7 +116,7 @@ Tests that previously caused an app-code fix are never deleted.
 | Tier | Intended use | Selected journeys | Budget |
 | --- | --- | --- | --- |
 | smoke | Merge bar for native UI changes | Home/detail/resume, audio/now-playing, show/season/episode, direct/conversion playback on both platforms (8 cases) | <10 minutes wall per complete two-platform run |
-| full | Pre-release | All 16 iOS and 8 executable tvOS cases | <45 minutes wall per complete two-platform run |
+| full | Pre-release | All 15 iOS and 8 executable tvOS cases | <45 minutes wall per complete two-platform run |
 
 The suite has fewer than 50 critical journeys, so smoke retains the relevant
 critical paths without adding tests to meet a count. iOS runs on an isolated

@@ -3,9 +3,10 @@
 Scope: `apple/Tests/UITests/NativeProofTests.swift`, audited 2026-10-21.
 
 The source has 16 XCTest methods: 16 are discovered by the iOS target; tvOS
-compiles 12 (the four Books methods are iOS-only) and intentionally skips the
-Duo and compatible-HLS methods. Therefore the existing effective baseline is
-16 iOS journeys and 10 executable tvOS journeys (12 discovered, 2 skipped).
+compiles 11 (the four Books methods and Account are iOS-only) and intentionally
+skips the pull-gesture, Duo, and compatible-HLS methods. Therefore the existing
+effective baseline is 16 iOS journeys and 8 executable tvOS journeys (11
+discovered, 3 skipped).
 
 `Regression evidence` below has the narrow meaning used by the pruning audit:
 an existing test failed and that failure caused a product-code fix. Creating a
@@ -15,12 +16,12 @@ timing is not evidence.
 | Test | Regression evidence | History finding | Suggested retained coverage / rationale |
 | --- | --- | --- | --- |
 | `testNativeBooksLibraryBrowsesShelvesAndMangaStacks` | No | Added in [PR #140](https://github.com/shiftedx/lumina/pull/140); later change `91439e8` repaired the back-element lookup, a test/UI-navigation drift repair rather than a demonstrated product regression. | iOS journey: native Books destination → shelf → reader → stack membership. |
-| `testNativeBooksReadTurnAndRestoreAllFormats` | No | Added in [PR #140](https://github.com/shiftedx/lumina/pull/140). The PR's failed-prefetch finding is covered by `LuminaBooksTests`, not this UI method. | iOS journey: real reader preparation, page turn, and saved restoration across EPUB/PDF/CBZ/CBR. |
+| `testNativeBooksReadTurnAndRestoreAllFormats` | No | Added in [PR #140](https://github.com/shiftedx/lumina/pull/140). The PR's failed-prefetch finding is covered by `LuminaBooksTests`, not this UI method. | Delete candidate: the resize method performs the same four-format preparation, turn, interaction, and restoration contract, then also proves rotation recovery. With the current shared helper both use `fillByDefault: false`; this method has no unique assertion. |
 | `testNativeBooksReadTurnResizeAndRestoreAllFormats` | No | Added in [PR #140](https://github.com/shiftedx/lumina/pull/140); no later `-S`/`-L` product-fix link. | iOS rotation/reflow journey, the only UI layer that can prove the reader stays usable after a viewport change. |
 | `testNativeBooksKeepPhysicalRightInRTLLocale` | No | Added in [PR #140](https://github.com/shiftedx/lumina/pull/140); no historical failure-to-product-fix link. | iOS RTL/Duo physical page-side journey. |
 | `testFeaturedTitlePreservesDetailsAndResumesPlayback` | No | Added by [PR #115](https://github.com/shiftedx/lumina/pull/115); subsequent `-S` hits are feature/performance updates, not a test failure followed by an app fix. | iOS/tvOS Home → details → resume journey. |
-| `testAccountTabAppearancePreservesHomeSelectionAndCompactHeader` | No | Added by [PR #115](https://github.com/shiftedx/lumina/pull/115); no later app fix attributable to it. | UI navigation/appearance state journey. |
-| `testLibraryPullRevealsSearchAndRefreshesProgress` | No | Added by [PR #115](https://github.com/shiftedx/lumina/pull/115); no later app fix attributable to it. | iOS-only touch pull/search/refresh journey. |
+| `testAccountTabAppearancePreservesHomeSelectionAndCompactHeader` | No | Added by [PR #115](https://github.com/shiftedx/lumina/pull/115); no later app fix attributable to it. | iOS-only UI navigation/appearance state journey. |
+| `testLibraryPullRevealsSearchAndRefreshesProgress` | No | Added by [PR #115](https://github.com/shiftedx/lumina/pull/115); no later app fix attributable to it. | iOS-only touch pull/search/refresh journey; tvOS deliberately skips it. |
 | `testAudioAlbumTrackPlaybackReportsProgress` | No | Added by [PR #115](https://github.com/shiftedx/lumina/pull/115); no later app fix attributable to it. | iOS/tvOS audio playback and server-progress journey. |
 | `testMusicPlaylistsSmartSelectionAndDownloadedPlayback` | No | Added by [PR #115](https://github.com/shiftedx/lumina/pull/115); no later app fix attributable to it. | iOS/tvOS playlist and downloaded-file workflow. |
 | `testMusicAdvancedControlsPausedRestoreAndQueueConflict` | **Yes** | [PR #139](https://github.com/shiftedx/lumina/pull/139) records that the extended TV workflow exposed `List` rows swallowing Select. Commit [`156f33b`](https://github.com/shiftedx/lumina/commit/156f33b9248c6cb2c7915a26c2e63c67b09b6162) fixes `PlaybackScreen.swift` to make queue actions independently focusable and simplifies this method to activate the now-real button. This is an existing-test failure followed by app-code repair. | Must keep: tvOS queue remote-focus/control journey. |

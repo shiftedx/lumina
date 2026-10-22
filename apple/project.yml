@@ -107,10 +107,14 @@ schemes:
       targets:
         Lumina-iOS: all
     test:
-      targets: [Lumina-iOS-UITests]
+      targets:
+        - name: Lumina-iOS-UITests
+          parallelizable: true
   Lumina-tvOS:
     build:
       targets:
         Lumina-tvOS: all
     test:
-      targets: [Lumina-tvOS-UITests]
+      targets:
+        - name: Lumina-tvOS-UITests
+          parallelizable: true

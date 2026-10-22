@@ -2,7 +2,7 @@
 
 Scope: Lumina native Apple XCTest UI suite at `f912b52`, 2026-10-21.
 Status: **in progress**. Verdicts below preserve existing contracts pending current-runtime
-qualification. No test has been deleted or moved yet. A current failure must be
+qualification. One duplicate Books journey is deleted; no test with regression evidence is removed. A current failure must be
 explained and repaired before its verdict is finalized.
 
 Evidence asks only: **Has this ever failed in a way that indicated an actual regression?**
@@ -12,12 +12,13 @@ Only an existing test failure leading to app-code repair counts. See
 
 Before: 16 iOS methods; tvOS 11 discovered (5 iOS-only methods omitted),
 3 intentional skips, 8 executable journeys.
+After: 15 iOS + 8 executable tvOS cases (23 total; before 24 executable).
 No before wall-time baseline has been measured. Historical case times are not a full-tier measurement.
 
 | Test | Verdict | Evidence | Coverage after | Reason |
 | --- | --- | --- | --- | --- |
 | `testNativeBooksLibraryBrowsesShelvesAndMangaStacks` | keep (pending runtime) | No; #140, navigation selector self-fix only | Same method, independently scheduled `NativeNativeBooksLibraryBrowsesShelvesAndMangaStacksTests`; Core/API contracts retained | Shelf → reader → back → manga stack; real navigation and rendering |
-| `testNativeBooksReadTurnAndRestoreAllFormats` | keep (pending runtime) | No; #140 creation only | Same method, independently scheduled `NativeNativeBooksReadTurnAndRestoreAllFormatsTests`; Core/API contracts retained | Page turn, native immersive gestures and restore across four file formats; overlap with resize case under review |
+| `testNativeBooksReadTurnAndRestoreAllFormats` | delete | No; #140 creation only; no current failure recorded | `testNativeBooksReadTurnResizeAndRestoreAllFormats` retains English all-format open/prepare/turn/immersive/restore plus resize; `testNativeBooksKeepPhysicalRightInRTLLocale` retains the same helper including physical side and legacy Duo Fill/panning | Duplicate journey; same helper, English flow retained by resize and default Fill branch retained by RTL. No assertions removed from the shared helper. |
 | `testNativeBooksReadTurnResizeAndRestoreAllFormats` | keep (pending runtime) | No; #140 creation only | Same method, independently scheduled `NativeNativeBooksReadTurnResizeAndRestoreAllFormatsTests`; Core/API contracts retained | Rotate/reflow the live reader and retain position in four formats |
 | `testNativeBooksKeepPhysicalRightInRTLLocale` | keep (pending runtime) | No; #140 creation only | Same method, independently scheduled `NativeNativeBooksKeepPhysicalRightInRTLLocaleTests`; Core/API contracts retained | Real Arabic-locale rendering and physically right selected image, beyond layout arithmetic |
 | `testFeaturedTitlePreservesDetailsAndResumesPlayback` | keep (pending runtime) | No; #115 creation only | Same method, independently scheduled `NativeFeaturedTitlePreservesDetailsAndResumesPlaybackTests`; Core/API contracts retained | Home carousel touch/remote focus → details → playback → saved progress |

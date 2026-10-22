@@ -112,6 +112,10 @@ class UITierRunnerTests(unittest.TestCase):
                 response = subprocess.CompletedProcess([], 0, json.dumps(summary), "")
                 with mock.patch.object(run_ui_tiers, "command", return_value=response):
                     self.assertIs(run_ui_tiers.result_ok(result, log, 2), expected)
+            log.write_text("** TEST EXECUTE SUCCEEDED **\n", encoding="utf-8")
+            response = subprocess.CompletedProcess([], 0, json.dumps(accepted()), "")
+            with mock.patch.object(run_ui_tiers, "command", return_value=response):
+                self.assertTrue(run_ui_tiers.result_ok(result, log, 2))
 
     def test_runtime_selection_requires_matching_available_platform_and_device(self) -> None:
         devices = {

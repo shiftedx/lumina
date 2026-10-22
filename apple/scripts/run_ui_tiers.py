@@ -126,7 +126,7 @@ def run_xcode(arguments: list[str], log: Path) -> tuple[int, float]:
 
 def result_ok(result: Path, log: Path, expected_count: int) -> bool:
     text = log.read_text(encoding="utf-8", errors="replace")
-    if "** TEST SUCCEEDED **" not in text or "skipped" in text.lower():
+    if not any(marker in text for marker in ("** TEST SUCCEEDED **", "** TEST EXECUTE SUCCEEDED **")) or "skipped" in text.lower():
         return False
     parsed = command("xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(result), capture=True)
     if parsed.returncode:

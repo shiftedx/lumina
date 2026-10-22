@@ -2399,8 +2399,10 @@ class NativeProofJourney: XCTestCase {
         let currentFrame = current.frame
         if !targetFrame.isEmpty && !currentFrame.isEmpty {
             // A wide inset can overlap a scaled card while its focus lane is below it.
-            if targetFrame.midY > currentFrame.maxY { return .down }
-            if targetFrame.midY < currentFrame.minY { return .up }
+            if targetFrame.maxX > currentFrame.minX && targetFrame.minX < currentFrame.maxX {
+                if targetFrame.midY > currentFrame.maxY { return .down }
+                if targetFrame.midY < currentFrame.minY { return .up }
+            }
             // Native card focus scales the current view; adjacent focus bounds can overlap.
             if targetFrame.intersects(currentFrame) {
                 let dx = targetFrame.midX - currentFrame.midX

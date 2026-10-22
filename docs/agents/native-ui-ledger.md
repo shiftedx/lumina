@@ -77,3 +77,15 @@ Runtime evidence so far:
 - Repository gate so far: backend 5,248 passed / 11 skipped (618.17 seconds),
   frontend 2,624 passed across 299 files (42.97 seconds). Browser gates: real-stack 52 passed / 5 skipped (10.4 minutes); mocked browser
   657 passed / 2 skipped (20.2 minutes). `make check` completed successfully.
+
+Current failure under investigation: the first tvOS resume/conversion case reached
+playback and Home return, then its geometric remote helper cycled Play ↔ Resume
+instead of moving right toward featured Pause. The captured bounds were Pause
+(1784, 699.5, 52, 52) and Play (76, 631, 220, 93): the helper treated a 1.5-point
+center/bottom mismatch as a lower row despite vertical overlap. Restricting the
+center-based vertical shortcut to horizontally overlapping controls preserves the
+wide-control rule while allowing the real remote to move right. This test-only
+repair is pending a complete rerun; no product regression claim is established.
+The concurrent Audio case passed (208.287 seconds). Qualification also exposed
+Xcode's `TEST EXECUTE SUCCEEDED` marker for test-without-building; the runner now
+accepts that marker while still requiring exact passing xcresult counts.

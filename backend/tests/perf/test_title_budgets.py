@@ -23,6 +23,12 @@ FILTERS = (
     ("unwatched", {"unwatched": "true"}), ("in progress", {"in_progress": "true"}), ("favorites", {"favorites": "true"}),
     ("genre", {"genre": "Drama"}), ("years", {"year_from": 1990, "year_to": 2010}), ("4k", {"resolution": "4k"}),
 )
+LIVE_FIXTURE_ID = "perf-live-snapshot"
+
+
+class _ImmediateExecutor:
+    def submit(self, function):  # noqa: ANN001, ANN201
+        function()
 
 
 @pytest.fixture
@@ -125,14 +131,59 @@ def _smart_collection(db, member) -> str:  # noqa: ANN001
     return collection.id
 
 
-def test_title_api_budgets(seeded) -> None:  # noqa: ANN001
+def _seed_live_snapshot():  # noqa: ANN201
+    """Persist a current live snapshot so the timed read cannot start a provider refresh."""
+    from app.services.live_discovery import LIVE_CATEGORIES, SNAPSHOT_CATEGORY_LIMIT, create_live_discovery
+    from app.services.popular_discovery import PopularDiscovery
+
+    now = time.time()
+    fixture = {
+        "id": LIVE_FIXTURE_ID,
+        "title": "Performance live fixture",
+        "uploader": "Lumina",
+        "webpage_url": "https://www.youtube.com/watch?v=perf-live-snapshot",
+        "view_count": 1,
+        "source": "youtube",
+        "source_label": "YouTube",
+        "language": "en",
+    }
+    path = Path(ROOT) / "data" / "live-discovery.json"
+    snapshot = PopularDiscovery(
+        path,
+        lambda _query, _limit: {"items": [fixture]},
+        categories=LIVE_CATEGORIES,
+        executor=_ImmediateExecutor(),
+        clock=lambda: now,
+        random=lambda: 0.5,
+        batch_size=len(LIVE_CATEGORIES),
+        max_concurrency=1,
+        per_category_limit=SNAPSHOT_CATEGORY_LIMIT,
+        feed_limit=SNAPSHOT_CATEGORY_LIMIT * len(LIVE_CATEGORIES),
+        category_ttl_seconds=60 * 60,
+        batch_interval_seconds=60 * 60,
+    ).get_snapshot()
+    assert [item.id for item in snapshot.items] == [LIVE_FIXTURE_ID]
+
+    refresh_calls = []
+
+    def unexpected_refresh(query, limit):  # noqa: ANN001, ANN202
+        refresh_calls.append((query, limit))
+        raise AssertionError("the seeded live snapshot became due")
+
+    return create_live_discovery(path, unexpected_refresh), refresh_calls
+
+
+def test_title_api_budgets(seeded, monkeypatch) -> None:  # noqa: ANN001
     from fastapi.testclient import TestClient
 
-    from app.main import app
+    live_discovery, refresh_calls = _seed_live_snapshot()
+    import app.main as main
     from app.routers import titles as titles_router
     from app.models import MediaTitle, User
     from app.security import get_current_user
 
+    monkeypatch.setattr(main, "live_discovery", live_discovery)
+    app = main.app
     season = aliased(MediaTitle)
     with seeded() as db:
         member = db.scalar(select(User).where(User.username == "alex"))
@@ -180,10 +231,15 @@ def test_title_api_budgets(seeded) -> None:  # noqa: ANN001
         check("home recently added music", 150, titles(type="album", sort="created", limit=20))
         check("home title rows", 400, "/api/home/title-rows")
         check("home smart collection", 250, f"/api/collections/{smart}")
+        live = client.get("/api/discovery/live")
+        assert live.status_code == 200
+        assert LIVE_FIXTURE_ID in {item["id"] for item in live.json()["items"]}
         check("home live snapshot", 100, "/api/discovery/live")
     finally:
         app.dependency_overrides.pop(get_current_user, None)
         client.close()
+        live_discovery.close()
+    assert not refresh_calls
     load, cores = os.getloadavg()[0], os.cpu_count() or 1
     header = f"load {load:.1f} on {cores} cores" + (" -- WARNING: load exceeds cores; these numbers are not a valid budget verdict" if load > cores else "")
     table = "\n".join([header, *(

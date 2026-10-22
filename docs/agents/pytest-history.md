@@ -312,3 +312,25 @@ home next-up/live snapshot p95 timing; that failed attempt is retained in
 Numerical and focused evidence: `/tmp/lumina-numpy-cosine-bench/results.json` and
 `/tmp/lumina-embeddings-numpy-focused.log`. Final qualification below supersedes
 these diagnostic attempts only when both independent runs are green.
+
+
+At `9e14deb`, explicit serial qualification passed eight cases in 67.057 s on
+its first run, then failed only diagnostics p95 (99.1/80 ms) in 64.012 s on its
+second run, at load 6.1/16. This pair is not qualified. Evidence:
+`/tmp/lumina-pytest-merge-perf-qualified/report.json`.
+
+The earlier home/live timing failure had a separate fixture race: reading an
+empty, due snapshot started four yt-dlp provider workers during measurement.
+The retained title API case now seeds a real, nonempty fresh snapshot through
+normal normalization/persistence, and binds a real live-service reader to its
+private path. This binding matters because another perf module imports the app
+during collection, before the seeded DB fixture changes settings. The test
+asserts its live item appears and that no provider refresh occurred; it closes
+the reader and joins its executor before checking the refresh guard. The real
+HTTP route and all 20 timing samples remain, with the same 100 ms budget.
+The existing live snapshot/refresh service contracts and
+`test_live_with_50_follows_and_a_96_item_snapshot` retain refresh coverage.
+All four perf modules collect eight cases; the full eight-case cohort passed
+with this fixture in 56.62 s pytest / 63.61 s wall, and the guarded title case
+passed independently in 30.73 s. Evidence:
+`/tmp/lumina-title-live-fixture-{collection,perf8,guard-focused}.log`.

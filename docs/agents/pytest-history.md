@@ -349,3 +349,22 @@ The focused metrics/privacy/diagnostics cohort passed 36 cases. The existing
 Evidence: `/tmp/lumina-diag-gc-{profile,old-control,new}.{log,json}`,
 `/tmp/lumina-diag-gc-profile.pstats`, and
 `/tmp/lumina-reco-metrics-yield-focused.log`.
+
+
+## Final backend qualification at b8d52f7
+
+Smoke passed twice with four workers (50/50 each, zero skips), 5.860/5.814 s.
+Ordinary full passed twice with four workers (5,274 passed plus exactly the
+11 declared prerequisite skips), 139.950/138.549 s including collection,
+validation and cleanup. Linux/production FFmpeg prerequisites passed twice
+with three xdist workers (3/3 each, zero skips), 16.670/16.816 s including
+container setup and cleanup. The eight seeded measurements passed twice
+serially with fresh seeds and unchanged guards (8/8 each, zero skips),
+63.441/63.386 s including setup and cleanup. All 5,285 retained cases have
+therefore executed and passed twice. The only serial exceptions are the eight
+seeded p95 measurements documented in the ledger.
+
+Reports, executable commands, source version and exact reconciliation are in
+[readiness](../BACKEND_READINESS.md). The final repository gate is still running
+its browser phase; backend, bootstrap, TypeScript, bundle and all 2,659 Vitest
+tests have passed. The earlier failure logs above remain part of the evidence.

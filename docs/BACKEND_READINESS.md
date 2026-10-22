@@ -3,10 +3,8 @@
 The audit starts at `b3c5ff7`: **5,290 expanded cases / 3,860 authored templates**.
 After pruning: **5,285 cases / 3,855 templates**, with six deletions, one new cover-art/HDR contract, and no moves.
 
-**Qualification remains incomplete:** ordinary smoke/full and the Linux cohort
-pass twice, but two retained serial performance checks still exceed their
-unchanged timing budgets. The same failures reproduce on the pre-audit base;
-this audit does not claim all retained tests are green. See measurements below.
+**Backend qualification is green.** The repository-wide gate is awaiting its
+browser phase; its final result will be recorded below.
 
 The [case ledger](agents/pytest-ledger.md) records every original case. The
 [history and negative controls](agents/pytest-history.md) name retained coverage
@@ -20,7 +18,9 @@ is protected. Six duplicate or source/signature recipe checks are removed only
 after retained behavior contracts demonstrate selective RED → GREEN controls.
 The audit also exposed and repaired Chromaprint detection and HDR-probe
 regressions on the production media toolchain; both existing real-media tests
-are now protected.
+are now protected. Existing timing cases also caught unbounded ORM-result
+allocation and redundant recommendation scoring; their measured app fixes and
+revert controls are recorded in history.
 An autouse test fixture now resets rate limits for direct API clients as well.
 Successful legacy probe caches refresh lazily once; same-file loudness and
 scanner acknowledgement survive, and the version marker stays out of API facts.
@@ -76,83 +76,63 @@ these prerequisites before a release that changes the relevant behavior.
 
 ## Measurements
 
-Initial unchanged serial baseline: **584.990 s**, **5,275 passed, 11 prerequisite
-skips, 4 failed**. The temp-directory guard correctly rejected the audit harness's
-explicit `/tmp` base on macOS; the runner now uses `tempfile.gettempdir()`.
-Three removed-route tests assumed a frontend build existed. Their exact fallback
-assertions were repaired and verified both with and without a SPA mount; removed
-route-table checks remain. These are environment/test drift, not app regressions.
+Final code commit: `b8d52f7`. Two independent repetitions on the shared host:
 
-Measured on the same shared host with four xdist workers; collection, validation
-and successful fixture cleanup are included:
-
-| Tier | Run 1 | Run 2 | Results each run |
+| Cohort | Run 1 | Run 2 | Results each run |
 | --- | --- | --- | --- |
-| Smoke | 6.412 s | 6.218 s | 50 passed; zero skips/failures |
-| Full | 147.217 s | 145.115 s | 5,273 passed; 11 declared prerequisite skips; zero failures/errors |
+| Smoke, four workers | 5.860 s | 5.814 s | 50 passed; zero skips/failures |
+| Ordinary full, four workers | 139.950 s | 138.549 s | 5,274 passed; 11 declared prerequisite skips; zero failures/errors |
+| Linux/production FFmpeg, three workers | 16.670 s | 16.816 s | 3 passed; zero skips/failures/errors |
+| Seeded performance, serial | 63.441 s | 63.386 s | 8 passed; zero skips/failures/errors |
+
+Smoke/full wall times include collection, execution, validation and cleanup.
+Supplemental wall times include seed/container/venv setup and cleanup. The
+11 ordinary-full skips are exactly the three Linux/media prerequisites and
+eight serial measurements; every retained case has therefore executed and
+passed twice across its appropriate cohort. Only the eight seeded measurements
+are serial exceptions. Smoke is below 600 s and full below 2,700 s; adding each
+full run's supplemental cohorts also remains below 2,700 s.
 
 Commands: `mise exec -- make backend-smoke BACKEND_REPEAT=2` and
-`mise exec -- make backend-full BACKEND_REPEAT=2`, at code commit
-`5512fe1` after all media/cache repairs. Private reports:
-`/tmp/lumina-pytest-final-head-smoke/report.json` and
-`/tmp/lumina-pytest-final-head-full/report.json`.
-Parallel speedup is not attributed to six deletions.
+`mise exec -- make check BACKEND_REPEAT=2`. The latter invokes full twice.
+The timing lane runs `mise exec -- make perf-titles` twice, each with a fresh
+seed, GC enabled, and no other audit test jobs competing. Its two final runs
+recorded load1 3.97→4.22→4.05 on 16 cores. No threshold, sample count or timing
+assertion was relaxed; failed diagnostic attempts remain in history.
 
-The production Linux/Jellyfin-FFmpeg 8.1.2-5 arm64 prerequisite cohort also passed
-twice at `5512fe1`: **3 passed, zero skips/failures/errors**, **17.121 s** and
-**17.270 s** including container/venv setup. It covers chromaprint, Linux
-address-space enforcement and HDR software conversion. The diagnostic image uses
-the repository's exact Python image digest and Jellyfin .deb checksum; no app was
-deployed. Reproduce on a Linux test environment with the pinned Jellyfin `ffmpeg` and
-`ffprobe` on PATH and these installed prerequisites:
+Private reports:
+
+- `/tmp/lumina-pytest-merge-smoke/report.json`
+- `/tmp/lumina-pytest-merge-check-backend/report.json`
+- `/tmp/lumina-pytest-merge-perf-final/report.json` and `run-{1,2}.xml`
+- `/tmp/lumina-chromaprint-pinned-8014/merge-b8d52f7-parallel/run-{1,2}/summary.json`
+
+The Linux cohort uses Python 3.12.14 and Jellyfin FFmpeg 8.1.2-5 arm64 from the
+repository's exact Python image digest and Jellyfin .deb checksum. Its source
+mount is read-only, bytecode/app data are private, and containers use `--rm`.
+Pinned Dockerfile and executable commands are in
+`/tmp/lumina-chromaprint-pinned-8014/`; no app was deployed. Reproduce with
+those tools on PATH:
 
 ```sh
 cd backend
-mise exec -- .venv/bin/python -m pytest -q -p no:cacheprovider \
+mise exec -- .venv/bin/python -m pytest -q -n 3 --dist worksteal -p no:cacheprovider \
   'tests/test_media_segments.py::test_fingerprint_finds_a_shared_intro_at_different_offsets[chromaprint]' \
   tests/test_title_image_upload.py::test_an_encoder_past_its_address_space_fails_cleanly \
   tests/test_v1_transcode.py::test_hdr10_tone_maps_in_software
 ```
 
-Pinned image Dockerfile, exact commands and JUnit evidence:
-`/tmp/lumina-chromaprint-pinned-8014/final-head-5512fe1-20261022T151109/`
-and its parent `Dockerfile`. Owned containers/processes were removed; the
-diagnostic image remains available for review.
+Initial unchanged serial baseline: **584.990 s**, **5,275 passed, 11 prerequisite
+skips, four explained test/harness failures**. The runner now uses the actual
+system temporary directory; three removed-route contracts handle both built
+and unbuilt SPA mounts. The baseline had 5,290 cases / 3,860 templates; six
+proven redundant tests were removed and one cover-art/HDR contract was added,
+leaving 5,285 cases / 3,855 templates. All original rows reconcile exactly,
+including seven caption labels and two documented cache-test renames.
+The wall-time improvement includes parallel execution and readable parameter
+IDs; it is not attributed to deleting six tests.
 
-`mise exec -- make check BACKEND_REPEAT=2` completed with exit 0: bootstrap/runner
-checks, TypeScript, production build, backend, **2,659 Vitest tests**, and
-**650 Playwright cases in 1,116.555 s**. Its log is
-`/tmp/lumina-pytest-make-check-final.log`. After subsequent media/cache repairs,
-the prior backend code at `5512fe1` was independently qualified twice as above; its
-bootstrap/runner lane also passed **15 tests**. Standards/spec and targeted media
-reviews then found no remaining actionable issues. Current-head smoke/full and serial
-qualification are pending after the merge-review corrections described in history. Exact set reconciliation confirms
-all 5,290 original cases map to 5,284 retained cases plus six deletions; the new cover-art/HDR contract brings collection to 5,285 cases, allowing
-only the seven caption labels and two documented cache-test renames.
-
-Serial seeded performance (`mise exec -- make perf-titles`, fresh seed each time,
-no benchmark plugin, no other test jobs from this audit) remained **6 passed,
-2 timing failures**, **zero skips or functional failures**, on two runs:
-
-| Run | Pytest / total wall | Timing failures |
-| --- | --- | --- |
-| 1 | 62.87 / 71 s | Reco similar p95 128.0/120 ms; diagnostics 108.7/80 ms; 10k-title similar median 58/72 ms (pass), p95 143.770/120 ms. |
-| 2 | 65.87 / 74 s | Reco similar p95 126.0/120 ms; 10k-title similar median 60/72 ms (pass), p95 153.730/120 ms. Diagnostics passed at 39.1/80 ms. |
-
-Load was 11.30→10.33 and 10.33→13.93 on 16 cores (the second assertion recorded
-8.8). Thus these failures are not dismissed solely for load exceeding core
-count. A fresh-seed replay of only the two failing cases at unchanged base
-`b3c5ff7` also failed: reco similar 129.2/120 ms, diagnostics 154.5/80 ms,
-10k-title similar median 57/72 ms (pass), p95 133.854/120 ms. That baseline
-assertion recorded load 17.0/16, limiting direct timing comparison. The relevant
-recommendation/diagnostics/perf source was unchanged at that stage. Subsequent
-merge-review profiling identified ORM result buffering and redundant wrong-type
-vector scoring; current qualification of those bounded repairs is pending. The
-existing 10k test explicitly documents GC-sensitive p95 tails.
-
-Logs: `/tmp/lumina-pytest-perf-final-{1,2}.log` and
-`/tmp/lumina-pytest-perf-baseline-replay.log`. No budgets were relaxed, retries
-were not counted as qualification, and the two failing checks are retained.
-The PR stays draft until valid serial performance qualification or a supported
-fix resolves these failures. The requested all-kept-tests completion criterion
-is **not met**. Current merge qualification is pending.
+Repository gate: pending browser completion. Its bootstrap/runner checks,
+TypeScript, production build, both backend repetitions, and **2,659 Vitest
+tests** have passed. Log: `/tmp/lumina-pytest-merge-check.log`.
+Standards and Spec source reviews found no remaining actionable issues.

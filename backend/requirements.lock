@@ -29,6 +29,8 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via
     #   click
     #   pytest
+execnet==2.1.2
+    # via pytest-xdist
 fastapi==0.139.2
     # via lumina-backend (backend/pyproject.toml)
 greenlet==3.5.3 ; platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64'
@@ -83,6 +85,10 @@ pygments==2.20.0
 pymupdf==1.28.2
     # via lumina-backend (backend/pyproject.toml)
 pytest==8.4.2
+    # via
+    #   lumina-backend (backend/pyproject.toml)
+    #   pytest-xdist
+pytest-xdist==3.8.0
     # via lumina-backend (backend/pyproject.toml)
 python-dotenv==1.2.2
     # via

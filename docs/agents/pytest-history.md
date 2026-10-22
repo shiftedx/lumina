@@ -188,3 +188,36 @@ The loaded-host performance attempt had **5 passed, 3 failed** in 66.40 s
 (75 s including seed/setup). Besides that 429, timing budgets exceeded their
 unchanged thresholds; the tests explicitly reported load 41.8 on 16 cores as
 invalid for a timing verdict. This run is not presented as qualification.
+
+## Chromaprint regression found on the production media toolchain
+
+The existing `test_media_segments.py::test_fingerprint_finds_a_shared_intro_at_different_offsets[chromaprint]`
+was skipped on macOS because its FFmpeg lacks the muxer. Executing it in Linux
+first with Debian FFmpeg and then with the exact production Jellyfin FFmpeg
+**8.1.2-5 arm64** reproduced empty detected segments. The same test's bandpass
+variant passed. This is an existing-test failure leading to an **app-code fix**,
+so the chromaprint case is a protected regression catcher from this audit onward.
+
+The 32-bit matcher accepted up to ten different bits per word and smoothed
+unrelated frames into 32–50-second runs, hiding agreement on the actual shared
+20-second intro. Tightening this local binary matcher to two bits restores
+agreement. The bandpass threshold is unchanged. This is a conservative tradeoff:
+it rejects broad approximate chromaprint matches rather than treating them as
+shared content. Both two and three bits passed the unchanged fixture when timing
+was corrected; two also passed the unrelated-noise/no-agreement control.
+
+The old floating hop also differed from Chromaprint's integer hop, and raw-word
+positions were anchored at the input edge. The repair uses the analysis-window
+midpoint. [Chromaprint's configuration](https://github.com/acoustid/chromaprint/blob/v1.5.1/src/fingerprinter_configuration.cpp)
+uses 4,096-sample frames at 11,025 Hz, an integer 1,365-sample hop, five chroma-filter
+taps and a maximum classifier width of 16.
+Its [delay formula](https://github.com/acoustid/chromaprint/blob/v1.5.1/src/fingerprinter_configuration.h)
+gives `((5-1 + 16-1)*1365 + 2731)/11025` seconds; half is approximately 1.300 s.
+Using that midpoint for our segment-boundary estimate avoids a fixture-fitted
+offset. The existing one-second boundary tolerance and every test input remain
+unchanged. This local matching scheme is not the upstream gradient matcher.
+
+RED: unchanged production-toolchain case failed with no segments. GREEN:
+unchanged case plus a private unrelated-noise control **2 passed in 8.95 s**.
+Private pinned-image evidence and Dockerfile:
+`/tmp/lumina-chromaprint-pinned-8014/`; `final_test.log` records the passing run.

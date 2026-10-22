@@ -12,7 +12,9 @@ security, data-integrity, migration, concurrency, real-media and release/operato
 contracts. The existing scheduling catcher documented by issue #65 and PR #66
 is protected. Six duplicate or source/signature recipe checks are removed only
 after retained behavior contracts demonstrate selective RED → GREEN controls.
-Application code is unchanged.
+The audit also exposed and repaired a Chromaprint detection regression on the
+production media toolchain; its existing real-media test is now protected.
+An autouse test fixture now resets rate limits for direct API clients as well.
 
 ## Tiers and commands
 

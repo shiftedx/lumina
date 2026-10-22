@@ -153,8 +153,20 @@ FFMPEG_TIMEOUT_SECONDS = 600
 # bits per 100 ms frame; 4 consecutive frames pack into one 28-bit word.
 BANDS = ((150, 300), (300, 500), (500, 800), (800, 1250), (1250, 2000), (2000, 3000), (3000, 4500), (4500, 7000))
 BAND_HOP_S = 0.1
-CHROMAPRINT_HOP_S = 4096 / 3 / 11025  # chromaprint's default: 4096-sample frames at 11025 Hz, 2/3 overlap
-MATCH_BITS = {28: 8, 32: 10}  # words match at or under this Hamming distance; unrelated words differ by about half
+CHROMAPRINT_SAMPLE_RATE = 11_025
+CHROMAPRINT_FRAME_SAMPLES = 4_096
+CHROMAPRINT_HOP_SAMPLES = CHROMAPRINT_FRAME_SAMPLES // 3
+# Chromaprint v1.5.1: five chroma-filter taps, maximum classifier width 16.
+# https://github.com/acoustid/chromaprint/blob/v1.5.1/src/fingerprinter_configuration.h
+# Its configuration delay is the filter/image pipeline delay.
+# Raw fingerprints describe the center of that analysis window, not its input edge.
+CHROMAPRINT_ANALYSIS_CENTER_S = (
+    ((5 - 1) + (16 - 1)) * CHROMAPRINT_HOP_SAMPLES + (CHROMAPRINT_FRAME_SAMPLES - CHROMAPRINT_HOP_SAMPLES)
+) / 2 / CHROMAPRINT_SAMPLE_RATE
+CHROMAPRINT_HOP_S = CHROMAPRINT_HOP_SAMPLES / CHROMAPRINT_SAMPLE_RATE
+# Full 32-bit raw Chromaprint words need a stricter match than the derived 28-bit
+# band words: broad approximate matches hide the shared run before voting.
+MATCH_BITS = {28: 8, 32: 2}
 SMOOTH_S = 1.0  # a frame is inside a run when half the frames within ±0.5 s match
 AGREE_S = 2.0  # neighbours agree when their run starts and ends are this close
 
@@ -231,7 +243,12 @@ def fingerprint(ffmpeg: str, source: Path, start_s: float, duration_s: float, wo
             ffmpeg, "-nostdin", "-v", "error", *LOCAL_INPUT_ARGS, "-ss", f"{start_s:.3f}", "-t", f"{duration_s:.3f}",
             "-i", str(source), "-map", "0:a:0", "-ac", "1", "-f", "chromaprint", "-fp_format", "raw", "-",
         ]).stdout
-        return Fingerprint([word for (word,) in struct.iter_unpack("<I", out[: len(out) // 4 * 4])], CHROMAPRINT_HOP_S, 32, start_s)
+        return Fingerprint(
+            [word for (word,) in struct.iter_unpack("<I", out[: len(out) // 4 * 4])],
+            CHROMAPRINT_HOP_S,
+            32,
+            start_s + CHROMAPRINT_ANALYSIS_CENTER_S,
+        )
     work.mkdir(parents=True, exist_ok=True)
     _run(bandpass_command(ffmpeg, source, start_s, duration_s), cwd=work)  # relative band files: no path in the filter graph
     rows = [_levels((work / f"band{i}.txt").read_text()) for i in range(len(BANDS))]

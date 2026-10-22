@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { HOME_PATH, mockHome } from './home-mock';
 import { SYNTHETIC_MEDIA_BASE64, SYNTHETIC_MEDIA_TYPE } from './synthetic-media';
+import { launchIsolatedBrowser } from './isolated-browser';
 
 /**
  * An MPEG-4 Part 2 / AC-3 AVI (not browser-native) plays in a real browser
@@ -121,14 +122,14 @@ type Engine = 'chromium' | 'firefox' | 'webkit';
 
 // Headless Playwright Chromium is an open-codec build (no H.264), so AV playback runs in Firefox and WebKit.
 async function withPage(playwright: typeof import('@playwright/test'), engine: Engine, baseURL: string, run: (page: Page) => Promise<void>) {
-  const browser = await playwright[engine].launch().catch((error: Error) => {
+  const launched = await launchIsolatedBrowser(playwright[engine], { args: [] }).catch((error: Error) => {
     test.skip(/Executable doesn't exist|Library not loaded/.test(error.message), `BLOCKED: Playwright ${engine} build is not installed`);
     throw error;
   });
   try {
-    await run(await browser.newPage({ baseURL }));
+    await run(await launched.browser.newPage({ baseURL }));
   } finally {
-    await browser.close();
+    await launched.close();
   }
 }
 

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { firefox, request as requestFactory, webkit, type APIRequestContext, type Browser, type Page, type TestInfo } from '@playwright/test';
 
 import { OWNER_STATE, expect, test } from './realstack';
+import { launchIsolatedBrowser } from '../isolated-browser';
 
 type Format = 'epub' | 'pdf' | 'cbz' | 'cbr';
 
@@ -110,12 +111,14 @@ test.describe('real books reader in installed Firefox and WebKit', () => {
       const headers = await mutationHeaders(request, baseURL!);
       const observations: object[] = [];
       let browser: Browser | undefined;
+      let launched: Awaited<ReturnType<typeof launchIsolatedBrowser>> | undefined;
       let version: string | null = null;
       let installed = true;
       try {
         try {
           // The journeys project supplies Chromium audio flags; explicit engines use their own defaults.
-          browser = await engine.browserType.launch({ args: [], timeout: 30_000 });
+          launched = await launchIsolatedBrowser(engine.browserType, { args: [], timeout: 30_000 });
+          browser = launched.browser;
           version = browser.version();
         } catch (error) {
           if (error instanceof Error && /Executable doesn't exist/.test(error.message)) {
@@ -179,7 +182,7 @@ test.describe('real books reader in installed Firefox and WebKit', () => {
           }
         }
       } finally {
-        await browser?.close();
+        await launched?.close();
         await writeEvidence(info, `books-${engine.name}.json`, {
           browser: engine.name,
           browser_version: version,

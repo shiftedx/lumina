@@ -66,11 +66,30 @@ contracts. The full tier selects **648** cases, including realstack and WebKit;
 Smoke passed twice with four workers: **50/50 in 191.898 s**, then **50/50 in
 199.451 s**, with zero skips, failures or flakes (build separately 12.513 s).
 The runner was subsequently hardened for bounded cancellation and startup bind
-conflicts; its process-level cancellation/report checks pass. The backend gate passed 5,248 tests (11 existing skips), and the frontend gate
-passed 2,636 cases across 300 files. The first full attempt took 905.665 s:
-613 passed, two Firefox startup failures, 33 dependent performance/WebKit cases
-did not run, zero flaky cases. This failed attempt does not establish the full
-budget or readiness; the second attempt is in progress. Firefox's pinned runtime
-times out before creating a page on this host; a clean reinstall and an isolated
-newer runtime also failed before app code. The Firefox tests remain. A failing
-or skipped browser cannot satisfy readiness.
+conflicts; its three process/report checks pass. Backend: **5,248 passed**, 11
+existing skips, 888.73 s. Vitest: **2,636 passed in 300 files**, 33.42 s.
+Frontend/E2E typecheck and production/style/bundle gates passed.
+
+| Full attempt | Selected | Passed | Failed | Dependent cases not run | Flaky | Wall time |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 648 | 613 | 2 | 33 | 0 | 905.665 s |
+| 2 | 648 | 613 | 2 | 33 | 0 | 993.213 s |
+
+The same 613 cases passed twice. The protected timestamped-note journey passed
+in 4.450 s and 4.752 s, with its original seek bounds. Full build separately:
+11.475 s. Timed attempts include selection, fixture/server startup, tests and
+teardown; the shared-lock wait and build are outside that timer.
+
+**Full qualification is incomplete.** Both failures are Firefox launch failures
+before page creation: mocked real-browser AV and realstack book formats. The
+performance project depends on the completed journey/mocked projects, so its 30
+cases and the three following WebKit decode cases did not run. The 60 separate
+benchmark instances are also not qualified by these attempts. These failed
+attempt durations do not establish a passing full-tier budget or readiness.
+
+A clean pinned Firefox reinstall, an isolated newer runtime and a bounded
+headful probe also failed before app code. The Firefox tests remain in the gate.
+No application code or assertions were weakened to obtain green results. The
+complete repository gate therefore exits nonzero and PR #142 remains draft.
+All owned browser, fixture and Vite processes exited; failure evidence remains
+in private artifact directories.

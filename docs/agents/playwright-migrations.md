@@ -95,3 +95,23 @@ contract to edit and submit age 14 and size 500, and assert the public API paylo
 and saved status. Mutating production to send days as max_gb failed (14 instead of
 500); restoration passed 1/1. All three final main-branch migration contracts
 passed together, 3/3. Main product source was never mutated.
+
+## Explore coordinator and pending-member interests
+
+The prior CommandPalette lookup test does not exercise LuminaApp's paired
+sourceSearch/searchLibrary coordinator. The stale Explore browser original was
+restored during review until `frontend/src/LuminaKeyboard.test.tsx :: a late
+Explore response never replaces the newer query` was green. The new public app
+contract resolves a newer source query before the older one, then requires the
+fresh result to remain and the stale result to stay absent. Removing the actual
+exploreRequestRef guard in scratch made the stale result replace the fresh one;
+restoring the guard passed. Only then was the browser original removed.
+
+The three browser cases in `onboarding_interests_loading.spec.ts` also move to
+public LuminaApp contracts in the same file: pending interests keep Continue
+guarded, a failed load retries and restores the selected Film interest, and a
+late initial response cannot overwrite the canonical Skip result. Independent
+production mutations forced loading false, disconnected retry and removed Skip
+invalidation. Each new contract failed for its intended behavior, then passed
+after restoration. Full LuminaKeyboard passed 87/87; the four focused contracts
+passed 4/4 and frontend/E2E typecheck passed. Scratch was restored and removed.

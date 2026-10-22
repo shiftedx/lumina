@@ -7,7 +7,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 
 import { getTitleFacets, listTitles, type TitleListQuery } from '../../api';
 import type { TitleFacets, TitleResolution } from '../../types';
-import { countNoun, RESOLUTIONS, type WallKind, type WallQuery, wallListQuery, WALLS, wallYear } from './galleryModel';
+import { countNoun, RESOLUTIONS, serializeWallQuery, type WallKind, type WallQuery, wallListQuery, WALLS, wallYear } from './galleryModel';
 
 export const COUNT_DEBOUNCE_MS = 300;
 export const CHIPS = [['unwatched', 'Unwatched'], ['progress', 'In progress'], ['fav', 'Favorites']] as const;
@@ -22,6 +22,8 @@ export function FilterDrawer({ wall, query, phone, onApply, onClose }: FilterDra
   const headingId = useId();
   const genreLimitId = useId();
   const [pending, setPending] = useState(query);
+  const queryKey = `${wall}:${serializeWallQuery(query, def.sorts[0])}`;
+  const openedQuery = useRef(queryKey);
   const [years, setYears] = useState({ from: query.from === null ? '' : String(query.from), to: query.to === null ? '' : String(query.to) });
   const [facets, setFacets] = useState<TitleFacets | null>(null);
   const [facetsFailed, setFacetsFailed] = useState(false);
@@ -73,7 +75,11 @@ export function FilterDrawer({ wall, query, phone, onApply, onClose }: FilterDra
   const resolutionCount = (value: TitleResolution) => facets?.resolutions.find((entry) => entry.value === value)?.count ?? 0;
 
   return (
-    <dialog aria-labelledby={headingId} className="g-drawer" onClose={() => { onApply(latest.current); onClose(); }} ref={dialog}>
+    <dialog aria-labelledby={headingId} className="g-drawer" onClose={() => {
+      // Back can change the wall before a queued native close delivers the old draft.
+      if (queryKey === openedQuery.current) onApply(latest.current);
+      onClose();
+    }} ref={dialog}>
       <div className="g-drawer-body">
         <span aria-hidden="true" className="g-sheet-handle" />
         <h2 className="g-drawer-title" id={headingId}>Filters</h2>

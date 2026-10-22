@@ -10,7 +10,8 @@ Only an existing test failure leading to app-code repair counts. See
 [native-ui-history.md](native-ui-history.md) for commit/PR links and search commands.
 `No` means no qualifying recorded evidence found, not proof that no regression occurred.
 
-Before: 16 iOS methods; tvOS counts being checked against conditional compilation.
+Before: 16 iOS methods; tvOS 11 discovered (5 iOS-only methods omitted),
+3 intentional skips, 8 executable journeys.
 No before wall-time baseline has been measured. Historical case times are not a full-tier measurement.
 
 | Test | Verdict | Evidence | Coverage after | Reason |
@@ -28,7 +29,7 @@ No before wall-time baseline has been measured. Historical case times are not a 
 | `testShowSeasonEpisodeBrowsingAndPlayback` | keep (pending runtime) | No; #115 creation only | Same method, independently scheduled `NativeShowSeasonEpisodeBrowsingAndPlaybackTests`; Core/API contracts retained | Show → season → episode → native playback and saved progress |
 | `testVideoWatchedFavoriteAndActivityFilters` | keep (pending runtime) | No; #115 creation only | Same method, independently scheduled `NativeVideoWatchedFavoriteAndActivityFiltersTests`; Core/API contracts retained | Native state controls → server mutation → filtered catalog membership |
 | `testNativePlaybackReportsResumeAndConversionProgress` | keep (pending runtime) | YES; #69 → #75 / 0bab243, Home/return disposal failure → player lifecycle fix | Same method, independently scheduled `NativeNativePlaybackReportsResumeAndConversionProgressTests`; Core/API contracts retained | Must retain; AVKit direct/conversion, Home/return, persisted progress and resume |
-| `testCurrentDuoLayoutKeepsControlsAndPlaybackReachable` | keep (pending runtime) | No; #75 creation with fix does not count | Same method, independently scheduled `NativeCurrentDuoLayoutKeepsControlsAndPlaybackReachableTests`; Core/API contracts retained | Keep SERIAL: Device Hub owns physical hinge pose; six manually selected poses cannot share a simulator or be selected by XCTest |
+| `testCurrentDuoLayoutKeepsControlsAndPlaybackReachable` | keep (pending runtime) | No; #75 creation with fix does not count | Same method, independently scheduled `NativeCurrentDuoLayoutKeepsControlsAndPlaybackReachableTests`; Core/API contracts retained | Current viewport layout, background pause, completion and Replay; automated on isolated iPad; additional physical Duo matrix requires Device Hub |
 | `testOriginalMKVReportsPeriodicProgressAndResumes` | keep (pending runtime) | No; #137 created with cadence change | Same method, independently scheduled `NativeOriginalMKVReportsPeriodicProgressAndResumesTests`; Core/API contracts retained | Actual on-device MKV preparation → advancing clock → progress → resume |
 | `testCompatibleHLSReplayRequestsFreshSession` | keep (pending runtime) | No; #75 creation with fix does not count | Same method, independently scheduled `NativeCompatibleHLSReplayRequestsFreshSessionTests`; Core/API contracts retained | Actual end-of-stream → Replay negotiation → reset/advancing time and fresh server progress |
 
@@ -43,10 +44,10 @@ queue checkpoints remain member/origin scoped. There is no shared App Group enti
 in this app; each Xcode worker has its own application sandbox. No production App Group
 is reused by a test.
 
-The Duo physical-pose matrix is serial because Device Hub must select the physical
-pose; XCTest orientation alone does not reliably change that runtime. This is an
-explicit additional release qualification, not an automatically passing full-tier case.
-A full automated tier does not establish completion of that manual matrix.
+All retained automated journeys are scheduled in parallel classes. The current-viewport
+Duo method also runs on iPad. A separate physical Duo six-pose matrix still requires
+manual Device Hub selection; passing the automated suite does not claim that hardware
+configuration matrix was repeated.
 
 ## Measurements
 

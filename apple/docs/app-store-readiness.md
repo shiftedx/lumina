@@ -103,3 +103,58 @@ The native connection, library, error, empty, and sign-out states make the core 
 ## 6) Next Pass
 
 Before submission, perform a release-candidate pass covering the final signed archive, assets, policy/labels, App Store Connect record, reviewer demo, universal-versus-separate purchase decision, NAT64/IPv6, and physical-device video/audio qualification.
+
+
+## Native UI signal gate (2026-10-21, qualification pending)
+
+The audit ledger is [native-ui-ledger.md](../../docs/agents/native-ui-ledger.md);
+its linked history report distinguishes existing-test regression catches from
+feature creation and test drift. A new UI test needs a journey reason; logic
+and copy go lower, using an existing Core/API or hosted contract first.
+Tests that previously caused an app-code fix are never deleted.
+
+| Tier | Intended use | Selected journeys | Budget |
+| --- | --- | --- | --- |
+| smoke | Merge bar for native UI changes | Home/detail/resume, audio/now-playing, show/season/episode, direct/conversion playback on both platforms (8 cases) | <10 minutes wall per complete two-platform run |
+| full | Pre-release | All 16 iOS and 8 executable tvOS cases | <45 minutes wall per complete two-platform run |
+
+The suite has fewer than 50 critical journeys, so smoke retains the relevant
+critical paths without adding tests to meet a count. iOS runs on an isolated
+regular-width iPad to exercise RTL spread geometry; hardware Duo pose selection
+remains an additional manual device qualification. No automatic serial exception
+is needed for the current-viewport check on that iPad.
+
+Run from the repository root with locked dependencies installed:
+
+```sh
+mise exec -- python3 apple/scripts/run_ui_tiers.py --tier smoke --repeat 2 --output /tmp/lumina-ui-smoke-<unique-run>
+mise exec -- python3 apple/scripts/run_ui_tiers.py --tier full --repeat 2 --output /tmp/lumina-ui-full-<unique-run>
+```
+
+Use a fresh output directory. The runner reports build time separately and sums
+iOS plus tvOS test invocation wall times for each repeat, including simulator
+startup and fixture provisioning. The two platforms use separate xcodebuild
+invocations; tests within each platform run with two workers. A full pass requires
+exact expected executed/passed counts and zero failures or skips, twice. A green
+empty selection cannot qualify. The report contains total invocation wall time
+as well as per-repeat test wall time; build/bootstrap and waiting for the shared
+host are recorded separately from test execution qualification.
+
+Each journey is a separate XCTest scheduling class. Its fixture broker allocates
+an exclusive loopback port, database, media root and disposable member; teardown
+stops only that owned server. A per-test UUID defaults suite and Keychain service
+survive the test's intentional app relaunch and do not share state across cases.
+There is no application App Group entitlement; Xcode workers use separate app
+sandboxes, and persisted downloads/queue files are scoped by the unique member
+and origin. Only Debug builds accept the test preference/credential namespace.
+
+The host gate uses the mkdir lock `/tmp/lumina-xcodebuild.lock` plus the existing
+performance lock. It waits for load1 <20 and no other xcodebuild. Do not remove a
+lock owned by another run. The runner creates its own simulators and removes only
+its recorded devices/clones and child processes. It never stops another agent's
+Xcode run or simulator. `--host-wait-seconds` bounds the host wait.
+
+**Qualification is pending.** No before/after wall-time claim, two-pass parallel
+qualification or budget claim is established until actual result bundles and
+counts are recorded in the ledger. Passing this suite does not replace the
+physical-device format/output and App Store requirements above.

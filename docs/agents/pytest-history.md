@@ -48,7 +48,7 @@ The deterministic `backend/tests/test_live_recording_scheduling_manager.py::test
 
 - `git -L` across `--all` is not usable in this repository because multiple snapshot roots make line tracking ambiguous. The exact selected-file `-L` command succeeded for the confirmed catcher. For any proposed deletion, run `git -L` on its fixed path/line or function and inspect the associated patch/PR.
 - The all-template `-S` sweep, broad commit scan, and broad GitHub searches are complete; they are not an exhaustive proof of the absence of an undocumented historical failure for every test. Do **not** use “no hit” as a deletion verdict.
-- Once removal candidates arrive, perform exact-title/static-prefix GitHub searches and selected `-L`/patch review for each candidate before assigning `delete` or `move`.
+- Candidate-specific exact-title/static-prefix GitHub searches and selected `-L`/patch reviews were completed below before assigning deletions.
 
 ## Artifacts
 
@@ -76,7 +76,7 @@ Exact searches used both `is:issue` and `is:pr` with each quoted function name. 
 
 | Candidate | Git/first-party source | Strict history conclusion |
 | --- | --- | --- |
-| `test_library_automation_safety.py::test_no_automation_code_path_calls_confirm` | `-S` and `-L` show creation in `caa0a302`; later file commits [#74](https://github.com/shiftedx/lumina/pull/74) and [#77](https://github.com/shiftedx/lumina/pull/77) do not modify it. Exact quoted issue/PR-title searches: 0 / 0. | No qualifying existing-test failure-to-app-fix evidence. This source-inspection policy check still needs separate retained-coverage review. |
+| `test_library_automation_safety.py::test_no_automation_code_path_calls_confirm` | `-S` and `-L` show creation in `caa0a302`; later file commits [#74](https://github.com/shiftedx/lumina/pull/74) and [#77](https://github.com/shiftedx/lumina/pull/77) do not modify it. Exact quoted issue/PR-title searches: 0 / 0. | No qualifying existing-test failure-to-app-fix evidence. Retained behavior coverage and its selective fault control are verified below; the source recipe is removed. |
 | `test_library_automation_snapshot.py::test_facade_method_names_and_signatures_match_s3` | It originated in `caa0a302`; `8794d059` / [#43](https://github.com/shiftedx/lumina/pull/43) extends its expected facade signatures for the new activity feature. Exact quoted issue/PR-title searches: 0 / 0. | Feature-time expansion is not an existing failing test followed by an app fix; no qualifying historical evidence. |
 
 Raw exact-search results: `/tmp/lumina-pytest-automation-candidate-github.json`.
@@ -92,10 +92,8 @@ The following focused runtime controls are intentionally loaded from `/tmp/lumin
 | Trace logs emit names, never values or tokens | Middleware records the actual normalized raw query only while tracing; request/response behavior is unchanged and no test secret is embedded in the plugin. | `test_jellyfin_api.py::test_trace_logs_names_never_values_or_tokens` | exit **1** (assertion failure) / exit **0** |
 | Gallery seed's physical track order feeds the album workflow | The consuming album-detail module's imported `seed_gallery` changes the pending third track to disc 0 before fixture commit. | `test_album_detail.py::test_an_album_page_lists_its_tracks_with_the_members_progress` | exit **1** (assertion failure) / exit **0** |
 
-These controls establish the named replacement coverage only. They do not establish the distinct ordinary-API `Content-Type` contract in `test_api_errors_keep_their_json_body`, which remains a **keep** pending a specific header-preserving-body negative control.
-# Backend extra candidate mutation controls
-
-Worktree: `/Users/kmcdowell/.codex/worktrees/pytest-signal-audit/lumina`
+These controls establish the named replacement coverage only. They do not establish the distinct ordinary-API `Content-Type` contract in `test_api_errors_keep_their_json_body`, which remains a **keep** because no replacement for its header-specific contract was established.
+## Additional retained-coverage mutation controls
 
 No repository source or test file was changed. Faults live in private pytest plugins under `/tmp` and were loaded only by the focused fault process.
 

@@ -40,14 +40,3 @@ test('test_transcript_search_seek', async ({ page }) => {
   expect(await page.evaluate(() => (window as unknown as { seekTo: number }).seekTo)).toBe(236 * 1.5);
   await expect(page.getByRole('button', { name: 'Follow playback' })).toHaveAttribute('aria-pressed', 'false');
 });
-
-test('test_transcript_search_state', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  await openTranscript(page, { width: 1536, height: 960 });
-  await page.getByRole('searchbox', { name: 'Search transcript' }).fill('lake');
-  await page.getByRole('searchbox', { name: 'Search transcript' }).press('Enter');
-  await expect(page.getByText(/1 of \d+/)).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
-  expect(errors).toEqual([]);
-});

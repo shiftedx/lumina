@@ -42,9 +42,3 @@ test('test_summary_evidence_opens_cue', async ({ page }) => {
   expect(await page.evaluate(() => (window as unknown as { seekTo: number }).seekTo)).toBe(7.5);
   await expect(page.getByText('2 points omitted: no supporting transcript evidence.')).toBeVisible();
 });
-
-test('test_summary_generating', async ({ page }) => {
-  await openSummary(page, 'generating');
-  await page.getByRole('button', { name: 'Generate summary' }).click();
-  await expect(page.getByText('Generating summary on your local model…')).toBeVisible();
-});

@@ -1,36 +1,7 @@
 import { chooseSelect } from './select-helper';
 import { expect, test } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { SETTINGS_PAGES } from '../src/features/settings/navigation';
 import { mockAdminFixtures, mockApi, signIn } from './lumina-mock';
-
-const QUALITY_OUT = process.env.SETTINGS_QUALITY_OUT;
-
-if (QUALITY_OUT) {
-  for (const scheme of ['light', 'dark'] as const) {
-    for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: 'phone', width: 390, height: 844 }] as const) {
-      test(`capture every settings page in ${scheme} at ${viewport.width}px`, async ({ page }) => {
-        test.setTimeout(480_000);
-        mkdirSync(QUALITY_OUT, { recursive: true });
-        await page.setViewportSize(viewport);
-        await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
-        await mockApi(page, { settings_advanced: true });
-        await mockAdminFixtures(page);
-        await page.goto('/'); await signIn(page);
-        for (const destination of SETTINGS_PAGES) {
-          await page.goto(`/settings/${destination.section}?page=${destination.id}`);
-          await expect(page.locator('[data-setting-id]').first()).toBeVisible();
-          await page.evaluate(() => document.fonts.ready);
-          await page.screenshot({ fullPage: true, path: join(QUALITY_OUT, `${destination.id}-${viewport.name}-${scheme}.png`) });
-        }
-        await page.goto('/settings/members/m2');
-        await expect(page.locator('#member-group-activity')).toBeVisible();
-        await page.screenshot({ fullPage: true, path: join(QUALITY_OUT, `member-all-${viewport.name}-${scheme}.png`) });
-      });
-    }
-  }
-}
 
 for (const width of [390, 975, 1536]) {
   test(`settings panels contain their controls and every row remains reachable at ${width}px`, async ({ page }) => {

@@ -1,11 +1,8 @@
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { item, mockApi, mockTitles, signIn } from './lumina-mock';
 
 const filename = 'Harbor.Lights.S02E01.Premiere.2160p.WEB-DL.H265.Multi.Audio.Release.Group.mkv';
 const itemId = 'item-ep-2-1';
-const OUT = process.env.WATCH_QUALITY_OUT;
 
 async function openEpisode(page: Page, width: number, next: 'populated' | 'empty' | 'failure' = 'populated') {
   await page.setViewportSize({ width, height: 900 });
@@ -145,23 +142,4 @@ test('theater keeps episode heading and actions below the stage without overlap'
   expect(heading!.y).toBeGreaterThanOrEqual(frame!.y + frame!.height);
   expect(actions!.y).toBeGreaterThanOrEqual(heading!.y + heading!.height);
   expect(tools!.y).toBeGreaterThanOrEqual(body!.y + body!.height);
-  if (OUT) {
-    mkdirSync(OUT, { recursive: true });
-    await page.screenshot({ fullPage: true, path: join(OUT, 'episode-theater-1440-dark.png') });
-  }
 });
-
-if (OUT) {
-  for (const scheme of ['light', 'dark'] as const) {
-    for (const width of [390, 1440]) {
-      for (const next of ['populated', 'empty', 'failure'] as const) {
-        test(`capture episode ${next} ${scheme} ${width}`, async ({ page }) => {
-          await page.emulateMedia({ colorScheme: scheme });
-          await openEpisode(page, width, next);
-          mkdirSync(OUT, { recursive: true });
-          await page.screenshot({ fullPage: true, path: join(OUT, `episode-${next}-${width}-${scheme}.png`) });
-        });
-      }
-    }
-  }
-}

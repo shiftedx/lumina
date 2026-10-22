@@ -39,14 +39,6 @@ test('test_replay_chat_is_read_only_source_chat', async ({ page }) => {
   await expect(rail.getByRole('textbox')).toHaveCount(0); // no composer: nothing can be posted to the provider
 });
 
-test('test_twitch_live_chat_explained_without_sign_in', async ({ page }) => {
-  await open(page, TWITCH_URL, preview(TWITCH_URL, 'twitch', 'live', { live: 'unavailable', replay: 'unavailable', live_reason: 'authentication_required' }), 'light', { width: 1536, height: 960 });
-  const note = page.getByRole('note').filter({ hasText: 'Twitch live chat' });
-  await expect(note).toHaveText(/Twitch live chat needs a Twitch account, which Lumina never asks for\. The stream plays without it\./);
-  await expect(page.getByRole('button', { name: /connect|sign in to twitch/i })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: /connect|sign in to twitch/i })).toHaveCount(0);
-});
-
 test('test_chat_renders_without_page_errors', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));

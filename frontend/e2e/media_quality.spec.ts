@@ -1,15 +1,7 @@
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
-import { docFixture, fieldState } from '../src/features/titles/editor/editorFixtures';
-import { mockGalleryWall, mockLibrarySections } from './gallery-mock';
-import { CHANNEL_ID, mockChannelPage, mockLibraryChannels, mockLive, mockRemoteArtwork } from './live-youtube-mock';
-import { mockLibraryItems } from './library-mock';
 import { item, mockApi, mockTitles, signIn } from './lumina-mock';
-import { mockMetadataEditor } from './metadata-editor-mock';
 
-const CAPTURE_OUT = process.env.MEDIA_QUALITY_OUT;
 const fullFacts = '90p · VP9 / OPUS · Original';
 
 async function openWatch(page: Page, width: number, denseMenu = false) {
@@ -48,13 +40,6 @@ for (const width of [1280, 390]) {
       await page.getByRole('button', { name: 'Playback settings' }).click();
       const panel = page.getByRole('group', { name: 'Playback settings' });
       await expect(panel.getByRole('radio', { name: /Français \(Canada\)/ })).toBeAttached();
-      if (CAPTURE_OUT) {
-        mkdirSync(CAPTURE_OUT, { recursive: true });
-        await panel.evaluate((element) => { element.scrollTop = 0; });
-        await page.screenshot({ path: join(CAPTURE_OUT, `player-menu-${width}-${scheme}-tracks.png`) });
-        await panel.getByRole('button', { name: 'Generate subtitles' }).scrollIntoViewIfNeeded();
-        await page.screenshot({ path: join(CAPTURE_OUT, `player-menu-${width}-${scheme}-actions.png`) });
-      }
       expect(await panel.evaluate(el => el.scrollWidth)).toBeLessThanOrEqual(await panel.evaluate(el => el.clientWidth));
       expect(await panel.evaluate(el => el.scrollHeight)).toBeGreaterThan(await panel.evaluate(el => el.clientHeight));
 
@@ -109,7 +94,6 @@ for (const width of [1280, 390]) {
       })).toBe(true);
       const mute = panel.getByRole('checkbox', { name: /Mute strong language/ }).locator('..');
       await mute.scrollIntoViewIfNeeded();
-      if (CAPTURE_OUT) await page.screenshot({ path: join(CAPTURE_OUT, `player-menu-${width}-${scheme}-sound.png`) });
       expect(await mute.evaluate((element) => {
         const text = [...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.includes('Mute strong language'));
         const range = document.createRange();
@@ -120,10 +104,6 @@ for (const width of [1280, 390]) {
       const captionStyle = panel.getByRole('button', { name: 'Caption style…' });
       await captionStyle.scrollIntoViewIfNeeded();
       await captionStyle.click();
-      if (CAPTURE_OUT) {
-        await panel.evaluate((element) => { element.scrollTop = 0; });
-        await page.screenshot({ path: join(CAPTURE_OUT, `player-menu-${width}-${scheme}-captions.png`) });
-      }
       expect(await panel.evaluate(el => el.scrollWidth)).toBeLessThanOrEqual(await panel.evaluate(el => el.clientWidth));
       for (const name of ['Size', 'Background']) await expect(panel.getByRole('group', { name })).toBeVisible();
       for (const name of ['Small', 'Medium', 'Large', 'Extra large', 'None', 'Box', 'Solid', 'Shadow']) {
@@ -172,10 +152,6 @@ for (const width of [1280, 390]) {
       expect(focusedStyle.style).toBe('solid');
       expect(focusedStyle.width).toBeGreaterThanOrEqual(2);
       expect(focusedStyle.contrast).toBeGreaterThanOrEqual(3);
-      if (CAPTURE_OUT) {
-        await panel.getByRole('group', { name: 'Background' }).scrollIntoViewIfNeeded();
-        await page.screenshot({ path: join(CAPTURE_OUT, `player-menu-${width}-${scheme}-caption-options.png`) });
-      }
       const back = panel.getByRole('button', { name: 'Back', exact: true });
       expect((await back.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     });
@@ -249,80 +225,3 @@ test('desktop volume expands for pointer and keyboard access without animating l
   await slider.focus();
   await expect(label).toHaveCSS('width', '72px');
 });
-
-if (CAPTURE_OUT) {
-  for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: 'phone', width: 390, height: 844 }] as const) {
-    for (const scheme of ['light', 'dark'] as const) {
-      test(`capture all metadata editor tabs at ${viewport.name} ${scheme}`, async ({ page }) => {
-        mkdirSync(CAPTURE_OUT, { recursive: true });
-        await page.setViewportSize(viewport);
-        await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
-        await mockApi(page, { sidebar_collapsed: false });
-        await mockTitles(page);
-        const doc = docFixture('series', {
-          title_id: 'series-1', name: 'Harbor Lights: The Long Household Archive Edition',
-          fields: {
-            ...docFixture('series').fields,
-            people: fieldState([
-              { person_id: 'person-1', name: 'Alexandria Whitcombe-Harrington', role: 'Keeper of the North Lighthouse', type: 'Actor' },
-              { person_id: 'person-2', name: 'Sam Rivers', role: 'Archivist', type: 'Director' },
-            ]),
-          },
-          images: [{ type: 'Primary', index: 0, url: '/api/art/editor-primary', tag: 'abc', origin: 'tmdb', source: 'tmdb', locked: false, width: 1000, height: 1500 }],
-        });
-        await mockMetadataEditor(page, { doc });
-        await page.route('**/api/titles/series-1/metadata/episodes?*', (route) => route.fulfill({ json: {
-          seasons: [{ id: 'season-1', name: 'Season 1', index_number: 1 }],
-          episodes: [{ title_id: 'episode-1', name: 'A Deliberately Long Episode Name for the Phone Layout', index_number: 1, season_number: 1, overview: 'A long overview used to exercise the compact editor.', air_date: '2026-10-11', runtime: 52, locked: false, locked_fields: [] }],
-        } }));
-        await page.goto('/title/series-1/edit');
-        await signIn(page);
-        await expect(page.getByRole('heading', { level: 1, name: doc.name })).toBeVisible();
-        for (const tab of ['Details', 'People', 'Artwork', 'IDs', 'Episodes', 'History']) {
-          await page.getByRole('radio', { name: tab }).check({ force: true });
-          await expect(page.getByRole('radio', { name: tab })).toBeChecked();
-          await page.evaluate(() => window.scrollTo(0, 0));
-          await page.screenshot({ fullPage: true, path: join(CAPTURE_OUT, `metadata-${tab.toLowerCase()}-${viewport.name}-${scheme}.png`) });
-        }
-      });
-    }
-  }
-
-  for (const profile of [{ name: 'desktop-light', width: 1440, height: 900, scheme: 'light' }, { name: 'phone-dark', width: 390, height: 844, scheme: 'dark' }] as const) {
-    test(`capture the uncatalogued Library lenses at ${profile.name}`, async ({ page }) => {
-      mkdirSync(CAPTURE_OUT, { recursive: true });
-      await page.setViewportSize(profile);
-      await page.emulateMedia({ colorScheme: profile.scheme, reducedMotion: 'reduce' });
-      await mockApi(page, { sidebar_collapsed: false });
-      await mockGalleryWall(page);
-      await mockLibrarySections(page);
-      await mockLibraryItems(page);
-      for (const [index, [name, path]] of ([['shows', '/library/shows'], ['anime', '/library/anime'], ['music-albums', '/library/music'], ['music-artists', '/library/music?view=artists'], ['saved-audio', '/library/music?view=saved'], ['youtube', '/library/youtube'], ['recordings', '/library/recordings']] as const).entries()) {
-        await page.goto(path);
-        if (index === 0) await signIn(page);
-        await expect(page.locator('.surface.gallery h1').first()).toBeVisible();
-        await page.screenshot({ path: join(CAPTURE_OUT, `library-${name}-${profile.name}.png`) });
-      }
-    });
-
-    test(`capture every uncatalogued channel tab at ${profile.name}`, async ({ page }) => {
-      mkdirSync(CAPTURE_OUT, { recursive: true });
-      await page.setViewportSize(profile);
-      await page.emulateMedia({ colorScheme: profile.scheme, reducedMotion: 'reduce' });
-      await mockApi(page, { sidebar_collapsed: false });
-      await mockRemoteArtwork(page);
-      await mockLive(page);
-      await mockChannelPage(page);
-      await mockLibraryChannels(page, 12);
-      await mockLibraryItems(page);
-      for (const [index, tab] of (['live', 'shorts', 'playlists', 'library'] as const).entries()) {
-        await page.goto(`/channel/youtube/${CHANNEL_ID}?tab=${tab}`);
-        if (index === 0) await signIn(page);
-        await expect(page.getByRole('heading', { level: 1, name: 'Harbor Films' })).toBeVisible();
-        await expect(page.getByRole('tab', { selected: true })).toBeVisible();
-        await expect(page.locator('.g-channel-wall')).toBeVisible();
-        await page.screenshot({ path: join(CAPTURE_OUT, `channel-${tab}-${profile.name}.png`) });
-      }
-    });
-  }
-}

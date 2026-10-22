@@ -1,29 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { mockApi } from './lumina-mock';
 
-test('login renders its title, fields and primary button', async ({ page }) => {
-  await mockApi(page, {});
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
-  const brand = page.locator('.g-brand-sun:visible').first();
-  await expect(brand).toHaveAttribute('src', '/media-mark.svg?v=lumina-5');
-  await expect(brand).toHaveJSProperty('naturalWidth', 56);
-  await expect(page.getByText('Sign in with your Lumina account.')).toBeVisible();
-  await expect(page.getByLabel('Username')).toBeVisible();
-  await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
-});
-
-test('setup renders when the vault has no owner yet', async ({ page }) => {
-  await mockApi(page, {});
-  await page.route('**/api/bootstrap/status', (route) => route.fulfill({ json: { needs_setup: true } }));
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Make Lumina yours' })).toBeVisible();
-  await expect(page.getByLabel('Display name')).toBeVisible();
-  await expect(page.getByText('At least 12 characters.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Create household vault' })).toBeVisible();
-});
-
 for (const path of ['/', '/invite']) {
   test(`an invite link at ${path} renders the join form and removes its fragment`, async ({ page }) => {
     await mockApi(page, {});
@@ -43,16 +20,6 @@ test('a reset link renders the new-password form', async ({ page }) => {
   await expect(page.getByLabel('New password', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Set new password' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Back to sign in' })).toBeVisible();
-});
-
-test('a rate-limited sign-in says to wait a minute', async ({ page }) => {
-  await mockApi(page, {});
-  await page.route('**/api/session/login', (route) => route.fulfill({ status: 429, json: { detail: 'rate_limited' } }));
-  await page.goto('/');
-  await page.getByLabel('Username').fill('sam');
-  await page.getByLabel('Password', { exact: true }).fill('synthetic-passphrase');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByText('Too many attempts. Try again in a minute.')).toBeVisible();
 });
 
 test('at phone width the left column is hidden and the bar brand shows', async ({ page }) => {

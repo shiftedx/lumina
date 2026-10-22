@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { SETTINGS_CATEGORIES, SETTINGS_PAGES } from '../src/features/settings/navigation';
 import { mockAdminFixtures, mockApi, openSettingsArea, signIn } from './lumina-mock';
 
@@ -57,33 +55,4 @@ for (const scheme of ['light', 'dark'] as const) {
     const audit = await new AxeBuilder({ page }).include('[data-setting-id="activity.history"]').analyze();
     expect(audit.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
   });
-}
-
-if (process.env.SETTINGS_REWORK_OUT) {
-  for (const [width, scheme] of [[1440, 'dark'], [390, 'light']] as const) {
-    test(`capture bespoke settings views at ${width}px`, async ({ page }) => {
-      const out = process.env.SETTINGS_REWORK_OUT!;
-      mkdirSync(out, { recursive: true });
-      await page.setViewportSize({ width, height: 960 });
-      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
-      await mockApi(page, {}); await mockAdminFixtures(page);
-      await page.goto('/settings'); await signIn(page);
-      await expect(page.getByRole('combobox', { name: 'Maximum quality' })).toBeVisible();
-      await page.evaluate(() => document.fonts.ready);
-      await page.screenshot({ path: join(out, `playback-${width}.png`) });
-      writeFileSync(join(out, `layout-${width}.json`), JSON.stringify(await page.locator('.g-settings-pane').evaluate((pane) => [...pane.querySelectorAll<HTMLElement>('*')].filter((element) => element.getBoundingClientRect().right > innerWidth + 1).map((element) => ({ tag: element.tagName, css: element.className, width: element.getBoundingClientRect().width }))), null, 2));
-        await openSettingsArea(page, 'Library & storage');
-      await expect(page.getByRole('row', { name: /Family NAS/ })).toBeVisible();
-      await page.screenshot({ path: join(out, `storage-${width}.png`) });
-      await openSettingsArea(page, 'Overview & activity');
-      await page.getByRole('link', { name: 'Now playing', exact: true }).click();
-      await expect(page.getByText('The Lighthouse Keepers', { exact: true })).toBeVisible();
-      await page.screenshot({ path: join(out, `activity-${width}.png`) });
-      await page.getByRole('link', { name: 'Playback history', exact: true }).click();
-      await expect(page.locator('.activity-viewing-chart')).toBeVisible();
-      await page.screenshot({ path: join(out, `history-${width}.png`) });
-      await openSettingsArea(page, 'Display');
-      await page.screenshot({ path: join(out, `display-${width}.png`) });
-    });
-  }
 }

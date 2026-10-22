@@ -145,4 +145,26 @@ describe('Media server and Playback & transcoding sections', () => {
     expect(screen.queryByDisplayValue('one-time-agent-token')).toBeNull();
     expect(JSON.stringify({ ...window.localStorage })).not.toContain('one-time-agent-token');
   });
+
+  it('dismisses a newly issued agent token before its app is revoked', async () => {
+    api.listConnectedApps.mockResolvedValue([]);
+    api.createAgentToken.mockResolvedValue({ app: connectedApp, token: 'one-time-agent-token' });
+    api.revokeConnectedApp.mockResolvedValue(undefined);
+    render(<ConnectedApps user={user} />);
+
+    await userEvent.type(await screen.findByLabelText('Token name'), 'Home Assistant');
+    await userEvent.click(screen.getByRole('button', { name: 'Create agent token' }));
+    const token = await screen.findByRole('textbox', { name: 'Token for Home Assistant' }) as HTMLInputElement;
+    expect(token.value).toBe('one-time-agent-token');
+    expect(document.activeElement).toBe(token);
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByDisplayValue('one-time-agent-token')).toBeNull();
+    expect(JSON.stringify({ ...window.localStorage })).not.toContain('one-time-agent-token');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Revoke Home Assistant' }));
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Revoke Home Assistant?' })).getByRole('button', { name: 'Revoke' }));
+    await waitFor(() => expect(api.revokeConnectedApp).toHaveBeenCalledWith('agent-1'));
+    expect(screen.queryByDisplayValue('one-time-agent-token')).toBeNull();
+    expect(JSON.stringify({ ...window.localStorage })).not.toContain('one-time-agent-token');
+  });
 });

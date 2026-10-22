@@ -1,0 +1,166 @@
+# Backend pytest: strict regression-history evidence
+
+- **Base reviewed:** `b3c5ff7`
+- **Scope:** AST inventory of **3,860 authored `test_*` functions** in **378** `backend/tests/` files. Parameter expansion is deliberately deferred to the runner's supplied nodeid inventory; this report is at source-template level.
+- **Rule:** A historical catcher needs a test that existed before the corrective change, evidence it failed, and an app-code fix responding to that failure. A test added with a feature/fix, or a test-only timing/flake/drift repair, is not qualifying evidence.
+
+## Confirmed historical regression catcher — protect
+
+| Test nodeid prefix | Evidence | App-code response | Verdict |
+| --- | --- | --- | --- |
+| `backend/tests/test_live_recording_scheduling_manager.py::test_scheduling_starts_in_waiting_and_runs_the_waiter` | [Issue #65](https://github.com/shiftedx/lumina/issues/65) names this existing test and reports **two focused failures in eight retries** on `ce8023c`; it identifies `wait_all()` joining a published-but-unstarted worker. The test's line history shows it predates the fix (introduced in `caa0a302`). | [PR #66](https://github.com/shiftedx/lumina/pull/66), merge `4a887c4773689711106ab1e4ec336bdcb37dd961`, changes `backend/app/services/live_recording_manager.py`: it starts the worker under the same lock that publishes it, preventing `join()` before `start()`. | **Keep: historical catcher.** |
+
+The deterministic `backend/tests/test_live_recording_scheduling_manager.py::test_wait_all_joins_scheduled_work_while_it_starts` was added in PR #66. It may be valuable coverage, but is **not** a historical catcher under this rule.
+
+## Broad scan and what it establishes
+
+1. Ran an exact `git -S` function-title query for every template:
+
+   ```sh
+   git log --all -S "def <test function>" --format=%H%x09%s -- <test file>
+   ```
+
+   The machine-readable result contains **7,546 creation hits** and **one removal/rename hit**, for all 3,860 templates. These establish title provenance only. They do not prove a regression: a test title can remain unchanged while an app fix lands.
+
+2. Reviewed the Git candidate pool:
+
+   ```sh
+   git log --all --grep='fix\|regress\|race\|security\|migrat\|concurr\|data loss\|corrupt' -i
+   ```
+
+   This returned **146** candidate commits; **67** changed both `backend/app/` and `backend/tests/`. The raw screening artifacts intentionally over-include functions merely retained in a touched test file and are not verdict evidence.
+
+3. Queried first-party GitHub issues/PRs, including:
+
+   ```sh
+   gh api -X GET search/issues -f 'q=repo:shiftedx/lumina is:issue (regression OR failed OR failure OR broke OR broken)' -f per_page=100
+   gh api -X GET search/issues -f 'q=repo:shiftedx/lumina is:pr (regression OR failed OR failure OR broke OR broken)' -f per_page=100
+   gh api -X GET search/issues -f 'q=repo:shiftedx/lumina is:pr "backend/tests/"' -f per_page=100
+   ```
+
+   The broad searches and **49** PRs returned by the `backend/tests/` query yielded the #65/#66 direct chain above. Generic `"test_"` issue/PR searches returned no results.
+
+## Explicit non-qualifying / uncertain example
+
+[PR #72](https://github.com/shiftedx/lumina/pull/72) says both regressions failed before their fixes and extends the pre-existing `test_rescan_removes_stale_shared_folder_cover_but_preserves_manual_art`. Its patch adds the cached-lookup and maintenance assertions that exercise the stated defect; therefore the old test alone is not shown to have failed before the app fix. It is **not** recorded as a historical catcher from this evidence. It needs a candidate-specific failure record before any strict evidence claim.
+
+## Limits and next step
+
+- `git -L` across `--all` is not usable in this repository because multiple snapshot roots make line tracking ambiguous. The exact selected-file `-L` command succeeded for the confirmed catcher. For any proposed deletion, run `git -L` on its fixed path/line or function and inspect the associated patch/PR.
+- The all-template `-S` sweep, broad commit scan, and broad GitHub searches are complete; they are not an exhaustive proof of the absence of an undocumented historical failure for every test. Do **not** use “no hit” as a deletion verdict.
+- Once removal candidates arrive, perform exact-title/static-prefix GitHub searches and selected `-L`/patch review for each candidate before assigning `delete` or `move`.
+
+## Artifacts
+
+- `/tmp/lumina-pytest-history-inventory.json` — source AST inventory.
+- `/tmp/lumina-pytest-history-records.json` — all-template pickaxe rows plus the confirmed evidence mapping.
+- `/tmp/lumina-pytest-fix-commits.tsv` — 146 commit candidate subjects.
+- `/tmp/lumina-pytest-mixed-fix-commits.json` — 67 app-and-test candidate commits, screening only.
+- `/tmp/lumina-pytest-issue-65.json`, `/tmp/lumina-pytest-pr-66.json` — first-party source snapshots.
+
+## Candidate-specific history review (parent-supplied deletion candidates)
+
+Exact `-S`, selected-function `-L`, and exact-title GitHub issue and PR searches were completed for these five candidates. **None has qualifying existing-test-failure-to-app-fix evidence.** This is a history conclusion only; it does not override the separate retained-contract and mutation-proof requirements.
+
+| Candidate | Git evidence | Exact GitHub issue/PR title search | Strict history conclusion |
+| --- | --- | --- | --- |
+| `test_jellyfin_dto_compat.py::test_an_unavailable_decision_offers_no_transcode_and_keeps_direct_play` | `-S` and `-L` show creation in `caa0a302`; later file commits #47/#49 leave this function unchanged. | 0 / 0 | No qualifying evidence. |
+| `test_jellyfin_clients.py::test_an_unknown_route_is_an_empty_bodied_404` | `-S` and `-L` show creation in `caa0a302`; no later test-file history. | 0 / 0 | No qualifying evidence. |
+| `test_jellyfin_integration.py::test_trace_logs_route_templates_and_parameter_names_only` | `-S` and `-L` show creation in `caa0a302`; later #47/#70 file changes do not alter the function. | 0 / 0 | No qualifying historical-catcher evidence. It is a token/value secrecy check, so retain-or-delete still requires the separately named retained privacy contracts to fail on mutation. |
+| `test_library_gallery_contract.py::test_the_gallery_fixture_holds_an_album_of_three_tracks` | `-S` and `-L` show creation in `caa0a302`; no later test-file history. | 0 / 0 | No qualifying evidence. |
+| `test_jellyfin_clients.py::test_api_errors_keep_their_json_body` | `-S` and `-L` show creation in `caa0a302`; no later test-file history. | 0 / 0 | No qualifying evidence. |
+
+Exact searches used both `is:issue` and `is:pr` with each quoted function name. Raw results: `/tmp/lumina-pytest-candidate-github.json` and `/tmp/lumina-pytest-candidate-prs.json`.
+
+## Additional candidate-specific history review
+
+| Candidate | Git/first-party source | Strict history conclusion |
+| --- | --- | --- |
+| `test_library_automation_safety.py::test_no_automation_code_path_calls_confirm` | `-S` and `-L` show creation in `caa0a302`; later file commits [#74](https://github.com/shiftedx/lumina/pull/74) and [#77](https://github.com/shiftedx/lumina/pull/77) do not modify it. Exact quoted issue/PR-title searches: 0 / 0. | No qualifying existing-test failure-to-app-fix evidence. This source-inspection policy check still needs separate retained-coverage review. |
+| `test_library_automation_snapshot.py::test_facade_method_names_and_signatures_match_s3` | It originated in `caa0a302`; `8794d059` / [#43](https://github.com/shiftedx/lumina/pull/43) extends its expected facade signatures for the new activity feature. Exact quoted issue/PR-title searches: 0 / 0. | Feature-time expansion is not an existing failing test followed by an app fix; no qualifying historical evidence. |
+
+Raw exact-search results: `/tmp/lumina-pytest-automation-candidate-github.json`.
+
+## Retained-coverage negative controls
+
+The following focused runtime controls are intentionally loaded from `/tmp/lumina_pytest_negative_controls.py`; no app or test source changes were made. Each first runs with `LUMINA_NEGATIVE_CONTROL=<name>`, `PYTHONPATH=/tmp`, and `-p lumina_pytest_negative_controls`, then reruns the identical retained node without the plugin. Detailed private logs and machine-readable results are in `/tmp/lumina-pytest-negative-controls-run3/`.
+
+| Removed candidate behavior | Selective runtime fault | Retained public contract | Red / green evidence |
+| --- | --- | --- | --- |
+| Unavailable decisions do not offer transcoding | Central `transcoding_fields` unavailable branch returns `SupportsTranscoding=True`; direct imports still call the same mutated function object. | `test_jellyfin_integration.py::test_transcoding_fields_direct_and_hls` | exit **1** (assertion failure) / exit **0** |
+| Unknown Jellyfin routes return an empty 404 | `main.jellyfin_error` returns a nonempty 418 only for Jellyfin paths. | `test_jellyfin_api.py::test_unknown_route_is_a_logged_empty_404` | exit **1** (assertion failure) / exit **0** |
+| Trace logs emit names, never values or tokens | Middleware records the actual normalized raw query only while tracing; request/response behavior is unchanged and no test secret is embedded in the plugin. | `test_jellyfin_api.py::test_trace_logs_names_never_values_or_tokens` | exit **1** (assertion failure) / exit **0** |
+| Gallery seed's physical track order feeds the album workflow | The consuming album-detail module's imported `seed_gallery` changes the pending third track to disc 0 before fixture commit. | `test_album_detail.py::test_an_album_page_lists_its_tracks_with_the_members_progress` | exit **1** (assertion failure) / exit **0** |
+
+These controls establish the named replacement coverage only. They do not establish the distinct ordinary-API `Content-Type` contract in `test_api_errors_keep_their_json_body`, which remains a **keep** pending a specific header-preserving-body negative control.
+# Backend extra candidate mutation controls
+
+Worktree: `/Users/kmcdowell/.codex/worktrees/pytest-signal-audit/lumina`
+
+No repository source or test file was changed. Faults live in private pytest plugins under `/tmp` and were loaded only by the focused fault process.
+
+## 1. Remove the source-substring confirmation recipe
+
+Candidate: `backend/tests/test_library_automation_safety.py::test_no_automation_code_path_calls_confirm`
+
+Retained detector: `backend/tests/test_library_automation_safety.py::test_mass_missing_is_never_auto_confirmed_9_4_M`
+
+Fault plugin: `/tmp/lumina_fault_auto_confirm.py`. It wraps the real `LibraryAutomation.tick` runner path. After the normal tick it selects only an `ImportRun` that is `needs_confirmation` with `missing_candidates > 0`, then attempts `LibraryImportService.confirm(run)`. This is the forbidden automatic behavior; it does not alter ordinary or non-missing runs.
+
+RED command (from `backend/`):
+
+```sh
+PYTHONPATH=/tmp:. .venv/bin/python -m pytest -q -p lumina_fault_auto_confirm tests/test_library_automation_safety.py::test_mass_missing_is_never_auto_confirmed_9_4_M
+```
+
+Result: exit 1, `AssertionError: automation must never confirm a held run`, raised by the retained file-wide `no_confirm` fixture when the injected runner behavior reaches the held missing run. Log: `/tmp/lumina-pytest-auto-confirm-red.log`.
+
+GREEN command:
+
+```sh
+.venv/bin/python -m pytest -q tests/test_library_automation_safety.py::test_mass_missing_is_never_auto_confirmed_9_4_M
+```
+
+Result: exit 0, `1 passed in 0.79s`. Log: `/tmp/lumina-pytest-auto-confirm-green.log`.
+
+Conclusion: the behavioral retained test detects the consequential forbidden action directly. The deleted `inspect.getsource` substring check adds only spelling/layout coverage.
+
+## 2. Remove the facade signature reflection recipe
+
+Candidate: `backend/tests/test_library_automation_snapshot.py::test_facade_method_names_and_signatures_match_s3`
+
+Representative retained detector: `backend/tests/test_v1_scan.py::test_external_scan_zero_mutation`
+
+Fault plugin: `/tmp/lumina_fault_facade_activity.py`. It changes the real `LibraryAutomation.activity_started` signature to accept no run arguments. The production `POST /api/admin/imports` consumer still calls `automation.activity_started(run.id, run.counters)`.
+
+RED command (from `backend/`):
+
+```sh
+PYTHONPATH=/tmp:. .venv/bin/python -m pytest -q -p lumina_fault_facade_activity tests/test_v1_scan.py::test_external_scan_zero_mutation
+```
+
+Result: exit 1 at the production route, `TypeError: ...activity_started() takes 1 positional argument but 3 were given`. Log: `/tmp/lumina-pytest-facade-red.log`.
+
+GREEN command:
+
+```sh
+.venv/bin/python -m pytest -q tests/test_v1_scan.py::test_external_scan_zero_mutation
+```
+
+Result: exit 0, `1 passed, 1 warning in 1.69s`. Log: `/tmp/lumina-pytest-facade-green.log`.
+
+### Coverage for all nine reflected methods
+
+| Method | Retained consequential coverage |
+| --- | --- |
+| `snapshot` | `test_snapshot_matches_the_6_1_shape_and_never_includes_paths`; admin GET contract also consumes the shape. |
+| `public_activity` | `test_public_activity_is_a_bounded_identity_free_aggregate`; member activity HTTP contract checks its projection. |
+| `root_entry` | `test_root_entry_matches_snapshot_roots_item_and_is_none_for_unknown`; root PATCH consumer calls it. |
+| `roots_changed` | `test_roots_changed_starts_a_baseline_when_watch_turns_on_and_off_keeps_rows`; root PATCH consumer calls it after commit. |
+| `scan_now` | `test_scan_now_all_roots_in_label_order_first_starts_rest_queued`, `test_scan_now_probes_a_never_probed_root_with_a_bound`, and focused-root cases call both supported argument forms; admin scan HTTP contract calls it. |
+| `submit` | `test_submit_runs_drive_on_the_manual_lane_tracked` and `test_submit_routes_manager_runs_to_the_roots_automatic_lane_and_ignores_missing_runs`; request sync is the production caller. |
+| `activity_started` | Real import HTTP workflow `test_external_scan_zero_mutation`; mutation control above proves it detects a broken signature. |
+| `activity_finished` | The same real import HTTP workflow waits for `_drive_reported`, whose `finally` invokes `activity_finished(run_id)` before the TestClient response completes. |
+| `diagnostics` | `test_diagnostics_matches_6_3` and `test_diagnostics_returns_the_raw_poller_error`; admin diagnostics HTTP contract consumes/redacts the returned block. |
+
+The HTTP tests for the dedicated automation router use `FakeAutomation`, so they are not by themselves proof of real-singleton wiring. The retained direct service contracts call the real class with the same method names/argument forms; the import route additionally exercises the real singleton for the two activity methods that lack direct calls. No important reflected method lacks a retained consumer or behavior contract.

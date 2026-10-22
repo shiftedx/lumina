@@ -1,7 +1,6 @@
-"""Snapshot read model, scan-now, settings hook and the facade signatures."""
+"""Snapshot read model, scan-now and settings hook."""
 from __future__ import annotations
 
-import inspect
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -497,11 +496,3 @@ def test_submit_routes_manager_runs_to_the_roots_automatic_lane_and_ignores_miss
     assert env.automation._manual.labels == []
     env.automation.submit("missing")
     assert env.automation._auto[root_id].labels == [run_id]
-
-
-def test_facade_method_names_and_signatures_match_s3():
-    expected = {"snapshot": [], "public_activity": [], "root_entry": ["root_id"], "roots_changed": [], "scan_now": ["admin_id", "root_id"],
-                "submit": ["run_id"], "activity_started": ["run_id", "counters"], "activity_finished": ["run_id"], "diagnostics": []}
-    for name, params in expected.items():
-        assert list(inspect.signature(getattr(LibraryAutomation, name)).parameters)[1:] == params
-    assert inspect.signature(LibraryAutomation.scan_now).parameters["root_id"].default is None

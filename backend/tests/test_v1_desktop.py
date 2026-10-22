@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from starlette.routing import Mount
 
 from app.main import app
 from support import make_user
@@ -48,14 +49,15 @@ def test_host_launch_routes_absent() -> None:
     assert library_open_reveal == [], f"removed routes still registered: {library_open_reveal}"
 
     client = TestClient(app, base_url="http://localhost")
-    # The app's SPA static mount answers unregistered POST API paths with 405
-    # (GET/HEAD only). A surviving open/reveal handler would answer with API
-    # semantics (2xx/401/403/400) instead, so assert the 405 negative control.
+    # An unregistered POST falls through to FastAPI's 404 when the frontend has
+    # not been built, or to the GET/HEAD-only SPA mount's 405 when it has.
+    # Compare the removed paths with that exact route-table-derived fallback.
+    fallback = 405 if any(isinstance(route, Mount) and route.name == "frontend" for route in app.routes) else 404
     control = client.post("/api/library/any-item-id/no-such-action-ever")
-    assert control.status_code == 405
+    assert control.status_code == fallback
     for path in ("/api/library/any-item-id/open", "/api/library/any-item-id/reveal"):
         response = client.post(path)
-        assert response.status_code == 405, (path, response.status_code, response.text)
+        assert response.status_code == fallback, (path, response.status_code, response.text)
 
     from app.services.library import LibraryService
 

@@ -785,18 +785,6 @@ def test_golden_traffic_replay_hits_real_routes() -> None:
     assert not misses, f"Unhandled Infuse requests: {misses}"
 
 
-def test_trace_logs_route_templates_and_parameter_names_only(vault: Vault, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    monkeypatch.setattr(settings, "jellyfin_trace", True)
-    caplog.set_level(logging.INFO, logger="lumina.jellyfin")  # scoped: unscoped INFO also lifts httpx's own request-URL logging
-    tv = login(vault)
-    vault.jf.get("/Items", headers=tv.headers, params={"searchTerm": "secret-title-words", "ApiKey": tv.token})
-    vault.jf.get("/NoSuchRoute/abc", headers=tv.headers)
-    lines = [record.getMessage() for record in caplog.records if record.getMessage().startswith("jellyfin.")]
-    assert "jellyfin.trace GET /jellyfin/items apikey,searchterm" in lines
-    assert any(line.startswith("jellyfin.unhandled GET /jellyfin/nosuchroute/abc") for line in lines)
-    assert tv.token not in caplog.text and "secret-title-words" not in caplog.text
-
-
 def test_import_hooks_include_the_embedding_backfill(vault: Vault) -> None:
     from app.services import embeddings, library_import
 

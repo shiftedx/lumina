@@ -74,3 +74,86 @@ E2E_PORT=53931 REALSTACK_ROOT=/private/tmp/lumina-notes-diagnosis-<id> \
 - The repaired isolated run passed setup plus both repetitions: **3 passed in 2.7 minutes**; the two journey iterations took **6.134 s** and **4.743 s**. The owned runner and fixture process exited after completion.
 
 This current-run diagnosis does not add a historical regression catcher or change the rule that the Notes workflow is never deleted because of #67/#68.
+
+## Follow-up: direct GitHub title/body search for every move/delete template
+
+At the final audit head, the ledger has **99** expanded platform-case rows marked `move` or `delete`. They map to **68** distinct authored templates in `/tmp/lumina-playwright-history.json`. I searched GitHub issues and pull requests together with:
+
+```sh
+gh api -X GET search/issues -f 'q=repo:shiftedx/lumina "<authored title>"' -f per_page=100
+```
+
+For interpolated test titles, the query used the static authored prefix before `${...}`. The API searches issue and PR titles and bodies. Twenty-five exact queries had already been recorded in `/tmp/playwright-priority-github-search.json`; this follow-up added 43. All **68/68 authored-template** queries returned **zero** matching issues or PRs. I also ran seven dynamic runtime-title queries: six returned zero; `catalogue dark desktop` found PR #61 only as a verification-log line. That PR neither modifies the catalogue test nor describes its failure; its changed regression test is `v1_twitch_playback`, so it is not qualifying evidence. Runtime queries: `capture People editor` (0); `catalogue dark desktop` (PR #61 verification-only); `catalogue light phone`, `catalogue light wide`, `catalogue light desktop`, `catalogue dark wide`, and `catalogue dark phone` (0 each). This is no qualifying regression evidence, not proof that a test never failed.
+
+| Source template | Query title/prefix | Issues/PRs |
+| --- | --- | ---: |
+| `frontend/e2e/auth.spec.ts:4` | `login renders its title, fields and primary button` | 0 |
+| `frontend/e2e/auth.spec.ts:17` | `setup renders when the vault has no owner yet` | 0 |
+| `frontend/e2e/auth.spec.ts:48` | `a rate-limited sign-in says to wait a minute` | 0 |
+| `frontend/e2e/home-live.spec.ts:24` | `followed channels live now come first, then popular live, each stream once` | 0 |
+| `frontend/e2e/integrations.spec.ts:103` | `admin sends fresh revisioned monitor and profile operations, while rejected releases have no grab` | 0 |
+| `frontend/e2e/integrations.spec.ts:108` | `a stale result asks for review, while an uncertain result blocks a write until reconciliation` | 0 |
+| `frontend/e2e/media_quality.spec.ts:256` | `capture all metadata editor tabs at` | 0 |
+| `frontend/e2e/media_quality.spec.ts:292` | `capture the uncatalogued Library lenses at` | 0 |
+| `frontend/e2e/media_quality.spec.ts:308` | `capture every uncatalogued channel tab at` | 0 |
+| `frontend/e2e/metadata-editor.spec.ts:151` | `capture: Artwork autosave at` | 0 |
+| `frontend/e2e/metadata_people_quality.spec.ts:82` | `capture People editor ${variant.name}` | 0 |
+| `frontend/e2e/onboarding_interests_loading.spec.ts:16` | `interest loading keeps Continue guarded while Skip remains available` | 0 |
+| `frontend/e2e/onboarding_interests_loading.spec.ts:34` | `a failed interest load can retry without turning unknown interests into an empty choice` | 0 |
+| `frontend/e2e/onboarding_interests_loading.spec.ts:56` | `a late initial interest response cannot replace the canonical Skip result` | 0 |
+| `frontend/e2e/reco.spec.ts:26` | `shows with no interests chosen, says why under each card, and marks exploration only by its words` | 0 |
+| `frontend/e2e/reco.spec.ts:37` | `Not interested replaces the card with Hidden. Undo, and Undo restores it` | 0 |
+| `frontend/e2e/reco.spec.ts:50` | `when the eight seconds pass the card is gone and Home re-fetches` | 0 |
+| `frontend/e2e/reco.spec.ts:63` | `keeps the menu and drops the reasons when the server sends no annotation (the switch is off)` | 0 |
+| `frontend/e2e/reco.spec.ts:87` | `Clear recommendation history asks first, then clears` | 0 |
+| `frontend/e2e/reco.spec.ts:97` | `lists the four kinds of feedback in Settings` | 0 |
+| `frontend/e2e/reco.spec.ts:112` | `a recommended poster keeps its reason in the menu as a quiet header, on a phone too` | 0 |
+| `frontend/e2e/reco.spec.ts:126` | `Not interested on a More like this poster hides it and sends the title` | 0 |
+| `frontend/e2e/reco.spec.ts:241` | `rows say why, the request names the channel, and Don't recommend hides the row with Undo` | 0 |
+| `frontend/e2e/reco.spec.ts:283` | `a channel with no suppression gets the plain confirmation` | 0 |
+| `frontend/e2e/settings_visual_polish.spec.ts:13` | `capture every settings page in` | 0 |
+| `frontend/e2e/settings_visual_views.spec.ts:64` | `capture bespoke settings views at` | 0 |
+| `frontend/e2e/v1_admin_import_ui.spec.ts:35` | `import wizard, running and partial` | 0 |
+| `frontend/e2e/v1_admin_import_ui.spec.ts:67` | `import partial with entries` | 0 |
+| `frontend/e2e/v1_admin_import_ui.spec.ts:85` | `a scan that would mark many files missing waits for confirmation` | 0 |
+| `frontend/e2e/v1_admin_media.spec.ts:43` | `TMDB key, Jellyfin toggle and Infuse instructions` | 0 |
+| `frontend/e2e/v1_admin_media.spec.ts:71` | `an agent token is shown once, then revoked` | 0 |
+| `frontend/e2e/v1_admin_members_ui.spec.ts:7` | `members list opens a member page whose edits save in one PUT` | 0 |
+| `frontend/e2e/v1_admin_members_ui.spec.ts:48` | `invite dialog sends, and shows the link when email is not set up` | 0 |
+| `frontend/e2e/v1_admin_metrics.spec.ts:32` | `test_admin_overview` | 0 |
+| `frontend/e2e/v1_admin_storage_ui.spec.ts:33` | `test_storage_mobile_forms` | 0 |
+| `frontend/e2e/v1_admin_storage_ui.spec.ts:66` | `storage rules load failure is actionable` | 0 |
+| `frontend/e2e/v1_admin_storage_ui.spec.ts:77` | `adding an external root offers Import now, shared with the household by default` | 0 |
+| `frontend/e2e/v1_admin_tasks_ai.spec.ts:46` | `test_admin_tasks_and_ai` | 0 |
+| `frontend/e2e/v1_admin_tasks_ai.spec.ts:76` | `test_generate_transcript` | 0 |
+| `frontend/e2e/v1_chat.spec.ts:33` | `test_replay_chat_is_read_only_source_chat` | 0 |
+| `frontend/e2e/v1_chat.spec.ts:42` | `test_twitch_live_chat_explained_without_sign_in` | 0 |
+| `frontend/e2e/v1_collections_ui.spec.ts:113` | `test_collection_save_to_vault_is_explicit_and_separate_from_watch` | 0 |
+| `frontend/e2e/v1_collections_ui.spec.ts:135` | `test_collection_play_all_pushes_to_watch_queue` | 0 |
+| `frontend/e2e/v1_collections_ui.spec.ts:144` | `test_collection_visual_mixed_source` | 0 |
+| `frontend/e2e/v1_diagnostics.spec.ts:45` | `test_admin_diagnostics_recommendations` | 0 |
+| `frontend/e2e/v1_discover_ui.spec.ts:38` | `test_discover_stale_response_discarded: a slow earlier query never replaces the newer one` | 0 |
+| `frontend/e2e/v1_discover_ui.spec.ts:48` | `test_discover_visual_focus` | 0 |
+| `frontend/e2e/v1_downloads_ui.spec.ts:54` | `test_downloads_visual` | 0 |
+| `frontend/e2e/v1_history.spec.ts:31` | `test_history_storage_failure_search_works: a failed history write never blocks the search` | 0 |
+| `frontend/e2e/v1_home.spec.ts:42` | `a fresh member sees one start card and no empty shelves` | 0 |
+| `frontend/e2e/v1_visual_catalogue.spec.ts:325` | `the catalogue lists every 13.1 state` | 0 |
+| `frontend/e2e/v1_visual_catalogue.spec.ts:337` | `catalogue ${scheme} ${viewport.name}`; runtime `catalogue dark desktop` | 0 template; 1 verification-only PR #61 |
+| `frontend/e2e/v1_history.spec.ts:96` | `test_history_suggestions_visual` | 0 |
+| `frontend/e2e/v1_household_notes.spec.ts:68` | `test_notes_visual` | 0 |
+| `frontend/e2e/v1_idea_graph.spec.ts:44` | `test_idea_graph_empty` | 0 |
+| `frontend/e2e/v1_library_ui.spec.ts:86` | `test_library_views_delete_and_undo` | 0 |
+| `frontend/e2e/v1_moments.spec.ts:45` | `test_moment_create_seek_roundtrip` | 0 |
+| `frontend/e2e/v1_moments.spec.ts:59` | `test_moments_themes` | 0 |
+| `frontend/e2e/v1_moments.spec.ts:67` | `test_moments_empty` | 0 |
+| `frontend/e2e/v1_provenance.spec.ts:30` | `test_provenance_panel` | 0 |
+| `frontend/e2e/v1_provenance.spec.ts:39` | `test_provenance_error_state` | 0 |
+| `frontend/e2e/v1_recording.spec.ts:48` | `test_recording_states_live_and_partial` | 0 |
+| `frontend/e2e/v1_recording.spec.ts:79` | `test_recording_retention_admin` | 0 |
+| `frontend/e2e/v1_settings_ai.spec.ts:61` | `turning on Semantic search with no model downloads it, and it works after Save (success criterion 1)` | 0 |
+| `frontend/e2e/v1_settings_ai.spec.ts:99` | `a corrupted download is never used: the row says why and Retry downloads again (success criterion 5)` | 0 |
+| `frontend/e2e/v1_summary_ui.spec.ts:46` | `test_summary_generating` | 0 |
+| `frontend/e2e/v1_transcript_ui.spec.ts:44` | `test_transcript_search_state` | 0 |
+| `frontend/e2e/watch_quality.spec.ts:158` | `capture episode` | 0 |
+
+The machine-readable search result artifact is `/tmp/lumina-playwright-move-delete-github-search.json`; the history map now records the scope, counts, methodology, and artifact location. No result supplied an existing-test-failure → application-code-fix chain, so no newly discovered catcher changes any move/delete verdict.

@@ -17,6 +17,8 @@ final class LuminaClient: @unchecked Sendable {
         session = URLSession(configuration: configuration, delegate: redirectGuard, delegateQueue: nil)
     }
 
+    deinit { session.invalidateAndCancel() }
+
     func url(origin: URL, path: String, query: [URLQueryItem] = []) -> URL? {
         guard var parts = URLComponents(url: origin, resolvingAgainstBaseURL: false) else { return nil }
         parts.path = path
@@ -202,11 +204,40 @@ final class LuminaClient: @unchecked Sendable {
         return data
     }
 
+    func bookImage(_ request: URLRequest) async throws -> Data {
+        let guardDelegate = BookImageDownloadGuard(origin: request.url!)
+        let (file, response) = try await session.download(for: request, delegate: guardDelegate)
+        defer { try? FileManager.default.removeItem(at: file) }
+        guard let response = response as? HTTPURLResponse else { throw LuminaError.malformedResponse }
+        guard response.statusCode == 200 else { throw LuminaError.http(response.statusCode) }
+        guard ["image/jpeg", "image/png", "image/gif", "image/webp"].contains(response.mimeType ?? ""),
+              let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= BookPagePreparation.maximumEncodedBytes else { throw LuminaError.malformedResponse }
+        return try Data(contentsOf: file)
+    }
+
     private func json<T: Decodable>(_ request: URLRequest) async throws -> T {
         let data = try await send(request)
         do { return try JSONDecoder().decode(T.self, from: data) }
         catch { throw LuminaError.malformedResponse }
     }
+}
+
+private final class BookImageDownloadGuard: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    let origin: URL
+    init(origin: URL) { self.origin = origin }
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        guard let target = request.url, sameOrigin(origin, target), target.user == nil, target.password == nil else {
+            completionHandler(nil); task.cancel(); return
+        }
+        completionHandler(request)
+    }
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        if max(totalBytesWritten, totalBytesExpectedToWrite) > Int64(BookPagePreparation.maximumEncodedBytes) { downloadTask.cancel() }
+    }
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) { }
 }
 
 private final class RedirectGuard: NSObject, URLSessionTaskDelegate {

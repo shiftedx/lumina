@@ -40,7 +40,7 @@ from app.persistence import read_regular_file, write_transaction
 from app.security import resolve_device_token
 from app.services.rate_limit import enforce_rate_limit, grant_address
 from app.schemas import PlaybackProgressUpdateRequest
-from app.routers import jellyfin_integration, jellyfin_music, jellyfin_probes
+from app.routers import jellyfin_books, jellyfin_integration, jellyfin_music, jellyfin_probes
 from app.routers.jellyfin_integration import JellyfinCaller, jellyfin_caller, playback_body, playlist_listing, transcript_subtitle
 from app.routers.jellyfin_probes import Caller, Db, entity_or_404, split_csv
 from app.services import activity, cast_photos, screen_time
@@ -926,10 +926,11 @@ def register(app: FastAPI, artwork: ArtworkService) -> None:
     app.state.artwork = artwork
     jellyfin_integration.register(app)  # before this router: its routes win over the stubs and the catch-all
     app.include_router(jellyfin_music.router)
+    app.include_router(jellyfin_books.router)
     app.include_router(jellyfin_probes.router)
     app.add_api_websocket_route("/socket", jellyfin_socket)  # before main.py mounts the SPA, which closes websockets
     app.include_router(router)
     # app.routes lists the auth and integration routes; these routers are included as opaque entries, so read their own routes.
     app.add_middleware(JellyfinPathMiddleware, root_segments=jellyfin_segments([
-        *app.routes, *jellyfin_music.router.routes, *jellyfin_probes.router.routes, *stream_router.routes, *router.routes,
+        *app.routes, *jellyfin_books.router.routes, *jellyfin_music.router.routes, *jellyfin_probes.router.routes, *stream_router.routes, *router.routes,
     ]))

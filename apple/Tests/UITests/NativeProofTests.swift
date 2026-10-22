@@ -13,6 +13,168 @@ final class NativeProofTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    #if os(iOS)
+    func testNativeBooksLibraryBrowsesShelvesAndMangaStacks() async throws {
+        let fixture = try loadFixture()
+        guard let shelf = fixture.bookShelfID, let series = fixture.comicSeriesID, let comic = fixture.comicBookID else {
+            throw XCTSkip("Generate the current visual Books fixture.")
+        }
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try activate(destinationControl("Books"))
+        revealLibraryItem(element("bookShelf-\(shelf)"))
+        try activate(element("bookShelf-\(shelf)"))
+        try activate(element("book-\(comic)"))
+        try activate(element("bookControlsButton"))
+        try waitForHittable(element("bookNextButton"), timeout: 30, named: "shelf book ready to read")
+        try activate(element("bookCloseButton"))
+        try activate(application!.buttons["Books"].firstMatch)
+        let stack = element("bookSeries-\(series)")
+        revealLibraryItem(stack)
+        try attachFrame(named: "Native Books cover grid, shelves and manga stacks")
+        try activate(stack)
+        try waitForExistence(element("book-\(comic)"), timeout: 20, named: "volume belonging to the selected manga stack")
+    }
+
+    func testNativeBooksReadTurnAndRestoreAllFormats() async throws {
+        try await readTurnAndRestoreBooks(rightToLeft: false)
+    }
+
+    func testNativeBooksReadTurnResizeAndRestoreAllFormats() async throws {
+        try await readTurnAndRestoreBooks(rightToLeft: false, resizing: true, fillByDefault: false)
+    }
+
+    func testNativeBooksKeepPhysicalRightInRTLLocale() async throws {
+        try await readTurnAndRestoreBooks(rightToLeft: true)
+    }
+
+    private func revealLibraryItem(_ item: XCUIElement) {
+        for _ in 0..<8 {
+            if item.exists && item.isHittable { return }
+            application!.swipeUp()
+        }
+    }
+
+    private func readTurnAndRestoreBooks(rightToLeft: Bool, resizing: Bool = false, fillByDefault: Bool = true) async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        guard let comic = fixture.comicBookID, let prose = fixture.proseBookID,
+              let pdf = fixture.pdfBookID, let cbr = fixture.cbrBookID else { throw XCTSkip("Generate the current native Books fixture.") }
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        XCUIDevice.shared.orientation = .portrait
+        try launchAndResetSession()
+        for id in [comic, prose, pdf, cbr] { try await api.seedBookProgress(identity: identity, bookID: id) }
+        try signIn(using: fixture)
+        if rightToLeft {
+            // Qualify the reader's RTL layout using the real session established through the connection form.
+            application!.terminate()
+            application!.launchArguments += ["-AppleLanguages", "(ar)", "-AppleLocale", "ar", "-AppleTextDirection", "YES", "-NSForceRightToLeftWritingDirection", "YES"]
+            application!.launch()
+            try waitForExistence(element("homeScreen"), timeout: 30, named: "Home after relaunch in an RTL locale")
+        }
+        try activate(destinationControl("Books"))
+        try activate(element("bookCatalogButton"))
+        for id in [comic, prose, pdf, cbr] {
+            let card = element("book-\(id)")
+            revealLibraryItem(card)
+            try waitForExistence(card, timeout: 20, named: "native book catalog entry")
+            try activate(card)
+            try activate(element("bookControlsButton"))
+            let position = element("bookPosition")
+            try waitForExistence(position, timeout: 20, named: "native reader position")
+            let next = element("bookNextButton")
+            try waitForHittable(next, timeout: 30, named: "prepared native page")
+            guard waitUntil(timeout: 30, condition: { next.isEnabled }) else { throw ProofFailure.ui("Native book page did not become ready.") }
+            let before = position.label
+            try activate(next)
+            guard waitUntil(timeout: 20, condition: { position.label != before }) else { throw ProofFailure.ui("Native page turn did not advance.") }
+            guard waitUntil(timeout: 30, condition: { next.isEnabled }) else { throw ProofFailure.ui("Second native page did not become ready.") }
+            let selected = position.label
+            if rightToLeft, id == comic, !element("bookCompanionPage").exists {
+                throw XCTSkip("Run the RTL pane contract with iPhone Duo fully opened (or another regular-width viewport).")
+            }
+            if id != prose, element("bookCompanionPage").exists {
+                let selectedImage = application!.images.matching(NSPredicate(format: "label == %@", selected)).firstMatch
+                try waitForExistence(selectedImage, timeout: 20, named: "selected image in expanded reader")
+                XCTAssertGreaterThan(selectedImage.frame.midX, application!.windows.firstMatch.frame.midX,
+                                     "The selected outer-screen page must remain physically right, including RTL manga.")
+            }
+            if id == comic {
+                let selectedArt = application!.images.matching(NSPredicate(format: "label == %@", selected)).firstMatch
+                XCTAssertEqual(selectedArt.value as? String, fillByDefault ? "Fill display" : "Fit entire page", "The default should suit the device; explicit appearance choices still override it.")
+                let controlledViewport = application!.scrollViews.containing(.image, identifier: selected).firstMatch
+                try waitForExistence(controlledViewport, timeout: 20, named: "reading viewport with controls")
+                let controlledArea = controlledViewport.frame.width * controlledViewport.frame.height
+                try activate(element("bookImmersiveButton"))
+                let selectedImage = application!.images.matching(NSPredicate(format: "label == %@", selected)).firstMatch
+                try waitForExistence(selectedImage, timeout: 20, named: "immersive manga page")
+                let immersiveViewport = application!.scrollViews.containing(.image, identifier: selected).firstMatch
+                guard waitUntil(timeout: 20, condition: { immersiveViewport.frame.width * immersiveViewport.frame.height > controlledArea }) else {
+                    throw ProofFailure.ui("Hiding controls did not enlarge the reading canvas.")
+                }
+                print("PERF native reading canvas: controlled area=\(controlledArea) pt², immersive area=\(immersiveViewport.frame.width * immersiveViewport.frame.height) pt²")
+                try attachFrame(named: "Immersive manga fills the available reading canvas")
+                // Pan the cropped axis of this original 2:3 fixture. The other axis remains available for navigation.
+                if fillByDefault {
+                    if immersiveViewport.frame.width / immersiveViewport.frame.height > 2.0 / 3.0 { selectedImage.swipeUp() }
+                    else { selectedImage.swipeLeft() }
+                }
+                try activate(element("bookControlsButton"))
+                XCTAssertEqual(position.label, selected, "Panning cropped artwork must retain the selected page.")
+                try activate(element("bookAppearanceButton"))
+                try activate(element("bookSizingPicker"))
+                try activate(application!.buttons["Fit entire page"].firstMatch)
+                try activate(element("bookAppearanceDoneButton"))
+                try activate(element("bookImmersiveButton"))
+                let zoomPoint = immersiveViewport.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                zoomPoint.doubleTap()
+                guard waitUntil(timeout: 10, condition: { (selectedImage.value as? String)?.contains("200% zoom") == true }) else {
+                    throw ProofFailure.ui("Double-tap did not magnify the native page.")
+                }
+                try attachFrame(named: "Native artwork magnified without changing reading position")
+                zoomPoint.doubleTap()
+                guard waitUntil(timeout: 10, condition: { selectedImage.value as? String == "Fit entire page" }) else {
+                    throw ProofFailure.ui("Double-tap did not return to the fitted page.")
+                }
+                selectedImage.swipeLeft() // This original fixture reads right-to-left: left returns to the preceding spread.
+                let precedingImage = application!.images.matching(NSPredicate(format: "label == %@", before)).firstMatch
+                try waitForExistence(precedingImage, timeout: 20, named: "previous page through native immersive gesture")
+                precedingImage.swipeRight()
+                try waitForExistence(selectedImage, timeout: 20, named: "selected page through native immersive gesture")
+                try activate(element("bookControlsButton"))
+                XCTAssertEqual(position.label, selected)
+            }
+            try attachFrame(named: "Native book \(id == prose ? "EPUB" : id == pdf ? "PDF" : id == cbr ? "CBR" : "manga")")
+            if resizing {
+                let originalSize = application!.windows.firstMatch.frame.size
+                XCUIDevice.shared.orientation = .landscapeLeft
+                guard waitUntil(timeout: 15, condition: { self.application!.windows.firstMatch.frame.size != originalSize }) else {
+                    throw ProofFailure.ui("The simulator did not resize the reader after rotation.")
+                }
+                guard waitUntil(timeout: 15, condition: { next.isEnabled }) else { throw ProofFailure.ui("Reader did not recover after resizing.") }
+                if id != prose { XCTAssertEqual(position.label, selected, "Resizing must preserve the selected page.") }
+                try attachFrame(named: "Native reader resized with selected page retained")
+                XCUIDevice.shared.orientation = .portrait
+                guard waitUntil(timeout: 15, condition: { self.application!.windows.firstMatch.frame.size == originalSize && next.isEnabled }) else {
+                    throw ProofFailure.ui("The reader did not return to its original viewport.")
+                }
+            }
+            try activate(element("bookCloseButton"))
+            try activate(element("book-\(id)"))
+            try activate(element("bookControlsButton"))
+            try waitForExistence(element("bookPosition"), timeout: 20, named: "restored native book position")
+            guard waitUntil(timeout: 30, condition: { self.element("bookPosition").label == selected }) else { throw ProofFailure.ui("Native book did not restore the saved page.") }
+            try activate(element("bookCloseButton"))
+        }
+        completed = true
+    }
+    #endif
+
     func testFeaturedTitlePreservesDetailsAndResumesPlayback() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
@@ -2121,6 +2283,12 @@ final class NativeProofTests: XCTestCase {
 }
 
 private struct ProofFixture: Decodable {
+    let comicBookID: String?
+    let bookShelfID: String?
+    let comicSeriesID: String?
+    let proseBookID: String?
+    let pdfBookID: String?
+    let cbrBookID: String?
     let serverURL: String
     let username: String
     let password: String
@@ -2188,6 +2356,15 @@ private struct ProofAPI {
         progress.setValue("application/json", forHTTPHeaderField: "Content-Type")
         progress.httpBody = try JSONSerialization.data(withJSONObject: ["ItemId": itemID, "PositionTicks": seconds * 10_000_000, "IsPaused": true])
         _ = try await send(progress)
+    }
+
+    func seedBookProgress(identity: APIIdentity, bookID: String) async throws {
+        var request = URLRequest(url: origin.appendingPathComponent("Lumina/Books/\(bookID)/state"))
+        request.httpMethod = "PATCH"
+        request.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["unit_index": 0, "offset": 0, "completed": false])
+        _ = try await send(request)
     }
 
     func setItemState(identity: APIIdentity, itemID: String, played: Bool, favorite: Bool) async throws {

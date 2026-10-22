@@ -5,7 +5,7 @@
 
 ## Context
 
-EPUB books and CBZ manga are archives, not audio/video files. Their durable reading locations are EPUB chapter/scroll positions or CBZ page positions, and neither belongs in the media scanner, Jellyfin surface, or second-based playback progress.
+EPUB books and CBZ manga are archives, not audio/video files. Their durable reading locations are EPUB chapter/relative positions or CBZ page positions, and neither belongs in the media scanner or second-based playback progress.
 
 ## Decision
 
@@ -88,3 +88,34 @@ and WebP frame extents must fit their canvas. Compressed PNG color/text metadata
 and expands to at most 1 MiB in total. Animated covers become a JPEG of their first frame; reader
 resources retain a bounded animation. The shared parser uses only the Python standard library so
 short-lived PDF/CBR workers do not load the database or title-metadata service graph.
+
+### Native iOS reading (2026-10-21)
+
+The opt-in Connected-app boundary exposes a narrow `/Lumina/Books` extension for catalog,
+reader manifests, structured chapters, approved raster resources and member reading state.
+It reuses the existing Books routes/services and their visibility predicates; native tokens do
+not gain import, metadata, sharing or deletion endpoints. Browser authentication and raw
+archive/HTML delivery remain unchanged. Each bundled file retains its own checkpoint.
+
+The iOS reader owns its authenticated ephemeral client and short-lived page window. It
+retains only visible encoded pages and one speculative encoded successor, with at most
+48 MiB of encoded data. Raster downloads are private temporary files, bounded at 24 MiB
+and removed after reading; cross-origin redirects are refused. Native ImageIO preparation
+rejects canvases over 40 million pixels, decodes only the first frame, and caps the longest
+decoded edge at 3,072 pixels. The visible one/two pages own their decoded images; this
+is not a whole-process RSS limit or offline library.
+
+Safe structured EPUB nodes become native attributed text and inert inline attachments.
+Text construction, TextKit pagination and image preparation share one serial worker lane
+per reader. Native EPUB offsets represent normalized UTF-16 content anchors within a
+chapter; reflow selects the page containing that anchor. Browser scroll offsets and native
+anchors both provide approximate relative positions across different renderer geometries.
+Writes are serialized and coalesce only the latest pending location; intentional rewinds are
+preserved. A failed save is visible and closing offers an explicit choice to leave unsaved.
+
+Compact layouts show the selected page. Expanded layouts add a companion on the physical
+left, retaining the selected outer-display page on the right for both LTR and RTL books.
+The companion is the previous page for LTR and the next page for RTL; artwork is never
+mirrored. System bars/sheets retain navigation, while the iOS 27.1 reserved-region API
+keeps the custom reading panes clear of fold/camera frames and their individual margins.
+On earlier iOS releases the same reader uses size classes and system safe areas.

@@ -5,4 +5,5 @@ let package = Package(name: "LuminaBenchmarks", platforms: [.macOS(.v15), .iOS(.
     targets: [
         .executableTarget(name: "VideoBenchmark", dependencies: [.product(name: "LuminaCore", package: "Core")]),
         .executableTarget(name: "OfflineLibraryBenchmark", dependencies: [.product(name: "LuminaCore", package: "Core")]),
+        .executableTarget(name: "BookPageBenchmark", dependencies: [.product(name: "LuminaCore", package: "Core")]),
     ])

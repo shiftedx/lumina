@@ -6,6 +6,50 @@ import XCTest
 
 @MainActor
 final class NativeServerTests: XCTestCase {
+    func testNativeBooksReadAllFormatsAndRestoreRewindsAgainstFixture() async throws {
+        guard let fixturePath = ProcessInfo.processInfo.environment["LUMINA_NATIVE_FIXTURE"] else { throw XCTSkip("LUMINA_NATIVE_FIXTURE is not configured") }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: URL(fileURLWithPath: fixturePath)))
+        let ids = try [fixture.comicBookID, fixture.pdfBookID, fixture.cbrBookID].map { try XCTUnwrap($0) }
+        let prose = try XCTUnwrap(fixture.proseBookID)
+        let client = LuminaClient(), deviceID = "native-books-proof"
+        let signedIn = try await client.authenticate(origin: fixture.serverURL, username: fixture.username, password: fixture.password, deviceID: deviceID)
+        let me = try await client.me(origin: fixture.serverURL, token: signedIn.token, deviceID: deviceID)
+        let owner = LuminaSession(serverURL: fixture.serverURL, accessToken: signedIn.token, userID: me.id, username: fixture.username, serverName: "Fixture", deviceID: deviceID)
+        let api = LuminaBooks(session: owner)
+        do {
+            let catalog = try await api.catalog(search: "")
+            XCTAssertTrue(Set(ids + [prose]).isSubset(of: Set(catalog.items.map(\.id))))
+            for id in ids {
+                let manifest = try await api.manifest(id: id)
+                XCTAssertGreaterThan(manifest.count, 1)
+                let data = try await api.page(id: id, index: 1)
+                XCTAssertNotNil(BookPagePreparation.image(from: data, maximumPixelSize: 1024))
+                let cover = try await api.cover(id: id)
+                XCTAssertNotNil(BookPagePreparation.image(from: cover, maximumPixelSize: 768))
+                _ = try await api.save(id: id, unit: 1, offset: 0.2)
+                let restored = try await api.manifest(id: id)
+                XCTAssertEqual(restored.book.progress.unitIndex, 1)
+                XCTAssertEqual(restored.book.progress.offset, 0.2)
+                _ = try await api.save(id: id, unit: 0, offset: 0)
+            }
+            let nodes = try await api.chapter(id: prose, index: 0)
+            XCTAssertFalse(nodes.isEmpty)
+            let proseCover = try await api.cover(id: prose)
+            XCTAssertNotNil(BookPagePreparation.image(from: proseCover, maximumPixelSize: 768))
+            let overview = try await api.overview()
+            XCTAssertTrue(overview.shelves.contains { Set(ids + [prose]).isSubset(of: Set($0.bookIDs)) })
+            _ = try await api.save(id: prose, unit: 0, offset: 0.6)
+            _ = try await api.save(id: prose, unit: 0, offset: 0.1)
+            let restored = try await api.manifest(id: prose)
+            XCTAssertEqual(restored.book.progress.offset, 0.1)
+            _ = try await api.save(id: prose, unit: 0, offset: 0)
+            try await client.logout(origin: fixture.serverURL, token: signedIn.token, deviceID: deviceID)
+        } catch {
+            try? await client.logout(origin: fixture.serverURL, token: signedIn.token, deviceID: deviceID)
+            throw error
+        }
+    }
+
     func testNativeDirectAndHLSPlaybackAgainstFixture() async throws {
         guard let fixturePath = ProcessInfo.processInfo.environment["LUMINA_NATIVE_FIXTURE"] else {
             throw XCTSkip("LUMINA_NATIVE_FIXTURE is not configured")
@@ -178,6 +222,10 @@ final class NativeServerTests: XCTestCase {
 }
 
 private struct Fixture: Decodable {
+    let comicBookID: String?
+    let proseBookID: String?
+    let pdfBookID: String?
+    let cbrBookID: String?
     let serverURL: URL
     let username: String
     let password: String

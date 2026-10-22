@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import signal
 import shutil
 import socket
 import subprocess
@@ -28,9 +29,9 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-PORT = 18_743
+PORT = int(os.environ.get("LUMINA_NATIVE_PORT", "18743"))
 ORIGIN = f"http://127.0.0.1:{PORT}"
-FIXTURE_PATH = REPOSITORY_ROOT / "apple" / "Tests" / "UITests" / "Fixture.json"
+FIXTURE_PATH = Path(os.environ.get("LUMINA_NATIVE_FIXTURE", REPOSITORY_ROOT / "apple" / "Tests" / "UITests" / "Fixture.json"))
 DEVICE_ID = f"apple-proof-{secrets.token_hex(8)}"
 AUTH_HEADER = f'MediaBrowser Client="Lumina Apple Proof", Device="Simulator", DeviceId="{DEVICE_ID}", Version="1.0"'
 DIRECT_TITLE = "The Lantern Keepers’ Extraordinary Midnight Voyage"
@@ -449,11 +450,29 @@ def verify_api(expected: dict[str, str], username: str, password: str) -> dict[s
 
 def write_fixture(state_root: Path, username: str, password: str, items: dict[str, str]) -> None:
     FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    FIXTURE_PATH.write_text(json.dumps({"serverURL": ORIGIN, "username": username, "password": password, **items, "stateRoot": str(state_root)}, indent=2) + "\n", encoding="utf-8")
-    FIXTURE_PATH.chmod(0o600)
+    # Publish only complete JSON, with private permissions before credentials are written.
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=FIXTURE_PATH.parent, delete=False) as pending:
+        temporary = Path(pending.name)
+        try:
+            json.dump({"serverURL": ORIGIN, "username": username, "password": password, **items, "stateRoot": str(state_root)}, pending, indent=2)
+            pending.write("\n")
+            pending.close()
+            temporary.replace(FIXTURE_PATH)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def main() -> None:
+    global PORT, ORIGIN
+    # Reserve the port until Uvicorn takes ownership; parallel fixtures cannot race.
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", PORT))
+    listener.listen(128)
+    PORT = listener.getsockname()[1]
+    ORIGIN = f"http://127.0.0.1:{PORT}"
+    def terminate(*_: object) -> None:
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, terminate)
     state_root = Path(tempfile.mkdtemp(prefix="lumina-apple-proof-")).resolve()
     if Path(tempfile.gettempdir()).resolve() not in state_root.parents:
         raise RuntimeError("Refusing to create proof state outside the system temporary directory.")
@@ -483,7 +502,7 @@ def main() -> None:
         from app.main import app
 
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="warning", timeout_keep_alive=30))
-        thread = threading.Thread(target=server.run, name="lumina-apple-proof", daemon=True)
+        thread = threading.Thread(target=lambda: server.run(sockets=[listener]), name="lumina-apple-proof", daemon=True)
         thread.start()
         for _ in range(600):
             if server.started:
@@ -507,6 +526,7 @@ def main() -> None:
             server.should_exit = True
         if thread is not None:
             thread.join(timeout=60)
+        listener.close()
         FIXTURE_PATH.unlink(missing_ok=True)
         shutil.rmtree(state_root)
 

@@ -2191,8 +2191,11 @@ class NativeProofJourney: XCTestCase {
             let candidates = identifier.isEmpty
                 ? [control]
                 : application!.descendants(matching: .any).matching(identifier: identifier).allElementsBoundByIndex
-            guard let visible = candidates.first(where: { hasVisibleFrame($0) }),
-                  visible.isEnabled, visible.isHittable else { return false }
+            // iPad sidebar rows can retain a tab identifier that re-queries as
+            // an inactive zero-frame tab. Keep the requested visible row as a fallback.
+            guard let visible = (candidates + [control]).first(where: {
+                hasVisibleFrame($0) && $0.isEnabled && $0.isHittable
+            }) else { return false }
             readyControl = visible
             return true
         }

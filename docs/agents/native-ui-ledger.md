@@ -89,3 +89,10 @@ repair is pending a complete rerun; no product regression claim is established.
 The concurrent Audio case passed (208.287 seconds). Qualification also exposed
 Xcode's `TEST EXECUTE SUCCEEDED` marker for test-without-building; the runner now
 accepts that marker while still requiring exact passing xcresult counts.
+
+The original TV focus failure reproduced twice (144.516 / 144.756 seconds),
+while Audio passed twice. The separate original-revision iPad baseline also
+failed both smoke methods after sign-in: its requested visible sidebar row was
+replaced by an inactive same-identifier tab during `waitForHittable`. The helper
+now retains the original row as a fallback and selects a candidate only when
+visible, enabled and hittable. Product code is unchanged by either drift repair.

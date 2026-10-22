@@ -77,6 +77,16 @@ class FixtureBrokerTests(unittest.TestCase):
 
 
 class UITierRunnerTests(unittest.TestCase):
+    def test_cancelled_run_never_launches_xcode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "run.log"
+            with mock.patch.object(run_ui_tiers, "CANCELLED") as cancelled, \
+                 mock.patch.object(run_ui_tiers.subprocess, "Popen") as popen:
+                cancelled.is_set.return_value = True
+                with self.assertRaisesRegex(RuntimeError, "run cancelled"):
+                    run_ui_tiers.run_xcode(["xcodebuild", "test"], log)
+                popen.assert_not_called()
+
     def test_platforms_use_distinct_broker_configs_and_parallel_wall_time(self) -> None:
         output = Path("/private/tmp/lumina-run")
         self.assertEqual(

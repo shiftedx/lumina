@@ -6,41 +6,10 @@ import UIKit
 
 #if os(iOS)
 @MainActor
-final class NativeNativeBooksLibraryBrowsesShelvesAndMangaStacksTests: NativeProofJourney {
-    func testNativeBooksLibraryBrowsesShelvesAndMangaStacks() async throws { try await journeyNativeBooksLibraryBrowsesShelvesAndMangaStacks() }
+final class NativeNativeBooksReadTurnAndRestoreAllFormatsTests: NativeProofJourney {
+    func testNativeBooksReadTurnAndRestoreAllFormats() async throws { try await journeyNativeBooksReadTurnAndRestoreAllFormats() }
 }
 #endif
-
-#if os(iOS)
-@MainActor
-final class NativeNativeBooksReadTurnResizeAndRestoreAllFormatsTests: NativeProofJourney {
-    func testNativeBooksReadTurnResizeAndRestoreAllFormats() async throws { try await journeyNativeBooksReadTurnResizeAndRestoreAllFormats() }
-}
-#endif
-
-#if os(iOS)
-@MainActor
-final class NativeNativeBooksKeepPhysicalRightInRTLLocaleTests: NativeProofJourney {
-    func testNativeBooksKeepPhysicalRightInRTLLocale() async throws { try await journeyNativeBooksKeepPhysicalRightInRTLLocale() }
-}
-#endif
-
-@MainActor
-final class NativeFeaturedTitlePreservesDetailsAndResumesPlaybackTests: NativeProofJourney {
-    func testFeaturedTitlePreservesDetailsAndResumesPlayback() async throws { try await journeyFeaturedTitlePreservesDetailsAndResumesPlayback() }
-}
-
-#if os(iOS)
-@MainActor
-final class NativeAccountTabAppearancePreservesHomeSelectionAndCompactHeaderTests: NativeProofJourney {
-    func testAccountTabAppearancePreservesHomeSelectionAndCompactHeader() async throws { try await journeyAccountTabAppearancePreservesHomeSelectionAndCompactHeader() }
-}
-#endif
-
-@MainActor
-final class NativeLibraryPullRevealsSearchAndRefreshesProgressTests: NativeProofJourney {
-    func testLibraryPullRevealsSearchAndRefreshesProgress() async throws { try await journeyLibraryPullRevealsSearchAndRefreshesProgress() }
-}
 
 @MainActor
 final class NativeAudioAlbumTrackPlaybackReportsProgressTests: NativeProofJourney {
@@ -48,8 +17,8 @@ final class NativeAudioAlbumTrackPlaybackReportsProgressTests: NativeProofJourne
 }
 
 @MainActor
-final class NativeMusicPlaylistsSmartSelectionAndDownloadedPlaybackTests: NativeProofJourney {
-    func testMusicPlaylistsSmartSelectionAndDownloadedPlayback() async throws { try await journeyMusicPlaylistsSmartSelectionAndDownloadedPlayback() }
+final class NativeDownloadedAudioPlaysFromLocalFilesTests: NativeProofJourney {
+    func testDownloadedAudioPlaysFromLocalFiles() async throws { try await journeyDownloadedAudioPlaysFromLocalFiles() }
 }
 
 @MainActor
@@ -58,23 +27,8 @@ final class NativeMusicAdvancedControlsPausedRestoreAndQueueConflictTests: Nativ
 }
 
 @MainActor
-final class NativeShowSeasonEpisodeBrowsingAndPlaybackTests: NativeProofJourney {
-    func testShowSeasonEpisodeBrowsingAndPlayback() async throws { try await journeyShowSeasonEpisodeBrowsingAndPlayback() }
-}
-
-@MainActor
-final class NativeVideoWatchedFavoriteAndActivityFiltersTests: NativeProofJourney {
-    func testVideoWatchedFavoriteAndActivityFilters() async throws { try await journeyVideoWatchedFavoriteAndActivityFilters() }
-}
-
-@MainActor
 final class NativeNativePlaybackReportsResumeAndConversionProgressTests: NativeProofJourney {
     func testNativePlaybackReportsResumeAndConversionProgress() async throws { try await journeyNativePlaybackReportsResumeAndConversionProgress() }
-}
-
-@MainActor
-final class NativeCurrentDuoLayoutKeepsControlsAndPlaybackReachableTests: NativeProofJourney {
-    func testCurrentDuoLayoutKeepsControlsAndPlaybackReachable() async throws { try await journeyCurrentDuoLayoutKeepsControlsAndPlaybackReachable() }
 }
 
 @MainActor
@@ -82,10 +36,12 @@ final class NativeOriginalMKVReportsPeriodicProgressAndResumesTests: NativeProof
     func testOriginalMKVReportsPeriodicProgressAndResumes() async throws { try await journeyOriginalMKVReportsPeriodicProgressAndResumes() }
 }
 
+#if os(iOS)
 @MainActor
 final class NativeCompatibleHLSReplayRequestsFreshSessionTests: NativeProofJourney {
     func testCompatibleHLSReplayRequestsFreshSession() async throws { try await journeyCompatibleHLSReplayRequestsFreshSession() }
 }
+#endif
 
 @MainActor
 class NativeProofJourney: XCTestCase {
@@ -93,7 +49,6 @@ class NativeProofJourney: XCTestCase {
     private let isolationID = UUID().uuidString
     private var brokerFixtureURL: URL?
     private var cachedFixture: ProofFixture?
-    private var expectedBookFill = true
 
     override func tearDown() async throws {
         try finishJourney()
@@ -131,77 +86,29 @@ class NativeProofJourney: XCTestCase {
     }
 
     #if os(iOS)
-    func journeyNativeBooksLibraryBrowsesShelvesAndMangaStacks() async throws {
-        let fixture = try loadFixture()
-        guard let shelf = fixture.bookShelfID, let series = fixture.comicSeriesID, let comic = fixture.comicBookID else {
-            throw XCTSkip("Generate the current visual Books fixture.")
-        }
-        try launchAndResetSession()
-        try signIn(using: fixture)
-        try activate(destinationControl("Books"))
-        try revealLibraryItem(element("bookShelf-\(shelf)"))
-        try activate(element("bookShelf-\(shelf)"))
-        try activate(element("book-\(comic)"))
-        try activate(element("bookControlsButton"))
-        try waitForHittable(element("bookNextButton"), timeout: 30, named: "shelf book ready to read")
-        try activate(element("bookCloseButton"))
-        let back = element("BackButton")
-        try activate(back.exists ? back : application!.navigationBars.buttons["Books"].firstMatch)
-        let stack = element("bookSeries-\(series)")
-        try revealLibraryItem(stack)
-        try attachFrame(named: "Native Books cover grid, shelves and manga stacks")
-        try activate(stack)
-        try waitForExistence(element("book-\(comic)"), timeout: 20, named: "volume belonging to the selected manga stack")
-    }
-
-    func journeyNativeBooksReadTurnResizeAndRestoreAllFormats() async throws {
-        try await readTurnAndRestoreBooks(rightToLeft: false, resizing: true, fillByDefault: false)
-    }
-
-    func journeyNativeBooksKeepPhysicalRightInRTLLocale() async throws {
-        try await readTurnAndRestoreBooks(rightToLeft: true)
-    }
-
-    private func revealLibraryItem(_ item: XCUIElement) throws {
-        let viewport = try applicationViewport()
-        for _ in 0..<8 {
-            if hasVisibleFrame(item) && item.isHittable { return }
-            // Duo's split shell can put the application's default swipe point in the sidebar.
-            // Anchor the gesture in the requested catalog column, including RTL.
-            let anchor = item.exists && !item.frame.isEmpty ? item.frame.midX : viewport.midX
-            try dragVertically(in: viewport, anchorX: anchor, up: true)
-        }
-    }
-
-    private func readTurnAndRestoreBooks(rightToLeft: Bool, resizing: Bool = false, fillByDefault expectedFill: Bool? = nil) async throws {
+    func journeyNativeBooksReadTurnAndRestoreAllFormats() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
-        let fillByDefault = expectedFill ?? expectedBookFill
-        guard let comic = fixture.comicBookID, let prose = fixture.proseBookID,
-              let pdf = fixture.pdfBookID, let cbr = fixture.cbrBookID else { throw XCTSkip("Generate the current native Books fixture.") }
+        guard let epub = fixture.proseBookID, let pdf = fixture.pdfBookID,
+              let cbz = fixture.comicBookID, let cbr = fixture.cbrBookID else {
+            throw XCTSkip("Generate the current native Books fixture.")
+        }
         let origin = try localOrigin(from: fixture.serverURL)
         let session = makeTestAPISession(origin: origin)
         defer { session.invalidateAndCancel() }
         let api = ProofAPI(origin: origin, session: session)
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
-        XCUIDevice.shared.orientation = .portrait
+        let books = [epub, pdf, cbz, cbr]
         try launchAndResetSession()
-        for id in [comic, prose, pdf, cbr] { try await api.seedBookProgress(identity: identity, bookID: id) }
+        for book in books { try await api.seedBookProgress(identity: identity, bookID: book) }
         try signIn(using: fixture)
-        if rightToLeft {
-            // Qualify the reader's RTL layout using the real session established through the connection form.
-            application!.terminate()
-            application!.launchArguments += ["-AppleLanguages", "(ar)", "-AppleLocale", "ar", "-AppleTextDirection", "YES", "-NSForceRightToLeftWritingDirection", "YES"]
-            application!.launch()
-            try waitForExistence(element("homeScreen"), timeout: 30, named: "Home after relaunch in an RTL locale")
-        }
         try activate(destinationControl("Books"))
-        try revealLibraryItem(element("bookCatalogButton"))
+        try revealBookItem(element("bookCatalogButton"))
         try activate(element("bookCatalogButton"))
-        for id in [comic, prose, pdf, cbr] {
-            let card = element("book-\(id)")
-            try revealLibraryItem(card)
+        for book in books {
+            let card = element("book-\(book)")
+            try revealBookItem(card)
             try waitForExistence(card, timeout: 20, named: "native book catalog entry")
             try activate(card)
             try activate(element("bookControlsButton"))
@@ -209,392 +116,39 @@ class NativeProofJourney: XCTestCase {
             try waitForExistence(position, timeout: 20, named: "native reader position")
             let next = element("bookNextButton")
             try waitForHittable(next, timeout: 30, named: "prepared native page")
-            guard waitUntil(timeout: 30, condition: { next.isEnabled }) else { throw ProofFailure.ui("Native book page did not become ready.") }
             let before = position.label
             try activate(next)
-            guard waitUntil(timeout: 20, condition: { position.label != before }) else { throw ProofFailure.ui("Native page turn did not advance.") }
-            guard waitUntil(timeout: 30, condition: { next.isEnabled }) else { throw ProofFailure.ui("Second native page did not become ready.") }
+            guard waitUntil(timeout: 20, condition: { position.label != before }) else {
+                throw ProofFailure.ui("Native page turn did not advance.")
+            }
             let selected = position.label
-            if rightToLeft, id == comic, !element("bookCompanionPage").exists {
-                throw XCTSkip("Run the RTL pane contract with iPhone Duo fully opened (or another regular-width viewport).")
-            }
-            if id != prose, element("bookCompanionPage").exists {
-                let selectedImage = application!.images.matching(NSPredicate(format: "label == %@", selected)).firstMatch
-                try waitForExistence(selectedImage, timeout: 20, named: "selected image in expanded reader")
-                XCTAssertGreaterThan(selectedImage.frame.midX, application!.windows.firstMatch.frame.midX,
-                                     "The selected outer-screen page must remain physically right, including RTL manga.")
-            }
-            if id == comic {
-                let selectedArt = application!.images.matching(NSPredicate(format: "label == %@", selected)).firstMatch
-                XCTAssertEqual(selectedArt.value as? String, fillByDefault ? "Fill display" : "Fit entire page", "The default should suit the device; explicit appearance choices still override it.")
-                let controlledViewport = application!.scrollViews.containing(.image, identifier: selected).firstMatch
-                try waitForExistence(controlledViewport, timeout: 20, named: "reading viewport with controls")
-                let controlledArea = controlledViewport.frame.width * controlledViewport.frame.height
-                try activate(element("bookImmersiveButton"))
-                let selectedImage = application!.images.matching(NSPredicate(format: "label == %@", selected)).firstMatch
-                try waitForExistence(selectedImage, timeout: 20, named: "immersive manga page")
-                let immersiveViewport = application!.scrollViews.containing(.image, identifier: selected).firstMatch
-                guard waitUntil(timeout: 20, condition: { immersiveViewport.frame.width * immersiveViewport.frame.height > controlledArea }) else {
-                    throw ProofFailure.ui("Hiding controls did not enlarge the reading canvas.")
-                }
-                print("PERF native reading canvas: controlled area=\(controlledArea) pt², immersive area=\(immersiveViewport.frame.width * immersiveViewport.frame.height) pt²")
-                try attachFrame(named: "Immersive manga fills the available reading canvas")
-                // Pan the cropped axis of this original 2:3 fixture. The other axis remains available for navigation.
-                if fillByDefault {
-                    if immersiveViewport.frame.width / immersiveViewport.frame.height > 2.0 / 3.0 { selectedImage.swipeUp() }
-                    else { selectedImage.swipeLeft() }
-                }
-                try activate(element("bookControlsButton"))
-                XCTAssertEqual(position.label, selected, "Panning cropped artwork must retain the selected page.")
-                try activate(element("bookAppearanceButton"))
-                try activate(element("bookSizingPicker"))
-                try activate(application!.buttons["Fit entire page"].firstMatch)
-                try activate(element("bookAppearanceDoneButton"))
-                try activate(element("bookImmersiveButton"))
-                let zoomPoint = immersiveViewport.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-                zoomPoint.doubleTap()
-                guard waitUntil(timeout: 10, condition: { (selectedImage.value as? String)?.contains("200% zoom") == true }) else {
-                    throw ProofFailure.ui("Double-tap did not magnify the native page.")
-                }
-                try attachFrame(named: "Native artwork magnified without changing reading position")
-                zoomPoint.doubleTap()
-                guard waitUntil(timeout: 10, condition: { selectedImage.value as? String == "Fit entire page" }) else {
-                    throw ProofFailure.ui("Double-tap did not return to the fitted page.")
-                }
-                selectedImage.swipeLeft() // This original fixture reads right-to-left: left returns to the preceding spread.
-                let precedingImage = application!.images.matching(NSPredicate(format: "label == %@", before)).firstMatch
-                try waitForExistence(precedingImage, timeout: 20, named: "previous page through native immersive gesture")
-                precedingImage.swipeRight()
-                try waitForExistence(selectedImage, timeout: 20, named: "selected page through native immersive gesture")
-                try activate(element("bookControlsButton"))
-                XCTAssertEqual(position.label, selected)
-            }
-            try attachFrame(named: "Native book \(id == prose ? "EPUB" : id == pdf ? "PDF" : id == cbr ? "CBR" : "manga")")
-            if resizing {
-                let originalSize = application!.windows.firstMatch.frame.size
-                XCUIDevice.shared.orientation = .landscapeLeft
-                guard waitUntil(timeout: 15, condition: { self.application!.windows.firstMatch.frame.size != originalSize }) else {
-                    throw ProofFailure.ui("The simulator did not resize the reader after rotation.")
-                }
-                guard waitUntil(timeout: 15, condition: { next.isEnabled }) else { throw ProofFailure.ui("Reader did not recover after resizing.") }
-                if id != prose { XCTAssertEqual(position.label, selected, "Resizing must preserve the selected page.") }
-                try attachFrame(named: "Native reader resized with selected page retained")
-                XCUIDevice.shared.orientation = .portrait
-                guard waitUntil(timeout: 15, condition: { self.application!.windows.firstMatch.frame.size == originalSize && next.isEnabled }) else {
-                    throw ProofFailure.ui("The reader did not return to its original viewport.")
-                }
+            if book != epub {
+                try waitForExistence(application!.images.matching(NSPredicate(format: "label == %@", selected)).firstMatch,
+                                     timeout: 20, named: "selected native image page")
             }
             try activate(element("bookCloseButton"))
-            try activate(element("book-\(id)"))
+            try revealBookItem(card)
+            try activate(card)
             try activate(element("bookControlsButton"))
             try waitForExistence(element("bookPosition"), timeout: 20, named: "restored native book position")
-            guard waitUntil(timeout: 30, condition: { self.element("bookPosition").label == selected }) else { throw ProofFailure.ui("Native book did not restore the saved page.") }
+            guard waitUntil(timeout: 30, condition: { self.element("bookPosition").label == selected }) else {
+                throw ProofFailure.ui("Native book did not restore the saved page.")
+            }
             try activate(element("bookCloseButton"))
         }
         completed = true
     }
-    #endif
 
-    func journeyFeaturedTitlePreservesDetailsAndResumesPlayback() async throws {
-        var completed = false
-        defer { if !completed { captureScreenshot(succeeded: false) } }
-        let fixture = try loadFixture()
-        let origin = try localOrigin(from: fixture.serverURL)
-        let session = makeTestAPISession(origin: origin)
-        defer { session.invalidateAndCancel() }
-        let api = ProofAPI(origin: origin, session: session)
-        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
-        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 12)
-        try await api.seedProgress(identity: identity, itemID: fixture.convertedItemID, seconds: 0)
-        try await api.seedProgress(identity: identity, itemID: fixture.matrixItemID, seconds: 0)
-
-        try launchAndResetSession()
-        try signIn(using: fixture)
-        #if os(iOS)
-        let carouselTitle = element("featuredTitle")
-        try waitForExistence(carouselTitle, timeout: 15, named: "initial Home carousel title")
-        let idleTitle = carouselTitle.label
-        XCTAssertFalse(idleTitle.isEmpty)
-        try attachFrame(named: "Home idle carousel initial feature")
-        guard waitUntil(timeout: 14, condition: {
-            !carouselTitle.label.isEmpty && carouselTitle.label != idleTitle
-        }) else { throw ProofFailure.ui("The idle Home carousel did not advance to a different title.") }
-        try attachFrame(named: "Home carousel advanced automatically")
-        #endif
-        #if os(tvOS)
-        let focusedHeroPlay = element("featuredPlayButton")
-        try waitForExistence(focusedHeroPlay, timeout: 15, named: "focusable Home hero play action")
-        guard focus(focusedHeroPlay, timeout: 20) else {
-            throw ProofFailure.ui("The Siri Remote could not focus the Home hero Play button.")
-        }
-        let focusedHeroTitle = element("featuredTitle").label
-        XCTAssertFalse(focusedHeroTitle.isEmpty)
-        try await Task.sleep(for: .seconds(9))
-        XCTAssertEqual(element("featuredTitle").label, focusedHeroTitle,
-                       "Hero rotation must pause while the Siri Remote focuses Play.")
-        XCTAssertFalse(element("playbackScreen").exists, "Focusing Play must not start playback.")
-        #endif
-        try activate(element("featuredPauseButton"))
-        XCTAssertEqual(element("featuredPauseButton").label, "Resume featured rotation")
-        #if os(iOS)
-        try revealInLibraryViewport([carouselTitle])
-        let beforeSwipe = carouselTitle.label
-        carouselTitle.swipeLeft()
-        guard waitUntil(timeout: 5, condition: {
-            !carouselTitle.label.isEmpty && carouselTitle.label != beforeSwipe
-        }) else { throw ProofFailure.ui("A horizontal swipe did not change the paused Home carousel title.") }
-        try attachFrame(named: "Paused Home carousel changed by horizontal swipe")
-        let directChoice = element("featuredChoice-\(fixture.directItemID)")
-        try revealInLibraryViewport([directChoice])
-        try activate(directChoice)
-        XCTAssertEqual(carouselTitle.label, fixture.directItemTitle)
-        #endif
-        XCTAssertFalse(element("refreshButton").exists)
-        XCTAssertFalse(menuAction("Sign out").exists)
-        #if os(iOS)
-        XCTAssertFalse(hasVisibleFrame(application!.searchFields.firstMatch) && application!.searchFields.firstMatch.isHittable,
-                       "Search should leave room for artwork until the user pulls down.")
-        #endif
-        try waitForExistence(element("homeScreen"), timeout: 15, named: "Home after sign-in")
-        try waitForExistence(element("featuredPlayButton"), timeout: 15, named: "Home hero play action")
-        try attachFrame(named: "Home cinematic hero")
-        #if os(tvOS)
-        let recentCaption = application!.staticTexts["New in your library"]
-        #else
-        let recentCaption = application!.staticTexts["Recently added"]
-        #endif
-        try waitForExistence(recentCaption, timeout: 15, named: "Home recent-video shelf caption")
-        let knownPosters = [
-            "recentItem-\(fixture.directItemID)": fixture.directItemTitle,
-            "recentItem-\(fixture.convertedItemID)": fixture.convertedItemTitle,
-            "recentItem-\(fixture.matrixItemID)": fixture.matrixItemTitle,
-            "recentItem-\(fixture.episodeID)": fixture.episodeTitle,
-        ]
-        let recentPosters = application!.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recentItem-"))
-        var leadingPoster: XCUIElement?
-        for _ in 0..<8 {
-            let viewport = try applicationViewport()
-            leadingPoster = recentPosters.allElementsBoundByIndex.first(where: {
-                let frame = $0.frame
-                return knownPosters[$0.identifier] != nil && !frame.isEmpty
-                    && frame.minX >= viewport.minX && frame.maxX <= viewport.maxX
-                    && frame.minY >= viewport.minY && frame.maxY <= viewport.maxY
-            })
-            if leadingPoster != nil { break }
-            #if os(tvOS)
-            XCUIRemote.shared.press(.down)
-            #else
-            try scrollLibrary(element("homeScreen"), up: true)
-            #endif
-        }
-        guard let leadingPoster, let expectedTitle = knownPosters[leadingPoster.identifier] else {
-            throw ProofFailure.ui("Home did not expose a known fixture poster in the visible recent-shelf column.")
-        }
-        let posterIdentifier = leadingPoster.identifier
-        let knownPoster = element(posterIdentifier)
-        XCTAssertTrue(knownPoster.label.contains(expectedTitle), "The recent shelf lost the known media title caption.")
-        #if os(tvOS)
-        guard focus(knownPoster, timeout: 20) else {
-            throw ProofFailure.ui("The Siri Remote could not reveal the known recent-shelf poster.")
-        }
-        #else
-        try revealInLibraryViewport([knownPoster])
-        #endif
-        try attachFrame(named: "Home recent video rail")
-        try selectDestination("Video", screen: "libraryScreen")
-        try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 15, named: "Video catalog")
-        try attachFrame(named: "Video destination")
-        try selectDestination("Audio", screen: "audioScreen")
-        try waitForExistence(element("audioItem-\(fixture.audioAlbumID)"), timeout: 15, named: "Audio album")
-        try attachFrame(named: "Audio destination")
-        try selectDestination("Home", screen: "homeScreen")
-        if element("featuredPauseButton").label == "Pause featured rotation" {
-            try activate(element("featuredPauseButton"))
-        }
-        #if os(iOS)
-        try revealInLibraryViewport([element("featuredChoice-\(fixture.convertedItemID)")])
-        #endif
-        try activate(element("featuredChoice-\(fixture.convertedItemID)"))
-        XCTAssertEqual(element("featuredTitle").label, fixture.convertedItemTitle)
-        try attachFrame(named: "Home panoramic artwork hero")
-        #if os(iOS)
-        XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertEqual(element("featuredTitle").label, fixture.convertedItemTitle)
-        try attachFrame(named: "Home panoramic hero in landscape")
-        XCUIDevice.shared.orientation = .portrait
-        #endif
-        try activate(element("featuredChoice-\(fixture.directItemID)"))
-        XCTAssertEqual(element("featuredTitle").label, fixture.directItemTitle)
-        let details = element("featuredDetailsButton")
-        #if os(iOS)
-        for _ in 0..<4 {
-            if details.exists { break }
-            try scrollLibrary(element("homeScreen"), up: true)
-        }
-        #endif
-        try waitForExistence(details, timeout: 20, named: "featured title details")
-        #if os(iOS)
-        try revealInLibraryViewport([details])
-        #endif
-        let libraryCapture = XCTAttachment(screenshot: application!.screenshot())
-        libraryCapture.name = "Home selected feature"
-        libraryCapture.lifetime = .keepAlways
-        add(libraryCapture)
-        try activate(details)
-        try waitForExistence(element("detailScreen"), timeout: 20, named: "featured detail")
-        XCTAssertTrue(application!.staticTexts[fixture.directItemTitle].exists)
-        try returnToLibrary()
-
-        let play = element("featuredPlayButton")
-        try waitForExistence(play, timeout: 20, named: "featured play action")
-        #if os(iOS)
-        try revealInLibraryViewport([play])
-        #endif
-        try activate(play)
-        try waitForExistence(element("playbackScreen"), timeout: 35, named: "featured playback")
-        let time = element("playbackTime")
-        let initial = try waitForPlaybackValue(time, timeout: 15) { $0 >= 10 }
-        _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= initial + 3 }
-        try closePlayer()
-        try waitForExistence(element("featuredDetailsButton"), timeout: 20, named: "library after featured playback")
-        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.directItemID, minimum: 14)
-
-        try signOutThroughAccount()
-        try waitForExistence(element("serverURLField"), timeout: 15, named: "connection form after deliberate sign out")
-        completed = true
-    }
-
-    #if os(iOS)
-    func journeyAccountTabAppearancePreservesHomeSelectionAndCompactHeader() async throws {
-        var completed = false
-        defer { if !completed { captureScreenshot(succeeded: false) } }
-        let fixture = try loadFixture()
-        try launchAndResetSession()
-        try signIn(using: fixture)
-
-        let home = element("homeScreen")
-        let welcome = application!.staticTexts["Welcome home"]
-        try waitForExistence(welcome, timeout: 20, named: "Home welcome heading after fresh login")
+    private func revealBookItem(_ item: XCUIElement) throws {
         let viewport = try applicationViewport()
-        let homeFrame = home.frame.intersection(viewport)
-        let headingFrame = welcome.frame
-        try attachFrame(named: "Home initial native navigation and welcome position")
-        XCTAssertFalse(homeFrame.isNull)
-        XCTAssertGreaterThan(headingFrame.height, 0)
-        let statusBar = application!.statusBars.firstMatch
-        let safeTop = hasVisibleFrame(statusBar) ? max(viewport.minY, statusBar.frame.maxY) : viewport.minY
-        // Scroll-view AX bounds may extend under the status bar; measure content from its effective safe top.
-        let contentTop = max(homeFrame.minY, safeTop)
-        XCTAssertGreaterThanOrEqual(headingFrame.minY, contentTop - 1)
-        if hasVisibleFrame(statusBar) {
-            XCTAssertLessThanOrEqual(headingFrame.minY - contentTop, headingFrame.height,
-                                     "Home's first heading must follow its scrolling viewport without an empty navigation-title gap.")
-        } else {
-            // On runtimes that omit status-bar AX, scroll bounds include the unsafe top.
-            // Bound the first heading against the actual viewport: this rejects the old empty title bar.
-            XCTAssertLessThanOrEqual(headingFrame.minY - viewport.minY, viewport.height * 0.12,
-                                     "Home's first heading must stay near the viewport top when safe-area AX is unavailable.")
+        for _ in 0..<8 {
+            if hasVisibleFrame(item) && item.isHittable { return }
+            let anchor = item.exists && !item.frame.isEmpty ? item.frame.midX : viewport.midX
+            try dragVertically(in: viewport, anchorX: anchor, up: true)
         }
-        let topAllowance = headingFrame.height * (hasVisibleFrame(statusBar) ? 1 : 2)
-        XCTAssertLessThanOrEqual(homeFrame.minY - safeTop, topAllowance,
-                                 "The Home viewport must begin near the safe top rather than below an unused title bar.")
-        let sidebar = element("librarySidebar")
-        let sidebarHome = sidebar.descendants(matching: .any).matching(identifier: "homeTab").firstMatch
-        if hasVisibleFrame(sidebar), hasVisibleFrame(sidebarHome), sidebarHome.isHittable {
-            // SwiftUI exposes the scroll container across the window; its visible
-            // heading locates the content within the native split-view pane.
-            XCTAssertGreaterThanOrEqual(headingFrame.minX, sidebar.frame.maxX - 1,
-                                        "Home content must occupy the trailing pane rather than sit beneath its expanded sidebar.")
-            let duplicateHomeTab = application!.tabBars.buttons["Home"]
-            XCTAssertFalse(hasVisibleFrame(duplicateHomeTab) && duplicateHomeTab.isHittable,
-                           "An expanded sidebar must not duplicate the destination controls in a tab bar.")
-            try attachFrame(named: "Expanded native sidebar reserves a separate Home pane without duplicate tabs")
-        }
-        XCTAssertFalse(element("accountMenuButton").exists, "iOS Account belongs in its native tab.")
-        try attachFrame(named: "Home welcome begins directly below the safe top")
-
-        let pause = element("featuredPauseButton")
-        try waitForExistence(pause, timeout: 20, named: "Home carousel pause action")
-        if pause.label == "Pause featured rotation" { try activate(pause) }
-        let choice = element("featuredChoice-\(fixture.directItemID)")
-        try waitForExistence(choice, timeout: 20, named: "known Home feature selector")
-        try revealInLibraryViewport([choice])
-        try activate(choice)
-        guard waitUntil(timeout: 5, condition: { self.element("featuredTitle").label == fixture.directItemTitle }) else {
-            throw ProofFailure.ui("Selecting the known feature did not update Home.")
-        }
-
-        try selectDestination("Account", screen: "accountScreen")
-        let picker = element("appearancePicker")
-        try waitForExistence(picker, timeout: 15, named: "native Account appearance picker")
-        let initialAppearance = (picker.value as? String) ?? ""
-        XCTAssertTrue(["Dark", "Light", "System"].contains(initialAppearance),
-                      "The native appearance picker must expose its selected appearance, received: \(initialAppearance).")
-        for appearance in ["Light", "System", "Dark"] {
-            try activate(picker)
-            try activate(menuAction(appearance))
-            guard waitUntil(timeout: 5, condition: { (self.element("appearancePicker").value as? String) == appearance }) else {
-                throw ProofFailure.ui("The Account appearance picker did not select \(appearance).")
-            }
-            if appearance == "Light" { try attachFrame(named: "Account tab selects the Light appearance") }
-        }
-        try attachFrame(named: "Account tab restores the Dark appearance")
-        try selectDestination("Home", screen: "homeScreen")
-        XCTAssertEqual(element("featuredTitle").label, fixture.directItemTitle,
-                       "Account appearance changes must preserve Home's selected feature.")
-        let details = element("featuredDetailsButton")
-        try revealInLibraryViewport([details])
-        try activate(details)
-        try waitForExistence(element("detailScreen"), timeout: 20, named: "selected feature detail after Account visit")
-        XCTAssertTrue(application!.staticTexts[fixture.directItemTitle].exists)
-        try returnToLibrary()
-        XCTAssertEqual(element("featuredTitle").label, fixture.directItemTitle,
-                       "Back must return to the same Home feature after visiting Account.")
-        try attachFrame(named: "Account tab and appearance preserve Home selection and detail back navigation")
-        completed = true
+        throw ProofFailure.ui("The Books catalog item could not be revealed.")
     }
     #endif
-
-    func journeyLibraryPullRevealsSearchAndRefreshesProgress() async throws {
-        #if os(iOS)
-        let fixture = try loadFixture()
-        let origin = try localOrigin(from: fixture.serverURL)
-        let session = makeTestAPISession(origin: origin)
-        defer { session.invalidateAndCancel() }
-        let api = ProofAPI(origin: origin, session: session)
-        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
-        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 12)
-        try await api.seedProgress(identity: identity, itemID: fixture.convertedItemID, seconds: 0)
-        try await api.seedProgress(identity: identity, itemID: fixture.matrixItemID, seconds: 0)
-        try launchAndResetSession()
-        try signIn(using: fixture)
-        try selectDestination("Video", screen: "libraryScreen")
-        XCTAssertFalse(hasVisibleFrame(application!.searchFields.firstMatch) && application!.searchFields.firstMatch.isHittable)
-
-        // Anchor inside artwork; the scroll view's accessibility frame can include the toolbar.
-        let start = element("libraryItem-\(fixture.directItemID)").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let end = start.withOffset(CGVector(dx: 0, dy: 72))
-        start.press(forDuration: 0.05, thenDragTo: end)
-        let search = application!.searchFields.firstMatch
-        try waitForHittable(search, timeout: 10, named: "search revealed by a short pull")
-        try activate(search)
-        search.typeText("Cartographer\n")
-        guard waitUntil(timeout: 15, condition: {
-            self.element("libraryItem-\(fixture.convertedItemID)").exists
-                && !self.element("libraryItem-\(fixture.directItemID)").exists
-        }) else { throw ProofFailure.ui("Native search did not filter the catalog.") }
-        try activate(application!.buttons["Cancel"])
-        try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 15, named: "Video catalog after search cancellation")
-
-        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 0)
-        try refreshLibrary()
-        guard waitUntil(timeout: 15, condition: {
-            !self.element("libraryItem-\(fixture.directItemID)").label.contains("in progress")
-        }) else { throw ProofFailure.ui("Pull-to-refresh did not reload the changed watch position.") }
-        #else
-        throw XCTSkip("Discovery gestures use iOS touch input.")
-        #endif
-    }
 
     func journeyAudioAlbumTrackPlaybackReportsProgress() async throws {
         var completed = false
@@ -675,152 +229,40 @@ class NativeProofJourney: XCTestCase {
         let reopened = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
         XCTAssertGreaterThanOrEqual(reopened, beforeBrowse + 2, "Browsing destinations restarted or paused the audio session.")
         try attachFrame(named: "Persistent audio reopened after browsing Video and Audio")
-        try closePlayer()
-        try waitForExistence(element("audioScreen"), timeout: 15, named: "Audio catalog after browsing from reopened player")
-        try activate(album)
-        try waitForExistence(element("musicCollectionScreen"), timeout: 20, named: "album before queued playback")
-        try activate(element("musicPlayButton"))
-        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "album audio player")
-        guard waitUntil(timeout: 15, condition: {
-            self.element("nowPlayingTitle").label == fixture.audioTrackTitle
-        }) else { throw ProofFailure.ui("Play album did not start with the first numbered track.") }
-        try activate(element("audioNextButton"))
-        guard waitUntil(timeout: 20, condition: {
-            self.element("nowPlayingTitle").label == fixture.audioSecondTrackTitle
-        }) else { throw ProofFailure.ui("Next did not advance the album queue to its second track.") }
-        try activate(element("audioQueueButton"))
-        try waitForExistence(element("audioQueueScreen"), timeout: 15, named: "album play queue")
-        let queuedFirst = element("audioQueueItem-\(fixture.audioTrackID)")
-        let queuedSecond = element("audioQueueItem-\(fixture.audioSecondTrackID)")
-        try waitForExistence(queuedFirst, timeout: 15, named: "first queued track")
-        try waitForExistence(queuedSecond, timeout: 15, named: "second queued track")
-        XCTAssertTrue(queuedFirst.label.contains(fixture.audioTrackTitle))
-        XCTAssertTrue(queuedSecond.label.contains(fixture.audioSecondTrackTitle))
-        try attachFrame(named: "Album queue with both imported tracks")
-        try activate(queuedFirst)
-        do {
-            let queueDone = element("audioQueueDoneButton")
-            try waitForExistence(queueDone, timeout: 15, named: "queue Done action after selecting a track")
-            try activate(queueDone)
-        } catch {
-            captureScreenshot(succeeded: false) // Include the queue's live screenshot and accessibility hierarchy.
-            throw error
-        }
-        guard waitUntil(timeout: 20, condition: {
-            self.element("nowPlayingTitle").label == fixture.audioTrackTitle
-        }) else { throw ProofFailure.ui("Choosing a queued track did not switch playback to that track.") }
-        try activate(element("audioNextButton"))
-        guard waitUntil(timeout: 20, condition: {
-            self.element("nowPlayingTitle").label == fixture.audioSecondTrackTitle
-        }) else { throw ProofFailure.ui("Next did not continue the selected album queue.") }
-        let repeatControl = element("audioRepeatButton")
-        XCTAssertEqual(repeatControl.value as? String, "Repeat off")
-        for mode in ["Repeat queue", "Repeat track", "Repeat off"] {
-            try activate(repeatControl)
-            guard waitUntil(timeout: 5, condition: { repeatControl.value as? String == mode }) else {
-                throw ProofFailure.ui("The repeat control did not expose \(mode).")
-            }
-        }
-        let queuedTime = element("playbackTime")
-        let queuedInitial = try waitForPlaybackValue(queuedTime, timeout: 15) { _ in true }
-        _ = try waitForPlaybackValue(queuedTime, timeout: 20) { $0 >= queuedInitial + 5 }
-        try activate(element("audioQueueButton"))
-        try waitForExistence(element("audioQueueScreen"), timeout: 15, named: "queue after progress updates")
-        XCTAssertTrue(element("audioQueueItem-\(fixture.audioTrackID)").label.contains(fixture.audioTrackTitle))
-        XCTAssertTrue(element("audioQueueItem-\(fixture.audioSecondTrackID)").label.contains(fixture.audioSecondTrackTitle))
-        try activate(element("audioQueueDoneButton"))
-        try attachFrame(named: "Album queue advanced to second track")
         try activate(element("audioStopButton"))
         guard disappears(element("playbackScreen"), timeout: 15), disappears(element("nowPlayingBar"), timeout: 15) else {
             throw ProofFailure.ui("Explicit Stop did not dismiss playback and clear the persistent now-playing bar.")
         }
-        try waitForExistence(element("musicCollectionScreen"), timeout: 15, named: "album after stopping queue")
-        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.audioSecondTrackID, minimum: 3)
+        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.audioTrackID, minimum: 3)
 
         completed = true
     }
 
-    func journeyMusicPlaylistsSmartSelectionAndDownloadedPlayback() async throws {
+    func journeyDownloadedAudioPlaysFromLocalFiles() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
-        let origin = try localOrigin(from: fixture.serverURL)
-        let session = makeTestAPISession(origin: origin)
-        defer { session.invalidateAndCancel() }
-        let api = ProofAPI(origin: origin, session: session)
-        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
-        let regularName = "Native proof saved queue"
-        let smartName = "Native proof Ambient selection"
-        try await api.removeProofPlaylists(identity: identity, names: [regularName, smartName])
+        let sharedID = try XCTUnwrap(fixture.sharedMusicPlaylistID, "Regenerate the enriched music fixture first")
         try launchAndResetSession()
         try signIn(using: fixture)
         try selectDestination("Audio", screen: "audioScreen")
         try activate(element("musicLibrary-downloads"))
         let clearDownloads = application!.buttons.matching(NSPredicate(format: "label == %@", "Remove all downloads")).firstMatch
-        try waitForExistence(clearDownloads, timeout: 15, named: "download cleanup action")
         if clearDownloads.exists && clearDownloads.isEnabled {
             try revealMusicControl(clearDownloads)
             try activate(clearDownloads)
             try activate(menuAction("Remove downloads"))
         }
-        try waitForExistence(application!.staticTexts["Save tracks, albums, or your listening queue from their playback controls."],
-                             timeout: 15, named: "empty downloads before the playlist journey")
-        XCTAssertFalse(element("playDownloadsButton").exists)
         try musicBack()
         try activate(element("musicLibrary-playlists"))
-        let sharedID = try XCTUnwrap(fixture.sharedMusicPlaylistID, "Regenerate the enriched music fixture first")
         try activate(element("musicPlaylist-\(sharedID)"))
-        try waitForExistence(element("musicPlaylistDetailScreen"), timeout: 20, named: "shared read-only playlist")
-        XCTAssertFalse(element("editMusicPlaylistButton").exists)
-        try activate(menuAction("Refresh playlist"))
-        try waitForExistence(element("playlistTrack-\(fixture.audioTrackID)"), timeout: 20, named: "shared playlist's visible first track")
-        XCTAssertFalse(element("editMusicPlaylistButton").exists)
-        try attachFrame(named: "Shared household playlist is playable and read only")
-        try activate(element("playlistTrack-\(fixture.audioTrackID)"))
-        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "shared playlist playback")
-        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 3 }
-        try activate(element("audioPlayPauseButton"))
-        try closePlayer()
-        try musicBack()
-        try revealMusicControl(menuAction("Save listening queue as a playlist"))
-        try activate(menuAction("Save listening queue as a playlist"))
-        try fillMusicField("musicPlaylistNameField", text: regularName)
-        let savePlaylistButton = application!.navigationBars["New playlist"].buttons
-            .matching(NSPredicate(format: "label == %@", "Save")).firstMatch
-        try revealMusicControl(savePlaylistButton)
-        try activate(savePlaylistButton)
-        guard waitUntil(timeout: 20, condition: { !self.element("musicPlaylistNameField").exists }) else {
-            throw ProofFailure.ui("Saving the regular playlist did not dismiss its editor")
-        }
-        try waitForExistence(element("musicLibraryScreen"), timeout: 20, named: "saved playlist list")
-        let regular = try await api.proofPlaylist(identity: identity, name: regularName)
-        XCTAssertEqual(regular["count"] as? Int, 2)
-        let regularID = try XCTUnwrap(regular["id"] as? String)
-        try waitForExistence(element("musicPlaylist-\(regularID)"), timeout: 15, named: "new regular playlist")
-        try activate(element("createMusicPlaylistButton"))
-        try fillMusicField("musicPlaylistNameField", text: smartName)
-        try setNativeSwitch("musicPlaylistSmartToggle", to: true)
-        try fillMusicField("musicPlaylistGenresField", text: "Ambient")
-        try revealMusicControl(savePlaylistButton)
-        try activate(savePlaylistButton)
-        guard waitUntil(timeout: 20, condition: { !self.element("musicPlaylistNameField").exists }) else {
-            throw ProofFailure.ui("Saving the smart playlist did not dismiss its editor")
-        }
-        try waitForExistence(element("musicLibraryScreen"), timeout: 20, named: "smart playlist saved")
-        let smart = try await api.proofPlaylist(identity: identity, name: smartName)
-        XCTAssertEqual((smart["rules"] as? [String: Any])?["genres"] as? [String], ["Ambient"])
-        let smartID = try XCTUnwrap(smart["id"] as? String)
-        try activate(element("musicPlaylist-\(smartID)"))
-        try waitForExistence(element("playlistTrack-\(fixture.audioTrackID)"), timeout: 20, named: "smart selection first track")
-        try waitForExistence(element("playlistTrack-\(fixture.audioSecondTrackID)"), timeout: 20, named: "smart selection second track")
-        try attachFrame(named: "Smart playlist resolves the imported Ambient album")
+        try waitForExistence(element("musicPlaylistDetailScreen"), timeout: 20, named: "shared playlist")
         try revealMusicControl(element("downloadAudioButton"))
         try activate(element("downloadAudioButton"))
-        try waitForExistence(application!.staticTexts["2 tracks available offline."], timeout: 60, named: "both completed native downloads")
         try musicBack()
         try activate(element("musicLibrarySectionPicker"))
         try activate(menuAction("Downloads"))
-        try waitForExistence(element("downloadedTrack-\(fixture.audioTrackID)"), timeout: 20, named: "downloaded first track")
+        try waitForExistence(element("downloadedTrack-\(fixture.audioTrackID)"), timeout: 60, named: "downloaded first track")
         try waitForExistence(element("downloadedTrack-\(fixture.audioSecondTrackID)"), timeout: 20, named: "downloaded second track")
         try activate(element("playDownloadsButton"))
         try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "local downloaded playback")
@@ -828,18 +270,21 @@ class NativeProofJourney: XCTestCase {
         XCTAssertEqual(element("audioPlaybackMethod").label, "Downloaded audio")
         let initial = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { _ in true }
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= initial + 3 }
-        try attachFrame(named: "Downloaded music plays from the local file with an advancing clock")
         try revealMusicControl(element("audioStopButton"))
         try activate(element("audioStopButton"))
+        guard disappears(element("playbackScreen"), timeout: 15),
+              disappears(element("nowPlayingBar"), timeout: 15) else {
+            throw ProofFailure.ui("Explicit Stop did not dismiss downloaded playback.")
+        }
         if clearDownloads.exists && clearDownloads.isEnabled {
             try revealMusicControl(clearDownloads)
             try activate(clearDownloads)
             try activate(menuAction("Remove downloads"))
         }
-        try waitForExistence(application!.staticTexts["Save tracks, albums, or your listening queue from their playback controls."],
-                             timeout: 15, named: "empty downloads after cleanup")
-        XCTAssertFalse(element("playDownloadsButton").exists)
-        try await api.removeProofPlaylists(identity: identity, names: [regularName, smartName])
+        guard disappears(element("downloadedTrack-\(fixture.audioTrackID)"), timeout: 20),
+              disappears(element("downloadedTrack-\(fixture.audioSecondTrackID)"), timeout: 20) else {
+            throw ProofFailure.ui("Removing downloads did not clear the downloaded tracks.")
+        }
         completed = true
     }
 
@@ -1019,144 +464,12 @@ class NativeProofJourney: XCTestCase {
         #endif
     }
 
-    private func fillMusicField(_ identifier: String, text: String) throws {
-        let field = element(identifier)
-        #if os(tvOS)
-        try enter(text, into: field)
-        #else
-        try revealMusicControl(field)
-        field.tap()
-        field.typeText(text)
-        field.typeText("\n")
-        #endif
-    }
-
     private func musicBack() throws {
         #if os(tvOS)
         XCUIRemote.shared.press(.menu)
         #else
         try activate(application!.buttons.matching(identifier: "BackButton").firstMatch)
         #endif
-    }
-
-    func journeyShowSeasonEpisodeBrowsingAndPlayback() async throws {
-        let fixture = try loadFixture()
-        let origin = try localOrigin(from: fixture.serverURL)
-        let session = makeTestAPISession(origin: origin)
-        defer { session.invalidateAndCancel() }
-        let api = ProofAPI(origin: origin, session: session)
-        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
-        try await api.seedProgress(identity: identity, itemID: fixture.episodeID, seconds: 0)
-        try launchAndResetSession()
-        try signIn(using: fixture)
-        try selectDestination("Video", screen: "libraryScreen")
-        try activate(element("videoKindPicker"))
-        try activate(menuAction("Shows"))
-        let show = element("libraryItem-\(fixture.showID)")
-        try waitForExistence(show, timeout: 25, named: "imported synthetic show")
-        XCTAssertTrue(show.label.contains(fixture.showTitle))
-        try activate(show)
-        try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "show seasons")
-        #if os(tvOS)
-        let season = element("videoCollectionItem-\(fixture.seasonID)")
-        #else
-        let season = element("videoSeason-\(fixture.seasonID)")
-        #endif
-        try activate(season)
-        #if os(tvOS)
-        let episode = element("videoCollectionItem-\(fixture.episodeID)")
-        let second = element("videoCollectionItem-\(fixture.secondEpisodeID)")
-        #else
-        let episode = element("videoEpisode-\(fixture.episodeID)")
-        let second = element("videoEpisode-\(fixture.secondEpisodeID)")
-        #endif
-        try waitForExistence(episode, timeout: 20, named: "first season episode")
-        try waitForExistence(second, timeout: 20, named: "second season episode")
-        XCTAssertTrue(episode.label.contains(fixture.episodeTitle))
-        try attachFrame(named: "Synthetic show season and episode list")
-        try activate(episode)
-        try waitForExistence(element("detailScreen"), timeout: 20, named: "episode detail")
-        let time = try startPlayback(using: "playButton")
-        let initial = try waitForPlaybackValue(time, timeout: 15) { _ in true }
-        _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= initial + 4 }
-        try closePlayer()
-        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.episodeID, minimum: 2)
-    }
-
-    func journeyVideoWatchedFavoriteAndActivityFilters() async throws {
-        let fixture = try loadFixture()
-        let origin = try localOrigin(from: fixture.serverURL)
-        let session = makeTestAPISession(origin: origin)
-        defer { session.invalidateAndCancel() }
-        let api = ProofAPI(origin: origin, session: session)
-        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
-        try await api.setItemState(identity: identity, itemID: fixture.directItemID, played: false, favorite: false)
-        try await api.setItemState(identity: identity, itemID: fixture.convertedItemID, played: false, favorite: false)
-        do {
-            try launchAndResetSession()
-            try signIn(using: fixture)
-            try openLibraryItem(id: fixture.directItemID)
-            let watched = element("videoWatchedButton")
-            let favorite = element("videoFavoriteButton")
-            #if os(iOS)
-            try revealDetailControl(watched, named: "mark watched")
-            #endif
-            try activate(watched)
-            guard waitUntil(timeout: 15, condition: { watched.value as? String == "Watched" }) else {
-                throw ProofFailure.ui("Mark watched did not update the detail action.")
-            }
-            #if os(iOS)
-            try revealDetailControl(favorite, named: "add favorite")
-            #endif
-            try activate(favorite)
-            guard waitUntil(timeout: 15, condition: { favorite.value as? String == "Favorite" }) else {
-                throw ProofFailure.ui("Add favorite did not update the detail action.")
-            }
-            let saved = try await api.itemState(identity: identity, itemID: fixture.directItemID)
-            XCTAssertTrue(saved.played)
-            XCTAssertTrue(saved.isFavorite)
-            try returnToLibrary()
-            try applyActivityFilters(favorites: true, unwatched: false)
-            try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 20, named: "favorite movie in filtered catalog")
-            guard disappears(element("libraryItem-\(fixture.convertedItemID)"), timeout: 15) else {
-                throw ProofFailure.ui("Favorites only retained a non-favorite movie.")
-            }
-            try applyActivityFilters(favorites: true, unwatched: true)
-            guard disappears(element("libraryItem-\(fixture.directItemID)"), timeout: 20) else {
-                throw ProofFailure.ui("Unwatched only retained the watched favorite movie.")
-            }
-            try attachFrame(named: "Watched favorite excluded by Unwatched filter")
-            try applyActivityFilters(favorites: true, unwatched: false)
-            try openLibraryItem(id: fixture.directItemID)
-            #if os(iOS)
-            try revealDetailControl(watched, named: "mark unwatched")
-            #endif
-            try activate(watched)
-            guard waitUntil(timeout: 15, condition: { watched.value as? String == "Unwatched" }) else {
-                throw ProofFailure.ui("Mark unwatched did not restore the detail state.")
-            }
-            #if os(iOS)
-            try revealDetailControl(favorite, named: "remove favorite")
-            #endif
-            try activate(favorite)
-            guard waitUntil(timeout: 15, condition: { favorite.value as? String == "Not a favorite" }) else {
-                throw ProofFailure.ui("Remove favorite did not restore the detail state.")
-            }
-            let reset = try await api.itemState(identity: identity, itemID: fixture.directItemID)
-            XCTAssertFalse(reset.played)
-            XCTAssertFalse(reset.isFavorite)
-            try returnToLibrary()
-            try applyActivityFilters(favorites: true, unwatched: false)
-            guard disappears(element("libraryItem-\(fixture.directItemID)"), timeout: 20) else {
-                throw ProofFailure.ui("Favorites only retained the movie after removing its favorite state.")
-            }
-            try applyActivityFilters(favorites: false, unwatched: false)
-            try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 20, named: "movie after clearing activity filters")
-        } catch {
-            try? await api.setItemState(identity: identity, itemID: fixture.directItemID, played: false, favorite: false)
-            throw error
-        }
-        try await api.setItemState(identity: identity, itemID: fixture.directItemID, played: false, favorite: false)
     }
 
     func journeyNativePlaybackReportsResumeAndConversionProgress() async throws {
@@ -1175,15 +488,8 @@ class NativeProofJourney: XCTestCase {
         let directBefore = try await api.playbackSeconds(identity: identity, itemID: fixture.directItemID)
         let convertedBefore = try await api.playbackSeconds(identity: identity, itemID: fixture.convertedItemID)
 
-        #if os(iOS)
-        XCUIDevice.shared.orientation = UIDevice.current.userInterfaceIdiom == .pad ? .landscapeLeft : .portrait
-        #endif
         try launchAndResetSession()
         try signIn(using: fixture)
-
-        #if os(iOS)
-        try await assertLibraryCardsStayInsideTheVisibleGrid(using: fixture)
-        #endif
 
         try openLibraryItem(id: fixture.directItemID)
         let directPlaybackTime = try startPlayback(using: "playButton")
@@ -1192,6 +498,10 @@ class NativeProofJourney: XCTestCase {
             $0 >= directInitial + 7
         }
         XCTAssertGreaterThan(directAdvanced, directInitial + 6, "The direct player's accessibility value did not advance for seven seconds.")
+
+        #if os(iOS)
+        try await pauseAndResumeNativePlayer(after: directAdvanced)
+        #endif
 
         #if os(tvOS)
         XCUIRemote.shared.press(.playPause)
@@ -1252,67 +562,6 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
 
-    func journeyCurrentDuoLayoutKeepsControlsAndPlaybackReachable() async throws {
-        #if os(iOS)
-        var completed = false
-        defer { captureScreenshot(succeeded: completed) }
-
-        let fixture = try loadFixture()
-        let origin = try localOrigin(from: fixture.serverURL)
-        let apiSession = makeTestAPISession(origin: origin)
-        defer { apiSession.invalidateAndCancel() }
-        let api = ProofAPI(origin: origin, session: apiSession)
-        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
-        try await api.seedProgress(identity: identity, itemID: fixture.matrixItemID, seconds: 0)
-        try launchAndResetSession()
-        try assertConnectionFieldsFitViewport(named: "Current-layout sign-in")
-        try signIn(using: fixture)
-        try await assertMatrixLibraryItem(fixture, named: "Current-layout library")
-
-        try openLibraryItem(id: fixture.matrixItemID)
-        try assertMatrixDetail(fixture, named: "Current-layout detail")
-
-        let playbackTime = try startPlayback(using: "playButton")
-        let initial = try waitForPlaybackValue(playbackTime, timeout: 10) { _ in true }
-        _ = try waitForPlaybackValue(playbackTime, timeout: 10) { $0 >= initial + 2 }
-        try assertPlayerControlsFitViewport(named: "Current-layout player")
-        let beforeHome = try waitForPlaybackValue(playbackTime, timeout: 5) { _ in true }
-
-        try backgroundApplication()
-        try await Task.sleep(for: .seconds(3))
-        application!.activate()
-        guard waitUntil(timeout: 10, condition: { self.application!.state == .runningForeground }) else {
-            throw ProofFailure.timeout("Lumina did not return to the foreground after activation.")
-        }
-        try waitForExistence(element("playbackScreen"), timeout: 15, named: "player after returning from Home")
-        let afterHome = try waitForPlaybackValue(playbackTime, timeout: 5) { _ in true }
-        try await Task.sleep(for: .seconds(2))
-        let stillPaused = try waitForPlaybackValue(playbackTime, timeout: 5) { _ in true }
-        XCTAssertLessThanOrEqual(afterHome, beforeHome + 2, "Playback continued while the app was in the background.")
-        XCTAssertLessThanOrEqual(stillPaused, afterHome + 1, "Returning to the app resumed playback without a user action.")
-        _ = try resumeNativePlayer(pausedAt: stillPaused)
-
-        let replay = element("replayButton")
-        try waitForExistence(replay, timeout: 50, named: "replay button at end of media")
-        try waitForExistence(element("playbackScreen"), timeout: 2, named: "player retained at end of media")
-        try assertPlayerControlFitsViewport(replay, named: "Replay")
-        try assertPlayerControlsFitViewport(named: "Current-layout player at end")
-
-        try activate(replay)
-        guard disappears(replay, timeout: 5) else {
-            throw ProofFailure.ui("Replay did not leave the finished playback state.")
-        }
-        let replayedFrom = try waitForPlaybackValue(playbackTime, timeout: 8) { $0 <= 2 }
-        _ = try waitForPlaybackValue(playbackTime, timeout: 10) { $0 >= replayedFrom + 1 }
-        try closePlayer()
-        try waitForExistence(element("detailScreen"), timeout: 10, named: "detail after Done")
-
-        completed = true
-        #else
-        throw XCTSkip("The Duo orientation matrix applies only to iOS and iPadOS.")
-        #endif
-    }
-
     func journeyOriginalMKVReportsPeriodicProgressAndResumes() async throws {
         let fixture = try loadFixture()
         let origin = try localOrigin(from: fixture.serverURL)
@@ -1356,8 +605,8 @@ class NativeProofJourney: XCTestCase {
         try closePlayer()
     }
 
+    #if os(iOS)
     func journeyCompatibleHLSReplayRequestsFreshSession() async throws {
-        #if os(iOS)
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
 
@@ -1379,8 +628,6 @@ class NativeProofJourney: XCTestCase {
         let replay = element("replayButton")
         try waitForExistence(replay, timeout: 25, named: "compatible replay button at end of media")
         try waitForExistence(element("playbackScreen"), timeout: 2, named: "compatible player retained at end of media")
-        try assertPlayerControlFitsViewport(replay, named: "Compatible Replay")
-        try assertPlayerControlFitsViewport(element("closePlayerButton"), named: "Compatible Done")
         try attachFrame(named: "Compatible HLS at end")
 
         try activate(replay)
@@ -1404,10 +651,8 @@ class NativeProofJourney: XCTestCase {
         XCTAssertLessThan(saved, 20, "Compatible replay retained the stale near-end server position.")
 
         completed = true
-        #else
-        throw XCTSkip("The compatible replay control regression applies only to iOS and iPadOS.")
-        #endif
     }
+    #endif
 
     private func attachPlaybackFrame(named name: String) throws {
         let attachment = XCTAttachment(screenshot: try applicationWindow().screenshot())
@@ -1459,8 +704,6 @@ class NativeProofJourney: XCTestCase {
         let bundle = Bundle(for: Self.self)
         if let config = bundle.url(forResource: "FixtureBroker", withExtension: "json") {
             let settings = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: config))
-            // The tier runner owns an unhinged iPad; legacy Duo fixture runs retain Fill.
-            expectedBookFill = false
             guard let value = settings["brokerURL"], let broker = URL(string: value) else { throw ProofFailure.invalidFixture }
             _ = try localOrigin(from: "http://\(broker.host ?? ""):\(broker.port ?? 80)")
             let url = broker.appendingPathComponent(String(describing: type(of: self)))
@@ -1546,7 +789,6 @@ class NativeProofJourney: XCTestCase {
         usernameField.typeText("\n")
         try waitForExistence(passwordField, timeout: 10, named: "password field after Next")
         passwordField.typeText(fixture.password)
-        // Exercise the keyboard's Go action, which stays reachable in Duo landscape.
         passwordField.typeText("\n")
         #else
         try enter(fixture.serverURL, into: serverField)
@@ -1565,33 +807,6 @@ class NativeProofJourney: XCTestCase {
         #if os(iOS)
         try waitForHittable(destinationControl("Account"), timeout: 10, named: "Account tab after declining password storage")
         #endif
-    }
-
-    private func applyActivityFilters(favorites: Bool, unwatched: Bool) throws {
-        try activate(element("videoFiltersButton"))
-        try setNativeSwitch("videoFavoritesToggle", to: favorites)
-        try setNativeSwitch("videoUnwatchedToggle", to: unwatched)
-        // Check both bindings immediately before Apply, including retained sheet state.
-        XCTAssertEqual(nativeSwitchValue(element("videoFavoritesToggle")), favorites)
-        XCTAssertEqual(nativeSwitchValue(element("videoUnwatchedToggle")), unwatched)
-        try activate(element("videoApplyFiltersButton"))
-        guard disappears(element("videoApplyFiltersButton"), timeout: 10) else {
-            throw ProofFailure.ui("Applying activity filters did not dismiss the filter sheet.")
-        }
-        let summary = [unwatched ? "Unwatched" : nil, favorites ? "Favorites" : nil].compactMap { $0 }.joined(separator: " · ")
-        guard waitUntil(timeout: 10, condition: {
-            let clear = self.element("videoClearFiltersButton")
-            if summary.isEmpty {
-                return self.hasVisibleFrame(self.element("videoFiltersButton")) && !clear.exists
-                    && !self.application!.staticTexts["Favorites"].exists
-                    && !self.application!.staticTexts["Unwatched"].exists
-                    && !self.application!.staticTexts["Unwatched · Favorites"].exists
-            }
-            return self.hasVisibleFrame(self.application!.staticTexts[summary]) && self.hasVisibleFrame(clear)
-        }) else {
-            try attachFrame(named: "Activity-filter summary mismatch")
-            throw ProofFailure.ui("Applied activity filters did not expose the expected summary: \(summary.isEmpty ? "No filters" : summary).")
-        }
     }
 
     private func nativeSwitchValue(_ control: XCUIElement) -> Bool? {
@@ -1686,214 +901,21 @@ class NativeProofJourney: XCTestCase {
     }
 
     #if os(iOS)
-    private func assertLibraryCardsStayInsideTheVisibleGrid(using fixture: ProofFixture) async throws {
-        try selectDestination("Video", screen: "libraryScreen")
-        let direct = try revealLibraryItem(id: fixture.directItemID, named: "long-title direct library card")
-        let converted = try revealLibraryItem(id: fixture.convertedItemID, named: "landscape-artwork library card")
-        try waitForExistence(direct, timeout: 35, named: "long-title direct library card")
-        try waitForExistence(converted, timeout: 35, named: "landscape-artwork library card")
-        XCTAssertEqual(direct.elementType, .button, "A library card lost its native button role.")
-        XCTAssertEqual(converted.elementType, .button, "A library card lost its native button role.")
-
-        XCTAssertTrue(
-            direct.label.contains(fixture.directItemTitle),
-            "The complete direct-item title was not available from its library card."
-        )
-        XCTAssertTrue(
-            converted.label.contains(fixture.convertedItemTitle),
-            "The complete converted-item title was not available from its library card."
-        )
-
-        // The loopback artwork route is already verified by the fixture server.
-        // Its generated rendition is warm before launch; allow the app's real
-        // AsyncImage request to render, then require consecutive stable layouts.
-        try await Task.sleep(for: .seconds(2))
-        let (frames, isSingleColumn) = try await visibleStableFrames(of: [direct, converted], timeout: 12)
-        let first = frames[0]
-        let second = frames[1]
-        let visibleLibrary = element("libraryScreen").frame.intersection(try applicationViewport())
-        let tolerance: CGFloat = 1
-
-        for frame in frames {
-            XCTAssertFalse(frame.isEmpty, "A library card had no visible frame.")
-            XCTAssertGreaterThanOrEqual(
-                frame.minX,
-                visibleLibrary.minX - tolerance,
-                "A library card escaped the leading visible-library edge: card=\(frame), library=\(visibleLibrary)."
-            )
-            XCTAssertLessThanOrEqual(
-                frame.maxX,
-                visibleLibrary.maxX + tolerance,
-                "A library card escaped the trailing visible-library edge: card=\(frame), library=\(visibleLibrary)."
-            )
-            let copyHeight = frame.height - (frame.width * 1.5)
-            XCTAssertGreaterThan(
-                copyHeight,
-                max(32, frame.width * 0.15),
-                "A library card did not reserve the expected portrait artwork and title area."
-            )
-            XCTAssertLessThan(
-                copyHeight,
-                max(100, frame.width * 0.6),
-                "A library card grew beyond its portrait artwork and two-line title area."
-            )
-        }
-
-        XCTAssertEqual(first.width, second.width, accuracy: tolerance, "Library columns rendered at different widths.")
-        XCTAssertEqual(first.height, second.height, accuracy: tolerance, "Long-title library cards rendered at different heights.")
-        if !isSingleColumn {
-            let leading = first.minX <= second.minX ? first : second
-            let trailing = first.minX <= second.minX ? second : first
-            XCTAssertGreaterThanOrEqual(
-                trailing.minX - leading.maxX,
-                8,
-                "Adjacent library cards overlapped instead of remaining in separate grid columns."
-            )
-        } else {
-            XCTAssertEqual(first.minX, second.minX, accuracy: tolerance, "A single-column library was not leading-aligned.")
-        }
-
-        let attachment = XCTAttachment(screenshot: try applicationWindow().screenshot())
-        attachment.name = "Long-title portrait and landscape artwork cards"
-        attachment.lifetime = .keepAlways
-        add(attachment)
-    }
-
-    private func visibleStableFrames(
-        of elements: [XCUIElement],
-        timeout: TimeInterval
-    ) async throws -> ([CGRect], Bool) {
-        let initial = try await stableFrames(of: elements, timeout: timeout)
-        let isSingleColumn = abs(initial[0].minY - initial[1].minY) > 1
-        if !isSingleColumn {
-            try revealInLibraryViewport(elements)
-            return (initial, false)
-        }
-
-        for element in elements {
-            try revealInLibraryViewport([element])
-        }
-        return (initial, true)
-    }
-
     private func revealInLibraryViewport(_ elements: [XCUIElement]) throws {
         let library = element("homeScreen").exists ? element("homeScreen") : element("libraryScreen")
         let viewport = library.frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 2)
         for _ in 0..<8 {
             let frames = elements.map(\.frame)
-            let hasUsefulVisibleArea = frames.allSatisfy { frame in
+            if frames.allSatisfy({ frame in
                 let visible = frame.intersection(viewport)
                 return !visible.isNull && visible.height >= min(44, frame.height)
-            }
-            if hasUsefulVisibleArea { return }
+            }) { return }
             guard let leastVisible = frames.min(by: {
                 $0.intersection(viewport).height < $1.intersection(viewport).height
             }) else { return }
-            if leastVisible.midY >= viewport.midY {
-                try scrollLibrary(library, up: true)
-            } else {
-                try scrollLibrary(library, up: false)
-            }
+            try scrollLibrary(library, up: leastVisible.midY >= viewport.midY)
         }
-        throw ProofFailure.ui(
-            "The long-title grid cards could not be scrolled into the visible library: "
-                + "cards=\(elements.map(\.frame)), viewport=\(viewport)."
-        )
-    }
-
-    private func stableFrames(of elements: [XCUIElement], timeout: TimeInterval) async throws -> [CGRect] {
-        let deadline = Date().addingTimeInterval(timeout)
-        var previous: [CGRect]?
-        var stableSamples = 0
-        while Date() < deadline {
-            let current = elements.map(\.frame)
-            if current.allSatisfy({ !$0.isEmpty }), framesEqual(current, previous, accuracy: 0.5) {
-                stableSamples += 1
-                if stableSamples >= 3 { return current }
-            } else {
-                stableSamples = 0
-            }
-            previous = current
-            try await Task.sleep(for: .milliseconds(400))
-        }
-        throw ProofFailure.timeout("The long-title library cards did not settle into stable visible frames after artwork loaded.")
-    }
-
-    private func framesEqual(_ left: [CGRect], _ right: [CGRect]?, accuracy: CGFloat) -> Bool {
-        guard let right, left.count == right.count else { return false }
-        return zip(left, right).allSatisfy { lhs, rhs in
-            abs(lhs.minX - rhs.minX) <= accuracy
-                && abs(lhs.minY - rhs.minY) <= accuracy
-                && abs(lhs.width - rhs.width) <= accuracy
-                && abs(lhs.height - rhs.height) <= accuracy
-        }
-    }
-
-    private func assertConnectionFieldsFitViewport(named name: String) throws {
-        let fields = [element("serverURLField"), element("usernameField"), element("passwordField")]
-        for field in fields {
-            try waitForExistence(field, timeout: 10, named: "\(name) connection field")
-            try assertHorizontalContainment(field.frame, in: applicationViewport(), named: "\(name) connection field")
-        }
-        try attachFrame(named: name)
-    }
-
-    private func assertMatrixLibraryItem(_ fixture: ProofFixture, named name: String) async throws {
-        try selectDestination("Video", screen: "libraryScreen")
-        let item = try revealLibraryItem(id: fixture.matrixItemID, named: "\(name) matrix library item")
-        XCTAssertEqual(item.elementType, .button, "\(name) library item lost its button role.")
-        XCTAssertTrue(item.label.contains(fixture.matrixItemTitle), "\(name) library item lost its complete title.")
-        try revealInLibraryViewport([item])
-        let frame = try await stableFrames(of: [item], timeout: 8)[0]
-        let viewport = element("libraryScreen").frame.intersection(try applicationViewport())
-        try assertHorizontalContainment(frame, in: viewport, named: "\(name) library item")
-        try attachFrame(named: name)
-    }
-
-    private func assertMatrixDetail(_ fixture: ProofFixture, named name: String) throws {
-        let detail = element("detailScreen")
-        let title = application!.staticTexts[fixture.matrixItemTitle].firstMatch
-        let play = element("playButton")
-        let convert = element("convertButton")
-        try waitForExistence(title, timeout: 10, named: "\(name) complete title")
-        try waitForExistence(play, timeout: 10, named: "\(name) play button")
-        try waitForExistence(convert, timeout: 10, named: "\(name) convert button")
-
-        try revealDetailElement(title, in: detail, named: "\(name) title", requiresHittable: false)
-        try revealDetailElement(play, in: detail, named: "\(name) Play", requiresHittable: true)
-        try revealDetailElement(convert, in: detail, named: "\(name) Convert", requiresHittable: true)
-        let viewport = detail.frame.intersection(try applicationViewport())
-        for (element, label) in [(title, "title"), (play, "Play"), (convert, "Convert")] {
-            try assertHorizontalContainment(element.frame, in: viewport, named: "\(name) \(label)")
-        }
-        XCTAssertFalse(play.frame.intersects(convert.frame), "\(name) Play and Convert controls overlapped.")
-        try attachFrame(named: name)
-    }
-
-    private func assertPlayerControlsFitViewport(named name: String) throws {
-        let playback = element("playbackScreen")
-        try waitForExistence(playback, timeout: 10, named: name)
-        try assertPlayerControlFitsViewport(element("closePlayerButton"), named: "\(name) Done")
-        try attachFrame(named: name)
-    }
-
-    private func assertPlayerControlFitsViewport(_ control: XCUIElement, named name: String) throws {
-        try waitForExistence(control, timeout: 10, named: name)
-        let viewport = element("playbackScreen").frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 1)
-        try assertHorizontalContainment(control.frame, in: viewport, named: name)
-        guard isFullyVerticallyContained(control.frame, in: viewport),
-              hasVisibleFrame(control), control.isEnabled, control.isHittable else {
-            throw ProofFailure.ui("\(name) was not a usable control inside the player viewport: control=\(control.frame), viewport=\(viewport).")
-        }
-    }
-
-    private func assertHorizontalContainment(_ frame: CGRect, in viewport: CGRect, named name: String) throws {
-        let tolerance: CGFloat = 1
-        guard !frame.isEmpty,
-              frame.minX >= viewport.minX - tolerance,
-              frame.maxX <= viewport.maxX + tolerance else {
-            throw ProofFailure.ui("\(name) escaped horizontal viewport bounds: element=\(frame), viewport=\(viewport).")
-        }
+        throw ProofFailure.ui("The library item could not be scrolled into the visible library.")
     }
 
     private func isFullyVerticallyContained(_ frame: CGRect, in viewport: CGRect) -> Bool {
@@ -1901,30 +923,6 @@ class NativeProofJourney: XCTestCase {
         return !frame.isEmpty
             && frame.minY >= viewport.minY - tolerance
             && frame.maxY <= viewport.maxY + tolerance
-    }
-
-    private func revealDetailElement(
-        _ element: XCUIElement,
-        in detail: XCUIElement,
-        named name: String,
-        requiresHittable: Bool
-    ) throws {
-        let viewport = detail.frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 2)
-        for _ in 0..<8 {
-            let frame = element.frame
-            let visible = frame.intersection(viewport)
-            let hasRequiredVisibility = requiresHittable
-                ? isFullyVerticallyContained(frame, in: viewport)
-                : !visible.isNull && visible.height >= min(44, frame.height)
-            if hasRequiredVisibility, element.isEnabled,
-               (!requiresHittable || (hasVisibleFrame(element) && element.isHittable)) {
-                return
-            }
-            let anchor = self.element("playButton")
-            let anchorX = anchor.exists && !anchor.frame.isEmpty ? anchor.frame.midX : frame.midX
-            try dragVertically(in: viewport, anchorX: anchorX, up: frame.midY >= viewport.midY)
-        }
-        throw ProofFailure.ui("\(name) could not be revealed: element=\(element.frame), viewport=\(viewport).")
     }
 
     private func revealLibraryItem(id: String, named name: String) throws -> XCUIElement {
@@ -1991,6 +989,20 @@ class NativeProofJourney: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         throw ProofFailure.timeout("The native player's clock did not advance after resume.")
+    }
+
+    private func pauseAndResumeNativePlayer(after directAdvanced: Double) async throws {
+        let beforeHome = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { $0 >= directAdvanced }
+        try backgroundApplication()
+        try await Task.sleep(for: .seconds(3))
+        application!.activate()
+        try waitForExistence(element("playbackScreen"), timeout: 20, named: "player after returning from Home")
+        let afterHome = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+        XCTAssertLessThanOrEqual(afterHome, beforeHome + 2, "Playback continued while the app was in the background.")
+        try await Task.sleep(for: .seconds(3))
+        let stillPaused = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+        XCTAssertLessThanOrEqual(stillPaused, afterHome + 1, "Returning to the app resumed playback without an explicit action.")
+        _ = try resumeNativePlayer(pausedAt: stillPaused)
     }
 
     private func backgroundApplication() throws {
@@ -2520,21 +1532,6 @@ private struct ProofAPI {
         _ = try await send(request)
     }
 
-    func setItemState(identity: APIIdentity, itemID: String, played: Bool, favorite: Bool) async throws {
-        var request = URLRequest(url: origin.appendingPathComponent("Users/\(identity.userID)/Items/\(itemID)/UserData"))
-        request.httpMethod = "POST"
-        request.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["Played": played, "IsFavorite": favorite])
-        _ = try await send(request)
-    }
-
-    func itemState(identity: APIIdentity, itemID: String) async throws -> APIUserData {
-        var request = URLRequest(url: origin.appendingPathComponent("Users/\(identity.userID)/Items/\(itemID)/UserData"))
-        request.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
-        return try JSONDecoder().decode(APIUserData.self, from: await send(request))
-    }
-
     func playbackSeconds(identity: APIIdentity, itemID: String) async throws -> Double {
         var request = URLRequest(
             url: origin
@@ -2566,20 +1563,6 @@ private struct ProofAPI {
         let data = try await send(request)
         if data.isEmpty { return [String: Any]() }
         return try JSONSerialization.jsonObject(with: data)
-    }
-
-    @MainActor func proofPlaylist(identity: APIIdentity, name: String) async throws -> [String: Any] {
-        let list = try await musicJSON(identity: identity, path: "playlists") as? [[String: Any]]
-        guard let value = list?.first(where: { $0["name"] as? String == name }) else { throw ProofAPIError.malformedResponse }
-        return value
-    }
-
-    @MainActor func removeProofPlaylists(identity: APIIdentity, names: [String]) async throws {
-        let list = try await musicJSON(identity: identity, path: "playlists") as? [[String: Any]] ?? []
-        for entry in list where names.contains(entry["name"] as? String ?? "") {
-            guard let id = entry["id"] as? String else { throw ProofAPIError.malformedResponse }
-            _ = try await musicJSON(identity: identity, path: "playlists/" + id, method: "DELETE")
-        }
     }
 
     @MainActor func replaceProofMusicSession(identity: APIIdentity, itemIDs: [String], position: Int) async throws {

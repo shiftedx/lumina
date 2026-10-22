@@ -25,33 +25,26 @@ SMOKE = [
     "NativeNativePlaybackReportsResumeAndConversionProgressTests",
 ]
 IOS_FULL = [
-    "NativeFeaturedTitlePreservesDetailsAndResumesPlaybackTests",
     "NativeAudioAlbumTrackPlaybackReportsProgressTests",
-    "NativeShowSeasonEpisodeBrowsingAndPlaybackTests",
     "NativeNativePlaybackReportsResumeAndConversionProgressTests",
-    "NativeNativeBooksLibraryBrowsesShelvesAndMangaStacksTests",
-    "NativeNativeBooksReadTurnResizeAndRestoreAllFormatsTests",
-    "NativeNativeBooksKeepPhysicalRightInRTLLocaleTests",
-    "NativeAccountTabAppearancePreservesHomeSelectionAndCompactHeaderTests",
-    "NativeLibraryPullRevealsSearchAndRefreshesProgressTests",
-    "NativeMusicPlaylistsSmartSelectionAndDownloadedPlaybackTests",
+    "NativeNativeBooksReadTurnAndRestoreAllFormatsTests",
+    "NativeDownloadedAudioPlaysFromLocalFilesTests",
     "NativeMusicAdvancedControlsPausedRestoreAndQueueConflictTests",
-    "NativeVideoWatchedFavoriteAndActivityFiltersTests",
     "NativeOriginalMKVReportsPeriodicProgressAndResumesTests",
     "NativeCompatibleHLSReplayRequestsFreshSessionTests",
-    "NativeCurrentDuoLayoutKeepsControlsAndPlaybackReachableTests",
 ]
 TVOS_FULL = [name for name in IOS_FULL if name not in {
-    "NativeNativeBooksLibraryBrowsesShelvesAndMangaStacksTests",
-    "NativeNativeBooksReadTurnResizeAndRestoreAllFormatsTests",
-    "NativeNativeBooksKeepPhysicalRightInRTLLocaleTests",
-    "NativeAccountTabAppearancePreservesHomeSelectionAndCompactHeaderTests",
-    "NativeLibraryPullRevealsSearchAndRefreshesProgressTests",
+    "NativeNativeBooksReadTurnAndRestoreAllFormatsTests",
     "NativeCompatibleHLSReplayRequestsFreshSessionTests",
-    "NativeCurrentDuoLayoutKeepsControlsAndPlaybackReachableTests",
 }]
 BUDGET = {"smoke": 600, "full": 2700}
 IOS_RUNTIME: str | None = None
+CANCELLED = threading.Event()
+
+
+def check_cancelled() -> None:
+    if CANCELLED.is_set():
+        raise RuntimeError("native UI tier run cancelled")
 
 
 def command(*parts: str, cwd: Path = ROOT, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -82,6 +75,7 @@ def device_type(platform: str) -> str:
 
 
 def create_simulator(platform: str, run_id: str, number: int) -> str:
+    check_cancelled()
     name = f"Lumina UI tier {run_id} {platform} {number}"
     result = command("xcrun", "simctl", "create", name, device_type(platform), latest_runtime(platform), capture=True)
     if result.returncode:
@@ -100,6 +94,7 @@ def delete_own_simulators(run_id: str) -> None:
 
 
 def run_xcode(arguments: list[str], log: Path) -> tuple[int, float, float, float]:
+    check_cancelled()
     started = time.monotonic()
     with log.open("w", encoding="utf-8") as stream:
         process = subprocess.Popen(arguments, cwd=APPLE, text=True, stdout=stream, stderr=subprocess.STDOUT,
@@ -107,7 +102,10 @@ def run_xcode(arguments: list[str], log: Path) -> tuple[int, float, float, float
         try:
             deadline = time.monotonic() + 3000
             peak_load = 0.0
-            while process.poll() is None:
+            while True:
+                check_cancelled()
+                if process.poll() is not None:
+                    break
                 load = os.getloadavg()[0]
                 peak_load = max(peak_load, load)
                 if time.monotonic() >= deadline:
@@ -157,20 +155,27 @@ def broker_config_path(output: Path, platform: str) -> Path:
 
 
 def start_broker(output: Path, platform: str) -> tuple[subprocess.Popen[bytes], Path]:
+    check_cancelled()
     config = broker_config_path(output, platform)
     broker = subprocess.Popen([sys.executable, str(APPLE / "scripts" / "ui_suite.py"), "--output", str(config)],
                               cwd=ROOT, start_new_session=True)
-    deadline = time.monotonic() + 15
-    while not config.exists() and time.monotonic() < deadline:
-        time.sleep(0.1)
-    if not config.exists():
-        os.killpg(broker.pid, signal.SIGTERM)
-        broker.wait(timeout=30)
-        raise RuntimeError(f"{platform} fixture broker did not start")
+    try:
+        deadline = time.monotonic() + 15
+        while not config.exists() and time.monotonic() < deadline:
+            check_cancelled()
+            time.sleep(0.1)
+        if not config.exists():
+            raise RuntimeError(f"{platform} fixture broker did not start")
+    except BaseException:
+        if broker.poll() is None:
+            os.killpg(broker.pid, signal.SIGTERM)
+            broker.wait(timeout=30)
+        raise
     return broker, config
 
 
 def wait_for_cohort(cohort: threading.Barrier | None, timeout: int) -> None:
+    check_cancelled()
     if cohort is not None:
         cohort.wait(timeout=timeout)
 
@@ -197,6 +202,7 @@ def boot_simulators(platform: str, run_id: str) -> tuple[list[str], float, float
     waited = 0.0
     simulators: list[str] = []
     for number in range(1, 3):
+        check_cancelled()
         simulator = create_simulator(platform, run_id, number)
         simulators.append(simulator)
         # Fresh iOS homes otherwise eagerly render stock widgets and index an empty library.
@@ -204,6 +210,7 @@ def boot_simulators(platform: str, run_id: str) -> tuple[list[str], float, float
         background = [f"--disabledJob={job}" for job in (
             "com.apple.chronod", "com.apple.photoanalysisd", "com.apple.corespotlightservice",
         )] if platform == "iOS" else []
+        check_cancelled()
         boot = command("xcrun", "simctl", "boot", simulator, *background, capture=True)
         if boot.returncode:
             raise RuntimeError(boot.stderr.strip() or f"could not boot {platform} simulator {number}")
@@ -211,6 +218,7 @@ def boot_simulators(platform: str, run_id: str) -> tuple[list[str], float, float
                                 cwd=ROOT, text=True, capture_output=True, timeout=180)
         if status.returncode:
             raise RuntimeError(status.stderr.strip() or f"{platform} simulator {number} did not finish booting")
+        check_cancelled()
     return simulators, time.monotonic() - started - waited, waited
 
 
@@ -231,9 +239,11 @@ def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_fil
     build_log = output / f"{platform}-build.log"
     simulators: list[str] = []
     try:
+        check_cancelled()
         setup_started = time.monotonic()
         simulators, setup_seconds, setup_wait_seconds = boot_simulators(platform, run_id)
         setup_finished = time.monotonic()
+        check_cancelled()
         base = ["xcodebuild", "-jobs", "2", "-project", "Lumina.xcodeproj", "-scheme", scheme,
                 "-destination", f"platform={platform} Simulator,id={simulators[0]}",
                 "-derivedDataPath", str(derived), f"LUMINA_NATIVE_BROKER_FILE={broker_file}"]
@@ -249,11 +259,14 @@ def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_fil
             if cohort is not None:
                 cohort.abort()
             return outcome
+        check_cancelled()
         xctestrun = xctestrun_path(derived, scheme)
         selected = selectors(platform, tier)
         shards = split_shards(selected)
         for index in range(repeat):
+            check_cancelled()
             wait_for_cohort(cohort, BUDGET[tier] + 600)
+            check_cancelled()
             test_wait_seconds = 0.0
             started = time.monotonic()
             def run_shard(number: int) -> dict[str, object]:
@@ -274,6 +287,7 @@ def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_fil
                                      "finishedMonotonic": max(item["finishedMonotonic"] for item in shard_results),
                                      "waitSeconds": round(test_wait_seconds, 3), "shards": shard_results,
                                      "passed": all(item["passed"] for item in shard_results)})
+            check_cancelled()
             wait_for_cohort(cohort, BUDGET[tier] + 600)
         return outcome
     except BaseException:
@@ -303,6 +317,16 @@ def main() -> None:
         parser.error("--output must be a fresh empty private directory")
     args.output.mkdir(parents=True, mode=0o700, exist_ok=True)
     os.chmod(args.output, 0o700)
+    CANCELLED.clear()
+    cohort_holder: dict[str, threading.Barrier | None] = {"cohort": None}
+
+    def cancel(_signum: int, _frame: object) -> None:
+        CANCELLED.set()
+        if cohort_holder["cohort"] is not None:
+            cohort_holder["cohort"].abort()
+
+    signal.signal(signal.SIGINT, cancel)
+    signal.signal(signal.SIGTERM, cancel)
     run_id = f"{os.getpid()}-{int(time.time())}"
     started = time.monotonic()
     results: dict[str, dict[str, object]] = {}
@@ -311,10 +335,13 @@ def main() -> None:
         platforms = [args.platform] if args.platform != "all" else ["tvOS", "iOS"]
         broker_files: dict[str, Path] = {}
         for platform in platforms:
+            check_cancelled()
             broker, config = start_broker(args.output, platform)
             brokers.append(broker)
             broker_files[platform] = config
         cohort = threading.Barrier(len(platforms)) if len(platforms) > 1 else None
+        cohort_holder["cohort"] = cohort
+        check_cancelled()
         with ThreadPoolExecutor(max_workers=len(platforms)) as pool:
             futures = {
                 platform: pool.submit(one_platform, platform, args.tier, args.repeat, args.output,

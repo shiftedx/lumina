@@ -115,15 +115,17 @@ Tests that previously caused an app-code fix are never deleted.
 
 | Tier | Intended use | Selected journeys | Budget |
 | --- | --- | --- | --- |
-| smoke | Merge bar for native UI changes | Audio/now-playing/background/queue and direct/conversion/resume/background video on both platforms (4 broad cases) | <10 minutes wall per complete two-platform run |
-| full | Pre-release | All 15 iOS and 8 executable tvOS cases | <45 minutes wall per complete two-platform run |
+| smoke | Merge bar for native UI changes | Audio/now-playing/background and direct/conversion/resume/background video on both platforms (4 broad cases) | <10 minutes wall per complete two-platform run |
+| full | Pre-release | 7 iOS and 5 tvOS cases: playback, downloads, reader restoration and advanced queue reconciliation | <45 minutes wall per complete two-platform run |
 
-The suite has fewer than 50 critical journeys, so smoke retains the relevant
-critical playback paths without adding tests to meet a count. Home carousel,
-hierarchy navigation, Books and advanced music remain in full. iOS runs on an isolated
-regular-width iPad to exercise RTL spread geometry; hardware Duo pose selection
-remains an additional manual device qualification. No automatic serial exception
-is needed for the current-viewport check on that iPad.
+The suite has fewer than 50 critical journeys, so smoke retains the critical
+playback paths without adding tests to meet a count. With most UI being replaced,
+full retains only durable native integration: all-format reader preparation and
+position restoration, downloaded-file audio, advanced queue/paused restoration,
+original MKV progress/resume, and HLS end-of-stream replay. Carousel, hierarchy,
+appearance, copy and viewport walks are retired; existing Core/API contracts
+remain. Both historical regression catchers are retained. Physical-device layout
+and replacement-screen routing require their own design qualification.
 
 Run from the repository root with locked dependencies installed:
 

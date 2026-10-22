@@ -140,7 +140,7 @@ need their own qualification. Use a fresh output directory. The runner reports b
 the complete concurrent iOS/tvOS test cohort wall for each repeat, including simulator
 startup and fixture provisioning.
 The platforms run concurrently with separate fixture brokers. Each platform warms
-two owned simulators serially, then runs two explicit XCTest shards concurrently.
+two owned simulators concurrently, then runs two explicit XCTest shards concurrently.
 Cohort barriers align both platform repeats. Each shard
 disables Xcode's internal clone scheduling; the overall cohort remains parallel.
 Fresh iOS devices disable only the stock widget renderer, empty Photos analysis and

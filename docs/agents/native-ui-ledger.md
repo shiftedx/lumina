@@ -117,7 +117,7 @@ the user redirected work toward contracts that survive the redesign.
 The committed reduced full tier passed twice: **12/12 each repeat**, zero failures,
 zero skips, all four explicit shards green (iOS 4+3; tvOS 3+2). Cross-platform
 wall times were **733.433 seconds (12m13s)** and **576.970 seconds (9m37s)**,
-both below 2,700 seconds. The first includes 243.001 seconds of actual concurrent
+both below 2,700 seconds. The first includes 243.795 seconds of actual concurrent
 cold-simulator setup span. Builds were separately recorded: iOS 10.026 seconds,
 tvOS 14.061 seconds. Total invocation including builds, both repeats and cleanup:
 1,331.750 seconds. Peak observed load1 reached 1,004.95; no delay was subtracted.
@@ -126,4 +126,3 @@ Evidence: `/tmp/lumina-ui-signal-durable-full-1/full-report.json` and eight
 `*-full-{1,2}-shard-{1,2}.xcresult` bundles. Both historical regression methods
 and all-format reader restoration passed on each selected platform twice.
 The four-case smoke tier's independent two-pass measurement remains pending.
-

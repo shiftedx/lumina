@@ -199,12 +199,9 @@ def per_repeat_walls(results: dict[str, dict[str, object]], platforms: list[str]
 
 def boot_simulators(platform: str, run_id: str) -> tuple[list[str], float, float]:
     started = time.monotonic()
-    waited = 0.0
-    simulators: list[str] = []
-    for number in range(1, 3):
+    def boot_one(number: int) -> str:
         check_cancelled()
         simulator = create_simulator(platform, run_id, number)
-        simulators.append(simulator)
         # Fresh iOS homes otherwise eagerly render stock widgets and index an empty library.
         # Lumina has no WidgetKit, Photos or CoreSpotlight integration under test.
         background = [f"--disabledJob={job}" for job in (
@@ -215,11 +212,15 @@ def boot_simulators(platform: str, run_id: str) -> tuple[list[str], float, float
         if boot.returncode:
             raise RuntimeError(boot.stderr.strip() or f"could not boot {platform} simulator {number}")
         status = subprocess.run(["xcrun", "simctl", "bootstatus", simulator, "-b"],
-                                cwd=ROOT, text=True, capture_output=True, timeout=180)
+                                cwd=ROOT, text=True, capture_output=True, timeout=300)
         if status.returncode:
             raise RuntimeError(status.stderr.strip() or f"{platform} simulator {number} did not finish booting")
         check_cancelled()
-    return simulators, time.monotonic() - started - waited, waited
+        return simulator
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        simulators = list(pool.map(boot_one, range(1, 3)))
+    return simulators, time.monotonic() - started, 0.0
 
 
 def xctestrun_path(derived: Path, scheme: str) -> Path:
@@ -290,10 +291,10 @@ def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_fil
             check_cancelled()
             wait_for_cohort(cohort, BUDGET[tier] + 600)
         return outcome
-    except BaseException:
+    except Exception as error:
         if cohort is not None:
             cohort.abort()
-        raise
+        return {"buildExit": 1, "error": f"{type(error).__name__}: {error}", "tests": []}
     finally:
         for simulator in simulators:
             command("xcrun", "simctl", "shutdown", simulator)

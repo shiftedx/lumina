@@ -103,6 +103,19 @@ class UITierRunnerTests(unittest.TestCase):
         self.assertEqual(run_ui_tiers.per_repeat_walls({"iOS": results["iOS"]}, ["iOS", "tvOS"], 2), [])
         self.assertEqual(run_ui_tiers.per_repeat_walls({"iOS": {**results["iOS"], "tests": []}, "tvOS": results["tvOS"]}, ["iOS", "tvOS"], 2), [])
 
+    def test_both_owned_simulators_boot_concurrently(self) -> None:
+        ready = threading.Barrier(2)
+        def boot(*parts: str, **_: object) -> subprocess.CompletedProcess[str]:
+            ready.wait(timeout=2)
+            return subprocess.CompletedProcess(parts, 0, "", "")
+        with mock.patch.object(run_ui_tiers, "create_simulator", side_effect=lambda platform, run_id, number: f"own-{number}"), \
+             mock.patch.object(run_ui_tiers, "command", side_effect=boot), \
+             mock.patch.object(run_ui_tiers.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")):
+            simulators, seconds, waited = run_ui_tiers.boot_simulators("iOS", "run")
+        self.assertEqual(simulators, ["own-1", "own-2"])
+        self.assertGreaterEqual(seconds, 0)
+        self.assertEqual(waited, 0)
+
     def test_aborted_cohort_releases_waiting_platform(self) -> None:
         cohort = threading.Barrier(2)
         cohort.abort()

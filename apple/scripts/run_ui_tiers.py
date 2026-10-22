@@ -20,7 +20,6 @@ from typing import Iterator
 
 ROOT = Path(__file__).resolve().parents[2]
 APPLE = ROOT / "apple"
-PERF_LOCK = ROOT / "scripts" / "with-lock.sh"
 XCODE_LOCK = Path("/tmp/lumina-xcodebuild.lock")
 SMOKE = [
     "NativeFeaturedTitlePreservesDetailsAndResumesPlaybackTests",
@@ -57,21 +56,12 @@ def command(*parts: str, cwd: Path = ROOT, capture: bool = False) -> subprocess.
     return subprocess.run(parts, cwd=cwd, text=True, capture_output=capture, check=False)
 
 
-def xcode_running(owned_group: int | None = None) -> bool:
-    result = command("ps", "-axo", "pid=,pgid=,comm=", capture=True)
-    for line in result.stdout.splitlines():
-        parts = line.split(maxsplit=2)
-        if len(parts) == 3 and Path(parts[2]).name == "xcodebuild" and int(parts[1]) != owned_group:
-            return True
-    return False
-
-
 @contextmanager
 def xcode_slot(timeout: int = 1800) -> Iterator[None]:
     deadline = time.monotonic() + timeout
     acquired = False
     while time.monotonic() < deadline:
-        if os.getloadavg()[0] < 20 and not xcode_running():
+        if os.getloadavg()[0] < 20:
             try:
                 XCODE_LOCK.mkdir()
                 acquired = True
@@ -80,7 +70,7 @@ def xcode_slot(timeout: int = 1800) -> Iterator[None]:
                 pass
         time.sleep(2)
     if not acquired:
-        raise RuntimeError("timed out waiting for a quiet host and the Lumina xcodebuild lock")
+        raise RuntimeError("timed out waiting for load1 <20 and this runner's lock")
     try:
         yield
     finally:
@@ -129,7 +119,7 @@ def delete_own_simulators(run_id: str) -> None:
 def wait_for_quiet_host(seconds: int) -> None:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
-        if os.getloadavg()[0] < 20 and not xcode_running():
+        if os.getloadavg()[0] < 20:
             return
         time.sleep(2)
     raise RuntimeError("timed out waiting for a quiet host")
@@ -137,9 +127,8 @@ def wait_for_quiet_host(seconds: int) -> None:
 
 def run_xcode(arguments: list[str], log: Path, host_wait_seconds: int) -> tuple[int, float]:
     started = time.monotonic()
-    # The helper is executed after the performance lock is held, so the load
-    # check and xcodebuild start are an indivisible cooperating-job operation.
-    wrapped = [str(PERF_LOCK), "/tmp/lumina-perf.lock", "1800", sys.executable, str(Path(__file__).resolve()), "--wait-host-then-exec", str(host_wait_seconds), *arguments]
+    # User authorized concurrent Xcode jobs from other agents; retain the load gate.
+    wrapped = [sys.executable, str(Path(__file__).resolve()), "--wait-host-then-exec", str(host_wait_seconds), *arguments]
     with xcode_slot(host_wait_seconds):
         with log.open("w", encoding="utf-8") as stream:
             process = subprocess.Popen(wrapped, cwd=APPLE, text=True, stdout=stream, stderr=subprocess.STDOUT,
@@ -150,10 +139,6 @@ def run_xcode(arguments: list[str], log: Path, host_wait_seconds: int) -> tuple[
                 while process.poll() is None:
                     load = os.getloadavg()[0]
                     peak_load = max(peak_load, load)
-                    if xcode_running(process.pid):
-                        stream.write("\nAnother Xcode job started; cancelling this owned run.\n")
-                        stream.flush()
-                        raise RuntimeError("another Xcode job started during qualification")
                     if load >= 20:
                         stream.write(f"\nHost load1 exceeded 20 ({load:.2f}); cancelling this owned run.\n")
                         stream.flush()

@@ -148,11 +148,14 @@ There is no application App Group entitlement; Xcode workers use separate app
 sandboxes, and persisted downloads/queue files are scoped by the unique member
 and origin. Only Debug builds accept the test preference/credential namespace.
 
-The host gate uses the mkdir lock `/tmp/lumina-xcodebuild.lock` plus the existing
-performance lock. It waits for load1 <20 and no other xcodebuild. Do not remove a
-lock owned by another run. The runner creates its own simulators and removes only
-its recorded devices/clones and child processes. It never stops another agent's
-Xcode run or simulator. `--host-wait-seconds` bounds the host wait.
+The user explicitly authorized running alongside other agents' Xcode jobs on
+2026-10-21, superseding the original host exclusivity requirement. The mkdir
+lock `/tmp/lumina-xcodebuild.lock` serializes this runner's own invocations; it
+no longer waits for other Xcode jobs or takes the shared performance lock.
+It waits for load1 <20 and cancels only its own process group if load1 reaches 20.
+Do not remove a lock owned by another run. The runner creates its own simulators
+and removes only its recorded devices/clones and child processes. It never stops
+another agent's Xcode run or simulator. `--host-wait-seconds` bounds the load wait.
 
 **Qualification is pending.** No before/after wall-time claim, two-pass parallel
 qualification or budget claim is established until actual result bundles and

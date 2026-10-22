@@ -54,3 +54,9 @@ configuration matrix was repeated.
 
 Pending: current failures, baseline timing, two parallel kept-suite passes and per-tier budgets.
 Do not report this audit as complete until these rows contain actual result evidence.
+
+
+Host policy update: the user explicitly removed Xcode exclusivity on 2026-10-21.
+Concurrent jobs from other agents are allowed; load1 <20, owned simulators and
+owned-PID cleanup still apply. Initial qualification waits were cancelled without
+launching Xcode; runtime qualification then started under this revised policy.

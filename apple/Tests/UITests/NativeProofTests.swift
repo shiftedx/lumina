@@ -95,14 +95,18 @@ class NativeProofJourney: XCTestCase {
     private var cachedFixture: ProofFixture?
     private var expectedBookFill = true
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
+        try finishJourney()
+        try await super.tearDown()
+    }
+
+    private func finishJourney() throws {
         application?.terminate()
         if let url = brokerFixtureURL {
             var request = URLRequest(url: url)
             request.httpMethod = "DELETE"
             _ = try brokerRequest(request)
         }
-        try super.tearDownWithError()
     }
 
     private func brokerRequest(_ request: URLRequest) throws -> Data {

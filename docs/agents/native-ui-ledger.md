@@ -13,12 +13,14 @@ Only an existing test failure leading to app-code repair counts. See
 Before: 16 iOS methods; tvOS 11 discovered (5 iOS-only methods omitted),
 3 intentional skips, 8 executable journeys.
 After: 15 iOS + 8 executable tvOS cases (23 total; before 24 executable).
-No before wall-time baseline has been measured. Historical case times are not a full-tier measurement.
+The repaired original iOS smoke measured 397.97 seconds serially; full baseline
+and complete concurrent-tier timings remain pending. Historical case times are
+not a full-tier measurement.
 
 | Test | Verdict | Evidence | Coverage after | Reason |
 | --- | --- | --- | --- | --- |
 | `testNativeBooksLibraryBrowsesShelvesAndMangaStacks` | keep (pending runtime) | No; #140, navigation selector self-fix only | Same method, independently scheduled `NativeNativeBooksLibraryBrowsesShelvesAndMangaStacksTests`; Core/API contracts retained | Shelf → reader → back → manga stack; real navigation and rendering |
-| `testNativeBooksReadTurnAndRestoreAllFormats` | delete | No; #140 creation only; no current failure recorded | `testNativeBooksReadTurnResizeAndRestoreAllFormats` retains English all-format open/prepare/turn/immersive/restore plus resize; `testNativeBooksKeepPhysicalRightInRTLLocale` retains the same helper including physical side and legacy Duo Fill/panning | Duplicate journey; same helper, English flow retained by resize and default Fill branch retained by RTL. No assertions removed from the shared helper. |
+| `testNativeBooksReadTurnAndRestoreAllFormats` | delete (pending original-runtime check) | No; #140 creation only; no current failure recorded | `testNativeBooksReadTurnResizeAndRestoreAllFormats` retains English all-format open/prepare/turn/immersive/restore plus resize; `testNativeBooksKeepPhysicalRightInRTLLocale` retains the same helper including physical side and legacy Duo Fill/panning | Duplicate journey; same helper, English flow retained by resize and default Fill branch retained by RTL. No assertions removed from the shared helper. |
 | `testNativeBooksReadTurnResizeAndRestoreAllFormats` | keep (pending runtime) | No; #140 creation only | Same method, independently scheduled `NativeNativeBooksReadTurnResizeAndRestoreAllFormatsTests`; Core/API contracts retained | Rotate/reflow the live reader and retain position in four formats |
 | `testNativeBooksKeepPhysicalRightInRTLLocale` | keep (pending runtime) | No; #140 creation only | Same method, independently scheduled `NativeNativeBooksKeepPhysicalRightInRTLLocaleTests`; Core/API contracts retained | Real Arabic-locale rendering and physically right selected image, beyond layout arithmetic |
 | `testFeaturedTitlePreservesDetailsAndResumesPlayback` | keep (pending runtime) | No; #115 creation only | Same method, independently scheduled `NativeFeaturedTitlePreservesDetailsAndResumesPlaybackTests`; Core/API contracts retained | Home carousel touch/remote focus → details → playback → saved progress |
@@ -125,3 +127,11 @@ with separate fixture brokers and cohort barriers. Monotonic phase timestamps
 measure cross-platform wall spans, including cold setup on the first repeat;
 build times remain separate. Eight harness checks pass, including staggered
 starts, incomplete-result rejection and aborted-barrier release.
+
+
+Repaired tvOS smoke second repeat also passed (Audio 224.034 seconds, video
+192.808 seconds). All four platform smoke cases have two passing parallel
+platform runs; the new unified concurrent cohort still needs its own measured
+wall-time qualification. The original iOS serial smoke passed 2/2 in 397.97
+seconds after the sidebar-query drift repair; its raw helper failure (0/2 in
+114.48 seconds) is preserved separately and excluded from the passing baseline.

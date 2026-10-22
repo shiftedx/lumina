@@ -84,33 +84,37 @@ contracts. The current full tier selects **650** cases (648 audited cases plus t
 new journeys), including realstack and WebKit;
 60 retained benchmark instances stay opt-in as described above.
 
-Smoke passed twice with four workers: **50/50 in 191.898 s**, then **50/50 in
-199.451 s**, with zero skips, failures or flakes (build separately 12.513 s).
-The runner was subsequently hardened for bounded cancellation and startup bind
-conflicts; its three process/report checks pass. Backend: **5,248 passed**, 11
-existing skips, 888.73 s. Vitest: **2,636 passed in 300 files**, 33.42 s.
-Frontend/E2E typecheck and production/style/bundle gates passed.
+Final qualification on the integrated branch passed twice with four workers:
 
-| Full attempt | Selected | Passed | Failed | Dependent cases not run | Flaky | Wall time |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 648 | 613 | 2 | 33 | 0 | 905.665 s |
-| 2 | 648 | 613 | 2 | 33 | 0 | 993.213 s |
+| Tier | Selected and passed per run | Run 1 | Run 2 | Budget | Failures / skips / flakes |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Smoke | 50 | 128.370 s | 136.789 s | <600 s | 0 / 0 / 0 in both |
+| Full | 650 | 1,071.455 s | 1,060.199 s | <2700 s | 0 / 0 / 0 in both |
 
-The same 613 cases passed twice. The protected timestamped-note journey passed
-in 4.450 s and 4.752 s, with its original seek bounds. Full build separately:
-11.475 s. Timed attempts include selection, fixture/server startup, tests and
-teardown; the shared-lock wait and build are outside that timer.
+Build time is separate: smoke 14.315 s; full 10.512 s. Browser wall times include
+selection, fixture/server startup, tests and teardown. All 30 ordinary performance
+cases and all three real WebKit decode cases passed in both full runs. Both
+Firefox journeys and both protected regression catchers passed twice. The 60
+opt-in benchmark instances remain outside this qualification.
 
-**Full qualification is incomplete.** Both failures are Firefox launch failures
-before page creation: mocked real-browser AV and realstack book formats. The
-performance project depends on the completed journey/mocked projects, so its 30
-cases and the three following WebKit decode cases did not run. The 60 separate
-benchmark instances are also not qualified by these attempts. These failed
-attempt durations do not establish a passing full-tier budget or readiness.
+The complete gate passed in phases: backend **5,279 passed**, 11 existing skips,
+598.78 s; final Vitest **2,659 passed in 305 files**, 41.88 s; bootstrap, the three
+Node runner checks, frontend/E2E typecheck and production/style/bundle gates passed.
+After the frontend-only draft fix, the gate resumed with unchanged backend checks
+preserved and all frontend checks plus two full browser runs repeated:
 
-A clean pinned Firefox reinstall, an isolated newer runtime and a bounded
-headful probe also failed before app code. The Firefox tests remain in the gate.
-No application code or assertions were weakened to obtain green results. The
-complete repository gate therefore exits nonzero and PR #142 remains draft.
-All owned browser, fixture and Vite processes exited; failure evidence remains
-in private artifact directories.
+```sh
+mise exec -- make check E2E_REPEAT=2 E2E_OUTPUT=<fresh-private-directory>
+# After repairing the frontend regression found by that run:
+mise exec -- make check -o bootstrap-test -o e2e-tier-test -o backend-test E2E_REPEAT=2 E2E_OUTPUT=<another-fresh-private-directory>
+```
+
+Earlier pre-isolation full attempts selected 648 cases: each passed 613, failed
+both Firefox launches and left 33 dependent cases unrun, in 905.665 s and
+993.213 s. Those incomplete attempts are not passing budget measurements. A later
+integrated attempt caught the filter Back regression and was stopped for repair.
+The final complete runs above supersede those failed/interrupted attempts; no
+application assertion or budget was weakened to obtain green results.
+
+All owned browser, fixture and Vite processes exited. Successful fixture roots
+were removed; diagnostic failure evidence remains in private artifact directories.

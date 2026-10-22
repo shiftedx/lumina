@@ -46,7 +46,7 @@ For the priority set (auth render/rate-limit copy; metadata People captures; all
 
 - The machine-readable mapping is `/tmp/lumina-playwright-history.json`; it has an exact row for each of the 807 unique expanded case/project instances, its source-template search hits, and one of: `qualifying_regression_evidence`, `no_qualifying_evidence_found`, `no_qualifying_evidence_found_template_search`, or `no_qualifying_evidence_found_after_line_history`.
 - Parameterized tests expand into 399 inventory rows. Their authored template was searched exactly, but an individual runtime interpolation was not independently searchable; those rows retain that uncertainty.
-- Only the timestamped Notes/seek workflow has qualifying regression evidence in this audit. Preserve it regardless of duplicate/capture-walk classification. All other rows need their own journey or lower-layer coverage assessment; history alone does not authorize deletion.
+- At the audited base, only the timestamped Notes/seek workflow had qualifying regression evidence. Subsequent qualification also caught the gallery Back regression recorded below. Preserve it regardless of duplicate/capture-walk classification. All other rows need their own journey or lower-layer coverage assessment; history alone does not authorize deletion.
 
 ## 2026-10-22 current failure diagnosis — Notes seek workflow
 
@@ -157,3 +157,21 @@ For interpolated test titles, the query used the static authored prefix before `
 | `frontend/e2e/watch_quality.spec.ts:158` | `capture episode` | 0 |
 
 The machine-readable search result artifact is `/tmp/lumina-playwright-move-delete-github-search.json`; the history map now records the scope, counts, methodology, and artifact location. No result supplied an existing-test-failure → application-code-fix chain, so no newly discovered catcher changes any move/delete verdict.
+
+## Regression caught during final qualification — gallery browser Back
+
+The retained `gallery-wall.spec.ts:55` journey, **chips and filters live in the
+address, keep focus and announce the count**, failed its final Back URL check in
+PR #142 qualification. Browser Back reached `?unwatched=1`, then a delayed native
+drawer close restored `?unwatched=1&genre=Drama`. The same public journey failed
+12/100 instrumented repetitions before the app fix.
+
+[App fix `39b26d8`](https://github.com/shiftedx/lumina/commit/39b26d8) changes
+`FilterDrawer.tsx` to discard drafts when navigation changes their opening wall
+kind or query. The browser reproduction then passed 100/100; public drawer
+contracts are red without the guard and green with it. Both complete 650-case
+full runs pass with the original browser assertion unchanged.
+
+This is qualifying failure-to-app-fix evidence recorded in
+[PR #142](https://github.com/shiftedx/lumina/pull/142), not a timing repair or a
+test-only self-fix. This gallery journey is now protected from deletion too.

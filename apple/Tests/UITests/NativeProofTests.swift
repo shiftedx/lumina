@@ -2100,15 +2100,8 @@ class NativeProofJourney: XCTestCase {
         let resumed = element("libraryItem-\(itemID)")
         try waitForExistence(resumed, timeout: 20, named: "refreshed Video item")
         #if os(tvOS)
-        // TV poster labels omit watch state; Home exposes the explicit Resume action.
-        try selectDestination("Home", screen: "homeScreen")
-        if element("featuredPauseButton").label == "Pause featured rotation" {
-            try activate(element("featuredPauseButton"))
-        }
-        try activate(element("featuredChoice-\(itemID)"))
-        try waitForExistence(element("featuredPlayButton"), timeout: 20, named: "refreshed Home resume action")
-        XCTAssertTrue(element("featuredPlayButton").label.contains("Resume"))
-        try selectDestination("Video", screen: "libraryScreen")
+        // The Home journey proves its Resume action. This journey verifies the
+        // saved position through the API and the reopened native player's clock.
         #else
         XCTAssertTrue(resumed.label.contains("in progress"))
         #endif
@@ -2293,7 +2286,10 @@ class NativeProofJourney: XCTestCase {
         if waitUntil(timeout: min(2, timeout)) { return true }
 
         let directions: [XCUIRemote.Button] = [.up, .down, .left, .right]
-        let deadline = Date().addingTimeInterval(timeout)
+        // A featured row can require traversing eight choices plus navigation
+        // controls, each through a real remote event and accessibility snapshot.
+        let routeTimeout = targetIdentifier.hasPrefix("featured") ? max(timeout, 45) : timeout
+        let deadline = Date().addingTimeInterval(routeTimeout)
         var step = 0
         var blockedPrimary: (direction: XCUIRemote.Button, key: String)?
         while Date() < deadline {

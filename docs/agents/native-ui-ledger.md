@@ -96,3 +96,14 @@ failed both smoke methods after sign-in: its requested visible sidebar row was
 replaced by an inactive same-identifier tab during `waitForHittable`. The helper
 now retains the original row as a fallback and selects a candidate only when
 visible, enabled and hittable. Product code is unchanged by either drift repair.
+
+The direction repair passed the original Home detour. A subsequent detour timed
+out while progressing normally through the eight-title row under extreme host
+load; featured-control routes now allow 45 seconds for real remote traversal.
+The video journey's repeated Home Resume-label detour is duplicate coverage:
+`testFeaturedTitlePreservesDetailsAndResumesPlayback` retains the actual Home
+Resume action. `NativeServerTests` retains saved-position API coverage, and the
+video journey still asserts persisted API progress plus the reopened player's
+actual resumed clock, direct/conversion advancement and Home/background lifecycle.
+Only the duplicate label detour was removed; neither regression-catching journey
+was deleted. Intermediate owned runs were stopped to rebuild the repaired tests.

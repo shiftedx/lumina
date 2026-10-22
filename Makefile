@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: help bootstrap bootstrap-test backend-test frontend-test frontend-typecheck frontend-build e2e-realstack e2e-smoke e2e-full e2e-tier-test e2e-browsers playperf models-smoke perf check
+.PHONY: help bootstrap bootstrap-test backend-test frontend-test frontend-typecheck frontend-build e2e-realstack e2e-mocked e2e-smoke e2e-full e2e-tier-test e2e-browsers playperf models-smoke perf check
 
 help:
 	@echo "Available targets:"
@@ -49,7 +49,7 @@ E2E_REPEAT ?= 1
 E2E_TIER_WORKERS ?= 4
 E2E_OUTPUT ?= $(shell mktemp -d /tmp/lumina-playwright-tier.XXXXXX)
 e2e-tier-test:
-	node --test frontend/scripts/run-playwright-tiers.test.mjs
+	node --test frontend/scripts/run-playwright-tiers.node-test.mjs
 
 e2e-smoke:
 	node frontend/scripts/run-playwright-tiers.mjs --tier smoke --repeat $(E2E_REPEAT) --workers $(E2E_TIER_WORKERS) --output "$(E2E_OUTPUT)"

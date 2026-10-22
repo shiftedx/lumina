@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -14,7 +15,7 @@ import run_backend_tests as runner  # noqa: E402
 
 
 class BackendRunnerTests(unittest.TestCase):
-    def test_result_validation_rejects_empty_incomplete_and_unknown_skips(self) -> None:
+    def test_result_validation_fails_closed_and_allows_known_skips(self) -> None:
         selected = ["tests/test_example.py::test_one", "tests/test_example.py::test_two"]
         passing = {"nodeid": selected[0], "outcome": "passed", "reason": "", "seconds": 0.0}
         skipped = {"nodeid": selected[1], "outcome": "skipped", "reason": "needs tool", "seconds": 0.0}
@@ -25,6 +26,18 @@ class BackendRunnerTests(unittest.TestCase):
         with self.subTest("incomplete"):
             with self.assertRaisesRegex(runner.RunError, "identity mismatch"):
                 runner.validate_cases(selected, [passing], [])
+        with self.subTest("equal count, wrong identity"):
+            wrong = {**passing, "nodeid": "tests/test_example.py::test_wrong"}
+            with self.assertRaisesRegex(runner.RunError, "identity mismatch"):
+                runner.validate_cases(selected, [passing, wrong], [])
+        with self.subTest("duplicate identity"):
+            with self.assertRaisesRegex(runner.RunError, "identity mismatch"):
+                runner.validate_cases(selected, [passing, passing], [])
+        for outcome in ("failure", "error"):
+            with self.subTest(outcome):
+                failed = {**skipped, "outcome": outcome, "reason": ""}
+                with self.assertRaisesRegex(runner.RunError, "failures/errors"):
+                    runner.validate_cases(selected, [passing, failed], [])
         with self.subTest("unknown skip"):
             with self.assertRaisesRegex(runner.RunError, "unexpected skips"):
                 runner.validate_cases(selected, [passing, skipped], [])
@@ -58,21 +71,36 @@ class BackendRunnerTests(unittest.TestCase):
                     """
                 )
             )
-            with mock.patch.object(runner, "GRACE_SECONDS", 0.05):
-                with self.assertRaisesRegex(runner.RunError, "timed out"):
-                    runner.child(
-                        [sys.executable, str(script), str(pid_file), str(survived_file)],
-                        cwd=root,
-                        env=os.environ.copy(),
-                        log=log,
-                        timeout=0.05,
-                    )
-            self.assertTrue(pid_file.is_file())
-            # The worker ignored SIGINT and its leader exited. A surviving process
-            # would create this marker after the runner's grace period.
-            import time
-            time.sleep(0.3)
-            self.assertFalse(survived_file.exists())
+            sentinel = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            try:
+                with mock.patch.object(runner, "GRACE_SECONDS", 0.05):
+                    with self.assertRaisesRegex(runner.RunError, "timed out"):
+                        runner.child(
+                            [sys.executable, str(script), str(pid_file), str(survived_file)],
+                            cwd=root,
+                            env=os.environ.copy(),
+                            log=log,
+                            timeout=0.05,
+                        )
+                self.assertTrue(pid_file.is_file())
+                self.assertIsNone(sentinel.poll())
+                # The worker ignored SIGINT and its leader exited. A surviving
+                # worker would create this marker after the runner's grace period.
+                import time
+                time.sleep(0.3)
+                self.assertFalse(survived_file.exists())
+            finally:
+                sentinel.terminate()
+                try:
+                    sentinel.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    sentinel.kill()
+                    sentinel.wait()
 
 
 if __name__ == "__main__":

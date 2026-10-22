@@ -45,12 +45,6 @@ async function open(page: Page, phase: 'live' | 'partial', scheme: 'light' | 'da
   return region;
 }
 
-test('test_recording_states_live_and_partial', async ({ page }) => {
-  const live = await open(page, 'live', 'dark', { width: 1536, height: 960 });
-  await expect(live.getByText('Stops automatically after 6 h or 8 GB. Saved privately to your Library as a recording.')).toBeVisible();
-  await expect(live.getByRole('button', { name: 'Stop & save' })).toBeVisible();
-});
-
 test('test_recording_keep_after_partial', async ({ page }) => {
   const kept: boolean[] = [];
   const region = await open(page, 'partial', 'light', { width: 1536, height: 960 }, kept);
@@ -75,26 +69,3 @@ for (const phase of ['live', 'partial'] as const) {
     expect(errors).toEqual([]);
   });
 }
-
-test('test_recording_retention_admin', async ({ page }) => {
-  const saved: unknown[] = [];
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.setViewportSize({ width: 1536, height: 960 });
-  await mockApi(page, { sidebar_collapsed: false, settings_advanced: true }); // live recording cleanup is an advanced row
-  const json = (body: unknown) => ({ contentType: 'application/json', body: JSON.stringify(body) });
-  await page.route('**/api/admin/storage/roots', (route) => route.fulfill(json([])));
-  await page.route('**/api/admin/storage/rules', (route) => route.fulfill(json({ revision: 1, default_root_id: null, rules: [] })));
-  await page.route('**/api/admin/recording-retention', (route) => {
-    const put = route.request().method() === 'PUT';
-    if (put) saved.push(route.request().postDataJSON());
-    return route.fulfill(json(put ? route.request().postDataJSON() : { keep_days: 30, max_gb: 0 }));
-  });
-  await page.goto('/manage/library?page=automation');
-  await signIn(page);
-  const form = page.getByRole('form', { name: 'Live recording cleanup' });
-  await expect(form.getByLabel('Keep recordings for (days)')).toHaveValue('30');
-  await form.getByLabel('Total size for recordings (GB)').fill('500');
-  await form.getByRole('button', { name: 'Save cleanup policy' }).click();
-  await expect(form.getByRole('status')).toHaveText('Saved.');
-  expect(saved).toEqual([{ keep_days: 30, max_gb: 500 }]);
-});

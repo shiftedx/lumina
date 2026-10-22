@@ -35,6 +35,8 @@ const mocks = vi.hoisted(() => ({
   useAuthenticatedWorkspace: vi.fn(),
   listContinueWatching: vi.fn(),
   searchLibrary: vi.fn(),
+  sourceSearch: vi.fn(),
+  recordSearchHistory: vi.fn(),
   youtubeSearch: vi.fn(),
   getUpNext: vi.fn(),
   previewUrl: vi.fn(),
@@ -109,6 +111,8 @@ vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./api')>()),
   listContinueWatching: mocks.listContinueWatching,
   searchLibrary: mocks.searchLibrary,
+  sourceSearch: mocks.sourceSearch,
+  recordSearchHistory: mocks.recordSearchHistory,
   youtubeSearch: mocks.youtubeSearch,
   getUpNext: mocks.getUpNext,
   previewUrl: mocks.previewUrl,
@@ -241,6 +245,8 @@ beforeEach(() => {
   mocks.sendRecoEvents.mockResolvedValue(undefined);
   mocks.listContinueWatching.mockResolvedValue([]);
   mocks.searchLibrary.mockResolvedValue({ items: [libraryItem] });
+  mocks.sourceSearch.mockResolvedValue({ items: [], errors: [] });
+  mocks.recordSearchHistory.mockResolvedValue({ id: 'history-1', query: 'film noir', created_at: '2026-10-22T12:00:00Z' });
   mocks.youtubeSearch.mockResolvedValue({ items: [] });
   mocks.getUpNext.mockResolvedValue(upNextSnapshot([]));
   mocks.getHomeRecommendations.mockResolvedValue(upNextSnapshot([]));
@@ -290,6 +296,21 @@ async function openPalette(browser: ReturnType<typeof userEvent.setup>) {
   await browser.click(screen.getByRole('button', { name: /^Search Lumina, / }));
   return screen.findByRole('combobox', { name: 'Search Lumina' });
 }
+
+it('a failed search-history write never blocks the search or adds a recent item', async () => {
+  const browser = userEvent.setup();
+  mocks.recordSearchHistory.mockRejectedValue(new Error('history unavailable'));
+  render(<LuminaApp />);
+
+  await browser.type(await openPalette(browser), 'film noir');
+  await browser.keyboard('{Meta>}{Enter}{/Meta}');
+
+  expect(await screen.findByRole('heading', { name: 'Results for “film noir”' })).toBeTruthy();
+  expect(await screen.findByRole('button', { name: 'Film in the vault, Archive Channel' })).toBeTruthy();
+  await waitFor(() => expect(mocks.recordSearchHistory).toHaveBeenCalledWith('film noir'));
+  await openPalette(browser);
+  expect(screen.queryByRole('group', { name: 'Recent searches' })).toBeNull();
+});
 
 describe('browser routes', () => {
   it('reopens a Library watch deep link, and back/forward walk the route stack', async () => {

@@ -3,7 +3,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { keepLiveRecording, listLiveRecordings } from './api';
+import { getLiveRecording, keepLiveRecording, listLiveRecordings } from './api';
 import { summarizeLiveRecording } from './liveRecording';
 import { LiveRecordingControls } from './liveRecordingControls';
 import type { LiveRecording } from './types';
@@ -39,6 +39,15 @@ describe('recording lifecycle', () => {
     const summary = summarizeLiveRecording(rec({ status: 'live', media: { status: 'recording' } }));
     expect(summary.limitsNote).toBe('Stops automatically after 6 h or 8 GB. Saved privately to your Library as a recording.');
     expect(summary.endNote).toBeNull();
+  });
+
+  it('offers Stop & save while a recording is live', async () => {
+    const live = rec({ status: 'live', media: { status: 'recording' }, chat: { status: 'capturing' } });
+    vi.mocked(listLiveRecordings).mockResolvedValue({ items: [live], next_cursor: null });
+    vi.mocked(getLiveRecording).mockResolvedValue(live);
+    render(<LiveRecordingControls sourceUrl={SOURCE} />);
+
+    expect(await screen.findByRole('button', { name: 'Stop & save' })).toBeTruthy();
   });
 
   it('lets the member keep a finished recording out of automatic cleanup', async () => {

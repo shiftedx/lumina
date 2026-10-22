@@ -71,3 +71,27 @@ worktree, inserting a provider input into production ChatReplayRail made only
 that test fail (1 failed, 3 passed); restoring production passed 4/4. The
 WatchChatSeam public test covers replay selection and the retained browser
 page-error journey still visits both source-chat routes.
+
+## Search with failed history persistence
+
+Original: `frontend/e2e/v1_history.spec.ts`, `test_history_storage_failure_search_works`.
+Replacement: `frontend/src/LuminaKeyboard.test.tsx`, “a failed search-history
+write never blocks the search or adds a recent item”. The real LuminaApp command
+palette submits a query, renders results and offers no false recent-history row
+when recordSearchHistory rejects. Making the history write blocking before
+navigation in scratch production code made the contract fail on missing Results;
+restoration passed 1/1.
+
+## Live recording action and retention payload
+
+Originals: `frontend/e2e/v1_recording.spec.ts`, `test_recording_states_live_and_partial`
+and `test_recording_retention_admin`. Existing partial-result contracts remain;
+`frontend/src/v1_recording.test.tsx` now also renders LiveRecordingControls in a
+live state and requires Stop & save. Forcing the production active state false
+made the new contract fail; restoration passed 1/1.
+
+Extended `frontend/src/v1_settings_server.test.tsx`'s existing cleanup form
+contract to edit and submit age 14 and size 500, and assert the public API payload
+and saved status. Mutating production to send days as max_gb failed (14 instead of
+500); restoration passed 1/1. All three final main-branch migration contracts
+passed together, 3/3. Main product source was never mutated.

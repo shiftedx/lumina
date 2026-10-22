@@ -5,6 +5,7 @@ import { LocalAddress, MemberInvitations, MembersList, OwnerTwoFactorSwitch, Pub
 import { AdminTasks } from '../../admin/AdminTasks';
 import { AdminUpdates } from '../../admin/AdminUpdates';
 import { JellyfinHouseholdImport } from '../JellyfinHouseholdImport';
+import { PlexHouseholdImport } from '../PlexHouseholdImport';
 import { HouseholdResourcesSettings } from '../HouseholdResources';
 import { useSettingsHost } from '../settingsHost';
 import type { SettingsSectionDef } from '../settingsTypes';
@@ -45,6 +46,7 @@ export const SERVER_SECTIONS: readonly SettingsSectionDef[] = [
       { id: 'members.local-address', label: 'Local address', keywords: ['local url', 'lan', 'home network', 'local domain', '.local', 'home.arpa', 'reverse proxy', 'traefik', 'hostname', 'infuse at home'], info: 'A name for Lumina on your home network, such as http://lumina.home.arpa, served through your reverse proxy; it needs LAN HTTP mode. It must end in .local, .lan, .home.arpa or .internal and differ from the public address. Apps at home are shown it beside the public address.', Control: LocalAddress },
       { id: 'members.owner-two-factor', label: 'Owner two-step verification', layout: 'block', keywords: ['2fa', 'two factor', 'authenticator', 'require', 'security', 'vault owner'], info: 'Makes every vault owner sign in with a code from an authenticator app as well as a password. Owners who have not set it up are asked to before they can open the server settings, and you must turn it on for yourself first. Affects every vault owner.', Control: OwnerTwoFactorSwitch },
       { id: 'members.jellyfin', label: 'Bring members over from Jellyfin', layout: 'block', keywords: ['jellyfin', 'import', 'migrate', 'move from jellyfin', 'bring over', 'watch history', 'password link'], info: "Signs in to the household's Jellyfin server with a Jellyfin administrator account and brings the users you choose over, with what they watched, where they stopped and their favorites. People without a Lumina account join as household members with a one-time link to choose a password. Your Jellyfin password is used once and never saved.", Control: JellyfinHouseholdImport },
+      { id: 'members.plex', label: 'Bring members over from Plex', layout: 'block', keywords: ['plex', 'import', 'migrate', 'move from plex', 'bring over', 'watch history', 'password link', 'shared users'], info: "Uses the Plex server owner's token to find the owner and accessible shared users, then brings over the people you choose with what they watched and where they stopped. People without a Lumina account join as household members with a one-time link to choose a password. The Plex token is used once and never saved.", Control: PlexHouseholdImport },
     ],
   },
   LIBRARY_SECTION,

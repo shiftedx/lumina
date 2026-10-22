@@ -119,6 +119,7 @@
    "metadata_language",
    "min_free_disk_mb",
    "model_threads",
+   "plex_import_url",
    "public_address",
    "recording_keep_days",
    "recording_max_gb",
@@ -1105,5 +1106,5 @@
    "user_id"
   ]
  },
- "version": 32
+ "version": 33
 }

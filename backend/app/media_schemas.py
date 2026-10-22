@@ -557,6 +557,7 @@ class MediaServerSettings(BaseModel):
     max_playback_sessions: int
     transcode_cache_gb: int
     jellyfin_import_url: str | None = None  # members import watch history from here; None = off
+    plex_import_url: str | None = None
     anime_folders: list[str] = Field(default_factory=list)  # ["Anime"] on a fresh server
     recategorising: bool = False  # a re-sort after an anime_folders change is running or queued
     members_edit_metadata: bool = False  # Members may edit details
@@ -573,10 +574,11 @@ class MediaServerSettingsUpdate(_Body):
     max_playback_sessions: int | None = Field(default=None, ge=1, le=16)
     transcode_cache_gb: int | None = Field(default=None, ge=1, le=1000)
     jellyfin_import_url: str | None = Field(default=None, max_length=2048)  # "" turns importing off
+    plex_import_url: str | None = Field(default=None, max_length=2048)
     anime_folders: list[AnimeFolder] | None = Field(default=None, max_length=ANIME_FOLDERS_MAX)
     members_edit_metadata: bool | None = None
 
-    @field_validator("jellyfin_import_url")
+    @field_validator("jellyfin_import_url", "plex_import_url")
     @classmethod
     def _import_url(cls, value: str | None) -> str | None:
         return None if value is None else validate_endpoint_url(value)
@@ -648,6 +650,57 @@ class JellyfinHouseholdMember(BaseModel):
 
 class JellyfinHousehold(BaseModel):
     members: list[JellyfinHouseholdMember]
+
+
+class PlexImportRequest(_Body):
+    token: str = Field(min_length=1, max_length=4096, pattern=r"^[A-Za-z0-9._-]+$")
+
+
+class PlexHouseholdRequest(PlexImportRequest):
+    plex_ids: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(max_length=50)
+
+
+class PlexHouseholdMember(BaseModel):
+    plex_id: str
+    plex_name: str
+    disabled: bool = False
+    action: Literal["import", "create", "skip"]
+    lumina_username: str | None = None
+    reason: str | None = None
+    error: str | None = None
+    summary: JellyfinImportSummary | None = None
+    reset_url: str | None = None
+    reset_expires_at: datetime | None = None
+
+
+class PlexHousehold(BaseModel):
+    members: list[PlexHouseholdMember]
+
+
+class HouseholdTransferRequest(_Body):
+    """Request-local source credentials; only a vault owner chooses the stored server address."""
+
+    username: str = Field(default="", max_length=256)
+    password: str = Field(default="", max_length=1024)
+    token: str = Field(default="", max_length=4096, pattern=r"^[A-Za-z0-9._-]*$")
+    member_ids: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(default_factory=list, max_length=50)
+
+
+class HouseholdTransferMember(BaseModel):
+    source_id: str
+    source_name: str
+    disabled: bool = False
+    action: Literal["import", "create", "skip"]
+    lumina_username: str | None = None
+    reason: str | None = None
+    error: str | None = None
+    summary: JellyfinImportSummary | None = None
+    reset_url: str | None = None
+    reset_expires_at: datetime | None = None
+
+
+class HouseholdTransfer(BaseModel):
+    members: list[HouseholdTransferMember]
 
 
 class TranscodeDiagnostics(BaseModel):

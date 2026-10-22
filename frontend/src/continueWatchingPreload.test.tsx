@@ -1,7 +1,8 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { PlaybackProgress } from './types';
+import { listContinueWatching } from './api';
 import { useAuthenticatedWorkspace } from './workspace';
 
 const fixtures = vi.hoisted(() => ({
@@ -51,4 +52,21 @@ describe('continue watching preload', () => {
     const firstReady = snapshots.find((snapshot) => snapshot.stage === 'ready');
     expect(firstReady?.count).toBe(continueWatching.length);
   });
+
+  it('refreshes imported resume points without retaining completed entries or leaking a late refresh into another session', async () => {
+    const { result } = renderHook(() => useAuthenticatedWorkspace({ onError: vi.fn() }));
+    await waitFor(() => expect(result.current.state.authStage).toBe('ready'));
+    const imported = [{ ...continueWatching[0], id: 'imported', item_id: 'imported-film', position_seconds: 240 }];
+    vi.mocked(listContinueWatching).mockResolvedValueOnce(imported);
+    await act(async () => { expect(await result.current.refreshContinueWatching()).toBe(true); });
+    expect(result.current.state.continueWatching).toEqual(imported);
+
+    let finish!: (entries: PlaybackProgress[]) => void;
+    vi.mocked(listContinueWatching).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const pending = result.current.refreshContinueWatching();
+    act(() => result.current.reset());
+    await act(async () => { finish(imported); expect(await pending).toBe(false); });
+    expect(result.current.state.continueWatching).toEqual([]);
+  });
+
 });

@@ -105,7 +105,7 @@ const SettingsSurface = preloadableSurface(() => import('./features/settings/Set
 const WelcomeSurface = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.WelcomeSurface })));
 const OnboardingSurface = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.OnboardingSurface })));
 const ChannelDiscoveryStep = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.ChannelDiscoveryStep })));
-const VaultSetup = lazy(() => import('./features/onboarding/VaultSetup').then((module) => ({ default: module.VaultSetup })));
+const FirstOwnerSetup = lazy(() => import('./features/onboarding/FirstOwnerSetup').then((module) => ({ default: module.FirstOwnerSetup })));
 const TitleEditorPage = preloadableSurface(() => import('./features/titles/editor/EditorPage').then((module) => module.EditorPage));
 const BooksSurface = preloadableSurface(() => import('./features/books/BooksSurface').then((module) => module.BooksSurface));
 // A cold Books link overlaps its route chunks with sign-in and workspace loading. Direct reader links start the
@@ -1130,6 +1130,7 @@ export default function LuminaApp() {
       setOnboarding(user.onboarding_status === 'pending' ? { phase: 'welcome', keys: null } : null);
       window.scrollTo({ top: 0, behavior: 'instant' });
       void workspace.refreshLibraryCollection();
+      void workspace.refreshContinueWatching();
     } catch (saveError) {
       if (workspace.isSessionTokenCurrent(token)) setOnboardingError(saveError instanceof Error ? saveError.message : 'We could not save your media setup. Please try again.');
       throw saveError;
@@ -1511,7 +1512,7 @@ export default function LuminaApp() {
   if (accountLink) return <>{collectionAnnouncer}<AuthScreen busy={authBusy} error={error} onCancel={() => { setAccountLink(null); setError(null); }} onLogin={handleLogin} onRetrySession={handleRetrySession} onSetup={handleAccountLink} onSwitched={() => void handleSwitched()} sessionProblem={null} stage={accountLink.kind} /></>;
   if (state.authStage !== 'ready' || !state.currentUser) return <>{collectionAnnouncer}<AuthScreen busy={authBusy} error={error} onLogin={handleLogin} onRetrySession={handleRetrySession} onSetup={handleSetup} onSwitched={() => void handleSwitched()} sessionProblem={state.sessionProblem} stage={state.authStage === 'ready' ? 'loading' : state.authStage} twoFactor={twoFactor} /></>;
 
-  if (state.currentUser.role === 'admin' && state.currentUser.vault_setup_pending) return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><VaultSetup error={onboardingError} key={state.currentUser.id} onContinue={handleAdminMediaComplete} /></Suspense></>;
+  if (state.currentUser.role === 'admin' && state.currentUser.vault_setup_pending) return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><FirstOwnerSetup error={onboardingError} key={state.currentUser.id} onContinue={handleAdminMediaComplete} /></Suspense></>;
   if (onboarding?.phase === 'welcome') return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><WelcomeSurface displayName={state.currentUser.display_name || state.currentUser.username} error={onboardingError} onBegin={() => { window.scrollTo({ top: 0, behavior: 'instant' }); setOnboarding({ phase: 'setup', keys: onboarding.keys }); }} onSkip={handleOnboardingSkip} reducedMotion={prefersReducedMotion} /></Suspense></>;
 
   if (onboarding?.phase === 'discover') {

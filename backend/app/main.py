@@ -35,7 +35,7 @@ from app.routers import books, admin_invites, admin_ai, admin_backups, admin_act
 from app.routers import enrichment as enrichment_routes
 from app.routers import admin_media_server, connected_apps, jellyfin_auth
 from app.routers import two_factor as two_factor_routes
-from app.routers import jellyfin_history
+from app.routers import household_transfer, jellyfin_history, plex_history
 from app.services import title_metadata  # TMDB metadata worker
 from app.services import member_access, provider_budget
 from app.services import resource_policy
@@ -1087,6 +1087,8 @@ profile_export.register(app)
 connected_apps.register(app)
 two_factor_routes.register(app)
 jellyfin_history.register(app)
+plex_history.register(app)
+household_transfer.register(app)
 jellyfin_auth.register(app)  # before jellyfin.register(app, artwork) and its catch-all
 admin_media_server.register(app)
 library_sections.register(app)  # before main.py's /api/library/{item_id} routes below

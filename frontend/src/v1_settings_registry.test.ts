@@ -116,7 +116,7 @@ describe('Show advanced settings (familiar before technical)', () => {
     expect(advanced).toEqual([
       'playback.stream-cache', 'overview.concurrency', 'overview.per-member', 'overview.min-free', 'overview.source-ports',
       'library.retention', 'library.automation', 'library.anime', 'library.artwork',
-      'media.language', 'media.introdb', 'media.jellyfin-import', 'requests.anime-language',
+      'media.language', 'media.introdb', 'media.jellyfin-import', 'media.plex-import', 'requests.anime-language',
       'transcoding.hwaccel', 'transcoding.max-sessions', 'transcoding.cache', 'transcoding.diagnostics',
       'ai.model-threads', 'ai.assistant-address', 'ai.assistant-model', 'ai.api-key', 'ai.max-concurrency', 'ai.context-window', 'ai.embedding-model', 'ai.assistant-test', 'ai.speech-address', 'ai.speech-server-model',
       'tasks.list', 'diagnostics.report',

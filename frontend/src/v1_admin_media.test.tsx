@@ -22,8 +22,8 @@ beforeAll(() => {
 });
 afterEach(() => vi.resetAllMocks());
 
-const settings: MediaServerSettings = { jellyfin_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null };
-const draft = { tmdb_api_key: '', clear_tmdb_key: false, metadata_language: 'en-US', introdb_enabled: false, jellyfin_enabled: false, hwaccel: 'auto' as const, max_playback_sessions: '3', transcode_cache_gb: '10', jellyfin_import_url: '' };
+const settings: MediaServerSettings = { jellyfin_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null, plex_import_url: null };
+const draft = { tmdb_api_key: '', clear_tmdb_key: false, metadata_language: 'en-US', introdb_enabled: false, jellyfin_enabled: false, hwaccel: 'auto' as const, max_playback_sessions: '3', transcode_cache_gb: '10', jellyfin_import_url: '', plex_import_url: '' };
 const user = { id: 'admin', username: 'owner', role: 'admin', is_active: true } as never;
 
 function setup(...ids: Array<'media' | 'transcoding'>) {
@@ -48,6 +48,15 @@ describe('Media server and Playback & transcoding sections', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save media server settings' }));
     await waitFor(() => expect(api.updateMediaServerSettings).toHaveBeenCalledWith({ jellyfin_import_url: 'http://192.168.1.20:8096' }));
     expect(screen.getByRole('button', { name: 'About Jellyfin server to import from' })).toBeTruthy();
+  });
+
+  it('saves the Plex server members import from', async () => {
+    setup('media');
+    api.updateMediaServerSettings.mockResolvedValue({ ...settings, plex_import_url: 'http://192.168.1.20:32400' });
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Plex server address' }), 'http://192.168.1.20:32400');
+    await userEvent.click(screen.getByRole('button', { name: 'Save media server settings' }));
+    await waitFor(() => expect(api.updateMediaServerSettings).toHaveBeenCalledWith({ plex_import_url: 'http://192.168.1.20:32400' }));
+    expect(screen.getByRole('button', { name: 'About Plex server to import from' })).toBeTruthy();
   });
 
   it('saves a new TMDB key, clears the field, tests it and credits TMDB', async () => {

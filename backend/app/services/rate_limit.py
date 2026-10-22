@@ -84,6 +84,7 @@ RATE_LIMIT_RULES: dict[str, RateLimitRule] = {
     "webhook_test": RateLimitRule(max_requests=5, window_seconds=300),
     # Each call signs in to the admin's Jellyfin with a member-typed password: bound guessing through Lumina.
     "jellyfin_import": RateLimitRule(max_requests=10, window_seconds=300),
+    "plex_import": RateLimitRule(max_requests=10, window_seconds=300),
     # Requests: each create may call TMDB and Sonarr/Radarr; generous for a member clicking through a catalog.
     "media_request": RateLimitRule(max_requests=30, window_seconds=60),
     # Member-started AI/ASR/subtitle jobs share household workers; per member only (security.MEMBER_JOB), so one

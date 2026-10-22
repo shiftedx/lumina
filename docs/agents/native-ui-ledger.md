@@ -149,3 +149,18 @@ Original-revision Books diagnosis also identified visible iPad sidebar cells
 whose *children* carry the tab identifiers. Destination lookup now selects the
 containing hittable cell before falling back to labels. The baseline agent is
 rerunning the original Books duplicate before its deletion verdict is finalized.
+
+The repaired current-viewport journey passed its first focused run (157.483
+seconds xcodebuild wall), including background pause/resume, completion and
+Replay. A second focused run is pending. The full tvOS Advanced journey failed
+inside XCTest while reading a focus-bound cell that disappeared during a menu
+transition (`No matches found for Identity Binding`), rather than at an app
+assertion. Focus metadata now uses immutable public accessibility snapshots,
+including fresh target geometry as navigation scrolls. Identifiers, wrapper
+checks and real remote actions remain unchanged; runtime verification pending.
+
+The original Books duplicate reached the reader after sidebar repair and proved
+the regular-iPad precondition drift: actual `Fit entire page`, expected legacy
+Duo `Fill display`. The raw case is preserved (87.099 seconds test; 376.78
+seconds command wall, including launch scheduling delay). The baseline is being
+repaired to the actual generic-iPad precondition before its passing measurement.

@@ -2278,8 +2278,9 @@ class NativeProofJourney: XCTestCase {
 
     #if os(tvOS)
     private func focus(_ target: XCUIElement, timeout: TimeInterval) -> Bool {
-        let targetIdentifier = target.identifier
-        let targetLabel = target.label
+        guard let initialTarget = try? target.snapshot() else { return false }
+        let targetIdentifier = initialTarget.identifier
+        let targetLabel = initialTarget.label
         let musicIdentifiers = ["createMusicPlaylistButton", "saveMusicPlaylistButton", "editMusicPlaylistButton",
                                 "downloadAudioButton", "playDownloadsButton", "audioListeningOptions", "audioLyrics",
                                 "audioNormalizeToggle", "audioCrossfadePicker", "audioSleepTimerButton",
@@ -2308,11 +2309,11 @@ class NativeProofJourney: XCTestCase {
             let previousFocusKey = focusKey()
             if blockedPrimary?.key != previousFocusKey { blockedPrimary = nil }
             var direction: XCUIRemote.Button
-            if let current = focusedElement() {
-                direction = directionToward(target, from: current, fallback: step, directions: directions)
+            if let current = focusedElement(), let currentTarget = try? target.snapshot() {
+                direction = directionToward(currentTarget, from: current, fallback: step, directions: directions)
                 if let blockedPrimary, blockedPrimary.key == previousFocusKey, blockedPrimary.direction == direction {
-                    let dx = target.frame.midX - current.frame.midX
-                    let dy = target.frame.midY - current.frame.midY
+                    let dx = currentTarget.frame.midX - current.frame.midX
+                    let dy = currentTarget.frame.midY - current.frame.midY
                     if (direction == .left || direction == .right), abs(dy) > 2 {
                         direction = dy > 0 ? .down : .up
                     } else if (direction == .up || direction == .down), abs(dx) > 2 {
@@ -2351,9 +2352,10 @@ class NativeProofJourney: XCTestCase {
         }
 
         func targetIsFocused() -> Bool {
-            if target.hasFocus { return true }
+            guard let targetSnapshot = try? target.snapshot() else { return false }
+            if targetSnapshot.hasFocus { return true }
             if musicTarget, let owner = focusedElement(), owner.elementType == .cell {
-                let controls = owner.descendants(matching: .any).allElementsBoundByIndex.filter {
+                let controls = snapshotDescendants(owner).filter {
                     [.button, .switch, .textField, .secureTextField].contains($0.elementType)
                 }
                 // A native List cell can proxy its sole action more than once. Every
@@ -2365,26 +2367,26 @@ class NativeProofJourney: XCTestCase {
                 }
             }
             if videoContainerTarget,
-               target.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch.exists {
+               snapshotDescendants(targetSnapshot).contains(where: \.hasFocus) {
                 return true
             }
             if queueTarget,
                let owner = focusedElement(), owner.elementType == .cell, owner.identifier.isEmpty {
-                let ownedButtons = owner.descendants(matching: .button).allElementsBoundByIndex
+                let ownedButtons = snapshotDescendants(owner).filter { $0.elementType == .button }
                 if !ownedButtons.isEmpty && ownedButtons.allSatisfy({ $0.identifier == targetIdentifier }) {
                     return true
                 }
             }
             if videoSwitchTarget,
                let owner = focusedElement(), owner.elementType == .cell, owner.identifier.isEmpty {
-                let ownedSwitches = owner.descendants(matching: .switch).allElementsBoundByIndex
+                let ownedSwitches = snapshotDescendants(owner).filter { $0.elementType == .switch }
                 if !ownedSwitches.isEmpty && ownedSwitches.allSatisfy({ $0.identifier == targetIdentifier }) {
                     return true
                 }
             }
             guard let current = focusedElement(), current.identifier.isEmpty, current.label.isEmpty else { return false }
             // System actions focus an anonymous wrapper; its bounds have subpoint rounding differences.
-            let expected = target.frame
+            let expected = targetSnapshot.frame
             let actual = current.frame
             return !expected.isEmpty && abs(expected.minX - actual.minX) < 0.5
                 && abs(expected.minY - actual.minY) < 0.5
@@ -2393,15 +2395,18 @@ class NativeProofJourney: XCTestCase {
         }
     }
 
-    private func focusedElement() -> XCUIElement? {
-        let query = application!.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true"))
-        // Bind identity before reading metadata; focus can move during a menu animation.
-        return query.allElementsBoundByAccessibilityElement.first
+    private func focusedElement() -> XCUIElementSnapshot? {
+        guard let snapshot = try? application!.snapshot() else { return nil }
+        return snapshotDescendants(snapshot).first(where: \.hasFocus)
+    }
+
+    private func snapshotDescendants(_ snapshot: XCUIElementSnapshot) -> [XCUIElementSnapshot] {
+        snapshot.children.flatMap { [$0] + snapshotDescendants($0) }
     }
 
     private func directionToward(
-        _ target: XCUIElement,
-        from current: XCUIElement,
+        _ target: XCUIElementSnapshot,
+        from current: XCUIElementSnapshot,
         fallback step: Int,
         directions: [XCUIRemote.Button]
     ) -> XCUIRemote.Button {

@@ -450,8 +450,16 @@ def verify_api(expected: dict[str, str], username: str, password: str) -> dict[s
 
 def write_fixture(state_root: Path, username: str, password: str, items: dict[str, str]) -> None:
     FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    FIXTURE_PATH.write_text(json.dumps({"serverURL": ORIGIN, "username": username, "password": password, **items, "stateRoot": str(state_root)}, indent=2) + "\n", encoding="utf-8")
-    FIXTURE_PATH.chmod(0o600)
+    # Publish only complete JSON, with private permissions before credentials are written.
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=FIXTURE_PATH.parent, delete=False) as pending:
+        temporary = Path(pending.name)
+        try:
+            json.dump({"serverURL": ORIGIN, "username": username, "password": password, **items, "stateRoot": str(state_root)}, pending, indent=2)
+            pending.write("\n")
+            pending.close()
+            temporary.replace(FIXTURE_PATH)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def main() -> None:

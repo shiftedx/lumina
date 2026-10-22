@@ -1,6 +1,6 @@
 # Backend pytest signal ledger
 
-Base: `b3c5ff7abb8dd602a1d80d0e2be76c2b86e66cf2`. **5,290 original expanded cases / 3,860 authored templates → 5,284 retained cases / 3,854 templates: 5,284 keep, 0 move, 6 delete.**
+Base: `b3c5ff7abb8dd602a1d80d0e2be76c2b86e66cf2`. **5,290 original expanded cases / 3,860 authored templates → 5,285 retained cases / 3,855 templates: 5,285 keep, 0 move, 6 delete (six removed, one new cover-art/HDR contract).**
 
 Evidence answers: “Has this existing test failed and led to an app-code fix?” [History method and sources](pytest-history.md) distinguish provenance from regression evidence. `No chain established` is a search result, not proof that a test never caught a regression. Each case retains its distinct parameter/input domain. Backend logic already runs at an appropriate cheap seam; no UI-to-unit moves apply.
 
@@ -5302,3 +5302,5 @@ The seven malformed-caption inputs/assertions are unchanged. Their old byte-deri
 | `backend/tests/test_ytdlp_search.py::test_source_search_keeps_other_provider_when_lazy_paging_raises_a_transport_error` | keep | No chain established; provenance `caa0a302d52f` | Same case: source search keeps other provider when lazy paging raises a transport error | Retains the observable behavior and distinct input domain. |
 | `backend/tests/test_ytdlp_search.py::test_a_cache_free_search_neither_reads_nor_populates_the_shared_cache` | keep | No chain established; provenance `caa0a302d52f` | Same case: a cache free search neither reads nor populates the shared cache | Retains the observable behavior and distinct input domain. |
 | `backend/tests/test_ytdlp_search.py::test_deep_youtube_search_lifts_the_24_cap_only_when_asked` | keep | No chain established; provenance `caa0a302d52f` | Same case: deep youtube search lifts the 24 cap only when asked | Retains the observable behavior and distinct input domain. |
+
+| `backend/tests/test_probe_streams.py::test_frame_colors_follow_playable_video_when_cover_art_comes_first` | keep | New contract and accompanying fix; no historical regression chain claimed. Reverting the fix fails the two-probe assertion. | Playable HDR video receives frame colors when an attached cover precedes it. | Distinct media input domain at the service seam; excludes attached pictures and selects the actual video stream. |

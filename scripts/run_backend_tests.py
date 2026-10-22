@@ -186,6 +186,34 @@ def one_run(
     result: dict[str, object]
     selected: list[str] = []
     cases: list[dict[str, object]] = []
+
+    def write_failure(error: str) -> dict[str, object]:
+        result = {
+            "ordinal": ordinal,
+            "passed": False,
+            "wallSeconds": time.monotonic() - started,
+            "budgetSeconds": BUDGETS[tier],
+            "counts": {
+                "selected": len(selected),
+                "passed": sum(case["outcome"] == "passed" for case in cases),
+                "skipped": sum(case["outcome"] == "skipped" for case in cases),
+                "failed": sum(case["outcome"] == "failure" for case in cases),
+                "errors": sum(case["outcome"] == "error" for case in cases),
+            },
+            "skipped": [
+                {"nodeid": str(case["nodeid"]), "reason": str(case["reason"])}
+                for case in cases if case["outcome"] == "skipped"
+            ],
+            "error": error,
+            "appData": str(app_root),
+            "baseTemp": str(basetemp),
+            "collectionLog": str(collection_log),
+            "pytestLog": str(pytest_log),
+            "junit": str(junit),
+        }
+        (run / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+        return result
+
     try:
         remaining = BUDGETS[tier] - (time.monotonic() - started)
         collect = [
@@ -256,57 +284,10 @@ def one_run(
         (run / "result.json").write_text(json.dumps(result, indent=2) + "\n")
         return result
     except KeyboardInterrupt:
-        result = {
-            "ordinal": ordinal,
-            "passed": False,
-            "wallSeconds": time.monotonic() - started,
-            "budgetSeconds": BUDGETS[tier],
-            "counts": {
-                "selected": len(selected),
-                "passed": sum(case["outcome"] == "passed" for case in cases),
-                "skipped": sum(case["outcome"] == "skipped" for case in cases),
-                "failed": sum(case["outcome"] == "failure" for case in cases),
-                "errors": sum(case["outcome"] == "error" for case in cases),
-            },
-            "skipped": [
-                {"nodeid": str(case["nodeid"]), "reason": str(case["reason"])}
-                for case in cases if case["outcome"] == "skipped"
-            ],
-            "error": "cancelled",
-            "appData": str(app_root),
-            "baseTemp": str(basetemp),
-            "collectionLog": str(collection_log),
-            "pytestLog": str(pytest_log),
-            "junit": str(junit),
-        }
-        (run / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+        write_failure("cancelled")
         raise
     except Exception as error:
-        result = {
-            "ordinal": ordinal,
-            "passed": False,
-            "wallSeconds": time.monotonic() - started,
-            "budgetSeconds": BUDGETS[tier],
-            "counts": {
-                "selected": len(selected),
-                "passed": sum(case["outcome"] == "passed" for case in cases),
-                "skipped": sum(case["outcome"] == "skipped" for case in cases),
-                "failed": sum(case["outcome"] == "failure" for case in cases),
-                "errors": sum(case["outcome"] == "error" for case in cases),
-            },
-            "skipped": [
-                {"nodeid": str(case["nodeid"]), "reason": str(case["reason"])}
-                for case in cases if case["outcome"] == "skipped"
-            ],
-            "error": str(error),
-            "appData": str(app_root),
-            "baseTemp": str(basetemp),
-            "collectionLog": str(collection_log),
-            "pytestLog": str(pytest_log),
-            "junit": str(junit),
-        }
-        (run / "result.json").write_text(json.dumps(result, indent=2) + "\n")
-        return result
+        return write_failure(str(error))
 
 
 def main() -> int:

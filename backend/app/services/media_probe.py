@@ -94,6 +94,7 @@ def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
         stream for stream in streams
         if isinstance(stream, dict)
         and stream.get("codec_type") == "video"
+        and not (stream.get("disposition") or {}).get("attached_pic")
     ), None)
     transfer = first_video.get("color_transfer") if first_video else None
     if (
@@ -109,7 +110,7 @@ def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
     try:
         frame = subprocess.run(
             [
-                ffprobe, "-v", "error", *LOCAL_INPUT_ARGS, "-select_streams", "v:0",
+                ffprobe, "-v", "error", *LOCAL_INPUT_ARGS, "-select_streams", str(stream_index),
                 "-read_intervals", "%+#1", "-print_format", "json", "-show_frames", "--", str(path),
             ],
             capture_output=True, timeout=PROBE_TIMEOUT_SECONDS, check=False, stdin=subprocess.DEVNULL,

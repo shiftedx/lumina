@@ -1,7 +1,13 @@
 """Ffprobe facts carry a per-stream list and an explicit cache version."""
 from __future__ import annotations
 
-from app.services.media_probe import PROBE_CACHE_VERSION, is_stale, normalize
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from app.services.media_probe import PROBE_CACHE_VERSION, is_stale, normalize, run_ffprobe
 
 RAW = {
     "format": {"format_name": "matroska,webm", "duration": "5400.5", "bit_rate": "24000000"},
@@ -39,6 +45,33 @@ def test_every_real_stream_is_listed_with_normalized_facts() -> None:
     assert srt["hearing_impaired"] is True
     # The compact facts the web player already shows are unchanged.
     assert (facts["video_codec"], facts["audio_codec"], facts["height"], facts["audio_tracks"]) == ("hevc", "truehd", 2160, 3)
+
+
+def test_frame_colors_follow_playable_video_when_cover_art_comes_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = iter([
+        {
+            "format": {"format_name": "matroska,webm"},
+            "streams": [
+                {"index": 0, "codec_type": "video", "codec_name": "mjpeg", "disposition": {"attached_pic": 1}},
+                {"index": 1, "codec_type": "audio", "codec_name": "aac"},
+                {"index": 2, "codec_type": "video", "codec_name": "hevc", "color_space": "bt2020nc"},
+            ],
+        },
+        {"frames": [{"stream_index": 2, "color_space": "bt2020nc", "color_transfer": "smpte2084", "color_primaries": "bt2020"}]},
+    ])
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, json.dumps(next(responses)).encode(), b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    facts = normalize(run_ffprobe("ffprobe", Path("/media/movie.mkv")), "movie.mkv")
+
+    assert len(commands) == 2
+    assert commands[1][commands[1].index("-select_streams") + 1] == "2"
+    assert facts["video_codec"] == "hevc"
+    assert facts["streams"][1]["color_transfer"] == "smpte2084"
 
 
 def test_zero_rates_and_junk_values_become_none() -> None:

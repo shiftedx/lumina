@@ -1038,7 +1038,8 @@ def title_base(db: Session, member: User, *, as_of: datetime | None = None) -> T
     facts = _TITLE_FACTS.setdefault(db.get_bind(), {})
     titles: list[PoolTitle] = []
     stale: list[tuple] = []
-    for row in db.execute(query).tuples():  # one pass, keeping no Row: 10,000 survivors a request made every 5th one a full GC
+    # Iteration alone buffers all ORM rows; bounded fetches avoid full-GC tails.
+    for row in db.execute(query.execution_options(yield_per=_FACTS_CHUNK)).tuples():
         if row[0] in started:
             continue
         hit = facts.get(row[0])

@@ -1,7 +1,7 @@
 # Backend test readiness
 
 The audit starts at `b3c5ff7`: **5,290 expanded cases / 3,860 authored templates**.
-After pruning: **5,284 cases / 3,854 templates**, with six deletions and no moves.
+After pruning: **5,285 cases / 3,855 templates**, with six deletions, one new cover-art/HDR contract, and no moves.
 
 **Qualification remains incomplete:** ordinary smoke/full and the Linux cohort
 pass twice, but two retained serial performance checks still exceed their
@@ -126,7 +126,7 @@ checks, TypeScript, production build, backend, **2,659 Vitest tests**, and
 the final backend head was independently qualified twice as above; the final
 bootstrap/runner lane also passed **15 tests**. Standards/spec and targeted media
 reviews found no remaining actionable issues. Exact set reconciliation confirms
-all 5,290 original cases map to 5,284 collected cases plus six deletions, allowing
+all 5,290 original cases map to 5,284 retained cases plus six deletions; the new cover-art/HDR contract brings collection to 5,285 cases, allowing
 only the seven caption labels and two documented cache-test renames.
 
 Serial seeded performance (`mise exec -- make perf-titles`, fresh seed each time,

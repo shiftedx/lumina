@@ -77,6 +77,17 @@ class FixtureBrokerTests(unittest.TestCase):
 
 
 class UITierRunnerTests(unittest.TestCase):
+    def test_shards_partition_every_selected_test_exactly_once(self) -> None:
+        for platform in ["iOS", "tvOS"]:
+            for tier in ["smoke", "full"]:
+                selected = run_ui_tiers.selectors(platform, tier)
+                shards = run_ui_tiers.split_shards(selected)
+                self.assertEqual(len(shards), 2)
+                self.assertTrue(all(shard for shard in shards))
+                self.assertEqual([item for shard in shards for item in shard], selected[::2] + selected[1::2])
+                self.assertEqual(sorted(item for shard in shards for item in shard), sorted(selected))
+                self.assertEqual(len({item for shard in shards for item in shard}), len(selected))
+
     def test_result_requires_the_exact_selected_count_and_a_clean_summary(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "run.log"

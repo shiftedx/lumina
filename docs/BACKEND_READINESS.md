@@ -71,5 +71,17 @@ Three removed-route tests assumed a frontend build existed. Their exact fallback
 assertions were repaired and verified both with and without a SPA mount; removed
 route-table checks remain. These are environment/test drift, not app regressions.
 
-Repeated parallel tier measurements and the complete repository gate are recorded
-here after qualification. Parallel speedup is not attributed to six deletions.
+Measured on the same shared host with four xdist workers; collection, validation
+and successful fixture cleanup are included:
+
+| Tier | Run 1 | Run 2 | Results each run |
+| --- | --- | --- | --- |
+| Smoke | 6.993 s | 7.157 s | 50 passed; zero skips/failures |
+| Full | 158.742 s | 163.245 s | 5,273 passed; 11 declared prerequisite skips; zero failures/errors |
+
+Commands: `mise exec -- make backend-smoke BACKEND_REPEAT=2` and
+`mise exec -- make check BACKEND_REPEAT=2` (full backend phase). Private reports:
+`/tmp/lumina-pytest-qualified-smoke-final/report.json` and
+`/tmp/lumina-pytest-qualified-full-final/report.json`.
+Parallel speedup is not attributed to six deletions. Complete repository-gate
+and supplemental Linux-prerequisite results follow after verification.

@@ -66,8 +66,11 @@ contracts. The full tier selects **648** cases, including realstack and WebKit;
 Smoke passed twice with four workers: **50/50 in 191.898 s**, then **50/50 in
 199.451 s**, with zero skips, failures or flakes (build separately 12.513 s).
 The runner was subsequently hardened for bounded cancellation and startup bind
-conflicts; its process-level cancellation/report checks pass. Full qualification
-and the complete repository gate are still in progress. Firefox's pinned runtime
+conflicts; its process-level cancellation/report checks pass. The backend gate passed 5,248 tests (11 existing skips), and the frontend gate
+passed 2,636 cases across 300 files. The first full attempt took 905.665 s:
+613 passed, two Firefox startup failures, 33 dependent performance/WebKit cases
+did not run, zero flaky cases. This failed attempt does not establish the full
+budget or readiness; the second attempt is in progress. Firefox's pinned runtime
 times out before creating a page on this host; a clean reinstall and an isolated
 newer runtime also failed before app code. The Firefox tests remain. A failing
 or skipped browser cannot satisfy readiness.

@@ -47,6 +47,7 @@ describe('source chat vs household conversation', () => {
     const { container } = render(<ChatReplayRail currentTimeSeconds={1} durationSeconds={10} onSeek={() => undefined} sourceIdentity="youtube:REC1" sourceUrl="https://www.youtube.com/watch?v=REC1" />);
     await screen.findByText('<img src=x onerror="window.pwned=1">');
     expect(container.querySelector('img')).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull(); // Read-only replay never offers a provider composer.
     expect(screen.getByRole('complementary').textContent).toContain('Public chat saved by YouTube. Read-only — Lumina never posts to it.');
   });
 

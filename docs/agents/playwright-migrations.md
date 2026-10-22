@@ -59,3 +59,15 @@ the production failure handler's `setData(null)` with a no-op made the contract
 fail because loading never ended; restoration passed. Both Moments and Provenance
 files passed together, 6/6. Mutations ran in a separate scratch worktree and
 were restored; product source in the audit branch was unchanged.
+
+## Read-only replay chat
+
+Original: `frontend/e2e/v1_chat.spec.ts`, `test_replay_chat_is_read_only_source_chat`.
+Existing `frontend/src/v1_chat.test.tsx :: test_chat_payload_xss_safe` already
+pins raw-text handling and public read-only wording. Extended that public
+component contract to require no textbox, preserving the original no-provider-
+composer assertion (the search field remains a searchbox). In the scratch
+worktree, inserting a provider input into production ChatReplayRail made only
+that test fail (1 failed, 3 passed); restoring production passed 4/4. The
+WatchChatSeam public test covers replay selection and the retained browser
+page-error journey still visits both source-chat routes.

@@ -47,3 +47,30 @@ For the priority set (auth render/rate-limit copy; metadata People captures; all
 - The machine-readable mapping is `/tmp/lumina-playwright-history.json`; it has an exact row for each of the 807 unique expanded case/project instances, its source-template search hits, and one of: `qualifying_regression_evidence`, `no_qualifying_evidence_found`, `no_qualifying_evidence_found_template_search`, or `no_qualifying_evidence_found_after_line_history`.
 - Parameterized tests expand into 399 inventory rows. Their authored template was searched exactly, but an individual runtime interpolation was not independently searchable; those rows retain that uncertainty.
 - Only the timestamped Notes/seek workflow has qualifying regression evidence in this audit. Preserve it regardless of duplicate/capture-walk classification. All other rows need their own journey or lower-layer coverage assessment; history alone does not authorize deletion.
+
+## 2026-10-22 current failure diagnosis — Notes seek workflow
+
+The protected Notes workflow failed in the pre-pruning realstack baseline, but this did **not** identify a new product regression. Its retained historical evidence remains [Issue #67](https://github.com/shiftedx/lumina/issues/67) / [PR #68](https://github.com/shiftedx/lumina/pull/68).
+
+The failed artifact showed the persisted note and its `Seek to 0:02` control after reload. Its trace records Playwright resolving and clicking that control; the player stayed at `0:03` after the test had directly assigned `video.currentTime = 3.5`. The test issued its note click immediately after that native seek assignment. Since `currentTime` seeks complete asynchronously, the test had two overlapping seeks and no completion boundary. This is test drift, not evidence that the app lost the persisted note or that the app's note callback failed.
+
+A repeat run also found a separate test-isolation defect: the generic `getByRole('button', { name: /^Seek to / })` matched the previous repeat's persisted note as well as the new note. It failed strict locator resolution before testing player behavior. This is likewise a test defect, not an app regression.
+
+The retained workflow now gives its note a repeat-indexed body, scopes the seek control to that note's list item, waits for the deliberate off-note seek's native `seeked` event, and confirms playback is above three seconds before invoking the persisted note. It keeps the original stored-timestamp bounds unchanged. No application source was changed.
+
+Evidence commands (each uses a unique physical `REALSTACK_ROOT` under `/private/tmp`, own port `53931`, one worker, and separate output):
+
+```sh
+cd frontend
+E2E_PORT=53931 REALSTACK_ROOT=/private/tmp/lumina-notes-diagnosis-<id> \
+  npx playwright test --config=playwright.realstack.config.ts \
+  --project=setup --project=journeys \
+  --grep='a timestamped note persists and seeks the player' \
+  --workers=1 --repeat-each=2 --output=/tmp/lumina-notes-diagnosis-results-<id>/artifacts
+```
+
+- An unmodified, physical-root run passed (the prior `/tmp/...` spelling was invalid because realstack setup rejects symlinked storage roots; that setup failure did not execute the workflow).
+- The unmodified `--repeat-each=2` run passed once, then exposed the ambiguous generic locator before its behavior assertion.
+- The repaired isolated run passed setup plus both repetitions: **3 passed in 2.7 minutes**; the two journey iterations took **6.134 s** and **4.743 s**. The owned runner and fixture process exited after completion.
+
+This current-run diagnosis does not add a historical regression catcher or change the rule that the Notes workflow is never deleted because of #67/#68.

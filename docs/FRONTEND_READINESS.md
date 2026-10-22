@@ -51,6 +51,13 @@ Standard directories are created before launch to avoid macOS adding deny-delete
 ACLs during initialization. This does not change host permissions or the user's
 Firefox data. Revisit the workaround when the pinned browser includes Firefox 158.
 
+The subsequent full run caught a separate app regression: Back reached the earlier
+wall URL, then a delayed native filter-dialog close reapplied its old draft.
+`39b26d8` discards a draft when the wall kind or query has changed since it opened.
+The retained browser journey failed 12/100 instrumented baseline repetitions and
+passed 100/100 with the fix. Public drawer tests are red without the guard and
+green with it; the ledger now protects this additional regression catcher.
+
 Opt-in `playperf/` reader/video/network measurements and four `PERF_STRICT`
 reference-host cases remain separate benchmarks, with their existing commands
 and host prerequisites. They are inventoried in the ledger, but are not ordinary

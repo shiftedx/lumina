@@ -994,9 +994,6 @@ class TitleBase:
     titles: tuple[PoolTitle, ...]
     _overlaps: dict[int, tuple[MemberProfile, list[tuple[float, str]]]] = field(default_factory=dict, compare=False, repr=False)
 
-    def kinds(self) -> dict[str, str]:
-        return {title.id: title.type for title in self.titles}
-
     @functools.cached_property
     def newest(self) -> list[PoolTitle]:
         return sorted(self.titles, key=lambda title: (title.arrived_at, title.id), reverse=True)
@@ -1066,10 +1063,11 @@ def title_base(db: Session, member: User, *, as_of: datetime | None = None) -> T
 
 def title_candidates(
     db: Session, member: User, profile: MemberProfile, *, anchor: MediaTitle | None = None, as_of: datetime | None = None,
-    base: TitleBase | None = None,
+    base: TitleBase | None = None, types: Iterable[str] | None = None,
 ) -> list[Candidate]:
-    """Visible, unstarted movies and series, narrowed to what a surface could plausibly rank. ``base`` is
-    ``title_base(db, member, as_of=as_of)``, passed in when a request ranks several lists.
+    """Visible, unstarted movies and series, narrowed to what a surface could plausibly rank. ``types`` restricts
+    eligibility before every nomination source. ``base`` is ``title_base(db, member, as_of=as_of)``, passed in when
+    a request ranks several lists.
 
     Brute-force cosine over the resident title vectors;
     ``embeddings.nearest`` and sqlite-vec are the upgrade path.
@@ -1079,7 +1077,9 @@ def title_candidates(
     if base is None:
         base = title_base(db, member, as_of=as_of)
     skip = profile.hidden_titles | ({anchor.id} if anchor is not None else set())
-    titles = [title for title in base.titles if title.id not in skip]
+    wanted = frozenset(types) if types is not None else None
+    titles = [title for title in base.titles if title.id not in skip and (wanted is None or title.type in wanted)]
+    eligible = {title.id for title in titles}
     tokens = {title.id: title.tokens for title in titles}
     choice = embeddings.serving(db)
     stored = embeddings.vector_map(db, choice.model_id) if choice is not None else {}
@@ -1089,9 +1089,9 @@ def title_candidates(
     if profile.centroids:
         taste = ((max(embeddings.cosine(centroid, vector) for centroid in profile.centroids), title_id) for title_id, vector in vectors.items())
         picked.update(title_id for _score, title_id in heapq.nlargest(TITLE_BY_TASTE, taste))
-    overlap = islice(((score, title_id) for score, title_id in base.by_overlap(profile) if title_id not in skip), TITLE_BY_OVERLAP)
+    overlap = islice(((score, title_id) for score, title_id in base.by_overlap(profile) if title_id in eligible), TITLE_BY_OVERLAP)
     picked.update(title_id for score, title_id in overlap if score > 0)
-    picked.update(islice((title.id for title in base.newest if title.id not in skip), TITLE_NEWEST))
+    picked.update(islice((title.id for title in base.newest if title.id in eligible), TITLE_NEWEST))
     if anchor is not None:
         anchor_tokens = frozenset(token for token in reco_profile.title_tokens(anchor) if token.startswith(_OVERLAP_PREFIXES))  # cat:/decade: alone are not alikeness
         if anchor.id in stored and stored[anchor.id][0] == "title":

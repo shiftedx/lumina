@@ -532,10 +532,7 @@ class RecommendationPolicy:
         base = self._title_bases.get((member.id, as_of))
         if base is None:
             base = self._title_bases[member.id, as_of] = title_base(self._db, member, as_of=as_of)
-        candidates = [c for c in title_candidates(self._db, member, profile, anchor=anchor, as_of=as_of, base=base)
-                      if anchor is None or c.key != anchor.id]
-        kinds = base.kinds()
-        return [c for c in candidates if kinds.get(c.key) in wanted]
+        return title_candidates(self._db, member, profile, anchor=anchor, as_of=as_of, base=base, types=wanted)
 
 
 def _channel_hidden(item: PopularItem, profile: MemberProfile) -> bool:

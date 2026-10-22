@@ -22,7 +22,7 @@ final class NativeProofTests: XCTestCase {
         try launchAndResetSession()
         try signIn(using: fixture)
         try activate(destinationControl("Books"))
-        revealLibraryItem(element("bookShelf-\(shelf)"))
+        try revealLibraryItem(element("bookShelf-\(shelf)"))
         try activate(element("bookShelf-\(shelf)"))
         try activate(element("book-\(comic)"))
         try activate(element("bookControlsButton"))
@@ -31,7 +31,7 @@ final class NativeProofTests: XCTestCase {
         let back = element("BackButton")
         try activate(back.exists ? back : application!.navigationBars.buttons["Books"].firstMatch)
         let stack = element("bookSeries-\(series)")
-        revealLibraryItem(stack)
+        try revealLibraryItem(stack)
         try attachFrame(named: "Native Books cover grid, shelves and manga stacks")
         try activate(stack)
         try waitForExistence(element("book-\(comic)"), timeout: 20, named: "volume belonging to the selected manga stack")
@@ -49,10 +49,14 @@ final class NativeProofTests: XCTestCase {
         try await readTurnAndRestoreBooks(rightToLeft: true)
     }
 
-    private func revealLibraryItem(_ item: XCUIElement) {
+    private func revealLibraryItem(_ item: XCUIElement) throws {
+        let viewport = try applicationViewport()
         for _ in 0..<8 {
             if hasVisibleFrame(item) && item.isHittable { return }
-            application!.swipeUp()
+            // Duo's split shell can put the application's default swipe point in the sidebar.
+            // Anchor the gesture in the requested catalog column, including RTL.
+            let anchor = item.exists && !item.frame.isEmpty ? item.frame.midX : viewport.midX
+            try dragVertically(in: viewport, anchorX: anchor, up: true)
         }
     }
 
@@ -79,11 +83,11 @@ final class NativeProofTests: XCTestCase {
             try waitForExistence(element("homeScreen"), timeout: 30, named: "Home after relaunch in an RTL locale")
         }
         try activate(destinationControl("Books"))
-        revealLibraryItem(element("bookCatalogButton"))
+        try revealLibraryItem(element("bookCatalogButton"))
         try activate(element("bookCatalogButton"))
         for id in [comic, prose, pdf, cbr] {
             let card = element("book-\(id)")
-            revealLibraryItem(card)
+            try revealLibraryItem(card)
             try waitForExistence(card, timeout: 20, named: "native book catalog entry")
             try activate(card)
             try activate(element("bookControlsButton"))

@@ -250,3 +250,32 @@ Evidence: `/tmp/lumina-chromaprint-pinned-8014/hdr-candidates/` contains
 The original chromaprint, Linux address-space and repaired HDR cases all passed
 with zero skips in two production-toolchain runs. Final qualification timings
 and paths are recorded in readiness after the last review correction.
+
+
+## Merge-review corrections
+
+Review found that an attached cover image before the playable video could hide
+HDR frame enrichment. The probe now skips attached pictures and selects the
+playable video's validated absolute stream index. Its new service contract
+failed with the previous one-call behavior and passes with the repair. Malformed
+disposition metadata is treated consistently with stream normalization. This is
+a new contract accompanying its fix, not historical regression evidence.
+Evidence: `/tmp/lumina-probe-cover-{red,green}.log`,
+`/tmp/lumina-probe-focused-green.log` (12 passed),
+`/tmp/lumina-probe-hdr-docker.log` (real HDR passed), and
+`/tmp/lumina-probe-disposition-green.log` (5 passed). This adds one case and one
+authored template: 5,285 retained cases / 3,855 templates.
+
+The existing 10,000-title similarity budget exposed SQLAlchemy result buffering:
+iterating an ORM result still materialized every row before the loop. Fetching
+with the existing 500-row chunk size preserves SQL, filtering, order, ranking
+and cache behavior while bounding transient rows. Three measurements with
+bounded fetching had p95 65/65/69 ms. Reverting only that option failed at
+185 ms p95 / 81 ms median; restoring it passed at 73 ms / 66 ms. Neither GC nor
+test budgets changed. The unchanged eight visibility, query-flatness, annotation
+and privacy contracts passed. This existing case is now a protected catcher.
+A full serial attempt then passed seven cases but retained a seeded similarity
+p95 failure (127.2/120 ms); diagnostics passed at 39.5/80 ms. This attempt is
+recorded as failed, not qualified. Logs:
+`/tmp/lumina-reco-pool-streaming-{before,after,after-2,after-3,reverted,restored}.log`
+and `/tmp/lumina-pytest-merge-perf-1.log`.

@@ -4,9 +4,17 @@ This matrix maps a change's risk to the verification that covers it. All checks 
 
 ## Before opening a pull request
 
-Run `mise exec -- make check` before opening a pull request. It covers the bootstrap script contracts, backend tests, deterministic frontend module tests, TypeScript checking (including `frontend/e2e`), the production frontend build, the real-backend browser journeys, and the mocked-API browser suite (`make e2e-mocked`, which includes the responsive and accessibility resilience specs).
+Run `mise exec -- make check` before opening a pull request. It covers bootstrap,
+backend and Vitest contracts, TypeScript checking (including `frontend/e2e`),
+the production build, then the full parallel browser tier. For UI changes,
+`mise exec -- make e2e-smoke` is the fast merge bar. Before release, qualify
+both browser tiers twice; commands, budgets, isolation and measured evidence are
+in [frontend readiness](FRONTEND_READINESS.md).
 
-The mocked browser suite's Playwright starts an isolated Vite server on `127.0.0.1:4174`. Install its pinned browser once with `mise exec -- npm --prefix frontend exec playwright install chromium`. Failure screenshots, traces, video, and the HTML report are written below `output/playwright/`.
+Install all pinned engines once: `cd frontend && mise exec -- npx playwright install chromium firefox webkit`.
+The tier runner allocates fresh loopback ports and private fixture/output roots;
+see its printed artifact path and pass/fail times. Legacy `make e2e-mocked` and
+`make e2e-realstack` remain available for focused work.
 
 The accessibility checks run axe with the WCAG 2.0 to 2.2 A and AA rule tags and fail on moderate, serious or critical violations. They audit success, error and loading states, and the desktop and 320px journeys also cover keyboard order, visible focus, Escape and focus containment in dialogs and drawers. They are regression checks, not a WCAG conformance claim; screen readers, cognitive usability and color and motion still need manual review.
 
@@ -18,8 +26,8 @@ The accessibility checks run axe with the WCAG 2.0 to 2.2 A and AA rule tags and
 | Type contracts | `mise exec -- make frontend-typecheck` | TypeScript compilation of `frontend/src` and `frontend/e2e` without emitting files. |
 | Web production output | `mise exec -- make frontend-build` | Type checking plus a Vite production bundle in `frontend/dist/`. |
 | Mocked-API browser specs, including responsive and accessibility resilience | `mise exec -- make e2e-mocked` | Every `frontend/e2e` spec outside `realstack/` against a mocked API. The resilience specs cover mocked desktop and native 320px responsive behavior; keyboard order, activation, focus indication and containment; plus tagged axe checks on success, error, and loading states at a moderate-or-higher threshold. Not a conformance certification. |
-| Complete ordinary gate | `mise exec -- make check` | Every row above, plus the real-backend journeys (`make e2e-realstack`). Required before opening a pull request. |
-| Real-browser remux/transcode decode | `cd frontend && npx playwright install webkit` once, then `mise exec -- make e2e-browsers` | WebKit actually decodes the backend's H.264/AAC HLS output for a remux and a transcode session (`currentTime` advances), and that a seek past the converted range restarts the conversion and lands near the target (#137). Not part of `make check`: installing WebKit and the longer seek fixture's real encode time exceed the gate's time budget. Required for changes to local remux/transcode playback (`backend/app/services/local_playback_sessions.py`, `frontend/src/localPlayer.tsx`). |
+| Complete ordinary gate | `mise exec -- make check` | Every row above, plus the combined full browser tier (`make e2e-full`). Required before opening a pull request. |
+| Real-browser remux/transcode decode | `cd frontend && npx playwright install webkit` once, then `mise exec -- make e2e-browsers` | WebKit actually decodes the backend's H.264/AAC HLS output for a remux and a transcode session (`currentTime` advances), and that a seek past the converted range restarts the conversion and lands near the target (#137). Included in the full tier and `make check`; install WebKit before running. Required for changes to local remux/transcode playback (`backend/app/services/local_playback_sessions.py`, `frontend/src/localPlayer.tsx`). |
 
 ## Manual and provider-dependent gaps
 

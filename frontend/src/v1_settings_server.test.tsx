@@ -61,12 +61,22 @@ describe('Server sections', () => {
     await waitFor(() => expect(api.deleteBackup).toHaveBeenCalledWith('b1'));
   });
 
-  it('shows recording cleanup once, as its own named row, beside storage and imports', async () => {
+  it('shows recording cleanup once and saves its age and size limits', async () => {
     libraryApis();
+    api.updateRecordingRetention.mockResolvedValue({ keep_days: 14, max_gb: 500 });
     renderSection('library');
-    expect(await screen.findByRole('form', { name: 'Live recording cleanup' })).toBeTruthy();
+    const form = await screen.findByRole('form', { name: 'Live recording cleanup' });
     expect(screen.getAllByRole('form', { name: 'Live recording cleanup' })).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'About Imports' })).toBeTruthy();
+    const days = within(form).getByRole('spinbutton', { name: 'Keep recordings for (days)' });
+    const size = within(form).getByRole('spinbutton', { name: 'Total size for recordings (GB)' });
+    await userEvent.clear(days);
+    await userEvent.type(days, '14');
+    await userEvent.clear(size);
+    await userEvent.type(size, '500');
+    await userEvent.click(within(form).getByRole('button', { name: 'Save cleanup policy' }));
+    await waitFor(() => expect(api.updateRecordingRetention).toHaveBeenCalledWith({ keep_days: 14, max_gb: 500 }));
+    expect(within(form).getByRole('status').textContent).toBe('Saved.');
   });
 
   it('a run started by Import now appears under Imports without a page reload', async () => {

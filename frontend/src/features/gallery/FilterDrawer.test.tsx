@@ -50,6 +50,23 @@ describe('FilterDrawer', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { change: 'filters', wall: 'movies', query: 'unwatched=1' },
+    { change: 'wall kind', wall: 'shows', query: 'unwatched=1&genre=Drama' },
+  ] as const)('does not apply an old draft after navigation changes $change', async ({ wall, query }) => {
+    vi.spyOn(api, 'getTitleFacets').mockResolvedValue(facets);
+    vi.spyOn(api, 'listTitles').mockResolvedValue(titlePage([]));
+    const onApply = vi.fn();
+    const onClose = vi.fn();
+    const props = { onApply, onClose, phone: false, wall: 'movies' as const };
+    const view = render(<FilterDrawer {...props} query={parseWallQuery('unwatched=1&genre=Drama')} />);
+    await screen.findByRole('checkbox', { name: 'Drama 30' });
+    view.rerender(<FilterDrawer {...props} wall={wall} query={parseWallQuery(query)} />);
+    await userEvent.click(screen.getByRole('button', { name: /^Show/ }));
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it('clears every facet with Clear all', async () => {
     const { onApply } = drawer(parseWallQuery('unwatched=1&genre=Drama&res=4k&from=1990&to=1999'));
     await screen.findByRole('checkbox', { name: 'Drama 30' });

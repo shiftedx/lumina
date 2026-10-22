@@ -18,6 +18,15 @@ const saved: Provenance = {
 };
 
 describe('ProvenancePanel', () => {
+  it('test_provenance_error_state: a failed source request shows the durable recovery state', async () => {
+    api.getProvenance.mockRejectedValue(new Error('offline'));
+    render(<ProvenancePanel itemId="film" />);
+
+    expect(screen.getByRole('status').textContent).toBe('Loading source details…');
+    expect(await screen.findByText('Source details are unavailable right now.')).toBeTruthy();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('test_provenance_one_video_one_origin: one origin, canonical links, related opens in-app', async () => {
     const onOpenItem = vi.fn();
     api.getProvenance.mockResolvedValue(saved);

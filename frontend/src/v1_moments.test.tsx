@@ -19,6 +19,13 @@ const summary = {
 const note = (patch: Partial<LibraryNote>): LibraryNote => ({ id: 'n', item_id: 'film', visibility: 'private', body: 'Mine', is_owner: true, can_delete: true, ...patch });
 
 describe('Moments', () => {
+  it('test_moments_empty: an empty timeline explains how to add its first moment', () => {
+    render(<MomentsPanel currentTime={0} getTime={() => 0} itemId="film" moments={[]} onBookmarksChanged={vi.fn()} onSeek={vi.fn()} onShowSuggested={vi.fn()} showSuggested />);
+
+    expect(screen.getByText('0 moments')).toBeTruthy();
+    expect(screen.getByText('No moments yet. Bookmark the current time to find it again later.')).toBeTruthy();
+  });
+
   it('test_moment_origins_distinct: source, member and AI moments stay separate and ordered', () => {
     const moments = buildMoments(
       [{ start_time: 10, title: 'Source chapter' }],

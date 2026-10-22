@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import { expect, libraryItemId, test, videoTime } from './realstack';
 
 test('a timestamped note persists and seeks the player', async ({ page }) => {
+  const noteBody = `Lantern appears on the left (${test.info().repeatEachIndex})`;
   await page.goto('/library/movies');
   await page.getByRole('button', { name: /^Realstack Direct,/ }).first().click();
   await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
@@ -11,9 +12,9 @@ test('a timestamped note persists and seeks the player', async ({ page }) => {
 
   await page.getByRole('tab', { name: 'Notes' }).click();
   await page.getByRole('button', { name: 'Add current time' }).click();
-  await page.getByRole('textbox', { name: 'New note' }).fill('Lantern appears on the left');
+  await page.getByRole('textbox', { name: 'New note' }).fill(noteBody);
   await page.getByRole('button', { name: 'Save note' }).click();
-  const seek = page.getByRole('button', { name: /^Seek to / });
+  const seek = page.getByRole('listitem').filter({ hasText: noteBody }).getByRole('button', { name: /^Seek to / });
   await expect(seek).toBeVisible();
 
   await page.reload();
@@ -21,8 +22,14 @@ test('a timestamped note persists and seeks the player', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Realstack Direct', exact: true }).getByText(/2024/)).toBeVisible();
   await page.getByRole('tab', { name: 'Notes' }).click();
   await expect(page.getByRole('tabpanel', { name: 'Notes', exact: true })).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Notes on this item' })).toContainText('Lantern appears on the left');
-  await page.locator('video').evaluate((video: HTMLVideoElement) => { video.pause(); video.currentTime = 3.5; });
+  await expect(page.getByRole('list', { name: 'Notes on this item' })).toContainText(noteBody);
+  await page.locator('video').evaluate(async (video: HTMLVideoElement) => {
+    video.pause();
+    const completed = new Promise<void>((resolve) => video.addEventListener('seeked', () => resolve(), { once: true }));
+    video.currentTime = 3.5;
+    await completed;
+  });
+  await expect.poll(() => videoTime(page)).toBeGreaterThan(3);
   await seek.click();
   // Notes store whole milliseconds; the player lands back on the captured moment.
   await expect.poll(() => videoTime(page)).toBeLessThan(stamp + 0.5);

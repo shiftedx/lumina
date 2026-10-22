@@ -1,0 +1,251 @@
+{
+  "mocked": [
+    {
+      "file": "auth.spec.ts",
+      "title": "an invite link at / renders the join form and removes its fragment",
+      "journey": "Invite fragment is consumed by the browser route"
+    },
+    {
+      "file": "two-factor.spec.ts",
+      "title": "a wrong code is announced, then the right one signs in",
+      "journey": "Second factor recovers from a rejected code"
+    },
+    {
+      "file": "two-factor.spec.ts",
+      "title": "a recovery code signs in",
+      "journey": "Recovery credential reaches an authenticated session"
+    },
+    {
+      "file": "member-picker.spec.ts",
+      "title": "signed out with a ring: the picker is the first screen; instant tile signs in",
+      "journey": "Remembered browser identity can sign in"
+    },
+    {
+      "file": "member-picker.spec.ts",
+      "title": "a password tile expands in place, keyboard only",
+      "journey": "Keyboard-only password identity selection"
+    },
+    {
+      "file": "onboarding_quality.spec.ts",
+      "title": "creator onboarding preserves the collection through back and a failed save at 320px",
+      "journey": "Narrow onboarding retains its draft through history and failure"
+    },
+    {
+      "file": "palette.spec.ts",
+      "title": "⌘K → type → ↓ → ↵ opens a title",
+      "journey": "Browser shortcut navigates to the selected title"
+    },
+    {
+      "file": "palette.spec.ts",
+      "title": "Esc clears, then closes and returns focus to the trigger",
+      "journey": "Escape closes and returns focus"
+    },
+    {
+      "file": "palette.spec.ts",
+      "title": "phone: the header Search control opens a full-screen palette",
+      "journey": "Phone search opens its sheet"
+    },
+    {
+      "file": "home-edit.spec.ts",
+      "title": "keyboard reorder: Space on Next up, two ArrowDowns, Space; saved and kept across a reload",
+      "journey": "Keyboard drag persists through reload"
+    },
+    {
+      "file": "home-edit.spec.ts",
+      "title": "pointer drag two rows down drops there and saves; Escape mid-drag puts it back and stays in edit mode",
+      "journey": "Pointer drag supports Escape cancellation"
+    },
+    {
+      "file": "home-edit.spec.ts",
+      "title": "a touch drag on a phone moves a shelf",
+      "journey": "Touch drag moves a shelf"
+    },
+    {
+      "file": "v1_library_ui.spec.ts",
+      "title": "the wall keeps its sort and filters in the address across a reload",
+      "journey": "Reload preserves wall URL state"
+    },
+    {
+      "file": "v1_library_ui.spec.ts",
+      "title": "Back from a title page puts the wall back: filters, sort, scroll and the focused poster",
+      "journey": "History restores scroll and focused poster"
+    },
+    {
+      "file": "home.spec.ts",
+      "title": "a return from a title page paints shelves from the session cache before the refetch resolves",
+      "journey": "Cached content paints before delayed refetch"
+    },
+    {
+      "file": "music.spec.ts",
+      "title": "album playback stays on its Audio page and Next updates the player and Media Session",
+      "journey": "Native media and Media Session advance together"
+    },
+    {
+      "file": "music-continuity.spec.ts",
+      "title": "a requested album remains paused until the member explicitly plays it after import",
+      "journey": "Import completion does not silently start music"
+    },
+    {
+      "file": "music-offline.spec.ts",
+      "title": "reloads the standalone offline entry, plays saved audio, and never shows another owner",
+      "journey": "Service-worker reload preserves private offline playback"
+    },
+    {
+      "file": "v1_player_owner.spec.ts",
+      "title": "test_one_media_instance",
+      "journey": "Navigation owns one native media instance"
+    },
+    {
+      "file": "v1_player_owner.spec.ts",
+      "title": "test_logout_silences_player",
+      "journey": "Signing out releases audible media"
+    },
+    {
+      "file": "v1_remote_dash_startup.spec.ts",
+      "title": "DASH Auto renders the small rung before a slow top rung, then ramps and honors a pin",
+      "journey": "Adaptive playback renders then honors quality selection"
+    },
+    {
+      "file": "v1_controls.spec.ts",
+      "title": "test_keyboard_only_player_flow",
+      "journey": "Real-media keyboard shortcuts and seeking"
+    },
+    {
+      "file": "local-subtitle-selection.spec.ts",
+      "title": "local text subtitles settle on exactly the chosen track and Off disables every track",
+      "journey": "Native text-track selection and Off"
+    },
+    {
+      "file": "v1_titles.spec.ts",
+      "title": "a movie plays the chosen version",
+      "journey": "The selected file reaches the player"
+    },
+    {
+      "file": "v1_titles.spec.ts",
+      "title": "Back from Watch returns to the title page and season it was played from",
+      "journey": "History returns to the original season"
+    },
+    {
+      "file": "watch-up-next.spec.ts",
+      "title": "fullscreen stays on while autoplay moves to the next episode",
+      "journey": "Next episode retains browser fullscreen"
+    },
+    {
+      "file": "watch-up-next.spec.ts",
+      "title": "picture-in-picture stays open while autoplay moves to the next episode",
+      "journey": "Next episode retains browser picture-in-picture"
+    },
+    {
+      "file": "playback-integrations.spec.ts",
+      "title": "Chromecast acknowledges load/control and keeps a recoverable browser source on failure",
+      "journey": "Cast acknowledgement and browser fallback recover together"
+    },
+    {
+      "file": "v1_diagnostics.spec.ts",
+      "title": "test_admin_diagnostics",
+      "journey": "Browser clipboard permissions expose the copied report"
+    },
+    {
+      "file": "v1_settings_shell.spec.ts",
+      "title": "drafts survive in-page jumps and declined area, navigation and browser Back changes",
+      "journey": "Browser Back preserves unsaved drafts"
+    },
+    {
+      "file": "v1_settings_shell.spec.ts",
+      "title": "keyboard member deactivation focuses Cancel and Escape restores the trigger",
+      "journey": "Native modal focus returns on Escape"
+    },
+    {
+      "file": "vault.spec.ts",
+      "title": "Collections: ?new=smart opens the builder and leaves the address clean, with no history entry",
+      "journey": "One-time command leaves browser history clean"
+    },
+    {
+      "file": "vault.spec.ts",
+      "title": "Collections: deleting asks first, Esc returns focus to Delete, confirming removes it",
+      "journey": "Danger confirmation supports real keyboard cancellation"
+    },
+    {
+      "file": "metadata-editor.spec.ts",
+      "title": "flow: edit, save, undo from the toast, reload, then undo from History",
+      "journey": "Saved metadata can be undone across reload"
+    },
+    {
+      "file": "branded-dropdowns.spec.ts",
+      "title": "Lumina dropdowns work across settings, dialogs and suggestions in dark at 320px",
+      "journey": "Narrow popup containment and nested Escape/focus"
+    },
+    {
+      "file": "v1_a11y_sweep.spec.ts",
+      "title": "forced colours: focus, selection rules and poster markers stay visible",
+      "journey": "Rendered forced colors preserve visible focus and selection"
+    },
+    {
+      "file": "lumina-resilience.spec.ts",
+      "title": "all primary surfaces reflow at the 320 CSS-pixel narrow standard",
+      "journey": "Rendered narrow-width reflow remains usable"
+    },
+    {
+      "file": "watch-start.spec.ts",
+      "title": "a watch link with ?t= starts there and then drops the time from the address",
+      "journey": "Timestamp URL starts playback and removes the one-time parameter"
+    },
+    {
+      "file": "palette.spec.ts",
+      "title": "profile menu → Switch member opens the picker (keyboard only)",
+      "journey": "Keyboard command reaches member switching"
+    },
+    {
+      "file": "home-edit.spec.ts",
+      "title": "a hidden shelf is gone after Done, and its source is never requested after a reload",
+      "journey": "Reload retains hidden shelves without fetching their sources"
+    }
+  ],
+  "journeys": [
+    {
+      "file": "household.spec.ts",
+      "title": "invited member is isolated from private items, keeps own search history, and is signed out on deactivation",
+      "journey": "Backend privacy, private history and deactivation"
+    },
+    {
+      "file": "household.spec.ts",
+      "title": "Home layout: the owner reorders and hides shelves, the layout holds in a new browser, another member keeps the default",
+      "journey": "Layout crosses browsers without crossing members"
+    },
+    {
+      "file": "playback.spec.ts",
+      "title": "direct WebM plays from the original file",
+      "journey": "Real server media decodes in the browser"
+    },
+    {
+      "file": "settings.spec.ts",
+      "title": "settings export downloads the member’s JSON profile",
+      "journey": "Browser download exports the member profile"
+    },
+    {
+      "file": "watch.spec.ts",
+      "title": "a timestamped note persists and seeks the player",
+      "journey": "Historical regression: persisted note seeks actual media"
+    },
+    {
+      "file": "watch.spec.ts",
+      "title": "watch queue adds, reorders across reload, and autoplays the next entry",
+      "journey": "Queue order survives reload and autoplays"
+    },
+    {
+      "file": "member-switch.spec.ts",
+      "title": "remember on this browser → sign out → Who's watching → instant switch lands on Home; the vault owner needs a password",
+      "journey": "Persistent browser identity switches sessions securely"
+    },
+    {
+      "file": "series.spec.ts",
+      "title": "a show starts, resumes from Home and moves on to the next episode",
+      "journey": "Real episode progress resumes and advances"
+    },
+    {
+      "file": "settings.spec.ts",
+      "title": "admin creates and verifies a database backup",
+      "journey": "Actual database backup downloads and verifies"
+    }
+  ]
+}

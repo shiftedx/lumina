@@ -25,10 +25,14 @@ const fast = root('fast', 'Fast SSD', 'managed');
 const bulk = root('bulk', 'Bulk HDD', 'managed', 'offline');
 const imports = root('imports', 'Old rips', 'external');
 const rule = (id: string, priority: number, patch = {}) => ({ id, enabled: true, priority, sources: [], media_kinds: [], min_height: null, max_height: null, target_root_id: 'fast', relative_template: '{source}', ...patch });
+const ruleSet = (rules: ReturnType<typeof rule>[]) => ({ revision: 4, default_root_id: null, rules });
 
-function setup(rules = [rule('uhd', 10, { min_height: 2160 }), rule('audio', 20, { media_kinds: ['audio'], target_root_id: 'bulk' })]) {
+function setup(
+  rules = [rule('uhd', 10, { min_height: 2160 }), rule('audio', 20, { media_kinds: ['audio'], target_root_id: 'bulk' })],
+  prepareRules = () => api.getStorageRules.mockResolvedValue(ruleSet(rules)),
+) {
   api.listStorageRoots.mockResolvedValue([fast, bulk, imports]);
-  api.getStorageRules.mockResolvedValue({ revision: 4, default_root_id: null, rules });
+  prepareRules();
   render(<AdminStorage />);
   return userEvent.setup();
 }
@@ -101,6 +105,18 @@ describe('admin storage', () => {
     expect((screen.getByRole('button', { name: 'Save rules' }) as HTMLButtonElement).disabled).toBe(true);
     await browser.click(screen.getByRole('button', { name: 'Reload rules' }));
     await waitFor(() => expect(api.getStorageRules).toHaveBeenCalledTimes(2));
+  });
+
+  it('shows an actionable initial routing-rules load failure and reloads', async () => {
+    const rules = [rule('audio', 10, { media_kinds: ['audio'], target_root_id: 'bulk' })];
+    const browser = setup(rules, () => api.getStorageRules
+      .mockRejectedValueOnce(new Error('Storage rules are temporarily unavailable.'))
+      .mockResolvedValueOnce(ruleSet(rules)));
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/temporarily unavailable/);
+    await browser.click(screen.getByRole('button', { name: 'Reload rules' }));
+    await waitFor(() => expect(api.getStorageRules).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('group', { name: 'Rule 1' })).toBeTruthy();
   });
 
   it('validates a rule inline before saving', async () => {

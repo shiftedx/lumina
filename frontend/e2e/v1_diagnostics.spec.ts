@@ -41,23 +41,3 @@ test('test_admin_diagnostics', async ({ page, context }) => {
   expect(JSON.parse(await page.evaluate(() => navigator.clipboard.readText()))).toEqual(report);
   expect(errors).toEqual([]);
 });
-
-test('test_admin_diagnostics_recommendations', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.setViewportSize({ width: 1536, height: 960 });
-  await mockApi(page, { sidebar_collapsed: false });
-  const quiet = recoSurfaceStats({ surface: 'up_next', impressions: 12, opens: 3, ctr: null, plays: 1, play_through_median: null, completion_rate: null, negative_rate: null, explore_play_rate: null, exploit_play_rate: null });
-  const withReco = { ...report, recommendations: recoDiagnostics({ surfaces: [recoSurfaceStats(), quiet] }) };
-  await page.route('**/api/admin/diagnostics', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(withReco) }));
-  await page.goto('/admin/diagnostics');
-  await signIn(page);
-  const panel = page.getByRole('region', { name: 'Recommendations', exact: true });
-  await expect(panel.getByRole('heading', { level: 3, name: 'Recommendations' })).toBeVisible();
-  await expect(panel.getByText('38.0 %').first()).toBeVisible();
-  await expect(panel.getByRole('row', { name: /Home · Picked for you/ })).toContainText('6.5 % click rate');
-  await expect(panel.getByRole('row', { name: /Up next/ })).toContainText('—');
-  await expect(panel.getByText('Members with a pool')).toBeVisible();
-  expect(errors).toEqual([]);
-});

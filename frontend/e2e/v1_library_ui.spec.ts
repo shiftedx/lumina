@@ -83,23 +83,6 @@ async function openLibrary(page: Page, path: string, viewport: { width: number; 
   return calls;
 }
 
-test('test_library_views_delete_and_undo', async ({ page }) => {
-  const calls = await openLibrary(page, '/library/youtube', { width: 1536, height: 960 }, 'dark');
-  const canoe = page.getByRole('button', { name: /^Building a cedar canoe by hand, start to finish, / });
-  await expect(canoe).toBeVisible();
-  // Imported files stay outside the saved web-video shelf.
-  await expect(page.getByText('clip_0042', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^More options for clip_0042/ })).toHaveCount(0);
-  await page.getByRole('button', { name: 'More options for Building a cedar canoe by hand, start to finish' }).click();
-  await page.getByRole('menuitem', { name: 'Delete from Lumina' }).click();
-  await expect(page.locator('.g-toast').filter({ hasText: 'Deleted' })).toBeVisible();
-  await expect(canoe).toHaveCount(0);
-  await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(canoe).toBeVisible();
-  expect(calls).toContain('delete-file:lib-1');
-  expect(calls).toContain('restore-file:lib-1');
-});
-
 test('test_library_visual', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));

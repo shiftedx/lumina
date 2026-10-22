@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: help bootstrap bootstrap-test backend-test frontend-test frontend-typecheck frontend-build e2e-realstack e2e-browsers playperf models-smoke perf check
+.PHONY: help bootstrap bootstrap-test backend-test frontend-test frontend-typecheck frontend-build e2e-realstack e2e-mocked e2e-smoke e2e-full e2e-tier-test e2e-browsers playperf models-smoke perf check
 
 help:
 	@echo "Available targets:"
@@ -11,8 +11,10 @@ help:
 	@echo "  frontend-typecheck Type-check the React application"
 	@echo "  frontend-build     Type-check and build the React application"
 	@echo "  e2e-realstack      Browser journeys and the perf budgets against the real backend and synthetic media"
+	@echo "  e2e-smoke          49 critical browser journeys plus setup, under 10 minutes"
+	@echo "  e2e-full           Full parallel browser gate, under 45 minutes"
 	@echo "  e2e-mocked         Browser specs against a mocked API (Vite dev server)"
-	@echo "  e2e-browsers       Real-decode WebKit remux/transcode playback (not in check; needs 'npx playwright install webkit')"
+	@echo "  e2e-browsers       Focused real-decode WebKit remux/transcode playback (also in full; needs 'npx playwright install webkit')"
 	@echo "  playperf           Library playback timing in Google Chrome: cold-cache first frame (direct, resume, music, deep link, slow side requests), resumes, quality switches (not in check)"
 	@echo "  models-smoke       Real llama-server + speech server with tiny downloaded models, in the image (not in check; needs Docker and network)"
 	@echo "  perf               Household-scale load + browser measurement on seeded temp data (not in check)"
@@ -42,6 +44,19 @@ PERF_LOCK ?= /tmp/lumina-perf.lock
 e2e-realstack: frontend-build
 	scripts/with-lock.sh $(PERF_LOCK) 1800 sh -c 'cd frontend && npx playwright test -c playwright.realstack.config.ts --project=setup --project=journeys --project=perf'
 
+# Tier output must be empty; the driver allocates isolated loopback ports and fixture roots.
+E2E_REPEAT ?= 1
+E2E_TIER_WORKERS ?= 4
+E2E_OUTPUT ?= $(shell mktemp -d /tmp/lumina-playwright-tier.XXXXXX)
+e2e-tier-test:
+	node --test frontend/scripts/run-playwright-tiers.node-test.mjs
+
+e2e-smoke:
+	node frontend/scripts/run-playwright-tiers.mjs --tier smoke --repeat $(E2E_REPEAT) --workers $(E2E_TIER_WORKERS) --output "$(E2E_OUTPUT)"
+
+e2e-full:
+	scripts/with-lock.sh $(PERF_LOCK) 1800 node frontend/scripts/run-playwright-tiers.mjs --tier full --repeat $(E2E_REPEAT) --workers $(E2E_TIER_WORKERS) --output "$(E2E_OUTPUT)"
+
 E2E_WORKERS ?= 2
 e2e-mocked:
 	cd frontend && npx playwright test --workers=$(E2E_WORKERS)
@@ -59,7 +74,7 @@ models-smoke:
 perf: frontend-build
 	@d=$$(mktemp -d) && trap 'rm -rf "$$d"' EXIT && backend/.venv/bin/python scripts/perf/seed_household.py "$$d/data" && backend/.venv/bin/python -u scripts/perf/load.py "$$d/data" --ui
 
-check: bootstrap-test frontend-typecheck frontend-build backend-test frontend-test e2e-realstack e2e-mocked
+check: bootstrap-test e2e-tier-test frontend-typecheck frontend-build backend-test frontend-test e2e-full
 
 .PHONY: seed-titles perf-titles
 seed-titles:

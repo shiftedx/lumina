@@ -1,6 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { mkdir } from 'node:fs/promises';
 
 import { docFixture } from '../src/features/titles/editor/editorFixtures';
 import { mockApi, mockTitles, signIn } from './lumina-mock';
@@ -143,20 +142,4 @@ for (const [width, scheme] of [[390, 'light'], [390, 'dark'], [1536, 'light'], [
     await expectArtworkCaptionsInsideCards(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
-}
-
-const qualityOutput = process.env.METADATA_EDITOR_QUALITY_OUT;
-if (qualityOutput) {
-  for (const [width, scheme] of [[390, 'light'], [390, 'dark'], [1536, 'light'], [1536, 'dark']] as const) {
-    test(`capture: Artwork autosave at ${width}px, ${scheme}`, async ({ page }) => {
-      await page.emulateMedia({ colorScheme: scheme });
-      await open(page, { width, height: width === 390 ? 844 : 900 });
-      await page.getByRole('textbox', { name: 'Overview' }).fill('A draft kept across sections.');
-      await page.getByRole('radio', { name: 'Artwork' }).check({ force: true });
-      await expect(page.getByText('Artwork changes save as you make them. Each one can be undone from History.')).toBeVisible();
-      await expect(page.getByText('You also have 1 unsaved metadata change.')).toBeVisible();
-      await mkdir(qualityOutput, { recursive: true });
-      await page.screenshot({ fullPage: true, path: `${qualityOutput}/artwork-autosave-${width}-${scheme}.png` });
-    });
-  }
 }

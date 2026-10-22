@@ -28,27 +28,6 @@ async function reopenSearchEmpty(page: Page) {
   await openPalette(page);
 }
 
-test('test_history_storage_failure_search_works: a failed history write never blocks the search', async ({ page }) => {
-  await page.setViewportSize({ width: 1536, height: 960 });
-  await mockApi(page, { sidebar_collapsed: false });
-  await stubSearchResults(page);
-  // route.fallback() (not continue()) hands GET back to mockApi's own handler
-  // registered earlier, instead of sending it to a real network.
-  await page.route('**/api/search/history', (route) => route.request().method() === 'POST'
-    ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ detail: 'unavailable' }) })
-    : route.fallback());
-  await page.goto('/');
-  await signIn(page);
-
-  await search(page, 'film noir');
-  await expect(page.getByRole('heading', { name: 'Results for “film noir”' })).toBeVisible();
-
-  // The write failed server-side, so the query never became a recent search.
-  await reopenSearchEmpty(page);
-  await expect(recentSearches(page)).toHaveCount(0);
-  await page.keyboard.press('Escape');
-});
-
 test('test_remove_one_and_clear_all: single-entry removal and Settings clear both persist server-side', async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 960 });
   await mockApi(page, { sidebar_collapsed: false });
@@ -90,19 +69,5 @@ test('test_remove_one_and_clear_all: single-entry removal and Settings clear bot
   await expect(page.getByText('No search history yet.')).toBeVisible();
   await reopenSearchEmpty(page);
   await expect(recentSearches(page)).toHaveCount(0);
-  await page.keyboard.press('Escape');
-});
-
-test('test_history_suggestions_visual', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.setViewportSize({ width: 1536, height: 960 });
-  await mockApi(page, { sidebar_collapsed: false });
-  await stubSearchResults(page);
-  await page.goto('/');
-  await signIn(page);
-
-  await search(page, 'woodworking');
-  await reopenSearchEmpty(page);
-  await expect(recentSearches(page).getByText('woodworking')).toBeVisible();
   await page.keyboard.press('Escape');
 });

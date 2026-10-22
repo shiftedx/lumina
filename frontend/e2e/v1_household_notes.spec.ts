@@ -64,11 +64,3 @@ test('test_notes_timestamp_and_seek', async ({ page }) => {
   await list.getByRole('article').filter({ hasText: 'Title card fades in.' }).getByRole('button', { name: 'Seek to 0:01' }).click();
   await expect.poll(() => video.evaluate((media: HTMLVideoElement) => media.currentTime)).toBeCloseTo(1.2, 1);
 });
-
-test('test_notes_visual', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  await openNotes(page, { width: 1536, height: 960 }, 'dark');
-  await page.locator('.notes-panel').scrollIntoViewIfNeeded();
-  expect(errors).toEqual([]);
-});

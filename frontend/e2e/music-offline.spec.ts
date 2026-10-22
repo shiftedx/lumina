@@ -63,7 +63,6 @@ async function seedOfflineTracks(page: import('@playwright/test').Page, longFirs
 }
 
 test('reloads the standalone offline entry, plays saved audio, and never shows another owner', async ({ page, context }) => {
-  test.skip(Boolean(PRODUCTION_URL), 'the production run exercises the built entry below');
   await page.goto('/music-offline.html');
   await expect(page.getByRole('heading', { name: 'Offline listening' })).toBeVisible();
   await waitForShell(page);

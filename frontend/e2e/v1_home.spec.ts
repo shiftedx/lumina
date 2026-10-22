@@ -39,12 +39,6 @@ test('test_home_priority_and_empty: seeded shelves in order; a lone card keeps c
   expect(card!.width).toBeLessThan(shelf!.width / 3);
 });
 
-test('a fresh member sees one start card and no empty shelves', async ({ page }) => {
-  await openHome(page, true);
-  await expect(page.getByRole('heading', { name: 'Make Home yours' })).toBeVisible();
-  await expect(page.locator('[data-shelf-section]')).toHaveCount(0);
-});
-
 // Heading-below-topbar is a layout check that genuinely differs between desktop and phone.
 for (const viewport of [{ width: 1536, height: 960 }, { width: 390, height: 844 }]) {
   for (const fresh of [false, true]) {

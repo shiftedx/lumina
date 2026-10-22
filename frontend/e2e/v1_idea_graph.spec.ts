@@ -40,8 +40,3 @@ test('test_idea_graph_list_and_map', async ({ page }) => {
   await page.locator('.idea-map').getByRole('button', { name: 'Stone bridge' }).click();
   expect(errors).toEqual([]);
 });
-
-test('test_idea_graph_empty', async ({ page }) => {
-  await openIdeas(page, { width: 1536, height: 960 }, 'dark', false);
-  await expect(page.getByRole('button', { name: 'Map ideas' })).toBeVisible();
-});

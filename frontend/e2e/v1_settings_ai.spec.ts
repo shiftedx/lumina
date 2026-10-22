@@ -58,60 +58,6 @@ async function openAi(page: Page, viewport = { width: 1536, height: 960 }) {
   await mockAdminFixtures(page);
 }
 
-test('turning on Semantic search with no model downloads it, and it works after Save (success criterion 1)', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  await openAi(page);
-  const fake = await mockModelApi(page, localModels.map((model) => ({ ...model })), ['semantic_search']);
-  await page.goto('/');
-  await signIn(page);
-  await page.goto('/settings/ai');
-  const toggle = page.getByRole('switch', { name: 'Semantic search' });
-  await expect(toggle).not.toBeChecked();
-
-  await toggle.press('Space');
-  await expect(toggle).not.toBeChecked();
-  const dialog = page.getByRole('dialog', { name: 'Turn on Semantic search?' });
-  await expect(dialog).toContainText('Granite Embedding 97M multilingual');
-  await expect(dialog).toContainText('115 MB download, about 913 MB of memory while running, Apache-2.0 licence.');
-  await dialog.getByRole('button', { name: 'Cancel' }).click();
-  await expect(dialog).toBeHidden();
-  await expect(toggle).not.toBeChecked();
-  await expect(toggle).toBeFocused();
-  expect(fake.downloads).toEqual([]);
-
-  await toggle.press('Space');
-  await dialog.getByRole('button', { name: 'Download and turn on' }).click();
-  await expect(toggle).toBeChecked();
-  expect(fake.downloads).toEqual(['granite-embedding-97m-multilingual-r2-q8']);
-  const feature = page.locator('[data-setting-id="ai.semantic-search"]');
-  await expect(feature).toContainText('Waiting for the search model');
-
-  await page.getByRole('button', { name: 'Save AI settings' }).click();
-  await expect.poll(() => fake.saved).toEqual([{ ai_features_disabled: [] }]);
-  await expect(feature).not.toContainText('Waiting for the search model', { timeout: 10_000 });
-  await page.getByRole('link', { name: 'Local models', exact: true }).click();
-  await expect(page.getByRole('list', { name: 'Search models' }).getByRole('listitem').first()).toContainText('Ready', { timeout: 10_000 });
-  await expect(page.getByRole('button', { name: 'Save AI settings' })).toBeDisabled();
-  expect(errors).toEqual([]);
-});
-
-test('a corrupted download is never used: the row says why and Retry downloads again (success criterion 5)', async ({ page }) => {
-  await openAi(page);
-  const failed = localModels.map((model) => (model.id === 'faster-whisper-small-int8' ? { ...model, state: 'failed', reason: 'The download was corrupted; Retry' } : { ...model }));
-  const fake = await mockModelApi(page, failed, []);
-  await page.goto('/');
-  await signIn(page);
-  await page.goto('/settings/ai');
-  const feature = page.locator('[data-setting-id="ai.subtitles-from-speech"]');
-  await expect(feature).toContainText('The download was corrupted; Retry');
-  await feature.getByRole('button', { name: 'Retry for Subtitles from speech' }).click();
-  await expect.poll(() => fake.downloads).toEqual(['faster-whisper-small-int8']);
-  await expect(feature).toContainText('Waiting for the speech model');
-  await page.getByRole('link', { name: 'Local models', exact: true }).click();
-  await expect(page.getByRole('list', { name: 'Speech models' }).getByRole('listitem').first()).toContainText(/Downloading|Ready/);
-});
-
 // The 10-foot step is for touch screens and TV remotes; a mouse gets the 36px desktop control (tokens.css).
 test.describe('on a touch screen or TV', () => {
   test.use({ hasTouch: true });

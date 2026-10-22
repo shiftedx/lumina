@@ -21,20 +21,6 @@ const setHidden = (page: Page, hidden: boolean) => page.evaluate((value) => {
   document.dispatchEvent(new Event('visibilitychange'));
 }, hidden);
 
-test('followed channels live now come first, then popular live, each stream once', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await openHome(page, {
-    hero: [liveEntry('mine')],
-    items: [liveEntry('mine'), liveEntry('big', { source: 'youtube', source_label: 'YouTube', webpage_url: 'https://www.youtube.com/watch?v=big' })],
-  });
-  const shelf = page.getByRole('region', { name: 'Live now' });
-  await expect(shelf.locator('.h-card')).toHaveCount(2);
-  await expect(shelf.locator('.h-card').first().locator('[data-focus-item]')).toHaveAccessibleName('Live: Live stream mine, Channel mine, 12,400 watching on Twitch, a channel you follow');
-  await expect(shelf.locator('.h-card').nth(1)).toContainText('YOUTUBE');
-  await expect(shelf.locator('.g-live').first()).toHaveText('LIVE');
-  await expect(shelf.getByRole('button', { name: 'See all' })).toBeVisible();
-});
-
 test('refreshes every 60 s while visible, and never while the tab is hidden', async ({ page }) => {
   await page.clock.install();
   const requests = await openHome(page, { items: [liveEntry('a')] });

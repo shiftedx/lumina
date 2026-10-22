@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ToastProvider, useToast } from './ui';
-import type { LibraryItem, SourceAutomation, UserProfile, UserTag, YouTubeSearchResult } from './types';
+import type { LibraryItem, MemberInterests, SourceAutomation, UserProfile, UserTag, YouTubeSearchResult } from './types';
 import { ApiRequestError, keepaliveWritesSettled, updateRemotePlaybackProgress } from './api';
 import { createInitialWorkspaceState, workspaceReducer } from './workspace';
 import LuminaApp from './LuminaApp';
@@ -34,7 +34,11 @@ const render = (ui: ReactElement, options: Parameters<typeof baseRender>[1] = {}
 const mocks = vi.hoisted(() => ({
   useAuthenticatedWorkspace: vi.fn(),
   listContinueWatching: vi.fn(),
+  getMemberInterests: vi.fn(),
+  skipOnboarding: vi.fn(),
   searchLibrary: vi.fn(),
+  sourceSearch: vi.fn(),
+  recordSearchHistory: vi.fn(),
   youtubeSearch: vi.fn(),
   getUpNext: vi.fn(),
   previewUrl: vi.fn(),
@@ -108,7 +112,11 @@ vi.mock('./features/music/musicSession', async (importOriginal) => ({
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./api')>()),
   listContinueWatching: mocks.listContinueWatching,
+  getMemberInterests: mocks.getMemberInterests,
+  skipOnboarding: mocks.skipOnboarding,
   searchLibrary: mocks.searchLibrary,
+  sourceSearch: mocks.sourceSearch,
+  recordSearchHistory: mocks.recordSearchHistory,
   youtubeSearch: mocks.youtubeSearch,
   getUpNext: mocks.getUpNext,
   previewUrl: mocks.previewUrl,
@@ -240,7 +248,11 @@ beforeEach(() => {
   mocks.getDeviceMembers.mockResolvedValue([]);
   mocks.sendRecoEvents.mockResolvedValue(undefined);
   mocks.listContinueWatching.mockResolvedValue([]);
+  mocks.getMemberInterests.mockRejectedValue(new TypeError('offline'));
+  mocks.skipOnboarding.mockResolvedValue({ status: 'skipped', selected_keys: [], followed: [] });
   mocks.searchLibrary.mockResolvedValue({ items: [libraryItem] });
+  mocks.sourceSearch.mockResolvedValue({ items: [], errors: [] });
+  mocks.recordSearchHistory.mockResolvedValue({ id: 'history-1', query: 'film noir', created_at: '2026-10-22T12:00:00Z' });
   mocks.youtubeSearch.mockResolvedValue({ items: [] });
   mocks.getUpNext.mockResolvedValue(upNextSnapshot([]));
   mocks.getHomeRecommendations.mockResolvedValue(upNextSnapshot([]));
@@ -290,6 +302,102 @@ async function openPalette(browser: ReturnType<typeof userEvent.setup>) {
   await browser.click(screen.getByRole('button', { name: /^Search Lumina, / }));
   return screen.findByRole('combobox', { name: 'Search Lumina' });
 }
+
+it('a failed search-history write never blocks the search or adds a recent item', async () => {
+  const browser = userEvent.setup();
+  mocks.recordSearchHistory.mockRejectedValue(new Error('history unavailable'));
+  render(<LuminaApp />);
+
+  await browser.type(await openPalette(browser), 'film noir');
+  await browser.keyboard('{Meta>}{Enter}{/Meta}');
+
+  expect(await screen.findByRole('heading', { name: 'Results for “film noir”' })).toBeTruthy();
+  expect(await screen.findByRole('button', { name: 'Film in the vault, Archive Channel' })).toBeTruthy();
+  await waitFor(() => expect(mocks.recordSearchHistory).toHaveBeenCalledWith('film noir'));
+  await openPalette(browser);
+  expect(screen.queryByRole('group', { name: 'Recent searches' })).toBeNull();
+});
+
+it('a late Explore response never replaces the newer query', async () => {
+  const browser = userEvent.setup();
+  let finishSlow!: (value: { items: YouTubeSearchResult[]; errors: [] }) => void;
+  const stale: YouTubeSearchResult = { id: 'stale', title: 'A stale result that must never land', uploader: 'Old channel', source: 'youtube', kind: 'video', webpage_url: 'https://example.test/stale' };
+  const fresh: YouTubeSearchResult = { id: 'fresh', title: 'Fresh harbour result', uploader: 'Current channel', source: 'youtube', kind: 'video', webpage_url: 'https://example.test/fresh' };
+  mocks.sourceSearch
+    .mockReturnValueOnce(new Promise((resolve) => { finishSlow = resolve; }))
+    .mockResolvedValueOnce({ items: [fresh], errors: [] });
+  mocks.searchLibrary.mockResolvedValue({ items: [] });
+  render(<LuminaApp />);
+
+  await browser.type(await openPalette(browser), 'slow');
+  await browser.keyboard('{Meta>}{Enter}{/Meta}');
+  await browser.type(await openPalette(browser), 'harbour');
+  await browser.keyboard('{Meta>}{Enter}{/Meta}');
+
+  expect(await screen.findByRole('heading', { name: 'Results for “harbour”' })).toBeTruthy();
+  expect(await screen.findByRole('button', { name: /^Fresh harbour result/ })).toBeTruthy();
+  await act(async () => { finishSlow({ items: [stale], errors: [] }); });
+  expect(screen.getByRole('heading', { name: 'Results for “harbour”' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /^Fresh harbour result/ })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /^A stale result that must never land/ })).toBeNull();
+});
+
+describe('pending-member interest loading', () => {
+  const interests: MemberInterests = {
+    categories: [{ key: 'music', label: 'Music' }, { key: 'film', label: 'Film' }],
+    selected_keys: ['music'],
+  };
+
+  it('guards Continue until the selected interests finish loading while Skip stays available', async () => {
+    const browser = userEvent.setup();
+    let finish!: (value: MemberInterests) => void;
+    workspaceState.currentUser = { ...user, onboarding_status: 'pending' };
+    mocks.getMemberInterests.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    render(<LuminaApp />);
+
+    await browser.click(await screen.findByRole('button', { name: 'Personalize my Home' }));
+    expect(await screen.findByText('Loading interests…')).toBeTruthy();
+    expect((screen.getByRole('button', { name: /^Continue$/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Skip for now' }) as HTMLButtonElement).disabled).toBe(false);
+
+    await act(async () => { finish(interests); });
+    expect((await screen.findByRole('checkbox', { name: /^Music$/ }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('button', { name: /^Continue$/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('retries a failed interest load without treating it as an empty choice', async () => {
+    const browser = userEvent.setup();
+    workspaceState.currentUser = { ...user, onboarding_status: 'pending' };
+    mocks.getMemberInterests
+      .mockRejectedValueOnce(new Error('temporarily unavailable'))
+      .mockResolvedValueOnce({ ...interests, selected_keys: ['film'] });
+    render(<LuminaApp />);
+
+    await browser.click(await screen.findByRole('button', { name: 'Personalize my Home' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('We couldn’t load your interests.');
+    expect((screen.getByRole('button', { name: /^Continue$/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Skip for now' }) as HTMLButtonElement).disabled).toBe(false);
+    await browser.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect((await screen.findByRole('checkbox', { name: /^Film$/ }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('button', { name: /^Continue$/ }) as HTMLButtonElement).disabled).toBe(false);
+    expect(mocks.getMemberInterests).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores a late initial interest response after canonical Skip completes', async () => {
+    const browser = userEvent.setup();
+    let finish!: (value: MemberInterests) => void;
+    workspaceState.currentUser = { ...user, onboarding_status: 'pending' };
+    mocks.getMemberInterests.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    render(<LuminaApp />);
+    await waitFor(() => expect(mocks.getMemberInterests).toHaveBeenCalledTimes(1));
+
+    await browser.click(await screen.findByRole('button', { name: 'Explore without setup' }));
+    expect(await screen.findByRole('button', { name: 'Choose interests' })).toBeTruthy();
+    await act(async () => { finish(interests); });
+    expect(screen.getByRole('button', { name: 'Choose interests' })).toBeTruthy();
+  });
+});
 
 describe('browser routes', () => {
   it('reopens a Library watch deep link, and back/forward walk the route stack', async () => {

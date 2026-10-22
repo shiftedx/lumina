@@ -1,12 +1,9 @@
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { docFixture, fieldState } from '../src/features/titles/editor/editorFixtures';
 import { mockApi, mockTitles, signIn } from './lumina-mock';
 import { mockMetadataEditor } from './metadata-editor-mock';
 
-const OUT = join(process.cwd(), '..', 'output', 'app-quality', 'people-after');
 const LONG_NAME = 'Alexandria Whitcombe-Harrington';
 const LONG_ROLE = 'Keeper of the North Lighthouse';
 
@@ -72,16 +69,3 @@ test('phone rows give name and role a full line while every credit action remain
   await expect(page.getByLabel('Name 2')).toHaveValue(LONG_NAME);
   await expect(page.getByRole('button', { name: `Move up ${LONG_NAME}` })).toBeFocused();
 });
-
-for (const variant of [
-  { name: 'desktop-light', viewport: { width: 1440, height: 900 }, scheme: 'light' },
-  { name: 'desktop-dark', viewport: { width: 1440, height: 900 }, scheme: 'dark' },
-  { name: 'phone-light', viewport: { width: 390, height: 844 }, scheme: 'light' },
-  { name: 'phone-dark', viewport: { width: 390, height: 844 }, scheme: 'dark' },
-] as const) {
-  test(`capture People editor ${variant.name}`, async ({ page }) => {
-    mkdirSync(OUT, { recursive: true });
-    await openPeople(page, variant.viewport, variant.scheme);
-    await page.screenshot({ fullPage: true, path: join(OUT, `metadata-people-${variant.name}.png`) });
-  });
-}

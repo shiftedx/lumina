@@ -1,0 +1,823 @@
+# Frontend Playwright signal ledger
+
+Base: `18b35c6ad163989244343f476ac390a4b543f292`. Audit in progress.
+The original mocked, realstack and opt-in performance/capture configurations
+were enumerated with Playwright `--list --reporter=json`, including gated capture
+registrations. Runtime skips are not treated as regression evidence.
+
+Every expanded test/project instance has a row below. `pending` means baseline,
+history and retained-contract review must finish before a verdict. Evidence
+counts only an existing test failure leading to an app-code fix; creation,
+flake/timing repairs and assertion drift do not count. Historical regression
+catchers are never deleted. Migrations need a lower public-seam test and a
+behavior-revert red proof before the browser original is removed.
+
+| Test | Verdict | Evidence | Coverage after | Reason |
+| --- | --- | --- | --- | --- |
+| `anime-folders.spec.ts:8 · adds, validates and saves anime folders, then follows the re-sort` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `auth.spec.ts:4 · login renders its title, fields and primary button` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `auth.spec.ts:17 · setup renders when the vault has no owner yet` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `auth.spec.ts:28 · an invite link at / renders the join form and removes its fragment` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `auth.spec.ts:28 · an invite link at /invite renders the join form and removes its fragment` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `auth.spec.ts:39 · a reset link renders the new-password form` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `auth.spec.ts:48 · a rate-limited sign-in says to wait a minute` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `auth.spec.ts:58 · at phone width the left column is hidden and the bar brand shows` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `auth.spec.ts:77 · release art fills the page behind the sign-in panel and never blocks signing in` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `auth.spec.ts:95 · at phone width the release art sits behind a full-width form with no sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `books.spec.ts:127 · Books deep link has its own navigation and reaches a manga reader without Library lenses` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `books.spec.ts:167 · Books overview fits a 320px phone viewport` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `books.spec.ts:167 · Books overview fits a 390px phone viewport` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `books.spec.ts:176 · ebook reader keeps its phone controls usable and closes both sidebars` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `books.spec.ts:204 · ebook reader offers a legible sepia desktop page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `books.spec.ts:234 · rich Books review at 1440px shows practical collection density` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `books.spec.ts:234 · rich Books review at 390px shows practical collection density` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `books.spec.ts:248 · book detail presents bundled files and readable synopsis on desktop` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `books.spec.ts:248 · book detail presents bundled files and readable synopsis on phone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:31 · switches share square gold states across Settings, playback and Home: light 1440` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:83 · profile and navigation popups share rounded corners: light 1440` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:127 · actions and panels have no decorative outline boxes: light 1440` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:31 · switches share square gold states across Settings, playback and Home: light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:83 · profile and navigation popups share rounded corners: light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:127 · actions and panels have no decorative outline boxes: light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:31 · switches share square gold states across Settings, playback and Home: dark 1440` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:83 · profile and navigation popups share rounded corners: dark 1440` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:127 · actions and panels have no decorative outline boxes: dark 1440` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:31 · switches share square gold states across Settings, playback and Home: dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:83 · profile and navigation popups share rounded corners: dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `borderless-surfaces.spec.ts:127 · actions and panels have no decorative outline boxes: dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `branded-dropdowns.spec.ts:21 · Lumina dropdowns work across settings, dialogs and suggestions in light at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `branded-dropdowns.spec.ts:21 · Lumina dropdowns work across settings, dialogs and suggestions in light at 320px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `branded-dropdowns.spec.ts:21 · Lumina dropdowns work across settings, dialogs and suggestions in dark at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `branded-dropdowns.spec.ts:21 · Lumina dropdowns work across settings, dialogs and suggestions in dark at 320px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `channel-page.spec.ts:23 · the channel page reads cleanly in light at desktop width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `channel-page.spec.ts:23 · the channel page reads cleanly in light at phone width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `channel-page.spec.ts:23 · the channel page reads cleanly in dark at desktop width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `channel-page.spec.ts:23 · the channel page reads cleanly in dark at phone width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `channel-page.spec.ts:44 · tabs live in the address, Show more asks for 120 once` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `channel-page.spec.ts:55 · a slow YouTube shows the header at once and the error at the end` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `channel-page.spec.ts:61 · a handle address resolves and replaces itself` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `channel-page.spec.ts:67 · the tabs and actions walk by keyboard alone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `channel-page.spec.ts:76 · phone channel tabs expose both overflow ends and keep the selected label visible` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `channel-page.spec.ts:98 · the active Channel tab stays visible when desktop shrinks to phone without moving the page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `explore-gallery.spec.ts:47 · Explore reads cleanly in light at desktop width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `explore-gallery.spec.ts:47 · Explore reads cleanly in light at phone width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `explore-gallery.spec.ts:47 · Explore reads cleanly in dark at desktop width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `explore-gallery.spec.ts:47 · Explore reads cleanly in dark at phone width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `explore-gallery.spec.ts:59 · the masthead, live teaser, 25 categories and popular rails` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `explore-gallery.spec.ts:68 · a search groups results in order, offers jump links and a source retry, and a channel result opens its page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `explore-gallery.spec.ts:88 · the search field is reached by keyboard and Enter searches` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `explore-gallery.spec.ts:99 · Escape leaves a See all wall and returns to the rails` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:52 · title pages keep playback clear of integration notices and status requests` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:65 · show: meta line, the story so far, the row starting at the next episode, a watched summary but never a spoiler, and resume` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:84 · movie: a key scene opens the player at its moment` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:99 · AI failing: no AI section, no error and no page error, and the teasers still show` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:113 · deep link: a busy paper field with no text, then the page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:120 · title layout: the hero, side column, episode cards, and a long title description using its available width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:158 · desktop over the gallery styles: the art fills the hero, More like this posters are 168px, and Back reads on the art` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:178 · phone 390: one column with the story after the actions and the side column after it, sideways rows, no sideways page, 44px targets` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:178 · phone 320: one column with the story after the actions and the side column after it, sideways rows, no sideways page, 44px targets` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:202 · keyboard only: the headline takes focus, arrows walk the actions, tabs and episodes, and Escape goes back` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:221 · light movie: no serious accessibility violations` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:221 · light show: no serious accessibility violations` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:221 · dark movie: no serious accessibility violations` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:221 · dark show: no serious accessibility violations` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:232 · motion: the page fades in, and nothing moves under reduced motion` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:245 · hero framing 1920: full bleed with a lower subject above the text fade` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:245 · hero framing 390: full bleed with a lower subject above the text fade` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:332 · cold hero analysis never shifts already displayed artwork and is used on the next visit` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:362 · cast portraits 1440 light: readable credits, stable photo fallbacks and a contained keyboard rail` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:362 · cast portraits 390 light: readable credits, stable photo fallbacks and a contained keyboard rail` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:362 · cast portraits 1440 dark: readable credits, stable photo fallbacks and a contained keyboard rail` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-title.spec.ts:362 · cast portraits 390 dark: readable credits, stable photo fallbacks and a contained keyboard rail` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:29 · walls in light at 1440px: masthead, markers, few DOM rows, screenshots` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:29 · walls in light at 390px: masthead, markers, few DOM rows, screenshots` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:29 · walls in dark at 1440px: masthead, markers, few DOM rows, screenshots` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:29 · walls in dark at 390px: masthead, markers, few DOM rows, screenshots` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:55 · chips and filters live in the address, keep focus and announce the count` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:80 · phone: the chips and filters live in a bottom sheet` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:95 · the A–Z rail appears for Title A–Z and focuses the first title of a letter` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:108 · keyboard only: Down from the heading into the grid, arrows move, Up reaches Filters, Enter opens` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:124 · "Find the one where…" searches on Enter and opens the player at the moment` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:155 · loads at most four images at a time and drops loads for rows flung past` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:168 · reduced motion turns every gallery transition off` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:175 · headlines use the real Newsreader italic, not a synthesised slant` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:181 · a page that fails to load says so and offers Try again` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:191 · a search that fails says so and offers Try again` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:200 · phone at 390px: the tabs and the toolbar each keep to one line` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:200 · phone at 320px: the tabs and the toolbar each keep to one line` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:222 · a feature tile without backdrop names its title once, over the poster` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:222 · a feature tile without backdrop or poster names its title once, over a bare colour field` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `gallery-wall.spec.ts:236 · dark: the feature tile keeps a hairline bottom edge; the current tab is underlined in gold` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:31 · keyboard reorder: Space on Next up, two ArrowDowns, Space; saved and kept across a reload` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:52 · pointer drag two rows down drops there and saves; Escape mid-drag puts it back and stays in edit mode` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:98 · a hidden shelf is gone after Done, and its source is never requested after a reload` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:116 · Reset writes null, then Undo restores the previous layout` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:130 · TV remote at 1920×1080: arrows reach Resume and the shelves; edit with arrows and Enter; Back cancels, then leaves` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:157 · TV remote reaches Reset to default and Done below the last row (E-I3)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:170 · another browser signed in to a member without a saved layout sees the default` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:184 · compact greeting and right date: light 1440` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:184 · compact greeting and right date: light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:184 · compact greeting and right date: dark 1440` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:184 · compact greeting and right date: dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:215 · Continue listening keeps music separate and can be hidden, restored and reordered after reload` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-edit.spec.ts:82 · a touch drag on a phone moves a shelf` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-live.spec.ts:24 · followed channels live now come first, then popular live, each stream once` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-live.spec.ts:38 · refreshes every 60 s while visible, and never while the tab is hidden` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-live.spec.ts:55 · a provider notice shows under the heading and is not re-announced by the next poll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home-live.spec.ts:68 · the LIVE dot pulses only when motion is allowed` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:24 · default order with the hero from Continue; Resume opens the player at the saved point` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:42 · no Continue title: the hero is the newest; Play plays it and Details opens its title page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:54 · only near shelves are requested until the member scrolls` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:76 · rapid horizontal scrolling keeps delayed artwork bounded and fills the focused window` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:195 · a return from a title page paints shelves from the session cache before the refetch resolves` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:213 · a fresh member sees the start card and no Edit home` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:228 · screenshots for the owner, light 1440: no sideways scroll, no page errors` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:228 · screenshots for the owner, light 1024: no sideways scroll, no page errors` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:228 · screenshots for the owner, light 390: no sideways scroll, no page errors` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:228 · screenshots for the owner, light 1920: no sideways scroll, no page errors` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:228 · screenshots for the owner, dark 1440: no sideways scroll, no page errors` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:228 · screenshots for the owner, dark 1024: no sideways scroll, no page errors` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:228 · screenshots for the owner, dark 390: no sideways scroll, no page errors` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `home.spec.ts:228 · screenshots for the owner, dark 1920: no sideways scroll, no page errors` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `household-resources.spec.ts:62 · owner configures household resources and a member can override then resume inheritance` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `household-resources.spec.ts:94 · resource controls remain reachable at desktop and 320px phone widths` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `integrations.spec.ts:73 · Integration information fits both themes on desktop and a narrow phone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `integrations.spec.ts:103 · admin sends fresh revisioned monitor and profile operations, while rejected releases have no grab` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `integrations.spec.ts:108 · a stale result asks for review, while an uncertain result blocks a write until reconciliation` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `integrations.spec.ts:115 · admin saves then explicitly tests a Lidarr connector, with read-only saved observations` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `integrations.spec.ts:125 · admin approves a member album request without any transfer or deletion control` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-activity.spec.ts:83 · discovery stays indeterminate and exposes only numeric aggregate API fields on desktop light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-activity.spec.ts:100 · known indexing progress combines with downloads on desktop dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-activity.spec.ts:114 · copy stabilization remains explicit and contained on a light phone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-activity.spec.ts:124 · idle state is calm and keeps Downloads reachable` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-activity.spec.ts:134 · activity API failure is explained without losing Downloads on a dark phone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-activity.spec.ts:144 · stalled scans and unreadable files show attention without an active spinner on a phone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-channels.spec.ts:27 · Library Channels reads cleanly in light at desktop width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-channels.spec.ts:27 · Library Channels reads cleanly in light at phone width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-channels.spec.ts:27 · Library Channels reads cleanly in dark at desktop width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-channels.spec.ts:27 · Library Channels reads cleanly in dark at phone width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-channels.spec.ts:38 · Channels lists 12 tiles with unwatched badges, sorts by name, and a tile without a channel id opens the filtered Videos wall` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-channels.spec.ts:54 · a tile with a channel id opens the channel page on In your library` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:33 · Library Refresh is visible and starts a rescan at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:33 · Library Refresh is visible and starts a rescan at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:72 · All landing in light at 1440px: masthead, spotlight, chapters, four requests, no sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:72 · All landing in light at 390px: masthead, spotlight, chapters, four requests, no sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:72 · All landing in light at 1920px: masthead, spotlight, chapters, four requests, no sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:72 · All landing in dark at 1440px: masthead, spotlight, chapters, four requests, no sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:72 · All landing in dark at 390px: masthead, spotlight, chapters, four requests, no sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:72 · All landing in dark at 1920px: masthead, spotlight, chapters, four requests, no sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:110 · lazy chapters load as they near the viewport; with reduced motion nothing animates` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:119 · tabs, See all, the /music address and Back to the All landing where it was left` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:151 · YouTube: sort and source live in the address, pages load ahead, and a delete undoes` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:180 · Enter on a tab or See all keeps keyboard focus on the new active tab` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:195 · phone: the active tab starts in view without scrolling the page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:202 · the active Library tab stays visible when desktop shrinks to phone without moving the page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:220 · server tabs inserted before a cached active Library tab reveal it again` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:243 · phone: Library tab overflow controls expose both ends without clipping labels` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:263 · arrow keys walk the YouTube wall` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:272 · keyboard and D-pad walk through All` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:309 · axe: All, YouTube, Recordings and Deleted in light at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:309 · axe: All, YouTube, Recordings and Deleted in light at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:309 · axe: All, YouTube, Recordings and Deleted in dark at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:309 · axe: All, YouTube, Recordings and Deleted in dark at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:328 · Anime: a filtered wall survives a title and Back` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:344 · Music: See all, the Artists view kept across a page, and an album opened on its artist goes back there` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `library-gallery.spec.ts:367 · Music: saved audio in its own view, square` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `live-surface.spec.ts:31 · /live reads cleanly in light at desktop width, with no axe violations` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `live-surface.spec.ts:31 · /live reads cleanly in light at phone width, with no axe violations` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `live-surface.spec.ts:31 · /live reads cleanly in dark at desktop width, with no axe violations` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `live-surface.spec.ts:31 · /live reads cleanly in dark at phone width, with no axe violations` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `live-surface.spec.ts:44 · nothing animates under reduced motion, and the live dot pulses when motion is allowed` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `live-surface.spec.ts:54 · no red anywhere on /live` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `live-surface.spec.ts:63 · a keyboard-only walk of /live: hero, then rails, then Record, then back` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `live-surface.spec.ts:96 · arrow keys reach Recordings and See all, Enter opens the wall and Escape leaves it` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `live-surface.spec.ts:115 · the Recordings link keeps focus and the page never errors` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `live-surface.spec.ts:126 · a 30 s refresh keeps the focused card in place, and shows it ENDED when it left` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `live-surface.spec.ts:141 · counts show per rail and overall; a See all wall keeps loading to its last page without moving` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `local-subtitle-selection.spec.ts:33 · local text subtitles settle on exactly the chosen track and Off disables every track` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:397 · all primary surfaces reflow at the 320 CSS-pixel narrow standard` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:402 · all primary surfaces reflow at a standards-realistic 200% equivalent viewport` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:409 · navigation menu fits a narrow viewport and scrolls to every action` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:438 · Watch keeps long localized title and metadata readable at 200% equivalent` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:464 · rendered controls retain 44px targets and shelves work by pointer and keyboard` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:484 · a member can choose interests in Settings and receive a personalized Home shelf` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:502 · a member suppresses a recommended item and channel, then restores them from Settings` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:545 · a new member is guided through first-run onboarding into a prepared, personalized Home` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:576 · a pending member who reloads without acting stays gated in first-run setup` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:588 · a new member can skip first-run onboarding and still reach a non-blocking Home` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:603 · onboarding still reaches Home with an honest degraded shelf when discovery warming fails` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:620 · a failed Up Next recommendation never breaks the Watch surface or blocks navigation` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:650 · a new member discovers, searches, and follows channels during onboarding with a curated fallback` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:682 · new Lumina discovery, hidden navigation, chapter, and theater controls hold their browser contracts` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:729 · replay chat loads as a deliberate synchronized rail and never blocks playback` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:799 · live YouTube opens with a Live state and relays media without a current chat rail` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:799 · live Twitch opens with a Live state and relays media without a current chat rail` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:900 · record from now captures a live youtube source and renders an honest partial outcome` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:900 · record from now captures a live twitch source and renders an honest completed outcome` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:1012 · schedule an upcoming broadcast from the beginning and render an honest partial-history outcome` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:1090 · onboarding setup and channel discovery surfaces pass the tagged Axe gate` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:1107 · the record-from-now live-recording start surface passes the tagged Axe gate` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:1153 · a terminal failed live-recording surface passes the tagged Axe gate` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:1209 · navigation focuses Home, allows Tab dismissal, and restores its trigger with Escape` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:1229 · global Search has a visible indicator when reached by keyboard` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:1240 · representative desktop and native 320px journeys pass the tagged moderate Axe gate` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:1251 · the authenticated app loading state passes the tagged moderate Axe gate` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:1269 · live tab renders rails and cards click through to Watch` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:1302 · removes credentials, cookie bodies, URLs, and resource blobs from retained traces` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `lumina-resilience.spec.ts:1326 · deletes an unreadable retained trace instead of leaving raw evidence behind` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:45 · dense playback settings keep complete actions, aligned help, and scroll access at 1280px light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:45 · dense playback settings keep complete actions, aligned help, and scroll access at 1280px dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:45 · dense playback settings keep complete actions, aligned help, and scroll access at 390px light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:45 · dense playback settings keep complete actions, aligned help, and scroll access at 390px dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:185 · phone playback settings remain inside the visible player and every section is reachable` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:202 · phone playback facts keep full technical text without colliding with time or speed` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:228 · desktop Caption style is a single-line control` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:240 · desktop volume expands for pointer and keyboard access without animating layout` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `member-access.spec.ts:16 · all streaming blocked: no Streaming nav, and /streaming is a calm explanation` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `member-access.spec.ts:25 · phone: the tab bar drops Streaming when everything is blocked` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `member-picker.spec.ts:9 · signed out with a ring: the picker is the first screen; instant tile signs in` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `member-picker.spec.ts:19 · a password tile expands in place, keyboard only` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `member-picker.spec.ts:40 · Someone else opens the sign-in form with remember off` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `member-picker.spec.ts:49 · no ring: the plain sign-in form, and no ring names anywhere` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata_people_quality.spec.ts:36 · phone rows give name and role a full line while every credit action remains available` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata_people_quality.spec.ts:82 · capture People editor desktop-light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata_people_quality.spec.ts:82 · capture People editor desktop-dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata_people_quality.spec.ts:82 · capture People editor phone-light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata_people_quality.spec.ts:82 · capture People editor phone-dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:37 · flow: edit, save, undo from the toast, reload, then undo from History` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:53 · keyboard: Back to title, the sections and the footer are reachable with Tab alone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:70 · Artwork explains its immediate saves without presenting the metadata draft footer` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:86 · flow: rename a person on every title from the Cast tab (#164)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:106 · History tab: lists the saved batch and Undo restores it` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:111 · phone: the Episodes tab is a list, and the sticky footer stays clear of a focused field` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:120 · phone: the Lock this item switch sits inside the viewport` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:127 · axe: the Details tab has no violations at 390px, light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:127 · axe: the Details tab has no violations at 390px, dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:127 · axe: the Details tab has no violations at 1536px, light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:127 · axe: the Details tab has no violations at 1536px, dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:135 · Artwork captions keep labels and controls inside their cards at 390px, light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:135 · Artwork captions keep labels and controls inside their cards at 390px, dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:135 · Artwork captions keep labels and controls inside their cards at 1536px, light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:135 · Artwork captions keep labels and controls inside their cards at 1536px, dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music-continuity.spec.ts:26 · a requested album remains paused until the member explicitly plays it after import` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music-navigation.spec.ts:54 · Video, Audio, and Books are direct destinations while the music queue keeps playing` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music-navigation.spec.ts:109 · the Audio soundstage is accessible and contained at desktop size` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music-navigation.spec.ts:109 · the Audio soundstage is accessible and contained at phone size` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music-navigation.spec.ts:109 · the Audio soundstage is accessible and contained at tv size` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music-offline.spec.ts:65 · reloads the standalone offline entry, plays saved audio, and never shows another owner` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music-offline.spec.ts:98 · built shell recursively caches hashed dependencies and remains usable with the server disconnected` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:40 · album playback stays on its Audio page and Next updates the player and Media Session` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:68 · paused music collapses, expands and closes in light at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:68 · paused music collapses, expands and closes in light at 320px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:68 · paused music collapses, expands and closes in dark at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:68 · paused music collapses, expands and closes in dark at 320px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:119 · artist → album, and Shuffle plays from a shuffled order` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:131 · an album opened on its artist names the artist on Back, and goes there even after a track played` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:144 · keyboard only: the tracklist is one column and Left reaches Play` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:159 · music pages and the listening room in light at 1440px: no serious axe findings or sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:159 · music pages and the listening room in light at 320px: no serious axe findings or sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:159 · music pages and the listening room in dark at 1440px: no serious axe findings or sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:159 · music pages and the listening room in dark at 320px: no serious axe findings or sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:187 · album sleeve layout with a long title and listening progress: light 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:187 · album sleeve layout with a long title and listening progress: light 1920px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:187 · album sleeve layout with a long title and listening progress: light 320px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:187 · album sleeve layout with a long title and listening progress: dark 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:187 · album sleeve layout with a long title and listening progress: dark 1920px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:187 · album sleeve layout with a long title and listening progress: dark 320px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:227 · listening room adapts to lyrics availability and uses branded choices at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `music.spec.ts:227 · listening room adapts to lyrics availability and uses branded choices at 320px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_admin_media.spec.ts:4 · desktop media setup keeps its actions below the form after restoring a scan` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_admin_media.spec.ts:18 · owner adds a read-only share and retries its private scan in the welcome journey` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_admin_media.spec.ts:73 · first account resumes media setup before the welcome and persists the choice to finish later` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_admin_media.spec.ts:120 · admin member without the first-owner marker enters personal onboarding directly` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_admin_media.spec.ts:120 · viewer member without the first-owner marker enters personal onboarding directly` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_interests_loading.spec.ts:16 · interest loading keeps Continue guarded while Skip remains available` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_interests_loading.spec.ts:34 · a failed interest load can retry without turning unknown interests into an empty choice` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_interests_loading.spec.ts:56 · a late initial interest response cannot replace the canonical Skip result` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_quality.spec.ts:6 · onboarding opens the vault and keeps both setup steps usable at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_quality.spec.ts:6 · onboarding opens the vault and keeps both setup steps usable at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_quality.spec.ts:83 · creator onboarding preserves the collection through back and a failed save at 320px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_quality.spec.ts:83 · creator onboarding preserves the collection through back and a failed save at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_quality.spec.ts:83 · creator onboarding preserves the collection through back and a failed save at 768px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_quality.spec.ts:83 · creator onboarding preserves the collection through back and a failed save at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_quality.spec.ts:141 · creator discovery offers a starting collection even without choosing interests` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_quality.spec.ts:165 · a slow earlier shelf cannot replace the member’s newer interests` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `onboarding_quality.spec.ts:192 · existing interests can be cleared without returning on Back` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `palette.spec.ts:12 · ⌘K → type → ↓ → ↵ opens a title` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `palette.spec.ts:28 · Esc clears, then closes and returns focus to the trigger` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `palette.spec.ts:39 · ⌘↵ searches everything in Explore` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `palette.spec.ts:46 · link mode rejects text and opens a pasted link` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `palette.spec.ts:57 · phone: the header Search control opens a full-screen palette` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `palette.spec.ts:65 · the palette reaches Streaming, Live now, Your channels, saved channels and Home & discovery through one Actions row each` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `palette.spec.ts:81 · profile menu opens from the keyboard and focuses its first action` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `palette.spec.ts:88 · profile menu → Switch member opens the picker (keyboard only)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `playback-integrations.spec.ts:8 · Chromecast acknowledges load/control and keeps a recoverable browser source on failure` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `playback-integrations.spec.ts:77 · member connects listening export, reconciles an uncertain outcome and disconnects` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `player-chrome.spec.ts:30 · seek fill is gold and overlay focus draws a ring` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `player-chrome.spec.ts:40 · captions follow the member preference` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `player-chrome.spec.ts:45 · reduced motion: no animation after showing the mini player` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `player-chrome.spec.ts:52 · the mini player keeps the one media element` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `player-chrome.spec.ts:58 · forced colours: the seek fill and focus ring stay visible` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `player-chrome.spec.ts:68 · a reco menu opens above the mini player` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:51 · first render CLS ≤ 0.02 on /` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:51 · first render CLS ≤ 0.02 on /library` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:51 · first render CLS ≤ 0.02 on /downloads` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:51 · first render CLS ≤ 0.02 on /streaming` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:51 · first render CLS ≤ 0.02 on /settings/playback` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:51 · first render CLS ≤ 0.02 on /library/collections` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:51 · first render CLS ≤ 0.02 on /library/deleted` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:51 · first render CLS ≤ 0.02 on /watch/library/library-1` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:51 · first render CLS ≤ 0.02 on /streaming/live` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:51 · first render CLS ≤ 0.02 on /streaming/channels` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:51 · first render CLS ≤ 0.02 on /library/youtube?view=channels` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:53 · first render CLS ≤ 0.02 on /library with only saved videos (no spotlight to show)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:59 · opening the palette, a dialog, a menu, a toast, the reco menu and the mini player shifts nothing` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `polish-perf.spec.ts:89 · ⌘K focuses the palette input within 150 ms cold and 50 ms warm (4× CPU)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:26 · shows with no interests chosen, says why under each card, and marks exploration only by its words` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:37 · Not interested replaces the card with Hidden. Undo, and Undo restores it` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:50 · when the eight seconds pass the card is gone and Home re-fetches` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:63 · keeps the menu and drops the reasons when the server sends no annotation (the switch is off)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:76 · Show fewer from a channel says so, and Settings lists it with when it is back to normal` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:87 · Clear recommendation history asks first, then clears` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:97 · lists the four kinds of feedback in Settings` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:112 · a recommended poster keeps its reason in the menu as a quiet header, on a phone too` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:126 · Not interested on a More like this poster hides it and sends the title` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:145 · For you sits under the live teaser with reasons, categories follow the member's order, and a rail card has a menu without a reason` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:180 · is fully visible and unclipped in a Home row` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:186 · is fully visible and unclipped in an Explore rail` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:198 · is a borderless top-layer panel with a paper background in a Home row` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:210 · stays 8px inside both edges for the first-column card` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:228 · lands on the next focusable after the menu button, not outside the content` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:241 · rows say why, the request names the channel, and Don't recommend hides the row with Undo` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:260 · the confirmation says we will recommend it again, and the suppression list is re-read` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:283 · a channel with no suppression gets the plain confirmation` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:299 · a card seen for a second is reported, and what is left goes by beacon with the token in the body on pagehide` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:309 · opening a recommendation reports an open` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:321 · Home with a menu open has no serious axe findings (dark)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:321 · Home with a menu open has no serious axe findings (light)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `reco.spec.ts:330 · Explore, the watch page and a title page with a menu open have no serious axe findings` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `requests_quality.spec.ts:215 · Requests evidence: desktop light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `requests_quality.spec.ts:215 · Requests evidence: phone light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `requests_quality.spec.ts:215 · Requests evidence: desktop dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `requests_quality.spec.ts:215 · Requests evidence: phone dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `server-updates.spec.ts:5 · server release checks retain cached updates during an outage at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `server-updates.spec.ts:5 · server release checks retain cached updates during an outage at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `server-updates.spec.ts:47 · admin overview update notification opens the update controls` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_alignment.spec.ts:57 · settings labels and controls align in light at 320px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_alignment.spec.ts:57 · settings labels and controls align in light at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_alignment.spec.ts:57 · settings labels and controls align in light at 975px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_alignment.spec.ts:57 · settings labels and controls align in light at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_alignment.spec.ts:57 · settings labels and controls align in dark at 320px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_alignment.spec.ts:57 · settings labels and controls align in dark at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_alignment.spec.ts:57 · settings labels and controls align in dark at 975px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_alignment.spec.ts:57 · settings labels and controls align in dark at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:36 · settings panels contain their controls and every row remains reachable at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:36 · settings panels contain their controls and every row remains reachable at 975px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:36 · settings panels contain their controls and every row remains reachable at 1536px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:60 · assistant model dropdown discovers draft endpoints without saving configuration` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:86 · invitation libraries fit a compact grid with every choice and the limits selector accessible` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:104 · member library choices use the full pane and Activity sits outside the access form` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:120 · model explanations stay inside the viewport on desktop and phones` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:135 · setting descriptions start below their heading at wide desktop widths` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:149 · phone feature switches share their heading line and keep descriptions readable` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:163 · storage roots keep path and status readable at desktop and phone widths` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:182 · member settings expose every group on phones without hiding any controls` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:195 · request rules render household defaults and member overrides from complete fixtures` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_views.spec.ts:9 · every setting area is within two navigation clicks at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_views.spec.ts:9 · every setting area is within two navigation clicks at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_views.spec.ts:36 · bookmarked controls and group anchors focus their destination after loading` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_views.spec.ts:46 · playback history scrolls with the keyboard on a light phone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `settings_visual_views.spec.ts:46 · playback history scrolls with the keyboard on a dark phone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `subscriptions-gallery.spec.ts:48 · Subscriptions reads cleanly in light at desktop width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `subscriptions-gallery.spec.ts:48 · Subscriptions reads cleanly in light at phone width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `subscriptions-gallery.spec.ts:48 · Subscriptions reads cleanly in dark at desktop width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `subscriptions-gallery.spec.ts:48 · Subscriptions reads cleanly in dark at phone width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `subscriptions-gallery.spec.ts:60 · the masthead, the live band, the gold ring and the YouTube tile` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `subscriptions-gallery.spec.ts:71 · a handle follow redirects to its channel page without adding a history entry` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `subscriptions-gallery.spec.ts:80 · a Twitch follow keeps its detail, and Follow settings returns focus on Escape` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `title_actions_quality.spec.ts:40 · title actions desktop-light keep one viewing action prominent and every owner action usable` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `title_actions_quality.spec.ts:40 · title actions desktop-dark keep one viewing action prominent and every owner action usable` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `title_actions_quality.spec.ts:40 · title actions phone-light keep one viewing action prominent and every owner action usable` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `title_actions_quality.spec.ts:40 · title actions phone-dark keep one viewing action prominent and every owner action usable` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `track-defaults.spec.ts:6 · member language defaults save with caption style and fit both themes on a narrow phone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `two-factor.spec.ts:29 · a wrong code is announced, then the right one signs in` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `two-factor.spec.ts:40 · a recovery code signs in` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `two-factor.spec.ts:50 · an expired sign-in returns to the password form with a message` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:88 · test_a11y_all_routes_themes light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:88 · test_a11y_all_routes_themes light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:88 · test_a11y_all_routes_themes light 320` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:88 · test_a11y_all_routes_themes dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:88 · test_a11y_all_routes_themes dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:88 · test_a11y_all_routes_themes dark 320` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:145 · imported media credits its series instead of offering a channel follow` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:161 · test_focus_return_and_seek: menus close on Escape and hand focus back to their opener` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:192 · gallery walls and the filter sheet: no serious axe findings, sideways scroll or small targets, both themes` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:221 · Home and Home in edit mode: no serious axe findings, sideways scroll or small targets; keyboard-only walk` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area auth light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area auth light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area auth dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area auth dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area onboarding light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area onboarding light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area onboarding dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area onboarding dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area shell light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area shell light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area shell dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area shell dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area live-explore light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area live-explore light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area live-explore dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area live-explore dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area subscriptions light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area subscriptions light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area subscriptions dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area subscriptions dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area recommendations light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area recommendations light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area recommendations dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area recommendations dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area palette light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area palette light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area palette dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area palette dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area member-picker-dialog light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area member-picker-dialog light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area member-picker-dialog dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area member-picker-dialog dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area settings light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area settings light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area settings dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area settings dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area downloads light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area downloads light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area downloads dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area downloads dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area playlist-acquisition light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area playlist-acquisition light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area playlist-acquisition dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area playlist-acquisition dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area collections light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area collections light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area collections dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area collections dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area deleted light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area deleted light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area deleted dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area deleted dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area watch-web light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area watch-web light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area watch-web dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area watch-web dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area player light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area player light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area player dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area player dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area player-up-next light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area player-up-next light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area player-up-next dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area player-up-next dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area watch-live light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area watch-live light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area watch-live dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area watch-live dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area mini-player light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area mini-player light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area mini-player dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area mini-player dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area toasts light 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area toasts light 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area toasts dark 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:282 · a11y area toasts dark 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:777 · forced colours: focus, selection rules and poster markers stay visible` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:805 · more contrast: axe on the shell, palette, settings, a dialog, the player and a wall` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:814 · reduced motion: nothing animates after an overlay opens` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:865 · walk 1: sign in with the keyboard alone and land on the Home heading` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:878 · walk 2: the palette picks a title by keyboard and opens its page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:899 · walk 3: Switch member by keyboard signs in with remember_on_device` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:918 · walk 4: the Settings D-pad moves between the sections and the pane` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:932 · walk 5: a confirm dialog closes on Escape and returns focus to its trigger` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:945 · walk 6: the player seek slider moves with arrows and the playback panel closes on Escape` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:963 · walk 7: Escape leaves an Explore See all wall and returns focus to its control` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:981 · walk 8: a Subscriptions tile opens its channel with focus on the page, never the body` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_a11y_sweep.spec.ts:995 · walk 9: the reco menu opens on Enter, arrows move, Escape returns, Tab continues from the trigger` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_import_ui.spec.ts:35 · import wizard, running and partial` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_import_ui.spec.ts:67 · import partial with entries` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_import_ui.spec.ts:85 · a scan that would mark many files missing waits for confirmation` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_media.spec.ts:43 · TMDB key, Jellyfin toggle and Infuse instructions` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_media.spec.ts:71 · an agent token is shown once, then revoked` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_members_ui.spec.ts:7 · members list opens a member page whose edits save in one PUT` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_members_ui.spec.ts:48 · invite dialog sends, and shows the link when email is not set up` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_metrics.spec.ts:32 · test_admin_overview` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_storage_ui.spec.ts:33 · test_storage_mobile_forms` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_storage_ui.spec.ts:66 · storage rules load failure is actionable` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_storage_ui.spec.ts:77 · adding an external root offers Import now, shared with the household by default` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_tasks_ai.spec.ts:46 · test_admin_tasks_and_ai` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_tasks_ai.spec.ts:76 · test_generate_transcript` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_admin_tasks_ai.spec.ts:97 · test_ai_failure_no_playback_impact` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_baseline.spec.ts:60 · browser boots: local login, one synthetic playback, review surfaces render` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_chat.spec.ts:33 · test_replay_chat_is_read_only_source_chat` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_chat.spec.ts:42 · test_twitch_live_chat_explained_without_sign_in` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_chat.spec.ts:50 · test_chat_renders_without_page_errors` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_collections_ui.spec.ts:94 · test_collection_mixed_watch_vs_save` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_collections_ui.spec.ts:113 · test_collection_save_to_vault_is_explicit_and_separate_from_watch` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_collections_ui.spec.ts:122 · test_collection_reorder_persists_across_reload` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_collections_ui.spec.ts:135 · test_collection_play_all_pushes_to_watch_queue` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_collections_ui.spec.ts:144 · test_collection_visual_mixed_source` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_controls.spec.ts:44 · test_keyboard_only_player_flow` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_controls.spec.ts:91 · controls focused and hover 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_controls.spec.ts:113 · live controls` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_desktop.spec.ts:58 · web UI has no host-launch affordances after desktop removal` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_diagnostics.spec.ts:27 · test_admin_diagnostics` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_diagnostics.spec.ts:45 · test_admin_diagnostics_recommendations` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_discover_ui.spec.ts:38 · test_discover_stale_response_discarded: a slow earlier query never replaces the newer one` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_discover_ui.spec.ts:48 · test_discover_visual_focus` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_downloads_ui.spec.ts:39 · test_download_outcomes` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_downloads_ui.spec.ts:54 · test_downloads_visual` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_follow_feed.spec.ts:103 · follow feed and Kick live status 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_follow_feed.spec.ts:103 · follow feed and Kick live status 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_generic.spec.ts:28 · test_generic_public_fixture_plays_and_saves` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_history.spec.ts:31 · test_history_storage_failure_search_works: a failed history write never blocks the search` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_history.spec.ts:52 · test_remove_one_and_clear_all: single-entry removal and Settings clear both persist server-side` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_history.spec.ts:96 · test_history_suggestions_visual` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_home.spec.ts:31 · test_home_priority_and_empty: seeded shelves in order; a lone card keeps card width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_home.spec.ts:42 · a fresh member sees one start card and no empty shelves` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_home.spec.ts:51 · test_home_two_themes_mobile content 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_home.spec.ts:51 · test_home_two_themes_mobile empty 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_home.spec.ts:51 · test_home_two_themes_mobile content 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_home.spec.ts:51 · test_home_two_themes_mobile empty 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_household_notes.spec.ts:42 · test_notes_timestamp_and_seek` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_household_notes.spec.ts:68 · test_notes_visual` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_idea_graph.spec.ts:34 · test_idea_graph_list_and_map` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_idea_graph.spec.ts:44 · test_idea_graph_empty` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_jellyfin_import.spec.ts:8 · a member previews and imports their Jellyfin history from Settings` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_library_ui.spec.ts:86 · test_library_views_delete_and_undo` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_library_ui.spec.ts:103 · test_library_visual` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_library_ui.spec.ts:145 · the wall keeps its sort and filters in the address across a reload` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_library_ui.spec.ts:167 · Back from a title page puts the wall back: filters, sort, scroll and the focused poster` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_library_ui.spec.ts:191 · on a 375×667 phone the A–Z rail sits beside the posters, above the tab bar, and draws the letters its drag maps` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_library_ui.spec.ts:191 · on a 390×844 phone the A–Z rail sits beside the posters, above the tab bar, and draws the letters its drag maps` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_library_ui.spec.ts:221 · a phone too short for 27 letters hides the rail (scrolling and Find reach the same titles)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_library_ui.spec.ts:227 · a member who signs in after another sees none of their wall: no filters and fresh pages` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_moments.spec.ts:45 · test_moment_create_seek_roundtrip` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_moments.spec.ts:59 · test_moments_themes` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_moments.spec.ts:67 · test_moments_empty` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_player_owner.spec.ts:48 · test_one_media_instance` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_player_owner.spec.ts:62 · test_miniplayer_keyboard_and_progress_saving` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_player_owner.spec.ts:81 · test_miniplayer_close_releases` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_player_owner.spec.ts:89 · test_logout_silences_player` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_player_owner.spec.ts:105 · mini-player over Home 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_player_owner.spec.ts:105 · mini-player over Home 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_player_tracks.spec.ts:52 · subtitle menu: choose a track, generate one, see it arrive` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_player_tracks.spec.ts:66 · Skip intro inside the intro, and the up-next card at credits` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_preferences.spec.ts:13 · test_profile_display_name_edit: renaming updates the profile everywhere it is shown` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_provenance.spec.ts:30 · test_provenance_panel` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_provenance.spec.ts:39 · test_provenance_error_state` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_public_auth.spec.ts:91 · local-only auth: no provider buttons, local login boots, Settings has no Twitch card, no provider endpoint touched` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_public_options.spec.ts:186 · desktop 1536x960 dark: Settings has no Saved sign-ins card, a live source plays media and fetches live chat, and no credential endpoint is ever requested` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_recording.spec.ts:48 · test_recording_states_live_and_partial` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_recording.spec.ts:54 · test_recording_keep_after_partial` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_recording.spec.ts:69 · test_recording_no_overflow_phone live` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_recording.spec.ts:69 · test_recording_no_overflow_phone partial` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_recording.spec.ts:79 · test_recording_retention_admin` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_recovery.spec.ts:11 · test_admin_backups` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_remote_dash_startup.spec.ts:141 · DASH Auto renders the small rung before a slow top rung, then ramps and honors a pin` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_ai.spec.ts:61 · turning on Semantic search with no model downloads it, and it works after Save (success criterion 1)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_ai.spec.ts:99 · a corrupted download is never used: the row says why and Retry downloads again (success criterion 5)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_ai.spec.ts:118 · the dialog works from a TV remote: OK opens it, Back cancels, focus returns, 48 px buttons` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_registry.spec.ts:7 · every rendered Settings control belongs to a registry row with ⓘ text` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_registry.spec.ts:43 · every member-page control belongs to a members.* row with ⓘ text (member access)` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:9 · Settings opens controls immediately with every personal and household area directly available` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:27 · every old admin link still opens its category in Manage Server` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:38 · phone settings keeps direct navigation and every playback control on one page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:53 · search finds a destination and saves the real setting on its own page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:68 · direct settings controls save and update their visuals at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:68 · direct settings controls save and update their visuals at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:89 · drafts survive in-page jumps and declined area, navigation and browser Back changes` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:106 · keyboard member deactivation focuses Cancel and Escape restores the trigger` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:117 · phone confirmation actions follow their visual order when tabbing` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:136 · invitations open the public address on its new Connections page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:146 · navigation overlays the full-width page, stays beside its trigger, dismisses outside, and opens both settings spaces` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_shell.spec.ts:178 · settings search keeps placeholder and entered text comfortably inside its field` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_tv.spec.ts:18 · the D-pad moves from search into the direct area navigation` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_tv.spec.ts:32 · the D-pad reaches every section and row without Tab or hover` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_settings_tv.spec.ts:77 · every Settings target is at least 48 px tall at the 1600 px step, and each ⓘ is 48 px wide` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_shell.spec.ts:8 · test_route_reload_back_forward` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_shell.spec.ts:34 · the old Live, Explore and Subscriptions addresses land on Streaming` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_shell.spec.ts:43 · the desktop menu and search glyphs share a vertical center` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_shell.spec.ts:67 · test_shell_surfaces 1536` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_shell.spec.ts:67 · test_shell_surfaces 390` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_shell.spec.ts:67 · test_shell_surfaces 360` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_summary_ui.spec.ts:35 · test_summary_evidence_opens_cue` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_summary_ui.spec.ts:46 · test_summary_generating` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_themes.spec.ts:16 · test_theme_visual_existing_screens light` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_themes.spec.ts:16 · test_theme_visual_existing_screens dark` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_themes.spec.ts:43 · test_theme_system_changes: explicit choice ignores the OS, system follows it, and the choice persists` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_themes.spec.ts:70 · OLED stays pure black, readable and persistent at 1536px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_themes.spec.ts:70 · OLED stays pure black, readable and persistent at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_titles.spec.ts:16 · Next up → series → Season 2 → play` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_titles.spec.ts:43 · Back from Watch returns to the title page and season it was played from` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_titles.spec.ts:53 · a movie plays the chosen version` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_titles.spec.ts:62 · an admin fixes a match from the title page` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_titles.spec.ts:72 · keyboard only: arrows move between Home rows, Enter opens, Escape goes back` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_titles.spec.ts:88 · Try again, New smart collection and Visit TMDB are 48px targets at the 1600px step` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_transcode.spec.ts:136 · test_transcode_real_browser_av firefox` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_transcode.spec.ts:136 · test_transcode_real_browser_av webkit` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_transcode.spec.ts:166 · s24 watch direct` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_transcode.spec.ts:166 · s24 watch error` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_transcript_ui.spec.ts:18 · test_transcript_search_seek` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_transcript_ui.spec.ts:44 · test_transcript_search_state` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_twitch_playback.spec.ts:18 · protected Twitch streams offer a deliberate source handoff` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_twitch_playback.spec.ts:78 · test_twitch_vod_seek_fixture` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_twitch_playback.spec.ts:113 · test_twitch_live_edge_then_ended` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_visual_catalogue.spec.ts:325 · the catalogue lists every 13.1 state` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_visual_catalogue.spec.ts:337 · catalogue light desktop` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_visual_catalogue.spec.ts:337 · catalogue light phone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_visual_catalogue.spec.ts:337 · catalogue dark desktop` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_visual_catalogue.spec.ts:337 · catalogue dark phone` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_watch_layout.spec.ts:25 · saved YouTube playback keeps a ranked Up next and moves between saved and streamed videos` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_watch_layout.spec.ts:71 · test_watch_geometry` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_watch_layout.spec.ts:96 · test_watch_small_layout` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_watch_layout.spec.ts:114 · test_watch_preserves_current_play` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_watch_layout.spec.ts:135 · test_watch_tools_tablist_not_gallery_tabs_spacing` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_watch_queue.spec.ts:62 · test_queue_keyboard_reorder_survives_reload` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_watch_queue.spec.ts:75 · test_queue_autoplays_next_when_current_ends` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_youtube_playback.spec.ts:67 · test_youtube_playback_seek_resume_quality` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `v1_youtube_playback.spec.ts:114 · test_restricted_source_honest` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `vault.spec.ts:49 · Collections: the list, the lens link, the All chapter, a tile and Back` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `vault.spec.ts:71 · Collections: ?new=smart opens the builder and leaves the address clean, with no history entry` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `vault.spec.ts:81 · Collections: deleting asks first, Esc returns focus to Delete, confirming removes it` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `vault.spec.ts:108 · Downloads: an empty page offers "Add a link", which asks for the palette in link mode` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `vault.spec.ts:117 · Downloads: keyboard only, Cancel on a running row and Show more` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `vault.spec.ts:130 · Deleted: Restore is busy then the row leaves; a failing restore shows its reason` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `vault.spec.ts:145 · YouTube coexistence: the YouTube channels view keeps its lens, and Collections then Back returns to it` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:29 · matched episode follows the player and filename stays in file details at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:29 · matched episode follows the player and filename stays in file details at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:84 · an empty season keeps the full-width stage and explains where to find all episodes beneath it` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:106 · up next failure offers retry while preserving the playing media element` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:136 · theater keeps episode heading and actions below the stage without overlap` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-start.spec.ts:13 · a watch link with ?t= starts there and then drops the time from the address` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-start.spec.ts:22 · an unfinished item resumes from its saved position` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-up-next.spec.ts:20 · an episode lists the rest of its show in order and plays the next one when it ends` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-up-next.spec.ts:38 · the rail fits a phone without sideways scroll` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-up-next.spec.ts:47 · a movie outside a collection has no Up next` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-up-next.spec.ts:58 · a movie collection follows the stage in collection order and never autoplays` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-up-next.spec.ts:94 · fullscreen stays on while autoplay moves to the next episode` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-up-next.spec.ts:108 · picture-in-picture stays open while autoplay moves to the next episode` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-web-video.spec.ts:32 · a live watch page reads cleanly in light at desktop width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-web-video.spec.ts:32 · a live watch page reads cleanly in light at phone width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-web-video.spec.ts:32 · a live watch page reads cleanly in dark at desktop width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-web-video.spec.ts:32 · a live watch page reads cleanly in dark at phone width` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-web-video.spec.ts:44 · the byline opens the channel page and the description seeks without links` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `watch-web-video.spec.ts:51 · no red on the watch page, and the chat seam shows the live chat` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `youtube-session.spec.ts:5 · personal YouTube session connects and disconnects at 1440px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `youtube-session.spec.ts:5 · personal YouTube session connects and disconnects at 900px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `youtube-session.spec.ts:5 · personal YouTube session connects and disconnects at 390px` | pending | History review pending | Pending | `mocked`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:256 · capture all metadata editor tabs at desktop light` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:256 · capture all metadata editor tabs at desktop dark` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:256 · capture all metadata editor tabs at phone light` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:256 · capture all metadata editor tabs at phone dark` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:292 · capture the uncatalogued Library lenses at desktop-light` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:308 · capture every uncatalogued channel tab at desktop-light` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:292 · capture the uncatalogued Library lenses at phone-dark` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `media_quality.spec.ts:308 · capture every uncatalogued channel tab at phone-dark` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:151 · capture: Artwork autosave at 390px, light` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:151 · capture: Artwork autosave at 390px, dark` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:151 · capture: Artwork autosave at 1536px, light` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `metadata-editor.spec.ts:151 · capture: Artwork autosave at 1536px, dark` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:13 · capture every settings page in light at 1440px` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:13 · capture every settings page in light at 390px` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:13 · capture every settings page in dark at 1440px` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `settings_visual_polish.spec.ts:13 · capture every settings page in dark at 390px` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `settings_visual_views.spec.ts:64 · capture bespoke settings views at 1440px` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `settings_visual_views.spec.ts:64 · capture bespoke settings views at 390px` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `v1_visual_catalogue.spec.ts:337 · catalogue light wide` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `v1_visual_catalogue.spec.ts:337 · catalogue dark wide` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode populated light 390` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode empty light 390` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode failure light 390` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode populated light 1440` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode empty light 1440` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode failure light 1440` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode populated dark 390` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode empty dark 390` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode failure dark 390` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode populated dark 1440` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode empty dark 1440` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `watch_quality.spec.ts:158 · capture episode failure dark 1440` | pending | History review pending | Pending | `mocked-optional`; baseline/readiness assessment pending |
+| `household.setup.ts:4 · first owner connects and imports media during onboarding, then signs in again [setup]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `books-browsers.spec.ts:108 · firefox opens, turns, jumps, resumes and lays out every book format [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `books-browsers.spec.ts:108 · webkit opens, turns, jumps, resumes and lays out every book format [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `books-performance.spec.ts:41 · 120-unit EPUB, PDF, CBZ and CBR startup, navigation and resume resource observations [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `books-performance.spec.ts:162 · opening a comic while a series cover grid is loading [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `books.spec.ts:75 · Books imports real EPUB and CBZ archives, persists readers, and keeps personal shelves [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `household.spec.ts:4 · invited member is isolated from private items, keeps own search history, and is signed out on deactivation [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `household.spec.ts:47 · Home layout: the owner reorders and hides shelves, the layout holds in a new browser, another member keeps the default [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `jellyfin.spec.ts:15 · the Jellyfin API answers at the root while browser deep links still render [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `library.spec.ts:13 · music imports into albums and artists, an album plays on, and the anime folders re-sort the library [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `member-switch.spec.ts:5 · remember on this browser → sign out → Who's watching → instant switch lands on Home; the vault owner needs a password [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `playback.spec.ts:5 · direct WebM plays from the original file [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `playback.spec.ts:21 · Realstack Remux starts an HLS playback session (Remuxed) [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `playback.spec.ts:21 · Realstack Transcode starts an HLS playback session (Transcoded) [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `privacy.spec.ts:19 · cross-user matrix: a member cannot read or change another member’s private data [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `reco.spec.ts:23 · a played recommendation is attributed and counted in Diagnostics [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `series.spec.ts:17 · a show starts, resumes from Home and moves on to the next episode [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `settings.spec.ts:4 · theme choice persists on the server across reload [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `settings.spec.ts:18 · settings export downloads the member’s JSON profile [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `settings.spec.ts:30 · admin creates and verifies a database backup [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `watch.spec.ts:4 · a timestamped note persists and seeks the player [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `watch.spec.ts:43 · watch queue adds, reorders across reload, and autoplays the next entry [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `watch.spec.ts:71 · Resume on Home's hero starts playback at the saved position [journeys]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `home-images.perf.spec.ts:298 · Home visible artwork decodes within a bounded real-image pipeline, cold and warm [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `home-images.perf.spec.ts:472 · Home high-density stills select a bounded rendition instead of an original [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:16 · time to first frame, direct play, lan, cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:16 · time to first frame, direct play, slow, cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:37 · conversion pipeline smoke: first media segment within 6 s, 160x90 fixture, lan, cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:65 · the app reports its own time to first frame to Diagnostics [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:134 · movies wall first screen and sharp posters, lan cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:154 · title page hero from a wall click, lan cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:189 · no image fails across a full scroll of both walls, lan cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:134 · movies wall first screen and sharp posters, lan warm [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:154 · title page hero from a wall click, lan warm [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:189 · no image fails across a full scroll of both walls, lan warm [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:134 · movies wall first screen and sharp posters, slow cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:154 · title page hero from a wall click, slow cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:189 · no image fails across a full scroll of both walls, slow cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:212 · scripted fling on the movies wall at 4x CPU [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:212 · scripted fling on the movies wall at 1x CPU [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:279 · All landing first screen, first two chapters and requests before a scroll, lan cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:306 · long tasks while scrolling the All landing top to bottom, lan cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:328 · albums wall first screen, lan cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:279 · All landing first screen, first two chapters and requests before a scroll, lan warm [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:306 · long tasks while scrolling the All landing top to bottom, lan warm [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:328 · albums wall first screen, lan warm [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:279 · All landing first screen, first two chapters and requests before a scroll, slow cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:306 · long tasks while scrolling the All landing top to bottom, slow cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:328 · albums wall first screen, slow cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:356 · home first screen and hero, lan cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:356 · home first screen and hero, lan warm [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:356 · home first screen and hero, slow cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:378 · home makes at most 5 of its own requests before its first screen, lan cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:397 · home: no image fails and at most 2 long tasks across a scripted scroll to the bottom, lan cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:456 · /live first screen with colour fields painted, lan cold [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:469 · scripted fling across the /live rails at 4x CPU [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `perf.spec.ts:500 · channel page first screen on a cache hit, lan [perf]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `playback.webkit.spec.ts:15 · Realstack Remux plays real frames in WebKit (Remuxed) [webkit-playback]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `playback.webkit.spec.ts:15 · Realstack Transcode plays real frames in WebKit (Transcoded) [webkit-playback]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `playback.webkit.spec.ts:29 · seeking beyond the converted range restarts the transcode and lands near the target [webkit-playback]` | pending | History review pending | Pending | `realstack`; baseline/readiness assessment pending |
+| `playperf.setup.ts:3 · owner + fixture import [setup]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · direct start (lan): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · direct start, moov at the end (lan): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · direct resume t=600 (lan): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · early click (before idle preloads) (lan): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · deep link (cold load) (lan): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · music track (lan): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · vault YouTube download (VP9/Opus WebM) (lan): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · episode (lan): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · direct start (rtt): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · direct start, moov at the end (rtt): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · direct resume t=600 (rtt): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · early click (before idle preloads) (rtt): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · deep link (cold load) (rtt): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · music track (rtt): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · vault YouTube download (VP9/Opus WebM) (rtt): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:115 · episode (rtt): cold-cache click -> first frame [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `direct.spec.ts:127 · direct start with the info column answering in 2 s: the video does not wait for it [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:27 · Perf Direct: start and quality switches [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:27 · Perf Remux: start and quality switches [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:27 · Perf Hevc: start and quality switches [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:27 · Perf Gop: start and quality switches [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:27 · Perf Encode: start and quality switches [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:93 · Perf Direct: resume at 10 s plays from there [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:93 · Perf Direct: resume at 20 s plays from there [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:93 · Perf Remux: resume at 10 s plays from there [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:93 · Perf Remux: resume at 20 s plays from there [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:93 · Perf Hevc: resume at 10 s plays from there [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:93 · Perf Hevc: resume at 20 s plays from there [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:93 · Perf Gop: resume at 10 s plays from there [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:93 · Perf Gop: resume at 20 s plays from there [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:93 · Perf Encode: resume at 10 s plays from there [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:93 · Perf Encode: resume at 20 s plays from there [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `playperf.spec.ts:114 · an encode switch loads the asked position first even when its playlist is already long [playperf]` | pending | History review pending | Pending | `playperf`; baseline/readiness assessment pending |
+| `audit-readers.setup.ts:10 · owner, synthetic music, and reader fixtures are ready [setup]` | pending | History review pending | Pending | `audit-readers`; baseline/readiness assessment pending |
+| `audit-readers.spec.ts:164 · music decoded, native-streaming fallback, offline, and scheduling evidence [audit-readers]` | pending | History review pending | Pending | `audit-readers`; baseline/readiness assessment pending |
+| `audit-readers.spec.ts:297 · long-form FLAC automatically uses the native streaming path instead of decoded memory [audit-readers]` | pending | History review pending | Pending | `audit-readers`; baseline/readiness assessment pending |
+| `audit-readers.spec.ts:385 · EPUB, PDF, CBZ, and CBR real reader journeys retain raw turn, request, and JS-heap evidence [audit-readers]` | pending | History review pending | Pending | `audit-readers`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:404 · remote DASH frontend-only synthetic upstream: three cold contexts [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:529 · remote HLS VOD frontend-only synthetic upstream: three cold contexts [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:538 · remote rolling HLS live current-edge frontend-only: three cold contexts [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:547 · audit manifest records deliberate remote/live and track-selection gaps [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:562 · multi-audio and text subtitles preserve a seek after selection [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:635 · direct-h264-aac: three cold-context decoded playback trials [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:635 · remux-h264-aac-mkv: three cold-context decoded playback trials [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:635 · transcode-mpeg4: three cold-context decoded playback trials [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:635 · hevc10-eac3: three cold-context decoded playback trials [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:635 · long-gop-h264-ac3: three cold-context decoded playback trials [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:635 · vp9-opus-webm: three cold-context decoded playback trials [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:635 · long-h264-resume: three cold-context decoded playback trials [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:635 · tail-moov-h264: three cold-context decoded playback trials [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:635 · tracks-h264-two-audio-text-subtitle: three cold-context decoded playback trials [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `audit-video.spec.ts:654 · MPEG4 seek diagnostic records the absolute timeline after an early converted-HLS seek [audit-video]` | pending | History review pending | Pending | `audit-video`; baseline/readiness assessment pending |
+| `local-network.spec.ts:267 · unshaped-saturated-reference: three cold Perf Remux trials [local-network]` | pending | History review pending | Pending | `local-network`; baseline/readiness assessment pending |
+| `local-network.spec.ts:267 · shaped-automatic-480p: three cold Perf Remux trials [local-network]` | pending | History review pending | Pending | `local-network`; baseline/readiness assessment pending |
+| `local-network.spec.ts:267 · shaped-manual-480p: three cold Perf Remux trials [local-network]` | pending | History review pending | Pending | `local-network`; baseline/readiness assessment pending |

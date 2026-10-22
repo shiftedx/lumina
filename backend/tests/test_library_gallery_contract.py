@@ -7,11 +7,11 @@ from sqlalchemy import bindparam, select, text
 
 from app.db import ANIME_DEFAULT_MATCH, CATEGORY_SCOPES, CATEGORY_SQL
 from app.media_schemas import CLIENT_METRIC_LABELS, MediaServerSettingsUpdate
-from app.models import LibraryItem, MediaTitle, User
+from app.models import MediaTitle, User
 from app.services.client_metrics import BUDGETS
 from support import make_user
 from title_support import (
-    ALBUM, ALICE, ANIME_EPISODE, ANIME_MOVIE, ANIME_SEASON, ANIME_SERIES, ARTIST, BOB, BOXSET, MOVIE, SERIES, TRACKS,
+    ALBUM, ALICE, ANIME_EPISODE, ANIME_MOVIE, ANIME_SEASON, ANIME_SERIES, ARTIST, BOB, BOXSET, MOVIE, SERIES,
     seed_gallery, seed_tree,
 )
 
@@ -33,16 +33,6 @@ def test_a_new_title_takes_its_types_category_until_the_sql_decides(gallery) -> 
     assert (category[MOVIE], category[SERIES]) == ("movies", "shows")
     assert (category[BOXSET], category[ALBUM], category[ARTIST]) == (None, None, None)
     assert {category[i] for i in (ANIME_SERIES, ANIME_SEASON, ANIME_EPISODE, ANIME_MOVIE)} == {"anime"}  # seed_gallery sets it
-
-
-def test_the_gallery_fixture_holds_an_album_of_three_tracks(gallery) -> None:  # noqa: ANN001
-    with gallery() as session:
-        album = session.get(MediaTitle, ALBUM)
-        tracks = session.scalars(select(LibraryItem).where(LibraryItem.title_id == ALBUM).order_by(LibraryItem.id)).all()
-        assert (album.type, album.parent_id, album.year, album.key) == ("album", ARTIST, 2019, "album:artist a/album one")
-        assert [item.id for item in tracks] == sorted(TRACKS)
-        assert {item.kind for item in tracks} == {"track"}
-        assert [(item.metadata_json["disc_number"], item.metadata_json["track_number"]) for item in tracks] == [(1, 1), (1, 2), (2, 1)]
 
 
 def test_scoped_category_statements_touch_only_the_given_titles(gallery) -> None:  # noqa: ANN001

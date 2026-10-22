@@ -204,8 +204,9 @@ def test_hdr10_tone_maps_in_software(household: None, tmp_path: Path) -> None:
     ], check=True, timeout=120)
     body = _start(_download("alice", hdr)).json()
     video = next(s for s in _probe_concat(_finished(body["session_id"]), tmp_path)["streams"] if s["codec_type"] == "video")
-    assert (video["codec_name"], video["pix_fmt"]) == ("h264", "yuv420p")
-    assert video.get("color_transfer") != "smpte2084"
+    assert (video["codec_name"], video["pix_fmt"], video.get("color_space"), video.get("color_transfer"), video.get("color_primaries")) == (
+        "h264", "yuv420p", "bt709", "bt709", "bt709",
+    )
 
 
 def test_qsv_on_a_host_without_it_plays_in_software(household: None) -> None:

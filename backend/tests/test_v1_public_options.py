@@ -29,6 +29,7 @@ from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
+from starlette.routing import Mount
 
 import app.main as main
 import app.models as models_module
@@ -302,24 +303,31 @@ def test_auth_profile_surface_absent() -> None:
         if getattr(route, "path", "").startswith("/api/auth-profiles")
     )
     assert removed_paths == [], f"removed route families re-landed: {removed_paths}"
+    live_chat_routes = [
+        (route.path, getattr(route, "methods", set()))
+        for route in app.routes
+        if getattr(route, "path", "").startswith("/api/live-chat")
+    ]
+    assert live_chat_routes == [("/api/live-chat", {"GET"})]
 
     # The app module must not wire the removed service surface.
     main_source = (BACKEND_APP / "main.py").read_text(encoding="utf-8")
     for name in ("AuthProfileService", "LiveChatService", "secret_storage"):
         assert name not in main_source, f"main.py still references the removed surface: {name}"
 
-    # SPA static-mount semantics: the mount answers the removed paths with
-    # 404 (GET) / 405 (POST, DELETE) before any handler could run; a
-    # surviving handler would answer with API semantics instead. The negative
-    # control proves the 405 is the static mount, not app routing.
+    # An unregistered unsafe method is 404 without a frontend build and 405
+    # through the GET/HEAD-only SPA mount. Derive the exact fallback from the
+    # route table, then require every removed path to behave the same way.
     client = TestClient(app, base_url="http://localhost")
-    assert client.post("/api/definitely-not-a-route").status_code == 405
+    fallback = 405 if any(isinstance(route, Mount) and route.name == "frontend" for route in app.routes) else 404
+    assert client.post("/api/definitely-not-a-route").status_code == fallback
     for path in ("/api/auth-profiles", "/api/auth-profiles/profile-1", "/api/live-chat/session-1/events"):
         assert client.get(path).status_code == 404, path
-    for path in ("/api/auth-profiles", "/api/live-chat", "/api/live-chat/session-1"):
-        assert client.post(path).status_code == 405, path
+    assert client.post("/api/live-chat").status_code == 405  # the retained GET route rejects POST itself
+    for path in ("/api/auth-profiles", "/api/live-chat/session-1"):
+        assert client.post(path).status_code == fallback, path
     for path in ("/api/auth-profiles/profile-1", "/api/live-chat/session-1"):
-        assert client.delete(path).status_code == 405, path
+        assert client.delete(path).status_code == fallback, path
 
     # The model is not part of the product schema.
     assert not hasattr(models_module, "AuthProfile")

@@ -55,6 +55,8 @@ def test_transcript_vtt_srt_languages() -> None:
         (b'{"events": [{"tStartMs": "0", "segs": []}]}', "json3"),
         (b"WEBVTT\n\n" + b"x" * MAX_TRACK_BYTES, "vtt"),
     ],
+    ids=["invalid-timestamp", "backwards-interval", "no-cues", "invalid-utf8",
+         "deep-json", "invalid-json-timestamp", "oversized-vtt"],
 )
 def test_caption_malformed_bounded(data: bytes, ext: str) -> None:
     with pytest.raises(TranscriptError):

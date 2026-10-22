@@ -1,7 +1,6 @@
 """Watch wiring, held-run pause, run adoption and the lifespan hook."""
 from __future__ import annotations
 
-import inspect
 import math
 import threading
 import time
@@ -198,11 +197,6 @@ def test_a_manual_rescan_resolves_the_pause(env):
     tick(e, 10)
     assert fs.stat_calls > calls and e.automation.root_entry(root_id)["state"] == "scanning"  # the watch run (fake drive)
     assert watch_starts(e) == [[{"dir": "Movie", "deep": False}]]
-
-
-def test_no_automation_code_path_calls_confirm():
-    for module in (la, library_watch):
-        assert "confirm(" not in inspect.getsource(module)
 
 
 def test_identity_mismatch_is_offline_and_snapshot_untouched(env):

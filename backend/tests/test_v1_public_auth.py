@@ -8,16 +8,13 @@ tables, and the session/user DTOs carry no provider-identity fields. Local
 account auth (login/me/logout) and the captured-chat READ path
 (GET /api/chat-replay/{source_identity}) survive unchanged.
 
-Observed absence semantics (recorded per lead steer #1): the app mounts the SPA
-static files at "/" (StaticFiles(html=True)), which answers UNREGISTERED paths:
-GET -> 404 (the HTML 404 page), POST/DELETE -> 405 (the mount allows GET/HEAD
-only). The static mount intercepts the removed paths BEFORE any auth
-dependency runs, so the observed answers are 404/405 — not 401 — and no
-fixture authentication is needed to observe them. A surviving provider-auth
-handler would answer with API semantics (2xx/401/403/400) instead, so the HTTP
-checks below — including a negative-control POST to a sibling path that never
-existed — catch a handler re-landing on a removed path. Route-table
-inspection is the primary proof.
+Observed absence semantics (recorded per lead steer #1): an unregistered path
+answers 404 when the frontend has not been built. When the app mounts the SPA
+static files at "/" (StaticFiles(html=True)), GET remains 404 and POST/DELETE
+answer 405 because the mount allows GET/HEAD only. No auth dependency runs in
+either case. The HTTP checks below derive the exact fallback from the route
+table and compare removed paths with a sibling path that never existed.
+Route-table inspection remains the primary proof.
 """
 
 from __future__ import annotations
@@ -29,6 +26,7 @@ from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
+from starlette.routing import Mount
 
 import app.models as models_module
 from app.config import settings
@@ -51,8 +49,8 @@ TWITCH_ENDPOINT = f"/api/chat-replay/{quote(TWITCH_IDENTITY, safe='')}"
 
 def test_provider_auth_routes_absent() -> None:
     """The OAuth + Twitch-connection + Twitch-live-chat routes are gone from
-    the router, the service modules are deleted, and the SPA mount answers the
-    removed paths with 404 (GET) / 405 (POST/DELETE) — never API semantics."""
+    the router, the service modules are deleted, and the removed paths have the
+    same fallback semantics as an unregistered sibling path."""
     # Route-table proof (primary): no registered route targets the removed
     # prefixes.
     removed = [
@@ -81,10 +79,11 @@ def test_provider_auth_routes_absent() -> None:
         assert not (BACKEND_APP / "services" / name).exists(), f"services/{name} must be removed"
 
     client = TestClient(app, base_url="http://localhost")
-    # Negative control: a sibling path that never existed also 405s on POST —
-    # the SPA static mount is answering, not a provider handler.
+    # Without a built frontend FastAPI answers an unmatched unsafe method with
+    # 404; with the SPA mount its GET/HEAD-only StaticFiles app answers 405.
+    fallback = 405 if any(isinstance(route, Mount) and route.name == "frontend" for route in app.routes) else 404
     control = client.post("/api/twitch/definitely-not-a-route")
-    assert control.status_code == 405
+    assert control.status_code == fallback
 
     for path in (
         "/api/oauth/providers",
@@ -112,11 +111,11 @@ def test_provider_auth_routes_absent() -> None:
         "/api/twitch/live-chat/session-id",
     ):
         response = client.post(path)
-        assert response.status_code == 405, (path, response.status_code)
+        assert response.status_code == fallback, (path, response.status_code)
 
     for path in ("/api/twitch/connection", "/api/twitch/live-chat/session-id"):
         response = client.delete(path)
-        assert response.status_code == 405, (path, response.status_code)
+        assert response.status_code == fallback, (path, response.status_code)
 
 
 def test_local_login_survives_removal(db_factory, api_client) -> None:

@@ -605,6 +605,18 @@ def test_similar_compares_like_with_like_and_anchors_episodes_on_their_series() 
     assert served.surface == "title_similar" and served.context_key == "show:12"
     assert "show" not in _keys(served) and _tid(1) not in _keys(served)  # never the anchor; a series is like a series
 
+    movie_anchor, movie_match = _tid(50), _tid(51)
+    add_movie(db, movie_anchor, "Drama Anchor", genres=["Drama"], people=["Harbor Actor"])
+    add_movie(db, movie_match, "Drama Match", genres=["Drama"], people=["Harbor Actor"])
+    for number in range(101):  # These fill the shared-token and newest nominations if types are filtered too late.
+        add_series(db, f"zz-series-{number:03}", f"Drama Series {number}", seasons={1: 1}, genres=["Drama"], people=["Harbor Actor"])
+    db.commit()
+
+    movies = _policy(db).similar(member, db.get(MediaTitle, movie_anchor), k=12)
+
+    assert movie_match in _keys(movies)
+    assert all(db.get(MediaTitle, title_id).type == "movie" for title_id in _keys(movies))
+
 
 def test_suggestions_filter_types_and_never_replace_the_home_list() -> None:
     member = _member()

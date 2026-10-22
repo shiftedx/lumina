@@ -15,6 +15,7 @@ from app import db as db_module
 from app.config import settings
 from app.models import AsrJob, LibraryItem, LibraryItemArtifact, MediaArtifact, Transcript, UserSettings
 from app.services import enrichment, library_import, subtitle_translate
+from app.services.media_probe import PROBE_CACHE_VERSION
 from app.services.transcripts import TranscriptService
 from app.services.yt_dlp_service import YtDlpService
 from tests.test_v1_artifacts import _client, _download, household  # noqa: F401
@@ -187,7 +188,7 @@ def test_captions_job_ingests_embedded_text_streams(household: None, monkeypatch
     with db_module.SessionLocal() as db:
         artifact = db.query(MediaArtifact).join(LibraryItemArtifact, LibraryItemArtifact.artifact_id == MediaArtifact.id).filter(
             LibraryItemArtifact.library_item_id == item_id).one()
-        artifact.probe = {"fingerprint": f"{info.st_size}:{info.st_mtime_ns}", "streams": [
+        artifact.probe = {"fingerprint": f"{info.st_size}:{info.st_mtime_ns}", "_probe_cache_version": PROBE_CACHE_VERSION, "streams": [
             {"index": 2, "type": "subtitle", "codec": "subrip", "language": "eng"},
             {"index": 3, "type": "subtitle", "codec": "hdmv_pgs_subtitle", "language": "eng"},
         ]}

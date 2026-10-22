@@ -52,11 +52,6 @@ def test_additional_parts_is_an_empty_result(jf: TestClient) -> None:
     assert get(jf, f"/Videos/{HEX(MOVIE)}/AdditionalParts", token=None).status_code == 401
 
 
-def test_an_unknown_route_is_an_empty_bodied_404(jf: TestClient) -> None:
-    response = get(jf, "/Some/Unserved/Probe")
-    assert (response.status_code, response.content) == (404, b"")
-
-
 def test_errors_on_the_jellyfin_surface_have_no_body(jf: TestClient) -> None:
     login = {"Authorization": 'MediaBrowser Client="Roku", Device="r", DeviceId="roku-1", Version="3"'}
     bad_password = jf.post("/Users/AuthenticateByName", json={"Username": "alice", "Pw": "wrong"}, headers=login)

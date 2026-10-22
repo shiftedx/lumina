@@ -11,6 +11,12 @@ the production build, then the full parallel browser tier. For UI changes,
 both browser tiers twice; commands, budgets, isolation and measured evidence are
 in [frontend readiness](FRONTEND_READINESS.md).
 
+Backend changes have a 50-contract smoke tier and a full parallel pytest tier.
+`mise exec -- make backend-smoke` is the fast backend merge bar; `make backend-test`
+runs full with four isolated workers. Qualify both twice before release; commands,
+budgets, retained prerequisite skips and audit evidence are in
+[backend readiness](BACKEND_READINESS.md).
+
 Install all pinned engines once: `cd frontend && mise exec -- npx playwright install chromium firefox webkit`.
 The tier runner allocates fresh loopback ports and private fixture/output roots;
 see its printed artifact path and pass/fail times. Legacy `make e2e-mocked` and

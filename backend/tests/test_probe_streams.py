@@ -1,7 +1,13 @@
-"""Ffprobe facts carry a per-stream list; caches without it are stale."""
+"""Ffprobe facts carry a per-stream list and an explicit cache version."""
 from __future__ import annotations
 
-from app.services.media_probe import is_stale, normalize
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from app.services.media_probe import PROBE_CACHE_VERSION, is_stale, normalize, run_ffprobe
 
 RAW = {
     "format": {"format_name": "matroska,webm", "duration": "5400.5", "bit_rate": "24000000"},
@@ -41,6 +47,33 @@ def test_every_real_stream_is_listed_with_normalized_facts() -> None:
     assert (facts["video_codec"], facts["audio_codec"], facts["height"], facts["audio_tracks"]) == ("hevc", "truehd", 2160, 3)
 
 
+def test_frame_colors_follow_playable_video_when_cover_art_comes_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = iter([
+        {
+            "format": {"format_name": "matroska,webm"},
+            "streams": [
+                {"index": 0, "codec_type": "video", "codec_name": "mjpeg", "disposition": {"attached_pic": 1}},
+                {"index": 1, "codec_type": "audio", "codec_name": "aac"},
+                {"index": 2, "codec_type": "video", "codec_name": "hevc", "color_space": "bt2020nc", "disposition": "bad"},
+            ],
+        },
+        {"frames": [{"stream_index": 2, "color_space": "bt2020nc", "color_transfer": "smpte2084", "color_primaries": "bt2020"}]},
+    ])
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, json.dumps(next(responses)).encode(), b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    facts = normalize(run_ffprobe("ffprobe", Path("/media/movie.mkv")), "movie.mkv")
+
+    assert len(commands) == 2
+    assert commands[1][commands[1].index("-select_streams") + 1] == "2"
+    assert facts["video_codec"] == "hevc"
+    assert facts["streams"][1]["color_transfer"] == "smpte2084"
+
+
 def test_zero_rates_and_junk_values_become_none() -> None:
     facts = normalize({"format": {}, "streams": [{"index": 0, "codec_type": "audio", "codec_name": "aac", "avg_frame_rate": "0/0", "channels": "two", "tags": {"language": "x" * 99}}]}, "a.m4a")
     (stream,) = facts["streams"]
@@ -57,9 +90,10 @@ def test_audio_precision_uses_actual_bits_when_the_probe_reports_them() -> None:
     assert [stream.get("bit_depth") for stream in facts["streams"]] == [24, 16, None]
 
 
-def test_caches_without_streams_are_stale_but_cached_errors_are_not() -> None:
+def test_legacy_successful_caches_are_stale_but_cached_errors_are_not() -> None:
     assert is_stale(None, "1:2")
-    assert is_stale({"fingerprint": "1:2", "container": "mp4"}, "1:2")  # a v2 cache: no streams
+    assert is_stale({"fingerprint": "1:2", "container": "mp4"}, "1:2")  # legacy successful cache: no streams
     assert is_stale({"fingerprint": "1:1", "streams": []}, "1:2")  # the file changed
-    assert not is_stale({"fingerprint": "1:2", "streams": []}, "1:2")
+    assert is_stale({"fingerprint": "1:2", "streams": []}, "1:2")  # legacy successful cache lacks decoded-frame colors
+    assert not is_stale({"fingerprint": "1:2", "streams": [], "_probe_cache_version": PROBE_CACHE_VERSION}, "1:2")
     assert not is_stale({"fingerprint": "1:2", "error": "probe_failed"}, "1:2")

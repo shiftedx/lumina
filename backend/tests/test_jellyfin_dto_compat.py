@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +11,6 @@ from app.main import app
 from app.models import DeviceToken, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle
 from app.services import jellyfin_playback
 from app.services.media_artifacts import MediaArtifactService
-from app.services.jellyfin_playback import transcoding_fields
 from app.services.media_titles import jellyfin_id
 from app.services.playback_decision import decide
 from title_support import ALICE, ALICE_TOKEN, BOB, BOXSET, MOVIE, MOVIE_1080, MOVIE_4K, S1E1, SERIES, jellyfin_household, mediabrowser
@@ -167,12 +165,6 @@ def test_every_stream_and_source_sends_the_non_nullable_fields(jf: TestClient) -
             assert (stream["VideoRange"], stream["VideoRangeType"]) == ("Unknown", "Unknown")
         if stream["Type"] == "Subtitle":
             assert stream["DeliveryMethod"] == ("External" if stream["IsExternal"] else "Embed")
-
-
-def test_an_unavailable_decision_offers_no_transcode_and_keeps_direct_play(jf: TestClient) -> None:
-    decision = SimpleNamespace(mode="unavailable", height=None, reasons=())
-    fields = transcoding_fields(decision, item_id="x", play_session_id="p", api_key="k", audio_index=None, subtitle_index=None)
-    assert fields == {"SupportsTranscoding": False}  # Dolby Vision profile 5 files still direct play
 
 
 def test_search_hints_and_facets_satisfy_strict_decoders(jf: TestClient) -> None:

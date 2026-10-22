@@ -6,7 +6,7 @@ import LuminaCore
 struct MobileRootView: View {
     @Bindable var store: LuminaStore
     @State private var audioSession = NativeAudioSession()
-    @AppStorage("lumina.appearance", store: LuminaPreferences.defaults) private var appearance = "dark"
+    @AppStorage("lumina.appearance") private var appearance = "dark"
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -302,7 +302,7 @@ private struct LibraryShellView: View {
 private struct AccountView: View {
     @State private var licensesPresented = false
     let store: LuminaStore
-    @AppStorage("lumina.appearance", store: LuminaPreferences.defaults) private var appearance = "dark"
+    @AppStorage("lumina.appearance") private var appearance = "dark"
 
     var body: some View {
         Form {

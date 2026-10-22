@@ -1,7 +1,8 @@
 # Frontend Playwright signal ledger
 
 Base: `18b35c6ad163989244343f476ac390a4b543f292`. **708 keep, 13 move, 86 delete.**
-The full tier selects 648 kept cases; 60 benchmark instances remain opt-in.
+The audited base selected 648 kept full-tier cases; 60 benchmark instances remain opt-in.
+PR #143 subsequently added two retained journeys, making the current full tier 650.
 Smoke passed twice. Full readiness remains blocked; see the readiness record.
 The original mocked, realstack and opt-in performance/capture configurations
 were enumerated with Playwright `--list --reporter=json`, including gated capture
@@ -824,3 +825,14 @@ capture outputs without comparisons are intentionally retired.
 | `frontend/e2e/youtube-session.spec.ts:5 · personal YouTube session connects and disconnects at 1440px [mocked]` | keep | No qualifying record found; authored-template history and scoped GitHub review [H](playwright-history.md) | Same browser journey, fresh per-test context and mocked API fixture | Personal-session connect/disconnect crosses app state with reachable responsive dialogs. |
 | `frontend/e2e/youtube-session.spec.ts:5 · personal YouTube session connects and disconnects at 390px [mocked]` | keep | No qualifying record found; authored-template history and scoped GitHub review [H](playwright-history.md) | Same browser journey, fresh per-test context and mocked API fixture | Personal-session connect/disconnect crosses app state with reachable responsive dialogs. |
 | `frontend/e2e/youtube-session.spec.ts:5 · personal YouTube session connects and disconnects at 900px [mocked]` | keep | No qualifying record found; authored-template history and scoped GitHub review [H](playwright-history.md) | Same browser journey, fresh per-test context and mocked API fixture | Personal-session connect/disconnect crosses app state with reachable responsive dialogs. |
+
+## Journeys added by concurrent main changes
+
+PR #143 (`02d7d8f`) added these after the original 807-case inventory. They are
+additional keep rows, not changes to the original audit's verdict totals. The
+mocked selection is now 594; full is 650.
+
+| Test | Verdict | Evidence | Coverage after | Reason |
+| --- | --- | --- | --- | --- |
+| `frontend/e2e/onboarding_household_transfer.spec.ts:6 · phone first-owner transfer shows responsive streamed progress without accessibility or overflow regressions [mocked]` | keep | Created with app behavior in PR #143 / `02d7d8f`; creation is not regression evidence | Same browser journey, fresh per-test context and route fixtures | Streamed transfer progress, rendered phone containment and axe accessibility across the first-owner journey. |
+| `frontend/e2e/onboarding_household_transfer.spec.ts:6 · desktop first-owner transfer shows responsive streamed progress without accessibility or overflow regressions [mocked]` | keep | Created with app behavior in PR #143 / `02d7d8f`; creation is not regression evidence | Same browser journey, fresh per-test context and route fixtures | Streamed transfer progress and desktop accessibility/containment across the first-owner journey. |

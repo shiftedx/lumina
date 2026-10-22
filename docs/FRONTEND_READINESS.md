@@ -68,10 +68,13 @@ failing baselines, not green performance claims. A configuration edit triggered
 one Vite reload during the mocked baseline, so these runs do not support a
 controlled before/after speedup ratio.
 
-The mocked suite is now **592 cases** (659 → 592). Across the original 807
+The audit reduced the mocked suite **659 → 592**; the subsequent main merge of
+PR #143 adds two retained onboarding journeys, making the current selection
+**594 cases**. Across the original 807
 expanded instances: **708 keep, 13 move, 86 delete**. Two kept cases were renamed
 and trimmed to their routing journey; their original ledger rows name the new
-contracts. The full tier selects **648** cases, including realstack and WebKit;
+contracts. The current full tier selects **650** cases (648 audited cases plus those two
+new journeys), including realstack and WebKit;
 60 retained benchmark instances stay opt-in as described above.
 
 Smoke passed twice with four workers: **50/50 in 191.898 s**, then **50/50 in

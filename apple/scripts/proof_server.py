@@ -18,6 +18,9 @@ import tempfile
 import threading
 import time
 import uuid
+import zipfile
+import struct
+import zlib
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
@@ -42,6 +45,62 @@ SYNTHETIC_LYRIC = "A lantern answers through the quiet night"
 SHOW_TITLE = "The Observatory Signal Logs"
 EPISODE_TITLE = "The First Signal"
 SECOND_EPISODE_TITLE = "Morning Coordinates"
+
+
+def make_books(state_root: Path, db, owner) -> dict[str, str]:
+    """Original synthetic prose and raster books, imported through the production archive boundary."""
+    from app.services.books import BookService
+    import pymupdf
+
+    def page(number: int) -> bytes:
+        width, height = 1200, 1800
+        rows = [bytearray(b"\xf8\xf6\xf0" * width) for _ in range(height)]
+        for top, bottom in [(80, 780), (840, 1720)]:
+            for y in range(top, bottom):
+                color = bytes((40 + number * 18, 70 + number * 12, 100 + number * 8))
+                rows[y][80 * 3:1120 * 3] = color * 1040
+            for y in range(top + 60, top + 100):
+                rows[y][140 * 3:(200 + number * 100) * 3] = b"\xff\xff\xff" * (60 + number * 100)
+        def chunk(kind: bytes, data: bytes) -> bytes:
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(b"".join(b"\0" + row for row in rows))) + chunk(b"IEND", b"")
+
+    images = [page(index) for index in range(6)]
+    comic = state_root / "Lantern panels.cbz"
+    with zipfile.ZipFile(comic, "w") as archive:
+        archive.writestr("ComicInfo.xml", "<ComicInfo><Title>Lantern panels</Title><Writer>Synthetic Author</Writer><Manga>YesAndRightToLeft</Manga></ComicInfo>")
+        for index, image in enumerate(images): archive.writestr(f"{index:03}.png", image)
+    prose = state_root / "Lantern chapters.epub"
+    with zipfile.ZipFile(prose, "w") as archive:
+        archive.writestr("mimetype", "application/epub+zip")
+        archive.writestr("META-INF/container.xml", "<container><rootfiles><rootfile full-path='content.opf'/></rootfiles></container>")
+        archive.writestr("content.opf", "<package><metadata><title>Lantern chapters</title><creator>Synthetic Author</creator><meta name='cover' content='cover'/></metadata><manifest><item id='cover' href='cover.png' media-type='image/png' properties='cover-image'/><item id='one' href='one.xhtml' media-type='application/xhtml+xml'/><item id='two' href='two.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='one'/><itemref idref='two'/></spine></package>")
+        archive.writestr("cover.png", images[0])
+        for filename, title in [("one.xhtml", "The harbour lights"), ("two.xhtml", "The morning map")]:
+            paragraphs = "".join(f"<p id='line-{n}'>Passage {n + 1}. The keeper followed the lanterns beside the quiet harbour. A bright map marked the way home. <em>The story continued across the water.</em></p>" for n in range(50))
+            archive.writestr(filename, f"<html><body><h1>{title}</h1>{paragraphs}</body></html>")
+    pdf = state_root / "Lantern atlas.pdf"
+    with pymupdf.open() as document:
+        for index in range(4):
+            sheet = document.new_page(width=600, height=900)
+            sheet.insert_text((60, 80), f"Synthetic atlas — Page {index + 1}", fontsize=22)
+            sheet.insert_image(pymupdf.Rect(60, 120, 540, 840), stream=images[index])
+        document.save(pdf)
+    result = {}
+    cbr = state_root / "Lantern archive.cbr"
+    shutil.copyfile(REPOSITORY_ROOT / "backend/tests/fixtures/books/solid-rar5.cbr", cbr)
+    for key, path in [("comicBookID", comic), ("proseBookID", prose), ("pdfBookID", pdf), ("cbrBookID", cbr)]:
+        service = BookService(db)
+        format_, manifest = service.inspect_staged(path, path.name)
+        book = service.import_staged(path, path.name, owner, format_=format_, manifest=manifest)
+        if key == "comicBookID":
+            book = service.update_book(book, owner, {"series_name": "Lantern journeys", "volume_number": 1})
+            result["comicSeriesID"] = book.series_id
+        result[key] = book.id
+    shelf = service.create_shelf(owner, {"name": "The reading room", "visibility": "private"})
+    service.replace_shelf_entries(shelf.id, owner, [result[key] for key in ("comicBookID", "proseBookID", "pdfBookID", "cbrBookID")])
+    result["bookShelfID"] = shelf.id
+    return result
 
 
 def fixture_artwork() -> dict[str, Path]:
@@ -218,8 +277,10 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, str]:
         curator = UserService(db).create_member_without_password(owner, "observatory-curator", "Observatory curator")
         shared_playlist = music_playlists.save(db, curator, MusicPlaylistSave(
             name=SHARED_MUSIC_PLAYLIST, shared=True, item_ids=[items[AUDIO_TRACK], items[AUDIO_SECOND_TRACK]]))
+        book_items = make_books(state_root, db, owner)
     try:
         return {
+            **book_items,
             "directItemID": items[DIRECT_TITLE],
             "directItemTitle": DIRECT_TITLE,
             "convertedItemID": items[CONVERTED_TITLE],

@@ -185,13 +185,14 @@ private struct ConnectionField<Content: View>: View {
 }
 
 private enum LibraryDestination: Hashable, CaseIterable {
-    case home, video, audio, account
+    case home, video, audio, books, account
 
     var title: String {
         switch self {
         case .home: "Home"
         case .video: "Video"
         case .audio: "Audio"
+        case .books: "Books"
         case .account: "Account"
         }
     }
@@ -201,6 +202,7 @@ private enum LibraryDestination: Hashable, CaseIterable {
         case .home: "house"
         case .video: "film"
         case .audio: "music.note"
+        case .books: "books.vertical"
         case .account: "person.crop.circle"
         }
     }
@@ -253,6 +255,13 @@ private struct LibraryShellView: View {
             }
             Tab("Audio", systemImage: "music.note", value: .audio) {
                 destinationStack { AudioLibraryView(store: store) }
+            }
+            Tab("Books", systemImage: "books.vertical", value: .books) {
+                destinationStack {
+                    if let session = store.session {
+                        NativeBooksView(session: session).id(session.accessToken)
+                    }
+                }
             }
             Tab("Account", systemImage: "person.crop.circle", value: .account) {
                 destinationStack { AccountView(store: store) }

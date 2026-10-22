@@ -51,7 +51,7 @@ final class NativeProofTests: XCTestCase {
 
     private func revealLibraryItem(_ item: XCUIElement) {
         for _ in 0..<8 {
-            if item.exists && item.isHittable { return }
+            if hasVisibleFrame(item) && item.isHittable { return }
             application!.swipeUp()
         }
     }

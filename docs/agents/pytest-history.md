@@ -164,3 +164,27 @@ Result: exit 0, `1 passed, 1 warning in 1.69s`. Log: `/tmp/lumina-pytest-facade-
 | `diagnostics` | `test_diagnostics_matches_6_3` and `test_diagnostics_returns_the_raw_poller_error`; admin diagnostics HTTP contract consumes/redacts the returned block. |
 
 The HTTP tests for the dedicated automation router use `FakeAutomation`, so they are not by themselves proof of real-singleton wiring. The retained direct service contracts call the real class with the same method names/argument forms; the import route additionally exercises the real singleton for the two activity methods that lack direct calls. No important reflected method lacks a retained consumer or behavior contract.
+
+## Isolation failure found while qualifying retained performance cases
+
+The ordinary parallel tier skips the eight seeded performance measurements.
+Running their normal serial lane (`mise exec -- make perf-titles`, without the
+audit benchmark plugin) exposed a 429 in `test_reco_api_budgets` after
+`test_title_api_budgets`: direct `TestClient` users shared the process-wide
+popular-request bucket. Only the optional `api_client` fixture previously reset
+it. An isolated recommendation run did not reproduce that 429.
+
+A private two-test public-API control used the real
+`rate_limit_dependency("popular")`: the first case exhausted its 60-request
+allowance and verified request 61 returned 429; the next case's first request
+incorrectly returned 429. Before repair: **1 failed, 1 passed**. With autouse
+`fresh_rate_limits` clearing the real singleton before and after every case:
+**2 passed**. Production limits are unchanged. Ten unchanged rate-limit and
+lockout contracts also passed. Private evidence:
+`/tmp/lumina-rate-limit-isolation-{red,green}.log` and
+`/tmp/lumina-rate-limit-existing-green.log`. Temporary control source was removed.
+
+The loaded-host performance attempt had **5 passed, 3 failed** in 66.40 s
+(75 s including seed/setup). Besides that 429, timing budgets exceeded their
+unchanged thresholds; the tests explicitly reported load 41.8 on 16 cores as
+invalid for a timing verdict. This run is not presented as qualification.

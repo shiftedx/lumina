@@ -151,6 +151,18 @@ def no_provider_network(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def fresh_rate_limits() -> None:
+    """Give direct TestClient users the same per-test rate-limit isolation as api_client."""
+    from app.services.rate_limit import rate_limiter
+
+    rate_limiter.clear()
+    try:
+        yield
+    finally:
+        rate_limiter.clear()
+
+
+@pytest.fixture(autouse=True)
 def fresh_provider_budgets(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test starts with full discovery budgets; the process-wide ones would otherwise drain across tests."""
     from app.services import provider_budget

@@ -1,7 +1,7 @@
-"""Ffprobe facts carry a per-stream list; caches without it are stale."""
+"""Ffprobe facts carry a per-stream list and an explicit cache version."""
 from __future__ import annotations
 
-from app.services.media_probe import is_stale, normalize
+from app.services.media_probe import PROBE_CACHE_VERSION, is_stale, normalize
 
 RAW = {
     "format": {"format_name": "matroska,webm", "duration": "5400.5", "bit_rate": "24000000"},
@@ -57,9 +57,10 @@ def test_audio_precision_uses_actual_bits_when_the_probe_reports_them() -> None:
     assert [stream.get("bit_depth") for stream in facts["streams"]] == [24, 16, None]
 
 
-def test_caches_without_streams_are_stale_but_cached_errors_are_not() -> None:
+def test_legacy_successful_caches_are_stale_but_cached_errors_are_not() -> None:
     assert is_stale(None, "1:2")
-    assert is_stale({"fingerprint": "1:2", "container": "mp4"}, "1:2")  # a v2 cache: no streams
+    assert is_stale({"fingerprint": "1:2", "container": "mp4"}, "1:2")  # legacy successful cache: no streams
     assert is_stale({"fingerprint": "1:1", "streams": []}, "1:2")  # the file changed
-    assert not is_stale({"fingerprint": "1:2", "streams": []}, "1:2")
+    assert is_stale({"fingerprint": "1:2", "streams": []}, "1:2")  # legacy successful cache lacks decoded-frame colors
+    assert not is_stale({"fingerprint": "1:2", "streams": [], "_probe_cache_version": PROBE_CACHE_VERSION}, "1:2")
     assert not is_stale({"fingerprint": "1:2", "error": "probe_failed"}, "1:2")

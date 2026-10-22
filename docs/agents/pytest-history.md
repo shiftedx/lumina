@@ -221,3 +221,34 @@ RED: unchanged production-toolchain case failed with no segments. GREEN:
 unchanged case plus a private unrelated-noise control **2 passed in 8.95 s**.
 Private pinned-image evidence and Dockerfile:
 `/tmp/lumina-chromaprint-pinned-8014/`; `final_test.log` records the passing run.
+
+## HDR regression found on the production media toolchain
+
+The retained `test_v1_transcode.py::test_hdr10_tone_maps_in_software` failed
+repeatedly on production Jellyfin FFmpeg 8.1.2-5 arm64: output remained tagged
+`smpte2084`. A command capture disproved the initial metadata-only hypothesis:
+the app selected `scale,format`, with no tone-map filter. Stream-header probing
+reported the BT.2020 matrix but omitted transfer metadata; decoding one frame
+reported `smpte2084`. That missing fact incorrectly selected the SDR path.
+
+The app now performs a bounded, protocol-restricted one-frame probe for the
+first video when its BT.2020 header omits transfer metadata. Missing, malformed,
+over-limit, timed-out or failed enrichment fails the probe instead of claiming
+SDR. Other streams retain the ordinary probe path. A private cache-version
+marker makes old successful facts re-probe once, preserving cached-error policy
+and excluding the marker from returned/public facts.
+
+The existing real-media journey was already red before the app fix; its final
+assertion now requires exact BT.709 matrix, transfer and primaries as well as
+H.264/yuv420p. Existing cache contracts were extended to check one-time recovery
+and normal subsequent caching. Their names became
+`test_legacy_successful_caches_are_stale_but_cached_errors_are_not` and
+`test_old_successful_caches_are_reprobed_once`; each original ledger row maps its
+rename, with no case-count change. This HDR test is a protected regression catcher.
+
+Evidence: `/tmp/lumina-chromaprint-pinned-8014/hdr-candidates/` contains
+`command-probe-3/inputs.json`, `raw-probe/video-frame.json`,
+`strict-real-media-red/run.log` and `strict-real-media-defensive-green/run.log`.
+The original chromaprint, Linux address-space and repaired HDR cases all passed
+with zero skips in two production-toolchain runs. Final qualification timings
+and paths are recorded in readiness after the last review correction.

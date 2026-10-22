@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.models import DeviceToken, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, StorageRoot
 from app.security import session_digest
 from app.services.library import LibraryService
+from app.services.media_probe import PROBE_CACHE_VERSION
 from support import make_user, seed_app_settings
 
 
@@ -65,7 +66,7 @@ def add_file(
     artifact = MediaArtifact(
         id=str(uuid.uuid4()), root_id=ROOT, relative_path=relative, ownership="external", lifecycle="available",
         size=info.st_size, mtime_ns=info.st_mtime_ns,
-        probe=None if probe is None else {"fingerprint": f"{info.st_size}:{info.st_mtime_ns}", **probe},
+        probe=None if probe is None else {"fingerprint": f"{info.st_size}:{info.st_mtime_ns}", "_probe_cache_version": PROBE_CACHE_VERSION, **probe},
     )
     metadata = metadata or {}
     item = LibraryItem(

@@ -102,17 +102,35 @@ def test_probe_corrupt_timeout_safe(household: None, monkeypatch: pytest.MonkeyP
         assert all(row.probe and row.probe["fingerprint"] for row in db.query(MediaArtifact).all())
 
 
-def test_old_caches_without_streams_are_reprobed(household: None) -> None:
+def test_old_successful_caches_are_reprobed_once(household: None, monkeypatch: pytest.MonkeyPatch) -> None:
     item_id = _download("alice", make_media(settings.library_root / "alice" / "clip.mp4"))
     assert _options(item_id).status_code == 200
     with db_module.SessionLocal() as db:
         artifact = db.query(MediaArtifact).one()
         assert [s["type"] for s in artifact.probe["streams"]] == ["video", "audio"]
-        artifact.probe = {key: value for key, value in artifact.probe.items() if key != "streams"}  # a v2-era cache
+        artifact.probe = {key: value for key, value in artifact.probe.items() if key != "streams"}  # legacy cache
         db.commit()
     assert _options(item_id).json()["mode"] == "direct"
     with db_module.SessionLocal() as db:
-        assert "streams" in db.query(MediaArtifact).one().probe
+        artifact = db.query(MediaArtifact).one()
+        assert "streams" in artifact.probe and artifact.probe["_probe_cache_version"] == media_probe.PROBE_CACHE_VERSION
+        artifact.probe = {
+            **{key: value for key, value in artifact.probe.items() if key != "_probe_cache_version"},
+            "loudness": {"i": -20.0, "tp": -2.0},
+            "_scan_fingerprint": "scan-current",
+        }
+        db.commit()
+    calls: list[Path] = []
+    original = media_probe.run_ffprobe
+    monkeypatch.setattr(media_probe, "run_ffprobe", lambda tool, path: calls.append(path) or original(tool, path))
+    recovered = _options(item_id).json()
+    assert recovered["mode"] == "direct" and "_probe_cache_version" not in recovered["facts"]
+    assert len(calls) == 1
+    with db_module.SessionLocal() as db:
+        refreshed = db.query(MediaArtifact).one().probe
+        assert refreshed["loudness"] == {"i": -20.0, "tp": -2.0}
+        assert refreshed["_scan_fingerprint"] == "scan-current"
+    assert _options(item_id).json()["mode"] == "direct" and len(calls) == 1
 
 
 def test_profiles_ceiling_audio_tracks_and_quality_rungs(household: None) -> None:

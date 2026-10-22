@@ -23,6 +23,8 @@ from app.services.yt_dlp_service import YtDlpService
 
 PROBE_TIMEOUT_SECONDS = 20
 PROBE_OUTPUT_LIMIT = 1_000_000
+PROBE_CACHE_VERSION = 2
+_PROBE_CACHE_VERSION_KEY = "_probe_cache_version"
 _probe_slots = threading.BoundedSemaphore(2)
 _artifact_locks: dict[str, threading.Lock] = {}
 _artifact_locks_guard = threading.Lock()
@@ -77,9 +79,69 @@ def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
     if result.returncode != 0 or len(result.stdout) > PROBE_OUTPUT_LIMIT:
         raise ProbeError("probe_failed")
     try:
-        return json.loads(result.stdout)
+        raw = json.loads(result.stdout)
     except ValueError as exc:
         raise ProbeError("probe_failed") from exc
+    if not isinstance(raw, dict):
+        raise ProbeError("probe_failed")
+    # Some Matroska HEVC files carry HDR transfer and primaries only on decoded
+    # frames. The stream header still exposes its BT.2020 matrix, which keeps
+    # this extra bounded probe to the files where that distinction matters.
+    streams = raw.get("streams")
+    if not isinstance(streams, list):
+        return raw
+    first_video = next((
+        stream for stream in streams
+        if isinstance(stream, dict)
+        and stream.get("codec_type") == "video"
+    ), None)
+    transfer = first_video.get("color_transfer") if first_video else None
+    if (
+        first_video is None
+        or first_video.get("color_space") not in {"bt2020nc", "bt2020c"}
+        or (isinstance(transfer, str) and transfer.strip())
+    ):
+        return raw
+    hdr_stream = first_video
+    stream_index = hdr_stream.get("index")
+    if not isinstance(stream_index, int) or isinstance(stream_index, bool):
+        raise ProbeError("probe_failed")
+    try:
+        frame = subprocess.run(
+            [
+                ffprobe, "-v", "error", *LOCAL_INPUT_ARGS, "-select_streams", "v:0",
+                "-read_intervals", "%+#1", "-print_format", "json", "-show_frames", "--", str(path),
+            ],
+            capture_output=True, timeout=PROBE_TIMEOUT_SECONDS, check=False, stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ProbeError("probe_timeout") from exc
+    if frame.returncode != 0 or len(frame.stdout) > PROBE_OUTPUT_LIMIT:
+        raise ProbeError("probe_failed")
+    try:
+        frame_raw = json.loads(frame.stdout)
+    except ValueError as exc:
+        raise ProbeError("probe_failed") from exc
+    if not isinstance(frame_raw, dict) or not isinstance(frame_raw.get("frames"), list):
+        raise ProbeError("probe_failed")
+    first = next(
+        (
+            item for item in frame_raw["frames"]
+            if isinstance(item, dict)
+            and isinstance(item.get("stream_index"), int)
+            and not isinstance(item.get("stream_index"), bool)
+            and item["stream_index"] == stream_index
+        ),
+        None,
+    )
+    if first is None:
+        raise ProbeError("probe_failed")
+    if not isinstance(first.get("color_transfer"), str) or not first["color_transfer"].strip():
+        raise ProbeError("probe_failed")
+    for key in ("color_space", "color_transfer", "color_primaries"):
+        if first.get(key):
+            hdr_stream[key] = first[key]
+    return raw
 
 
 _STREAM_TYPES = {"video", "audio", "subtitle"}
@@ -180,9 +242,12 @@ def _fingerprint(path: Path) -> str:
 
 
 def is_stale(cached: dict[str, Any] | None, fingerprint: str) -> bool:
-    """Re-probe when the file changed or the cache predates per-stream facts; cached errors stay."""
+    """Re-probe when the file changed or the cache predates current successful facts; cached errors stay."""
     cached = cached or {}
-    return cached.get("fingerprint") != fingerprint or ("streams" not in cached and "error" not in cached)
+    return cached.get("fingerprint") != fingerprint or (
+        "error" not in cached
+        and ("streams" not in cached or cached.get(_PROBE_CACHE_VERSION_KEY) != PROBE_CACHE_VERSION)
+    )
 
 
 class MediaProbeService:
@@ -204,10 +269,24 @@ class MediaProbeService:
             fingerprint = _fingerprint(path)
             cached = artifact.probe or {}
             if is_stale(cached, fingerprint):
-                cached = {"fingerprint": fingerprint, **self._probe(path)}
+                carry = {}
+                if (
+                    cached.get("fingerprint") == fingerprint
+                    and isinstance(cached.get("streams"), list)
+                    and "error" not in cached
+                ):
+                    carry = {
+                        key: cached[key]
+                        for key in ("loudness", "_scan_fingerprint")
+                        if key in cached
+                    }
+                fresh = self._probe(path)
+                cached = {"fingerprint": fingerprint, _PROBE_CACHE_VERSION_KEY: PROBE_CACHE_VERSION, **fresh}
+                if "error" not in fresh:
+                    cached.update(carry)
                 with write_transaction(self.db, name="media_probe_cache"):
                     artifact.probe = cached
-        return {key: value for key, value in cached.items() if key != "fingerprint"}
+        return {key: value for key, value in cached.items() if key not in {"fingerprint", _PROBE_CACHE_VERSION_KEY}}
 
     def plan(self, item: LibraryItem) -> dict[str, Any]:
         """Cached facts plus the default-browser decision (kept for PlaybackInfo callers; see ``decide``)."""

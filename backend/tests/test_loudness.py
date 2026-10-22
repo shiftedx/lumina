@@ -16,7 +16,7 @@ from app.config import settings
 from app.models import LibraryItemArtifact, MediaArtifact, StorageRoot
 from app.services import library_import
 from app.services import probe_warming as pw
-from app.services.media_probe import loudness_gain_db
+from app.services.media_probe import PROBE_CACHE_VERSION, loudness_gain_db
 from app.services.probe_warming import ProbeWarming, measure_loudness, parse_loudnorm
 from tests.test_v1_artifacts import _client, _download, household  # noqa: F401
 from tests.test_v1_probe import make_media
@@ -107,6 +107,7 @@ def _ready_audio(path: Path) -> str:
         artifact.size, artifact.mtime_ns = status.st_size, status.st_mtime_ns
         artifact.probe = {
             "fingerprint": f"{status.st_size}:{status.st_mtime_ns}",
+            "_probe_cache_version": PROBE_CACHE_VERSION,
             "streams": [{"type": "audio", "index": 0, "default": True}],
         }
         db.commit()
@@ -381,6 +382,7 @@ def test_import_finishing_during_empty_probe_select_is_rechecked_before_loudness
         artifact.size, artifact.mtime_ns = status.st_size, status.st_mtime_ns
         artifact.probe = {
             "fingerprint": f"{status.st_size}:{status.st_mtime_ns}",
+            "_probe_cache_version": PROBE_CACHE_VERSION,
             "streams": [{"type": "audio", "index": 0, "default": True}],
         }
         db.commit()

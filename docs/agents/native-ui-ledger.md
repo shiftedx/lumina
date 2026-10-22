@@ -60,3 +60,19 @@ Host policy update: the user explicitly removed Xcode exclusivity on 2026-10-21.
 Concurrent jobs from other agents are allowed; load1 <20, owned simulators and
 owned-PID cleanup still apply. Initial qualification waits were cancelled without
 launching Xcode; runtime qualification then started under this revised policy.
+
+
+Runtime evidence so far:
+
+- iOS `build-for-testing` succeeded; peak recorded load1 13.50.
+- Standalone Swift 6 UI-source typechecks passed for iOS and tvOS after moving
+  teardown onto XCTest's async lifecycle (no actor-isolation warnings).
+- Two native clone-based parallel launches were cancelled before the first case
+  at load1 24.77 and 27.37. Their resulting Mach -308 launch errors followed the
+  runner's recorded load cancellation; they are invalid host runs, not an app
+  regression or a passing kept-suite run. Owned simulators were removed.
+- Core: 74 passed, 5 optional live-server skips, 99.892 seconds. Broker/runner:
+  five passing safety checks. Two real backend fixtures concurrently proved
+  separate origins, member credentials and state roots.
+- Repository gate so far: backend 5,248 passed / 11 skipped (618.17 seconds),
+  frontend 2,624 passed across 299 files (42.97 seconds). Browser gates pending.

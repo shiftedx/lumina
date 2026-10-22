@@ -57,9 +57,13 @@ def command(*parts: str, cwd: Path = ROOT, capture: bool = False) -> subprocess.
     return subprocess.run(parts, cwd=cwd, text=True, capture_output=capture, check=False)
 
 
-def xcode_running() -> bool:
-    result = command("ps", "-axo", "pid=,comm=", capture=True)
-    return any(Path(line.split(maxsplit=1)[-1]).name == "xcodebuild" for line in result.stdout.splitlines() if line.split())
+def xcode_running(owned_group: int | None = None) -> bool:
+    result = command("ps", "-axo", "pid=,pgid=,comm=", capture=True)
+    for line in result.stdout.splitlines():
+        parts = line.split(maxsplit=2)
+        if len(parts) == 3 and Path(parts[2]).name == "xcodebuild" and int(parts[1]) != owned_group:
+            return True
+    return False
 
 
 @contextmanager
@@ -146,6 +150,10 @@ def run_xcode(arguments: list[str], log: Path, host_wait_seconds: int) -> tuple[
                 while process.poll() is None:
                     load = os.getloadavg()[0]
                     peak_load = max(peak_load, load)
+                    if xcode_running(process.pid):
+                        stream.write("\nAnother Xcode job started; cancelling this owned run.\n")
+                        stream.flush()
+                        raise RuntimeError("another Xcode job started during qualification")
                     if load >= 20:
                         stream.write(f"\nHost load1 exceeded 20 ({load:.2f}); cancelling this owned run.\n")
                         stream.flush()

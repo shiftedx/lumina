@@ -334,3 +334,18 @@ All four perf modules collect eight cases; the full eight-case cohort passed
 with this fixture in 56.62 s pytest / 63.61 s wall, and the guarded title case
 passed independently in 30.73 s. Evidence:
 `/tmp/lumina-title-live-fixture-{collection,perf8,guard-focused}.log`.
+
+
+Diagnostics' remaining p95 spike was reproduced at load 3.8/16 and correlated
+exactly with generation-2 GC: two of 20 measured calls took 89.865/90.538 ms
+while ordinary calls had 35.66 ms median. Profiling identified ORM buffering of
+the existing distinct event queries (5,435 opens and 3,809 plays). Applying the
+existing 500-row chunk size to those two results preserves SQL, filters, totals
+and caching. A selective unstreamed control failed at 88.2/80 ms, with gen2 tails
+on calls 8/20; restoring bounded fetching passed with raw p95 36.669 ms and no
+gen2 collections in the measured calls. GC and all test budgets stay enabled.
+The focused metrics/privacy/diagnostics cohort passed 36 cases. The existing
+`test_reco_api_budgets` is therefore a protected failure-to-app-fix catcher.
+Evidence: `/tmp/lumina-diag-gc-{profile,old-control,new}.{log,json}`,
+`/tmp/lumina-diag-gc-profile.pstats`, and
+`/tmp/lumina-reco-metrics-yield-focused.log`.

@@ -104,10 +104,16 @@ def _surfaces(db: Session, now: datetime, window_days: int) -> tuple[list[RecoSu
             tally.completes += n_attributed
         elif kind in NEGATIVE:
             tally.negatives += n
-    for surface, *key in db.execute(select(RecoEvent.surface, RecoEvent.user_id, RecoEvent.list_id, RecoEvent.item_key).where(*window, RecoEvent.kind == "open").distinct()):
+    for surface, *key in db.execute(
+        select(RecoEvent.surface, RecoEvent.user_id, RecoEvent.list_id, RecoEvent.item_key)
+        .where(*window, RecoEvent.kind == "open").distinct().execution_options(yield_per=CHUNK)
+    ):
         if surface in tallies:
             tallies[surface].opens.add(tuple(key))
-    for surface, *key in db.execute(select(RecoEvent.surface, RecoEvent.user_id, RecoEvent.target_kind, RecoEvent.item_key).where(*window, RecoEvent.kind == "play", attributed).distinct()):
+    for surface, *key in db.execute(
+        select(RecoEvent.surface, RecoEvent.user_id, RecoEvent.target_kind, RecoEvent.item_key)
+        .where(*window, RecoEvent.kind == "play", attributed).distinct().execution_options(yield_per=CHUNK)
+    ):
         if surface in tallies:
             tallies[surface].played.add(tuple(key))
     fractions = _play_through(db, set().union(*(tally.played for tally in tallies.values())))

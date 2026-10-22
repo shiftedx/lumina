@@ -279,6 +279,7 @@ export type WorkspaceAction =
   | { type: 'library/pageFailed'; message: string }
   | { type: 'selection/library'; id: string | null }
   | { type: 'selection/job'; id: string | null }
+  | { type: 'continueWatching/replace'; entries: PlaybackProgress[] }
   | { type: 'continueWatching/checkpoint'; progress: PlaybackProgress }
   | { type: 'continueWatching/remove'; itemId: string }
   | { type: 'settings/replace'; settings: UserSettings | null }
@@ -832,6 +833,8 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       return { ...state, selectedLibraryId: action.id };
     case 'selection/job':
       return { ...state, selectedJobId: action.id };
+    case 'continueWatching/replace':
+      return { ...state, continueWatching: action.entries };
     case 'continueWatching/checkpoint': {
       const incoming = action.progress;
       const previous = state.continueWatching.find((entry) => entry.item_id === incoming.item_id);
@@ -1036,6 +1039,7 @@ export type AuthenticatedWorkspace = {
   loadPublic: () => Promise<void>;
   retryCollection: (resource: CollectionResource) => Promise<boolean>;
   refreshLibraryCollection: () => Promise<boolean>;
+  refreshContinueWatching: () => Promise<boolean>;
   loadMoreLibrary: () => Promise<boolean>;
   loadMoreJobs: () => Promise<boolean>;
   captureSessionToken: () => number;
@@ -1192,6 +1196,18 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
     } catch (error) {
       if (!requestGateRef.current.isCurrent(token)) return false;
       dispatchBase({ type: 'library/loadFailed', problem: classifyCollectionLoadProblem(error, 'refresh') });
+      return false;
+    }
+  }, []);
+
+  const refreshContinueWatching = useCallback(async (): Promise<boolean> => {
+    const generation = requestGateRef.current.currentSession();
+    try {
+      const entries = await listContinueWatching();
+      if (!requestGateRef.current.isSessionCurrent(generation)) return false;
+      dispatchBase({ type: 'continueWatching/replace', entries });
+      return true;
+    } catch {
       return false;
     }
   }, []);
@@ -1354,5 +1370,5 @@ export function useAuthenticatedWorkspace({ onError }: WorkspaceHookOptions): Au
     };
   }, [state.authStage, state.currentUser, state.preferences]);
 
-  return { state, dispatch, loadAuthenticated, loadPublic, retryCollection, refreshLibraryCollection, loadMoreLibrary, loadMoreJobs, captureSessionToken, isSessionTokenCurrent, reset, holdEvents };
+  return { state, dispatch, loadAuthenticated, loadPublic, retryCollection, refreshLibraryCollection, refreshContinueWatching, loadMoreLibrary, loadMoreJobs, captureSessionToken, isSessionTokenCurrent, reset, holdEvents };
 }

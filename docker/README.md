@@ -377,7 +377,7 @@ Email artwork uses versioned public assets from the configured public address. K
 - Never open the live `app.db` from another process while the container runs (on macOS bind mounts a second writer can poison the running app with `disk I/O error`). Use the API or stop the container first.
 - Extra media: bind-mount it under a mount parent, then register it under **Settings → Library & storage**:
 
-  The first-owner walkthrough lists configured mount parents and connects and scans folders immediately after account creation. Setup later keeps the same controls available under **Manage Server → Library & storage**.
+  The first-owner walkthrough lists configured mount parents and connects and scans folders immediately after account creation. It then offers an optional Plex or Jellyfin household transfer before personal welcome. Setup later keeps folder controls under **Manage Server → Library & storage** and transfer controls under **Household → Import members**.
 
   ```yaml
   volumes:
@@ -476,6 +476,7 @@ Schema steps 6 to 18 only add tables, columns and indexes that older releases ig
 
 | Rolling back to | Stamp |
 | --- | --- |
+| Before Plex account and history transfer (schema 32) | `PRAGMA user_version = 32` (keep the additive `app_settings.plex_import_url` column; imported members and history remain) |
 | Before personal YouTube sessions (schema 31) | `DELETE FROM youtube_sessions; PRAGMA user_version = 31` (remove saved credentials; keep the additive table) |
 | Before discovery I/O fixes (schema 30) | `UPDATE import_runs SET trigger = 'watch' WHERE trigger = 'manager'; PRAGMA user_version = 30` (keep the additive `ix_media_artifacts_root_size` index; older releases ignore manager reconciliation cursors in `app_maintenance_state`) |
 | Before release update checks (schema 29) | `PRAGMA user_version = 29` (keep the additive `app_settings.update_settings` column; older releases ignore cached release status and notification preferences) |
@@ -815,6 +816,27 @@ Passwords are never stored, and newer Lumina progress is never overwritten, so r
 3. Rescan each video root once (**Imports → Import a folder**). This records every credit's photo and role.
 
 Lumina reads only files inside that folder, never through a symlink, and only JPEG, PNG or WebP up to 2 MiB. It makes small portraits in the background after all other artwork. While the folder is unmounted, people show their initials. The files must be readable by `LUMINA_RUNTIME_UID`.
+
+### First-owner transfer during setup
+
+After connecting media folders, the first owner can choose **Plex** or **Jellyfin** and enter the old server address and owner credentials directly in the walkthrough. **Skip for now** proceeds without importing anyone; this offer does not appear for later accounts.
+
+**Find people** lists accounts and their proposed Lumina destinations without scanning watch histories. Select the people to bring over, then start the transfer once the media scan has indexed titles to match. It reads only selected histories, once per transfer, and reports each person's progress and saved result as it finishes. New accounts are ordinary household members with one-time password links. Save those links before finishing; Members can issue replacements later. Users are not notified automatically.
+
+Source credentials and results stay in the current page/request and are never saved in browser storage. Reloading returns to the saved media setup; reconnect to the old server to try again. Previously committed accounts/history remain and safe merges make a deliberate retry harmless. If a later member fails, successful members and their visible password links stay in the result. **Stop transfer** returns to the saved results without discarding password links; the person already being processed may still finish on the server. Retry unfinished people or choose **Find people again** if the source household changed. The server address remains available in Media server settings for later transfers.
+
+### Moving over from Plex
+
+1. In **Manage Server → Connections → Metadata → Plex server to import from**, enter the Plex Media Server address the Lumina container can reach, for example `http://192.0.2.20:32400`. Use the final address without credentials, query strings or redirects.
+2. A vault owner opens **Settings → Members → Bring members over from Plex**, enters the Plex server owner's **X-Plex-Token**, and previews the accounts and watch state. Select the people to bring over, then import. Keep the page open until the result appears.
+3. New accounts are household members with no password. Copy their single-use password links from the result; they expire after 24 hours. Existing accounts match by username, and the Plex owner maps to the signed-in Lumina owner. Duplicate or unusable names are skipped.
+4. Members can instead open **Settings → Privacy & data → Watch history from Plex** with their own token that can access this Plex server.
+
+Lumina imports movie and episode watched state and dated resume positions. It matches visible Lumina media by file-path suffix or provider IDs, keeps completed titles completed and preserves newer Lumina progress. Preview changes nothing, and repeating an import is safe. Plex ratings, watchlists, favorites and play counts are not transferred.
+
+The household transfer contacts **plex.tv** over HTTPS to verify the owner and obtain server-sharing tokens; Plex Media Server reads go only to the configured address. Users without a token for this server appear with an error and are left out by default. Requests refuse redirects, ignore proxy environment settings, and are bounded to 30 seconds and 8 MiB per response, 50 users, and 100 video libraries, 250 pages and 20,000 unique watched or resumable entries per user. Lumina requests watched and in-progress items directly, then fetches only the show metadata needed to match those episodes; untouched media is not scanned. A failure for one selected user leaves the others' results intact.
+
+Tokens live only for the request and are never saved or logged. Lumina does not revoke your existing Plex token; revoke it in Plex when appropriate. See [Plex's token instructions](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). Clear the saved Plex server address when the household has moved.
 
 ## TV and movie metadata (TMDB)
 

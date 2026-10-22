@@ -65,6 +65,8 @@ test('owner adds a read-only share and retries its private scan in the welcome j
   await expect(page.getByRole('region', { name: 'Media folders' })).toContainText('Family films');
   await page.getByRole('button', { name: 'Retry scan' }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Bring your household along.' })).toBeVisible();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome to Lumina' })).toBeVisible();
   expect(rootCreates).toBe(1);
   expect(scanAttempts).toBe(2);
@@ -107,9 +109,11 @@ test('first account resumes media setup before the welcome and persists the choi
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Give your vault a home.' })).toBeVisible();
   await page.getByRole('button', { name: 'Set up media later' }).click();
+  await expect(page.getByRole('heading', { name: 'Bring your household along.' })).toBeVisible();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByText('Setup could not be saved')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Give your vault a home.' })).toBeVisible();
-  await page.getByRole('button', { name: 'Set up media later' }).click();
+  await expect(page.getByRole('heading', { name: 'Bring your household along.' })).toBeVisible();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome to Lumina' })).toBeVisible();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Welcome to Lumina' })).toBeVisible();

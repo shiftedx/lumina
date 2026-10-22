@@ -163,7 +163,8 @@ class RequestBodyLimitMiddleware:
         async def replay_body() -> Message:
             nonlocal replayed
             if replayed:
-                return {"type": "http.disconnect"}
+                # A consumed body is not a disconnect: finite POST streams need the real transport signal.
+                return await receive()
             replayed = True
             return {"type": "http.request", "body": bytes(body), "more_body": False}
 

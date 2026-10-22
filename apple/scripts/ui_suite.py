@@ -12,6 +12,7 @@ import json
 import os
 import secrets
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -165,6 +166,12 @@ def serve(output: Path, python: str, command_factory: Callable[[str, Path], list
         server.serve_forever()
     finally:
         server.server_close()
+        if broker._diagnostics:
+            diagnostics = output.parent / "fixture-failures"
+            diagnostics.mkdir(mode=0o700, exist_ok=True)
+            for log in broker._diagnostics:
+                if log.exists():
+                    shutil.copy2(log, diagnostics / log.name)
         broker.close()
         output.unlink(missing_ok=True)
         state.rmdir()

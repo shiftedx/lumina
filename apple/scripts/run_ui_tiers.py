@@ -236,7 +236,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.repeat < 1:
         parser.error("--repeat must be positive")
-    args.output.mkdir(parents=True, exist_ok=True)
+    args.output.mkdir(parents=True, mode=0o700)
     run_id = f"{os.getpid()}-{int(time.time())}"
     broker_file = args.output / "broker.json"
     broker = subprocess.Popen([sys.executable, str(APPLE / "scripts" / "ui_suite.py"), "--output", str(broker_file)], cwd=ROOT, start_new_session=True)

@@ -3,17 +3,19 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import type { MediaServerSettings } from './types';
+import type { ConnectedApp, MediaServerSettings } from './types';
 
 const api = vi.hoisted(() => ({
   getMediaServerSettings: vi.fn(), updateMediaServerSettings: vi.fn(), testTmdbKey: vi.fn(), refreshAllMetadata: vi.fn(), listUnmatchedTitles: vi.fn(),
   runTranscodeDiagnostics: vi.fn(), searchTitleMatches: vi.fn(), identifyTitle: vi.fn(), unmatchTitle: vi.fn(), refreshTitleMetadata: vi.fn(),
+  listConnectedApps: vi.fn(), createAgentToken: vi.fn(), revokeConnectedApp: vi.fn(),
 }));
 vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), ...api }));
 const { mediaServerChanges } = await import('./features/settings/sections/media');
 const { sectionById } = await import('./features/settings/registry');
 const { SectionRows } = await import('./features/settings/SettingRow');
 const { SettingsHostContext } = await import('./features/settings/settingsHost');
+const { ConnectedApps } = await import('./features/settings/ConnectedApps');
 const { TMDB_ATTRIBUTION } = await import('./features/titles/titleModel');
 
 beforeAll(() => {
@@ -25,6 +27,7 @@ afterEach(() => vi.resetAllMocks());
 const settings: MediaServerSettings = { jellyfin_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null };
 const draft = { tmdb_api_key: '', clear_tmdb_key: false, metadata_language: 'en-US', introdb_enabled: false, jellyfin_enabled: false, hwaccel: 'auto' as const, max_playback_sessions: '3', transcode_cache_gb: '10', jellyfin_import_url: '' };
 const user = { id: 'admin', username: 'owner', role: 'admin', is_active: true } as never;
+const connectedApp: ConnectedApp = { id: 'agent-1', user_id: 'admin', owner_display_name: 'Owner', kind: 'agent', scope: 'read', device_name: 'Home Assistant', client: null, client_version: null, created_at: '2026-10-22T00:00:00Z', last_seen_at: null };
 
 function setup(...ids: Array<'media' | 'transcoding'>) {
   api.getMediaServerSettings.mockResolvedValue(settings);
@@ -120,5 +123,26 @@ describe('Media server and Playback & transcoding sections', () => {
     expect(screen.getByRole('dialog', { name: 'Fix match' })).toBeTruthy();
     expect(api.searchTitleMatches).toHaveBeenCalledWith('m9', 'Arival', 2016);
     expect(document.querySelector('form dialog')).toBeNull();
+  });
+
+  it('clears a newly issued agent token when its app is revoked', async () => {
+    api.listConnectedApps.mockResolvedValue([]);
+    api.createAgentToken.mockResolvedValue({ app: connectedApp, token: 'one-time-agent-token' });
+    api.revokeConnectedApp.mockResolvedValue(undefined);
+    render(<ConnectedApps user={user} />);
+
+    await userEvent.type(await screen.findByLabelText('Token name'), 'Home Assistant');
+    await userEvent.click(screen.getByRole('button', { name: 'Create agent token' }));
+    const token = await screen.findByRole('textbox', { name: 'Token for Home Assistant' }) as HTMLInputElement;
+    expect(token.value).toBe('one-time-agent-token');
+    expect(document.activeElement).toBe(token);
+    expect(JSON.stringify({ ...window.localStorage })).not.toContain('one-time-agent-token');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Revoke Home Assistant' }));
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Revoke Home Assistant?' })).getByRole('button', { name: 'Revoke' }));
+    await waitFor(() => expect(api.revokeConnectedApp).toHaveBeenCalledWith('agent-1'));
+    expect(screen.queryByRole('textbox', { name: 'Token for Home Assistant' })).toBeNull();
+    expect(screen.queryByDisplayValue('one-time-agent-token')).toBeNull();
+    expect(JSON.stringify({ ...window.localStorage })).not.toContain('one-time-agent-token');
   });
 });

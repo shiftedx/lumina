@@ -40,6 +40,17 @@ Make target retains the repository's machine-wide performance lock; it is not an
 Xcode restriction. Only this driver's own children receive cancellation signals.
 Successful fixture roots are removed; failure evidence is retained privately.
 
+Explicit Firefox launches on macOS also get a unique temporary home through
+`CFFIXED_USER_HOME`. Firefox's `-profile` alone still reads shared application
+data, which macOS 27 can deny before Playwright connects
+([upstream diagnosis](https://github.com/microsoft/playwright/issues/42768)).
+The same pinned Firefox 141.0 failed the minimal page-startup probe without this
+isolation and opened a page with it; the retained transcode journey then passed.
+The helper closes the browser and removes its private home on success or failure.
+Standard directories are created before launch to avoid macOS adding deny-delete
+ACLs during initialization. This does not change host permissions or the user's
+Firefox data. Revisit the workaround when the pinned browser includes Firefox 158.
+
 Opt-in `playperf/` reader/video/network measurements and four `PERF_STRICT`
 reference-host cases remain separate benchmarks, with their existing commands
 and host prerequisites. They are inventoried in the ledger, but are not ordinary

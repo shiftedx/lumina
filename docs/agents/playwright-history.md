@@ -1,6 +1,6 @@
 # Playwright regression-history audit
 
-**Base:** `18b35c6ad163989244343f476ac390a4b543f292`  
+**Base:** `18b35c6ad163989244343f476ac390a4b543f292`
 **Scope:** every configuration-selected Playwright case in `/tmp/lumina-playwright-inventory.json`: 807 unique expanded case/project instances, derived from 497 authored test/setup templates. This includes mocked and optional capture variants, realstack (journeys, perf, WebKit, setup), playperf, audit-readers, audit-video, and local-network.
 
 ## Rule

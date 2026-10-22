@@ -207,6 +207,53 @@ public enum BookPagePreparation {
     }
 }
 
+/// A bounded encoded-page window. A failed speculative request is discarded so an explicit retry can fetch again.
+public actor BookPageWindow {
+    private let load: @Sendable (Int) async throws -> Data
+    private var cache = [Int: Data]()
+    private var lookahead: (index: Int, task: Task<Data, Error>)?
+
+    public init(api: LuminaBooks, bookID: String) {
+        load = { index in try await api.page(id: bookID, index: index) }
+    }
+
+    init(load: @escaping @Sendable (Int) async throws -> Data) {
+        self.load = load
+    }
+
+    public func bytes(_ index: Int) async throws -> Data {
+        if let data = cache[index] { return data }
+        let data: Data
+        if let pending = lookahead, pending.index == index {
+            lookahead = nil
+            data = try await pending.task.value
+        } else {
+            data = try await load(index)
+        }
+        try Task.checkCancellation()
+        cache[index] = data
+        return data
+    }
+
+    public func retain(_ visible: [Int], next: Int?) {
+        if let pending = lookahead, !visible.contains(pending.index), pending.index != next {
+            pending.task.cancel()
+            lookahead = nil
+        }
+        cache = cache.filter { visible.contains($0.key) }
+        guard let next, cache[next] == nil, lookahead == nil,
+              cache.values.reduce(0, { $0 + $1.count }) <= 24 * 1024 * 1024 else { return }
+        let load = load
+        lookahead = (next, Task { try await load(next) })
+    }
+
+    public func stop() {
+        lookahead?.task.cancel()
+        lookahead = nil
+        cache = [:]
+    }
+}
+
 /// Physical right is primary even in RTL locales. Artwork itself is never mirrored.
 public enum BookSpread {
     public static func companion(current: Int, count: Int, rightToLeft: Bool) -> Int? {

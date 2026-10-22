@@ -76,6 +76,43 @@ final class LuminaBooksTests: XCTestCase {
         XCTAssertLessThan(prepared.bytesPerRow * prepared.height, image.bytesPerRow * image.height / 8)
         XCTAssertNil(BookPagePreparation.image(from: Data("not an image".utf8), maximumPixelSize: 1024))
     }
+
+    func testPageWindowDiscardsFailedLookaheadForRetryWithinEncodedBudget() async throws {
+        let firstPage = Data(repeating: 0, count: BookPagePreparation.maximumEncodedBytes)
+        let loader = RetryingPageLoader(firstPage: firstPage)
+        let window = BookPageWindow(load: { index in try await loader.load(index) })
+
+        let visible = try await window.bytes(0)
+        XCTAssertEqual(visible.count, BookPagePreparation.maximumEncodedBytes)
+        await window.retain([0], next: 1)
+        do {
+            _ = try await window.bytes(1)
+            XCTFail("The first speculative page request should fail.")
+        } catch LuminaError.malformedResponse { }
+
+        let failedAttempts = await loader.callCount(for: 1)
+        XCTAssertEqual(failedAttempts, 1)
+        let retriedPage = try await window.bytes(1)
+        XCTAssertEqual(retriedPage, Data([1]))
+        let retryAttempts = await loader.callCount(for: 1)
+        XCTAssertEqual(retryAttempts, 2)
+    }
+}
+
+private actor RetryingPageLoader {
+    private let firstPage: Data
+    private var calls = [Int: Int]()
+
+    init(firstPage: Data) { self.firstPage = firstPage }
+
+    func load(_ index: Int) throws -> Data {
+        calls[index, default: 0] += 1
+        if index == 0 { return firstPage }
+        if index == 1, calls[index] == 1 { throw LuminaError.malformedResponse }
+        return Data([UInt8(index)])
+    }
+
+    func callCount(for index: Int) -> Int { calls[index, default: 0] }
 }
 
 private let bookID = "00000000-0000-0000-0000-000000000001"

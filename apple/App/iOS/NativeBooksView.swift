@@ -94,7 +94,14 @@ struct NativeBooksView: View {
                                 Button("More manga series") { Task { await loadSeries(more: true) } }.disabled(busy)
                             }
                         }
-                        sectionTitle("All books")
+                        HStack {
+                            sectionTitle("All books")
+                            Spacer()
+                            NavigationLink {
+                                NativeBooksView(session: session, catalogOnly: true, covers: covers)
+                            } label: { Label("Browse all", systemImage: "square.grid.2x2") }
+                            .accessibilityIdentifier("bookCatalogButton")
+                        }
                     }
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
                         ForEach(books) { book in bookCard(book, covers: covers) }
@@ -111,16 +118,6 @@ struct NativeBooksView: View {
         }
         .navigationTitle(title)
         .toolbarVisibility(.visible, for: .navigationBar)
-        .toolbar {
-            if root {
-                ToolbarItem(placement: .primaryAction) {
-                    NavigationLink {
-                        NativeBooksView(session: session, catalogOnly: true, covers: covers)
-                    } label: { Label("All books", systemImage: "square.grid.2x2") }
-                    .accessibilityIdentifier("bookCatalogButton")
-                }
-            }
-        }
         .searchable(text: $search, prompt: "Title or author")
         .task(id: search) {
             do { try await Task.sleep(for: .milliseconds(250)); await load() } catch { }

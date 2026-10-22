@@ -28,7 +28,8 @@ final class NativeProofTests: XCTestCase {
         try activate(element("bookControlsButton"))
         try waitForHittable(element("bookNextButton"), timeout: 30, named: "shelf book ready to read")
         try activate(element("bookCloseButton"))
-        try activate(application!.buttons["Books"].firstMatch)
+        let back = element("BackButton")
+        try activate(back.exists ? back : application!.navigationBars.buttons["Books"].firstMatch)
         let stack = element("bookSeries-\(series)")
         revealLibraryItem(stack)
         try attachFrame(named: "Native Books cover grid, shelves and manga stacks")
@@ -78,6 +79,7 @@ final class NativeProofTests: XCTestCase {
             try waitForExistence(element("homeScreen"), timeout: 30, named: "Home after relaunch in an RTL locale")
         }
         try activate(destinationControl("Books"))
+        revealLibraryItem(element("bookCatalogButton"))
         try activate(element("bookCatalogButton"))
         for id in [comic, prose, pdf, cbr] {
             let card = element("book-\(id)")
@@ -1508,7 +1510,7 @@ final class NativeProofTests: XCTestCase {
         let sidebarCells = application!.collectionViews.cells.matching(label).allElementsBoundByIndex
             + application!.tables.cells.matching(label).allElementsBoundByIndex
         if let row = sidebarCells.first(where: { hasVisibleFrame($0) && $0.isHittable }) { return row }
-        return application!.buttons[title]
+        return application!.descendants(matching: .any).matching(label).firstMatch
         #else
         return element(identifier)
         #endif

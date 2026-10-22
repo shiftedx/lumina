@@ -1,35 +1,28 @@
-# iPhone Duo redesign notes
+# iPhone Duo reader handoff
 Journey: Books library → native reader → contents/appearance → resume.
-Stack: SwiftUI + UIKit; iOS 18 deployment; Xcode 27.1 installed.
-Stage: 5  Next: Qualify the visual library and device-specific defaults, then finish Device Hub poses.
+Stack: SwiftUI + UIKit; iOS 18 deployment; Xcode 27.1 SDK.
+Stage: Functional reader and visual library; UI redesign is a separate follow-up.
 
-## Findings
-- Books has no native entry point or renderer; current reader is React. [HIG]
-- Existing native shell uses NavigationSplitView, TabView and NavigationStack. [HIG]
-- New reader must retain book/file ID, chapter/page and offset across resizing. [HIG]
-- System bars and sheets adapt; custom centered controls need fold review. [HIG]
-- Native credentials need a Books extension of the existing Connected-app boundary.
-- Ready: shell size classes, landscape support, safe-area-managed containers.
-- N/A: camera, hinge effects, scene accessories, multiwindow, table-pose extras.
+## Preserve during redesign
+- Native Connected-app credentials use the same member visibility as the web Books service.
+- The selected outer-screen page/content stays physically right when unfolded, including RTL.
+- LTR companion precedes the selected page; RTL companion follows it. Horizontal fold puts selected content below.
+- EPUB stores a UTF-16 content anchor through reflow; artwork stores its selected page.
+- Standard iPhone defaults to Fit entire page; Duo defaults to Fill display. Explicit Appearance choice overrides.
+- Layout follows safe areas, actual size classes and reserved fold/camera regions, without device-name/angle branches.
+- EPUB/Fit retain safe areas; immersive artwork fills the viewport. Native pan/zoom exposes cropped pixels.
+- Progress writes are ordered/coalesced and failures offer retry. Each file retains its own position.
+- Covers, shelf memberships and manga-series stacks use real service data and bounded shared thumbnails.
+- Only visible pages are decoded, off the main actor; encoded lookahead is bounded and abandoned work cancelled.
 
-## Decisions
-- Books entry: recommended fifth native tab with a searchable paginated catalog.
-- Reader: recommended full-screen native navigation, with system toolbar actions.
-- Expanded layout: automatic spreads chosen by user (2026-10-21); outer active page stays physically right inside, including RTL.
-- Prose: adaptive native pagination, Dynamic Type, text-size controls and native selection; retain content anchor across reflow.
-- Contents/appearance: recommended standard sheets; avoid an additional permanent sidebar.
-- Performance: recommended bounded encoded lookahead, off-main downsampling and ordered progress writes.
-- Native rendering: recommended UIKit text/images within SwiftUI, using safe structured API nodes.
-
-## Done / verified
-- Repository and API assessment completed; native reader absent.
-- Final iOS/tvOS builds, Core 78 tests and make check pass; final Duo LTR/RTL workflows pass (2 tests).
-- PDF selected page remains right through open/closed, rotation and vertical fold; horizontal fold retains it below.
-- Prose anchor remains in the right pane after reflow; largest Dynamic Type and outer keyboard checked.
-- RTL canvas fixed and selected page verified physically right; native fill/pan and Fit swipe workflows pass.
-- Edge-fold compact/expanded bounds fixed; final Core geometry/RTL/fold contracts pass.
-- Actual Split View verified on both sides, including Next and fold/unfold continuity; rerun immersive build pending.
-- User chose Fit on standard iPhone and Fill on Duo; guarded hinge capability sets the default; Appearance overrides it.
-- Visual cover grid, real shelf/series stacks, shared bounded thumbnail cache and concurrent catalog metadata added.
-- Library backend/Core/live-cover checks pass; native compile passes; latest UI workflows queued after full gate.
-- External Safari PiP did not expose a control or floating window in this simulator; unverified.
+## Evidence and limits
+- Full make check passes; shared native Core 78 tests pass with no skips/failures.
+- Four focused Books Core contracts pass, including failed-prefetch recovery.
+- Full-to-bounded decoded bitmap storage: 96,000,000 → 25,165,824 bytes (73.8% smaller).
+- Preparation/materialization median: 65.341 → 116.671 ms; no latency gain claimed.
+- Actual Device Hub pose checks covered outer/inner, both rotations, both fold directions, keyboard, accessibility and both Split View sides.
+- Pose checks preceded the final library/default/toolbar refinements; latest native workflow results are in the reader report.
+- XCTest orientation does not resize Duo here; actual automated resizing uses standard iPhone.
+- External Safari PiP was not exposed in this simulator and remains unverified.
+- No tvOS reader was added; the existing tvOS app builds against shared Core changes.
+- Details: apple/docs/native-book-reader-2026-10-21.md; local artifacts: output/native-book-reader/.

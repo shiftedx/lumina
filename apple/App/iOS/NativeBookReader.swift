@@ -3,32 +3,6 @@ import UIKit
 import Observation
 import LuminaCore
 
-private actor BookPageWindow {
-    let api: LuminaBooks
-    let bookID: String
-    private var cache = [Int: Data]()
-    private var lookahead: (index: Int, task: Task<Data, Error>)?
-    init(api: LuminaBooks, bookID: String) { self.api = api; self.bookID = bookID }
-    func bytes(_ index: Int) async throws -> Data {
-        if let data = cache[index] { return data }
-        let data: Data
-        if let pending = lookahead, pending.index == index { data = try await pending.task.value; lookahead = nil }
-        else { data = try await api.page(id: bookID, index: index) }
-        try Task.checkCancellation()
-        cache[index] = data
-        return data
-    }
-    func retain(_ visible: [Int], next: Int?) {
-        if let pending = lookahead, !visible.contains(pending.index), pending.index != next { pending.task.cancel(); lookahead = nil }
-        cache = cache.filter { visible.contains($0.key) }
-        guard let next, cache[next] == nil, lookahead == nil,
-              cache.values.reduce(0, { $0 + $1.count }) <= 24 * 1024 * 1024 else { return }
-        let api = api, id = bookID
-        lookahead = (next, Task { try await api.page(id: id, index: next) })
-    }
-    func stop() { lookahead?.task.cancel(); lookahead = nil; cache = [:] }
-}
-
 @MainActor @Observable
 private final class BookReaderModel {
     private let session: LuminaSession

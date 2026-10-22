@@ -135,6 +135,11 @@ class UITierRunnerTests(unittest.TestCase):
         with mock.patch.object(run_ui_tiers, "command", side_effect=fake):
             self.assertEqual(run_ui_tiers.latest_runtime("iOS"), "com.apple.CoreSimulator.SimRuntime.iOS-27-1")
             self.assertEqual(run_ui_tiers.latest_runtime("tvOS"), "com.apple.CoreSimulator.SimRuntime.tvOS-27-0")
+            with mock.patch.object(run_ui_tiers, "IOS_RUNTIME", "27.0"):
+                self.assertEqual(run_ui_tiers.latest_runtime("iOS"), "com.apple.CoreSimulator.SimRuntime.iOS-27-0")
+            with mock.patch.object(run_ui_tiers, "IOS_RUNTIME", "29.0"):
+                with self.assertRaisesRegex(RuntimeError, "no compatible available"):
+                    run_ui_tiers.latest_runtime("iOS")
 
     def test_cleanup_deletes_only_its_named_simulators_and_clones(self) -> None:
         run_id = "recorded-run"

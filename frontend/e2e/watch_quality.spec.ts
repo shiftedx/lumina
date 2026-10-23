@@ -7,7 +7,11 @@ const itemId = 'item-ep-2-1';
 async function openEpisode(page: Page, width: number, next: 'populated' | 'empty' | 'failure' = 'populated') {
   await page.setViewportSize({ width, height: 900 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await mockApi(page, {});
+  // Keep the matched episode stable while this layout contract inspects its
+  // populated continuation rail. The shared synthetic media is only 1.5 s,
+  // so the member default would otherwise advance through the fixture before
+  // the assertions run on a busy browser worker.
+  await mockApi(page, { autoplay_up_next: false });
   await mockTitles(page);
   await page.route(`**/api/library/${itemId}`, route => route.fulfill({ json: {
     ...item, id: itemId, title: filename, title_id: 'ep-2-1', kind: 'episode', extractor: 'external_library',

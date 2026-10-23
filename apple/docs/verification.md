@@ -284,3 +284,47 @@ Retained current evidence:
 - Backend full tier: 5,301 passed, 11 skipped (`/tmp/lumina-layout-backend-final.log`). Frontend typechecks/build/style/license checks passed; frontend units passed 2,660 tests across 305 files with two workers (`/tmp/lumina-layout-frontend-serial-final.log`).
 
 The broad browser tier initially recorded 616 passing cases, one production service-worker activation timeout and 33 unexecuted dependent cases. The exact failed offline contract passed unchanged in isolation. An exact follow-up of the 33 unexecuted cases plus required setup finished with 33 passed and one failed in 9.8 minutes: all three WebKit decode/seek cases passed, while the strict unthrottled movie-wall fling reported long-task samples 3, 0, 1 (median 1 against an expected 0), with 60 FPS throughout. That run held the shared performance lock but overlapped an unrelated Xcode/simulator workload; it remains a failed performance observation, not a green browser gate or wholly green `make check` invocation. The follow-up log and failure assertion are retained at `/tmp/lumina-browser-unrun-final-evidence/run.log`. The native workflows use original synthetic media and independent platform fixture brokers. They do not qualify physical HDMI/HDR/audio output. Signed build-10 archives remain intact; only their temporary compiler cache was removed.
+
+
+## Native dogfood release packaging, 2026-10-23
+
+PR #147 includes the native Home/Requests/Account adapters, media-led browsing,
+playback settings, TV music detail surfaces, and compact-player auto-hide. The
+final release review also closed the disabled-native-streaming Home bypass and
+cancelled TV playback preparation when Back dismisses its detail or collection.
+The member-effective Home opt-in contract passed five cases. A deterministic
+three-second disposable-server delay qualified both TV Back paths (94.371 s,
+`/private/tmp/lumina-tv-back-during-preparation.xcresult`); the delay is broker-keyed
+to that test class and is never a production server setting. The broker suite
+passed ten tests.
+
+The current iOS Duo Open music workflow passed (111.119 s), and the tvOS music
+workflow with paused-clock/resume assertions passed (192.446 s). Shared Core
+passed 121 tests with five fixture-dependent skips and zero failures. TV general
+video controls, speed/chapters, and the corrected supported-stream timing/quality
+workflow have passing focused evidence in the native performance record. These
+are workflow checks, not comprehensive performance qualification.
+
+Device Release archives and distribution-signed exports for iOS and tvOS
+**0.1.0 (11)** passed local identity, platform, privacy/artwork, fixture exclusion,
+framework/signature and entitlement validation. Both signed Organizer archives
+have matching application/dSYM UUIDs. The ignored package directory is
+`apple/Distribution/0.1.0-11/`; its manifest records source commit
+`46f96384a05426e428ff6c74092775e1c73b8f55`, source-input hashes, and IPA checksums.
+No upload or deployment is established by packaging. Physical display/audio and
+comprehensive device performance remain unqualified.
+
+Final merge qualification ran `make check` with four backend/browser workers.
+Backend passed 5,301 tests with 11 skips; frontend passed 2,660 tests across
+305 files, plus typecheck, production build, style, license and bundle checks.
+The browser run passed 615 of 650 selected cases; two layout fixtures raced the
+1.5-second episode's autoplay, preventing 33 dependent cases from running.
+The fixture now disables autoplay for those layout assertions while retaining
+separate autoplay coverage. Both repaired cases passed, and the exact remaining
+33 cases plus setup passed (34/34), including WebKit playback and both movie-wall
+performance budgets. Identity-based composition accounts for all 650 contracts
+without gaps. This is composed passing evidence, not a single green `make check`
+invocation. Logs: `/private/tmp/lumina-merge-make-check-final-r2-20261023.log`,
+`/private/tmp/lumina-watch-quality-focused-20261023.log`, and
+`/private/tmp/lumina-merge-browser-remainder-20261023/`; composition record:
+`/private/tmp/lumina-composed-browser-qualification.json`.

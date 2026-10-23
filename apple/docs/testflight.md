@@ -63,3 +63,22 @@ The tvOS 0.1.0 (4) upload completed with missing-dSYM warnings for 27 framework 
 The command-line export options keep `manageAppVersionAndBuildNumber=false`. Xcode Organizer’s recommended upload flow can independently advance the build number; select the archive by its version/build and check the final upload summary. The first upload of the 0.1.0 (4) archive reported build number 5, so the corrected replacement is packaged as build 6.
 
 The corrected tvOS **0.1.0 (6)** signed archive and IPA passed local distribution validation, and Xcode Organizer’s App Store Connect validation completed successfully with no warnings. The executable and app dSYM UUIDs match. The replacement was prepared and validated without uploading it.
+
+### Internal dogfood package, 2026-10-23
+
+Version **0.1.0 (11)** is prepared for both iOS and tvOS in ignored
+`apple/Distribution/0.1.0-11/`. Each platform has an unsigned source archive,
+a validated distribution-signed IPA, and a signed `Lumina-<platform>-Organizer.xcarchive`
+with matching executable/debug-symbol UUIDs. Open the Organizer copy to upload;
+the original unsigned archive is retained for symbolication.
+
+`ReleaseManifest.json` records the source revision, native source-input hashes,
+and IPA hashes; `SHA256SUMS`, `README.txt`, and `What-to-Test.txt` accompany the
+package. These are **TestFlight Internal Only** exports. Packaging and opening an
+archive do not upload it; build 11 has not been uploaded by this work.
+
+The bundled offline welcome scenes are original generated Lumina artwork with
+hashes and provenance in [WelcomeArtwork.md](../Assets/WelcomeArtwork.md).
+Use the matching updated server for the native Home, Requests and Account APIs.
+Comprehensive device performance and physical HDR/HDMI/audio qualification remain
+incomplete; see [the native performance record](native-view-performance-2026-10-23.md).

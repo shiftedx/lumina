@@ -292,8 +292,27 @@ measurement.
 2. Re-run the repaired tvOS Requests unwind and paused-settings behavior,
    including the 1080p MP4 and client-demux MKV playback phase.
 3. Profile the functionally validated tvOS music design and control-bar auto-hide.
-4. Re-run and record a clean full `make check` gate after the repaired
-   watch-web preview fixture.
+4. A single uninterrupted green `make check` remains unrecorded; the final
+   merge qualification below composes passing evidence for all selected contracts.
 5. Repeat a representative playback path on hardware with an available
    hitch/SwiftUI-capable Instruments template before drawing responsiveness or
    decoder, refresh-matching, or HDR conclusions.
+
+## Final merge qualification, 2026-10-23
+
+Final merge qualification ran `make check` with four backend/browser workers.
+Backend passed 5,301 tests with 11 skips; frontend passed 2,660 tests across
+305 files, plus typecheck, production build, style, license and bundle checks.
+The browser run passed 615 of 650 selected cases; two layout fixtures raced the
+1.5-second episode's autoplay, preventing 33 dependent cases from running.
+The fixture now disables autoplay for those layout assertions while retaining
+separate autoplay coverage. Both repaired cases passed, and the exact remaining
+33 cases plus setup passed (34/34), including WebKit playback and both movie-wall
+performance budgets. Identity-based composition accounts for all 650 contracts
+without gaps. This is composed passing evidence, not a single green `make check`
+invocation. Logs: `/private/tmp/lumina-merge-make-check-final-r2-20261023.log`,
+`/private/tmp/lumina-watch-quality-focused-20261023.log`, and
+`/private/tmp/lumina-merge-browser-remainder-20261023/`; composition record:
+`/private/tmp/lumina-composed-browser-qualification.json`.
+
+These browser performance passes do not qualify native device performance.

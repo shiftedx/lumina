@@ -32,7 +32,7 @@ from app.services.media_artifacts import MediaArtifactService, artifact_file
 from app.services.media_titles import jellyfin_id, parse_item_id, person_name_id, synthetic_id, to_ticks
 from app.services.transcripts import to_iso639_2 as iso639_2
 from app.services import playlists as pl
-from app.services import member_access, renditions, music_library
+from app.services import hero_framing, member_access, renditions, music_library
 from app.services.playback import PlaybackProgressService
 from app.services.subtitle_tracks import sidecars
 from app.services.title_metadata import _credits, people_for_titles
@@ -545,6 +545,7 @@ class JellyfinMapper:
     # ---- titles -------------------------------------------------------------------
 
     def title_dtos(self, titles: list[MediaTitle], *, sources: bool | None = None, batch: TitleBatch | None = None) -> list[dict]:
+        hero_framing.hero_framing.warm_library(self.user.id, titles)
         sources = self.sources if sources is None else sources
         batch = batch or self.titles.load(
             self.user, titles, with_artifacts=sources, with_metadata=sources, with_artwork=False,

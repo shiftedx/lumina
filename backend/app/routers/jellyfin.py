@@ -406,6 +406,20 @@ def around_episode(episodes: dict, wanted: str | None) -> dict:
     return jf.query_result(around, len(around))
 
 
+@router.get("/items/{item_id}/images/backdrop/0/framing")
+def backdrop_framing(item_id: str, user: Caller, db: Db, tag: str = Query(max_length=128)) -> dict:
+    """Native heroes share the web's source-keyed analysis, with full member authorization."""
+    from app.routers import hero_framing
+    from app.services.member_access import art_scope
+    from app.services.titles import image_url
+
+    title = entity_or_404(db, user, item_id).title
+    expected = jf.title_tag(jellyfin_server_key(db), title, "Backdrop", art_scope(db, user))
+    if expected is None or not hmac.compare_digest(tag.encode(), expected.encode()):
+        return {"state": "unavailable"}
+    return hero_framing.framing(image_url(title, "Backdrop"), user, db)
+
+
 @router.api_route("/items/{item_id}/images/{image_type}", methods=["GET", "HEAD"])
 @router.api_route("/items/{item_id}/images/{image_type}/{image_index}", methods=["GET", "HEAD"])
 def item_image(

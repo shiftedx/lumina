@@ -8,6 +8,9 @@ private struct BillboardArtwork: View {
     let item: MediaItem
     let store: LuminaStore
     var showsPoster = false
+    var home = false
+    @State private var framing: HeroFraming?
+    @State private var loadedURL: URL?
     @State private var source: UIImage?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
@@ -21,11 +24,13 @@ private struct BillboardArtwork: View {
         GeometryReader { geometry in
             ZStack {
                 LuminaTheme.theater
-                if let source {
+                if let source, loadedURL == url {
+                    let crop = HeroFraming.crop(isWide ? framing : nil, source: source.size, viewport: geometry.size, home: home)
                     Image(uiImage: source)
                         .resizable()
-                        .scaledToFill()
-                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .frame(width: geometry.size.width / crop.width, height: geometry.size.height / crop.height)
+                        .offset(x: -crop.minX * geometry.size.width / crop.width, y: -crop.minY * geometry.size.height / crop.height)
+                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                         .blur(radius: isWide ? 0 : reduceTransparency ? 0 : 36)
                         .opacity(isWide ? 1 : reduceTransparency ? 0 : 0.45)
                     if showsPoster && !isWide {
@@ -44,7 +49,10 @@ private struct BillboardArtwork: View {
         }
         .task(id: url) {
             source = nil
+            framing = nil
+            loadedURL = nil
             guard let url else { return }
+            async let proposedFraming = store.backdropFraming(for: item)
             do {
                 let data: Data
                 if url.isFileURL { data = try Data(contentsOf: url) }
@@ -58,7 +66,11 @@ private struct BillboardArtwork: View {
                     BillboardArtworkPreparation.image(from: data)
                 }.value
                 guard !Task.isCancelled, let image else { return }
+                let chosenFraming = await proposedFraming
+                guard !Task.isCancelled else { return }
+                framing = chosenFraming
                 source = UIImage(cgImage: image)
+                loadedURL = url
             } catch { /* Keep the finished text and theater field when artwork is unavailable. */ }
         }
         .accessibilityHidden(true)
@@ -90,7 +102,7 @@ struct MediaBillboard<Actions: View>: View {
         Group {
             if compact {
                 VStack(alignment: .leading, spacing: 0) {
-                    BillboardArtwork(item: item, store: store, showsPoster: true)
+                    BillboardArtwork(item: item, store: store, showsPoster: true, home: featured)
                         .aspectRatio(16 / 9, contentMode: .fit)
                     copy
                         .foregroundStyle(LuminaTheme.ink)
@@ -108,7 +120,7 @@ struct MediaBillboard<Actions: View>: View {
                     .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .bottomLeading)
                     .background {
                         ZStack {
-                            BillboardArtwork(item: item, store: store, showsPoster: true)
+                            BillboardArtwork(item: item, store: store, showsPoster: true, home: featured)
                             LinearGradient(stops: [
                                 .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.96 : 0.72), location: 0),
                                 .init(color: LuminaTheme.theater.opacity(0.30), location: 0.48),

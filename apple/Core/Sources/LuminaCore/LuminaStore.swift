@@ -411,6 +411,13 @@ let tickScale = 10_000_000.0
         ])
     }
 
+    public func backdropFraming(for item: MediaItem) async -> HeroFraming? {
+        guard let active = session, let backdrop = backdropURL(for: item) else { return nil }
+        let result = try? await client.heroFraming(origin: active.serverURL, token: active.accessToken,
+                                                  deviceID: active.deviceID, backdrop: backdrop)
+        return isCurrent(active) ? result : nil
+    }
+
     public func backdropURL(for item: MediaItem, maxWidth: Int = 1920) -> URL? {
         guard let active = session else { return nil }
         let imageID: String

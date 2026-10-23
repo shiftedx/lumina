@@ -32,6 +32,8 @@ final class LuminaCoreTests: XCTestCase {
                 featured["ParentBackdropItemId"] = "series-1"
                 featured["ParentBackdropImageTags"] = ["series-backdrop-tag"]
                 return response(request, json: page(items: [featured]))
+            case "/Items/movie-1/Images/Backdrop/0/Framing", "/Items/series-1/Images/Backdrop/0/Framing":
+                return response(request, json: ["state": "ready", "width": 1920, "height": 1080, "regions": []])
             case "/Shows/NextUp": return response(request, json: page(items: []))
             case "/UserItems/Resume":
                 return response(request, json: page(items: []))
@@ -65,6 +67,16 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(inheritedBackdrop.host, backdrop.host)
         XCTAssertEqual(inheritedBackdrop.port, backdrop.port)
         XCTAssertEqual(inheritedBackdrop.path, "/Items/series-1/Images/Backdrop/0")
+        let ownFraming = await store.backdropFraming(for: featured)
+        XCTAssertEqual(ownFraming?.state, "ready")
+        let inheritedFraming = await store.backdropFraming(for: episode)
+        XCTAssertEqual(inheritedFraming?.state, "ready")
+        XCTAssertTrue(requests.all.contains { $0.url?.path == inheritedBackdrop.path + "/Framing" })
+        for request in requests.all.filter({ $0.url?.path.hasSuffix("/Framing") == true }) {
+            XCTAssertEqual(request.timeoutInterval, 0.15)
+            XCTAssertTrue(request.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"test-token\"") == true)
+            XCTAssertNil(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "ApiKey" })
+        }
         let inheritedQuery = URLComponents(url: inheritedBackdrop, resolvingAgainstBaseURL: false)?.queryItems
         XCTAssertEqual(inheritedQuery?.first { $0.name == "maxWidth" }?.value, "1400")
         XCTAssertEqual(inheritedQuery?.first { $0.name == "tag" }?.value, "series-backdrop-tag")

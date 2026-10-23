@@ -20,3 +20,17 @@ The browser keeps heroes full bleed and fits important regions to the current di
 ## Consequences
 
 The image gains approximately 4.0 MB of model weights plus the pinned OpenCV/NumPy runtime. These libraries are not imported by the serving process. The browser gives the first framing lookup at most 150 milliseconds before revealing the artwork. A pending answer reveals the conservative crop immediately; no inference completion or polling holds up the page. Once revealed, that source keeps its chosen framing for the visit, so late results cannot shift a displayed image. Ready answers are cached for later visits, and viewport resizing still recomputes the crop from the same framing regions. Demand-led warm-up makes ready metadata more likely on a first visit without analyzing the entire library. Unusual compositions can still require a compromise when important subjects cannot all fit the available aspect ratio. The fallback also covers providers without supported local analysis.
+
+## Native clients (2026-10-22)
+
+iOS and tvOS use the same cached analysis through the connected-app endpoint
+`GET /Items/{id}/Images/Backdrop/0/Framing?tag=...`. This requires an authenticated
+member and the current signed backdrop tag; image tags alone do not authorize analysis.
+Inherited backdrops name the parent image item, matching the displayed artwork.
+Authorized native title responses nominate the same bounded warm-up queue.
+The shared Apple renderer applies the web's static face-first crop, headroom and text
+allowance at its actual viewport size. It requests framing alongside image loading
+with a 150 ms request timeout, chooses once before revealing that source and keeps
+late/pending analysis for future visits through the server cache. Unavailable or
+older servers use the conservative upper crop. Portrait posters retain their existing
+uncropped foreground presentation; no per-device model or library backfill is added.

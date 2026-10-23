@@ -159,9 +159,9 @@ private struct TVConnectionView: View {
 }
 
 private enum TVDestination: String, CaseIterable {
-    case home, video, audio
+    case home, video, audio, requests
     var title: String { rawValue.capitalized }
-    var symbol: String { switch self { case .home: "house"; case .video: "play.rectangle"; case .audio: "music.note" } }
+    var symbol: String { switch self { case .home: "house"; case .video: "play.rectangle"; case .audio: "music.note"; case .requests: "sparkles.tv" } }
 }
 
 private struct TVLibraryView: View {
@@ -187,6 +187,8 @@ private struct TVLibraryView: View {
                     TVVideoView(store: store, onOpen: onOpen)
                 case .audio:
                     TVAudioView(store: store, onOpen: onOpen)
+                case .requests:
+                    TVRequestsView(store: store)
                 }
             }
         }
@@ -927,25 +929,8 @@ private struct TVArtwork: View {
             .fill(LuminaTheme.ink.opacity(0.08))
             .aspectRatio(aspect, contentMode: .fit)
             .overlay {
-                GeometryReader { geometry in
-                    if let url = artworkURL {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image.resizable().scaledToFill()
-                                    .frame(width: geometry.size.width, height: geometry.size.height)
-                                    .clipped()
-                            case .failure:
-                                placeholder
-                            default:
-                                ZStack { placeholder; ProgressView() }
-                            }
-                        }
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                    } else {
-                        placeholder
-                    }
+                placeholder.overlay {
+                    SubjectAwareArtwork(url: artworkURL) { await store.artworkFraming(for: $0) }
                 }
             }
             .clipShape(.rect(cornerRadius: 4))
@@ -1145,5 +1130,23 @@ private struct TVMessageView: View {
         }
         .frame(maxWidth: .infinity, minHeight: 360)
         .padding(48)
+    }
+}
+
+struct TVArtworkButtonStyle: ButtonStyle {
+    let aspect: CGFloat
+    @Environment(\.isFocused) private var isFocused
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .overlay(alignment: .top) {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(isFocused ? .white : .clear, lineWidth: 3)
+                    .aspectRatio(aspect, contentMode: .fit)
+            }
+            .scaleEffect(isFocused ? 1.04 : 1, anchor: .top)
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isFocused)
     }
 }

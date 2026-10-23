@@ -34,3 +34,11 @@ with a 150 ms request timeout, chooses once before revealing that source and kee
 late/pending analysis for future visits through the server cache. Unavailable or
 older servers use the conservative upper crop. Portrait posters retain their existing
 uncropped foreground presentation; no per-device model or library backfill is added.
+
+Requests heroes and detail headers on both Apple platforms use the same crop
+geometry and reveal policy. Their connected-app catalog admits framing through
+`GET /Lumina/Requests/catalog/framing?src=...`, reusing the web validator and its
+issued-source registry. Native catalog responses already nominate this shared
+cache for warm-up. Only backdrop sources request analysis, including backdrops used as fallback tile artwork; posters and logos do not.
+iPhone Requests heroes prefer a backdrop when one is available so the same
+subject regions can protect the narrow viewport.

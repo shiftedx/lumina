@@ -240,6 +240,35 @@ struct MediaBillboard<Actions: View>: View {
     }
 }
 
+/// Display the supplied title treatment intact, retaining readable copy while it loads or if it fails.
+struct MediaTitleArtwork<Fallback: View>: View {
+    let name: String
+    let url: URL?
+    var maximumWidth: CGFloat = 320
+    var maximumHeight: CGFloat = 100
+    @ViewBuilder let fallback: Fallback
+
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            if let image = phase.image {
+                image
+                    .resizable()
+                    .renderingMode(.original)
+                    .scaledToFit()
+                    .frame(maxWidth: maximumWidth, maxHeight: maximumHeight, alignment: .leading)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityHidden(false)
+                    .accessibilityLabel(name)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("titleLogoArtwork")
+            } else {
+                fallback
+            }
+        }
+        .id(url)
+    }
+}
+
 struct MediaMetadata: View {
     let item: MediaItem
     var onArtwork = true
@@ -615,5 +644,48 @@ struct MusicCollectionSpotlight: View {
         #else
         240
         #endif
+    }
+}
+
+struct LuminaMediaActionStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    var primary = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .imageScale(.small)
+            .padding(.horizontal, 18)
+            .frame(minWidth: 44, minHeight: 44)
+            .foregroundStyle(primary ? LuminaTheme.theater : .white)
+            .background(primary ? LuminaTheme.spotlight : Color.white.opacity(configuration.isPressed ? 0.14 : 0.06), in: .rect(cornerRadius: 10))
+            .opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.45)
+            .contentShape(.rect(cornerRadius: 10))
+    }
+}
+
+struct LuminaQuietActionStyle: ButtonStyle {
+    @Environment(\.isFocused) private var isFocused
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorSchemeContrast) private var contrast
+    var selected = false
+    var mediaOverlay = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.body.weight(selected ? .semibold : .regular))
+            .padding(.horizontal, 16)
+            #if os(tvOS)
+            .frame(minWidth: 64, minHeight: 64)
+            #else
+            .frame(minWidth: 44, minHeight: 44)
+            #endif
+            .foregroundStyle(isFocused ? LuminaTheme.theater : Color.primary)
+            .background(isFocused ? Color.white : mediaOverlay ? Color.black.opacity(0.72) : Color.primary.opacity(configuration.isPressed ? 0.18 : selected ? 0.12 : 0.06), in: .rect(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isFocused ? Color.white : contrast == .increased ? Color.primary : Color.clear, lineWidth: 2)
+            }
+            .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
+            .contentShape(.rect(cornerRadius: 10))
     }
 }

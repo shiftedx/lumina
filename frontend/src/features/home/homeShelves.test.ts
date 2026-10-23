@@ -9,6 +9,7 @@ const defaults = () => DEFAULT_HOME_ORDER.map((id) => ({ id, visible: true }));
 
 describe('normalizeHomeShelves', () => {
   it('gives the default order, all visible, for no preference or a value that is not a list', () => {
+    expect(DEFAULT_HOME_ORDER.slice(0, 2)).toEqual(['continue', 'next_up']);
     for (const stored of [undefined, null, 'continue', 7, { id: 'live', visible: false }]) expect(normalizeHomeShelves(stored)).toEqual(defaults());
   });
 
@@ -34,7 +35,7 @@ describe('normalizeHomeShelves', () => {
 
   it('names and shapes every catalogue shelf, in the default order', () => {
     expect(DEFAULT_HOME_ORDER).toEqual([
-      'continue', 'live', 'next_up', 'watchlist', 'new_in_library', 'because_you_watched', 'recommended',
+      'continue', 'next_up', 'live', 'watchlist', 'new_in_library', 'because_you_watched', 'recommended',
       'picked_for_you', 'collections', 'from_follows', 'recently_saved', 'new_anime', 'recent_music', 'continue_listening',
     ]);
     expect(Object.keys(HOME_CATALOGUE).sort()).toEqual([...HOME_SHELF_IDS].sort());
@@ -52,8 +53,8 @@ describe('editing helpers', () => {
     expect(ids(moveShelf(layout, 'next_up', 4)).slice(0, 5)).toEqual(['continue', 'live', 'watchlist', 'new_in_library', 'next_up']);
     expect(ids(moveShelf(layout, 'next_up', -5))[0]).toBe('next_up');
     expect(ids(moveShelf(layout, 'next_up', 99)).at(-1)).toBe('next_up');
-    expect(moveShelf(layout, 'next_up', 2)).toBe(layout);
-    expect(layout[2].id).toBe('next_up'); // the input is never mutated
+    expect(moveShelf(layout, 'next_up', 1)).toBe(layout);
+    expect(layout[1].id).toBe('next_up'); // the input is never mutated
   });
 
   it('sets one shelf visible or hidden and leaves the rest', () => {

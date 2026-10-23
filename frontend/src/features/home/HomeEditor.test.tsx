@@ -5,8 +5,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { HomeEditor } from './HomeEditor';
 import { type HomeShelfId, type HomeShelfPref, normalizeHomeShelves } from './homeShelves';
 
-/** The editor with a parent that applies every change, as HomeSurface does (null = the default layout). */
-function renderEditor(stored: unknown = null, empty: HomeShelfId[] = ['live']) {
+// Keep a previously saved member order in these editing journeys. Changing the
+// default must never rearrange an existing member's shelves.
+const retainedLayout = normalizeHomeShelves([
+  { id: 'continue', visible: true }, { id: 'live', visible: true }, { id: 'next_up', visible: true },
+]);
+/** The editor with a parent that applies every change, as HomeSurface does. */
+function renderEditor(stored: unknown = retainedLayout, empty: HomeShelfId[] = ['live']) {
   const onChange = vi.fn();
   const onDone = vi.fn();
   function Harness() {

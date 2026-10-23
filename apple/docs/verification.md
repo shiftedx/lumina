@@ -610,3 +610,37 @@ After removing the redundant request, both final arm64 simulator builds passed:
 `/private/tmp/lumina-device-settings-ios-complete.log` and
 `/private/tmp/lumina-device-settings-tvos-complete.log`. `git diff --check` passed.
 The disposable fixture broker was stopped after all native checks completed.
+
+### Build 12 merge and package qualification, 2026-10-23
+
+The browser gate is now qualified by composed evidence, not a single green
+`make check` invocation. The original full tier selected 650 identities: 607
+passed, 10 failed, and 33 were blocked by project dependencies. All ten failures
+passed final-source focused reruns, including the 12-route CLS run. The exact
+blocked cohort returned 33 passed / 1 failed including setup; it caught an eager
+Live discovery request introduced during the CLS repair. Restoring Live's near
+gate fixed that regression, and setup plus the Home request-budget test passed
+2/2. Thus all 650 original identities are accounted for across these runs.
+
+Home now waits for its hero and visible Next Up loading frame to settle before
+painting, keeps the unpainted subtree inert, and bypasses the Next Up wait when
+that shelf is hidden. Frontend typecheck, the production build, and the three
+HouseholdResources unit tests passed after the frontend repairs.
+
+Evidence retained locally:
+- `/private/tmp/lumina-release-browser-composed-qualification-20261023.json`
+- `/private/tmp/lumina-release-original-browser-failures-focused-20261023.log`
+- `/private/tmp/lumina-release-final-cls-20261023.log` (12/12)
+- `/private/tmp/lumina-release-browser-remainder.JrtlKD/results.json`
+- `/private/tmp/lumina-release-home-budget.L48K7t/run.log` (2/2)
+- `/private/tmp/lumina-release-final-frontend-build-20261023.log`
+
+Both iOS and tvOS **0.1.0 (12)** Release device archives passed local archive
+validation. Xcode's existing account signed local internal TestFlight exports
+using its cloud-managed distribution certificate after command-line export
+reported “No Accounts.” Both signed IPAs and staged Organizer copies passed
+signature, identity, privacy, artwork and fixture-exclusion checks; executable
+and debug-symbol UUIDs match. The ignored release directory retains provenance,
+141 native build-input hashes, IPA checksums and this composed browser evidence.
+No build 12 upload or production deployment was performed. The Duo, complete
+playback-settings and physical 4K/HDR/HDMI/audio limits above remain in force.

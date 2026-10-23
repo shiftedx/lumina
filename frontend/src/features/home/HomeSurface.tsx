@@ -180,6 +180,11 @@ function HomeSurfaceView({
   const [waited, setWaited] = useState(false);
   useEffect(() => { const t = window.setTimeout(() => setWaited(true), HERO_WAIT_MS); return () => window.clearTimeout(t); }, []);
   const heroDecided = !needsNewest || newest !== undefined;
+  // Next up can collapse above the rest of the first screen when it resolves empty. Wait for that
+  // loading frame to settle before painting. Live stays near-gated: it has its own reserved frame,
+  // and fetching it here would add discovery work before Home's first screen.
+  const nextUpSettled = !visible.has('next_up') || (statuses.next_up !== undefined && statuses.next_up !== 'loading');
+  const bodyReady = (heroDecided && nextUpSettled) || waited;
   // The hero's recommendations join its Continue slides when the visit's title rows arrive (shared with their shelves).
   const [titleRows, setTitleRows] = useState<TitleRow[] | null>(null);
   useEffect(() => {
@@ -191,13 +196,13 @@ function HomeSurfaceView({
 
   // First screen: the frame after the masthead, the hero (or its absence) and the first shelves' frames paint.
   useEffect(() => {
-    if (!heroDecided || firstScreen) return undefined;
+    if (!bodyReady || firstScreen) return undefined;
     const frame = requestAnimationFrame(() => {
       recordMetric('home_first_screen_ms', 'home', sinceNavigation());
       setFirstScreen(true);
     });
     return () => cancelAnimationFrame(frame);
-  }, [heroDecided, firstScreen]);
+  }, [bodyReady, firstScreen]);
 
   // A return visit comes back to where the member left it; cached shelves render in the same commit.
   useLayoutEffect(() => {
@@ -396,8 +401,8 @@ function HomeSurfaceView({
         <h1 ref={headingRef} tabIndex={-1}>{greeting()}, {firstName(user)}</h1>
         <p className="g-label g-kicker h-date">{mastheadDate()}</p>
       </header>
-      {/* Until the hero is decided (or HERO_WAIT_MS passes) the body is laid out but not painted: a hero that arrives later would push the shelves already on screen down (CLS). Hidden, not unmounted, so the shelves still fetch. */}
-      <div className="h-body" style={heroDecided || waited ? undefined : { visibility: 'hidden' }}>
+      {/* Wait for the hero and Next Up (or the bounded fallback) before painting. */}
+      <div aria-hidden={bodyReady ? undefined : true} className="h-body" inert={!bodyReady} style={bodyReady ? undefined : { opacity: 0, pointerEvents: 'none' }}>
         {fresh ? (
           <section aria-labelledby="h-start-title" className="h-start">
             <p className="g-label">Getting started</p>

@@ -8,7 +8,7 @@ vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeo
 import { HouseholdResourcesSettings, MemberResourcesSettings } from './HouseholdResources';
 
 const effective = {
-  remote_stream_bps: 8_000_000, remote_member_bps: 10_000_000, playback_sessions: 2, video_encodes: 1,
+  remote_stream_bps: 0, remote_member_bps: 0, playback_sessions: 2, video_encodes: 1,
   download_running: 1, download_queued: 25, ai_running: 1, ai_queued: 10,
 };
 
@@ -24,7 +24,7 @@ describe('MemberResourcesSettings', () => {
 
     const bandwidth = await screen.findByRole('spinbutton', { name: 'Member remote bandwidth' });
     expect(bandwidth.getAttribute('placeholder')).toBe('Inherit');
-    expect(screen.getByText('Inherits 10 Mbps')).toBeTruthy();
+    expect(screen.getAllByText('Inherits 0 Mbps Zero is unlimited.')).toHaveLength(2);
     await userEvent.type(bandwidth, '12.5');
     await userEvent.click(screen.getByRole('button', { name: 'Save resources' }));
     expect(api.updateMemberResources).toHaveBeenCalledWith('member-1', { remote_member_bps: 12_500_000 });

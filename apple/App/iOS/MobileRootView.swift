@@ -185,7 +185,7 @@ private struct ConnectionField<Content: View>: View {
 }
 
 private enum LibraryDestination: Hashable, CaseIterable {
-    case home, video, audio, books, account
+    case home, video, audio, books, requests, account
 
     var title: String {
         switch self {
@@ -193,6 +193,7 @@ private enum LibraryDestination: Hashable, CaseIterable {
         case .video: "Video"
         case .audio: "Audio"
         case .books: "Books"
+        case .requests: "Requests"
         case .account: "Account"
         }
     }
@@ -203,6 +204,7 @@ private enum LibraryDestination: Hashable, CaseIterable {
         case .video: "film"
         case .audio: "music.note"
         case .books: "books.vertical"
+        case .requests: "sparkles.tv"
         case .account: "person.crop.circle"
         }
     }
@@ -260,6 +262,13 @@ private struct LibraryShellView: View {
                 destinationStack {
                     if let session = store.session {
                         NativeBooksView(session: session).id(session.accessToken)
+                    }
+                }
+            }
+            Tab("Requests", systemImage: "sparkles.tv", value: .requests) {
+                destinationStack {
+                    if let session = store.session {
+                        NativeRequestsView(session: session, isActive: destination == .requests).id(session.accessToken)
                     }
                 }
             }
@@ -793,7 +802,7 @@ private struct VideoCollectionView: View {
     private func episodeRow(_ episode: MediaItem) -> some View {
         HStack(alignment: .top, spacing: 16) {
             if !dynamicTypeSize.isAccessibilitySize {
-                ArtworkView(url: store.backdropURL(for: episode, maxWidth: 400) ?? store.imageURL(for: episode), name: episode.name, aspect: 16 / 9)
+                ArtworkView(url: store.backdropURL(for: episode, maxWidth: 400) ?? store.imageURL(for: episode), name: episode.name, aspect: 16 / 9, loadFraming: { await store.artworkFraming(for: $0) })
                     .frame(width: 112)
             }
             VStack(alignment: .leading, spacing: 6) {
@@ -1339,7 +1348,7 @@ private struct MediaCard: View {
 
     var body: some View {
         let content = VStack(alignment: .leading, spacing: 8) {
-            ArtworkView(url: imageURL, name: item.name, aspect: item.isAudio || item.type == "MusicAlbum" || item.type == "MusicArtist" ? 1 : wide ? 16 / 9 : 2 / 3, symbol: item.isAudio || item.type.hasPrefix("Music") ? "music.note" : "film")
+            ArtworkView(url: imageURL, name: item.name, aspect: item.isAudio || item.type == "MusicAlbum" || item.type == "MusicArtist" ? 1 : wide ? 16 / 9 : 2 / 3, symbol: item.isAudio || item.type.hasPrefix("Music") ? "music.note" : "film", loadFraming: { await store.artworkFraming(for: $0) })
                 .accessibilityIdentifier("\(identifierPrefix)Artwork-\(item.id)")
                 .overlay(alignment: .bottom) {
                     if progressFraction > 0 {
@@ -1387,38 +1396,15 @@ private struct ArtworkView: View {
     let name: String
     var aspect: CGFloat = 2 / 3
     var symbol = "film"
+    var loadFraming: @MainActor (URL) async -> HeroFraming? = { _ in nil }
 
     var body: some View {
         Rectangle()
             .fill(LuminaTheme.ink.opacity(0.08))
             .aspectRatio(aspect, contentMode: .fit)
             .overlay {
-                GeometryReader { geometry in
-                    if let url {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .empty:
-                                ProgressView()
-                                    .tint(LuminaTheme.gold)
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: geometry.size.width, height: geometry.size.height)
-                                    .clipped()
-                            case .failure:
-                                placeholder
-                            @unknown default:
-                                placeholder
-                            }
-                        }
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                    } else {
-                        placeholder
-                            .frame(width: geometry.size.width, height: geometry.size.height)
-                            .clipped()
-                    }
+                placeholder.overlay {
+                    SubjectAwareArtwork(url: url, loadFraming: loadFraming)
                 }
             }
             .clipShape(.rect(cornerRadius: 12))

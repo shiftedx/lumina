@@ -26,6 +26,16 @@ final class LuminaClient: @unchecked Sendable {
         return parts.url
     }
 
+    func heroFraming(origin: URL, token: String, deviceID: String, backdrop: URL) async throws -> HeroFraming {
+        guard sameOrigin(origin, backdrop), let parts = URLComponents(url: backdrop, resolvingAgainstBaseURL: false),
+              let tag = parts.queryItems?.first(where: { $0.name == "tag" })?.value else { throw LuminaError.unsafeURL }
+        var lookup = request(origin: origin, path: backdrop.path + "/Framing",
+                             query: [URLQueryItem(name: "tag", value: tag)], token: token, deviceID: deviceID)
+        // Match the web's first-response hold. A late analysis is reused on a later visit.
+        lookup.timeoutInterval = 0.15
+        return try await json(lookup)
+    }
+
     func publicInfo(origin: URL) async throws -> ServerInfo {
         try await json(request(origin: origin, path: "/System/Info/Public"))
     }
@@ -190,6 +200,12 @@ final class LuminaClient: @unchecked Sendable {
         ]
         if let token { values.append("Token=\"\(token)\"") }
         return "MediaBrowser " + values.joined(separator: ", ")
+    }
+
+    func response(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse else { throw LuminaError.malformedResponse }
+        return (data, response)
     }
 
     func send(_ request: URLRequest) async throws -> Data {

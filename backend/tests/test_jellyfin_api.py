@@ -1076,3 +1076,36 @@ def test_connected_audio_compatibility_keeps_auth_ranges_and_releases_files(jf, 
         db.commit()
     assert get(jf, path, format="flac").status_code == 401
     assert len(prepared) == 2
+
+
+def test_native_backdrop_framing_reuses_web_analysis_and_requires_visibility(jf, monkeypatch) -> None:  # noqa: ANN001
+    from app import db as db_module
+    from app.models import MediaTitle
+    from app.routers import hero_framing as framing_routes
+    from app.services.titles import image_url
+    from title_support import MOVIE, SECRET_SERIES
+
+    warmed = []
+    monkeypatch.setattr(framing_routes.hero_framing.hero_framing, "warm_library", lambda user_id, titles: warmed.extend((user_id, title.id) for title in titles))
+    with db_module.SessionLocal() as db:
+        title = db.get(MediaTitle, MOVIE)
+        title.images = {**title.images, "Backdrop": {"path": "fanart.jpg", "tag": "fresh"}}
+        db.commit()
+        source = image_url(title, "Backdrop")
+    dto = get(jf, f"/Items/{jellyfin_id(MOVIE)}").json()
+    tag = dto["BackdropImageTags"][0]
+    assert (ALICE, MOVIE) in warmed
+    calls = []
+    monkeypatch.setattr(framing_routes, "framing", lambda src, user, db: calls.append((src, user.id)) or {
+        "state": "ready", "width": 1920, "height": 1080,
+        "regions": [{"kind": "face", "x": .7, "y": .1, "width": .1, "height": .2, "weight": .9}],
+    })
+    path = f"/Items/{jellyfin_id(MOVIE)}/Images/Backdrop/0/Framing"
+    assert get(jf, path, tag=tag).json()["state"] == "ready"
+    assert calls == [(source, ALICE)]
+    assert get(jf, path, tag="stale").json() == {"state": "unavailable"}
+    assert get(jf, path, tag="invalid-\u00e9").json() == {"state": "unavailable"}
+    assert get(jf, path, token=None, tag=tag).status_code == 401
+    assert get(jf, "/Items/00000000000000000000000000000000/Images/Backdrop/0/Framing", tag=tag).status_code == 404
+    assert get(jf, f"/Items/{jellyfin_id(SECRET_SERIES)}/Images/Backdrop/0/Framing", tag=tag).status_code == 404
+    assert len(calls) == 1

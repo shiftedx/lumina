@@ -411,6 +411,18 @@ let tickScale = 10_000_000.0
         ])
     }
 
+    public func artworkFraming(for source: URL) async -> HeroFraming? {
+        guard let active = session, source.path.hasSuffix("/Images/Backdrop/0") else { return nil }
+        let result = try? await client.heroFraming(origin: active.serverURL, token: active.accessToken,
+                                                  deviceID: active.deviceID, backdrop: source)
+        return isCurrent(active) ? result : nil
+    }
+
+    public func backdropFraming(for item: MediaItem) async -> HeroFraming? {
+        guard let source = backdropURL(for: item) else { return nil }
+        return await artworkFraming(for: source)
+    }
+
     public func backdropURL(for item: MediaItem, maxWidth: Int = 1920) -> URL? {
         guard let active = session else { return nil }
         let imageID: String

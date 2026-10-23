@@ -3,13 +3,14 @@ Lumina native cinema beta — iPhone, iPad, and Apple TV
 Connect to your existing Lumina household server with a member account. The server's connected-app API must be enabled. Allow local-network access for a LAN server. No library or server credentials are bundled with the app.
 
 Please test:
-• Featured artwork and poster browsing: selection, title legibility, loading, scrolling, and rotation on iPhone/iPad.
-• iOS: a short downward pull reveals search; a deeper pull refreshes the library. Cancel closes search. Account contains Sign Out.
-• Apple TV: remote focus, featured selection, poster grids, Details, and the Account dialog.
-• Direct playback and “Convert to compatible video”: start, seek, pause, dismiss, relaunch, and synced resume between devices.
+• Home, Library and Requests: full-size posters, featured artwork, scrolling, media details, cast and related titles. Edit Home is in Account settings.
+• Apple TV: welcome artwork before connecting, clear remote focus, Back from library to Home, and return navigation from details and playback settings.
+• Video: direct and compatible playback, quality, audio tracks, subtitle selection/appearance/timing, speed, chapters, intro/credits and next episode. Subtitle timing is available only for supported packaged or attached text subtitles.
+• Music: browse tracks and artist albums while listening; switch tracks from the compact player. Pause hides the compact bar without closing an expanded player or discarding the queue; Stop clears playback. On TV, Play/Pause on the remote resumes paused music.
+• iPhone/iPad: Library categories, Account settings, search, and layout changes. On Duo, check both Closed and Open layouts.
 • Empty libraries, unavailable server, invalid credentials, and recovery after a connection returns.
 • On each device: background the app and return during playback, then check audio/video state and resume position.
 
-Known issue: on tvOS, returning after pressing Home can resume playback without explicitly pressing Play. This beta does not establish HDR, Dolby Vision, Atmos, or HDMI output fidelity.
+Use the matching updated Lumina server for native Home, Requests and Account APIs. Physical HDR, Dolby Vision, Atmos, HDMI/frame-rate matching, and a complete device performance qualification remain unverified.
 
 For feedback, send a screenshot or TestFlight feedback with device/OS, steps, expected behavior, actual behavior, and whether playback used direct or compatible video. Avoid including server credentials or private library details.

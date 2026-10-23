@@ -53,11 +53,11 @@ final class LuminaClient: @unchecked Sendable {
         _ = try await send(request(origin: origin, path: "/Sessions/Logout", method: "POST", token: token, deviceID: deviceID))
     }
 
-    func items(origin: URL, token: String, deviceID: String, search: String, start: Int, types: String = "Movie,Episode,Video", sort: VideoSort = .name, parentID: String? = nil, filters: VideoFilters = .init()) async throws -> ItemPage {
+    func items(origin: URL, token: String, deviceID: String, search: String, start: Int, types: String = "Movie,Episode,Video", sort: VideoSort = .name, parentID: String? = nil, sourceProvider: String? = nil, luminaCategory: String? = nil, filters: VideoFilters = .init()) async throws -> ItemPage {
         var query = [
             URLQueryItem(name: "IncludeItemTypes", value: types),
             URLQueryItem(name: "Recursive", value: "true"),
-            URLQueryItem(name: "Fields", value: "Overview,UserData,ImageTags"),
+            URLQueryItem(name: "Fields", value: "Overview,UserData,ImageTags,People"),
             URLQueryItem(name: "SortBy", value: sort.field),
             URLQueryItem(name: "SortOrder", value: sort == .name ? "Ascending" : "Descending"),
             URLQueryItem(name: "StartIndex", value: String(start)),
@@ -69,6 +69,8 @@ final class LuminaClient: @unchecked Sendable {
         if filters.unwatchedOnly { query.append(URLQueryItem(name: "IsPlayed", value: "false")) }
         if filters.favoritesOnly { query.append(URLQueryItem(name: "IsFavorite", value: "true")) }
         if let parentID { query.append(URLQueryItem(name: "ParentId", value: parentID)) }
+        if let sourceProvider { query.append(URLQueryItem(name: "SourceProvider", value: sourceProvider)) }
+        if let luminaCategory { query.append(URLQueryItem(name: "LuminaCategory", value: luminaCategory)) }
         if !search.isEmpty { query.append(URLQueryItem(name: "SearchTerm", value: search)) }
         return try await json(request(origin: origin, path: "/Items", query: query, token: token, deviceID: deviceID))
     }
@@ -109,6 +111,43 @@ final class LuminaClient: @unchecked Sendable {
         return page.items
     }
 
+    func relatedItems(origin: URL, token: String, deviceID: String, itemID: String) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "Limit", value: "12"),
+            URLQueryItem(name: "Fields", value: "Overview,UserData,ImageTags,People"),
+        ]
+        let page: ItemPage = try await json(request(
+            origin: origin,
+            path: "/Items/\(itemID)/Similar",
+            query: query,
+            token: token,
+            deviceID: deviceID
+        ))
+        return page.items
+    }
+
+    func nextEpisode(origin: URL, token: String, deviceID: String, after item: MediaItem) async throws -> MediaItem? {
+        guard item.type == "Episode", let seriesID = item.seriesID, !seriesID.isEmpty else { return nil }
+        let query = [
+            URLQueryItem(name: "StartItemId", value: item.id),
+            URLQueryItem(name: "Limit", value: "2"),
+            URLQueryItem(name: "Fields", value: "Overview,UserData,ImageTags"),
+        ]
+        let page: ItemPage = try await json(request(origin: origin, path: "/Shows/\(seriesID)/Episodes", query: query, token: token, deviceID: deviceID))
+        guard page.items.first?.id == item.id else { return nil }
+        guard let following = page.items.dropFirst().first,
+              following.type == "Episode", following.seriesID == seriesID else { return nil }
+        return following
+    }
+
+    func playbackMarkers(origin: URL, token: String, deviceID: String, mediaSourceID: String,
+                         durationSeconds: Double) async throws -> [PlaybackMarker] {
+        let page: MediaSegmentsPage = try await json(request(
+            origin: origin, path: "/MediaSegments/\(mediaSourceID)", token: token, deviceID: deviceID,
+        ))
+        return sanitizedPlaybackMarkers(page.items, durationSeconds: durationSeconds)
+    }
+
     func updateItemState(origin: URL, token: String, deviceID: String, userID: String, id: String, played: Bool?, favorite: Bool?) async throws {
         var body = [String: Any]()
         if let played { body["Played"] = played }
@@ -125,39 +164,88 @@ final class LuminaClient: @unchecked Sendable {
         return PlaybackRequest(id: UUID().uuidString, item: item, url: stream, startPositionSeconds: 0, mediaSourceID: item.id, isTranscoding: false, methodLabel: compatible ? "Compatible audio" : "Direct audio")
     }
 
-    func playbackInfo(origin: URL, token: String, deviceID: String, item: MediaItem, forceTranscode: Bool) async throws -> PlaybackInfo {
-        let profile: [String: Any] = [
+    func playbackInfo(origin: URL, token: String, deviceID: String, item: MediaItem, forceTranscode: Bool,
+                      quality: PlaybackQuality = .automatic,
+                      audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil,
+                      mediaSourceID: String? = nil, startPositionSeconds: Double? = nil) async throws -> PlaybackInfo {
+        var h264Conditions = [["Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "8"]]
+        var hevcConditions = [["Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"]]
+        if let maximumHeight = quality.maximumHeight {
+            let heightCondition = ["Property": "Height", "Condition": "LessThanEqual", "Value": String(maximumHeight)]
+            h264Conditions.append(heightCondition)
+            hevcConditions.append(heightCondition)
+        }
+        var profile: [String: Any] = [
             "DirectPlayProfiles": [["Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac,flac"],
                                    ["Type": "Video", "Container": "mkv", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,alac,flac"]],
             "TranscodingProfiles": [["Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264", "AudioCodec": "aac"]],
             "SubtitleProfiles": [["Format": "vtt", "Method": "External"]],
             "CodecProfiles": [
-                ["Type": "Video", "Codec": "h264", "Conditions": [["Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "8"]]],
-                ["Type": "Video", "Codec": "hevc", "Conditions": [["Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"]]],
+                ["Type": "Video", "Codec": "h264", "Conditions": h264Conditions],
+                ["Type": "Video", "Codec": "hevc", "Conditions": hevcConditions],
                 ["Type": "VideoAudio", "Codec": "flac", "Conditions": [["Property": "AudioBitDepth", "Condition": "LessThanEqual", "Value": "24"]]],
             ],
         ]
-        let body: [String: Any] = [
+        if let maximumBitRate = quality.maximumBitRate { profile["MaxStreamingBitrate"] = maximumBitRate }
+        let start = try boundedStartPosition(startPositionSeconds, item: item)
+        var body: [String: Any] = [
             "DeviceProfile": profile,
-            "StartTimeTicks": Int64(max(0, item.resumeSeconds) * tickScale),
+            "StartTimeTicks": Int64(start * tickScale),
             "EnableDirectPlay": !forceTranscode,
         ]
+        if let maximumBitRate = quality.maximumBitRate { body["MaxStreamingBitrate"] = maximumBitRate }
+        if let audioStreamIndex, audioStreamIndex >= 0 { body["AudioStreamIndex"] = audioStreamIndex }
+        if let subtitleStreamIndex { body["SubtitleStreamIndex"] = subtitleStreamIndex }
+        if let mediaSourceID { body["MediaSourceId"] = mediaSourceID }
         return try await json(request(origin: origin, path: "/Items/\(item.id)/PlaybackInfo", method: "POST", token: token, deviceID: deviceID, body: body))
     }
 
-    func playbackRequest(origin: URL, token: String, item: MediaItem, result: PlaybackInfo) throws -> PlaybackRequest {
-        guard let source = result.mediaSources.first else { throw LuminaError.malformedResponse }
+    func playbackRequest(origin: URL, token: String, item: MediaItem, result: PlaybackInfo,
+                         subtitleStreamIndex: Int? = nil, mediaSourceID: String? = nil,
+                         startPositionSeconds: Double? = nil) throws -> PlaybackRequest {
+        let source: MediaSource
+        if let mediaSourceID {
+            guard let selected = result.mediaSources.first(where: { $0.id == mediaSourceID }) else {
+                throw LuminaError.malformedResponse
+            }
+            source = selected
+        } else if let selected = result.mediaSources.first {
+            source = selected
+        } else {
+            throw LuminaError.malformedResponse
+        }
+        let streams = try source.mediaStreams.map { try PlaybackStream($0, origin: origin) }
+        let sourceChapters = source.chapters.map {
+            sanitizedPlaybackChapters(
+                $0,
+                durationSeconds: source.runTimeTicks.map { Double($0) / tickScale } ?? item.durationSeconds,
+            )
+        }
+        // The item detail's chapters describe its preferred source. The preferred source uses
+        // the item id on Lumina; legacy callers omit an id. Explicit alternates never inherit it.
+        let chapters = sourceChapters ?? ((mediaSourceID == nil || source.id == item.id) ? item.chapters : [])
+        let resolvedSubtitleStreamIndex = source.defaultSubtitleStreamIndex ?? (subtitleStreamIndex == -1 ? -1 : nil)
+        let start = try boundedStartPosition(startPositionSeconds, item: item)
         if source.supportsDirectPlay {
             guard let direct = url(origin: origin, path: "/Videos/\(item.id)/stream", query: [
                 URLQueryItem(name: "MediaSourceId", value: source.id),
                 URLQueryItem(name: "Static", value: "true"),
                 URLQueryItem(name: "ApiKey", value: token),
             ]), sameOrigin(origin, direct) else { throw LuminaError.unsafeURL }
-            return PlaybackRequest(id: result.playSessionID, item: item, url: direct, startPositionSeconds: item.resumeSeconds, mediaSourceID: source.id, isTranscoding: false, methodLabel: "Direct", usesClientDemux: !item.isAudio && ["mkv", "matroska"].contains((source.container ?? item.container ?? "").lowercased()))
+            return PlaybackRequest(id: result.playSessionID, item: item, url: direct, startPositionSeconds: start,
+                                   mediaSourceID: source.id, isTranscoding: false, methodLabel: "Direct",
+                                   usesClientDemux: !item.isAudio && ["mkv", "matroska"].contains((source.container ?? item.container ?? "").lowercased()),
+                                   bitRate: source.bitRate,
+                                   mediaStreams: streams, audioStreamIndex: source.defaultAudioStreamIndex,
+                                   subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters)
         }
         guard source.supportsTranscoding, let raw = source.transcodingURL,
               let hls = URL(string: raw, relativeTo: origin)?.absoluteURL, sameOrigin(origin, hls) else { throw LuminaError.unsafeURL }
-        return PlaybackRequest(id: result.playSessionID, item: item, url: hls, startPositionSeconds: item.resumeSeconds, mediaSourceID: source.id, isTranscoding: true, methodLabel: "HLS")
+        return PlaybackRequest(id: result.playSessionID, item: item, url: hls, startPositionSeconds: start,
+                               mediaSourceID: source.id, isTranscoding: true, methodLabel: "HLS",
+                               bitRate: source.bitRate,
+                               mediaStreams: streams, audioStreamIndex: source.defaultAudioStreamIndex,
+                               subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters)
     }
 
     func report(origin: URL, token: String, deviceID: String, event: PlaybackEvent, request: PlaybackRequest, positionSeconds: Double, isPaused: Bool) async throws {
@@ -209,8 +297,7 @@ final class LuminaClient: @unchecked Sendable {
     }
 
     func send(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse else { throw LuminaError.malformedResponse }
+        let (data, response) = try await response(request)
         guard (200..<300).contains(response.statusCode) else {
             if response.statusCode == 409, let conflict = try? JSONDecoder().decode(MusicSessionConflict.self, from: data) {
                 throw MusicAPIError.conflict(conflict.detail.session)
@@ -230,6 +317,57 @@ final class LuminaClient: @unchecked Sendable {
               let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize,
               size > 0, size <= BookPagePreparation.maximumEncodedBytes else { throw LuminaError.malformedResponse }
         return try Data(contentsOf: file)
+    }
+
+    func subtitle(origin: URL, token: String, deviceID: String, url: URL) async throws -> Data {
+        guard let safeURL = sanitizedSubtitleURL(origin: origin, raw: url.absoluteString) else {
+            throw LuminaError.unsafeURL
+        }
+        let authorization = mediaBrowserHeader(token: token, deviceID: deviceID)
+        var request = URLRequest(url: safeURL)
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        request.setValue("text/vtt", forHTTPHeaderField: "Accept")
+        let guardDelegate = SubtitleDownloadGuard(origin: origin, authorization: authorization)
+        let (bytes, response) = try await session.bytes(for: request, delegate: guardDelegate)
+        defer { bytes.task.cancel() }
+        guard let response = response as? HTTPURLResponse else { throw LuminaError.malformedResponse }
+        guard response.statusCode == 200 else { throw LuminaError.http(response.statusCode) }
+        if response.expectedContentLength > Int64(SubtitleDownloadGuard.maximumBytes) { throw LuminaError.malformedResponse }
+
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < SubtitleDownloadGuard.maximumBytes else { throw LuminaError.malformedResponse }
+            data.append(byte)
+        }
+        guard isWebVTT(data) else { throw LuminaError.malformedResponse }
+        return data
+    }
+
+    func hlsMediaVariant(origin: URL, token: String, deviceID: String, masterURL: URL) async throws -> URL {
+        guard sameOrigin(origin, masterURL), masterURL.user == nil, masterURL.password == nil else {
+            throw LuminaError.unsafeURL
+        }
+        let authorization = mediaBrowserHeader(token: token, deviceID: deviceID)
+        var request = URLRequest(url: masterURL)
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        request.setValue("application/vnd.apple.mpegurl, application/x-mpegURL", forHTTPHeaderField: "Accept")
+        let guardDelegate = HLSPlaylistDownloadGuard(origin: origin, authorization: authorization)
+        let (bytes, response) = try await session.bytes(for: request, delegate: guardDelegate)
+        defer { bytes.task.cancel() }
+        guard let response = response as? HTTPURLResponse else { throw LuminaError.malformedResponse }
+        guard response.statusCode == 200 else { throw LuminaError.http(response.statusCode) }
+        guard let responseURL = response.url, sameOrigin(origin, responseURL),
+              responseURL.user == nil, responseURL.password == nil else {
+            throw LuminaError.unsafeURL
+        }
+        if response.expectedContentLength > Int64(HLSPlaylistDownloadGuard.maximumBytes) { throw LuminaError.malformedResponse }
+
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < HLSPlaylistDownloadGuard.maximumBytes else { throw LuminaError.malformedResponse }
+            data.append(byte)
+        }
+        return try resolvedHLSMediaVariant(origin: origin, masterURL: responseURL, playlist: data)
     }
 
     private func json<T: Decodable>(_ request: URLRequest) async throws -> T {
@@ -254,6 +392,54 @@ private final class BookImageDownloadGuard: NSObject, URLSessionDownloadDelegate
         if max(totalBytesWritten, totalBytesExpectedToWrite) > Int64(BookPagePreparation.maximumEncodedBytes) { downloadTask.cancel() }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) { }
+}
+
+private final class SubtitleDownloadGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    static let maximumBytes = 10 * 1024 * 1024
+    let origin: URL
+    let authorization: String
+
+    init(origin: URL, authorization: String) {
+        self.origin = origin
+        self.authorization = authorization
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        guard let rawTarget = request.url,
+              let target = sanitizedSubtitleURL(origin: origin, raw: rawTarget.absoluteString) else {
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
+        var safeRequest = request
+        safeRequest.url = target
+        safeRequest.setValue(authorization, forHTTPHeaderField: "Authorization")
+        completionHandler(safeRequest)
+    }
+}
+
+private final class HLSPlaylistDownloadGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    static let maximumBytes = 1 * 1024 * 1024
+    let origin: URL
+    let authorization: String
+
+    init(origin: URL, authorization: String) {
+        self.origin = origin
+        self.authorization = authorization
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        guard let target = request.url, sameOrigin(origin, target), target.user == nil, target.password == nil else {
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
+        var safeRequest = request
+        safeRequest.setValue(authorization, forHTTPHeaderField: "Authorization")
+        completionHandler(safeRequest)
+    }
 }
 
 private final class RedirectGuard: NSObject, URLSessionTaskDelegate {
@@ -282,6 +468,81 @@ private func sameOrigin(_ left: URL, _ right: URL) -> Bool {
     return a?.scheme?.lowercased() == b?.scheme?.lowercased()
         && a?.host?.lowercased() == b?.host?.lowercased()
         && effectivePort(a) == effectivePort(b)
+}
+
+private func sanitizedSubtitleURL(origin: URL, raw: String) -> URL? {
+    guard let target = URL(string: raw, relativeTo: origin)?.absoluteURL,
+          sameOrigin(origin, target), target.user == nil, target.password == nil,
+          var components = URLComponents(url: target, resolvingAgainstBaseURL: false) else { return nil }
+    // Jellyfin supplies ApiKey in a DeliveryUrl. The native request instead authenticates with
+    // the existing MediaBrowser header, so no credential-bearing address leaves this boundary.
+    components.query = nil
+    components.fragment = nil
+    return components.url
+}
+
+private func isWebVTT(_ data: Data) -> Bool {
+    let bom = Data([0xEF, 0xBB, 0xBF])
+    var body = data
+    if body.starts(with: bom) { body.removeFirst(bom.count) }
+    guard let text = String(data: body, encoding: .utf8), let newline = text.firstIndex(of: "\n") else {
+        return false
+    }
+    var header = String(text[..<newline])
+    if header.last == "\r" { header.removeLast() }
+    return header == "WEBVTT" || header.hasPrefix("WEBVTT ") || header.hasPrefix("WEBVTT\t")
+}
+
+private func resolvedHLSMediaVariant(origin: URL, masterURL: URL, playlist: Data) throws -> URL {
+    guard let source = String(data: playlist, encoding: .utf8) else { throw LuminaError.malformedResponse }
+    let lines = source.split(whereSeparator: { $0.isNewline }).map(String.init)
+    guard lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "#EXTM3U" else {
+        throw LuminaError.malformedResponse
+    }
+    let streamInfos = lines.indices.filter { lines[$0].hasPrefix("#EXT-X-STREAM-INF:") }
+    let hasAudioGroup = lines.contains { $0.hasPrefix("#EXT-X-MEDIA:") && $0.uppercased().contains("TYPE=AUDIO") }
+    let hasIFrameVariant = lines.contains { $0.hasPrefix("#EXT-X-I-FRAME-STREAM-INF:") }
+    let hasMediaMarker = lines.contains { $0.hasPrefix("#EXTINF:") || $0.hasPrefix("#EXT-X-TARGETDURATION:") }
+    let hasOtherMasterTag = lines.contains {
+        $0.hasPrefix("#EXT-X-MEDIA:") || $0.hasPrefix("#EXT-X-I-FRAME-STREAM-INF:") || $0.hasPrefix("#EXT-X-SESSION-")
+    }
+    if streamInfos.isEmpty {
+        guard hasMediaMarker, !hasAudioGroup, !hasIFrameVariant, !hasOtherMasterTag else {
+            throw LuminaError.malformedResponse
+        }
+        return masterURL
+    }
+    guard streamInfos.count == 1, !hasAudioGroup, !hasIFrameVariant, !hasOtherMasterTag,
+          !lines[streamInfos[0]].uppercased().contains("AUDIO=") else { throw LuminaError.malformedResponse }
+    let variantLine = lines[(streamInfos[0] + 1)...].first {
+        !$0.isEmpty && !$0.hasPrefix("#")
+    }
+    guard let variantLine,
+          let rawVariant = URL(string: variantLine, relativeTo: masterURL)?.absoluteURL,
+          rawVariant.pathExtension.lowercased() == "m3u8", sameOrigin(origin, rawVariant),
+          rawVariant.user == nil, rawVariant.password == nil else {
+        throw LuminaError.unsafeURL
+    }
+    // AVPlayer subsequently fetches this URL itself, so retain the query credential carried by
+    // the master when a single relative variant omits it.
+    guard var components = URLComponents(url: rawVariant, resolvingAgainstBaseURL: false) else {
+        throw LuminaError.malformedResponse
+    }
+    if components.query == nil {
+        components.query = URLComponents(url: masterURL, resolvingAgainstBaseURL: false)?.query
+    }
+    guard let variant = components.url, sameOrigin(origin, variant) else { throw LuminaError.unsafeURL }
+    return variant
+}
+
+private func boundedStartPosition(_ proposed: Double?, item: MediaItem) throws -> Double {
+    let requested = proposed ?? item.resumeSeconds
+    guard requested.isFinite else { throw LuminaError.malformedResponse }
+    // This leaves a wide margin below Int64 overflow after conversion to ticks.
+    let tickSafeMaximum = Double(Int64.max) / tickScale / 2
+    let duration = item.durationSeconds
+    let mediaMaximum = duration.isFinite && duration > 0 ? duration : tickSafeMaximum
+    return min(max(0, requested), min(mediaMaximum, tickSafeMaximum))
 }
 
 private func effectivePort(_ components: URLComponents?) -> Int? {
@@ -331,10 +592,148 @@ struct MediaSource: Decodable {
     let id: String
     let supportsDirectPlay: Bool
     let container: String?
+    let bitRate: Int?
     let supportsTranscoding: Bool
     let transcodingURL: String?
+    let mediaStreams: [MediaStream]
+    let defaultAudioStreamIndex: Int?
+    let defaultSubtitleStreamIndex: Int?
+    let runTimeTicks: Int64?
+    /// Nil means an older server omitted source-specific markers; an empty array means this
+    /// selected source has no markers.
+    let chapters: [PlaybackChapter]?
     enum CodingKeys: String, CodingKey {
-        case container = "Container"
+        case container = "Container", bitRate = "Bitrate"
         case id = "Id", supportsDirectPlay = "SupportsDirectPlay", supportsTranscoding = "SupportsTranscoding", transcodingURL = "TranscodingUrl"
+        case mediaStreams = "MediaStreams", defaultAudioStreamIndex = "DefaultAudioStreamIndex", defaultSubtitleStreamIndex = "DefaultSubtitleStreamIndex"
+        case runTimeTicks = "RunTimeTicks", chapters = "Chapters"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        supportsDirectPlay = try values.decodeIfPresent(Bool.self, forKey: .supportsDirectPlay) ?? false
+        container = try values.decodeIfPresent(String.self, forKey: .container)
+        let rawBitRate = try values.decodeIfPresent(Int.self, forKey: .bitRate)
+        bitRate = rawBitRate.flatMap { (1...1_000_000_000).contains($0) ? $0 : nil }
+        supportsTranscoding = try values.decodeIfPresent(Bool.self, forKey: .supportsTranscoding) ?? false
+        transcodingURL = try values.decodeIfPresent(String.self, forKey: .transcodingURL)
+        mediaStreams = try values.decodeIfPresent([MediaStream].self, forKey: .mediaStreams) ?? []
+        defaultAudioStreamIndex = try values.decodeIfPresent(Int.self, forKey: .defaultAudioStreamIndex)
+        defaultSubtitleStreamIndex = try values.decodeIfPresent(Int.self, forKey: .defaultSubtitleStreamIndex)
+        runTimeTicks = try values.decodeIfPresent(Int64.self, forKey: .runTimeTicks)
+        chapters = try? values.decodeIfPresent([PlaybackChapter].self, forKey: .chapters)
+    }
+}
+
+private struct MediaSegmentsPage: Decodable {
+    let items: [MediaSegment]
+    enum CodingKeys: String, CodingKey { case items = "Items" }
+}
+
+private struct MediaSegment: Decodable {
+    let type: String?
+    let startTicks: Int64?
+    let endTicks: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "Type", startTicks = "StartTicks", endTicks = "EndTicks"
+    }
+
+    init(from decoder: Decoder) throws {
+        guard let values = try? decoder.container(keyedBy: CodingKeys.self) else {
+            type = nil
+            startTicks = nil
+            endTicks = nil
+            return
+        }
+        type = try? values.decode(String.self, forKey: .type)
+        startTicks = try? values.decode(Int64.self, forKey: .startTicks)
+        endTicks = try? values.decode(Int64.self, forKey: .endTicks)
+    }
+}
+
+private func sanitizedPlaybackMarkers(_ records: [MediaSegment], durationSeconds: Double) -> [PlaybackMarker] {
+    let hasDuration = durationSeconds.isFinite && durationSeconds > 0
+    var seen = Set<String>()
+    return records.compactMap { record in
+        guard let type = record.type, let kind = PlaybackMarker.Kind(jellyfinType: type),
+              let startTicks = record.startTicks, let endTicks = record.endTicks,
+              startTicks >= 0, endTicks > startTicks else { return nil }
+        let start = Double(startTicks) / tickScale
+        let end = Double(endTicks) / tickScale
+        guard start.isFinite, end.isFinite, end > start,
+              !hasDuration || end <= durationSeconds else { return nil }
+        let marker = PlaybackMarker(kind: kind, startSeconds: start, endSeconds: end)
+        return seen.insert(marker.id).inserted ? marker : nil
+    }
+    .sorted { lhs, rhs in
+        if lhs.startSeconds != rhs.startSeconds { return lhs.startSeconds < rhs.startSeconds }
+        if lhs.endSeconds != rhs.endSeconds { return lhs.endSeconds < rhs.endSeconds }
+        return lhs.kind.rawValue < rhs.kind.rawValue
+    }
+    .prefix(50)
+    .map { $0 }
+}
+
+struct MediaStream: Decodable {
+    let index: Int
+    let type: PlaybackStreamType
+    let label: String
+    let codec: String?
+    let language: String?
+    let channels: Int?
+    let isDefault: Bool
+    let isForced: Bool
+    let isExternal: Bool
+    let deliveryMethod: String?
+    let deliveryURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case index = "Index", type = "Type", displayTitle = "DisplayTitle", title = "Title", codec = "Codec"
+        case language = "Language", channels = "Channels", isDefault = "IsDefault", isForced = "IsForced", isExternal = "IsExternal"
+        case deliveryMethod = "DeliveryMethod", deliveryURL = "DeliveryUrl"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        index = try values.decode(Int.self, forKey: .index)
+        switch try values.decodeIfPresent(String.self, forKey: .type)?.lowercased() {
+        case "video": type = .video
+        case "audio": type = .audio
+        case "subtitle": type = .subtitle
+        default: type = .other
+        }
+        codec = try values.decodeIfPresent(String.self, forKey: .codec)
+        language = try values.decodeIfPresent(String.self, forKey: .language)
+        channels = try values.decodeIfPresent(Int.self, forKey: .channels)
+        isDefault = try values.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+        isForced = try values.decodeIfPresent(Bool.self, forKey: .isForced) ?? false
+        isExternal = try values.decodeIfPresent(Bool.self, forKey: .isExternal) ?? false
+        deliveryMethod = try values.decodeIfPresent(String.self, forKey: .deliveryMethod)
+        deliveryURL = try values.decodeIfPresent(String.self, forKey: .deliveryURL)
+        let displayTitle = try values.decodeIfPresent(String.self, forKey: .displayTitle)
+        let title = try values.decodeIfPresent(String.self, forKey: .title)
+        label = displayTitle ?? title ?? language ?? "Track \(index)"
+    }
+}
+
+private extension PlaybackStream {
+    init(_ stream: MediaStream, origin: URL) throws {
+        let isExternalTextSubtitle = stream.type == .subtitle
+            && ["srt", "subrip", "vtt", "webvtt"].contains(stream.codec?.lowercased())
+            && stream.deliveryMethod?.caseInsensitiveCompare("External") == .orderedSame
+        let subtitleDeliveryURL: URL?
+        if isExternalTextSubtitle, let raw = stream.deliveryURL {
+            guard let safeURL = sanitizedSubtitleURL(origin: origin, raw: raw) else { throw LuminaError.unsafeURL }
+            // The server's external subtitle profile converts text sidecars to WebVTT while
+            // preserving the source codec in MediaStreams. Only fetch that converted VTT URL.
+            subtitleDeliveryURL = safeURL.pathExtension.lowercased() == "vtt" ? safeURL : nil
+        } else {
+            subtitleDeliveryURL = nil
+        }
+        self.init(index: stream.index, type: stream.type, label: stream.label, codec: stream.codec,
+                  language: stream.language, channels: stream.channels, isDefault: stream.isDefault,
+                  isForced: stream.isForced, isExternal: stream.isExternal, subtitleDeliveryURL: subtitleDeliveryURL)
     }
 }

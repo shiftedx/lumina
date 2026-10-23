@@ -8,7 +8,7 @@ import { episodeSegments, fulfillRangeMedia, item, mockAdminFixtures, mockApi, m
 import { mockHome } from './home-mock';
 import { SYNTHETIC_MEDIA_BASE64, SYNTHETIC_MEDIA_TYPE } from './synthetic-media';
 import { mockPaletteSearch } from './palette-mock';
-import { mockPopular, mockReco, popularWithForYou } from './reco-mock';
+import { mockPopular, mockPreview, mockReco, popularWithForYou } from './reco-mock';
 import { redOrPinkInMain } from './red-check';
 
 /**
@@ -621,6 +621,16 @@ areaTest('deleted', async ({ page, visit }) => {
 });
 
 areaTest('watch-web', async ({ page, visit }) => {
+  await mockPreview(page, {
+    title: item.title,
+    webpage_url: item.webpage_url,
+    capabilities: { provider: 'youtube', lifecycle: 'vod', can_play: true, can_acquire: true, chat: { live: 'unavailable', replay: 'unavailable' } },
+    raw: { id: item.remote_id, extractor: item.extractor, uploader: item.uploader, duration: item.duration },
+    playback: { status: 'ready', stream_id: 'a11y-watch-web', transport: 'progressive', media_kind: 'video', playback_url: '/api/remote-streams/a11y-watch-web/content', content_type: SYNTHETIC_MEDIA_TYPE, has_video: true, has_audio: true, seekable: true, renditions: [] },
+  });
+  await page.route('**/api/remote-streams/a11y-watch-web/**', (route) => route.request().method() === 'DELETE'
+    ? route.fulfill({ status: 204, body: '' })
+    : route.fulfill({ status: 200, contentType: SYNTHETIC_MEDIA_TYPE, body: Buffer.from(SYNTHETIC_MEDIA_BASE64, 'base64') }));
   await mockReco(page, { similar: [] });
   await openSigned(page, `/watch/library/${item.id}`);
   await expect(page.locator('video')).toHaveCount(1);

@@ -111,6 +111,14 @@ def test_anime_movies_stay_in_movies(jf: TestClient) -> None:
     ]
 
 
+def test_native_category_walls_match_the_web_without_changing_jellyfin_views(jf: TestClient) -> None:
+    anime = get(jf, "/Items", Recursive="true", IncludeItemTypes="Movie,Series", LuminaCategory="anime").json()
+    movies = get(jf, "/Items", Recursive="true", IncludeItemTypes="Movie", LuminaCategory="movies").json()
+    assert [item["Name"] for item in anime["Items"]] == ["Film", "Show A"]
+    assert [item["Name"] for item in movies["Items"]] == ["Movie"]
+    assert get(jf, "/Items", Recursive="true", IncludeItemTypes="Movie", LuminaCategory="invalid").json()["Items"] == []
+
+
 def test_the_anime_view_check_seeks_the_category_index(plan_env) -> None:  # noqa: ANN001
     """/UserViews runs on every Infuse launch: finding one visible anime series must not walk every series."""
     engine, session, user = plan_env

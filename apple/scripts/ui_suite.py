@@ -25,6 +25,15 @@ from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parents[2]
+PLAYBACK_PREPARATION_DELAY_TEST = "NativeTVBackDuringPlaybackPreparationTests"
+PLAYBACK_PREPARATION_DELAY_ENV = "LUMINA_NATIVE_PLAYBACK_INFO_DELAY_SECONDS"
+
+
+def proof_server_environment(test_class: str) -> dict[str, str]:
+    """Return the one broker-scoped delay used to exercise cancelled preparation."""
+    if test_class == PLAYBACK_PREPARATION_DELAY_TEST:
+        return {PLAYBACK_PREPARATION_DELAY_ENV: "3"}
+    return {}
 
 
 class FixtureBroker:
@@ -53,7 +62,9 @@ class FixtureBroker:
             self.stop(key)
             fixture = self.state / f"{key}.json"
             environment = os.environ.copy()
+            environment.pop(PLAYBACK_PREPARATION_DELAY_ENV, None)
             environment.update(LUMINA_NATIVE_PORT="0", LUMINA_NATIVE_FIXTURE=str(fixture))
+            environment.update(proof_server_environment(key))
             # Do not retain the server's output: its errors may include the fixture path.
             log = self.state / f"{key}.log"
             with log.open("w", encoding="utf-8") as stream:

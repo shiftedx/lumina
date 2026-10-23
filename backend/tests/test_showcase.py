@@ -60,17 +60,22 @@ def test_slides_mix_public_releases_with_only_lumina_image_urls(anon, upstream) 
     response = anon().get(URL)
     assert response.status_code == 200
     slides = response.json()["slides"]
-    assert {(s["title"], s["caption"], s["kind"]) for s in slides} == {
-        ("Dune: Part Three", f"In cinemas {date.fromisoformat(SOON):%A}", "movie"),  # Next Spring has no backdrop
-        ("The Matrix", "In cinemas now", "movie"),
-        ("Game of Thrones", "New episodes this week", "show"),
-        ("Frieren: Beyond Journey's End", "New this season", "anime"),
+    assert {(s["title"], s["caption"], s["kind"], s["section"]) for s in slides} == {
+        ("Dune: Part Three", f"In cinemas {date.fromisoformat(SOON):%A}", "movie", "upcoming"),  # Next Spring has no backdrop
+        ("The Matrix", "In cinemas now", "movie", "now_playing"),
+        ("Game of Thrones", "New episodes this week", "show", "on_the_air"),
+        ("Frieren: Beyond Journey's End", "New this season", "anime", "this_season"),
     }
     assert "Adult Title" not in response.text and "tmdb.org" not in response.text and "anilist.co" not in response.text
     for slide in slides:
         assert slide["backdrop_url"].startswith(showcase.ART_PREFIX)
-        assert set(slide) <= {"title", "caption", "kind", "backdrop_url", "logo_url"}
-    dune = next(s for s in slides if s["kind"] == "movie" and s["title"].startswith("Dune"))
+        assert slide["section"] in {section for section, _, _ in showcase.MIX}
+        assert set(slide) <= {"title", "caption", "kind", "section", "backdrop_url", "poster_url", "logo_url"}
+        for field in ("poster_url", "logo_url"):
+            if url := slide.get(field):
+                assert url.startswith(showcase.ART_PREFIX)
+    dune = next(s for s in slides if s["section"] == "upcoming" and s["kind"] == "movie" and s["title"].startswith("Dune"))
+    assert showcase.source(dune["poster_url"].removeprefix(showcase.ART_PREFIX)) == "https://image.tmdb.org/t/p/w500/matrix.jpg"
     assert showcase.source(dune["logo_url"].removeprefix(showcase.ART_PREFIX)) == "https://image.tmdb.org/t/p/w500/logo-en.png"
     # cached: the same answer without touching upstream again
     calls = len(upstream.calls)
@@ -112,11 +117,12 @@ def test_art_serves_only_showcase_images(anon, upstream, monkeypatch) -> None:  
     monkeypatch.setattr(app.state, "artwork", fake_artwork)
     client = anon()
     assert client.get(f"{showcase.ART_PREFIX}AAAAAAAAAAAAAAAAAAAAAA").status_code == 404  # never signed
-    slide = client.get(URL).json()["slides"][0]
-    image = client.get(slide["backdrop_url"])
-    assert image.status_code == 200 and image.content == b"jpeg" and image.headers["cache-control"] == "public, max-age=86400"
-    assert fetched == [showcase.source(slide["backdrop_url"].removeprefix(showcase.ART_PREFIX))]
-    assert fetched[0].startswith("https://image.tmdb.org/")
+    slide = next(slide for slide in client.get(URL).json()["slides"] if slide.get("poster_url"))
+    for field in ("backdrop_url", "poster_url"):
+        image = client.get(slide[field])
+        assert image.status_code == 200 and image.content == b"jpeg" and image.headers["cache-control"] == "public, max-age=86400"
+    assert fetched == [showcase.source(slide[field].removeprefix(showcase.ART_PREFIX)) for field in ("backdrop_url", "poster_url")]
+    assert all(url.startswith("https://image.tmdb.org/") for url in fetched)
 
 
 def test_rate_limited_per_client(anon, upstream) -> None:  # noqa: ANN001

@@ -27,7 +27,7 @@ final class LuminaCoreTests: XCTestCase {
                 return response(request, json: ["Id": "user-1", "Name": "member"])
             case "/Items":
                 var featured = movie()
-                featured["ImageTags"] = ["Primary": "poster-tag"]
+                featured["ImageTags"] = ["Primary": "poster-tag", "Logo": "logo-tag"]
                 featured["BackdropImageTags"] = ["backdrop-tag"]
                 featured["ParentBackdropItemId"] = "series-1"
                 featured["ParentBackdropImageTags"] = ["series-backdrop-tag"]
@@ -47,6 +47,14 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(store.session?.serverURL.absoluteString, "http://127.0.0.1:8765")
         XCTAssertEqual(store.items.map(\.id), ["movie-1"])
         let featured = try XCTUnwrap(store.items.first)
+        let logo = try XCTUnwrap(store.logoURL(for: featured, maxWidth: 600))
+        XCTAssertEqual(logo.host, "127.0.0.1")
+        XCTAssertEqual(logo.path, "/Items/movie-1/Images/Logo")
+        let logoQuery = URLComponents(url: logo, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(logoQuery?.first { $0.name == "maxWidth" }?.value, "600")
+        XCTAssertEqual(logoQuery?.first { $0.name == "tag" }?.value, "logo-tag")
+        XCTAssertEqual(logoQuery?.first { $0.name == "ApiKey" }?.value, "test-token")
+
         let backdrop = try XCTUnwrap(store.backdropURL(for: featured, maxWidth: 1200))
         XCTAssertEqual(backdrop.host, "127.0.0.1")
         XCTAssertEqual(backdrop.path, "/Items/movie-1/Images/Backdrop/0")
@@ -81,6 +89,12 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(inheritedQuery?.first { $0.name == "maxWidth" }?.value, "1400")
         XCTAssertEqual(inheritedQuery?.first { $0.name == "tag" }?.value, "series-backdrop-tag")
         XCTAssertEqual(inheritedQuery?.first { $0.name == "ApiKey" }?.value, "test-token")
+        var episodeWithStill = inheritedArtwork
+        episodeWithStill["ImageTags"] = ["Primary": "episode-still-tag"]
+        let posterEpisode = try JSONDecoder().decode(MediaItem.self, from: json(episodeWithStill))
+        XCTAssertEqual(store.imageURL(for: posterEpisode)?.path, "/Items/movie-1/Images/Primary")
+        XCTAssertEqual(store.posterURL(for: posterEpisode)?.path, "/Items/series-1/Images/Primary")
+
         let seriesPoster = try XCTUnwrap(store.imageURL(for: episode, maxWidth: 0))
         XCTAssertEqual(seriesPoster.scheme, backdrop.scheme)
         XCTAssertEqual(seriesPoster.host, backdrop.host)
@@ -103,6 +117,7 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(URLComponents(url: poster, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "tag" }?.value, "poster-tag")
         let withoutArtwork = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
         XCTAssertNil(store.backdropURL(for: withoutArtwork))
+        XCTAssertNil(store.logoURL(for: withoutArtwork))
         let calls = requests.all
         XCTAssertEqual(Array(calls.compactMap(\.url?.path).prefix(3)), ["/System/Info/Public", "/Users/AuthenticateByName", "/Users/Me"])
         XCTAssertEqual(calls.filter { $0.url?.path == "/Items" }.count, 2)
@@ -400,6 +415,66 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(store.errorMessage, "The server returned HTTP 404 (not found). Check the server address and that Apps like Infuse is enabled in Lumina Settings.")
     }
 
+    func testMusicCollectionResolvesOnlyAuthenticatedAlbumAndArtistPivotsWithoutReplacingBrowsePage() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        let hyphenatedAlbumID = "123e4567-e89b-12d3-a456-426614174000"
+        let compactAlbumID = "123e4567e89b12d3a456426614174000"
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items": return response(request, json: page(items: [movie()]))
+            case "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/album-1":
+                return response(request, json: ["Id": "album-1", "Name": "Album", "Type": "MusicAlbum"])
+            case "/Users/user-1/Items/\(compactAlbumID)":
+                return response(request, json: ["Id": compactAlbumID, "Name": "UUID Album", "Type": "MusicAlbum"])
+            case "/Users/user-1/Items/artist-1":
+                return response(request, json: ["Id": "artist-1", "Name": "Artist", "Type": "MusicArtist"])
+            case "/Users/user-1/Items/wrong-type":
+                return response(request, json: ["Id": "wrong-type", "Name": "Artist", "Type": "MusicArtist"])
+            case "/Users/user-1/Items/wrong-id":
+                return response(request, json: ["Id": "another-id", "Name": "Album", "Type": "MusicAlbum"])
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        XCTAssertEqual(store.items.map(\.id), ["movie-1"])
+
+        let album = try await store.musicCollection(id: "album-1", expectedType: "MusicAlbum")
+        let uuidAlbum = try await store.musicCollection(id: hyphenatedAlbumID, expectedType: "MusicAlbum")
+        let artist = try await store.musicCollection(id: "artist-1", expectedType: "MusicArtist")
+        XCTAssertEqual([album.id, album.type], ["album-1", "MusicAlbum"])
+        XCTAssertEqual([uuidAlbum.id, uuidAlbum.type], [compactAlbumID, "MusicAlbum"])
+        XCTAssertEqual([artist.id, artist.type], ["artist-1", "MusicArtist"])
+        XCTAssertEqual(store.items.map(\.id), ["movie-1"], "A music pivot must not replace the video browse page.")
+
+        for (id, type) in [("wrong-type", "MusicAlbum"), ("wrong-id", "MusicAlbum"), ("album-1", "Audio")] {
+            do {
+                _ = try await store.musicCollection(id: id, expectedType: type)
+                XCTFail("Music pivots must reject unexpected identifiers and types.")
+            } catch {
+                XCTAssertEqual(error as? LuminaError, .malformedResponse)
+            }
+        }
+        XCTAssertEqual(store.items.map(\.id), ["movie-1"])
+
+        let pivots = requests.all.filter { $0.url?.path.hasPrefix("/Users/user-1/Items/") == true }
+        XCTAssertEqual(pivots.map { $0.url?.path }, [
+            "/Users/user-1/Items/album-1",
+            "/Users/user-1/Items/\(compactAlbumID)",
+            "/Users/user-1/Items/artist-1",
+            "/Users/user-1/Items/wrong-type",
+            "/Users/user-1/Items/wrong-id",
+        ])
+        XCTAssertTrue(pivots.allSatisfy {
+            $0.httpMethod == "GET" && $0.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"test-token\"") == true
+        })
+    }
+
     func testHomeRemainsStableWhileVideoAndMusicBrowseIndependently() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
@@ -476,8 +551,8 @@ final class LuminaCoreTests: XCTestCase {
             case "/Shows/NextUp": return response(request, json: page(items: [["Id": "next-episode", "Name": "Next", "Type": "Episode", "SeriesId": "series-1", "SeasonId": "season-1"]]))
             case "/UserItems/Resume": return response(request, json: page(items: []))
             case "/Items":
-                if value("ParentId") == "anime-view" {
-                    return response(request, json: ["Items": [["Id": value("StartIndex") == "0" ? "series-1" : "series-2", "Name": "Anime show", "Type": "Series"]], "TotalRecordCount": 2])
+                if value("ParentId") == "shows-view" {
+                    return response(request, json: ["Items": [["Id": value("StartIndex") == "0" ? "series-1" : "series-2", "Name": "Show", "Type": "Series"]], "TotalRecordCount": 2])
                 }
                 if value("ParentId") == "season-1" {
                     return response(request, json: ["Items": [["Id": value("StartIndex") == "0" ? "episode-2" : "episode-1", "Name": "Episode", "Type": "Episode", "IndexNumber": value("StartIndex") == "0" ? 2 : 1]], "TotalRecordCount": 2])
@@ -489,7 +564,7 @@ final class LuminaCoreTests: XCTestCase {
         await store.restore()
         XCTAssertEqual(store.nextUpItems.first?.seriesID, "series-1")
         let filters = VideoFilters(genre: "Drama", year: 2023, unwatchedOnly: true, favoritesOnly: true)
-        await store.loadLibrary(search: "Anime", kind: .anime, sort: .recentlyAdded, filters: filters)
+        await store.loadLibrary(search: "Show", kind: .shows, sort: .recentlyAdded, filters: filters)
         XCTAssertTrue(store.items.first?.isCollection == true)
         await store.loadMore()
         XCTAssertEqual(store.items.map(\.id), ["series-1", "series-2"])
@@ -498,7 +573,7 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(seasons.map(\.id), ["season-1", "season-2"])
         let episodes = try await store.loadChildren(of: seasons[0])
         XCTAssertEqual(episodes.map(\.id), ["episode-1", "episode-2"])
-        let pages = calls.all.filter { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "ParentId" && $0.value == "anime-view" } == true }
+        let pages = calls.all.filter { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "ParentId" && $0.value == "shows-view" } == true }
         XCTAssertEqual(pages.count, 2)
         for request in pages {
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
@@ -509,6 +584,170 @@ final class LuminaCoreTests: XCTestCase {
             XCTAssertEqual(query.first { $0.name == "IncludeItemTypes" }?.value, "Series")
         }
         XCTAssertFalse(store.hasMore)
+    }
+
+    func testNativeMovieAndAnimeCategoriesUseTheWebsiteWallTaxonomy() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let calls = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            calls.append(request)
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            case "/Items":
+                switch value("LuminaCategory") {
+                case "anime": return response(request, json: page(items: [
+                    ["Id": "anime-film", "Name": "Anime Film", "Type": "Movie"],
+                    ["Id": "anime-series", "Name": "Anime Series", "Type": "Series"],
+                ]))
+                case "movies": return response(request, json: page(items: [["Id": "movie", "Name": "Movie", "Type": "Movie"]]))
+                default: return response(request, json: page(items: [movie()]))
+                }
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        await store.loadLibrary(kind: .anime)
+        XCTAssertEqual(store.items.map(\.id), ["anime-film", "anime-series"])
+        await store.loadLibrary(kind: .movies)
+        XCTAssertEqual(store.items.map(\.id), ["movie"])
+
+        let categoryRequests = calls.all.filter { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "LuminaCategory" } == true
+        }
+        let anime = try XCTUnwrap(categoryRequests.first { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "LuminaCategory" && $0.value == "anime" } == true
+        })
+        let animeQuery = URLComponents(url: anime.url!, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(animeQuery?.first { $0.name == "IncludeItemTypes" }?.value, "Movie,Series")
+        XCTAssertNil(animeQuery?.first { $0.name == "ParentId" })
+        XCTAssertTrue(categoryRequests.contains { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "LuminaCategory" && $0.value == "movies" } == true
+        })
+    }
+
+    func testYouTubeLibraryUsesSavedProviderChannelOnly() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let calls = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            calls.append(request)
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/UserViews": return response(request, json: page(items: [["Id": "channels-view", "Name": "Channels", "Type": "CollectionFolder"]]))
+            case "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            case "/Items":
+                if value("ParentId") == "channels-view" {
+                    return response(request, json: page(items: [["Id": "saved-youtube-video", "Name": "Saved video", "Type": "Episode"]]))
+                }
+                return response(request, json: page(items: [movie()]))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        await store.loadLibrary(search: "Saved", kind: .youtube, sort: .recentlyAdded)
+
+        XCTAssertEqual(store.items.map(\.id), ["saved-youtube-video"])
+        let request = try XCTUnwrap(calls.all.last { request in
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            return query.contains { $0.name == "ParentId" && $0.value == "channels-view" }
+        })
+        let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first { $0.name == "IncludeItemTypes" }?.value, "Episode")
+        XCTAssertEqual(query?.first { $0.name == "SourceProvider" }?.value, "youtube")
+        XCTAssertEqual(query?.first { $0.name == "SearchTerm" }?.value, "Saved")
+    }
+
+    func testMediaItemDecodesOptionalTitleMetadata() throws {
+        var payload = movie()
+        payload["OfficialRating"] = "PG-13"
+        payload["CommunityRating"] = 8.4
+        payload["Genres"] = ["Animation", "Adventure"]
+        payload["People"] = [["Name": "Example Actor", "Type": "Actor"]]
+
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(payload))
+
+        XCTAssertEqual(item.officialRating, "PG-13")
+        XCTAssertEqual(item.communityRating, 8.4)
+        XCTAssertEqual(item.genres, ["Animation", "Adventure"])
+        XCTAssertEqual(item.people?.first?.name, "Example Actor")
+        XCTAssertEqual(item.people?.first?.type, "Actor")
+    }
+
+    func testMediaPersonDecodesCreditAndBuildsSignedImageURL() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "https://example.test")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        MockURLProtocol.handler = { request in
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+
+        var payload = movie()
+        payload["People"] = [[
+            "Id": "person-1", "Name": "Example Actor", "Type": "Actor",
+            "Role": "Lead", "PrimaryImageTag": "person-image-tag",
+        ]]
+        let person = try XCTUnwrap(JSONDecoder().decode(MediaItem.self, from: json(payload)).people?.first)
+        XCTAssertEqual(person.id, "person-1")
+        XCTAssertEqual(person.name, "Example Actor")
+        XCTAssertEqual(person.type, "Actor")
+        XCTAssertEqual(person.role, "Lead")
+        XCTAssertEqual(person.primaryImageTag, "person-image-tag")
+
+        let image = try XCTUnwrap(store.personImageURL(for: person, maxWidth: 0))
+        XCTAssertEqual(image.host, "example.test")
+        XCTAssertEqual(image.path, "/Items/person-1/Images/Primary")
+        let query = URLComponents(url: image, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first { $0.name == "maxWidth" }?.value, "1")
+        XCTAssertEqual(query?.first { $0.name == "tag" }?.value, "person-image-tag")
+        XCTAssertEqual(query?.first { $0.name == "ApiKey" }?.value, "test-token")
+    }
+
+    func testRelatedItemsUseAuthenticatedBoundedSimilarEndpointWithoutMutatingLibrary() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "https://example.test")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items": return response(request, json: page(items: [movie()]))
+            case "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Items/movie-1/Similar":
+                return response(request, json: page(items: [
+                    movie(),
+                    ["Id": "related-1", "Name": "Related One", "Type": "Movie"],
+                    ["Id": "related-2", "Name": "Related Two", "Type": "Movie"],
+                    ["Id": "related-1", "Name": "Duplicate", "Type": "Movie"],
+                ]))
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try XCTUnwrap(store.items.first)
+        let libraryBefore = store.items
+
+        let related = try await store.relatedItems(for: item)
+
+        XCTAssertEqual(related.map(\.id), ["related-1", "related-2"])
+        XCTAssertEqual(store.items, libraryBefore, "Related titles must not replace the active library page.")
+        let request = try XCTUnwrap(requests.all.last { $0.url?.path == "/Items/movie-1/Similar" })
+        XCTAssertEqual(request.url?.host, "example.test")
+        XCTAssertTrue(request.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"test-token\"") == true)
+        let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first { $0.name == "Limit" }?.value, "12")
+        XCTAssertEqual(query?.first { $0.name == "Fields" }?.value, "Overview,UserData,ImageTags,People")
     }
 
     func testWatchedFavoriteMutationRefreshesCachesAndRevocationClearsSession() async throws {
@@ -591,6 +830,7 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertTrue(request.isTranscoding)
         let playbackBody = try body(requests.all[0])
         XCTAssertEqual(playbackBody["EnableDirectPlay"] as? Bool, false)
+        XCTAssertNil(playbackBody["MaxStreamingBitrate"], "Automatic quality must preserve the uncapped request contract.")
         let profile = playbackBody["DeviceProfile"] as? [String: Any]
         let direct = (profile?["DirectPlayProfiles"] as? [[String: Any]])?.first?["Container"] as? String
         XCTAssertEqual(direct, "mp4,m4v,mov")
@@ -614,6 +854,400 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(try body(requests.all[1])["IsPaused"] as? Bool, true)
     }
 
+    func testPlaybackRequestCarriesServerStreamInventoryAndExplicitSubtitleOff() throws {
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let info = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "tracks", "MediaSources": [[
+                "Id": "source-1", "Container": "mkv", "Bitrate": 1_500_000, "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                "DefaultAudioStreamIndex": 2,
+                "MediaStreams": [
+                    ["Index": 0, "Type": "Video", "DisplayTitle": "2160p HEVC", "Codec": "hevc"],
+                    ["Index": 2, "Type": "Audio", "DisplayTitle": "English - E-AC-3 5.1", "Codec": "eac3", "Language": "eng", "Channels": 6, "IsDefault": true],
+                    ["Index": 5, "Type": "Subtitle", "Title": "English SDH", "Codec": "subrip", "Language": "eng", "IsExternal": true],
+                ],
+            ]],
+        ]))
+
+        let request = try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item,
+            result: info, subtitleStreamIndex: -1
+        )
+
+        XCTAssertTrue(request.usesClientDemux)
+        XCTAssertEqual(request.audioStreamIndex, 2)
+        XCTAssertEqual(request.bitRate, 1_500_000)
+        XCTAssertEqual(request.subtitleStreamIndex, -1)
+        XCTAssertEqual(request.mediaStreams.map(\.index), [0, 2, 5])
+        XCTAssertEqual(request.mediaStreams[1].type, .audio)
+        XCTAssertEqual(request.mediaStreams[1].channels, 6)
+        XCTAssertTrue(request.mediaStreams[1].isDefault)
+        XCTAssertEqual(request.mediaStreams[2].label, "English SDH")
+        XCTAssertTrue(request.mediaStreams[2].isExternal)
+    }
+
+    func testPlaybackRequestCarriesSanitizedDetailChapters() throws {
+        var payload = movie()
+        payload["Chapters"] = [
+            ["StartPositionTicks": 50_000_000, "Name": "Middle"],
+            ["StartPositionTicks": 0, "Name": " Introduction "],
+            ["StartPositionTicks": 50_000_000, "Name": "Duplicate"],
+            ["StartPositionTicks": 120_000_000, "Name": "At end"],
+            ["StartPositionTicks": -1, "Name": "Negative"],
+            "not a chapter",
+            NSNull(),
+        ]
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(payload))
+        let info = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "chapters", "MediaSources": [[
+                "Id": "source-1", "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                "RunTimeTicks": 120_000_000,
+                "Chapters": [
+                    ["StartPositionTicks": 60_000_000, "Name": "Source cut"],
+                ],
+            ]],
+        ]))
+
+        let request = try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info,
+        )
+
+        XCTAssertEqual(request.chapters.map(\.id), [60_000_000])
+        XCTAssertEqual(request.chapters.map(\.title), ["Source cut"])
+        XCTAssertEqual(request.chapters.map(\.startPositionSeconds), [6])
+
+        let legacyInfo = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "legacy", "MediaSources": [[
+                "Id": "source-preferred", "SupportsDirectPlay": true, "SupportsTranscoding": false,
+            ]],
+        ]))
+        let legacy = try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: legacyInfo,
+        )
+        XCTAssertEqual(legacy.chapters.map(\.id), [0, 50_000_000])
+
+        let preferredInfo = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "preferred", "MediaSources": [["Id": item.id, "SupportsDirectPlay": true, "SupportsTranscoding": false]],
+        ]))
+        let preferred = try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item,
+            result: preferredInfo, mediaSourceID: item.id,
+        )
+        XCTAssertEqual(preferred.chapters.map(\.id), [0, 50_000_000],
+                       "Selecting the preferred source must retain item-level Jellyfin chapters.")
+
+        let alternateInfo = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "alternate", "MediaSources": [[
+                "Id": "source-alternate", "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                "RunTimeTicks": 120_000_000, "Chapters": [],
+            ]],
+        ]))
+        let alternate = try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item,
+            result: alternateInfo, mediaSourceID: "source-alternate",
+        )
+        XCTAssertTrue(alternate.chapters.isEmpty)
+    }
+
+    func testPlaybackMarkersAndNextEpisodeUseRecordedSourceMetadataAndSeriesOrder() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        var currentPayload = movie()
+        currentPayload["Id"] = "episode-1"
+        currentPayload["Type"] = "Episode"
+        currentPayload["SeriesId"] = "series-1"
+        let current = currentPayload
+        var followingPayload = current
+        followingPayload["Id"] = "episode-2"
+        followingPayload["Name"] = "Following Episode"
+        let following = followingPayload
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/MediaSegments/source-episode":
+                return response(request, json: ["Items": [
+                    ["Type": "Intro", "StartTicks": 0, "EndTicks": 100_000_000],
+                    ["Type": "Outro", "StartTicks": 100_000_000, "EndTicks": 120_000_000],
+                    ["Type": "Unknown", "StartTicks": 20, "EndTicks": 30],
+                    ["Type": "Recap", "StartTicks": 50, "EndTicks": 50],
+                    NSNull(),
+                ]])
+            case "/Shows/series-1/Episodes":
+                return response(request, json: page(items: [current, following]))
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(current))
+        let request = PlaybackRequest(id: "play", item: item, url: URL(string: "http://127.0.0.1:8765/Videos/episode-1/stream")!,
+                                      startPositionSeconds: 0, mediaSourceID: "source-episode", isTranscoding: false, methodLabel: "Direct")
+
+        let markers = try await store.playbackMarkers(for: request)
+        let next = try await store.nextEpisode(after: item)
+
+        XCTAssertEqual(markers.map(\.kind), [.intro, .credits])
+        XCTAssertEqual(markers.map(\.startSeconds), [0, 10])
+        XCTAssertEqual(next?.id, "episode-2")
+        XCTAssertTrue(requests.all.contains { $0.url?.path == "/MediaSegments/source-episode" })
+        let nextEpisodeRequest = try XCTUnwrap(requests.all.first { $0.url?.path == "/Shows/series-1/Episodes" })
+        let nextEpisodeQuery = URLComponents(url: nextEpisodeRequest.url!, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(nextEpisodeQuery?.first { $0.name == "StartItemId" }?.value, "episode-1")
+        XCTAssertEqual(nextEpisodeQuery?.first { $0.name == "Limit" }?.value, "2")
+    }
+
+    func testExternalVTTSubtitleUsesAnAuthenticatedCredentialFreeDeliveryRequest() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/movie-1": return response(request, json: movie())
+            case "/Items/movie-1/PlaybackInfo":
+                return response(request, json: ["PlaySessionId": "vtt", "MediaSources": [[
+                    "Id": "source-1", "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                    "MediaStreams": [[
+                        "Index": 5, "Type": "Subtitle", "DisplayTitle": "English", "Codec": "subrip",
+                        "Language": "eng", "IsExternal": true, "DeliveryMethod": "External",
+                        "DeliveryUrl": "/Videos/source-1/Subtitles/5/Stream.vtt?ApiKey=leaked-token",
+                    ]],
+                ]]])
+            case "/Videos/source-1/Subtitles/5/Stream.vtt":
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                        headerFields: ["Content-Type": "text/vtt"])!, Data("WEBVTT\n\n00:00.000 --> 00:01.000\nHello\n".utf8))
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let playback = try await store.preparePlayback(for: item)
+        let stream = try XCTUnwrap(playback.mediaStreams.first)
+
+        XCTAssertTrue(stream.hasExternalSubtitle)
+        let file = try await store.downloadSubtitle(for: stream)
+        defer { try? FileManager.default.removeItem(at: file) }
+        XCTAssertTrue(try String(contentsOf: file, encoding: .utf8).hasPrefix("WEBVTT"))
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int, 0o600)
+        let subtitleRequest = try XCTUnwrap(requests.all.first { $0.url?.path == "/Videos/source-1/Subtitles/5/Stream.vtt" })
+        XCTAssertNil(URLComponents(url: subtitleRequest.url!, resolvingAgainstBaseURL: false)?.query)
+        XCTAssertTrue(subtitleRequest.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"test-token\"") == true)
+    }
+
+    func testRefusesCrossOriginExternalVTTMetadata() throws {
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let info = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "vtt", "MediaSources": [[
+                "Id": "source", "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                "MediaStreams": [[
+                    "Index": 1, "Type": "Subtitle", "Codec": "vtt", "DeliveryMethod": "External",
+                    "DeliveryUrl": "https://elsewhere.invalid/subtitle.vtt",
+                ]],
+            ]],
+        ]))
+
+        XCTAssertThrowsError(try LuminaClient().playbackRequest(origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info)) {
+            XCTAssertEqual($0 as? LuminaError, .unsafeURL)
+        }
+    }
+
+    func testExternalTextSubtitleRequiresConvertedVTTDelivery() throws {
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let info = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "subrip", "MediaSources": [[
+                "Id": "source", "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                "MediaStreams": [[
+                    "Index": 7, "Type": "Subtitle", "Codec": "subrip", "DeliveryMethod": "External",
+                    "DeliveryUrl": "/Videos/source/Subtitles/7/Stream.srt?ApiKey=test-token",
+                ]],
+            ]],
+        ]))
+
+        let request = try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info
+        )
+        XCTAssertFalse(request.mediaStreams[0].hasExternalSubtitle)
+    }
+
+    func testServerHLSMasterResolvesItsSingleMuxedVariantAndRetainsPlaybackQuery() async throws {
+        let client = LuminaClient(configuration: mockConfiguration())
+        let origin = URL(string: "http://127.0.0.1:8765")!
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            let playlist: String
+            if request.url?.path == "/Videos/source/master.m3u8" {
+                playlist = """
+                #EXTM3U
+                #EXT-X-VERSION:7
+                #EXT-X-STREAM-INF:BANDWIDTH=2000000
+                hls/session-1/index.m3u8
+                """
+            } else {
+                playlist = "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment.m4s\n"
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                    headerFields: ["Content-Type": "application/vnd.apple.mpegurl"])!, Data(playlist.utf8))
+        }
+
+        let variant = try await client.hlsMediaVariant(
+            origin: origin, token: "test-token", deviceID: "test-device",
+            masterURL: URL(string: "http://127.0.0.1:8765/Videos/source/master.m3u8?ApiKey=playback-token")!
+        )
+
+        XCTAssertEqual(variant.path, "/Videos/source/hls/session-1/index.m3u8")
+        XCTAssertEqual(URLComponents(url: variant, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, "playback-token")
+        let media = try await client.hlsMediaVariant(origin: origin, token: "test-token", deviceID: "test-device", masterURL: variant)
+        XCTAssertEqual(media, variant)
+        let hlsRequests = requests.all
+        XCTAssertEqual(hlsRequests.map { $0.url?.path }, ["/Videos/source/master.m3u8", "/Videos/source/hls/session-1/index.m3u8"])
+        XCTAssertTrue(hlsRequests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"test-token\"") == true })
+        XCTAssertEqual(URLComponents(url: hlsRequests[0].url!, resolvingAgainstBaseURL: false)?.queryItems?.first?.name, "ApiKey")
+    }
+
+    func testServerHLSVariantResolverRejectsMultiVariantAndAlternateAudioMasters() async throws {
+        let client = LuminaClient(configuration: mockConfiguration())
+        let origin = URL(string: "http://127.0.0.1:8765")!
+        MockURLProtocol.handler = { request in
+            let playlist: String
+            if request.url?.path == "/multi.m3u8" {
+                playlist = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\none.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2\ntwo.m3u8\n"
+            } else {
+                playlist = "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"alternate\"\n#EXT-X-STREAM-INF:BANDWIDTH=1,AUDIO=\"alternate\"\nvideo.m3u8\n"
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                    headerFields: ["Content-Type": "application/vnd.apple.mpegurl"])!, Data(playlist.utf8))
+        }
+        for path in ["multi.m3u8", "alternate.m3u8"] {
+            do {
+                _ = try await client.hlsMediaVariant(origin: origin, token: "test-token", deviceID: "test-device",
+                                                     masterURL: origin.appendingPathComponent(path))
+                XCTFail("Expected unsupported HLS master rejection")
+            } catch {
+                XCTAssertEqual(error as? LuminaError, .malformedResponse)
+            }
+        }
+    }
+
+    func testExternalVTTDownloadRejectsOversizedOrMalformedBodies() async throws {
+        let client = LuminaClient(configuration: mockConfiguration())
+        let origin = URL(string: "http://127.0.0.1:8765")!
+        MockURLProtocol.handler = { request in
+            if request.url!.path == "/too-large.vtt" {
+                let data = Data("WEBVTT\n\n".utf8) + Data(repeating: 0x20, count: 10 * 1024 * 1024)
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                        headerFields: ["Content-Type": "text/vtt"])!, data)
+            }
+            if request.url!.path == "/bad-vtt-prefix.vtt" {
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                        headerFields: ["Content-Type": "text/vtt"])!, Data("WEBVTTgarbage\n\n".utf8))
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                    headerFields: ["Content-Type": "text/vtt"])!, Data("not a subtitle".utf8))
+        }
+
+        do {
+            _ = try await client.subtitle(origin: origin, token: "test-token", deviceID: "test-device",
+                                          url: URL(string: "http://127.0.0.1:8765/too-large.vtt")!)
+            XCTFail("Expected oversized subtitle rejection")
+        } catch {
+            XCTAssertEqual(error as? LuminaError, .malformedResponse)
+        }
+        do {
+            _ = try await client.subtitle(origin: origin, token: "test-token", deviceID: "test-device",
+                                          url: URL(string: "http://127.0.0.1:8765/not-vtt.vtt")!)
+            XCTFail("Expected non-WebVTT subtitle rejection")
+        } catch {
+            XCTAssertEqual(error as? LuminaError, .malformedResponse)
+        }
+        do {
+            _ = try await client.subtitle(origin: origin, token: "test-token", deviceID: "test-device",
+                                          url: URL(string: "http://127.0.0.1:8765/bad-vtt-prefix.vtt")!)
+            XCTFail("Expected malformed WebVTT header rejection")
+        } catch {
+            XCTAssertEqual(error as? LuminaError, .malformedResponse)
+        }
+    }
+
+    func testPreparePlaybackSendsTrackSelectionSourceAndReplacementPosition() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/movie-1": return response(request, json: movie())
+            case "/Items/movie-1/PlaybackInfo":
+                return response(request, json: ["PlaySessionId": "replacement", "MediaSources": [[
+                    "Id": "source-2", "SupportsDirectPlay": false, "SupportsTranscoding": true,
+                    "TranscodingUrl": "/Videos/source-2/master.m3u8?ApiKey=test-token",
+                    "DefaultAudioStreamIndex": 3,
+                    "MediaStreams": [["Index": 3, "Type": "Audio", "DisplayTitle": "French - AAC", "Codec": "aac", "Language": "fra", "Channels": 2]],
+                ]]])
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+
+        let request = try await store.preparePlayback(for: item, quality: .upTo720p, audioStreamIndex: 3,
+                                                       subtitleStreamIndex: -1, mediaSourceID: "source-2",
+                                                       startPositionSeconds: 11.25)
+
+        XCTAssertTrue(request.isTranscoding, "The server fallback remains authoritative for an incompatible selection.")
+        XCTAssertEqual(request.startPositionSeconds, 11.25)
+        XCTAssertEqual(request.mediaSourceID, "source-2")
+        XCTAssertEqual(request.audioStreamIndex, 3)
+        XCTAssertEqual(request.subtitleStreamIndex, -1)
+        let playbackInfo = try XCTUnwrap(requests.all.first { $0.url?.path == "/Items/movie-1/PlaybackInfo" })
+        let posted = try body(playbackInfo)
+        XCTAssertEqual(posted["AudioStreamIndex"] as? Int, 3)
+        XCTAssertEqual(posted["SubtitleStreamIndex"] as? Int, -1)
+        XCTAssertEqual(posted["MediaSourceId"] as? String, "source-2")
+        XCTAssertEqual(posted["StartTimeTicks"] as? Int64, 112_500_000)
+        XCTAssertEqual(posted["MaxStreamingBitrate"] as? Int, 4_000_000)
+        let profile = try XCTUnwrap(posted["DeviceProfile"] as? [String: Any])
+        XCTAssertEqual(profile["MaxStreamingBitrate"] as? Int, 4_000_000)
+        let videoRules = try XCTUnwrap(profile["CodecProfiles"] as? [[String: Any]])
+        for codec in ["h264", "hevc"] {
+            let rule = try XCTUnwrap(videoRules.first { $0["Codec"] as? String == codec })
+            XCTAssertTrue((rule["Conditions"] as? [[String: String]])?.contains([
+                "Property": "Height", "Condition": "LessThanEqual", "Value": "720",
+            ]) == true)
+        }
+    }
+
+    func testPlaybackRequestChoosesTheExplicitReturnedMediaSourceAndBoundsStartPosition() throws {
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let info = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "version", "MediaSources": [
+                ["Id": "source-one", "SupportsDirectPlay": true, "SupportsTranscoding": false],
+                ["Id": "source-two", "SupportsDirectPlay": true, "SupportsTranscoding": false, "Bitrate": 2_000_000],
+            ],
+        ]))
+        let request = try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info,
+            mediaSourceID: "source-two", startPositionSeconds: .greatestFiniteMagnitude
+        )
+
+        XCTAssertEqual(request.mediaSourceID, "source-two")
+        XCTAssertEqual(request.bitRate, 2_000_000)
+        XCTAssertEqual(request.startPositionSeconds, item.durationSeconds)
+        XCTAssertThrowsError(try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info,
+            mediaSourceID: "not-returned"
+        )) { XCTAssertEqual($0 as? LuminaError, .malformedResponse) }
+        XCTAssertThrowsError(try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info,
+            startPositionSeconds: .infinity
+        )) { XCTAssertEqual($0 as? LuminaError, .malformedResponse) }
+    }
+
     func testPlaybackRefreshesAStaleDetailItemBeforePreparing() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
@@ -623,7 +1257,10 @@ final class LuminaCoreTests: XCTestCase {
             switch request.url!.path {
             case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
             case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
-            case "/Users/user-1/Items/movie-1": return response(request, json: movie(positionTicks: 250_000_000))
+            case "/Users/user-1/Items/movie-1":
+                var detail = movie(positionTicks: 250_000_000)
+                detail["RunTimeTicks"] = 300_000_000
+                return response(request, json: detail)
             case "/Items/movie-1/PlaybackInfo": return response(request, json: ["PlaySessionId": "session-1", "MediaSources": [["Id": "source-1", "SupportsDirectPlay": true, "SupportsTranscoding": false]]])
             default: return response(request, status: 404)
             }

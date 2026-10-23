@@ -24,6 +24,7 @@ def serialize_media_server(record: AppSettings) -> MediaServerSettings:
     public_url = (settings.app_public_url or "").strip().rstrip("/")
     return MediaServerSettings(
         jellyfin_enabled=bool(record.jellyfin_enabled),
+        native_streaming_enabled=bool(record.native_streaming_enabled),
         jellyfin_url=public_address.local_origin() or public_url or None,
         jellyfin_public_url=public_address.origin(),
         has_tmdb_key=bool(record.tmdb_api_key or settings.tmdb_api_key),

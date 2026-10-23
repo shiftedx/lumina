@@ -548,6 +548,7 @@ class SignOutAllAppsResponse(BaseModel):
 
 class MediaServerSettings(BaseModel):
     jellyfin_enabled: bool
+    native_streaming_enabled: bool = False
     jellyfin_url: str | None = None  # the local address, else the app public URL (the API is served at the root); None without either
     jellyfin_public_url: str | None = None  # the public address, for apps away from home
     has_tmdb_key: bool
@@ -567,6 +568,7 @@ class MediaServerSettingsUpdate(_Body):
     """Omitted fields are unchanged; ``tmdb_api_key: ""`` removes the key (write-only)."""
 
     jellyfin_enabled: bool | None = None
+    native_streaming_enabled: bool | None = None
     tmdb_api_key: str | None = Field(default=None, max_length=512)
     metadata_language: str | None = Field(default=None, pattern=r"^[a-z]{2}(-[A-Z]{2})?$")
     introdb_enabled: bool | None = None

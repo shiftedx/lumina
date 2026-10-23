@@ -420,7 +420,7 @@ def test_legacy_loudness_only_cache_is_reprobed_then_remeasured(
 
     def probe(self, candidate):  # noqa: ANN001
         probes.append(candidate.name)
-        return {"streams": [{"type": "audio", "index": 0, "default": True}]}
+        return {"streams": [{"type": "audio", "index": 0, "default": True}], "chapters": []}
 
     monkeypatch.setattr(pw.MediaProbeService, "_probe", probe)
     monkeypatch.setattr(pw, "media_tool", lambda db, name: "ffmpeg")
@@ -447,7 +447,7 @@ def test_a_stale_fingerprint_is_reprobed_before_its_loudness_is_remeasured(
 
     def probe(self, candidate):  # noqa: ANN001
         probes.append(candidate.name)
-        return {"streams": [{"type": "audio", "index": 0, "default": True}]}
+        return {"streams": [{"type": "audio", "index": 0, "default": True}], "chapters": []}
 
     monkeypatch.setattr(pw.MediaProbeService, "_probe", probe)
     monkeypatch.setattr(pw, "media_tool", lambda db, name: "ffmpeg")
@@ -480,7 +480,7 @@ def test_live_probe_ahead_of_scan_does_not_starve_probe_and_loudness_queues(
 
     def probe(self, candidate):  # noqa: ANN001
         probed.append(candidate.name)
-        return {"streams": [{"type": "audio", "index": 0, "default": True}]}
+        return {"streams": [{"type": "audio", "index": 0, "default": True}], "chapters": []}
 
     monkeypatch.setattr(pw.MediaProbeService, "_probe", probe)
     monkeypatch.setattr(pw, "media_tool", lambda db, name: "ffmpeg")
@@ -523,7 +523,7 @@ def test_a_prioritized_stale_item_with_old_loudness_still_enters_the_probe_phase
 
     def probe(self, candidate):  # noqa: ANN001
         probes.append(candidate.name)
-        return {"streams": [{"type": "audio", "index": 0, "default": True}]}
+        return {"streams": [{"type": "audio", "index": 0, "default": True}], "chapters": []}
 
     monkeypatch.setattr(pw.MediaProbeService, "_probe", probe)
     monkeypatch.setattr(pw, "media_tool", lambda db, name: "ffmpeg")

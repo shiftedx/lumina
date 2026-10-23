@@ -235,3 +235,52 @@ This is a source merge. It does not bump the version/build number or create a Te
 The latest required repository invocation, `VITEST_MAX_WORKERS=2 mise exec -- make check E2E_WORKERS=2`, is retained in `/tmp/lumina-home-account-make-check.log`. Bootstrap (13), application/E2E typechecks, production build/license/style gates, backend (5,233 passed, 11 skipped) and frontend units (2,622 tests across 299 files) passed. Real-stack checks finished with 51 passed, 5 skipped and one watch-queue fixture timing failure; all 30 executed performance cases passed. The four-second test video had completed while queue ordering was being inspected, consuming an entry before the reload assertion. The repaired test pauses through editing/reload, then retains its actual autoplay assertion. Its focused rerun passed both setup and queue cases (2 passed; `/tmp/lumina-home-account-watch-repair.log`), and the changed E2E TypeScript check passed.
 
 This is composed qualification, **not a wholly green `make check` invocation**. Make stopped at the original real-stack failure, before the mocked cohort. The previously recorded full mocked cohort (656 passed, 2 skipped, with its one failure covered by the passing focused catalogue repair) remains retained evidence: subsequent product changes are native-only; the latest web change is the queue-test pause repair. No redundant mocked cohort was started for this stopping-point merge. The five current real-stack skips are one unavailable Firefox executable and four `PERF_STRICT=1` reference-host-only cases.
+
+## Playback controls and navigation dogfood, 2026-10-22
+
+The native player now owns one quiet custom transport on iOS and tvOS, with native AVFoundation rendering underneath. This supersedes the earlier AVKit-transport note above. TV Back first dismisses playback settings, then the transport, then playback; at destination roots, Back returns Video, Audio, and Requests to Home, while Home yields to the system. Opening settings focuses its initial category and closing it restores the trigger.
+
+The TV scrim covers the full video surface independently of the control margins, removing the visible rectangular gradient boundary. The toolbar uses one balanced screen-edge inset rather than compounded safe-area padding; contextual Skip/Next actions sit above the timeline. The settings panel is centered and capped at 760 points, with darkened glass, a pinned heading, Done action, and category strip. Label/value rows align fit, quality, speed, and caption appearance choices. TV caption picker rows each define a focus section so the trailing native values remain reachable from leading disclosure/reset actions. iOS subtitle tracks use a horizontal scrolling row, and subtitle timing uses three equal-width actions.
+
+The stream preparation probe uses a separate AVPlayerItem from the item installed in the visible player. This avoids AVFoundation's abort when moving one preflighted item between players, while retaining the requested stream, captions, saved time, and rollback behavior.
+
+Confirmed simulator evidence for this pass:
+
+- Shared package: 111 tests passed, including generated-media integration (`/tmp/lumina-polish-core-final.log`).
+- TV navigation/artwork/categories workflow: passed, including destination-root Back to Home and focused Home header (`/tmp/lumina-dogfood-tv-1023-r2.xcresult`, selected navigation case).
+- iOS paused MKV quality/subtitle timing: passed, 168.338 seconds (`/tmp/lumina-dogfood-ios-1023-r11.xcresult`).
+- iOS paused MKV chapters/playback speed: passed, 153.957 seconds (same result bundle).
+- iOS custom transport, audio stream switching, horizontal subtitle choices, appearance selection/reset, dismissal, resume, and Close: passed, 160.455 seconds (`/tmp/lumina-dogfood-ios-1023-r12.xcresult`). The fixture is paused during the long settings walkthrough so its natural ending cannot invalidate the resume check.
+- TV balanced edge-toolbar bounds, remote Skip intro, paused exact ten-second seeks into credits, Skip credits, and next-episode playback: passed, 168.481 seconds (`/tmp/lumina-dogfood-tv-1023-r7.xcresult`, selected episode case). Ordinary video seeks now use zero tolerance so keyframe snapping cannot accumulate during repeated skips.
+
+The selected native workflows use generated media and disposable local state. These results do not qualify physical HDMI/HDR/audio output. No archives or uploads are part of this pass.
+
+## TV welcome showcase, 2026-10-22
+
+The TV connection screen uses the same anonymous release showcase as web sign-in. The public feed adds optional tokenized portrait posters and a release section; it still contains no household library, member identity, request history, or request status. Native clients accept only the server's exact signed public-art route, make the discovery request without credentials, and bound the accepted gallery to 12 slides.
+
+When multiple upcoming movie posters are available, they supply the slideshow. Backdrops and portrait images preload together, then dissolve at nine-second intervals. The layout keeps one compact sign-in form, a restrained wordmark, and aligned footer actions for Connection Help and artwork pause. Help owns the setup instructions and restores remote focus on dismissal. Reduce Motion, VoiceOver, and inactive scenes suspend rotation. Three original bundled landscapes appear immediately, before any server information or network access. A known server can replace them with the preloaded release gallery; unavailable remote art retains the bundled gallery. Successful connections remember only the normalized server origin for the next sign-in.
+
+The proof server supplies three original synthetic upcoming releases through the production showcase and art-token/cache routes, with generated images at the network seam. No external metadata or image requests are needed for the simulator workflow.
+
+
+## Post-build-10 native dogfood, 2026-10-22
+
+The working tree is based on main `b2d7bb6`, preserving subject-aware artwork framing. Build 10 was archived and exported for iOS and tvOS, with signatures, TestFlight entitlements, symbols, release assets and fixture exclusion validated. Those retained packages predate the following dogfood fixes; no replacement distribution archive or upload was created.
+
+Home now uses a full-width wordmark in the leading system header, with Edit Home under Account settings. YouTube session, provider, remote acquisition/cache and browser-only controls were removed from native settings. iOS artwork fills its entire fixed card instead of inheriting the small placeholder stack's bounds. Library posters use an even grid; Requests shelves use uniform dimensions and top alignment. A TV-only label-only button style prevents the full-screen hidden-controls reveal target from drawing the system focus plate over video.
+
+Movie/episode and series/season details now separate the hero, plot, cast, and related titles. Native person credits decode optional identifiers, character roles and signed portrait tags. Related titles use the authenticated existing Similar endpoint, bounded to 12 unique non-anchor results without modifying the library's state. Missing cast/related metadata does not invent content. TV detail actions share the same 64-point button sizing and distinct focus treatment; cast names wrap and related focus enlargement can overflow the rail without clipping.
+
+Retained current evidence:
+
+- iOS Home masthead, uniform Library grid, Account Home editor: passed (`/tmp/lumina-layout-visual-ios-final.xcresult`, selected Home settings case).
+- iOS Requests equal poster bounds, discovery, submission and history: passed, 211.552 seconds (same bundle, selected Requests case).
+- iOS Account search/save/persistence and absent YouTube controls: passed, 149.496 seconds (`/tmp/lumina-layout-settings-ios-r3.xcresult`, selected Account case; this bundle also contains a superseded failed Home placement case).
+- TV full playback settings, auto-hide, audio stream selection, subtitle appearance/reset and focus restoration: passed, 249.118 seconds (`/tmp/lumina-tv-video-wash-r4.xcresult`). The retained hidden-chrome capture shows normal unobstructed test-pattern colors.
+- iOS detail action alignment, cast credit, related-title navigation and Back: passed, 60.997 seconds (`/tmp/lumina-details-ios-r4.xcresult`). Final shared-style source also compiled for the iOS simulator (`/tmp/lumina-details-ios-final-build.log`).
+- TV final detail action alignment, cast, related-title navigation/Back, wrapped names and unclipped focus render: passed, 65.154 seconds (`/tmp/lumina-details-tv-final.xcresult`).
+- Shared Core suite: 119 executed, five server-fixture tests skipped, zero failures (`/tmp/lumina-core-after-details-final.log`). Generated-media transport tests ran; the skipped tests require a separately configured static server fixture.
+- Backend full tier: 5,301 passed, 11 skipped (`/tmp/lumina-layout-backend-final.log`). Frontend typechecks/build/style/license checks passed; frontend units passed 2,660 tests across 305 files with two workers (`/tmp/lumina-layout-frontend-serial-final.log`).
+
+The broad browser tier initially recorded 616 passing cases, one production service-worker activation timeout and 33 unexecuted dependent cases. The exact failed offline contract passed unchanged in isolation. An exact follow-up of the 33 unexecuted cases plus required setup finished with 33 passed and one failed in 9.8 minutes: all three WebKit decode/seek cases passed, while the strict unthrottled movie-wall fling reported long-task samples 3, 0, 1 (median 1 against an expected 0), with 60 FPS throughout. That run held the shared performance lock but overlapped an unrelated Xcode/simulator workload; it remains a failed performance observation, not a green browser gate or wholly green `make check` invocation. The follow-up log and failure assertion are retained at `/tmp/lumina-browser-unrun-final-evidence/run.log`. The native workflows use original synthetic media and independent platform fixture brokers. They do not qualify physical HDMI/HDR/audio output. Signed build-10 archives remain intact; only their temporary compiler cache was removed.

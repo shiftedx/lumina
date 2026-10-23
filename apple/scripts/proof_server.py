@@ -7,6 +7,7 @@ protocol, verifies the client journey, then remains available until Ctrl-C.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
@@ -25,13 +26,13 @@ import zlib
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-PORT = int(os.environ.get("LUMINA_NATIVE_PORT", "18743"))
+PORT = int(os.environ.get("LUMINA_NATIVE_PORT", os.environ.get("LUMINA_NATIVE_PROOF_PORT", os.environ.get("LUMINA_APPLE_PROOF_PORT", "18743"))))
 ORIGIN = f"http://127.0.0.1:{PORT}"
-FIXTURE_PATH = Path(os.environ.get("LUMINA_NATIVE_FIXTURE", REPOSITORY_ROOT / "apple" / "Tests" / "UITests" / "Fixture.json"))
+FIXTURE_PATH = Path(os.environ.get("LUMINA_NATIVE_FIXTURE", os.environ.get("LUMINA_APPLE_PROOF_FIXTURE", REPOSITORY_ROOT / "apple" / "Tests" / "UITests" / "Fixture.json"))).resolve()
 DEVICE_ID = f"apple-proof-{secrets.token_hex(8)}"
 AUTH_HEADER = f'MediaBrowser Client="Lumina Apple Proof", Device="Simulator", DeviceId="{DEVICE_ID}", Version="1.0"'
 DIRECT_TITLE = "The Lantern Keepers’ Extraordinary Midnight Voyage"
@@ -46,6 +47,218 @@ SYNTHETIC_LYRIC = "A lantern answers through the quiet night"
 SHOW_TITLE = "The Observatory Signal Logs"
 EPISODE_TITLE = "The First Signal"
 SECOND_EPISODE_TITLE = "Morning Coordinates"
+EPISODE_INTRO_END_SECONDS = 10
+EPISODE_CREDITS_START_SECONDS = 75
+PERFORMANCE_CATALOGUE_COUNT_ENV = "LUMINA_NATIVE_PERF_CATALOGUE_COUNT"
+MAX_PERFORMANCE_CATALOGUE_COUNT = 500
+PERFORMANCE_VIDEO_SIZE_ENV = "LUMINA_NATIVE_PERF_VIDEO_SIZE"
+PERFORMANCE_VIDEO_SIZES = frozenset({"320x180", "1920x1080"})
+PERFORMANCE_REQUEST_LOG_ENV = "LUMINA_NATIVE_PERF_REQUEST_LOG"
+MAX_PERFORMANCE_REQUEST_LOG_BYTES = 4 * 1024 * 1024
+PLAYBACK_INFO_DELAY_ENV = "LUMINA_NATIVE_PLAYBACK_INFO_DELAY_SECONDS"
+MAX_PLAYBACK_INFO_DELAY_SECONDS = 5
+REQUEST_MOVIE_KEY = "movie:603"
+REQUEST_MOVIE_TITLE = "The Matrix"
+REQUEST_SHOW_KEY = "show:1399"
+REQUEST_SHOW_TITLE = "Game of Thrones"
+REQUEST_ANIME_KEY = "anime:154587"
+REQUEST_ANIME_TITLE = "Frieren: Beyond Journey's End"
+
+
+class _ProofCatalogPolicy:
+    """A no-network policy for the disposable Requests upstream fixture."""
+
+    def validate_url(self, value: str, resolved: Any = None) -> str:  # noqa: ARG002
+        return value
+
+
+class _ProofCatalogTransport:
+    """Deterministic TMDB/AniList replies with enough distinct home cards for paging."""
+
+    def __init__(self, fixtures: Path) -> None:
+        from datetime import date, datetime, timedelta
+
+        def load(name: str) -> dict[str, Any]:
+            text = (fixtures / f"{name}.json").read_text(encoding="utf-8")
+            air_time = int(datetime.combine(date.today(), datetime.min.time()).astimezone().timestamp()) + 20 * 3600
+            return json.loads(text.replace("__AT__", str(air_time)))
+
+        movie = load("tmdb_movie_603")
+        show = load("tmdb_tv_1399")
+        anime = load("anilist_browse")
+        anime_detail = load("anilist_detail")
+        frieren = {
+            "id": 209867, "name": REQUEST_ANIME_TITLE, "original_name": "Sousou no Frieren",
+            "genre_ids": [16, 10765], "original_language": "ja", "origin_country": ["JP"],
+            "first_air_date": "2023-09-29", "overview": "An elf mage outlives her party.",
+            "episode_run_time": [24], "status": "Returning Series", "poster_path": "/frieren.jpg",
+            "backdrop_path": "/frieren-bd.jpg", "vote_average": 8.8, "vote_count": 2_000,
+            "genres": [{"id": 16, "name": "Animation"}, {"id": 10765, "name": "Fantasy"}],
+            "networks": [{"name": "Nippon Television"}], "created_by": [],
+            "seasons": [{"season_number": 1, "name": "Season 1", "episode_count": 28,
+                         "air_date": "2023-09-29", "poster_path": "/frieren-s1.jpg"}],
+            "external_ids": {"tvdb_id": 424536}, "images": {"logos": []},
+            "videos": {"results": [{"site": "YouTube", "key": "frierentrailer", "name": "Trailer", "type": "Trailer", "official": True}]},
+            "credits": {"cast": [], "crew": []}, "content_ratings": {"results": []},
+            "recommendations": {"results": []}, "similar": {"results": []},
+        }
+
+        def movie_card(identifier: int, title: str, year: int) -> dict[str, Any]:
+            return {"id": identifier, "title": title, "original_title": title, "release_date": f"{year}-01-01",
+                    "poster_path": f"/{identifier}.jpg", "backdrop_path": f"/{identifier}-bd.jpg",
+                    "genre_ids": [28, 878], "vote_average": 7.4, "vote_count": 500}
+
+        def show_card(identifier: int, title: str, year: int) -> dict[str, Any]:
+            return {"id": identifier, "name": title, "original_name": title, "first_air_date": f"{year}-01-01",
+                    "poster_path": f"/{identifier}.jpg", "backdrop_path": f"/{identifier}-bd.jpg",
+                    "genre_ids": [18], "vote_average": 7.8, "vote_count": 500}
+
+        movies = [movie_card(603, REQUEST_MOVIE_TITLE, 1999), movie_card(604, "The Matrix Reloaded", 2003),
+                  movie_card(329865, "Arrival", 2016), movie_card(376867, "Moonlight", 2016)]
+        shows = [show_card(1399, REQUEST_SHOW_TITLE, 2011), show_card(95396, "Severance", 2022),
+                 show_card(125988, "Silo", 2023), show_card(83867, "Andor", 2022)]
+        trending = [{**movies[0], "media_type": "movie"}, {**shows[0], "media_type": "tv"},
+                    {**movies[2], "media_type": "movie"}, {**shows[1], "media_type": "tv"},
+                    {**movies[3], "media_type": "movie"}, {**shows[2], "media_type": "tv"}]
+        movie_detail = {**movie, "recommendations": {"results": movies[1:]}, "similar": {"results": movies[2:]}}
+        show_detail = {**show, "recommendations": {"results": shows[1:]}, "similar": {"results": shows[2:]}}
+        self.tmdb = {
+            "/3/genre/movie/list": load("tmdb_genres_movie"), "/3/genre/tv/list": load("tmdb_genres_tv"),
+            "/3/trending/all/week": {"page": 1, "total_pages": 2, "results": trending},
+            "/3/trending/movie/week": {"page": 1, "total_pages": 2, "results": movies},
+            "/3/trending/tv/week": {"page": 1, "total_pages": 2, "results": shows},
+            "/3/movie/popular": {"page": 1, "total_pages": 2, "results": movies},
+            "/3/movie/upcoming": {"page": 1, "total_pages": 2, "results": movies[1:]},
+            "/3/movie/top_rated": {"page": 1, "total_pages": 2, "results": movies[2:]},
+            "/3/discover/movie": {"page": 1, "total_pages": 2, "results": movies},
+            "/3/tv/popular": {"page": 1, "total_pages": 2, "results": shows},
+            "/3/tv/on_the_air": {"page": 1, "total_pages": 2, "results": shows[1:]},
+            "/3/tv/airing_today": {"page": 1, "total_pages": 2, "results": shows[2:]},
+            "/3/movie/603": movie_detail, "/3/tv/1399": show_detail, "/3/tv/209867": frieren,
+            "/3/tv/209867/external_ids": {"id": 209867, "tvdb_id": 424536},
+            "/3/tv/37854/external_ids": load("tmdb_external_ids"),
+            "/3/search/multi": {"page": 1, "total_pages": 2, "results": [{**frieren, "media_type": "tv"}, *trending]},
+            "/3/search/tv": {"page": 1, "total_pages": 1, "results": [frieren]},
+            "/3/search/movie": {"page": 1, "total_pages": 1, "results": movies},
+        }
+        upcoming = []
+        for offset, title in enumerate(("Lanterns Beyond Tomorrow", "The Winter Cartographer", "The Last Observatory")):
+            identifier = 700 + offset
+            release = (date.today() + timedelta(days=14 + offset)).isoformat()
+            card = {**movie_card(identifier, title, date.today().year + 1), "release_date": release}
+            upcoming.append(card)
+            self.tmdb[f"/3/movie/{identifier}"] = {**movie_detail, **card, "images": {"logos": []}}
+        self.tmdb["/3/movie/upcoming"] = {"page": 1, "total_pages": 1, "results": upcoming}
+        self.anilist = {
+            "Browse": anime, "Detail": anime_detail, "Schedule": load("anilist_schedule"),
+            "Genres": load("anilist_genres"), "Match": load("anilist_match"),
+        }
+
+    def fetch(self, url: str, *, validate_redirect, headers=None, data=None):  # noqa: ANN001, ANN201
+        from app.services.artwork import RemoteArtworkResponse
+
+        validate_redirect(url)
+        parts = urlsplit(url)
+        if parts.hostname == "graphql.anilist.co":
+            body = json.loads(data or b"{}")
+            operation = body.get("query", "").split("(", 1)[0].removeprefix("query ").strip().split()[0]
+            payload = self.anilist.get(operation, {"data": {}})
+        else:
+            # The fixture intentionally ignores filters and requested page; it keeps
+            # a stable, multi-card catalog while exercising the production normalizer.
+            payload = self.tmdb.get(parts.path)
+            if payload is None:
+                return RemoteArtworkResponse(content_type="application/json", body=[b"{}"], status_code=404)
+        return RemoteArtworkResponse(content_type="application/json", body=[json.dumps(payload).encode("utf-8")])
+
+
+def install_requests_catalog_fixture() -> None:
+    """Install a loopback-only upstream seam for the proof server; never production."""
+    sys.path.insert(0, str(REPOSITORY_ROOT / "backend"))
+    from app.config import settings
+    from app.services import tmdb
+    from app.services.requests import anilist, catalog
+
+    fixture_root = REPOSITORY_ROOT / "backend" / "tests" / "fixtures" / "requests"
+    transport = _ProofCatalogTransport(fixture_root)
+    policy = _ProofCatalogPolicy()
+    tmdb.policy = policy
+    tmdb.transport = transport
+    tmdb.LIMITER = tmdb.RateLimiter(1_000_000)
+    anilist.policy = policy
+    anilist.transport = transport
+    anilist.LIMITER = tmdb.RateLimiter(1_000_000)
+    settings.tmdb_api_key = "0123456789abcdef0123456789abcdef"
+    catalog.clear_cache()
+
+
+def install_showcase_art_fixture(state_root: Path) -> None:
+    """Inject generated image bytes at the public art network seam, retaining the production token/cache route."""
+    from app.main import artwork
+    from app.services.artwork import ArtworkNotFoundError, RemoteArtworkResponse
+
+    pictures = {}
+    for identifier, title, year in ((700, DIRECT_TITLE, 2026), (701, CONVERTED_TITLE, 2025), (702, MATRIX_TITLE, 2024)):
+        folder = state_root / "media" / "Movies" / f"{title} ({year})"
+        image = next(path for path in (folder / "poster.png", folder / "poster.jpg") if path.is_file())
+        content = image.read_bytes()
+        mime = "image/png" if image.suffix == ".png" else "image/jpeg"
+        pictures[f"{identifier}.jpg"] = (content, mime)
+        pictures[f"{identifier}-bd.jpg"] = (content, mime)
+
+    # The Requests fixture uses public TMDB/AniList artwork URLs.  Route only the
+    # exact fixture addresses to locally generated media art: this keeps the
+    # native screenshot useful while proving that the fixture never reaches an
+    # upstream host.  The three showcase cards retain their original mappings.
+    fixture_pictures: dict[str, tuple[bytes, str]] = {}
+
+    def allow_tmdb(filename: str, size: str, generated_filename: str) -> None:
+        fixture_pictures[f"https://image.tmdb.org/t/p/{size}/{filename}"] = pictures[generated_filename]
+
+    def allow_card(identifier: int, generated_identifier: int) -> None:
+        allow_tmdb(f"{identifier}.jpg", "w500", f"{generated_identifier}.jpg")
+        allow_tmdb(f"{identifier}-bd.jpg", "w1280", f"{generated_identifier}-bd.jpg")
+
+    # Existing public-sign-in showcase cards.
+    for identifier in (700, 701, 702):
+        allow_card(identifier, identifier)
+
+    # TMDB cards assembled by _ProofCatalogTransport, including its existing
+    # Requests JSON fixture details and the deterministic paging cards.
+    for identifier, generated_identifier in {
+        603: 702, 604: 702, 329865: 700, 376867: 701,
+        1399: 701, 95396: 700, 125988: 702, 83867: 701,
+    }.items():
+        allow_card(identifier, generated_identifier)
+    for filename, generated_filename in {
+        "matrix.jpg": "702.jpg", "reloaded.jpg": "702.jpg",
+        "got.jpg": "701.jpg", "s1.jpg": "701.jpg", "frieren.jpg": "700.jpg",
+    }.items():
+        allow_tmdb(filename, "w500", generated_filename)
+    for filename, generated_filename in {
+        "matrix-bd.jpg": "702-bd.jpg", "got-bd.jpg": "701-bd.jpg", "frieren-bd.jpg": "700-bd.jpg",
+    }.items():
+        allow_tmdb(filename, "w1280", generated_filename)
+    allow_tmdb("frieren-s1.jpg", "w500", "700.jpg")
+
+    # AniList fixture artwork is direct rather than size-prefixed TMDB artwork.
+    for filename, generated_filename in {
+        "frieren.jpg": "700.jpg", "frieren-banner.jpg": "700-bd.jpg", "m.jpg": "702.jpg",
+        "a.jpg": "701.jpg", "c1.jpg": "700.jpg", "c2.jpg": "701.jpg",
+    }.items():
+        fixture_pictures[f"https://s4.anilist.co/{filename}"] = pictures[generated_filename]
+
+    class GeneratedArtFetcher:
+        def fetch(self, url, *, validate_redirect, headers=None):  # noqa: ANN001, ANN201, ARG002
+            validate_redirect(url)
+            picture = fixture_pictures.get(url)
+            if picture is None:
+                raise ArtworkNotFoundError("Not a generated showcase image.")
+            content, mime = picture
+            return RemoteArtworkResponse(content_type=mime, body=[content])
+
+    artwork._public_source_policy = _ProofCatalogPolicy()
+    artwork._remote_fetcher = GeneratedArtFetcher()
 
 
 def make_books(state_root: Path, db, owner) -> dict[str, str]:
@@ -133,6 +346,153 @@ def copy_artwork(source: Path, target: Path) -> None:
     shutil.copyfile(source, target)
 
 
+def performance_catalogue_count() -> int:
+    """Return the opt-in size of the disposable high-density movie catalog."""
+    raw = os.environ.get(PERFORMANCE_CATALOGUE_COUNT_ENV, "0")
+    try:
+        count = int(raw)
+    except ValueError as error:
+        raise RuntimeError(f"{PERFORMANCE_CATALOGUE_COUNT_ENV} must be an integer from 0 to {MAX_PERFORMANCE_CATALOGUE_COUNT}.") from error
+    if not 0 <= count <= MAX_PERFORMANCE_CATALOGUE_COUNT:
+        raise RuntimeError(f"{PERFORMANCE_CATALOGUE_COUNT_ENV} must be from 0 to {MAX_PERFORMANCE_CATALOGUE_COUNT}.")
+    return count
+
+
+def performance_video_size() -> str:
+    size = os.environ.get(PERFORMANCE_VIDEO_SIZE_ENV, "320x180")
+    if size not in PERFORMANCE_VIDEO_SIZES:
+        choices = ", ".join(sorted(PERFORMANCE_VIDEO_SIZES))
+        raise RuntimeError(f"{PERFORMANCE_VIDEO_SIZE_ENV} must be one of: {choices}.")
+    return size
+
+
+def playback_info_delay_seconds(value: str | None = None) -> float:
+    """Read the broker-only delay used by cancellation journeys; unset is off."""
+    raw = os.environ.get(PLAYBACK_INFO_DELAY_ENV) if value is None else value
+    if raw in (None, ""):
+        return 0
+    try:
+        seconds = float(raw)
+    except ValueError as error:
+        raise RuntimeError(f"{PLAYBACK_INFO_DELAY_ENV} must be a number from 0 to {MAX_PLAYBACK_INFO_DELAY_SECONDS}.") from error
+    if not 0 <= seconds <= MAX_PLAYBACK_INFO_DELAY_SECONDS:
+        raise RuntimeError(f"{PLAYBACK_INFO_DELAY_ENV} must be from 0 to {MAX_PLAYBACK_INFO_DELAY_SECONDS}.")
+    return seconds
+
+
+def install_playback_info_delay(app: Any, seconds: float) -> None:
+    """Delay only authenticated PlaybackInfo negotiation in the disposable fixture."""
+    if seconds == 0:
+        return
+
+    @app.middleware("http")
+    async def delay_playback_info(request, call_next):  # noqa: ANN001, ANN202
+        path = request.url.path.split("/")
+        if request.method == "POST" and len(path) == 4 and path[1] == "Items" and path[3] == "PlaybackInfo":
+            await asyncio.sleep(seconds)
+        return await call_next(request)
+
+
+def performance_request_log_path() -> Path | None:
+    raw = os.environ.get(PERFORMANCE_REQUEST_LOG_ENV)
+    if not raw:
+        return None
+    path = Path(raw)
+    if not path.is_absolute():
+        raise RuntimeError(f"{PERFORMANCE_REQUEST_LOG_ENV} must be an absolute path.")
+    return path
+
+
+def _normalise_request_path(path: str) -> str:
+    path = urlsplit(path).path
+    segments = path.split("/")
+    if segments[1:5] == ["api", "public", "showcase", "art"] and len(segments) > 5:
+        segments[5] = ":token"
+    normalised = []
+    for segment in segments:
+        try:
+            uuid.UUID(segment)
+        except ValueError:
+            normalised.append(segment)
+        else:
+            normalised.append(":id")
+    return "/".join(normalised)
+
+
+class _PerformanceRequestLog:
+    """A bounded, credential-free recorder for the opt-in simulator profiling tour."""
+
+    def __init__(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.fchmod(self._descriptor, 0o600)
+        self._lock = threading.Lock()
+        self._bytes_written = 0
+        self._active = False
+        self._stopped = False
+
+    def activate(self) -> None:
+        self._active = True
+
+    def write(self, *, method: str, path: str, status: int, duration_ms: int) -> None:
+        if not self._active or self._stopped:
+            return
+        line = json.dumps({
+            "timestamp": round(time.time(), 3),
+            "method": method,
+            "path": _normalise_request_path(path),
+            "status": status,
+            "duration_ms": duration_ms,
+        }, separators=(",", ":")).encode("utf-8") + b"\n"
+        with self._lock:
+            if self._stopped or self._bytes_written + len(line) > MAX_PERFORMANCE_REQUEST_LOG_BYTES:
+                self._stopped = True
+                return
+            os.write(self._descriptor, line)
+            self._bytes_written += len(line)
+
+    def close(self) -> None:
+        with self._lock:
+            if self._descriptor >= 0:
+                os.close(self._descriptor)
+                self._descriptor = -1
+
+
+def install_performance_request_log(app: Any, path: Path) -> _PerformanceRequestLog:
+    recorder = _PerformanceRequestLog(path)
+
+    @app.middleware("http")
+    async def record_performance_request(request, call_next):  # noqa: ANN001, ANN202
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            recorder.write(
+                method=request.method,
+                path=request.url.path,
+                status=500,
+                duration_ms=round((time.perf_counter() - started) * 1_000),
+            )
+            raise
+        recorder.write(
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            duration_ms=round((time.perf_counter() - started) * 1_000),
+        )
+        return response
+
+    return recorder
+
+
+def link_or_copy(source: Path, target: Path) -> None:
+    """Avoid duplicate fixture bytes when the temporary filesystem permits it."""
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copyfile(source, target)
+
+
 def ffmpeg(*args: str | Path) -> None:
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg is required to create the Apple proof fixture media.")
@@ -140,20 +500,56 @@ def ffmpeg(*args: str | Path) -> None:
 
 
 def make_movie(media_root: Path, title: str, year: int, extension: str, poster_size: str, duration: int = 90,
-               artwork: Path | None = None) -> None:
+               artwork: Path | None = None, embedded_subtitle: bool = False, embedded_chapters: bool = False,
+               video_size: str = "320x180") -> None:
     folder = media_root / "Movies" / f"{title} ({year})"
     folder.mkdir(parents=True)
     output = folder / f"{title} ({year}){extension}"
-    ffmpeg(
-        "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate=24:duration={duration}",
-        "-f", "lavfi", "-i", f"sine=frequency=330:duration={duration}",
-        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-shortest",
-        *( ("-movflags", "+faststart") if extension == ".mp4" else () ),
-        output,
-    )
+    subtitle_path: Path | None = None
+    chapter_path: Path | None = None
+    try:
+        if embedded_subtitle:
+            with tempfile.NamedTemporaryFile("w", suffix=".srt", encoding="utf-8", delete=False) as subtitle:
+                subtitle.write(
+                    "1\n00:00:02,000 --> 00:00:07,000\nSynthetic subtitle timing proof.\n\n"
+                    "2\n00:01:20,000 --> 00:01:28,000\nThe native MKV subtitle track remains selectable.\n"
+                )
+                subtitle_path = Path(subtitle.name)
+        if embedded_chapters:
+            with tempfile.NamedTemporaryFile("w", suffix=".ffmetadata", encoding="utf-8", delete=False) as chapters:
+                chapters.write(
+                    ";FFMETADATA1\n"
+                    "[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=30000\ntitle=Opening\n"
+                    "[CHAPTER]\nTIMEBASE=1/1000\nSTART=30000\nEND=60000\ntitle=Middle\n"
+                    "[CHAPTER]\nTIMEBASE=1/1000\nSTART=60000\nEND=90000\ntitle=Closing\n"
+                )
+                chapter_path = Path(chapters.name)
+        metadata_input = 2 + int(subtitle_path is not None)
+        ffmpeg(
+            "-f", "lavfi", "-i", f"testsrc2=size={video_size}:rate=24:duration={duration}",
+            "-f", "lavfi", "-i", f"sine=frequency=330:duration={duration}",
+            *(("-i", subtitle_path) if subtitle_path else ()),
+            *(("-f", "ffmetadata", "-i", chapter_path) if chapter_path else ()),
+            *(("-map", "0:v:0", "-map", "1:a:0", "-map", "2:0", "-c:s", "srt") if subtitle_path else ()),
+            *(("-map_metadata", str(metadata_input), "-map_chapters", str(metadata_input)) if chapter_path else ()),
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", *(() if subtitle_path else ("-shortest",)),
+            *(("-movflags", "+faststart") if extension == ".mp4" else ()),
+            output,
+        )
+    finally:
+        if subtitle_path:
+            subtitle_path.unlink(missing_ok=True)
+        if chapter_path:
+            chapter_path.unlink(missing_ok=True)
     (folder / "movie.nfo").write_text(
-        f"<movie><title>{title}</title><year>{year}</year><plot>Synthetic Apple proof fixture.</plot></movie>",
+        f"""<movie>
+<title>{title}</title>
+<year>{year}</year>
+<plot>Synthetic Apple proof fixture.</plot>
+<genre>Adventure</genre>
+<actor><name>Synthetic Performer</name><role>The navigator</role><type>Actor</type></actor>
+</movie>""",
         encoding="utf-8",
     )
     if artwork:
@@ -194,6 +590,33 @@ def make_music(media_root: Path, artwork: Path | None = None) -> None:
             "-frames:v", "1", folder / "cover.jpg",
         )
         shutil.copyfile(folder / "cover.jpg", folder.parent / "artist.jpg")
+
+
+def make_performance_catalogue(media_root: Path, count: int) -> None:
+    """Add opt-in movie cards without re-encoding media or downloading fixture data."""
+    if count == 0:
+        return
+    source = media_root / "Movies" / f"{DIRECT_TITLE} (2026)"
+    source_video = source / f"{DIRECT_TITLE} (2026).mp4"
+    source_poster = source / "poster.png" if (source / "poster.png").is_file() else source / "poster.jpg"
+    if not source_video.is_file() or not source_poster.is_file():
+        raise RuntimeError("The direct proof movie must exist before creating the performance catalog.")
+    for index in range(1, count + 1):
+        title = f"ZZ Performance Catalogue Film {index:03d}"
+        folder = media_root / "Movies" / f"{title} (2026)"
+        folder.mkdir(parents=True)
+        link_or_copy(source_video, folder / f"{title} (2026).mp4")
+        link_or_copy(source_poster, folder / source_poster.name)
+        (folder / "movie.nfo").write_text(
+            f"""<movie>
+<title>{title}</title>
+<year>2026</year>
+<plot>Synthetic high-density scrolling proof fixture.</plot>
+<genre>Adventure</genre>
+<actor><name>Synthetic Performer</name><role>The navigator</role><type>Actor</type></actor>
+</movie>""",
+            encoding="utf-8",
+        )
 
 
 def make_show(media_root: Path) -> None:
@@ -244,11 +667,13 @@ def configure_environment(state_root: Path) -> None:
     )
 
 
-def provision(state_root: Path, username: str, password: str) -> dict[str, str]:
+def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
     sys.path.insert(0, str(REPOSITORY_ROOT / "backend"))
     from app.db import init_db, session_scope
     from app.models import LibraryItem, MediaTitle, User
+    from app.media_schemas import MediaSegmentInput
     from app.music_schemas import MusicPlaylistSave
+    from app.services import media_segments
     from app.services import music_playlists
     from app.services.library_import import LibraryImportService, drive
     from app.services.storage_roots import StorageRootService
@@ -260,6 +685,7 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, str]:
         user = UserService(db).create_initial_admin(username, password, "Apple Proof")
         settings = YtDlpService(db).ensure_app_settings()
         settings.jellyfin_enabled = True
+        settings.requests_enabled = True
         root = StorageRootService(db).create(
             label="Apple proof media",
             container_path=str(state_root / "media"),
@@ -274,6 +700,11 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, str]:
         titles = {(title.type, title.name): title.id for title in db.query(MediaTitle).all()}
         show_id = titles[("series", SHOW_TITLE)]
         season_id = db.query(MediaTitle).filter_by(type="season", parent_id=show_id).one().id
+        first_episode_item = db.query(LibraryItem).filter_by(title_id=titles[("episode", EPISODE_TITLE)]).one()
+        media_segments.save_user_segments(db, first_episode_item.id, [
+            MediaSegmentInput(type="intro", start_seconds=0, end_seconds=EPISODE_INTRO_END_SECONDS),
+            MediaSegmentInput(type="credits", start_seconds=EPISODE_CREDITS_START_SECONDS, end_seconds=90),
+        ])
         owner = db.query(User).filter_by(username=username).one()
         curator = UserService(db).create_member_without_password(owner, "observatory-curator", "Observatory curator")
         shared_playlist = music_playlists.save(db, curator, MusicPlaylistSave(
@@ -294,6 +725,9 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, str]:
             "episodeID": uuid.UUID(titles[("episode", EPISODE_TITLE)]).hex,
             "episodeTitle": EPISODE_TITLE,
             "secondEpisodeID": uuid.UUID(titles[("episode", SECOND_EPISODE_TITLE)]).hex,
+            "secondEpisodeTitle": SECOND_EPISODE_TITLE,
+            "episodeIntroEndSeconds": EPISODE_INTRO_END_SECONDS,
+            "episodeCreditsStartSeconds": EPISODE_CREDITS_START_SECONDS,
             "audioAlbumID": uuid.UUID(titles[("album", AUDIO_ALBUM)]).hex,
             "audioAlbumTitle": AUDIO_ALBUM,
             "audioArtistID": uuid.UUID(titles[("artist", AUDIO_ARTIST)]).hex,
@@ -304,6 +738,12 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, str]:
             "sharedMusicPlaylistID": shared_playlist["id"],
             "sharedMusicPlaylistTitle": SHARED_MUSIC_PLAYLIST,
             "audioLyric": SYNTHETIC_LYRIC,
+            "requestMovieKey": REQUEST_MOVIE_KEY,
+            "requestMovieTitle": REQUEST_MOVIE_TITLE,
+            "requestShowKey": REQUEST_SHOW_KEY,
+            "requestShowTitle": REQUEST_SHOW_TITLE,
+            "requestAnimeKey": REQUEST_ANIME_KEY,
+            "requestAnimeTitle": REQUEST_ANIME_TITLE,
         }
     except KeyError as error:
         raise RuntimeError("The production import did not index all proof videos and music.") from error
@@ -325,7 +765,7 @@ def request_json(path: str, *, method: str = "GET", payload: dict[str, Any] | No
     return {} if not raw else json.loads(raw)
 
 
-def verify_api(expected: dict[str, str], username: str, password: str) -> dict[str, str]:
+def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[str, Any]:
     info = request_json("/System/Info/Public")
     if info.get("ServerName") != "Lumina":
         raise RuntimeError("The Jellyfin-compatible public-info endpoint did not identify Lumina.")
@@ -334,6 +774,27 @@ def verify_api(expected: dict[str, str], username: str, password: str) -> dict[s
     token = signed_in.get("AccessToken")
     if not isinstance(token, str) or not token:
         raise RuntimeError("The Jellyfin-compatible sign-in did not return an access token.")
+
+    request_home = request_json("/Lumina/Requests/catalog/home", token=token)
+    request_keys = {
+        item.get("key")
+        for rail in request_home.get("rails", []) if isinstance(rail, dict)
+        for item in rail.get("items", []) if isinstance(item, dict)
+    }
+    if not {REQUEST_MOVIE_KEY, REQUEST_SHOW_KEY, REQUEST_ANIME_KEY}.issubset(request_keys):
+        raise RuntimeError("The native Requests catalog did not expose the proof titles.")
+    request_search = request_json("/Lumina/Requests/catalog/search?q=Frieren&page=1", token=token)
+    if not any(item.get("key") == REQUEST_ANIME_KEY for item in request_search.get("items", [])):
+        raise RuntimeError("The native Requests search did not expose the anime proof title.")
+    request_quota = request_json("/Lumina/Requests/quota", token=token)
+    if not any(row.get("kind") == "anime" for row in request_quota.get("quotas", []) if isinstance(row, dict)):
+        raise RuntimeError("The native Requests quota route did not expose the anime policy.")
+    request_show = request_json("/Lumina/Requests/catalog/title/show/1399", token=token)
+    if not any(row.get("number") == 1 for row in request_show.get("seasons", []) if isinstance(row, dict)):
+        raise RuntimeError("The native Requests title route did not expose the show season selector.")
+    request_anime = request_json("/Lumina/Requests/catalog/title/anime/154587", token=token)
+    if request_anime.get("key") != REQUEST_ANIME_KEY or request_anime.get("tvdb_id") != 424536:
+        raise RuntimeError("The native Requests title route did not preserve anime request metadata.")
 
     items = request_json("/Items?IncludeItemTypes=Movie,Episode,Video&Recursive=true&Fields=Overview,UserData,ImageTags&SortBy=SortName&StartIndex=0&Limit=50", token=token)
     by_name = {item.get("Name"): item for item in items.get("Items", [])}
@@ -360,6 +821,13 @@ def verify_api(expected: dict[str, str], username: str, password: str) -> dict[s
     episodes = request_json(f"/Items?ParentId={expected['seasonID']}&IncludeItemTypes=Episode&Limit=50", token=token)
     if not {expected["episodeID"], expected["secondEpisodeID"]}.issubset({item.get("Id") for item in episodes.get("Items", [])}):
         raise RuntimeError("The synthetic season did not expose both imported episodes.")
+    segments = request_json(f"/MediaSegments/{expected['episodeID']}", token=token)
+    expected_segments = [("Intro", 0, EPISODE_INTRO_END_SECONDS * 10_000_000),
+                         ("Outro", EPISODE_CREDITS_START_SECONDS * 10_000_000, 900_000_000)]
+    actual_segments = [(item.get("Type"), item.get("StartTicks"), item.get("EndTicks"))
+                       for item in segments.get("Items", []) if isinstance(item, dict)]
+    if actual_segments != expected_segments:
+        raise RuntimeError("The synthetic first episode did not expose its authoritative intro and credits segments.")
 
     albums = request_json("/Items?IncludeItemTypes=MusicAlbum&Recursive=true&Fields=Overview,UserData,ImageTags&Limit=50", token=token)
     album = next((item for item in albums.get("Items", []) if item.get("Id") == expected["audioAlbumID"]), None)
@@ -448,7 +916,7 @@ def verify_api(expected: dict[str, str], username: str, password: str) -> dict[s
     }
 
 
-def write_fixture(state_root: Path, username: str, password: str, items: dict[str, str]) -> None:
+def write_fixture(state_root: Path, username: str, password: str, items: dict[str, Any]) -> None:
     FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
     # Publish only complete JSON, with private permissions before credentials are written.
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=FIXTURE_PATH.parent, delete=False) as pending:
@@ -484,22 +952,36 @@ def main() -> None:
     password = f"Proof-{secrets.token_urlsafe(18)}"
     thread: threading.Thread | None = None
     server: Any = None
+    performance_request_log: _PerformanceRequestLog | None = None
     try:
+        playback_info_delay = playback_info_delay_seconds()
         artwork = fixture_artwork()
+        performance_catalogue = performance_catalogue_count()
+        perf_video_size = performance_video_size() if performance_catalogue else "320x180"
         # Default sidecars are generated locally; optional original PNGs are copied unchanged.
         print("Generating synthetic proof video and music media...", flush=True)
-        make_movie(state_root / "media", DIRECT_TITLE, 2026, ".mp4", "360x540", artwork=artwork.get("lanterns.png"))
-        make_movie(state_root / "media", CONVERTED_TITLE, 2025, ".mkv", "960x540", artwork=artwork.get("cartographer.png"))
+        make_movie(state_root / "media", DIRECT_TITLE, 2026, ".mp4", "360x540", artwork=artwork.get("lanterns.png"),
+                   video_size=perf_video_size)
+        make_movie(state_root / "media", CONVERTED_TITLE, 2025, ".mkv", "960x540", artwork=artwork.get("cartographer.png"),
+                   embedded_subtitle=True, embedded_chapters=True, video_size=perf_video_size)
         make_movie(state_root / "media", MATRIX_TITLE, 2024, ".mp4", "360x540", duration=40, artwork=artwork.get("observatory.png"))
+        if performance_catalogue:
+            print(f"Adding {performance_catalogue} synthetic performance-catalog movies...", flush=True)
+            make_performance_catalogue(state_root / "media", performance_catalogue)
         make_music(state_root / "media", artwork=artwork.get("observatory.png"))
         make_show(state_root / "media")
         configure_environment(state_root)
         install_loopback_guard()
+        install_requests_catalog_fixture()
         print("Importing the disposable video and music catalog...", flush=True)
         provisioned = provision(state_root, username, password)
 
         import uvicorn
         from app.main import app
+        install_showcase_art_fixture(state_root)
+        install_playback_info_delay(app, playback_info_delay)
+        if performance_catalogue and (request_log_path := performance_request_log_path()) is not None:
+            performance_request_log = install_performance_request_log(app, request_log_path)
 
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="warning", timeout_keep_alive=30))
         thread = threading.Thread(target=lambda: server.run(sockets=[listener]), name="lumina-apple-proof", daemon=True)
@@ -515,6 +997,8 @@ def main() -> None:
 
         print("Verifying authenticated catalog, artwork, and playback routes...", flush=True)
         verified = verify_api(provisioned, username, password)
+        if performance_request_log is not None:
+            performance_request_log.activate()
         write_fixture(state_root, username, password, verified)
         print(f"Lumina Apple proof server ready at {ORIGIN}")
         print(f"Fixture: {FIXTURE_PATH}")
@@ -526,6 +1010,8 @@ def main() -> None:
             server.should_exit = True
         if thread is not None:
             thread.join(timeout=60)
+        if performance_request_log is not None:
+            performance_request_log.close()
         listener.close()
         FIXTURE_PATH.unlink(missing_ok=True)
         shutil.rmtree(state_root)

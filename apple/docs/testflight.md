@@ -47,3 +47,19 @@ The iOS icon and tvOS layered icons/top shelf use Lumina's existing sunrise glyp
 Before external beta/public review, complete the remaining policy, App Privacy, support metadata, reviewer server, and hardware qualification items in [the App Store review](app-store-readiness.md). This internal feedback round does not publish the app or set Store pricing.
 
 Apple references: [upload builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/), [internal testers](https://developer.apple.com/help/app-store-connect/test-a-beta-version/add-internal-testers/), [multiple platforms](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-platforms).
+
+### Upload through Xcode Organizer
+
+After `export`, open `Lumina-<platform>-Organizer.xcarchive` in the release directory. The original archive is intentionally unsigned and cannot be distributed directly through Organizer (Xcode reports “No Team Found in Archive”). The Organizer copy contains the distribution-signed application from the validated IPA and records its actual signing team and certificate. `prepare_organizer_archive.py` checks bundle identity, version, signature, and matching executable UUIDs before preserving the original archive’s debug symbols. It refuses to overwrite an existing destination.
+
+Select **Distribute App → App Store Connect → Upload** in Xcode. Creating or opening this archive does not upload it.
+
+### Playback framework symbol warnings
+
+The tvOS 0.1.0 (4) upload completed with missing-dSYM warnings for 27 framework placeholders, including Libass, Libavcodec, and Libavdevice. Investigation showed Xcode embedded empty dynamic-library stubs for static framework dependencies: every stub has zero section content, zero symbols, and minimum OS 100.0. The app executable has no runtime load commands for these placeholders; the actual playback library code is statically linked into the app. This is separate from the vendor static libraries lacking source-level debug information.
+
+`prepare_archive.py` removes only unreferenced, resource-free Xcode placeholders before signing. The guard preserves libraries containing code/data, referenced libraries, and framework resources (including privacy manifests). Archive and IPA validation reject leftover unused placeholders. `mise exec -- python3 apple/scripts/test_archive_stubs.py` exercises this boundary using real Mach-O files. No fabricated dSYMs are generated. Apple DTS explains the expected static-linking symbol layout in [this framework-symbol discussion](https://developer.apple.com/forums/thread/761589).
+
+The command-line export options keep `manageAppVersionAndBuildNumber=false`. Xcode Organizer’s recommended upload flow can independently advance the build number; select the archive by its version/build and check the final upload summary. The first upload of the 0.1.0 (4) archive reported build number 5, so the corrected replacement is packaged as build 6.
+
+The corrected tvOS **0.1.0 (6)** signed archive and IPA passed local distribution validation, and Xcode Organizer’s App Store Connect validation completed successfully with no warnings. The executable and app dSYM UUIDs match. The replacement was prepared and validated without uploading it.

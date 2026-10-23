@@ -6,6 +6,7 @@ can play is decided from them by ``playback_decision.decide``.
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -16,6 +17,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models import AppSettings, LibraryItem, MediaArtifact
+from app.services.chapters import normalize_chapters
 from app.persistence import write_transaction
 from app.services.media_artifacts import MediaArtifactService
 from app.services.playback_decision import BROWSER_DEFAULT, decide
@@ -23,7 +25,7 @@ from app.services.yt_dlp_service import YtDlpService
 
 PROBE_TIMEOUT_SECONDS = 20
 PROBE_OUTPUT_LIMIT = 1_000_000
-PROBE_CACHE_VERSION = 2
+PROBE_CACHE_VERSION = 3
 _PROBE_CACHE_VERSION_KEY = "_probe_cache_version"
 _probe_slots = threading.BoundedSemaphore(2)
 _artifact_locks: dict[str, threading.Lock] = {}
@@ -75,7 +77,7 @@ def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
     """ffprobe JSON for one file; bounded time and output, no shell."""
     try:
         result = subprocess.run(
-            [ffprobe, "-v", "error", *LOCAL_INPUT_ARGS, "-print_format", "json", "-show_format", "-show_streams", "--", str(path)],
+            [ffprobe, "-v", "error", *LOCAL_INPUT_ARGS, "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "--", str(path)],
             capture_output=True, timeout=PROBE_TIMEOUT_SECONDS, check=False, stdin=subprocess.DEVNULL,
         )
     except subprocess.TimeoutExpired as exc:
@@ -170,6 +172,17 @@ def _rate(value: Any) -> float | None:
     return round(rate, 3) if rate > 0 else None
 
 
+def _seconds(value: Any) -> float | None:
+    """ffprobe emits chapter timestamps as decimal strings."""
+    if isinstance(value, bool):
+        return None
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if math.isfinite(seconds) else None
+
+
 def _text(value: Any, limit: int) -> str | None:
     return str(value)[:limit] if isinstance(value, str) and value.strip() else None
 
@@ -220,6 +233,20 @@ def normalize(raw: dict[str, Any], filename: str) -> dict[str, Any]:
         if s.get("codec_type") in _STREAM_TYPES and _int(s.get("index")) is not None
         and not (s.get("codec_type") == "video" and _attached_picture(s))
     ]
+    raw_chapters = raw.get("chapters")
+    provider_chapters = [
+        {
+            "start_time": _seconds(chapter.get("start_time")),
+            "end_time": _seconds(chapter.get("end_time")),
+            "title": (chapter.get("tags") or {}).get("title") if isinstance(chapter.get("tags"), dict) else None,
+        }
+        for chapter in (raw_chapters if isinstance(raw_chapters, list) else []) if isinstance(chapter, dict)
+    ]
+    chapters = normalize_chapters(
+        provider_chapters=provider_chapters,
+        description=None,
+        duration=duration,
+    )["chapters"]
     return {
         "container": str(fmt.get("format_name") or ""),
         # Matroska and WebM share one ffprobe format name; the served suffix decides the browser MIME type.
@@ -233,6 +260,7 @@ def normalize(raw: dict[str, Any], filename: str) -> dict[str, Any]:
         "audio_tracks": sum(1 for s in streams if s.get("codec_type") == "audio"),
         "subtitles": sorted({str(s.get("codec_name")) for s in streams if s.get("codec_type") == "subtitle"}),
         "streams": listed,
+        "chapters": chapters,
     }
 
 
@@ -248,11 +276,14 @@ def _fingerprint(path: Path) -> str:
 
 
 def is_stale(cached: dict[str, Any] | None, fingerprint: str) -> bool:
-    """Re-probe when the file changed or the cache predates current successful facts; cached errors stay."""
+    """Re-probe when the file changed or the cache predates current facts; cached errors stay."""
     cached = cached or {}
     return cached.get("fingerprint") != fingerprint or (
-        "error" not in cached
-        and ("streams" not in cached or cached.get(_PROBE_CACHE_VERSION_KEY) != PROBE_CACHE_VERSION)
+        "error" not in cached and (
+            "streams" not in cached
+            or cached.get(_PROBE_CACHE_VERSION_KEY) != PROBE_CACHE_VERSION
+            or ("chapters" not in cached and "chapter_probe_error" not in cached)
+        )
     )
 
 
@@ -274,6 +305,12 @@ class MediaProbeService:
             self.db.refresh(artifact)
             fingerprint = _fingerprint(path)
             cached = artifact.probe or {}
+            # An old successful cache needs a one-time chapter upgrade. Do not erase its
+            # usable stream facts when that additive probe cannot run; retry an unavailable
+            # executable when it later appears, while other probe failures stay bounded until
+            # the file changes.
+            if cached.get("chapter_probe_error") == "ffprobe_unavailable" and media_tool(self.db, "ffprobe"):
+                cached = {key: value for key, value in cached.items() if key != "chapter_probe_error"}
             if is_stale(cached, fingerprint):
                 carry = {}
                 if (
@@ -286,13 +323,23 @@ class MediaProbeService:
                         for key in ("loudness", "_scan_fingerprint")
                         if key in cached
                     }
-                fresh = self._probe(path)
-                cached = {"fingerprint": fingerprint, _PROBE_CACHE_VERSION_KEY: PROBE_CACHE_VERSION, **fresh}
-                if "error" not in fresh:
-                    cached.update(carry)
+                refreshed = self._probe(path)
+                upgrade = (
+                    cached.get("fingerprint") == fingerprint
+                    and "error" not in cached and "streams" in cached and "chapters" not in cached
+                )
+                if upgrade and refreshed.get("error"):
+                    cached = {**cached, _PROBE_CACHE_VERSION_KEY: PROBE_CACHE_VERSION, "chapter_probe_error": refreshed["error"]}
+                else:
+                    cached = {"fingerprint": fingerprint, _PROBE_CACHE_VERSION_KEY: PROBE_CACHE_VERSION, **refreshed}
+                    if "error" not in refreshed:
+                        cached.update(carry)
                 with write_transaction(self.db, name="media_probe_cache"):
                     artifact.probe = cached
-        return {key: value for key, value in cached.items() if key not in {"fingerprint", _PROBE_CACHE_VERSION_KEY}}
+        return {
+            key: value for key, value in cached.items()
+            if key not in {"fingerprint", _PROBE_CACHE_VERSION_KEY, "chapter_probe_error"}
+        }
 
     def plan(self, item: LibraryItem) -> dict[str, Any]:
         """Cached facts plus the default-browser decision (kept for PlaybackInfo callers; see ``decide``)."""

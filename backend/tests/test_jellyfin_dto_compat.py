@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from app import db as db_module
 from app.main import app
 from app.models import DeviceToken, LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle
-from app.services import jellyfin_playback
+from app.services import jellyfin_playback, media_probe
 from app.services.media_artifacts import MediaArtifactService
 from app.services.media_titles import jellyfin_id
 from app.services.playback_decision import decide
@@ -53,6 +53,60 @@ def test_detail_items_carry_the_arrays_clients_index(jf: TestClient) -> None:
         assert isinstance(detail["UserData"], dict)
     movie = get(jf, f"/Items/{HEX(MOVIE)}")
     assert isinstance(movie["MediaSources"], list) and isinstance(movie["MediaStreams"], list)
+
+
+def test_detail_chapters_project_the_preferred_source_probe(jf: TestClient) -> None:
+    with db_module.SessionLocal() as db:
+        for item_id, size, chapters in (
+            (MOVIE_1080, 4_096, [{"start_time": 0.0, "end_time": 60.0, "title": "1080p opening"}]),
+            (MOVIE_4K, 8_192, [
+                {"start_time": 60.0, "end_time": 180.0, "title": "Middle"},
+                {"start_time": 0.0, "end_time": 60.0, "title": "Introduction"},
+                {"start_time": -1.0, "end_time": 0.0, "title": "Ignored"},
+            ]),
+        ):
+            item = db.get(LibraryItem, item_id)
+            item.file_size = size
+            artifact = db.get(MediaArtifact, db.get(LibraryItemArtifact, item_id).artifact_id)
+            artifact.probe = {
+                **(artifact.probe or {}), "duration": 7200.0,
+                "chapters": chapters,
+            }
+        db.commit()
+
+    detail = get(jf, f"/Items/{HEX(MOVIE)}")
+    assert detail["Chapters"] == [
+        {"Name": "Introduction", "StartPositionTicks": 0},
+        {"Name": "Middle", "StartPositionTicks": 600_000_000},
+    ]
+    assert all("Chapters" not in source for source in detail["MediaSources"])
+
+
+def test_missing_chapter_upgrade_keeps_a_usable_stream_cache_when_ffprobe_is_unavailable(
+    jf: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with db_module.SessionLocal() as db:
+        item = db.get(LibraryItem, MOVIE_4K)
+        artifact = db.get(MediaArtifact, db.get(LibraryItemArtifact, item.id).artifact_id)
+        path, _root = MediaArtifactService(db).locate(item)
+        cached = deepcopy(artifact.probe)
+        cached.pop("chapters", None)
+        cached["fingerprint"] = f"{path.stat().st_size}:{path.stat().st_mtime_ns}"
+        artifact.probe = cached
+        db.commit()
+    monkeypatch.setattr(media_probe, "media_tool", lambda *_args: None)
+
+    response = jf.post(
+        f"/Items/{HEX(MOVIE)}/PlaybackInfo", headers=HEADERS,
+        json={"MediaSourceId": HEX(MOVIE_4K)},
+    )
+    assert response.status_code == 200, response.text
+    source = next(source for source in response.json()["MediaSources"] if source["Id"] == HEX(MOVIE_4K))
+    assert source["MediaStreams"]
+    with db_module.SessionLocal() as db:
+        artifact = db.get(MediaArtifact, db.get(LibraryItemArtifact, MOVIE_4K).artifact_id)
+        assert "streams" in artifact.probe and "error" not in artifact.probe
+        assert artifact.probe["chapter_probe_error"] == "ffprobe_unavailable"
 
 
 @pytest.mark.parametrize("item_id", [MOVIE, S1E1, MOVIE_4K])

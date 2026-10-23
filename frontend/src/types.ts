@@ -1604,6 +1604,7 @@ export interface ConnectedAppCreated {
 
 export interface MediaServerSettings {
   jellyfin_enabled: boolean;
+  native_streaming_enabled: boolean;
   jellyfin_url?: string | null;
   jellyfin_public_url?: string | null;
   has_tmdb_key: boolean;
@@ -1621,6 +1622,7 @@ export interface MediaServerSettings {
 
 export interface MediaServerSettingsUpdate {
   jellyfin_enabled?: boolean | null;
+  native_streaming_enabled?: boolean | null;
   tmdb_api_key?: string | null;
   metadata_language?: string | null;
   introdb_enabled?: boolean | null;

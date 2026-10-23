@@ -136,3 +136,31 @@ mise exec -- scripts/with-lock.sh /tmp/lumina-perf.lock 1800 \
 ```
 
 Both variants use client-side MKV packaging; the order alternates across pairs. The optional caption fixture is a four-track, dense synthetic stress case, not ordinary dialogue. Omit `--caption-stress` and use `--case hevc-71 --steady-seconds 12` for the subtitle-free control. The native probe samples resident memory once per second and retains peak/start/end/samples alongside process CPU, actual frame/advance checks, pause and seek. Keep frame sampling identical across binaries; a lower-cost probe alone is not an app improvement.
+
+## Native view resource profiling
+
+Use a locally signed, optimized simulator test build with
+`SWIFT_ACTIVE_COMPILATION_CONDITIONS=LUMINA_UI_TESTING`. This explicit test-only
+flag enables the UUID-scoped preferences and Keychain isolation also used by
+Debug tests; ordinary Release builds omit it. Keep `-configuration Release` so
+profiling does not measure unoptimized Swift.
+
+Run `NativePerformanceTourTests/testNativePerformanceTour` through
+`profile_native_views.py --simulator <UDID> --executable <Lumina-iOS-or-tvOS>
+--output <fresh-private-directory> --trace -- <finite-xcodebuild-command>`.
+Use the suite broker and fixture-copy build flow above; do not edit a signed
+test bundle. The optional fixture variables
+`LUMINA_NATIVE_PERF_CATALOGUE_COUNT=120`,
+`LUMINA_NATIVE_PERF_VIDEO_SIZE=1920x1080`, and
+`LUMINA_NATIVE_PERF_REQUEST_LOG=<absolute-private-path>` enable the dense
+synthetic catalogue, full-HD direct and client-demux MKV movies, and bounded redacted request log.
+They apply only to the disposable proof fixture.
+
+The sampler waits for the tour's settled login marker, scopes samples and
+Time Profiler to the simulator's exact app executable, rejects process changes,
+and writes phase-level CPU, wakeups, charged footprint and host-load results.
+CPU is a percentage of one host core, not whole-device energy or GPU/decoder
+usage. The tour's five playback/settings/Back cycles support a retention trend;
+one-time framework growth alone does not prove a leak. Simulator traces cannot
+qualify hardware frame pacing, HDR or HDMI output. See the dated performance
+record for the actual completed coverage and limitations.

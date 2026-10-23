@@ -4,9 +4,11 @@ import json
 import re
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import Session
 
 from app import db as db_module
 from app.config import settings
@@ -188,6 +190,28 @@ def test_v33_adds_the_plex_import_address(tmp_path, monkeypatch) -> None:  # noq
     assert "plex_import_url" in columns["app_settings"]
 
 
+def test_v34_persists_native_streaming_after_the_documented_rollback(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    engine = _init(tmp_path, monkeypatch)
+    with Session(engine) as db, db.begin():
+        record = AppSettings(id=1, temp_root="/tmp", archive_path="/tmp/archive")
+        record.native_streaming_enabled = True
+        db.add(record)
+
+    guide = (Path(__file__).resolve().parents[2] / "docker" / "README.md").read_text()
+    match = re.search(r"\| Before native Connected-app external streaming \(schema 33\) \| `([^`]+)`", guide)
+    assert match, "keep an executable native streaming rollback in the operator guide"
+    with engine.begin() as connection:
+        for statement in match[1].split(";"):
+            if statement.strip():
+                connection.exec_driver_sql(statement)
+        assert connection.scalar(text("PRAGMA user_version")) == 33
+        assert connection.scalar(text("SELECT native_streaming_enabled FROM app_settings WHERE id = 1")) == 1
+    db_module.init_db()
+    with engine.connect() as connection:
+        assert connection.scalar(text("PRAGMA user_version")) == db_module.SCHEMA_VERSION
+        assert connection.scalar(text("SELECT native_streaming_enabled FROM app_settings WHERE id = 1")) == 1
+
+
 def _sqlite_indexes(engine, table: str) -> set[str]:  # noqa: ANN001
     """Index names from sqlite_master: the inspector skips expression indexes such as ix_media_titles_type_sort."""
     with engine.connect() as connection:
@@ -270,8 +294,6 @@ def _add_title(connection, title_id: str, kind: str, parent: str | None = None, 
 
 def test_v7_dates_existing_titles_by_their_recorded_file_times(tmp_path, monkeypatch) -> None:  # noqa: ANN001
     """The scan already stored each file's mtime (MediaArtifact.mtime_ns): the upgrade reads it, it never stats a root."""
-    from sqlalchemy.orm import Session
-
     from app.models import MediaTitle
 
     day = 86_400 * 10**9

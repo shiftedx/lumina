@@ -84,6 +84,27 @@ public struct BookCatalog: Decodable, Sendable {
     enum CodingKeys: String, CodingKey { case items, nextCursor = "next_cursor" }
 }
 
+public enum BookCatalogKind: String, Sendable {
+    case ebook
+    case manga
+}
+
+public enum BookCatalogStatus: String, Sendable {
+    case all
+    case unread
+    case reading
+    case read
+    case favorites
+    case readingList = "reading_list"
+}
+
+public enum BookCatalogSort: String, Sendable {
+    case added
+    case title
+    case author
+    case custom
+}
+
 public struct BookManifest: Decodable, Sendable {
     public struct Chapter: Decodable, Identifiable, Sendable {
         public let id: Int
@@ -122,10 +143,20 @@ public struct LuminaBooks: Sendable {
     public init(session: LuminaSession) { owner = session; client = LuminaClient() }
     init(session: LuminaSession, client: LuminaClient) { owner = session; self.client = client }
 
-    public func catalog(search: String, cursor: String? = nil, shelfID: String? = nil) async throws -> BookCatalog {
+    public func catalog(
+        search: String,
+        cursor: String? = nil,
+        shelfID: String? = nil,
+        kind: BookCatalogKind? = nil,
+        status: BookCatalogStatus = .all,
+        sort: BookCatalogSort = .added
+    ) async throws -> BookCatalog {
         var query = [URLQueryItem(name: "q", value: String(search.prefix(200)))]
         if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
         if let shelfID { query.append(URLQueryItem(name: "shelf_id", value: try safeID(shelfID))) }
+        if let kind { query.append(URLQueryItem(name: "kind", value: kind.rawValue)) }
+        if status != .all { query.append(URLQueryItem(name: "status", value: status.rawValue)) }
+        if sort != .added { query.append(URLQueryItem(name: "sort", value: sort.rawValue)) }
         return try await json("", query: query)
     }
     public func overview() async throws -> BooksOverview { try await json("/overview") }

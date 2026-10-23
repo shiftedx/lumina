@@ -37,6 +37,8 @@ let tickScale = 10_000_000.0
     private var videoSort = VideoSort.name
     private var videoFilters = VideoFilters()
     private var videoParentID: String?
+    private var videoSourceProvider: String?
+    private var videoLuminaCategory: String?
     private var musicKind = MusicBrowseKind.albums
     private var audioSearch = ""
     private var audioIndex = 0
@@ -54,6 +56,12 @@ let tickScale = 10_000_000.0
     init(client: LuminaClient, credentials: CredentialStore) {
         self.client = client
         self.credentials = credentials
+    }
+
+    /// Loads public release artwork for the signed-out welcome screen without sending member credentials or a device ID.
+    public func publicShowcase(server: String) async throws -> [PublicShowcaseSlide] {
+        let origin = try ServerOrigin(server)
+        return try await client.publicShowcase(origin: origin.url)
     }
 
     public func connect(server: String, username: String, password: String) async {
@@ -127,6 +135,8 @@ let tickScale = 10_000_000.0
         nextUpItems = []
         resumeItems = []
         videoParentID = nil
+        videoSourceProvider = nil
+        videoLuminaCategory = nil
         hasMore = false
     }
 
@@ -147,13 +157,23 @@ let tickScale = 10_000_000.0
             videoSort = sort
             videoFilters = filters
             videoParentID = nil
-            if kind == .shows || kind == .anime {
+            videoSourceProvider = nil
+            videoLuminaCategory = kind.luminaCategory
+            if kind == .shows || kind == .youtube {
                 let views = try await client.views(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
                 guard generation == libraryGeneration, isCurrent(active) else { return }
-                videoParentID = views.items.first { $0.collectionType == "tvshows" && (kind == .anime ? $0.name == "Anime" : $0.name != "Anime") }?.id
+                videoParentID = switch kind {
+                case .shows:
+                    views.items.first { $0.name == "Shows" && $0.collectionType == "tvshows" }?.id
+                case .youtube:
+                    views.items.first { $0.name == "Channels" }?.id
+                default:
+                    nil
+                }
                 if videoParentID == nil { items = []; hasMore = false; nextIndex = 0; return }
+                if kind == .youtube { videoSourceProvider = "youtube" }
             }
-            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: search, start: 0, types: kind.itemTypes, sort: sort, parentID: videoParentID, filters: filters)
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: search, start: 0, types: kind.itemTypes, sort: sort, parentID: videoParentID, sourceProvider: videoSourceProvider, luminaCategory: videoLuminaCategory, filters: filters)
             guard generation == libraryGeneration, isCurrent(active) else { return }
             items = page.items.filter { ($0.isPlayable || $0.isCollection) && !$0.isAudio }
             nextIndex = page.items.count
@@ -170,7 +190,7 @@ let tickScale = 10_000_000.0
         isBusy = true
         defer { if generation == libraryGeneration { isBusy = false } }
         do {
-            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: currentSearch, start: nextIndex, types: videoKind.itemTypes, sort: videoSort, parentID: videoParentID, filters: videoFilters)
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: currentSearch, start: nextIndex, types: videoKind.itemTypes, sort: videoSort, parentID: videoParentID, sourceProvider: videoSourceProvider, luminaCategory: videoLuminaCategory, filters: videoFilters)
             guard generation == libraryGeneration, isCurrent(active) else { return }
             let playable = page.items.filter { ($0.isPlayable || $0.isCollection) && !$0.isAudio }
             items.append(contentsOf: playable)
@@ -312,6 +332,38 @@ let tickScale = 10_000_000.0
         }
     }
 
+    /// Resolves a concrete music pivot without changing the active browse page.
+    /// TV uses this for album and artist tiles that were sourced from a related
+    /// media item rather than the current audio catalogue.
+    public func musicCollection(id: String, expectedType: String) async throws -> MediaItem {
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              ["MusicAlbum", "MusicArtist"].contains(expectedType) else {
+            throw LuminaError.malformedResponse
+        }
+        guard let active = session else { throw LuminaError.notSignedIn }
+        let requestedID = canonicalMusicCollectionID(id)
+        do {
+            let fresh = try await client.item(
+                origin: active.serverURL,
+                token: active.accessToken,
+                deviceID: active.deviceID,
+                id: requestedID,
+                userID: active.userID
+            )
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            guard canonicalMusicCollectionID(fresh.id) == requestedID,
+                  fresh.type == expectedType else { throw LuminaError.malformedResponse }
+            replaceCachedItem(fresh)
+            return fresh
+        } catch {
+            if isCurrent(active), let failure = error as? LuminaError,
+               failure == .http(401) || failure == .http(403) {
+                clearSession()
+            }
+            throw error
+        }
+    }
+
     public func updateItemState(item: MediaItem, played: Bool? = nil, favorite: Bool? = nil) async throws -> MediaItem {
         guard let active = session else { throw LuminaError.notSignedIn }
         do {
@@ -337,6 +389,27 @@ let tickScale = 10_000_000.0
         audioItems = audioItems.map { $0.id == fresh.id ? fresh : $0 }
         resumeItems = resumeItems.map { $0.id == fresh.id ? fresh : $0 }.filter { $0.resumeSeconds > 0 && $0.userData?.played != true }
         nextUpItems = nextUpItems.map { $0.id == fresh.id ? fresh : $0 }.filter { $0.userData?.played != true }
+    }
+
+    /// Jellyfin commonly represents a UUID link in music metadata with hyphens,
+    /// while its item endpoint returns the same value in compact lowercase form.
+    /// Non-UUID fixture and provider identifiers deliberately remain byte-for-byte
+    /// unchanged.
+    private func canonicalMusicCollectionID(_ id: String) -> String {
+        let compact = id.replacingOccurrences(of: "-", with: "")
+        guard compact.utf8.count == 32,
+              compact.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "0123456789abcdefABCDEF").contains($0) }) else {
+            return id
+        }
+        let parts = [
+            String(compact.prefix(8)),
+            String(compact.dropFirst(8).prefix(4)),
+            String(compact.dropFirst(12).prefix(4)),
+            String(compact.dropFirst(16).prefix(4)),
+            String(compact.dropFirst(20)),
+        ]
+        guard let uuid = UUID(uuidString: parts.joined(separator: "-")) else { return id }
+        return uuid.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
 
     public func loadAudio(kind: MusicBrowseKind = .albums, search: String = "") async {
@@ -387,7 +460,44 @@ let tickScale = 10_000_000.0
         }
     }
 
+    public func relatedItems(for item: MediaItem) async throws -> [MediaItem] {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        let loaded = try await client.relatedItems(
+            origin: active.serverURL,
+            token: active.accessToken,
+            deviceID: active.deviceID,
+            itemID: item.id
+        )
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        var seen = Set<String>()
+        return loaded.filter { related in
+            related.id != item.id && seen.insert(related.id).inserted
+        }.prefix(12).map { $0 }
+    }
+
     public func clearError() { errorMessage = nil }
+
+    public func personImageURL(for person: MediaPerson, maxWidth: Int = 240) -> URL? {
+        guard let active = session,
+              let id = person.id, !id.isEmpty,
+              let tag = person.primaryImageTag, !tag.isEmpty else { return nil }
+        return client.url(origin: active.serverURL, path: "/Items/\(id)/Images/Primary", query: [
+            URLQueryItem(name: "maxWidth", value: String(max(1, maxWidth))),
+            URLQueryItem(name: "tag", value: tag),
+            URLQueryItem(name: "ApiKey", value: active.accessToken),
+        ])
+    }
+
+    public func posterURL(for item: MediaItem, maxWidth: Int = 400) -> URL? {
+        guard ["Episode", "Season"].contains(item.type),
+              let seriesID = item.seriesID, let tag = item.seriesPrimaryImageTag,
+              let active = session else { return imageURL(for: item, maxWidth: maxWidth) }
+        return client.url(origin: active.serverURL, path: "/Items/\(seriesID)/Images/Primary", query: [
+            URLQueryItem(name: "maxWidth", value: String(max(1, maxWidth))),
+            URLQueryItem(name: "tag", value: tag),
+            URLQueryItem(name: "ApiKey", value: active.accessToken),
+        ])
+    }
 
     public func imageURL(for item: MediaItem, maxWidth: Int = 400) -> URL? {
         if let artwork = offline.artworkURL(for: item.id) { return artwork }
@@ -423,6 +533,15 @@ let tickScale = 10_000_000.0
         return await artworkFraming(for: source)
     }
 
+    public func logoURL(for item: MediaItem, maxWidth: Int = 600) -> URL? {
+        guard let active = session, let tag = item.imageTags?["Logo"] else { return nil }
+        return client.url(origin: active.serverURL, path: "/Items/\(item.id)/Images/Logo", query: [
+            URLQueryItem(name: "maxWidth", value: String(max(1, maxWidth))),
+            URLQueryItem(name: "tag", value: tag),
+            URLQueryItem(name: "ApiKey", value: active.accessToken),
+        ])
+    }
+
     public func backdropURL(for item: MediaItem, maxWidth: Int = 1920) -> URL? {
         guard let active = session else { return nil }
         let imageID: String
@@ -441,7 +560,10 @@ let tickScale = 10_000_000.0
         ])
     }
 
-    public func preparePlayback(for item: MediaItem, forceTranscode: Bool = false) async throws -> PlaybackRequest {
+    public func preparePlayback(for item: MediaItem, forceTranscode: Bool = false,
+                                quality: PlaybackQuality = .automatic,
+                                audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil,
+                                mediaSourceID: String? = nil, startPositionSeconds: Double? = nil) async throws -> PlaybackRequest {
         guard let active = session else { throw LuminaError.notSignedIn }
         if item.isAudio, let local = offline.localURL(for: item.id) {
             return PlaybackRequest(id: UUID().uuidString, item: item, url: local, startPositionSeconds: 0,
@@ -450,8 +572,81 @@ let tickScale = 10_000_000.0
         let current = try await client.item(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, id: item.id, userID: active.userID)
         guard isCurrent(active) else { throw LuminaError.notSignedIn }
         if current.isAudio { return try client.audioRequest(origin: active.serverURL, token: active.accessToken, item: current) }
-        let result = try await client.playbackInfo(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, item: current, forceTranscode: forceTranscode)
-        return try client.playbackRequest(origin: active.serverURL, token: active.accessToken, item: current, result: result)
+        let result = try await client.playbackInfo(origin: active.serverURL, token: active.accessToken,
+                                                    deviceID: active.deviceID, item: current,
+                                                    forceTranscode: forceTranscode,
+                                                    quality: quality,
+                                                    audioStreamIndex: audioStreamIndex,
+                                                    subtitleStreamIndex: subtitleStreamIndex,
+                                                    mediaSourceID: mediaSourceID,
+                                                    startPositionSeconds: startPositionSeconds)
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        return try client.playbackRequest(origin: active.serverURL, token: active.accessToken, item: current,
+                                          result: result, subtitleStreamIndex: subtitleStreamIndex,
+                                          mediaSourceID: mediaSourceID,
+                                          startPositionSeconds: startPositionSeconds)
+    }
+
+    /// Downloads an origin-validated WebVTT sidecar to a private temporary file. The caller owns
+    /// the returned file and must remove it after its player item is discarded.
+    public func downloadSubtitle(for stream: PlaybackStream) async throws -> URL {
+        guard let active = session, stream.hasExternalSubtitle,
+              let deliveryURL = stream.subtitleDeliveryURL else { throw LuminaError.malformedResponse }
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        let data = try await client.subtitle(origin: active.serverURL, token: active.accessToken,
+                                             deviceID: active.deviceID, url: deliveryURL)
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumina-subtitle-\(UUID().uuidString)")
+            .appendingPathExtension("vtt")
+        do {
+            try data.write(to: file, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            guard isCurrent(active) else {
+                try? FileManager.default.removeItem(at: file)
+                throw LuminaError.notSignedIn
+            }
+            return file
+        } catch {
+            try? FileManager.default.removeItem(at: file)
+            throw error
+        }
+    }
+
+    /// Resolve Lumina's one-variant server HLS master before a local subtitle wrapper references
+    /// it. AVPlayer fetches the returned URL itself, so its existing playback query is retained.
+    public func hlsMediaVariant(for request: PlaybackRequest) async throws -> URL {
+        guard let active = session, request.isTranscoding,
+              request.url.pathExtension.lowercased() == "m3u8" else { throw LuminaError.malformedResponse }
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        let variant = try await client.hlsMediaVariant(origin: active.serverURL, token: active.accessToken,
+                                                       deviceID: active.deviceID, masterURL: request.url)
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        return variant
+    }
+
+    /// Reads recorded skip ranges for this concrete playback source. The caller keeps this
+    /// optional metadata separate from playback preparation and may offer a retry on failure.
+    public func playbackMarkers(for request: PlaybackRequest) async throws -> [PlaybackMarker] {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        guard !request.item.isAudio else { return [] }
+        let markers = try await client.playbackMarkers(
+            origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID,
+            mediaSourceID: request.mediaSourceID, durationSeconds: request.item.durationSeconds,
+        )
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        return markers
+    }
+
+    /// Returns only the immediate following episode from Lumina's established series order.
+    /// The optional lookup is intentionally independent of playback preparation and reporting.
+    public func nextEpisode(after item: MediaItem) async throws -> MediaItem? {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        let episode = try await client.nextEpisode(
+            origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, after: item,
+        )
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        return episode
     }
 
     public func reportPlayback(event: PlaybackEvent, request: PlaybackRequest, positionSeconds: Double, isPaused: Bool) async throws {
@@ -482,7 +677,7 @@ public enum LuminaError: Error, Equatable {
     case invalidOrigin, unsafeURL, notSignedIn, malformedResponse, http(Int), keychain(OSStatus)
 }
 
-private struct ServerOrigin {
+struct ServerOrigin {
     let url: URL
     init(_ value: String) throws {
         guard var parts = URLComponents(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -507,7 +702,7 @@ protocol CredentialStore: AnyObject {
 
 private final class KeychainCredentials: CredentialStore {
     private let service: String = {
-        #if DEBUG
+        #if DEBUG || LUMINA_UI_TESTING
         if let namespace = ProcessInfo.processInfo.environment["LUMINA_UI_TEST_NAMESPACE"],
            UUID(uuidString: namespace) != nil { return "dev.lumina.apple.ui-test.\(namespace)" }
         #endif

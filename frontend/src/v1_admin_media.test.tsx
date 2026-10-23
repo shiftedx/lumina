@@ -24,8 +24,8 @@ beforeAll(() => {
 });
 afterEach(() => vi.resetAllMocks());
 
-const settings: MediaServerSettings = { jellyfin_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null, plex_import_url: null };
-const draft = { tmdb_api_key: '', clear_tmdb_key: false, metadata_language: 'en-US', introdb_enabled: false, jellyfin_enabled: false, hwaccel: 'auto' as const, max_playback_sessions: '3', transcode_cache_gb: '10', jellyfin_import_url: '', plex_import_url: '' };
+const settings: MediaServerSettings = { jellyfin_enabled: false, native_streaming_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto', max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null, plex_import_url: null };
+const draft = { tmdb_api_key: '', clear_tmdb_key: false, metadata_language: 'en-US', introdb_enabled: false, jellyfin_enabled: false, native_streaming_enabled: false, hwaccel: 'auto' as const, max_playback_sessions: '3', transcode_cache_gb: '10', jellyfin_import_url: '', plex_import_url: '' };
 const user = { id: 'admin', username: 'owner', role: 'admin', is_active: true } as never;
 const connectedApp: ConnectedApp = { id: 'agent-1', user_id: 'admin', owner_display_name: 'Owner', kind: 'agent', scope: 'read', device_name: 'Home Assistant', client: null, client_version: null, created_at: '2026-10-22T00:00:00Z', last_seen_at: null };
 
@@ -38,7 +38,7 @@ function setup(...ids: Array<'media' | 'transcoding'>) {
 describe('Media server and Playback & transcoding sections', () => {
   it('sends only changed fields and never echoes the TMDB key', () => {
     expect(mediaServerChanges(settings, draft)).toEqual({});
-    expect(mediaServerChanges(settings, { ...draft, tmdb_api_key: 'abc123', max_playback_sessions: '2', jellyfin_enabled: true })).toEqual({ tmdb_api_key: 'abc123', max_playback_sessions: 2, jellyfin_enabled: true });
+    expect(mediaServerChanges(settings, { ...draft, tmdb_api_key: 'abc123', max_playback_sessions: '2', jellyfin_enabled: true, native_streaming_enabled: true })).toEqual({ tmdb_api_key: 'abc123', max_playback_sessions: 2, jellyfin_enabled: true, native_streaming_enabled: true });
     expect(mediaServerChanges(settings, { ...draft, tmdb_api_key: 'ignored', clear_tmdb_key: true })).toEqual({ tmdb_api_key: '' });
     expect(mediaServerChanges(settings, { ...draft, metadata_language: ' de-DE ', hwaccel: 'qsv', transcode_cache_gb: '25' })).toEqual({ metadata_language: 'de-DE', hwaccel: 'qsv', transcode_cache_gb: 25 });
   });
@@ -94,6 +94,18 @@ describe('Media server and Playback & transcoding sections', () => {
     expect(writeText).toHaveBeenCalledWith('https://vault.example');
     // Apps connect with host:port alone: no /jellyfin ending to type and no proxy workaround.
     expect(screen.queryByText(/\/jellyfin|jf\./)).toBeNull();
+  });
+
+  it('enables native external streaming without changing apps like Infuse', async () => {
+    setup('media');
+    api.updateMediaServerSettings.mockResolvedValue({ ...settings, native_streaming_enabled: true });
+    const toggle = await screen.findByRole('switch', { name: 'External streaming in the native app' });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    await userEvent.click(toggle);
+    await userEvent.click(screen.getByRole('button', { name: 'Save media server settings' }));
+    await waitFor(() => expect(api.updateMediaServerSettings).toHaveBeenCalledWith({ native_streaming_enabled: true }));
+    expect(screen.getByText(/Browser Streaming and local playback stay unchanged/)).toBeTruthy();
+    expect(screen.getByText("Controls external providers and personal YouTube sessions in Lumina's native app.")).toBeTruthy();
   });
 
   it('falls back to this page’s origin when no public URL is configured', async () => {

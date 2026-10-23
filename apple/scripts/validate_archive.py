@@ -5,6 +5,8 @@ import subprocess
 import sys
 import tempfile
 
+from archive_stubs import placeholders
+
 
 def require(condition, message):
     if not condition:
@@ -41,6 +43,7 @@ if not is_ipa:
 for path in root.rglob("*"):
     require(path.name != "Fixture.json", "Disposable credentials must not ship")
     require(path.suffix != ".xctest", "Test bundles must not ship")
+require(not placeholders(app), "Unreferenced empty Xcode framework placeholders must not ship")
 signed = (app / "_CodeSignature").is_dir()
 require(signed or not is_ipa, "Exported IPA must be signed")
 if signed:

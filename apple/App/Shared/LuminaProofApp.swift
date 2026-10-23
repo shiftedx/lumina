@@ -54,7 +54,7 @@ struct PlaybackLicensesView: View {
 @MainActor
 enum LuminaPreferences {
     static let defaults: UserDefaults = {
-        #if DEBUG
+        #if DEBUG || LUMINA_UI_TESTING
         if let namespace = ProcessInfo.processInfo.environment["LUMINA_UI_TEST_NAMESPACE"],
            UUID(uuidString: namespace) != nil {
             return UserDefaults(suiteName: "dev.lumina.ui-test.\(namespace)")!

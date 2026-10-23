@@ -476,6 +476,7 @@ Schema steps 6 to 18 only add tables, columns and indexes that older releases ig
 
 | Rolling back to | Stamp |
 | --- | --- |
+| Before native Connected-app external streaming (schema 33) | `PRAGMA user_version = 33` (keep the additive `app_settings.native_streaming_enabled` column; older releases ignore it) |
 | Before Plex account and history transfer (schema 32) | `PRAGMA user_version = 32` (keep the additive `app_settings.plex_import_url` column; imported members and history remain) |
 | Before personal YouTube sessions (schema 31) | `DELETE FROM youtube_sessions; PRAGMA user_version = 31` (remove saved credentials; keep the additive table) |
 | Before discovery I/O fixes (schema 30) | `UPDATE import_runs SET trigger = 'watch' WHERE trigger = 'manager'; PRAGMA user_version = 30` (keep the additive `ix_media_artifacts_root_size` index; older releases ignore manager reconciliation cursors in `app_maintenance_state`) |
@@ -749,7 +750,7 @@ docker compose exec lumina python -m app.services.two_factor reset <username>
 
 ## Jellyfin apps (Infuse, Swiftfin)
 
-The in-repository [native Apple proof](../apple/README.md) uses this same opt-in API for iPhone, iPad, and Apple TV. It needs no server schema or deployment change; enable the API and use the same address and member credentials described below. It is a development build, with a [hardware test checklist](../apple/docs/device-validation.md), rather than an App Store release.
+The in-repository [native Apple proof](../apple/README.md) uses this same opt-in API for iPhone, iPad, and Apple TV. Enable the API and use the same address and member credentials described below. Server upgrades apply the native-feature settings migration automatically. External-provider controls in the Apple app additionally require an admin to enable **External streaming in the native app** under **Settings → Server → Connections → Media apps** and save. This persisted server setting defaults off, takes effect without a restart, and does not change browser Streaming or local-library playback. Member provider restrictions still apply. It is a development build, with a [hardware test checklist](../apple/docs/device-validation.md), rather than an App Store release.
 
 Lumina answers the Jellyfin API well enough for Infuse (tvOS, iOS, macOS) and Swiftfin to browse the vault, play files and sync watch state with Lumina's web UI. It is off by default and needs the Remote HTTPS setup or LAN HTTP mode above. With Remote HTTPS, apps connect through Caddy on the LAN and remotely alike, never to port 8765. In LAN HTTP mode the address is `http://<lan-ip>:8765` and works on the LAN only.
 

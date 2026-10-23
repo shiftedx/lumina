@@ -265,6 +265,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     ),
     32: (),  # Encrypted member-owned YouTube sessions; create_all adds the table.
     33: ("ALTER TABLE app_settings ADD COLUMN plex_import_url TEXT",),
+    34: ("ALTER TABLE app_settings ADD COLUMN native_streaming_enabled BOOLEAN NOT NULL DEFAULT 0",),
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

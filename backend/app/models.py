@@ -705,6 +705,8 @@ class AppSettings(Base):
     recording_max_gb: Mapped[int] = mapped_column(Integer, default=0)
     # Media server (media-vault pass). Secrets below are write-only and never serialized.
     jellyfin_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
+    # Explicit household opt-in for external providers in the connected native app.
+    native_streaming_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
     # secrets.token_hex(32), created lazily; derives ServerId and image-tag HMACs.
     jellyfin_server_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # NULL = env LUMINA_TMDB_API_KEY; nulled in backups next to ai_api_key.

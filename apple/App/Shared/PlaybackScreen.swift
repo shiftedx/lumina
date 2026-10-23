@@ -653,13 +653,49 @@ struct PlaybackScreen: View {
         let audioGroup = try? await asset.loadMediaSelectionGroup(for: .audible)
         let subtitleGroup = try? await asset.loadMediaSelectionGroup(for: .legible)
         guard !Task.isCancelled else { return }
-        if !playback.isSwitchingVideoStream, playback.subtitlesExplicitlyOff,
-           let subtitleGroup, subtitleGroup.allowsEmptySelection {
-            item.select(nil, in: subtitleGroup)
+        if !playback.isSwitchingVideoStream, let subtitleGroup {
+            if playback.subtitlesExplicitlyOff, subtitleGroup.allowsEmptySelection {
+                item.select(nil, in: subtitleGroup)
+            } else if item.currentMediaSelection.mediaSelectionCriteriaCanBeAppliedAutomatically(to: subtitleGroup) {
+                applyDeviceSubtitlePreference(to: item, group: subtitleGroup)
+            }
         }
         let next = VideoMediaTracks(audioGroup: audioGroup, subtitleGroup: subtitleGroup, currentItem: item)
         guard item === playback.player.currentItem else { return }
         videoTracks = next
+    }
+
+    /// Defaults apply once to a new item; an explicit per-film selection wins thereafter.
+    private func applyDeviceSubtitlePreference(to item: AVPlayerItem, group: AVMediaSelectionGroup) {
+        let preferences = store.playbackPreferences
+        guard preferences.subtitleMode != .automatic else { return }
+        let options = AVMediaSelectionGroup.playableMediaSelectionOptions(from: group.options)
+        let candidates: [AVMediaSelectionOption]
+        switch preferences.subtitleMode {
+        case .automatic: return
+        case .off:
+            if group.allowsEmptySelection { item.select(nil, in: group) }
+            return
+        case .forcedOnly:
+            candidates = options.filter { $0.hasMediaCharacteristic(.containsOnlyForcedSubtitles) }
+        case .always:
+            candidates = options.filter { !$0.hasMediaCharacteristic(.containsOnlyForcedSubtitles) }
+        }
+        let selected: AVMediaSelectionOption?
+        if preferences.preferredSubtitleLanguages.isEmpty {
+            selected = candidates.first(where: { $0 === group.defaultOption }) ?? candidates.first
+        } else {
+            let matching = preferences.preferredSubtitleLanguages.lazy.compactMap { language in
+                candidates.first { option in
+                    NativePlaybackPreferences.languageMatches(option.extendedLanguageTag ?? option.locale?.identifier,
+                                                              preferred: language)
+                }
+            }.first
+            selected = matching ?? (preferences.subtitleMode == .always
+                ? candidates.first(where: { $0 === group.defaultOption }) ?? candidates.first : nil)
+        }
+        if let selected { item.select(selected, in: group) }
+        else if group.allowsEmptySelection { item.select(nil, in: group) }
     }
 
     private func selectAudio(_ index: Int) {
@@ -1228,9 +1264,18 @@ final class PlaybackModel {
         self.queueRows = Self.makeQueueRows(items: resolvedQueue, occurrenceIDs: resolvedOccurrences)
         self.queueIndex = min(max(0, queueIndex ?? resolvedQueue.firstIndex(where: { $0.id == request.item.id }) ?? 0), max(0, resolvedQueue.count - 1))
         self.initiallyPaused = initiallyPaused
+        videoQuality = request.resolvedQuality
         subtitlesExplicitlyOff = request.subtitleStreamIndex == -1
+        let initialSubtitle = request.mediaStreams.first {
+            $0.index == request.subtitleStreamIndex && $0.hasExternalSubtitle
+        }
+        attachedVideoSubtitle = initialSubtitle
         elapsedSeconds = request.startPositionSeconds
-        player = request.item.isAudio || request.usesClientDemux ? AVPlayer() : AVPlayer(url: request.url)
+        player = request.item.isAudio || request.usesClientDemux || initialSubtitle != nil
+            ? AVPlayer() : AVPlayer(url: request.url)
+        if !request.item.isAudio {
+            configureDeviceAudioLanguage(player, preferences: store.playbackPreferences)
+        }
         player.preventsDisplaySleepDuringVideoPlayback = true
         if !request.item.isAudio { player.audiovisualBackgroundPlaybackPolicy = .pauses }
         #if LUMINA_UI_TESTING
@@ -1264,7 +1309,7 @@ final class PlaybackModel {
         defer {
             if !didSeek { started = false; videoSource.stop() }
         }
-        if request.usesClientDemux {
+        if request.usesClientDemux || attachedVideoSubtitle != nil {
             do {
                 let item = try await prepareVideoItem(request, source: videoSource, externalSubtitle: attachedVideoSubtitle)
                 guard !closed, !Task.isCancelled else { videoSource.stop(); return }
@@ -1464,6 +1509,7 @@ final class PlaybackModel {
         let previousSource = videoSource
         let candidateSource = NativeVideoSource()
         let candidatePlayer = AVPlayer()
+        configureDeviceAudioLanguage(candidatePlayer, preferences: store.playbackPreferences)
         pendingVideoSource = candidateSource
         pendingVideoPlayer = candidatePlayer
         defer { pendingVideoSource = nil; pendingVideoPlayer = nil }
@@ -1504,9 +1550,11 @@ final class PlaybackModel {
             if !didReportCompletion { enqueue(.stop, paused: true, for: previousRequest, position: previousPosition) }
             request = next
             videoSource = candidateSource
-            attachedVideoSubtitle = nil
+            attachedVideoSubtitle = next.mediaStreams.first {
+                $0.index == next.subtitleStreamIndex && $0.hasExternalSubtitle
+            }
             subtitleDelaySeconds = 0
-            subtitlesExplicitlyOff = false
+            subtitlesExplicitlyOff = next.subtitleStreamIndex == -1
             sourceAudioIsAutomatic = true
             playbackMarkers = []
             nextEpisode = nil
@@ -1602,6 +1650,9 @@ final class PlaybackModel {
 
     private func prepareVideoItem(_ next: PlaybackRequest, source: NativeVideoSource,
                                   externalSubtitle: PlaybackStream?, subtitleDelay: Double? = nil) async throws -> AVPlayerItem {
+        let externalSubtitle = externalSubtitle ?? next.mediaStreams.first {
+            $0.index == next.subtitleStreamIndex && $0.hasExternalSubtitle
+        }
         var downloaded: URL?
         defer { if let downloaded { try? FileManager.default.removeItem(at: downloaded) } }
         var subtitles: [NativeVideoSource.ExternalSubtitle] = []
@@ -1612,12 +1663,14 @@ final class PlaybackModel {
                                name: externalSubtitle.label, isForced: externalSubtitle.isForced,
                                durationSeconds: next.item.durationSeconds)]
         }
+        // Server HLS keeps its policy-limited variant and gets a local subtitle master.
         let videoURL = externalSubtitle != nil && !next.usesClientDemux
             ? try await store.hlsMediaVariant(for: next) : next.url
         let item = try await source.prepare(
             url: videoURL, usesClientDemux: next.usesClientDemux,
             preferredAudioStreamIndex: next.audioStreamIndex,
-            preferredSubtitleStreamIndex: next.subtitleStreamIndex.flatMap { $0 >= 0 ? $0 : nil },
+            preferredSubtitleStreamIndex: externalSubtitle == nil
+                ? next.subtitleStreamIndex.flatMap { $0 >= 0 ? $0 : nil } : nil,
             externalSubtitles: subtitles, bandwidth: next.bitRate,
             subtitleDelaySeconds: subtitleDelay ?? subtitleDelaySeconds
         )
@@ -1636,6 +1689,7 @@ final class PlaybackModel {
         let candidateSource = NativeVideoSource()
         var candidateRequest: PlaybackRequest?
         let candidatePlayer = AVPlayer()
+        configureDeviceAudioLanguage(candidatePlayer, preferences: store.playbackPreferences)
         let previousRequest = request
         let previousSource = videoSource
         var replacementInstalled = false
@@ -2380,7 +2434,8 @@ private struct VideoPlaybackSettings: View {
                         let isSelected = candidate == tab
                         Button(candidate.title) { tab = candidate }
                             .focused($focusedTab, equals: candidate)
-                            .buttonStyle(LuminaQuietActionStyle(selected: isSelected))
+                            .buttonStyle(LuminaUnderlineTabStyle(selected: isSelected))
+                            .accessibilityAddTraits(isSelected ? .isSelected : [])
                             .accessibilityValue(isSelected ? "Selected" : "Not selected")
                             .accessibilityIdentifier("videoSettingsTab-\(candidate.rawValue)")
                     }
@@ -2434,7 +2489,11 @@ private struct VideoPlaybackSettings: View {
                 .accessibilityValue(playback.videoQuality.label)
                 .disabled(playback.isSwitchingVideoStream)
             }
-            Text("Automatic uses the best compatible quality. Limits: 1080p at 8 Mbps, 720p at 4 Mbps, or 480p at 1.5 Mbps. Sources are never upscaled.")
+            if let size = playback.player.currentItem?.presentationSize, size.width > 0, size.height > 0 {
+                LabeledContent("Playing resolution", value: "\(Int(size.width)) × \(Int(size.height))")
+                    .accessibilityIdentifier("videoPlayingResolution")
+            }
+            Text("Maximum quality requests the original source when compatible. Server bandwidth limits still apply. Lower choices cap delivery at 1080p / 8 Mbps, 720p / 4 Mbps, or 480p / 1.5 Mbps; sources are never upscaled.")
                 .font(.caption).foregroundStyle(.secondary)
             LabeledContent("Playback speed") {
                 Picker("Playback speed", selection: Binding(
@@ -2941,3 +3000,11 @@ private struct VideoRoutePicker: UIViewRepresentable {
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) { }
 }
 #endif
+
+@MainActor
+private func configureDeviceAudioLanguage(_ player: AVPlayer, preferences: NativePlaybackPreferences) {
+    guard !preferences.preferredAudioLanguages.isEmpty else { return }
+    let criteria = AVPlayerMediaSelectionCriteria(preferredLanguages: preferences.preferredAudioLanguages,
+                                                 preferredMediaCharacteristics: nil)
+    player.setMediaSelectionCriteria(criteria, forMediaCharacteristic: .audible)
+}

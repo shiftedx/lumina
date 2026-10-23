@@ -4,8 +4,8 @@ import Observation
 /// Stable Home shelf identifiers shared with the website's member preference contract.
 public enum HomeShelfID: String, Codable, CaseIterable, Sendable {
     case continueWatching = "continue"
-    case live
     case nextUp = "next_up"
+    case live
     case watchlist
     case newInLibrary = "new_in_library"
     case becauseYouWatched = "because_you_watched"
@@ -73,7 +73,9 @@ public struct HomeShelfPreference: Codable, Identifiable, Equatable, Sendable {
     }
 
     public func configure(session: LuminaSession?) {
-        guard self.session?.accessToken != session?.accessToken || self.session?.serverURL != session?.serverURL else { return }
+        guard self.session?.accessToken != session?.accessToken ||
+              self.session?.serverURL != session?.serverURL ||
+              self.session?.userID != session?.userID else { return }
         sessionGeneration += 1
         operationGeneration += 1
         self.session = session

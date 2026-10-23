@@ -16,15 +16,21 @@ private struct BillboardArtwork: View {
 
     private var backdropURL: URL? { store.backdropURL(for: item) }
     private var url: URL? { backdropURL ?? store.imageURL(for: item, maxWidth: 1920) }
+    private var displayedSource: UIImage? {
+        if loadedURL == url, let source { return source }
+        guard let url, let image = ArtworkImageCache.shared.cachedImage(for: url) else { return nil }
+        return UIImage(cgImage: image)
+    }
+
     private var isWide: Bool {
-        backdropURL != nil || (source.map { $0.size.width / max(1, $0.size.height) >= 1.4 } ?? false)
+        backdropURL != nil || (displayedSource.map { $0.size.width / max(1, $0.size.height) >= 1.4 } ?? false)
     }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 LuminaTheme.theater
-                if let source, loadedURL == url {
+                if let source = displayedSource {
                     let crop = HeroFraming.crop(isWide ? framing : nil, source: source.size, viewport: geometry.size, home: home)
                     Image(uiImage: source)
                         .resizable()
@@ -53,25 +59,13 @@ private struct BillboardArtwork: View {
             loadedURL = nil
             guard let url else { return }
             async let proposedFraming = store.backdropFraming(for: item)
-            do {
-                let data: Data
-                if url.isFileURL { data = try Data(contentsOf: url) }
-                else {
-                    let response: URLResponse
-                    (data, response) = try await URLSession.shared.data(from: url)
-                    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return }
-                }
-                guard !Task.isCancelled, data.count <= BillboardArtworkPreparation.maximumEncodedBytes else { return }
-                let image = await Task.detached(priority: .userInitiated) {
-                    BillboardArtworkPreparation.image(from: data)
-                }.value
-                guard !Task.isCancelled, let image else { return }
-                let chosenFraming = await proposedFraming
-                guard !Task.isCancelled else { return }
-                framing = chosenFraming
-                source = UIImage(cgImage: image)
-                loadedURL = url
-            } catch { /* Keep the finished text and theater field when artwork is unavailable. */ }
+            let image = await ArtworkImageCache.shared.image(for: url)
+            guard !Task.isCancelled, let image else { return }
+            let chosenFraming = await proposedFraming
+            guard !Task.isCancelled else { return }
+            framing = chosenFraming
+            source = UIImage(cgImage: image)
+            loadedURL = url
         }
         .accessibilityHidden(true)
         .allowsHitTesting(false)
@@ -96,13 +90,16 @@ struct MediaBillboard<Actions: View>: View {
     var compactMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat?
     var onOpen: ((MediaItem) -> Void)? = nil
+    /// tvOS Home uses the focused title as its single browse surface. Detail
+    /// billboards leave this nil so their remote directions remain unchanged.
+    var onBrowse: ((Int) -> Void)? = nil
     @ViewBuilder let actions: Actions
     @State private var compactLayout = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorSchemeContrast) private var contrast
     #if !os(tvOS)
     @ScaledMetric(relativeTo: .largeTitle) private var minimumWideWidth: CGFloat = 600
-    @ScaledMetric(relativeTo: .caption) private var featureHeaderClearance: CGFloat = 116
+    @ScaledMetric(relativeTo: .caption) private var featureHeaderClearance: CGFloat = 16
     #endif
 
     var body: some View {
@@ -221,8 +218,20 @@ struct MediaBillboard<Actions: View>: View {
                 .buttonStyle(.plain)
                 #endif
                 .accessibilityLabel(item.name)
-                .accessibilityHint("Open details")
+                .accessibilityHint(featured && onBrowse != nil
+                    ? "Open details. Swipe left or right to browse featured titles."
+                    : "Open details")
                 .accessibilityIdentifier("featuredTitleButton")
+                #if os(tvOS)
+                .onMoveCommand { direction in
+                    guard featured, let onBrowse else { return }
+                    switch direction {
+                    case .left: onBrowse(-1)
+                    case .right: onBrowse(1)
+                    default: break
+                    }
+                }
+                #endif
         } else {
             titleArtwork
         }
@@ -370,12 +379,16 @@ struct FeaturedShelf<Actions: View>: View {
     var compactMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat?
     var onOpen: ((MediaItem) -> Void)? = nil
+    /// An optional owner for the chosen hero. tvOS keeps this in its tab root
+    /// so Back returns to the title the viewer last browsed; iOS keeps the
+    /// existing local selection by default.
+    var selection: Binding<String?>? = nil
     @ViewBuilder let actions: (MediaItem) -> Actions
     @State private var selectedID: String?
     @State private var movingForward = true
     @State private var hovered = false
     @State private var dragging = false
-    @State private var paused = false
+    @State private var advanceNotBefore = Date.distantPast
     @State private var compactLayout = true
     @FocusState private var focusedID: String?
     #if os(tvOS)
@@ -388,11 +401,12 @@ struct FeaturedShelf<Actions: View>: View {
     @ScaledMetric(relativeTo: .largeTitle) private var minimumWideWidth: CGFloat = 600
     #endif
 
-    private var selected: MediaItem? { items.first { $0.id == selectedID } ?? items.first }
+    private var selectedIdentifier: String? { selection?.wrappedValue ?? selectedID }
+    private var selected: MediaItem? { items.first { $0.id == selectedIdentifier } ?? items.first }
     private var index: Int { items.firstIndex { $0.id == selected?.id } ?? 0 }
     private var canAdvance: Bool {
         items.count > 1 && !reduceMotion && !voiceOver && scenePhase == .active
-            && !isInteracting && !containsFocus && !hovered && !dragging && !paused
+            && !isInteracting && !containsFocus && !hovered && !dragging
     }
     private var containsFocus: Bool {
         #if os(tvOS)
@@ -401,7 +415,7 @@ struct FeaturedShelf<Actions: View>: View {
         focusedID != nil
         #endif
     }
-    private var timerKey: String { "\(selected?.id ?? "")-\(canAdvance)" }
+    private var timerKey: String { "\(selected?.id ?? "")-\(canAdvance)-\(advanceNotBefore.timeIntervalSinceReferenceDate)" }
     private var compact: Bool {
         #if os(tvOS)
         false
@@ -424,15 +438,18 @@ struct FeaturedShelf<Actions: View>: View {
                     featured: true,
                     compactMinimumHeight: compactMinimumHeight,
                     wideMinimumHeight: wideMinimumHeight,
-                    onOpen: onOpen
+                    onOpen: onOpen,
+                    onBrowse: { direction in step(direction) }
                 ) {
                     actions(selected)
                 }
+                #if !os(tvOS)
                 .id(selected.id)
                 .transition(reduceMotion ? .opacity : .asymmetric(
                     insertion: .move(edge: movingForward ? .trailing : .leading).combined(with: .opacity),
                     removal: .move(edge: movingForward ? .leading : .trailing).combined(with: .opacity)
                 ))
+                #endif
             }
             // On iPhone Duo the artwork is allowed to become the canvas under
             // the system rail. Only tvOS needs this local transition clip.
@@ -463,24 +480,30 @@ struct FeaturedShelf<Actions: View>: View {
                     }
                 })
             .onHover { hovered = $0 }
+            .simultaneousGesture(TapGesture().onEnded { deferAutomaticAdvance() })
             .gesture(TapGesture().onEnded { onOpen?(selected) }, including: .gesture)
             #endif
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Featured titles, \(index + 1) of \(items.count)")
-            .task(id: timerKey) {
-                guard canAdvance, items.count > 1 else { return }
+            .task(id: selected.id) {
+                guard items.count > 1 else { return }
                 let next = items[(index + 1) % items.count]
                 if let url = store.backdropURL(for: next) ?? store.imageURL(for: next, maxWidth: 1920) {
-                    // Warm the next rendition in the system cache before its slide arrives.
-                    _ = try? await URLSession.shared.data(from: url)
+                    // Keep the decoded rendition ready for either remote browsing
+                    // or the automatic carousel; raw URLSession bytes would not
+                    // help a newly created Home artwork view.
+                    _ = await ArtworkImageCache.shared.image(for: url)
                 }
             }
             .task(id: timerKey) {
                 guard canAdvance else { return }
-                do { try await Task.sleep(for: .seconds(8)) } catch { return }
+                let delay = max(8, advanceNotBefore.timeIntervalSinceNow)
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
                 guard canAdvance, !Task.isCancelled else { return }
-                step(1)
+                step(1, automatic: true)
             }
+            .onAppear { seedSelectionIfNeeded() }
+            .onChange(of: items.map(\.id)) { _, _ in seedSelectionIfNeeded() }
             .onChange(of: focusedID) {
                 #if os(tvOS)
                 if let focusedID, items.contains(where: { $0.id == focusedID }) { select(focusedID) }
@@ -494,31 +517,20 @@ struct FeaturedShelf<Actions: View>: View {
             if !compact { stepButton("Previous featured title", symbol: "chevron.backward", direction: -1) }
             #if os(tvOS)
             // Home supplies at most eight titles. Keeping their controls in one
-            // row lets the remote leave the last title for Next and Pause.
+            // row lets the remote leave the last title for Next.
             featureChoices
             #else
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) { featureChoices }
-                .onChange(of: selectedID) {
-                    if let selectedID { proxy.scrollTo(selectedID, anchor: .center) }
+                .onChange(of: selectedIdentifier) {
+                    if let selectedIdentifier { proxy.scrollTo(selectedIdentifier, anchor: .center) }
                 }
             }
             .frame(width: CGFloat(min(items.count, compact ? 5 : 6)) * (controlSize + 2))
             .fixedSize(horizontal: false, vertical: true)
             #endif
             if !compact { stepButton("Next featured title", symbol: "chevron.forward", direction: 1) }
-            Button { paused.toggle() } label: {
-                Image(systemName: paused ? "play.fill" : "pause.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: controlSize, height: controlSize)
-                    .background(focusFill("pause"), in: .rect(cornerRadius: 8))
-                    .overlay(focusRing("pause"))
-                    .contentShape(.rect)
-            }
-            .buttonStyle(FeaturedControlStyle())
-            .focused($focusedID, equals: "pause")
-            .accessibilityLabel(paused ? "Resume featured rotation" : "Pause featured rotation")
-            .accessibilityIdentifier("featuredPauseButton")
+
         }
         .foregroundStyle(.white)
         .accessibilityElement(children: .contain)
@@ -585,14 +597,37 @@ struct FeaturedShelf<Actions: View>: View {
         .accessibilityLabel(label)
         .accessibilityIdentifier(direction < 0 ? "featuredPreviousButton" : "featuredNextButton")
     }
-    private func step(_ direction: Int) {
-        guard !items.isEmpty else { return }
-        select(items[(index + direction + items.count) % items.count].id, forward: direction > 0)
+    private func deferAutomaticAdvance() {
+        // A chosen title stays put while the member considers its actions.
+        // One cancellable sleep resumes the slideshow without polling.
+        advanceNotBefore = Date().addingTimeInterval(30)
     }
-    private func select(_ id: String, forward: Bool? = nil) {
+    private func step(_ direction: Int, automatic: Bool = false) {
+        guard !items.isEmpty else { return }
+        select(items[(index + direction + items.count) % items.count].id,
+               forward: direction > 0, userInitiated: !automatic)
+    }
+    private func select(_ id: String, forward: Bool? = nil, userInitiated: Bool = true) {
+        if userInitiated { deferAutomaticAdvance() }
         guard id != selected?.id else { return }
         movingForward = forward ?? ((items.firstIndex { $0.id == id } ?? 0) > index)
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.72)) { selectedID = id }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.72)) {
+            if let selection {
+                selection.wrappedValue = id
+            } else {
+                selectedID = id
+            }
+        }
+    }
+
+    private func seedSelectionIfNeeded() {
+        guard let first = items.first,
+              !items.contains(where: { $0.id == selectedIdentifier }) else { return }
+        if let selection {
+            selection.wrappedValue = first.id
+        } else if selectedID != nil {
+            selectedID = first.id
+        }
     }
 }
 
@@ -764,6 +799,32 @@ private struct BillboardTitleButtonStyle: ButtonStyle {
 }
 #endif
 
+/// Category and section navigation uses one underline, without a button plate.
+struct LuminaUnderlineTabStyle: ButtonStyle {
+    var selected = false
+    @Environment(\.isFocused) private var isFocused
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            #if os(tvOS)
+            .font(.system(size: 24, weight: .medium))
+            .frame(minWidth: 64, minHeight: 64)
+            #else
+            .font(.body.weight(.medium))
+            .frame(minWidth: 44, minHeight: 44)
+            #endif
+            .foregroundStyle(LuminaTheme.ink.opacity(selected || isFocused ? 1 : 0.8))
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(isFocused ? LuminaTheme.ink : selected ? LuminaTheme.gold : Color.clear)
+                    .frame(height: isFocused ? 3 : 2)
+            }
+            .opacity(isEnabled ? configuration.isPressed ? 0.65 : 1 : 0.4)
+            .contentShape(.rect)
+    }
+}
+
 /// Secondary actions stay quiet at rest while keeping an unmistakable TV focus state.
 struct LuminaQuietActionStyle: ButtonStyle {
     @Environment(\.isFocused) private var isFocused
@@ -790,5 +851,55 @@ struct LuminaQuietActionStyle: ButtonStyle {
             }
             .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
             .contentShape(.rect(cornerRadius: 10))
+    }
+}
+
+/// Home refinements are transient; the member's saved shelf layout remains untouched.
+struct HomeBrowsingRow: View {
+    @Binding var category: HomeBrowseCategory
+    @Binding var genre: String?
+    let genres: [String]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 20) {
+                ForEach(HomeBrowseCategory.allCases, id: \.self) { option in
+                    Button { category = option } label: { Text(title(option)) }
+                        .buttonStyle(LuminaUnderlineTabStyle(selected: category == option))
+                        .accessibilityValue(category == option ? "Selected" : "")
+                        .accessibilityAddTraits(category == option ? .isSelected : [])
+                        .accessibilityIdentifier("homeBrowse-\(option.rawValue)")
+                }
+                Menu {
+                    Button("All genres") { genre = nil }
+                    ForEach(genres, id: \.self) { value in
+                        Button { genre = value } label: {
+                            if genre == value { Label(value, systemImage: "checkmark") }
+                            else { Text(value) }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(genre ?? "Genres")
+                        Image(systemName: "chevron.down").font(.caption)
+                    }
+                }
+                .buttonStyle(LuminaUnderlineTabStyle(selected: genre != nil))
+                .accessibilityIdentifier("homeGenresMenu")
+            }
+            .padding(.horizontal, 2)
+        }
+        .scrollClipDisabled()
+        .accessibilityIdentifier("homeBrowsingRow")
+    }
+
+    private func title(_ category: HomeBrowseCategory) -> String {
+        switch category {
+        case .all: "All"
+        case .movies: "Movies"
+        case .shows: "Shows"
+        case .anime: "Anime"
+        case .watchlist: "Watchlist"
+        }
     }
 }

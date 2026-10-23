@@ -29,6 +29,20 @@ struct NativeAccountSettingsView: View {
                         .accessibilityIdentifier("homeEditButton")
                 }
             }
+            if matchesDevicePreferences {
+                Section {
+                    NavigationLink {
+                        DeviceSettingsView(store: store)
+                    } label: {
+                        Label("Device settings", systemImage: "tv.and.mediabox")
+                    }
+                    .accessibilityIdentifier("deviceSettingsButton")
+                } header: {
+                    Text("This device")
+                } footer: {
+                    Text("Playback defaults, captions, downloads, and appearance apply only on this device.")
+                }
+            }
             if settings.isLoading { ProgressView("Loading your settings…") }
             if let error = settings.errorMessage {
                 Section {
@@ -49,7 +63,7 @@ struct NativeAccountSettingsView: View {
                         }
                     } header: { Text(group.rawValue) } footer: {
                         if group == .captions {
-                            Text("Language defaults apply across Lumina. Caption size and background style apply in the browser; full-screen iPhone and iPad captions follow the system caption style.")
+                            Text("Server language defaults apply across Lumina. Playback defaults and caption appearance for this device are in Device settings.")
                         }
                     }
                     .disabled(!settings.hasLoaded || settings.isSaving)
@@ -89,6 +103,12 @@ struct NativeAccountSettingsView: View {
     private var matchesHomePreferences: Bool {
         query.split(whereSeparator: \.isWhitespace).allSatisfy {
             "home layout rows shelves edit".localizedCaseInsensitiveContains(String($0))
+        }
+    }
+
+    private var matchesDevicePreferences: Bool {
+        query.split(whereSeparator: \.isWhitespace).allSatisfy {
+            "device playback captions subtitles audio language quality downloads appearance storage licenses".localizedCaseInsensitiveContains(String($0))
         }
     }
 

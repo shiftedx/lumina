@@ -27,6 +27,7 @@
 		612AF373518D002E141520EE /* LuminaProofApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */; };
 		67A647797CF52955C36B7932 /* NativeBooksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B8A23EF15E413E17B6142A1 /* NativeBooksView.swift */; };
 		68516C2E1D2949F8B961E71B /* PlaybackNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = F55F2C18A68824D28C25F076 /* PlaybackNotices.txt */; };
+		694D8BCBCE97932EC249DF79 /* DeviceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66ED2282DED2E5E4EDD1A4D /* DeviceSettingsView.swift */; };
 		6CC4F33E736F4D7375838E06 /* NativeAccountAllowancesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 985C78810EDE1B6D40B10AA8 /* NativeAccountAllowancesView.swift */; };
 		6FF87874D2D2C10672F2A68E /* PlaybackScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */; };
 		71B5458C8B9AAF9AC7FFCD2A /* TVRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF579594D69A5C4AE1BC2F04 /* TVRootView.swift */; };
@@ -39,6 +40,7 @@
 		9229344A0A1CADBFB77AB753 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */; };
 		9249D589D38569A775ACC901 /* NativeAudioOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */; };
 		96DB4422EEADE5D883592A69 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */; };
+		ADDC403792789BCF6025D3E4 /* DeviceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66ED2282DED2E5E4EDD1A4D /* DeviceSettingsView.swift */; };
 		AEC39DFD243CBAC5540CEB14 /* NativeAccountConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D0066180D4EDEC68869CB52 /* NativeAccountConnectionsView.swift */; };
 		B58C903FC35688BDA8AF2B0E /* LuminaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 132B0C8FC5C18B467CE10EEE /* LuminaCore */; };
 		B66CA5BFC0A18CF26EDB28B3 /* NativeProofTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60BC5C5F0113F2BAB1CBB46C /* NativeProofTests.swift */; };
@@ -111,6 +113,7 @@
 		CC99B1B20959608AD9B2CF88 /* MPVKitLicense.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = MPVKitLicense.txt; sourceTree = "<group>"; };
 		CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackScreen.swift; sourceTree = "<group>"; };
 		D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAudioOptions.swift; sourceTree = "<group>"; };
+		D66ED2282DED2E5E4EDD1A4D /* DeviceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSettingsView.swift; sourceTree = "<group>"; };
 		E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaProofApp.swift; sourceTree = "<group>"; };
 		EBDC1F7C8ABA920BF6757F1C /* NativeAccountSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAccountSettingsView.swift; sourceTree = "<group>"; };
 		F243FF5963C96788525D60ED /* NativeAccountActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAccountActionsView.swift; sourceTree = "<group>"; };
@@ -170,6 +173,7 @@
 		35D48A4E22DFA746CBEA2D3E /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				D66ED2282DED2E5E4EDD1A4D /* DeviceSettingsView.swift */,
 				E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */,
 				9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */,
 				68AC6F32440233FD42862758 /* MediaPresentation.swift */,
@@ -485,6 +489,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				694D8BCBCE97932EC249DF79 /* DeviceSettingsView.swift in Sources */,
 				CE8AD71742A6E9BA9EAF9FF1 /* LuminaProofApp.swift in Sources */,
 				11174E8432685EE26A18174F /* LuminaTheme.swift in Sources */,
 				772908CFEACA2FD9906A96F3 /* MediaPresentation.swift in Sources */,
@@ -505,6 +510,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ADDC403792789BCF6025D3E4 /* DeviceSettingsView.swift in Sources */,
 				612AF373518D002E141520EE /* LuminaProofApp.swift in Sources */,
 				3D9A96C5CA2959005785C51A /* LuminaTheme.swift in Sources */,
 				292EEFC353A11406224E2843 /* MediaPresentation.swift in Sources */,

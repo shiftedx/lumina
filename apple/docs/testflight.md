@@ -82,3 +82,23 @@ hashes and provenance in [WelcomeArtwork.md](../Assets/WelcomeArtwork.md).
 Use the matching updated server for the native Home, Requests and Account APIs.
 Comprehensive device performance and physical HDR/HDMI/audio qualification remain
 incomplete; see [the native performance record](native-view-performance-2026-10-23.md).
+
+### Internal dogfood package 12, 2026-10-23
+
+Version **0.1.0 (12)** is packaged for iOS and tvOS in ignored
+`apple/Distribution/0.1.0-12/`. Both Release device archives and their
+distribution-signed IPAs passed local identity, artwork, privacy, fixture-exclusion
+and signature checks. The signed Organizer copies preserve matching executable
+and debug-symbol UUIDs and are staged in Xcode Organizer with the signing team.
+
+Command-line export reported “No Accounts”; Xcode's existing account successfully
+signed both packages using its cloud-managed distribution certificate. Export was
+local, retained build 12, and used **TestFlight Internal Only**. No upload or
+production deployment was performed for build 12. Select the signed build 12
+archive in Organizer when ready to upload.
+
+The release package includes source-input and IPA hashes, release provenance and
+What to Test notes. Native settings persistence and nested TV Back passed simulator
+workflows on TV and a standard iPhone. Duo and physical 4K/HDR/HDMI/audio
+qualification remain incomplete; see [verification](verification.md). Use the
+matching updated server for the native library index and playback policy changes.

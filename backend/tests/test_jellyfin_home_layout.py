@@ -18,7 +18,7 @@ from title_support import ALICE, ALICE_TOKEN, BOB_TOKEN, FILE, MOVIE_1080, S1E1,
 BASE = "/Lumina/Home/layout"
 ROWS = "/Lumina/Home/rows"
 HOME_IDS = (
-    "continue", "live", "next_up", "watchlist", "new_in_library", "because_you_watched", "recommended",
+    "continue", "next_up", "live", "watchlist", "new_in_library", "because_you_watched", "recommended",
     "picked_for_you", "collections", "from_follows", "recently_saved", "new_anime", "recent_music", "continue_listening",
 )
 
@@ -111,6 +111,7 @@ def test_rows_follow_the_shared_layout_and_only_serve_visible_member_media(nativ
         alice = db.get(User, ALICE)
         assert alice is not None
         WatchQueueService(db).add(alice, library_item_id=MOVIE_1080)
+        WatchQueueService(db).add(alice, library_item_id=FILE[S1E1])
         settings = UserSettingsService(db).ensure_for_user(alice)
         settings.ui_prefs = {
             "home_shelves": [
@@ -133,6 +134,20 @@ def test_rows_follow_the_shared_layout_and_only_serve_visible_member_media(nativ
     assert rows[2]["items"][0]["Type"] == "MusicAlbum"
     assert rows[3]["items"][0]["Type"] == "Audio"
     assert all(item["Name"] != "Hidden" for row in rows for item in row["items"])
+
+    # Home carries the local title facts needed for in-memory native refinement.
+    # Generic Jellyfin item pages remain schema-compatible and do not grow this field.
+    watchlist_item = next(item for item in rows[0]["items"] if item["LuminaCategory"] == "movies")
+    assert isinstance(watchlist_item.get("Genres"), list)
+    queued_episode = next(item for item in rows[0]["items"] if item.get("SeriesId"))
+    assert queued_episode["LuminaCategory"] == "shows"
+    assert queued_episode["SeriesId"]
+    assert queued_episode["Genres"] == ["Drama"]  # inherited from its series; the episode itself has none
+    anime = rows[1]["items"]
+    assert anime and all(item["LuminaCategory"] == "anime" for item in anime)
+    generic = native.get("/Items", params={"IncludeItemTypes": "Movie", "Recursive": "true"}, headers=mediabrowser(ALICE_TOKEN))
+    assert generic.status_code == 200
+    assert all("LuminaCategory" not in item for item in generic.json()["Items"])
 
     # The same route is a Connected-app surface: it cannot escape to browser
     # routes, and another member gets neither Alice's layout nor her playback

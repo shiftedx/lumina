@@ -36,6 +36,60 @@ final class LuminaHomeLayoutTests: XCTestCase {
         XCTAssertEqual(feed.rows.first?.externalItems?.first?.sourceURL?.host, "www.youtube.com")
     }
 
+    func testHomeRefinementUsesLoadedCategoryGenreAndWatchlistFactsWithoutMutatingRows() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HomeLayoutProtocol.self]
+        let payload: [String: Any] = ["rows": [
+            [
+                "id": "watchlist", "shelf_id": "watchlist", "title": "Your watchlist", "shape": "still",
+                "items": [["Id": "episode-1", "Name": "Episode", "Type": "Episode", "SeriesId": "show-1", "LuminaCategory": "shows", "Genres": ["Drama"]]],
+                "external_items": [["id": "saved-source", "title": "Saved source", "subtitle": "", "url": "https://example.com/watch"]],
+            ],
+            [
+                "id": "recommended", "shelf_id": "recommended", "title": "Recommended", "shape": "poster",
+                "items": [
+                    ["Id": "movie-1", "Name": "Movie", "Type": "Movie", "LuminaCategory": "movies", "Genres": ["drama"]],
+                    ["Id": "show-1", "Name": "Show", "Type": "Series", "LuminaCategory": "shows", "Genres": ["Drama"]],
+                    ["Id": "anime-1", "Name": "Anime", "Type": "Series", "LuminaCategory": "anime", "Genres": ["Fantasy"]],
+                ],
+            ],
+        ]]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        HomeLayoutProtocol.handler = { @Sendable request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, data)
+        }
+        let feed = LuminaHomeFeed(
+            session: LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "member-token", userID: "member", username: "Member", serverName: "Lumina", deviceID: "home-refinement-device"),
+            client: LuminaClient(configuration: configuration)
+        )
+        await feed.load()
+        let heroes = try JSONDecoder().decode([MediaItem].self, from: JSONSerialization.data(withJSONObject: [
+            ["Id": "show-1", "Name": "Show", "Type": "Series"],
+            ["Id": "movie-1", "Name": "Movie", "Type": "Movie"],
+            ["Id": "anime-1", "Name": "Anime", "Type": "Series"],
+        ]))
+
+        let watchlist = feed.refined(HomeRefinement(category: .watchlist), heroItems: [heroes[1]])
+        XCTAssertEqual(watchlist.rows.map(\.id), ["watchlist", "recommended"])
+        XCTAssertEqual(watchlist.rows[1].items.map(\.id), ["show-1"])
+        XCTAssertEqual(watchlist.items.map(\.id), ["episode-1", "show-1"])
+        XCTAssertEqual(watchlist.rows[0].externalItems?.map(\.id), ["saved-source"])
+
+        let movies = feed.refined(HomeRefinement(category: .movies, genre: "Drama"), heroItems: heroes)
+        XCTAssertEqual(movies.rows.map(\.id), ["recommended"])
+        XCTAssertEqual(movies.rows[0].items.map(\.id), ["movie-1"])
+        XCTAssertEqual(movies.items.map(\.id), ["movie-1"])
+        XCTAssertNil(movies.rows[0].externalItems)
+
+        let anime = feed.refined(HomeRefinement(category: .anime), heroItems: heroes)
+        XCTAssertEqual(anime.rows.map(\.id), ["recommended"])
+        XCTAssertEqual(anime.rows[0].items.map(\.id), ["anime-1"])
+        XCTAssertEqual(anime.items.map(\.id), ["anime-1"])
+        XCTAssertEqual(feed.availableGenres, ["Drama", "Fantasy"])
+        XCTAssertEqual(feed.rows.flatMap(\.items).map(\.id), ["episode-1", "movie-1", "show-1", "anime-1"])
+    }
+
     func testAuthenticatedLoadSaveResetAndFailuresRetainTheCurrentLayout() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [HomeLayoutProtocol.self]
@@ -54,6 +108,7 @@ final class LuminaHomeLayoutTests: XCTestCase {
         }
 
         XCTAssertEqual(HomeShelfID.allCases.count, 14)
+        XCTAssertEqual(Array(HomeShelfID.allCases.prefix(3)), [.continueWatching, .nextUp, .live])
         XCTAssertEqual(HomeShelfID.becauseYouWatched.title, "Because you watched…")
         XCTAssertFalse(layout.hasLoaded)
         XCTAssertTrue(layout.shelves.allSatisfy(\.visible))
@@ -107,6 +162,39 @@ final class LuminaHomeLayoutTests: XCTestCase {
         XCTAssertTrue(resetObject["shelves"] is NSNull)
     }
 
+    func testHomeFeedRetainsLoadedRowsDuringRefreshAndClearsForAnotherMember() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HomeLayoutProtocol.self]
+        let replies = HomeFeedRefreshReplies()
+        HomeLayoutProtocol.handler = { request in
+            let response = replies.response(for: request)
+            return response
+        }
+        let session = LuminaSession(
+            serverURL: URL(string: "https://lumina.example")!, accessToken: "member-token", userID: "member-one",
+            username: "Member one", serverName: "Lumina", deviceID: "home-refresh-device"
+        )
+        let feed = LuminaHomeFeed(session: session, client: LuminaClient(configuration: configuration), includesExternalSources: true)
+
+        await feed.load()
+        let displayedRows = feed.rows
+        XCTAssertTrue(feed.hasLoaded)
+        XCTAssertEqual(displayedRows.map(\.id), ["continue"])
+
+        await feed.load()
+        XCTAssertTrue(feed.hasLoaded)
+        XCTAssertEqual(feed.rows.map(\.id), displayedRows.map(\.id))
+        XCTAssertEqual(feed.errorMessage, "Home could not be loaded.")
+
+        feed.configure(session: LuminaSession(
+            serverURL: session.serverURL, accessToken: session.accessToken, userID: "member-two",
+            username: "Member two", serverName: session.serverName, deviceID: session.deviceID
+        ))
+        XCTAssertFalse(feed.hasLoaded)
+        XCTAssertTrue(feed.rows.isEmpty)
+        XCTAssertNil(feed.errorMessage)
+    }
+
     func testOverlappingHomeLoadsCoalesceToOneRequestPerEndpoint() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [HomeLayoutProtocol.self]
@@ -149,6 +237,30 @@ final class LuminaHomeLayoutTests: XCTestCase {
         XCTAssertEqual(paths.filter { $0 == "/Lumina/Home/rows" }.count, 1)
         XCTAssertTrue(layout.hasLoaded)
         XCTAssertTrue(feed.hasLoaded)
+    }
+}
+
+private final class HomeFeedRefreshReplies: @unchecked Sendable {
+    private let lock = NSLock()
+    private var attempts = 0
+
+    func response(for request: URLRequest) -> (HTTPURLResponse, Data) {
+        let attempt = lock.withLock {
+            attempts += 1
+            return attempts
+        }
+        let status = attempt == 1 ? 200 : 503
+        let payload: [String: Any] = status == 200
+            ? ["rows": [[
+                "id": "continue", "shelf_id": "continue", "title": "Continue watching",
+                "shape": "poster", "items": []
+            ]]]
+            : ["detail": "temporarily_unavailable"]
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: status, httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        return (response, try! JSONSerialization.data(withJSONObject: payload))
     }
 }
 

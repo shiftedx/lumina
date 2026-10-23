@@ -12,7 +12,15 @@ type Saved = Array<{ ui_prefs?: { home_shelves?: Array<{ id: string; visible: bo
 async function openHome(page: Page, uiPrefs: Record<string, unknown> = {}, viewport = { width: 1440, height: 900 }) {
   await page.setViewportSize(viewport);
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  const saved = (await mockApi(page, { sidebar_collapsed: false, ...uiPrefs })) as Saved;
+  // Exercise a retained member order so a new default cannot silently move
+  // existing shelves during the editing journeys.
+  const saved = (await mockApi(page, {
+    sidebar_collapsed: false,
+    home_shelves: [
+      { id: 'continue', visible: true }, { id: 'live', visible: true }, { id: 'next_up', visible: true },
+    ],
+    ...uiPrefs,
+  })) as Saved;
   const requests = await mockHome(page, {
     continueWatching: [continueEntry(episodeSummary(2, 4))],
     nextUp: [episodeSummary(2, 5)],
@@ -119,6 +127,7 @@ test('Reset writes null, then Undo restores the previous layout', async ({ page 
   await expect(rows(page).first()).toHaveAttribute('data-shelf-row', 'recent_music');
   await page.getByRole('button', { name: 'Reset to default' }).click();
   await expect(rows(page).first()).toHaveAttribute('data-shelf-row', 'continue');
+  await expect(rows(page).nth(1)).toHaveAttribute('data-shelf-row', 'next_up');
   await expect(handle(page, 'Continue watching')).toBeFocused();
   await expect(page.getByText('Home reset to the default layout.')).toBeVisible();
   await expect.poll(() => lastLayout(saved)).toBeNull();

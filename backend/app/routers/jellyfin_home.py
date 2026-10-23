@@ -29,7 +29,7 @@ from app.services.user_settings import UserSettingsService
 # Keep this in lockstep with frontend/src/features/home/homeShelves.ts.  It is
 # intentionally a frozen wire-level allowlist rather than a client-provided catalogue.
 HOME_SHELF_IDS = (
-    "continue", "live", "next_up", "watchlist", "new_in_library", "because_you_watched", "recommended",
+    "continue", "next_up", "live", "watchlist", "new_in_library", "because_you_watched", "recommended",
     "picked_for_you", "collections", "from_follows", "recently_saved", "new_anime", "recent_music", "continue_listening",
 )
 _HOME_SHELF_ID_SET = frozenset(HOME_SHELF_IDS)
@@ -261,6 +261,60 @@ def _external_row(shelf_id: str, title: str, entries: list, caller: JellyfinCall
     return {"id": shelf_id, "shelf_id": shelf_id, "title": title, "shape": "still", "items": [], "external_items": items} if items else None
 
 
+def _attach_home_metadata(rows: list[dict], caller: JellyfinCaller, db: Session) -> None:
+    """Add local category and title facts only to this native Home response.
+
+    The ordinary Jellyfin DTO remains compatible. Home may contain direct
+    ``LibraryItem`` watchlist entries, so resolve their title/series facts here
+    rather than treating an item's filename type as a catalog category.
+    """
+    dtos = [item for row in rows for item in row.get("items", []) if isinstance(item, dict)]
+    dto_ids = {entity_id for dto in dtos if (entity_id := jf.parse_item_id(dto.get("Id")))}
+    if not dto_ids:
+        return
+    library_titles = dict(db.execute(
+        select(LibraryItem.id, MediaTitle.id)
+        .join(MediaTitle, MediaTitle.id == LibraryItem.title_id)
+        .where(LibraryItem.id.in_(dto_ids))
+    ).all())
+    titles = {
+        title.id: title
+        for title in db.scalars(select(MediaTitle).where(MediaTitle.id.in_(dto_ids | set(library_titles.values()))))
+    }
+    # A queued episode's title points to its season; load one further ancestor
+    # so a matching Series card can truthfully participate in Watchlist.
+    for _ in range(2):
+        missing = {title.parent_id for title in titles.values() if title.parent_id and title.parent_id not in titles}
+        if not missing:
+            break
+        titles.update({
+            title.id: title
+            for title in db.scalars(select(MediaTitle).where(MediaTitle.id.in_(missing)))
+        })
+    for dto in dtos:
+        entity_id = jf.parse_item_id(dto.get("Id"))
+        if not entity_id:
+            continue
+        title = titles.get(entity_id) or titles.get(library_titles.get(entity_id, ""))
+        if title is None:
+            continue
+        if title.category in {"movies", "shows", "anime"}:
+            dto["LuminaCategory"] = title.category
+        series = None
+        if title.type == "episode":
+            season = titles.get(title.parent_id or "")
+            series = titles.get(season.parent_id or "") if season and season.type == "season" else None
+            if series is not None:
+                dto["SeriesId"] = jf.jid(series.id)
+        elif title.type == "season":
+            series = titles.get(title.parent_id or "")
+        genres = [genre for genre in (title.metadata_json or {}).get("genres", []) if isinstance(genre, str) and genre]
+        if not genres and series is not None:
+            genres = [genre for genre in (series.metadata_json or {}).get("genres", []) if isinstance(genre, str) and genre]
+        if genres:
+            dto["Genres"] = genres
+
+
 def _external_rows(request: Request, caller: JellyfinCaller, db: Session, visible: set[str]) -> dict[str, dict | None]:
     # Reuse the website's cached snapshots and ranking; never perform extraction here.
     from app.main import home_recommendations, live_now
@@ -334,4 +388,5 @@ def get_rows(request: Request, caller: Caller, db: Db, include_external: bool = 
             else:
                 built.append(remote)
         rows.extend(built)
+    _attach_home_metadata(rows, caller, db)
     return {"rows": rows}

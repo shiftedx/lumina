@@ -11,11 +11,33 @@ final class LuminaCoreTests: XCTestCase {
         HomeDelayedURLProtocol.reset()
     }
 
+    func testEpisodeDetailDecodesOnlyAvailableSourceMetadata() throws {
+        var payload = movie()
+        payload["Type"] = "Episode"
+        payload["PremiereDate"] = "2026-10-14T00:00:00Z"
+        payload["MediaStreams"] = [
+            ["Type": "Video", "Height": 1080, "IsInterlaced": false],
+            ["Type": "Audio", "Codec": "eac3", "DisplayTitle": "E-AC3 5.1", "Channels": 6, "IsDefault": true],
+        ]
+        let episode = try JSONDecoder().decode(MediaItem.self, from: json(payload))
+        XCTAssertEqual(episode.premiereDate, "2026-10-14T00:00:00Z")
+        XCTAssertEqual(episode.mediaStreams?.first?.height, 1080)
+        XCTAssertEqual(episode.mediaStreams?.first?.isInterlaced, false)
+        XCTAssertEqual(episode.mediaStreams?.last?.displayTitle, "E-AC3 5.1")
+        XCTAssertEqual(episode.mediaStreams?.last?.isDefault, true)
+        let roundTrip = try JSONDecoder().decode(MediaItem.self, from: JSONEncoder().encode(episode))
+        XCTAssertEqual(roundTrip, episode)
+        let withoutProbe = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        XCTAssertNil(withoutProbe.premiereDate)
+        XCTAssertNil(withoutProbe.mediaStreams)
+    }
+
     func testConnectLoadsLibraryAndSendsMediaBrowserCredentials() async throws {
         let credentials = TestCredentials()
         let client = LuminaClient(configuration: mockConfiguration())
         let store = LuminaStore(client: client, credentials: credentials)
         let requests = RequestRecorder()
+        let pendingFramingAttempts = PathCounter()
         MockURLProtocol.handler = { request in
             requests.append(request)
             switch request.url!.path {
@@ -34,6 +56,9 @@ final class LuminaCoreTests: XCTestCase {
                 return response(request, json: page(items: [featured]))
             case "/Items/movie-1/Images/Backdrop/0/Framing", "/Items/series-1/Images/Backdrop/0/Framing":
                 return response(request, json: ["state": "ready", "width": 1920, "height": 1080, "regions": []])
+            case "/Items/pending/Images/Backdrop/0/Framing":
+                let attempt = pendingFramingAttempts.next(request.url!.path)
+                return response(request, json: ["state": attempt == 1 ? "pending" : "ready", "width": 1920, "height": 1080, "regions": []])
             case "/Shows/NextUp": return response(request, json: page(items: []))
             case "/UserItems/Resume":
                 return response(request, json: page(items: []))
@@ -77,6 +102,17 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(inheritedBackdrop.path, "/Items/series-1/Images/Backdrop/0")
         let ownFraming = await store.backdropFraming(for: featured)
         XCTAssertEqual(ownFraming?.state, "ready")
+        let repeatedOwnFraming = await store.backdropFraming(for: featured)
+        XCTAssertEqual(repeatedOwnFraming?.state, "ready")
+        XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items/movie-1/Images/Backdrop/0/Framing" }.count, 1,
+                       "Returning to a ready hero must not repeat its framing request.")
+        let pendingBackdrop = try XCTUnwrap(URL(string: "http://127.0.0.1:8765/Items/pending/Images/Backdrop/0?tag=pending&ApiKey=test-token"))
+        let pendingFraming = await store.artworkFraming(for: pendingBackdrop)
+        XCTAssertEqual(pendingFraming?.state, "pending")
+        let completedFraming = await store.artworkFraming(for: pendingBackdrop)
+        XCTAssertEqual(completedFraming?.state, "ready")
+        XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items/pending/Images/Backdrop/0/Framing" }.count, 2,
+                       "Pending framing remains retryable until the service reports ready.")
         let inheritedFraming = await store.backdropFraming(for: episode)
         XCTAssertEqual(inheritedFraming?.state, "ready")
         XCTAssertTrue(requests.all.contains { $0.url?.path == inheritedBackdrop.path + "/Framing" })
@@ -160,6 +196,118 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertFalse(store.hasMore)
         await store.loadMore()
         XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items" }.count, 3)
+    }
+
+    func testLibraryAlphabetSeeksTheServerIndexAndLatestRapidJumpWins() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        HomeDelayedURLProtocol.handler = { request in
+            requests.append(request)
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let value = { (name: String) in query.first { $0.name == name }?.value }
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            case "/Lumina/Library/alphabet":
+                return response(request, json: ["anchors": [["letter": "A", "index": 0], ["letter": "M", "index": 50], ["letter": "Z", "index": 200]], "total": 250])
+            case "/Items":
+                let start = Int(value("StartIndex") ?? "0") ?? 0
+                var item = movie()
+                item["Id"] = start == 200 ? "zulu" : start == 50 ? "middle" : "alpha"
+                return response(request, json: ["Items": [item], "TotalRecordCount": 250, "StartIndex": start])
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertTrue(store.supportsLibraryAlphabet)
+        XCTAssertEqual(store.libraryAlphabet, [
+            LibraryAlphabetAnchor(letter: "A", index: 0), LibraryAlphabetAnchor(letter: "M", index: 50), LibraryAlphabetAnchor(letter: "Z", index: 200),
+        ])
+
+        let middle = try XCTUnwrap(store.libraryAlphabet.first { $0.letter == "M" })
+        let middleID = await store.jumpLibrary(to: middle)
+        XCTAssertEqual(middleID, "middle")
+        await store.loadMore()
+        let alphabetRequest = try XCTUnwrap(requests.all.first { $0.url?.path == "/Lumina/Library/alphabet" })
+        let alphabetQuery = URLComponents(url: alphabetRequest.url!, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(alphabetQuery?.first { $0.name == "IncludeItemTypes" }?.value, "Movie,Series,Video")
+        XCTAssertEqual(alphabetQuery?.first { $0.name == "SortBy" }?.value, "SortName")
+        XCTAssertEqual(alphabetQuery?.first { $0.name == "Recursive" }?.value, "true")
+        let pageStarts = requests.all.compactMap { request -> String? in
+            guard request.url?.path == "/Items" else { return nil }
+            return URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "StartIndex" }?.value
+        }
+        XCTAssertTrue(pageStarts.suffix(2).elementsEqual(["50", "51"]))
+
+        HomeDelayedURLProtocol.delay = { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "StartIndex" }?.value == "50" ? 0.15 : 0.01
+        }
+        async let stale = store.jumpLibrary(to: middle)
+        await Task.yield()
+        let zulu = try XCTUnwrap(store.libraryAlphabet.first { $0.letter == "Z" })
+        async let current = store.jumpLibrary(to: zulu)
+        let staleID = await stale
+        let currentID = await current
+        XCTAssertNil(staleID)
+        XCTAssertEqual(currentID, "zulu")
+        XCTAssertEqual(store.items.map(\.id), ["zulu"])
+
+        // A departing screen can cancel a jump without replacing it.  It must
+        // retain the last visible page and avoid surfacing the cancellation.
+        let visibleBeforeCancellation = store.items.map(\.id)
+        let canceled = Task { await store.jumpLibrary(to: middle) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        canceled.cancel()
+        let canceledID = await canceled.value
+        XCTAssertNil(canceledID)
+        XCTAssertEqual(store.items.map(\.id), visibleBeforeCancellation)
+        XCTAssertNil(store.errorMessage)
+
+        await store.loadLibrary(search: "Movie", kind: .movies)
+        XCTAssertFalse(store.supportsLibraryAlphabet)
+        XCTAssertTrue(store.libraryAlphabet.isEmpty)
+    }
+
+    func testUnavailableLibraryAlphabetKeepsTheNormalFirstPage() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        MockURLProtocol.handler = { request in
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items": return response(request, json: page(items: [movie()]))
+            case "/Lumina/Library/alphabet": return response(request, status: 404)
+            case "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        XCTAssertEqual(store.items.map(\.id), ["movie-1"])
+        XCTAssertTrue(store.libraryAlphabet.isEmpty)
+        XCTAssertNil(store.errorMessage)
+    }
+
+    func testSlowLibraryAlphabetDoesNotDelayTheFirstCatalogPage() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        HomeDelayedURLProtocol.delay = { request in request.url?.path == "/Lumina/Library/alphabet" ? 0.15 : 0 }
+        HomeDelayedURLProtocol.handler = { request in
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items": return response(request, json: page(items: [movie()]))
+            case "/Lumina/Library/alphabet": return response(request, json: ["anchors": [["letter": "M", "index": 0]], "total": 1])
+            case "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        XCTAssertEqual(store.items.map(\.id), ["movie-1"])
+        XCTAssertTrue(store.libraryAlphabet.isEmpty)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(store.libraryAlphabet, [LibraryAlphabetAnchor(letter: "M", index: 0)])
     }
 
     func testHomeLoadsShelvesConcurrentlyWithTheSameFirstShelfTime() async throws {
@@ -628,6 +776,46 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertTrue(categoryRequests.contains { request in
             URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "LuminaCategory" && $0.value == "movies" } == true
         })
+    }
+
+    func testHomeSearchIsBoundedAndDoesNotReplaceTheActiveLibraryWall() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let calls = RequestRecorder()
+        MockURLProtocol.handler = { @Sendable request in
+            calls.append(request)
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let search = query.first { $0.name == "SearchTerm" }?.value
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            case "/Lumina/Library/alphabet": return response(request, json: ["anchors": [], "total": 1])
+            case "/Items":
+                if search == "signal" {
+                    return response(request, json: page(items: [
+                        ["Id": "signal-movie", "Name": "Signal", "Type": "Movie"],
+                        ["Id": "signal-album", "Name": "Signal", "Type": "MusicAlbum"],
+                    ]))
+                }
+                return response(request, json: page(items: [["Id": "library-movie", "Name": "Library", "Type": "Movie"]]))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        await store.loadLibrary(kind: .movies)
+        let libraryBeforeSearch = store.items.map(\.id)
+        let results = try await store.searchHome(query: " signal ")
+
+        XCTAssertEqual(results.map(\.id), ["signal-movie", "signal-album"])
+        XCTAssertEqual(store.items.map(\.id), libraryBeforeSearch)
+        XCTAssertFalse(store.isBusy)
+        let searchRequest = try XCTUnwrap(calls.all.last { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "SearchTerm" && $0.value == "signal" } == true
+        })
+        let searchQuery = URLComponents(url: searchRequest.url!, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(searchQuery?.first { $0.name == "IncludeItemTypes" }?.value, "Movie,Series,Episode,MusicAlbum,MusicArtist,Audio")
+        XCTAssertEqual(searchQuery?.first { $0.name == "Limit" }?.value, "50")
     }
 
     func testYouTubeLibraryUsesSavedProviderChannelOnly() async throws {
@@ -1204,6 +1392,8 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(request.mediaSourceID, "source-2")
         XCTAssertEqual(request.audioStreamIndex, 3)
         XCTAssertEqual(request.subtitleStreamIndex, -1)
+        XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items/movie-1/PlaybackInfo" }.count, 1,
+                       "Explicit stream choices are already in the initial request; playback must not repeat that decision.")
         let playbackInfo = try XCTUnwrap(requests.all.first { $0.url?.path == "/Items/movie-1/PlaybackInfo" })
         let posted = try body(playbackInfo)
         XCTAssertEqual(posted["AudioStreamIndex"] as? Int, 3)
@@ -1246,6 +1436,142 @@ final class LuminaCoreTests: XCTestCase {
             origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info,
             startPositionSeconds: .infinity
         )) { XCTAssertEqual($0 as? LuminaError, .malformedResponse) }
+    }
+
+    func testPlaybackPrefersHighestDirectCompatibleSourceInsteadOfFirstReturnedSource() throws {
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let info = try JSONDecoder().decode(PlaybackInfo.self, from: json([
+            "PlaySessionId": "versions", "MediaSources": [
+                ["Id": "source-1080", "Bitrate": 8_000_000, "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                 "MediaStreams": [["Index": 0, "Type": "Video", "Height": 1080]]],
+                ["Id": "source-4k", "Bitrate": 24_000_000, "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                 "MediaStreams": [["Index": 0, "Type": "Video", "Height": 2160]]],
+            ],
+        ]))
+
+        let request = try LuminaClient().playbackRequest(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item, result: info,
+        )
+
+        XCTAssertEqual(request.mediaSourceID, "source-4k")
+        XCTAssertEqual(request.bitRate, 24_000_000)
+        XCTAssertFalse(request.isTranscoding)
+        XCTAssertEqual(request.resolvedQuality, .automatic)
+    }
+
+    func testPreparePlaybackAppliesDeviceLanguageChoicesToTheSelectedSource() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let defaultsName = "LuminaCoreTests.playback-preferences.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let preferences = NativePlaybackPreferences(defaults: defaults)
+        preferences.preferredAudioLanguages = ["en"]
+        preferences.preferredSubtitleLanguages = ["es"]
+        preferences.subtitleMode = .always
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved), playbackPreferences: preferences)
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/movie-1": return response(request, json: movie())
+            case "/Items/movie-1/PlaybackInfo":
+                let posted = try body(request)
+                let requestedSource = posted["MediaSourceId"] as? String
+                var source: [String: Any] = [
+                    "Id": "source-4k", "Bitrate": 24_000_000, "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                    "DefaultAudioStreamIndex": requestedSource == nil ? 1 : 2,
+                    "MediaStreams": [
+                        ["Index": 0, "Type": "Video", "Height": 2160],
+                        ["Index": 1, "Type": "Audio", "Language": "fra", "IsDefault": true],
+                        ["Index": 2, "Type": "Audio", "Language": "eng"],
+                        ["Index": 3, "Type": "Subtitle", "Language": "spa"],
+                    ],
+                ]
+                if requestedSource != nil { source["DefaultSubtitleStreamIndex"] = 3 }
+                let hd: [String: Any] = [
+                    "Id": "source-1080", "Bitrate": 8_000_000, "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                    "MediaStreams": [["Index": 0, "Type": "Video", "Height": 1080]],
+                ]
+                return response(request, json: ["PlaySessionId": "language-preferences", "MediaSources": requestedSource == nil ? [hd, source] : [source]])
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+
+        let request = try await store.preparePlayback(for: item)
+
+        XCTAssertEqual(request.mediaSourceID, "source-4k")
+        XCTAssertEqual(request.audioStreamIndex, 2)
+        XCTAssertEqual(request.subtitleStreamIndex, 3)
+        XCTAssertEqual(request.resolvedQuality, .automatic)
+        let playbackInfo = requests.all.filter { $0.url?.path == "/Items/movie-1/PlaybackInfo" }
+        XCTAssertEqual(playbackInfo.count, 2)
+        XCTAssertNil(try body(playbackInfo[0])["MediaSourceId"])
+        let selected = try body(playbackInfo[1])
+        XCTAssertEqual(selected["MediaSourceId"] as? String, "source-4k")
+        XCTAssertEqual(selected["AudioStreamIndex"] as? Int, 2)
+        XCTAssertEqual(selected["SubtitleStreamIndex"] as? Int, 3)
+    }
+
+    func testPreparePlaybackUsesServerHLSForSelectedExternalSubtitleOnDirectMP4() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let defaultsName = "LuminaCoreTests.external-subtitle-hls.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let preferences = NativePlaybackPreferences(defaults: defaults)
+        preferences.preferredSubtitleLanguages = ["es"]
+        preferences.subtitleMode = .always
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved), playbackPreferences: preferences)
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/movie-1": return response(request, json: movie())
+            case "/Items/movie-1/PlaybackInfo":
+                let posted = try body(request)
+                let selectedSource = posted["MediaSourceId"] as? String
+                let streams: [[String: Any]] = [
+                    ["Index": 0, "Type": "Video", "Height": 2160],
+                    ["Index": 3, "Type": "Subtitle", "Codec": "vtt", "Language": "spa", "IsExternal": true,
+                     "DeliveryMethod": "External", "DeliveryUrl": "/Videos/movie-1/Subtitles/3/0/Stream.vtt?ApiKey=test-token"],
+                ]
+                if selectedSource == nil {
+                    return response(request, json: ["PlaySessionId": "direct-mp4", "MediaSources": [[
+                        "Id": "source-mp4", "Container": "mp4", "Bitrate": 24_000_000,
+                        "SupportsDirectPlay": true, "SupportsTranscoding": true, "MediaStreams": streams,
+                    ]]])
+                }
+                return response(request, json: ["PlaySessionId": "server-hls", "MediaSources": [[
+                    "Id": "source-mp4", "Container": "mp4", "Bitrate": 24_000_000,
+                    "SupportsDirectPlay": false, "SupportsTranscoding": true,
+                    "TranscodingUrl": "/Videos/source-mp4/master.m3u8?ApiKey=test-token", "MediaStreams": streams,
+                ]]])
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+
+        let playback = try await store.preparePlayback(for: item)
+
+        XCTAssertTrue(playback.isTranscoding)
+        XCTAssertEqual(playback.url.path, "/Videos/source-mp4/master.m3u8")
+        XCTAssertEqual(playback.mediaSourceID, "source-mp4")
+        XCTAssertEqual(playback.subtitleStreamIndex, 3)
+        XCTAssertEqual(playback.resolvedQuality, .automatic)
+        let playbackInfo = requests.all.filter { $0.url?.path == "/Items/movie-1/PlaybackInfo" }
+        XCTAssertEqual(playbackInfo.count, 2)
+        XCTAssertEqual(try body(playbackInfo[0])["EnableDirectPlay"] as? Bool, true)
+        let compatibleHLS = try body(playbackInfo[1])
+        XCTAssertEqual(compatibleHLS["EnableDirectPlay"] as? Bool, false)
+        XCTAssertEqual(compatibleHLS["MediaSourceId"] as? String, "source-mp4")
+        XCTAssertEqual(compatibleHLS["SubtitleStreamIndex"] as? Int, 3)
+        XCTAssertNil(compatibleHLS["MaxStreamingBitrate"], "Original quality remains uncapped when the server can remux it into HLS.")
     }
 
     func testPlaybackRefreshesAStaleDetailItemBeforePreparing() async throws {
@@ -1399,7 +1725,11 @@ final class LuminaCoreTests: XCTestCase {
 
         XCTAssertEqual(store.session?.accessToken, "new-token")
         XCTAssertNil(store.errorMessage)
-        XCTAssertEqual(requests.all.first?.url?.path, "/Sessions/Logout")
+        // The optional library index started during restore may race the later
+        // cancellation, but it must not displace the actual revocation before
+        // any subsequent connection work.
+        let nonIndexPaths = requests.all.compactMap(\.url?.path).filter { $0 != "/Lumina/Library/alphabet" }
+        XCTAssertEqual(nonIndexPaths.first, "/Sessions/Logout")
     }
 }
 
@@ -1452,6 +1782,7 @@ private final class HomeRequestTimeline: @unchecked Sendable {
 
     func begin(_ path: String) {
         lock.withLock {
+            guard Self.homePaths.contains(path) else { return }
             guard startedAt != nil else { return }
             activeRequests += 1
             peakRequests = max(peakRequests, activeRequests)
@@ -1460,11 +1791,14 @@ private final class HomeRequestTimeline: @unchecked Sendable {
 
     func end(_ path: String) {
         lock.withLock {
+            guard Self.homePaths.contains(path) else { return }
             guard activeRequests > 0 else { return }
             activeRequests -= 1
             if firstCompletedAt == nil { firstCompletedAt = Date() }
         }
     }
+
+    private static let homePaths: Set<String> = ["/Items", "/UserItems/Resume", "/Shows/NextUp"]
 
     var measurement: Measurement {
         lock.withLock {

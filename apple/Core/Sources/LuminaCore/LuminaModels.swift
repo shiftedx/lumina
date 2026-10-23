@@ -127,15 +127,36 @@ public struct PlaybackMarker: Identifiable, Hashable, Sendable {
     }
 }
 
+/// Optional probed file facts for detail screens. Never describes the active output route.
+public struct MediaTechnicalStream: Codable, Hashable, Sendable {
+    public let type: String?
+    public let displayTitle: String?
+    public let codec: String?
+    public let width: Int?
+    public let height: Int?
+    public let channels: Int?
+    public let isDefault: Bool?
+    public let isInterlaced: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "Type", displayTitle = "DisplayTitle", codec = "Codec"
+        case width = "Width", height = "Height", channels = "Channels", isDefault = "IsDefault", isInterlaced = "IsInterlaced"
+    }
+}
+
 public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
     public let id: String
     public let name: String
     public let type: String
     public let overview: String?
     public let productionYear: Int?
+    public private(set) var premiereDate: String? = nil
+    public private(set) var mediaStreams: [MediaTechnicalStream]? = nil
     public private(set) var officialRating: String? = nil
     public private(set) var communityRating: Double? = nil
     public private(set) var genres: [String]? = nil
+    /// Native Home row-only classification. General Jellyfin item DTOs intentionally omit it.
+    public private(set) var luminaCategory: String? = nil
     public private(set) var people: [MediaPerson]? = nil
     public let seriesName: String?
     public let seriesID: String?
@@ -161,7 +182,7 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
 
     public init(id: String, name: String, type: String, overview: String?, productionYear: Int?,
                 officialRating: String? = nil, communityRating: Double? = nil,
-                genres: [String]? = nil, people: [MediaPerson]? = nil,
+                genres: [String]? = nil, luminaCategory: String? = nil, people: [MediaPerson]? = nil,
                 seriesName: String?, seriesID: String?, seriesPrimaryImageTag: String? = nil,
                 seasonID: String?, collectionType: String?, indexNumber: Int?, parentIndexNumber: Int?,
                 runTimeTicks: Int64?, userData: MediaUserData?, imageTags: [String: String]?,
@@ -176,6 +197,7 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
         self.officialRating = officialRating
         self.communityRating = communityRating
         self.genres = genres
+        self.luminaCategory = luminaCategory
         self.people = people
         self.seriesName = seriesName
         self.seriesID = seriesID
@@ -202,8 +224,9 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "Id", name = "Name", type = "Type", overview = "Overview"
+        case premiereDate = "PremiereDate", mediaStreams = "MediaStreams"
         case productionYear = "ProductionYear", officialRating = "OfficialRating", communityRating = "CommunityRating"
-        case genres = "Genres", people = "People", seriesName = "SeriesName"
+        case genres = "Genres", luminaCategory = "LuminaCategory", people = "People", seriesName = "SeriesName"
         case seriesID = "SeriesId", seasonID = "SeasonId", collectionType = "CollectionType"
         case seriesPrimaryImageTag = "SeriesPrimaryImageTag"
         case indexNumber = "IndexNumber", parentIndexNumber = "ParentIndexNumber"
@@ -366,12 +389,16 @@ public struct PlaybackRequest: Identifiable, Sendable {
     public let subtitleStreamIndex: Int?
     /// Safe chapter targets from the refreshed item detail.
     public let chapters: [PlaybackChapter]
+    /// The device quality preference used to obtain this server playback decision.
+    /// Playback replacements retain it instead of silently returning to an uncapped request.
+    public let resolvedQuality: PlaybackQuality
 
     public init(id: String, item: MediaItem, url: URL, startPositionSeconds: Double, mediaSourceID: String,
                 isTranscoding: Bool, methodLabel: String, usesClientDemux: Bool = false,
                 bitRate: Int? = nil,
                 mediaStreams: [PlaybackStream] = [], audioStreamIndex: Int? = nil,
-                subtitleStreamIndex: Int? = nil, chapters: [PlaybackChapter] = []) {
+                subtitleStreamIndex: Int? = nil, chapters: [PlaybackChapter] = [],
+                resolvedQuality: PlaybackQuality = .automatic) {
         self.id = id
         self.item = item
         self.url = url
@@ -385,6 +412,7 @@ public struct PlaybackRequest: Identifiable, Sendable {
         self.audioStreamIndex = audioStreamIndex
         self.subtitleStreamIndex = subtitleStreamIndex
         self.chapters = chapters
+        self.resolvedQuality = resolvedQuality
     }
 }
 
@@ -427,6 +455,20 @@ public enum VideoBrowseKind: String, CaseIterable, Sendable {
         case .anime: "anime"
         default: nil
         }
+    }
+}
+
+/// A server-indexed position in a name-sorted video wall.  The index is an
+/// absolute offset in the active member-visible, filtered catalog.
+public struct LibraryAlphabetAnchor: Codable, Identifiable, Equatable, Sendable {
+    public let letter: String
+    public let index: Int
+
+    public var id: String { letter }
+
+    public init(letter: String, index: Int) {
+        self.letter = letter
+        self.index = index
     }
 }
 

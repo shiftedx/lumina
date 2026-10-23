@@ -6,7 +6,7 @@
 
 /** Stable shelf ids in the default order. */
 export const HOME_SHELF_IDS = [
-  'continue', 'live', 'next_up', 'watchlist', 'new_in_library', 'because_you_watched', 'recommended',
+  'continue', 'next_up', 'live', 'watchlist', 'new_in_library', 'because_you_watched', 'recommended',
   'picked_for_you', 'collections', 'from_follows', 'recently_saved', 'new_anime', 'recent_music', 'continue_listening',
 ] as const;
 export type HomeShelfId = (typeof HOME_SHELF_IDS)[number];

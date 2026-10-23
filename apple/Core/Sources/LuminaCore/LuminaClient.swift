@@ -54,6 +54,18 @@ final class LuminaClient: @unchecked Sendable {
     }
 
     func items(origin: URL, token: String, deviceID: String, search: String, start: Int, types: String = "Movie,Episode,Video", sort: VideoSort = .name, parentID: String? = nil, sourceProvider: String? = nil, luminaCategory: String? = nil, filters: VideoFilters = .init()) async throws -> ItemPage {
+        let query = libraryQuery(search: search, start: start, types: types, sort: sort, parentID: parentID,
+                                 sourceProvider: sourceProvider, luminaCategory: luminaCategory, filters: filters)
+        return try await json(request(origin: origin, path: "/Items", query: query, token: token, deviceID: deviceID))
+    }
+
+    func libraryAlphabet(origin: URL, token: String, deviceID: String, types: String, parentID: String? = nil, luminaCategory: String? = nil, filters: VideoFilters = .init()) async throws -> LibraryAlphabetPage {
+        let query = libraryQuery(search: "", start: 0, types: types, sort: .name, parentID: parentID,
+                                 sourceProvider: nil, luminaCategory: luminaCategory, filters: filters)
+        return try await json(request(origin: origin, path: "/Lumina/Library/alphabet", query: query, token: token, deviceID: deviceID))
+    }
+
+    private func libraryQuery(search: String, start: Int, types: String, sort: VideoSort, parentID: String?, sourceProvider: String?, luminaCategory: String?, filters: VideoFilters) -> [URLQueryItem] {
         var query = [
             URLQueryItem(name: "IncludeItemTypes", value: types),
             URLQueryItem(name: "Recursive", value: "true"),
@@ -72,7 +84,7 @@ final class LuminaClient: @unchecked Sendable {
         if let sourceProvider { query.append(URLQueryItem(name: "SourceProvider", value: sourceProvider)) }
         if let luminaCategory { query.append(URLQueryItem(name: "LuminaCategory", value: luminaCategory)) }
         if !search.isEmpty { query.append(URLQueryItem(name: "SearchTerm", value: search)) }
-        return try await json(request(origin: origin, path: "/Items", query: query, token: token, deviceID: deviceID))
+        return query
     }
 
     func item(origin: URL, token: String, deviceID: String, id: String, userID: String? = nil) async throws -> MediaItem {
@@ -201,19 +213,10 @@ final class LuminaClient: @unchecked Sendable {
     }
 
     func playbackRequest(origin: URL, token: String, item: MediaItem, result: PlaybackInfo,
-                         subtitleStreamIndex: Int? = nil, mediaSourceID: String? = nil,
+                         quality: PlaybackQuality = .automatic,
+                         audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil, mediaSourceID: String? = nil,
                          startPositionSeconds: Double? = nil) throws -> PlaybackRequest {
-        let source: MediaSource
-        if let mediaSourceID {
-            guard let selected = result.mediaSources.first(where: { $0.id == mediaSourceID }) else {
-                throw LuminaError.malformedResponse
-            }
-            source = selected
-        } else if let selected = result.mediaSources.first {
-            source = selected
-        } else {
-            throw LuminaError.malformedResponse
-        }
+        let source = try preferredSource(in: result, mediaSourceID: mediaSourceID)
         let streams = try source.mediaStreams.map { try PlaybackStream($0, origin: origin) }
         let sourceChapters = source.chapters.map {
             sanitizedPlaybackChapters(
@@ -224,7 +227,8 @@ final class LuminaClient: @unchecked Sendable {
         // The item detail's chapters describe its preferred source. The preferred source uses
         // the item id on Lumina; legacy callers omit an id. Explicit alternates never inherit it.
         let chapters = sourceChapters ?? ((mediaSourceID == nil || source.id == item.id) ? item.chapters : [])
-        let resolvedSubtitleStreamIndex = source.defaultSubtitleStreamIndex ?? (subtitleStreamIndex == -1 ? -1 : nil)
+        let resolvedAudioStreamIndex = audioStreamIndex ?? source.defaultAudioStreamIndex
+        let resolvedSubtitleStreamIndex = subtitleStreamIndex ?? source.defaultSubtitleStreamIndex
         let start = try boundedStartPosition(startPositionSeconds, item: item)
         if source.supportsDirectPlay {
             guard let direct = url(origin: origin, path: "/Videos/\(item.id)/stream", query: [
@@ -236,16 +240,46 @@ final class LuminaClient: @unchecked Sendable {
                                    mediaSourceID: source.id, isTranscoding: false, methodLabel: "Direct",
                                    usesClientDemux: !item.isAudio && ["mkv", "matroska"].contains((source.container ?? item.container ?? "").lowercased()),
                                    bitRate: source.bitRate,
-                                   mediaStreams: streams, audioStreamIndex: source.defaultAudioStreamIndex,
-                                   subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters)
+                                   mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
+                                   subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters,
+                                   resolvedQuality: quality)
         }
         guard source.supportsTranscoding, let raw = source.transcodingURL,
               let hls = URL(string: raw, relativeTo: origin)?.absoluteURL, sameOrigin(origin, hls) else { throw LuminaError.unsafeURL }
         return PlaybackRequest(id: result.playSessionID, item: item, url: hls, startPositionSeconds: start,
                                mediaSourceID: source.id, isTranscoding: true, methodLabel: "HLS",
                                bitRate: source.bitRate,
-                               mediaStreams: streams, audioStreamIndex: source.defaultAudioStreamIndex,
-                               subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters)
+                               mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
+                               subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters,
+                               resolvedQuality: quality)
+    }
+
+    /// Selects the strongest source the current native profile can play directly. This keeps the
+    /// uncapped device preference from silently preferring the server's first (often 1080p) row.
+    /// A direct-compatible source still outranks a larger source that would require conversion.
+    func preferredSource(in result: PlaybackInfo, mediaSourceID: String? = nil) throws -> MediaSource {
+        if let mediaSourceID {
+            guard let selected = result.mediaSources.first(where: { $0.id == mediaSourceID }) else {
+                throw LuminaError.malformedResponse
+            }
+            return selected
+        }
+        guard let best = result.mediaSources.enumerated().max(by: { lhs, rhs in
+            let lhsDelivery = lhs.element.deliveryPreference
+            let rhsDelivery = rhs.element.deliveryPreference
+            if lhsDelivery != rhsDelivery { return lhsDelivery < rhsDelivery }
+            if lhs.element.videoHeight != rhs.element.videoHeight { return lhs.element.videoHeight < rhs.element.videoHeight }
+            if lhs.element.bitRate != rhs.element.bitRate { return (lhs.element.bitRate ?? 0) < (rhs.element.bitRate ?? 0) }
+            // `max` retains the right-hand candidate on equality, so reverse the source order.
+            return lhs.offset > rhs.offset
+        })?.element else {
+            throw LuminaError.malformedResponse
+        }
+        return best
+    }
+
+    func playbackStreams(for source: MediaSource, origin: URL) throws -> [PlaybackStream] {
+        try source.mediaStreams.map { try PlaybackStream($0, origin: origin) }
     }
 
     func report(origin: URL, token: String, deviceID: String, event: PlaybackEvent, request: PlaybackRequest, positionSeconds: Double, isPaused: Bool) async throws {
@@ -579,7 +613,22 @@ struct UserInfo: Decodable {
 struct ItemPage: Decodable {
     let items: [MediaItem]
     let total: Int
-    enum CodingKeys: String, CodingKey { case items = "Items", total = "TotalRecordCount" }
+    /// Jellyfin normally echoes the request offset, but older compatible
+    /// implementations may omit it. Callers retain their requested offset.
+    let startIndex: Int?
+    enum CodingKeys: String, CodingKey { case items = "Items", total = "TotalRecordCount", startIndex = "StartIndex" }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        items = try values.decode([MediaItem].self, forKey: .items)
+        total = try values.decode(Int.self, forKey: .total)
+        startIndex = try values.decodeIfPresent(Int.self, forKey: .startIndex)
+    }
+}
+
+struct LibraryAlphabetPage: Decodable {
+    let anchors: [LibraryAlphabetAnchor]
+    let total: Int
 }
 
 struct PlaybackInfo: Decodable {
@@ -623,6 +672,16 @@ struct MediaSource: Decodable {
         defaultSubtitleStreamIndex = try values.decodeIfPresent(Int.self, forKey: .defaultSubtitleStreamIndex)
         runTimeTicks = try values.decodeIfPresent(Int64.self, forKey: .runTimeTicks)
         chapters = try? values.decodeIfPresent([PlaybackChapter].self, forKey: .chapters)
+    }
+
+    var videoHeight: Int {
+        mediaStreams.lazy.filter { $0.type == .video }.compactMap(\.height).max() ?? 0
+    }
+
+    var deliveryPreference: Int {
+        if supportsDirectPlay { return 2 }
+        if supportsTranscoding { return 1 }
+        return 0
     }
 }
 
@@ -683,6 +742,7 @@ struct MediaStream: Decodable {
     let codec: String?
     let language: String?
     let channels: Int?
+    let height: Int?
     let isDefault: Bool
     let isForced: Bool
     let isExternal: Bool
@@ -691,7 +751,7 @@ struct MediaStream: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case index = "Index", type = "Type", displayTitle = "DisplayTitle", title = "Title", codec = "Codec"
-        case language = "Language", channels = "Channels", isDefault = "IsDefault", isForced = "IsForced", isExternal = "IsExternal"
+        case language = "Language", channels = "Channels", height = "Height", isDefault = "IsDefault", isForced = "IsForced", isExternal = "IsExternal"
         case deliveryMethod = "DeliveryMethod", deliveryURL = "DeliveryUrl"
     }
 
@@ -707,6 +767,7 @@ struct MediaStream: Decodable {
         codec = try values.decodeIfPresent(String.self, forKey: .codec)
         language = try values.decodeIfPresent(String.self, forKey: .language)
         channels = try values.decodeIfPresent(Int.self, forKey: .channels)
+        height = try values.decodeIfPresent(Int.self, forKey: .height).flatMap { (1...20_000).contains($0) ? $0 : nil }
         isDefault = try values.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
         isForced = try values.decodeIfPresent(Bool.self, forKey: .isForced) ?? false
         isExternal = try values.decodeIfPresent(Bool.self, forKey: .isExternal) ?? false

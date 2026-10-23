@@ -51,7 +51,7 @@ export function HouseholdResourcesSettings() {
       <Field hint="Enter Mbps. Leave blank until you know the upload capacity. Remote delivery is not protected until this is enabled." label="Remote upload budget">{(ids) => <Input {...fieldProps(ids)} inputMode="decimal" min="0" onChange={(event) => setDraft({ ...resourceDraft, upload_bps: event.currentTarget.value === '' ? null : parseNumber(event.currentTarget.value, true) })} placeholder="Unconfigured" step="0.001" type="number" value={resourceDraft.upload_bps == null ? '' : mbps(resourceDraft.upload_bps)} />}</Field>
       <Field hint="One CIDR per line. Only verified traffic in these networks is exempt from remote delivery limits." label="LAN networks">{(ids) => <Textarea {...fieldProps(ids)} onChange={(event) => { const value = event.currentTarget.value; setLanNetworks(value); setDraft({ ...resourceDraft, lan_networks: parseNetworks(value) }); }} placeholder="192.168.1.0/24" rows={3} value={lanNetworks} />}</Field>
     </div>
-    {resourceDraft.upload_bps == null ? <p className="g-setting-note">Unconfigured — Lumina keeps existing playback compatibility and does not claim to protect household upload. Enter a budget to enable the proposed defaults below.</p> : null}
+    {resourceDraft.upload_bps == null ? <p className="g-setting-note">Unconfigured — Lumina keeps existing playback compatibility. Enter a budget to protect aggregate remote delivery; stream and member caps remain unlimited until you set them.</p> : null}
     <AllowanceFields draft={resourceDraft.defaults} onChange={(defaults) => setDraft({ ...resourceDraft, defaults: defaults as ResourceAllowances })} />
   </SectionForm>;
 }

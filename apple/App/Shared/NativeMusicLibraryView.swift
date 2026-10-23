@@ -68,8 +68,7 @@ struct NativeMusicLibraryLinks: View {
                             .contentShape(.rect)
                     }
                     #if os(tvOS)
-                    .foregroundStyle(LuminaTheme.ink)
-                    .buttonStyle(.plain)
+                    .buttonStyle(LuminaUnderlineTabStyle())
                     #else
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(LuminaTheme.ink)

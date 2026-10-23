@@ -160,7 +160,7 @@ struct TVRequestsView: View {
                 Label(browseTitle, systemImage: "line.3.horizontal.decrease.circle")
                     .frame(minWidth: 240, alignment: .leading)
             }
-            .buttonStyle(LuminaQuietActionStyle())
+            .buttonStyle(LuminaUnderlineTabStyle())
             .controlSize(.large)
             .accessibilityIdentifier("requestsBrowseMenu")
 
@@ -170,7 +170,7 @@ struct TVRequestsView: View {
                 Label("My requests", systemImage: "clock.arrow.circlepath")
                     .frame(minWidth: 240, alignment: .leading)
             }
-            .buttonStyle(LuminaQuietActionStyle())
+            .buttonStyle(LuminaUnderlineTabStyle())
             .controlSize(.large)
             .accessibilityIdentifier("requestsMyListButton")
         }

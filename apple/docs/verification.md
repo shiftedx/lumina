@@ -328,3 +328,285 @@ invocation. Logs: `/private/tmp/lumina-merge-make-check-final-r2-20261023.log`,
 `/private/tmp/lumina-watch-quality-focused-20261023.log`, and
 `/private/tmp/lumina-merge-browser-remainder-20261023/`; composition record:
 `/private/tmp/lumina-composed-browser-qualification.json`.
+
+## Episode-led TV details and Home artwork retention, 2026-10-23
+
+TV show details now start with the current or next unwatched episode, with an
+inline season selector and equal landscape episode cards. Remote focus previews
+an episode's title, synopsis and available source metadata; Play/Resume uses
+that selected episode. Cast and related titles remain below the episode rail.
+The primary action row sits at the bottom of the hero gradient above seasons.
+Detail actions and seasons use text with underlines for focus/selection instead
+of filled boxes. Poster focus uses a 1.04 scale instead of a white outline, without animated
+movement under Reduce Motion.
+
+The Home reload audit found two independent causes: image lifetimes discarded
+decoded artwork, and returning Home recreated the feed/layout models. The tab
+roots now own those models, retaining rows while fresh metadata loads. Member,
+origin and token changes gate rendering and clear the previous session's state.
+The shared decoded-image cache coalesces identical signed rendition requests;
+its NSCache eviction targets are 64 MiB and 80 images, with accurate decoded
+costs and no retention for a single image over the byte target. These are cache
+eviction targets, not a whole-process memory ceiling. Pending work is discarded
+on session changes. Ready subject framing is retained for at most 80 rendition
+URLs; pending analyses remain retryable.
+
+Retained Core evidence: full suite 123 tests, five fixture skips, zero failures
+(`/private/tmp/lumina-episode-home-core-full-r3.log`), followed by focused cache,
+framing and Home ownership contracts after the later changes. Repeated and
+concurrent image consumers share one request/decode; a cached return adds
+neither, changed tags/member URLs load independently, session purge rejects a
+pending predecessor, and over-budget decoded images are not retained. Ready
+framing is requested once; pending framing retries to ready. Four Home model
+contracts cover refresh retention and same-token/member-change isolation.
+Focused logs: `/private/tmp/lumina-artwork-cache-focused-r2.log`,
+`/private/tmp/lumina-artwork-framing-focused-r3.log`, and
+`/private/tmp/lumina-home-layout-ownership-focused.log`.
+
+These deterministic work-count checks do not establish hardware CPU, memory,
+frame-rate or latency budgets. The host was under extreme load during this pass.
+The existing signed build-11 distribution packages predate these new edits.
+
+The Home featured title now consumes remote Left/Right to browse adjacent
+features without rebuilding its focus target; Select opens the displayed title.
+Its selection persists at the TV tab root. Back records chronological tab visits,
+including revisits, and restores Video/Audio browsing state and saved card focus.
+Nested details continue to pop their navigation stack before root tab history.
+Explicit episode selection also survives a detail return when its season is
+fully watched.
+
+The full repository gate was attempted with `mise exec -- make check
+BACKEND_WORKERS=4 E2E_TIER_WORKERS=4`. Typecheck/build/style/license/budget checks,
+5,301 backend tests (11 skips), and 2,660 frontend tests passed. The browser tier
+reported 608 passes, nine failures and 33 skips out of 650 selected contracts;
+failures included settings/shell reachability timeouts, overlay layout and a
+Firefox books workflow. No frontend or backend production code is changed by
+this native patch. This is not a passing full gate. Retained log:
+`/private/tmp/lumina-episode-home-make-check-r2.log`.
+
+Final Core rerun after the cache/session and hero-selection changes: 124 tests,
+five skips, zero failures in 109 seconds. Log:
+`/private/tmp/lumina-home-cache-core-final.log`. Native warm-return HTTP metrics
+have not been collected; the active UI fixture broker was not metrics-enabled.
+
+## Native library alphabet browsing, 2026-10-23
+
+TV sorting now leads the video toolbar as a quiet `Title A–Z` menu with an
+underline focus state, replacing the isolated gold capsule. Its right-edge
+alphabet scrubber expands during rapid scrolling or remote focus. Up/Down
+previews an anchor; Select requests its page; Left/Back returns to the grid.
+iOS offers a narrow fast-scroll edge scrubber that commits on release and an
+explicit alphabet menu for accessible navigation. Search and non-title sorting
+do not expose an alphabet index.
+
+The additive connected-app `/Lumina/Library/alphabet` endpoint returns no more
+than 27 member-visible absolute anchors in the same filtered SortName/ID order
+as `/Items`. A jump replaces the current window with one 50-item page at that
+index; subsequent pagination continues from the correct absolute offset. It
+never traverses earlier pages or downloads their artwork. The initial catalog
+page renders before the optional index request finishes. An older server still
+loads its ordinary library; the letter controls require the updated backend.
+
+Retained focused evidence: three backend alphabet contracts, 56 existing
+Jellyfin integration cases (`/tmp/lumina-alphabet-integration.log`), and three
+Core alphabet contracts passed. Coverage includes filter/parent/category/member
+parity, SortName ties, absolute pagination, latest rapid jump wins, unavailable
+index fallback and catalog rendering while the index request remains pending.
+Both native simulator test builds passed at r14; the selected-episode workflow
+passed at r13, including its fresh-session resume phase. Later Home/alphabet
+navigation qualification is tracked separately; these builds alone do not prove
+remote interaction or device performance budgets.
+
+Final combined Core suite after alphabet and cancellation repairs: 127 tests,
+five expected fixture skips, zero failures in 103 seconds
+(`/tmp/lumina-alphabet-core-full-r2-20261023.log`). Missing legacy page offsets
+fall back to the requested offset, and canceled loads/jumps cannot publish a
+late page or error. Home concurrency checks continue to measure only the Home
+endpoints; optional Library index traffic is outside that retained contract.
+
+The focused TV alphabet workflow passed on the final container fix at r22
+(`/private/tmp/lumina-tv-library-alphabet-r22.xcresult`, 86.75 seconds). It checks
+left-leading sort, the rail's physical right-edge placement, remote letter
+selection, indexed page/card focus, Left back to the grid, and hiding/restoring
+the rail with non-name/name sorting. The rail's identifier belongs to its button;
+`libraryScreen` belongs only to the concrete scroll view, avoiding transparent
+parent accessibility-identifier propagation. Temporary count-only diagnostics
+were removed. Existing Jellyfin API regression suite also passed: 66 cases
+(`/private/tmp/lumina-alphabet-api-regression.log`). Together with the 56
+integration and three alphabet cases this supplies 125 focused backend passes.
+
+Final r23 signed iOS and tvOS simulator test builds both passed
+(`/private/tmp/lumina-episode-detail-ios-r23-build.log`,
+`/private/tmp/lumina-episode-detail-tv-r23-build.log`). The TV alphabet workflow
+passed again (85.1 seconds; `/private/tmp/lumina-tv-library-alphabet-r23.xcresult`).
+The focused Back-history workflow passed (74.0 seconds;
+`/private/tmp/lumina-tv-back-history-r23.xcresult`), covering a nested title pop
+and Home → Video → Audio → Video → Back Audio → Back Video → Back Home.
+Home title focus, Right/Left browsing, Select and Back selection preservation
+passed within r17 before a later remote-play readiness failure in the broader
+journey. That broad journey was not fully requalified. iOS alphabet gestures
+have compile/API/Core coverage here, without a completed touch-simulator
+workflow or physical-device timing/memory qualification. No archives or uploads
+were created for these edits.
+
+The welcome slideshow and shared featured carousel no longer expose pause/resume
+buttons. Their unused manual-pause state was removed; Reduce Motion, VoiceOver,
+scene activity and carousel interaction guards remain. Existing UI workflows now
+check that those controls are absent and welcome rotation continues.
+
+Category/section navigation now shares a plate-free underline style: TV video
+categories, Audio browse tabs, TV Requests browse links, music navigation links,
+and playback-settings tabs on iOS/tvOS. Video Filters follows YouTube on the
+same toolbar; active criteria remain available in its accessibility value and
+filter form. Down from a category or Filters enters the poster grid directly.
+Both signed simulator test builds passed. The focused TV Back-history and
+alphabet/toolbar workflows passed (2/2), including same-baseline Filters after
+YouTube, left-leading sort and right-edge alphabet placement. Result:
+`/private/tmp/lumina-underline-toolbar.xcresult`; visual capture:
+`/private/tmp/lumina-underline-toolbar-captures/32E3C9B5-C569-4604-89D4-A1A2A3AEFDC0.png`.
+
+### Home navigation and media-first browsing (2026-10-23)
+
+Home now exposes native Search and conditional offline-music Downloads, with
+customization remaining in Account. The underlined All/Movies/Shows/Anime/Watchlist
+row and Genres menu refine loaded Home items without replacing Library pagination
+or changing saved shelf order. Home-only server metadata supplies exact category
+and inherited series genres; older responses remain decodable. The default order
+now starts Continue watching, Next up, then Live across the shared layout contract;
+explicit member orders remain unchanged.
+
+The hero adapts to available height, keeps Play/Resume and Watchlist near the dark
+edge, and uses one contextual line. Its title/artwork opens details. Successful
+watchlist writes refresh the Home feed; rotation waits for those writes and pauses
+for 30 seconds after manual carousel interaction. Offscreen visibility stops its
+rotation task. Episode rails lead with series, then season/episode/title and subtle
+progress; caption slots scale with text size. The Home browsing row scrolls away,
+the iOS masthead compacts after a threshold, and the native Duo rail is retained.
+TV Home refinements live at the navigation root, so Back restores them. Both Home
+search implementations have bounded results and cancellation/stale-result guards.
+Hero watchlist status still uses the existing per-item authenticated lookup; this
+pass does not claim zero network requests on every carousel selection.
+
+Validation:
+
+- Final iOS and tvOS signed simulator test builds passed:
+  `/private/tmp/lumina-home-design-ios-final.log` and
+  `/private/tmp/lumina-home-design-tvos-r8.log`.
+- Duo Closed Home workflow passed (filter changes, series/episode captions,
+  watchlist add/remove verified through the API, native search and result):
+  `/private/tmp/lumina-home-browse-ios-r8.xcresult`.
+- TV Home workflow passed (filter changes, Video-to-Home Back retaining selection,
+  concise resume captions, Home Search opening and Back dismissing its sheet):
+  `/private/tmp/lumina-home-design-tv-r8.xcresult`.
+- Duo Open reached and passed the filtering/watchlist steps, then XCTest stalled
+  waiting for animation idle around its focused search field/keyboard. The owned
+  run was stopped after repeated 60-second framework waits; it is not a passing
+  complete Open workflow. Evidence:
+  `/private/tmp/lumina-home-browse-ios-open-r8.xcresult` and
+  `/private/tmp/lumina-home-browse-ios-open-r8-search-idle.png`.
+- Focused Home Core contracts: 6 passed; Home backend contracts: 5 passed.
+  Full backend: 5,304 passed, 11 skipped. Full frontend repeat: 2,660 passed.
+  Home editing browser workflows: 13 passed, including reset to the new default
+  and persistence of an existing member order.
+- The full Core run executed 129 tests (5 fixture skips) with one live-audio timing
+  failure; that unchanged audio case passed when repeated alone. `make check`
+  stopped at a gallery observer race in the frontend suite; that file passed all
+  11 tests alone and the subsequent complete frontend run passed. The complete
+  browser release gate was not requalified in this pass.
+
+No distribution archive, deployment, or upload was performed. These simulator
+checks do not establish physical-device timing or a universal memory/CPU budget.
+
+### 2026-10-23 — Device settings and original-quality defaults
+
+This pass adds device-local video quality, audio/subtitle language, subtitle mode,
+and the existing portable caption appearance controls to native Account settings.
+The TV settings page uses an opaque, full-screen two-column layout with Lumina's
+underline selection/focus treatment; its choice and caption pages use matching
+rows. iOS retains native settings navigation. Native preferences share the app's
+UserDefaults store, including its disposable UI-test namespace.
+
+Original/Automatic sends no client bitrate or height ceiling. Playback selects
+the highest-resolution direct-compatible returned source rather than the first
+source. Administrator global/member limits and the aggregate household upload
+budget remain authoritative. New resource policies start with unlimited remote
+stream/member allowances; explicitly saved policies are preserved. This does not
+change an already deployed server's saved configuration.
+
+An initially selected external caption on progressive MP4 explicitly requests
+compatible server HLS (ADR 0031), while Matroska retains local packaging. Manual
+playback selections override device defaults. The video settings page shows the
+AVPlayer presentation resolution when available.
+
+Validation completed during implementation:
+
+- iOS and tvOS arm64 simulator build-for-testing succeeded:
+  `/private/tmp/lumina-device-settings-ios-redesign.log` and
+  `/private/tmp/lumina-device-settings-tvos-redesign-r2.log`.
+- Twelve focused Core checks passed across preference persistence/normalization,
+  source selection, playback requests and real local/HLS subtitle packaging:
+  `/private/tmp/lumina-device-settings-core-final.log` (11) and
+  `/private/tmp/lumina-device-settings-best-source-final.log` (1).
+- The source-selection regression failed against the original first-source
+  behavior and passed with ranking restored:
+  `/private/tmp/lumina-source-quality-red.log` and
+  `/private/tmp/lumina-source-quality-green.log`.
+- Focused bandwidth-policy/backend contracts: 29 passed. Full backend:
+  5,305 passed, 11 skipped. Full frontend: 2,660 passed.
+- The revised TV layout was visually reviewed from the simulator:
+  `/private/tmp/lumina-tv-device-settings-redesign-live.png`.
+
+Physical Apple TV 4K/HDR output and receiver output are not established by these
+simulator and request-policy checks. No distribution archive, upload or production
+deployment was performed in this pass.
+
+The first TV interaction run caught a real nested-Back bug: Menu from Caption
+Appearance dismissed the entire settings cover. Settings now owns one typed
+navigation path and one Back handler (pop one route, then close at root), with the
+underlying library Back handler disabled while covered. The corrected TV build
+passed: `/private/tmp/lumina-device-settings-tvos-back.log`.
+
+The full `make check` browser phase was not green: 607 passed, 10 failed, 33 did
+not run out of 650 selected (`/tmp/lumina-playwright-tier.dQC2dq/full-report.json`).
+Its new Household Resources compact-height regression was corrected by folding
+help into existing copy; the latest-source focused desktop settings visual case
+and three HouseholdResources tests passed. Other browser failures include a
+watch-web focus-ring assertion, CLS/a11y/theme/keyboard workflows, fixture timeouts
+and Playwright step-ID errors; they are not claimed fixed by this pass.
+
+The final TV device-settings workflow passed 1/1 (333 seconds), verifying saved
+quality/audio/subtitle/caption preferences across relaunch, caption-to-settings
+Back, and settings-to-Account Back:
+`/private/tmp/lumina-device-settings-tv-back.xcresult` and
+`/private/tmp/lumina-device-settings-tv-ui-back.log`.
+Both the initial Original-quality page and the persisted Subtitles page were
+exported and visually reviewed from that result bundle.
+
+The Duo device-settings journey was not qualified: after relaunch, XCTest stalled
+on a stale existence lookup and a long hierarchy capture; the eventual hierarchy
+contained the expected `Video quality, Up to 720p` control. The settings-only wait
+now re-queries identifiers per poll, preserving the value assertions. Standard
+phone validation is recorded separately below when available. An earlier full
+playback-settings UI journey also stopped on a non-focusable popup-label target;
+its menu helper now targets the actual native option cell, but that complete
+playback journey has not been requalified in this pass.
+
+Standard iPhone 17 / iOS 27.0 device-settings validation passed 1/1 (194 seconds),
+including relaunch persistence and iOS Caption Appearance Back:
+`/private/tmp/lumina-device-settings-iphone.xcresult` and
+`/private/tmp/lumina-device-settings-iphone.log`. Its persisted-settings screenshot
+was visually reviewed. The installed iOS 27.1 runtime offered Duo profiles only,
+so the compatible standard-phone runtime was used; this does not convert the
+incomplete Duo run into a pass.
+
+Final review also caught a redundant PlaybackInfo request when explicit stream
+choices were already present in the first request. The existing request workflow
+regression failed with two calls, then passed with one after the fix. All twelve
+focused Core checks passed together afterwards:
+`/private/tmp/lumina-device-settings-repeat-request-red.log` and
+`/private/tmp/lumina-device-settings-core-green.log`.
+
+After removing the redundant request, both final arm64 simulator builds passed:
+`/private/tmp/lumina-device-settings-ios-complete.log` and
+`/private/tmp/lumina-device-settings-tvos-complete.log`. `git diff --check` passed.
+The disposable fixture broker was stopped after all native checks completed.

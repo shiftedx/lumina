@@ -109,6 +109,10 @@ The opt-in Jellyfin-authenticated surface exposes member Requests at `/Lumina/Re
 
 The opt-in Jellyfin-authenticated surface exposes the active member's Home layout at `/Lumina/Home/layout`. It reads and updates only `UserSettings.ui_prefs.home_shelves`, the same preference used by the website; an update preserves every other UI preference. A null layout resets to the website default, while reads sanitize malformed older data against the frozen shelf catalogue. This does not make a Connected-app credential usable on `/api/settings/me` or any other browser API.
 
+## Amendment (2026-10-23): native library alphabet index
+
+Native clients may request compact, member-visible name anchors from `/Lumina/Library/alphabet` for an empty-search, ascending `SortName` video wall. Each anchor is an absolute `/Items` offset under the same view, category and filter predicate, so clients can seek one ordinary page without enumerating the full library. This additive Connected-app endpoint requires a server release that contains it; clients on an older server continue ordinary paged browsing when it is unavailable.
+
 ## Amendment (2026-10-22): native member settings and reauthentication
 
 The opt-in Jellyfin-authenticated surface exposes the caller's member settings at `/Lumina/Settings`, using the same settings service and durable preference record as the website. It has explicit, member-scoped paths for personal profile, notification, access, history, export, two-step verification and Connected-app actions; there is no generic proxy to browser `/api` routes and no server or household administration path, including for an owner.

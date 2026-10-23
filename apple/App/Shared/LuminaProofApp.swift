@@ -4,7 +4,7 @@ import LuminaCore
 @main
 @MainActor
 struct LuminaProofApp: App {
-    @State private var store = LuminaStore()
+    @State private var store = LuminaStore(playbackPreferences: NativePlaybackPreferences(defaults: LuminaPreferences.defaults))
     @State private var didRestore = false
 
     var body: some Scene {

@@ -11,8 +11,14 @@ public enum LuminaTheme {
     public static let theater = Color(red: 11 / 255, green: 11 / 255, blue: 13 / 255)
     public static let spotlight = Color(red: 240 / 255, green: 180 / 255, blue: 58 / 255)
     public static var paper: Color {
-        if UserDefaults.standard.string(forKey: "lumina.appearance") == "oled" { return .black }
+        if requestedAppearance == "oled" { return .black }
         return standardPaper
+    }
+
+    private static var requestedAppearance: String {
+        let deviceOverride = UserDefaults.standard.string(forKey: "native.appearance")
+        if let deviceOverride, deviceOverride != "account" { return deviceOverride }
+        return UserDefaults.standard.string(forKey: "lumina.appearance") ?? "system"
     }
     private static let standardPaper = dynamicColor(
         dark: (11, 11, 13),

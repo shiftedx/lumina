@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AVKit
 import LuminaCore
 
 @MainActor
@@ -8,6 +9,7 @@ struct MobileRootView: View {
     @State private var audioSession = NativeAudioSession()
     @State private var userSettings = LuminaUserSettings()
     @AppStorage("lumina.appearance") private var appearance = "dark"
+    @AppStorage("native.appearance") private var deviceAppearance = "account"
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -23,7 +25,7 @@ struct MobileRootView: View {
         .background(LuminaTheme.paper.ignoresSafeArea())
         .environment(audioSession)
         .environment(userSettings)
-        .preferredColorScheme(appearance == "system" ? nil : appearance == "light" ? .light : .dark)
+        .preferredColorScheme(effectiveAppearance == "system" ? nil : effectiveAppearance == "light" ? .light : .dark)
         .onChange(of: store.session?.accessToken) { _, token in
             if token == nil { audioSession.stop() }
         }
@@ -49,6 +51,10 @@ struct MobileRootView: View {
                 Task { await audioSession.flushCheckpoint() }
             }
         }
+    }
+
+    private var effectiveAppearance: String {
+        deviceAppearance == "account" ? appearance : deviceAppearance
     }
 }
 
@@ -233,12 +239,21 @@ private struct LibraryShellView: View {
     @Bindable var store: LuminaStore
     @State private var destination: LibraryDestination = .home
     @State private var category: LibraryCategory = .movies
+    @State private var homeLayout = LuminaHomeLayout()
+    @State private var homeFeed = LuminaHomeFeed(includesExternalSources: true)
+    @State private var homeSessionScope: MobileHomeSessionScope?
     @Environment(\.horizontalSizeClass) private var widthClass
 
     var body: some View {
         // TabView is system managed, so iPhone Duo can relocate it to the
         // appropriate edge without a second app-made sidebar duplicating it.
         destinations
+        .task(id: MobileHomeSessionScope(store.session)) {
+            let scope = MobileHomeSessionScope(store.session)
+            homeLayout.configure(session: store.session)
+            homeFeed.configure(session: store.session)
+            homeSessionScope = scope
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if widthClass == .regular {
                 NativeNowPlayingBar(store: store)
@@ -250,7 +265,11 @@ private struct LibraryShellView: View {
         TabView(selection: $destination) {
             Tab("Home", image: "LuminaNavHome", value: .home) {
                 destinationStack {
-                    HomeLibraryView(store: store)
+                    if homeSessionScope == MobileHomeSessionScope(store.session) {
+                        HomeLibraryView(store: store, homeLayout: homeLayout, feed: homeFeed)
+                    } else {
+                        ProgressView("Loading Home…")
+                    }
                 }
             }
             Tab("Library", image: "LuminaNavLibrary", value: .library) {
@@ -344,36 +363,73 @@ private struct LibraryShellView: View {
     }
 }
 
+private struct MobileHomeSessionScope: Hashable {
+    let serverURL: URL
+    let userID: String
+    let accessToken: String
+
+    init?(_ session: LuminaSession?) {
+        guard let session else { return nil }
+        serverURL = session.serverURL
+        userID = session.userID
+        accessToken = session.accessToken
+    }
+}
+
 @MainActor
 private struct HomeLibraryView: View {
     let store: LuminaStore
-    @State private var homeLayout: LuminaHomeLayout?
-    @State private var feed: LuminaHomeFeed?
+    let homeLayout: LuminaHomeLayout
+    let feed: LuminaHomeFeed
     @State private var completedInitialHomeLoad = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(NativeAudioSession.self) private var audioSession
+    @State private var category: HomeBrowseCategory = .all
+    @State private var genre: String?
+    @State private var compactHeader = false
+
+    private var refinement: HomeRefinementResult {
+        feed.refined(HomeRefinement(category: category, genre: genre), heroItems: store.featuredItems)
+    }
+
+    private func refinedItems(_ items: [MediaItem]) -> [MediaItem] {
+        // The feed result uses the same membership and genre rules for every surface.
+        feed.refined(HomeRefinement(category: category, genre: genre), heroItems: items).items
+    }
+
 
     private var shelves: [HomeShelfPreference] {
-        homeLayout?.shelves ?? HomeShelfID.allCases.map { HomeShelfPreference(id: $0, visible: true) }
+        homeLayout.shelves
     }
 
     var body: some View {
+        let snapshot = refinement
+        GeometryReader { geometry in
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                if !store.featuredItems.isEmpty {
-                    LibraryFeaturedView(store: store)
+            VStack(alignment: .leading, spacing: 24) {
+                HomeBrowsingRow(category: $category, genre: $genre, genres: snapshot.genres)
+                if !snapshot.items.isEmpty {
+                    LibraryFeaturedView(store: store, items: snapshot.items,
+                        compactMinimumHeight: min(360, max(260, geometry.size.height * 0.52)),
+                        wideMinimumHeight: min(380, max(240, geometry.size.height * 0.56)),
+                        onWatchlistChanged: { await feed.load() })
                         .padding(.horizontal, -20)
-                        .padding(.top, -20)
                 }
                 ForEach(shelves.filter(\.visible)) { shelf in
-                    homeShelf(shelf.id)
+                    homeShelf(shelf.id, rows: snapshot.rows)
+                }
+                if (category != .all || genre != nil), snapshot.items.isEmpty,
+                   !snapshot.rows.contains(where: \.hasItems), feed.hasLoaded {
+                    ContentUnavailableView("No matches on Home", systemImage: "line.3.horizontal.decrease",
+                        description: Text("Try another category or genre."))
                 }
                 if store.isHomeBusy || store.isBusy {
                     ProgressView("Loading your library…")
-                } else if store.featuredItems.isEmpty && store.errorMessage == nil && !(feed?.rows.contains(where: \.hasItems) ?? false) {
+                } else if store.featuredItems.isEmpty && store.errorMessage == nil && !feed.rows.contains(where: \.hasItems) {
                     EmptyLibraryView { Task { await store.loadHome() } }
                 }
-                if let error = feed?.errorMessage {
-                    InlineErrorView(message: error) { Task { await feed?.load() } }
+                if let error = feed.errorMessage {
+                    InlineErrorView(message: error) { Task { await feed.load() } }
                 }
                 if let message = store.errorMessage {
                     InlineErrorView(message: message) { Task { await store.loadHome() } }
@@ -384,41 +440,57 @@ private struct HomeLibraryView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollClipDisabled()
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top > 80
+        } action: { _, scrolled in compactHeader = scrolled }
+        }
+
         .background(LuminaTheme.paper)
         .toolbarVisibility(.visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             if #available(iOS 26.0, *) {
                 ToolbarItem(placement: .topBarLeading) {
-                    HomeHeroChrome().fixedSize()
+                    HomeHeroChrome(compact: compactHeader).fixedSize()
                 }
                 .sharedBackgroundVisibility(.hidden)
             } else {
                 ToolbarItem(placement: .topBarLeading) {
-                    HomeHeroChrome().fixedSize()
+                    HomeHeroChrome(compact: compactHeader).fixedSize()
                 }
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if audioSession.playback != nil { HomePlaybackRoutePicker().frame(width: 44, height: 44) }
+                if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
+                    NavigationLink {
+                        NativeMusicLibraryView(store: store, section: .downloads)
+                    } label: { Label("Downloads", systemImage: "arrow.down.circle") }
+                    .accessibilityIdentifier("homeDownloadsButton")
+                }
+                NavigationLink {
+                    HomeSearchView(store: store)
+                } label: { Label("Search", systemImage: "magnifyingglass") }
+                .accessibilityIdentifier("homeSearchButton")
             }
         }
         .accessibilityIdentifier("homeScreen")
-        .refreshable { await store.loadHome(); await homeLayout?.load(); await feed?.load() }
-        .task(id: store.session?.accessToken) {
-            guard let session = store.session else {
-                homeLayout = nil
-                feed = nil
+        .refreshable { await store.loadHome(); await homeLayout.load(); await feed.load() }
+        .task(id: MobileHomeSessionScope(store.session)) {
+            guard store.session != nil else {
                 completedInitialHomeLoad = false
                 return
             }
-            completedInitialHomeLoad = false
-            let layout = LuminaHomeLayout(session: session)
-            homeLayout = layout
-            let homeFeed = LuminaHomeFeed(session: session, includesExternalSources: true)
-            feed = homeFeed
-            async let savedLayout: Void = layout.load()
-            async let rows: Void = homeFeed.load()
-            _ = await (savedLayout, rows)
+            let needsInitialLibraryLoad = !homeLayout.hasLoaded || !feed.hasLoaded
+            async let savedLayout: Void = homeLayout.load()
+            async let rows: Void = feed.load()
+            if needsInitialLibraryLoad, store.recentItems.isEmpty {
+                async let library: Void = store.loadHome()
+                _ = await (savedLayout, rows, library)
+            } else {
+                _ = await (savedLayout, rows)
+            }
             guard !Task.isCancelled else { return }
             completedInitialHomeLoad = true
-            if store.recentItems.isEmpty { await store.loadHome() }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { refreshHomeRowsAfterInitialLoad() }
@@ -427,7 +499,7 @@ private struct HomeLibraryView: View {
     }
 
     private func refreshHomeRowsAfterInitialLoad() {
-        guard completedInitialHomeLoad, let homeLayout, let feed else { return }
+        guard completedInitialHomeLoad else { return }
         Task {
             async let layout: Void = homeLayout.load()
             async let rows: Void = feed.load()
@@ -436,10 +508,10 @@ private struct HomeLibraryView: View {
     }
 
     @ViewBuilder
-    private func homeShelf(_ id: HomeShelfID) -> some View {
+    private func homeShelf(_ id: HomeShelfID, rows: [HomeFeedRow]) -> some View {
         Group {
-            if let feed, feed.hasLoaded {
-                ForEach(feed.rows.filter { $0.shelfID == id }) { row in
+            if feed.hasLoaded {
+                ForEach(rows.filter { $0.shelfID == id }) { row in
                     if !row.items.isEmpty {
                     MediaRail(title: row.title, items: row.items, store: store,
                               identifierPrefix: id == .continueWatching ? "resumeItem" : id == .nextUp ? "nextUpItem" : id == .newInLibrary ? "recentItem" : "homeRow-\(row.id)",
@@ -451,15 +523,15 @@ private struct HomeLibraryView: View {
             switch id.rawValue {
             case "continue":
                 if !store.resumeItems.isEmpty {
-                    MediaRail(title: id.title, items: store.resumeItems, store: store, identifierPrefix: "resumeItem", wide: false)
+                    MediaRail(title: id.title, items: refinedItems(store.resumeItems), store: store, identifierPrefix: "resumeItem", wide: false)
                 }
             case "next_up":
                 if !store.nextUpItems.isEmpty {
-                    MediaRail(title: id.title, items: store.nextUpItems, store: store, identifierPrefix: "nextUpItem", wide: false)
+                    MediaRail(title: id.title, items: refinedItems(store.nextUpItems), store: store, identifierPrefix: "nextUpItem", wide: false)
                 }
             case "new_in_library":
                 if !store.recentItems.isEmpty {
-                    MediaRail(title: id.title, items: store.recentItems, store: store, identifierPrefix: "recentItem", wide: false)
+                    MediaRail(title: id.title, items: refinedItems(store.recentItems), store: store, identifierPrefix: "recentItem", wide: false)
                 }
             default: EmptyView()
             }
@@ -471,6 +543,78 @@ private struct HomeLibraryView: View {
 }
 
 @MainActor
+private struct HomePlaybackRoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.tintColor = UIColor(LuminaTheme.ink)
+        picker.activeTintColor = UIColor(LuminaTheme.gold)
+        return picker
+    }
+    func updateUIView(_ view: AVRoutePickerView, context: Context) { }
+}
+
+@MainActor
+private struct HomeSearchView: View {
+    let store: LuminaStore
+    @State private var query = ""
+    @State private var searchPresented = true
+    @State private var results: [MediaItem] = []
+    @State private var loading = false
+    @State private var message: String?
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                if loading { ProgressView("Searching…").frame(maxWidth: .infinity) }
+                if let message { Text(message).foregroundStyle(.secondary) }
+                if results.isEmpty, !loading {
+                    ContentUnavailableView(query.isEmpty ? "Search your library" : "No results",
+                        systemImage: "magnifyingglass",
+                        description: Text(query.isEmpty ? "Find films, shows, episodes, and music." : "Try another title."))
+                }
+                ForEach(results) { item in
+                    NavigationLink(value: item) {
+                        HStack(spacing: 16) {
+                            ArtworkView(url: store.imageURL(for: item), name: item.name)
+                                .frame(width: 64, height: 96).clipped()
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.name).font(.headline)
+                                if !item.displaySubtitle.isEmpty {
+                                    Text(item.displaySubtitle).font(.subheadline).foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("homeSearchResult-\(item.id)")
+                }
+            }.padding(20)
+        }
+        .background(LuminaTheme.paper)
+        .navigationTitle("Search")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $query, isPresented: $searchPresented, prompt: "Films, shows, and music")
+        .accessibilityIdentifier("homeSearchScreen")
+        .task(id: query.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            results = []; message = nil
+            guard !term.isEmpty else { loading = false; return }
+            loading = true
+            do {
+                try await Task.sleep(for: .milliseconds(300))
+                let found = try await store.searchHome(query: term)
+                try Task.checkCancellation()
+                results = found; loading = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                message = "Search could not finish. Try again."; loading = false
+            }
+        }
+    }
+}
+
 private struct HomeExternalRail: View {
     let row: HomeFeedRow
 
@@ -649,6 +793,8 @@ private struct NativeHomeLayoutEditor: View {
 
 @MainActor
 private struct HomeHeroChrome: View {
+    var compact = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -659,9 +805,11 @@ private struct HomeHeroChrome: View {
                         // include the rounded stroke's lower edge.
                         dimensions.height * 31 / 34 + dimensions.width * 1.5 / 56
                     }
-                Text("LUMINA")
-                    .font(.caption.weight(.black))
-                    .tracking(1.8)
+                if !compact {
+                    Text("LUMINA")
+                        .font(.caption.weight(.black))
+                        .tracking(1.8)
+                }
             }
             .foregroundStyle(LuminaTheme.ink)
             .accessibilityElement(children: .combine)
@@ -684,160 +832,293 @@ private struct VideoLibraryView: View {
     @State private var filtersVisible = false
     @State private var scrollPhase: ScrollPhase = .idle
     @State private var pullIntent: PullIntent = .none
+    @State private var alphabetRailVisible = false
+    @State private var selectedAlphabetAnchor: LibraryAlphabetAnchor?
+    @State private var alphabetJumpTask: Task<Void, Never>?
+    @State private var alphabetRailDismissTask: Task<Void, Never>?
+    @State private var alphabetJumpID = UUID()
+    @State private var alphabetAnchorsScopeKey: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private enum PullIntent { case none, search, refresh }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if searchVisible {
-                    HStack(spacing: 0) {
-                        LibrarySearchBar(text: $searchText, onSubmit: search)
-                            .frame(maxWidth: .infinity)
-                        Button("Cancel") {
-                            searchText = ""
-                            searchVisible = false
-                        }
-                        .buttonStyle(.plain)
-                        .font(.body)
-                    }
-                    .frame(height: 56)
-                }
-
-                if store.isBusy && store.items.isEmpty {
-                    LibraryLoadingView()
-                } else if store.items.isEmpty {
-                    if let message = store.errorMessage, !message.isEmpty {
-                        InlineErrorView(message: message) {
-                            refresh()
-                        }
-                    } else if !searchText.isEmpty {
-                        ContentUnavailableView.search(text: searchText)
-                    } else if kind != .all || filters != VideoFilters() {
-                        ContentUnavailableView("No matching video", systemImage: "film", description: Text("Try another video type or clear your filters."))
-                    } else {
-                        EmptyLibraryView {
-                            refresh()
-                        }
-                    }
-                } else {
-                    if store.isBusy {
-                        ProgressView("Refreshing…")
-                            .font(.footnote)
-                            .tint(LuminaTheme.gold)
-                    }
-
-                    if let message = store.errorMessage, !message.isEmpty {
-                        InlineErrorView(message: message) {
-                            refresh()
-                        }
-                    }
-
-                    if !store.items.isEmpty {
-                        VideoPosterWall(items: store.items, store: store)
-                    }
-
-                    if store.hasMore {
-                        Button {
-                            Task { await store.loadMore() }
-                        } label: {
-                            HStack(spacing: 8) {
-                                if store.isBusy {
-                                    ProgressView()
-                                }
-                                Text("Load more")
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if searchVisible {
+                        HStack(spacing: 0) {
+                            LibrarySearchBar(text: $searchText, onSubmit: search)
+                                .frame(maxWidth: .infinity)
+                            Button("Cancel") {
+                                searchText = ""
+                                searchVisible = false
                             }
-                            .frame(maxWidth: .infinity)
+                            .buttonStyle(.plain)
+                            .font(.body)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                        .disabled(store.isBusy)
+                        .frame(height: 56)
+                    }
+
+                    if store.isBusy && store.items.isEmpty {
+                        LibraryLoadingView()
+                    } else if store.items.isEmpty {
+                        if let message = store.errorMessage, !message.isEmpty {
+                            InlineErrorView(message: message) {
+                                refresh()
+                            }
+                        } else if !searchText.isEmpty {
+                            ContentUnavailableView.search(text: searchText)
+                        } else if kind != .all || filters != VideoFilters() {
+                            ContentUnavailableView("No matching video", systemImage: "film", description: Text("Try another video type or clear your filters."))
+                        } else {
+                            EmptyLibraryView {
+                                refresh()
+                            }
+                        }
+                    } else {
+                        if store.isBusy {
+                            ProgressView("Refreshing…")
+                                .font(.footnote)
+                                .tint(LuminaTheme.gold)
+                        }
+
+                        if let message = store.errorMessage, !message.isEmpty {
+                            InlineErrorView(message: message) {
+                                refresh()
+                            }
+                        }
+
+                        if !store.items.isEmpty {
+                            VideoPosterWall(items: store.items, store: store)
+                        }
+
+                        if store.hasMore {
+                            Button {
+                                Task { await store.loadMore() }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    if store.isBusy {
+                                        ProgressView()
+                                    }
+                                    Text("Load more")
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .disabled(store.isBusy)
+                        }
                     }
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 28)
+                .frame(maxWidth: 1200)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 28)
-            .frame(maxWidth: 1200)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background(LuminaTheme.paper)
-        .accessibilityIdentifier("libraryScreen")
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .onScrollGeometryChange(for: PullIntent.self) { geometry in
-            guard scrollPhase == .interacting else { return .none }
-            let distance = -(geometry.contentOffset.y + geometry.contentInsets.top)
-            if distance >= 80 { return .refresh }
-            return distance >= 12 ? .search : .none
-        } action: { _, intent in
-            pullIntent = intent
-        }
-        .onScrollPhaseChange { previous, phase in
-            let intent = pullIntent
-            scrollPhase = phase
-            guard previous == .interacting else { return }
-            pullIntent = .none
-            // Commit on release so revealing search never moves the refresh target mid-drag.
-            switch intent {
-            case .search:
+            .overlay(alignment: .trailing) {
+                if isAlphabetRailAvailable && alphabetRailVisible && !usesAlphabetMenu {
+                    VideoAlphabetRail(
+                        anchors: store.libraryAlphabet,
+                        selectedAnchor: $selectedAlphabetAnchor,
+                        onInteraction: cancelAlphabetRailDismiss,
+                        onCommit: { jump(to: $0, using: scrollProxy) }
+                    )
+                    .padding(.trailing, 6)
+                    .transition(.opacity)
+                    .accessibilityHidden(true)
+                }
+            }
+            .background(LuminaTheme.paper)
+            .accessibilityIdentifier("libraryScreen")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .onScrollGeometryChange(for: PullIntent.self) { geometry in
+                guard scrollPhase == .interacting else { return .none }
+                let distance = -(geometry.contentOffset.y + geometry.contentInsets.top)
+                if distance >= 80 { return .refresh }
+                return distance >= 12 ? .search : .none
+            } action: { _, intent in
+                pullIntent = intent
+            }
+            .onScrollPhaseChange { previous, phase, context in
+                let intent = pullIntent
+                scrollPhase = phase
+                if previous == .interacting, isAlphabetRailAvailable, abs(context.velocity?.dy ?? 0) >= 700 {
+                    revealAlphabetRail()
+                }
+                guard previous == .interacting else { return }
+                pullIntent = .none
+                // Commit on release so revealing search never moves the refresh target mid-drag.
+                switch intent {
+                case .search:
+                    searchVisible = true
+                case .refresh:
+                    if searchText.isEmpty { searchVisible = false }
+                    refresh()
+                case .none:
+                    break
+                }
+            }
+            .accessibilityAction(named: "Search video") {
                 searchVisible = true
-            case .refresh:
-                if searchText.isEmpty { searchVisible = false }
-                refresh()
-            case .none:
-                break
             }
-        }
-        .accessibilityAction(named: "Search video") {
-            searchVisible = true
-        }
-        .accessibilityAction(named: "Refresh library", refresh)
-        .onChange(of: searchText) {
-            if searchText.isEmpty { search() }
-        }
-        .onChange(of: kind) { search() }
-        .onChange(of: sort) { search() }
-        .onChange(of: filters) { search() }
-        .sheet(isPresented: $filtersVisible) {
-            VideoFilterSheet(filters: $filters)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Search video", systemImage: "magnifyingglass") { searchVisible = true }
-                    .accessibilityIdentifier("videoSearchButton")
+            .accessibilityAction(named: "Refresh library", refresh)
+            .onChange(of: searchText) { _, text in
+                resetAlphabetNavigation()
+                if text.isEmpty { search() }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Sort: \(sort.label)", selection: $sort) {
-                        ForEach(VideoSort.allCases, id: \.self) { sort in Text(sort.label).tag(sort) }
-                    }
-                    .pickerStyle(.menu)
-                    .accessibilityIdentifier("videoSortPicker")
-                    .accessibilityValue(sort.label)
-
-                    Divider()
-                    Button("Filters", systemImage: filters == VideoFilters() ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill") {
-                        filtersVisible = true
-                    }
-                    .accessibilityIdentifier("videoFiltersButton")
-                    .accessibilityValue(filters == VideoFilters() ? "No filters" : filterSummary)
-
-                    if filters != VideoFilters() {
-                        Button("Clear filters", systemImage: "xmark.circle") { filters = VideoFilters() }
-                            .accessibilityIdentifier("videoClearFiltersButton")
-                    }
-                } label: {
-                    Label("Video options, \(optionsAccessibilityValue)", systemImage: "ellipsis.circle")
-                        .labelStyle(.iconOnly)
+            .onChange(of: kind) { resetAlphabetNavigation(); search() }
+            .onChange(of: sort) { resetAlphabetNavigation(); search() }
+            .onChange(of: filters) { resetAlphabetNavigation(); search() }
+            .onDisappear {
+                alphabetJumpTask?.cancel()
+                alphabetRailDismissTask?.cancel()
+            }
+            .sheet(isPresented: $filtersVisible) {
+                VideoFilterSheet(filters: $filters)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Search video", systemImage: "magnifyingglass") { searchVisible = true }
+                        .accessibilityIdentifier("videoSearchButton")
                 }
-                .accessibilityIdentifier("videoOptionsMenu")
-                .accessibilityValue(optionsAccessibilityValue)
+                if isAlphabetRailAvailable {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        alphabetMenu(using: scrollProxy)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Picker("Sort: \(sort.label)", selection: $sort) {
+                            ForEach(VideoSort.allCases, id: \.self) { sort in Text(sort.label).tag(sort) }
+                        }
+                        .pickerStyle(.menu)
+                        .accessibilityIdentifier("videoSortPicker")
+                        .accessibilityValue(sort.label)
+
+                        Divider()
+                        Button("Filters", systemImage: filters == VideoFilters() ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill") {
+                            filtersVisible = true
+                        }
+                        .accessibilityIdentifier("videoFiltersButton")
+                        .accessibilityValue(filters == VideoFilters() ? "No filters" : filterSummary)
+
+                        if filters != VideoFilters() {
+                            Button("Clear filters", systemImage: "xmark.circle") { filters = VideoFilters() }
+                                .accessibilityIdentifier("videoClearFiltersButton")
+                        }
+                    } label: {
+                        Label("Video options, \(optionsAccessibilityValue)", systemImage: "ellipsis.circle")
+                            .labelStyle(.iconOnly)
+                    }
+                    .accessibilityIdentifier("videoOptionsMenu")
+                    .accessibilityValue(optionsAccessibilityValue)
+                }
+            }
+            .task {
+                await loadInitialContent()
             }
         }
-        .task {
-            await loadInitialContent()
+    }
+
+    private var isAlphabetRailAvailable: Bool {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && sort == .name
+            && [.movies, .shows, .anime].contains(kind)
+            && alphabetAnchorsScopeKey == alphabetScopeKey
+            && store.supportsLibraryAlphabet
+            && !store.libraryAlphabet.isEmpty
+    }
+
+    private var alphabetScopeKey: String {
+        [
+            kind.rawValue,
+            sort.rawValue,
+            searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+            filters.genre,
+            filters.year.map(String.init) ?? "",
+            String(filters.unwatchedOnly),
+            String(filters.favoritesOnly),
+        ].joined(separator: "\u{1F}")
+    }
+
+    private var usesAlphabetMenu: Bool {
+        voiceOver || dynamicTypeSize.isAccessibilitySize
+    }
+
+    @ViewBuilder
+    private func alphabetMenu(using scrollProxy: ScrollViewProxy) -> some View {
+        Menu {
+            ForEach(store.libraryAlphabet) { anchor in
+                Button(anchor.letter) {
+                    jump(to: anchor, using: scrollProxy)
+                }
+            }
+        } label: {
+            Label("Browse alphabet", systemImage: "textformat.abc")
+                .labelStyle(.iconOnly)
+        }
+        .accessibilityIdentifier("videoAlphabetButton")
+        .accessibilityLabel("Browse library alphabet")
+        .accessibilityValue(selectedAlphabetAnchor?.letter ?? "")
+    }
+
+    private func revealAlphabetRail() {
+        guard isAlphabetRailAvailable, !usesAlphabetMenu else { return }
+        alphabetRailVisible = true
+        scheduleAlphabetRailDismiss()
+    }
+
+    private func scheduleAlphabetRailDismiss() {
+        alphabetRailDismissTask?.cancel()
+        alphabetRailDismissTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            alphabetRailVisible = false
+        }
+    }
+
+    private func cancelAlphabetRailDismiss() {
+        alphabetRailDismissTask?.cancel()
+        alphabetRailDismissTask = nil
+    }
+
+    private func resetAlphabetNavigation() {
+        alphabetJumpTask?.cancel()
+        alphabetJumpTask = nil
+        cancelAlphabetRailDismiss()
+        alphabetRailVisible = false
+        selectedAlphabetAnchor = nil
+        alphabetJumpID = UUID()
+        alphabetAnchorsScopeKey = nil
+    }
+
+    private func jump(to anchor: LibraryAlphabetAnchor, using scrollProxy: ScrollViewProxy) {
+        guard isAlphabetRailAvailable else { return }
+        alphabetJumpTask?.cancel()
+        let jumpID = UUID()
+        alphabetJumpID = jumpID
+        selectedAlphabetAnchor = anchor
+        alphabetRailVisible = false
+
+        alphabetJumpTask = Task {
+            guard let firstItemID = await store.jumpLibrary(to: anchor), !Task.isCancelled, alphabetJumpID == jumpID else { return }
+            // The page replacement publishes on the main actor. Yield once so the
+            // lazy wall has installed the returned item's scroll target.
+            await Task.yield()
+            guard !Task.isCancelled, alphabetJumpID == jumpID else { return }
+            if reduceMotion {
+                scrollProxy.scrollTo(firstItemID, anchor: .top)
+            } else {
+                withAnimation(.easeOut(duration: 0.22)) {
+                    scrollProxy.scrollTo(firstItemID, anchor: .top)
+                }
+            }
         }
     }
 
@@ -857,21 +1138,78 @@ private struct VideoLibraryView: View {
 
     private func loadInitialContent() async {
         guard store.session != nil else { return }
+        let scopeKey = alphabetScopeKey
         await store.loadLibrary(search: searchText, kind: kind, sort: sort, filters: filters)
+        guard !Task.isCancelled, scopeKey == alphabetScopeKey else { return }
+        alphabetAnchorsScopeKey = scopeKey
     }
 
     private func search() {
         store.clearError()
+        let scopeKey = alphabetScopeKey
         Task {
             await store.loadLibrary(search: searchText.trimmingCharacters(in: .whitespacesAndNewlines), kind: kind, sort: sort, filters: filters)
+            guard !Task.isCancelled, scopeKey == alphabetScopeKey else { return }
+            alphabetAnchorsScopeKey = scopeKey
         }
     }
 
     private func refresh() {
         store.clearError()
+        let scopeKey = alphabetScopeKey
         Task {
             await store.loadLibrary(search: searchText.trimmingCharacters(in: .whitespacesAndNewlines), kind: kind, sort: sort, filters: filters)
+            guard !Task.isCancelled, scopeKey == alphabetScopeKey else { return }
+            alphabetAnchorsScopeKey = scopeKey
         }
+    }
+}
+
+@MainActor
+private struct VideoAlphabetRail: View {
+    let anchors: [LibraryAlphabetAnchor]
+    @Binding var selectedAnchor: LibraryAlphabetAnchor?
+    let onInteraction: () -> Void
+    let onCommit: (LibraryAlphabetAnchor) -> Void
+
+    private var railHeight: CGFloat {
+        min(max(CGFloat(anchors.count) * 16 + 12, 108), 480)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                ForEach(anchors) { anchor in
+                    Text(anchor.letter)
+                        .font(.caption2.weight(selectedAnchor == anchor ? .bold : .medium))
+                        .foregroundStyle(selectedAnchor == anchor ? LuminaTheme.gold : LuminaTheme.muted)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .padding(.vertical, 6)
+            .background(.thinMaterial, in: Capsule())
+            .contentShape(Capsule())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                    .onChanged { value in
+                        onInteraction()
+                        selectedAnchor = anchor(at: value.location.y, height: proxy.size.height)
+                    }
+                    .onEnded { value in
+                        guard let anchor = anchor(at: value.location.y, height: proxy.size.height) else { return }
+                        selectedAnchor = anchor
+                        onCommit(anchor)
+                    }
+            )
+        }
+        .frame(width: 38, height: railHeight)
+    }
+
+    private func anchor(at y: CGFloat, height: CGFloat) -> LibraryAlphabetAnchor? {
+        guard !anchors.isEmpty, height > 0 else { return nil }
+        let proportion = min(max(y / height, 0), 0.999)
+        let index = min(Int(proportion * CGFloat(anchors.count)), anchors.count - 1)
+        return anchors[index]
     }
 }
 
@@ -955,20 +1293,28 @@ private struct VideoFilterSheet: View {
 private struct NativeWatchlistButton: View {
     let item: MediaItem
     let store: LuminaStore
+    var identifier = "videoWatchlistButton"
+    var onWatchlistChanged: @MainActor () async -> Void = {}
+    var onInteractionChanged: @MainActor (Bool) -> Void = { _ in }
     @State private var watchlist: LuminaWatchlist?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
                 guard let watchlist else { return }
-                Task { await watchlist.set(itemID: item.id, included: !watchlist.isIncluded) }
+                onInteractionChanged(true)
+                Task {
+                    defer { onInteractionChanged(false) }
+                    let didChange = await watchlist.set(itemID: item.id, included: !watchlist.isIncluded)
+                    if didChange { await onWatchlistChanged() }
+                }
             } label: {
                 Label(watchlist?.isIncluded == true ? "In watchlist" : "Add to watchlist",
                       systemImage: watchlist?.isIncluded == true ? "checkmark" : "plus")
             }
             .buttonStyle(LuminaMediaActionStyle())
             .disabled(watchlist == nil || watchlist?.isLoading == true || watchlist?.isSaving == true || watchlist?.errorMessage != nil)
-            .accessibilityIdentifier("videoWatchlistButton")
+            .accessibilityIdentifier(identifier)
             .accessibilityValue(watchlist?.isIncluded == true ? "In watchlist" : "Not in watchlist")
             .accessibilityHint(watchlist?.isIncluded == true ? "Remove from your watchlist" : "Save to your watchlist")
 
@@ -1578,33 +1924,48 @@ private struct LibrarySearchBar: UIViewRepresentable {
 @MainActor
 private struct LibraryFeaturedView: View {
     let store: LuminaStore
+    var items: [MediaItem]? = nil
+    var compactMinimumHeight: CGFloat? = 320
+    var wideMinimumHeight: CGFloat? = 360
+    var onWatchlistChanged: @MainActor () async -> Void = {}
 
     @State private var request: PlaybackRequest?
     @State private var preparing = false
     @State private var playbackError: String?
     @State private var detailItem: MediaItem?
+    @State private var heroIsVisible = true
+    @State private var watchlistIsBusy = false
 
     var body: some View {
         FeaturedShelf(
-            items: store.featuredItems,
+            items: items ?? store.featuredItems,
             store: store,
-            isInteracting: preparing || request != nil,
+            isInteracting: preparing || request != nil || watchlistIsBusy || !heroIsVisible,
             showsOverview: false,
             showsContext: false,
             showsMetadata: false,
             showsProgress: false,
-            compactMinimumHeight: 360,
-            wideMinimumHeight: 480,
+            compactMinimumHeight: compactMinimumHeight,
+            wideMinimumHeight: wideMinimumHeight,
             onOpen: { detailItem = $0 }
         ) { item in
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { actions(for: item) }
-                VStack(alignment: .leading, spacing: 12) { actions(for: item) }
+            VStack(alignment: .leading, spacing: 12) {
+                if let context = context(for: item) {
+                    Text(context)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .lineLimit(1)
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) { heroActionButtons(for: item) }
+                    VStack(alignment: .leading, spacing: 12) { heroActionButtons(for: item) }
+                }
             }
             if let playbackError {
                 Text(playbackError).font(.callout)
             }
         }
+        .onScrollVisibilityChange(threshold: 0.2) { heroIsVisible = $0 }
         .fullScreenCover(item: $request, onDismiss: {
             Task { await store.refresh() }
         }) { request in
@@ -1616,7 +1977,7 @@ private struct LibraryFeaturedView: View {
         }
     }
 
-    @ViewBuilder private func actions(for item: MediaItem) -> some View {
+    @ViewBuilder private func heroActionButtons(for item: MediaItem) -> some View {
         Button {
             guard !preparing else { return }
             preparing = true
@@ -1624,20 +1985,31 @@ private struct LibraryFeaturedView: View {
             Task {
                 defer { preparing = false }
                 do { request = try await store.preparePlayback(for: item) }
-                catch { playbackError = "Playback could not start. Open Details to try compatible video." }
+                catch { playbackError = "Playback could not start. Try again." }
             }
         } label: {
-            Label(preparing ? "Preparing…" : "Play", systemImage: "play.fill")
+            Label(preparing ? "Preparing…" : item.resumeSeconds > 0 ? "Resume" : "Play", systemImage: "play.fill")
         }
         .buttonStyle(LuminaMediaActionStyle(primary: true))
         .disabled(preparing)
         .accessibilityIdentifier("featuredPlayButton")
 
-        Button { detailItem = item } label: {
-            Label("Details", systemImage: "arrow.right")
+        NativeWatchlistButton(
+            item: item,
+            store: store,
+            identifier: "featuredWatchlistButton",
+            onWatchlistChanged: onWatchlistChanged,
+            onInteractionChanged: { watchlistIsBusy = $0 }
+        )
+    }
+
+    private func context(for item: MediaItem) -> String? {
+        if item.resumeSeconds > 0, item.durationSeconds > item.resumeSeconds {
+            return Duration.seconds(item.durationSeconds - item.resumeSeconds)
+                .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)) + " remaining"
         }
-        .buttonStyle(LuminaMediaActionStyle())
-        .accessibilityIdentifier("featuredDetailsButton")
+        guard item.type == "Episode" else { return nil }
+        return item.displaySubtitle.isEmpty ? "Episode" : item.displaySubtitle
     }
 }
 
@@ -1696,6 +2068,7 @@ private struct VideoPosterWall: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(mediaAccessibilityLabel(for: item))
         .accessibilityIdentifier("libraryItem-\(item.id)")
+        .id(item.id)
         .onAppear {
             if store.hasMore && item.id == items.suffix(6).first?.id {
                 Task { await store.loadMore() }
@@ -1722,6 +2095,10 @@ private struct MediaRail: View {
     @ScaledMetric(relativeTo: .body) private var posterWidth: CGFloat = 132
     @ScaledMetric(relativeTo: .body) private var stillWidth: CGFloat = 276
 
+    private var captionPresentation: HomeRailCaptionPresentation {
+        HomeRailCaptionPresentation(identifierPrefix: identifierPrefix)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
@@ -1738,20 +2115,16 @@ private struct MediaRail: View {
                                 imageURL: wide ? store.backdropURL(for: item, maxWidth: 760) ?? store.imageURL(for: item) : store.posterURL(for: item),
                                 identifierPrefix: identifierPrefix,
                                 wide: wide,
+                                captionPresentation: captionPresentation,
                                 loadFraming: { await store.artworkFraming(for: $0) }
                             )
-                            .containerRelativeFrame(.horizontal) { availableWidth, _ in
-                                let square = item.isAudio || item.type.hasPrefix("Music")
-                                if square { return min(posterWidth * 1.2, availableWidth * 0.4) }
-                                if wide { return min(stillWidth, availableWidth < 600 ? min(276, availableWidth * 0.68) : availableWidth * 0.42) }
-                                return min(posterWidth, availableWidth * 0.26)
-                            }
+                            .frame(width: cardWidth(for: item), alignment: .leading)
                         }
                         .contentShape([.interaction, .accessibility], Rectangle())
                         .buttonStyle(.plain)
                         .accessibilityElement(children: .ignore)
                         .accessibilityAddTraits(.isButton)
-                        .accessibilityLabel(mediaAccessibilityLabel(for: item))
+                        .accessibilityLabel(mediaAccessibilityLabel(for: item, presentation: captionPresentation))
                         .accessibilityIdentifier("\(identifierPrefix)-\(item.id)")
                     }
                 }
@@ -1760,6 +2133,11 @@ private struct MediaRail: View {
             }
             .scrollTargetBehavior(.viewAligned)
         }
+    }
+
+    private func cardWidth(for item: MediaItem) -> CGFloat {
+        if item.isAudio || item.type.hasPrefix("Music") { return posterWidth * 1.2 }
+        return wide ? stillWidth : posterWidth
     }
 }
 
@@ -1770,8 +2148,15 @@ private struct MediaCard: View {
     let identifierPrefix: String
     var wide = false
     var showsCaption = true
+    var captionPresentation: HomeRailCaptionPresentation = .standard
     var loadFraming: @MainActor (URL) async -> HeroFraming? = { _ in nil }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .caption) private var titleHeight: CGFloat = 34
+    @ScaledMetric(relativeTo: .caption2) private var metadataHeight: CGFloat = 18
+
+    private var caption: HomeRailCaption {
+        HomeRailCaption(item: item, presentation: captionPresentation)
+    }
 
     var body: some View {
         let content = VStack(alignment: .leading, spacing: 6) {
@@ -1788,22 +2173,43 @@ private struct MediaCard: View {
                 }
 
             if showsCaption {
-                Text(item.name)
+                Text(caption.primary)
                     .font(.caption.weight(.semibold))
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : titleHeight, alignment: .topLeading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("\(identifierPrefix)Title-\(item.id)")
 
-                if !item.displaySubtitle.isEmpty {
-                    Text(item.displaySubtitle)
-                        .font(.caption2)
-                        .foregroundStyle(LuminaTheme.muted)
-                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-                        .truncationMode(.tail)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                Group {
+                    if let secondary = caption.secondary {
+                        Text(secondary)
+                    } else {
+                        Color.clear.accessibilityHidden(true)
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(LuminaTheme.muted)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : metadataHeight, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if captionPresentation.reservesProgressBaseline {
+                    Group {
+                        if let progress = caption.progress {
+                            Text(progress)
+                        } else {
+                            Color.clear.accessibilityHidden(true)
+                        }
+                    }
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(LuminaTheme.muted)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : metadataHeight, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -1816,6 +2222,66 @@ private struct MediaCard: View {
     private var progressFraction: Double {
         guard item.durationSeconds > 0, item.resumeSeconds > 0 else { return 0 }
         return min(max(item.resumeSeconds / item.durationSeconds, 0), 1)
+    }
+}
+
+private enum HomeRailCaptionPresentation: Equatable {
+    case standard
+    case continueWatching
+    case nextUp
+
+    init(identifierPrefix: String) {
+        switch identifierPrefix {
+        case "resumeItem": self = .continueWatching
+        case "nextUpItem": self = .nextUp
+        default: self = .standard
+        }
+    }
+
+    var reservesProgressBaseline: Bool {
+        self != .standard
+    }
+}
+
+private struct HomeRailCaption {
+    let primary: String
+    let secondary: String?
+    let progress: String?
+
+    init(item: MediaItem, presentation: HomeRailCaptionPresentation) {
+        guard presentation != .standard else {
+            primary = item.name
+            secondary = item.displaySubtitle.isEmpty ? nil : item.displaySubtitle
+            progress = nil
+            return
+        }
+
+        let episodeLabel = Self.episodeLabel(for: item)
+        primary = item.type == "Episode" ? item.seriesName ?? item.name : item.name
+        secondary = episodeLabel ?? (item.displaySubtitle.isEmpty ? nil : item.displaySubtitle)
+
+        if item.resumeSeconds > 0, item.durationSeconds > item.resumeSeconds {
+            let remaining = Duration.seconds(item.durationSeconds - item.resumeSeconds)
+                .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+            progress = "\(remaining) remaining"
+        } else if presentation == .nextUp, item.type == "Episode" {
+            progress = "Next episode"
+        } else {
+            progress = nil
+        }
+    }
+
+    private static func episodeLabel(for item: MediaItem) -> String? {
+        guard item.type == "Episode" else { return nil }
+        let number: String? = switch (item.parentIndexNumber, item.indexNumber) {
+        case let (.some(season), .some(episode)): "S\(season) · E\(episode)"
+        default: nil
+        }
+        return [number, item.name].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    var accessibilityLabel: String {
+        [primary, secondary, progress].compactMap { $0 }.joined(separator: ", ")
     }
 }
 
@@ -2191,13 +2657,14 @@ private struct InlineErrorView: View {
     }
 }
 
-private func mediaAccessibilityLabel(for item: MediaItem) -> String {
-    var parts = [item.name]
-    if !item.displaySubtitle.isEmpty {
-        parts.append(item.displaySubtitle)
-    }
-    if item.resumeSeconds > 0 {
+private func mediaAccessibilityLabel(
+    for item: MediaItem,
+    presentation: HomeRailCaptionPresentation = .standard
+) -> String {
+    let caption = HomeRailCaption(item: item, presentation: presentation)
+    var parts = [caption.accessibilityLabel]
+    if item.resumeSeconds > 0, presentation == .standard {
         parts.append(item.durationSeconds > item.resumeSeconds ? "in progress" : "played")
     }
-    return parts.joined(separator: ", ")
+    return parts.filter { !$0.isEmpty }.joined(separator: ", ")
 }

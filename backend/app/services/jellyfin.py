@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Integer, and_, bindparam, cast, false, func, literal, literal_column, or_, select, true
+from sqlalchemy import Integer, and_, bindparam, case, cast, false, func, literal, literal_column, or_, select, true
 from sqlalchemy.dialects import sqlite
 from sqlalchemy.orm import Session, aliased, defer
 from sqlalchemy.sql import operators, visitors
@@ -759,6 +759,42 @@ class JellyfinMapper:
         rows = self.db.execute(stmt.add_columns(func.count().over()).order_by(*self.order(q, parent)).offset(start).limit(limit)).all()
         total = rows[0][1] if rows else self.db.scalar(select(func.count()).select_from(stmt.subquery()))
         return query_result(self.title_dtos([row[0] for row in rows]), total, start)
+
+    def alphabet(self, q: ItemsQuery) -> dict:
+        """Compact A–Z anchors for one visible, name-sorted title listing.
+
+        The connected-app Library extension uses this instead of materializing every
+        title in a large catalog.  The anchor indexes are absolute positions in the
+        same filtered /Items ordering, so a client can request its normal 50-item
+        page at that StartIndex and keep regular offset pagination afterwards.
+        """
+        parent = resolve(self.db, self.user, q.parentid) if q.parentid else None
+        if q.parentid and parent is None:
+            raise LookupError("parent")
+        if parent is None and not q.recursive:
+            return {"anchors": [], "total": 0}
+        if parent is not None and (parent.item is not None or parent.channel is not None or parent.view == "channels"):
+            return {"anchors": [], "total": 0}
+        stmt = self.title_filter(parent, q)
+        if stmt is None:
+            return {"anchors": [], "total": 0}
+
+        # The window stays in SQLite: only at most 27 grouped anchor rows cross
+        # into Python.  Its order is exactly `order(q, parent)` for the supported
+        # ascending SortName mode (including the id tie-breaker).
+        initial = func.upper(func.substr(func.coalesce(MediaTitle.sort_name, MediaTitle.name), 1, 1))
+        bucket = case((and_(initial >= "A", initial <= "Z"), initial), else_="#").label("letter")
+        position = func.row_number().over(order_by=self.order(q, parent)).label("position")
+        ranked = stmt.with_only_columns(bucket, position).subquery()
+        first = func.min(ranked.c.position).label("first")
+        rows = self.db.execute(
+            select(ranked.c.letter, first).group_by(ranked.c.letter).order_by(first)
+        ).all()
+        total = self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+        return {
+            "anchors": [{"letter": letter, "index": int(first_index) - 1} for letter, first_index in rows],
+            "total": total,
+        }
 
     def by_ids(self, raw_ids: list[str]) -> list[dict]:
         """Entries named by id, in request order: the titles and items the member may see."""

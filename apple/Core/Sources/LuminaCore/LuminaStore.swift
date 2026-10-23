@@ -7,12 +7,19 @@ let tickScale = 10_000_000.0
 @MainActor @Observable public final class LuminaStore {
     public private(set) var session: LuminaSession? {
         didSet {
+            if oldValue?.serverURL != session?.serverURL || oldValue?.accessToken != session?.accessToken || oldValue?.userID != session?.userID {
+                ArtworkImageCache.shared.removeAll()
+                readyArtworkFramings.removeAll()
+                readyArtworkFramingOrder.removeAll()
+            }
             music.configure(session: session)
             offline.configure(session: session)
         }
     }
     public let music = LuminaMusicLibrary()
     public let offline = LuminaOfflineLibrary()
+    /// Device-local choices applied to each native video preparation. They never mutate member settings.
+    public let playbackPreferences: NativePlaybackPreferences
     public private(set) var items = [MediaItem]()
     public private(set) var recentItems = [MediaItem]()
     public private(set) var audioItems = [MediaItem]()
@@ -24,6 +31,20 @@ let tickScale = 10_000_000.0
     public private(set) var isBusy = false
     public private(set) var errorMessage: String?
     public private(set) var hasMore = false
+    public private(set) var libraryAlphabet = [LibraryAlphabetAnchor]()
+
+    /// Alphabet seeking is available only where a server index can describe the
+    /// current complete video wall. Search, recency/year ordering, episodes and
+    /// saved-provider channels intentionally keep ordinary pagination.
+    public var supportsLibraryAlphabet: Bool {
+        guard session != nil,
+              currentSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              videoSort == .name else { return false }
+        return switch videoKind {
+        case .all, .movies, .shows, .anime: true
+        case .youtube, .episodes: false
+        }
+    }
 
     public var featuredItems: [MediaItem] {
         var seen = Set<String>()
@@ -45,17 +66,24 @@ let tickScale = 10_000_000.0
     private var audioGeneration = 0
     private var homeGeneration = 0
     private var homeTask: Task<Void, Never>?
+    private var libraryAlphabetTask: Task<Void, Never>?
     private var nextIndex = 0
     private var libraryGeneration = 0
+    private var readyArtworkFramings = [URL: HeroFraming]()
+    private var readyArtworkFramingOrder = [URL]()
+    private let maximumReadyArtworkFramings = 80
 
-    public init() {
+    public init(playbackPreferences: NativePlaybackPreferences = NativePlaybackPreferences()) {
         credentials = KeychainCredentials()
         client = LuminaClient()
+        self.playbackPreferences = playbackPreferences
     }
 
-    init(client: LuminaClient, credentials: CredentialStore) {
+    init(client: LuminaClient, credentials: CredentialStore,
+         playbackPreferences: NativePlaybackPreferences = NativePlaybackPreferences()) {
         self.client = client
         self.credentials = credentials
+        self.playbackPreferences = playbackPreferences
     }
 
     /// Loads public release artwork for the signed-out welcome screen without sending member credentials or a device ID.
@@ -119,6 +147,8 @@ let tickScale = 10_000_000.0
     private func clearSession() {
         homeTask?.cancel()
         homeTask = nil
+        libraryAlphabetTask?.cancel()
+        libraryAlphabetTask = nil
         if let session { offline.clear(session: session) }
         credentials.deleteSession()
         session = nil
@@ -138,14 +168,43 @@ let tickScale = 10_000_000.0
         videoSourceProvider = nil
         videoLuminaCategory = nil
         hasMore = false
+        libraryAlphabet = []
     }
 
     public func loadLibrary(search: String = "", kind: VideoBrowseKind = .all, sort: VideoSort = .name, filters: VideoFilters = .init()) async {
         await loadLibrary(search: search, kind: kind, sort: sort, filters: filters, clearsError: true)
     }
 
+    /// Searches the authenticated catalog without replacing the current Library
+    /// wall, its filters, pagination cursor, or alphabet anchors.
+    public func searchHome(query: String) async throws -> [MediaItem] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        guard let active = session else { throw LuminaError.notSignedIn }
+        do {
+            let page = try await client.items(
+                origin: active.serverURL,
+                token: active.accessToken,
+                deviceID: active.deviceID,
+                search: trimmed,
+                start: 0,
+                types: "Movie,Series,Episode,MusicAlbum,MusicArtist,Audio"
+            )
+            guard !Task.isCancelled, isCurrent(active) else { throw LuminaError.notSignedIn }
+            return page.items.prefix(50).map { $0 }
+        } catch {
+            if isCurrent(active), let failure = error as? LuminaError,
+               failure == .http(401) || failure == .http(403) {
+                clearSession()
+            }
+            throw error
+        }
+    }
+
     private func loadLibrary(search: String, kind: VideoBrowseKind, sort: VideoSort, filters: VideoFilters, clearsError: Bool) async {
         guard let active = session else { return }
+        libraryAlphabetTask?.cancel()
+        libraryAlphabetTask = nil
         libraryGeneration += 1
         let generation = libraryGeneration
         isBusy = true
@@ -159,9 +218,10 @@ let tickScale = 10_000_000.0
             videoParentID = nil
             videoSourceProvider = nil
             videoLuminaCategory = kind.luminaCategory
+            libraryAlphabet = []
             if kind == .shows || kind == .youtube {
                 let views = try await client.views(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
-                guard generation == libraryGeneration, isCurrent(active) else { return }
+                guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
                 videoParentID = switch kind {
                 case .shows:
                     views.items.first { $0.name == "Shows" && $0.collectionType == "tvshows" }?.id
@@ -174,12 +234,31 @@ let tickScale = 10_000_000.0
                 if kind == .youtube { videoSourceProvider = "youtube" }
             }
             let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: search, start: 0, types: kind.itemTypes, sort: sort, parentID: videoParentID, sourceProvider: videoSourceProvider, luminaCategory: videoLuminaCategory, filters: filters)
-            guard generation == libraryGeneration, isCurrent(active) else { return }
+            guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
             items = page.items.filter { ($0.isPlayable || $0.isCollection) && !$0.isAudio }
-            nextIndex = page.items.count
+            nextIndex = (page.startIndex ?? 0) + page.items.count
             hasMore = !page.items.isEmpty && nextIndex < page.total
+            if supportsLibraryAlphabet {
+                let types = kind.itemTypes
+                let parentID = videoParentID
+                let category = videoLuminaCategory
+                let alphabetClient = client
+                libraryAlphabetTask = Task { [weak self] in
+                    guard !Task.isCancelled else { return }
+                    let alphabet = try? await alphabetClient.libraryAlphabet(
+                        origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID,
+                        types: types, parentID: parentID, luminaCategory: category, filters: filters
+                    )
+                    guard !Task.isCancelled,
+                          let self,
+                          generation == self.libraryGeneration,
+                          self.isCurrent(active) else { return }
+                    self.libraryAlphabet = alphabet?.anchors ?? []
+                    self.libraryAlphabetTask = nil
+                }
+            }
         } catch {
-            guard generation == libraryGeneration, isCurrent(active) else { return }
+            guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
             errorMessage = Self.message(for: error, signingIn: false)
         }
     }
@@ -187,18 +266,51 @@ let tickScale = 10_000_000.0
     public func loadMore() async {
         guard let active = session, hasMore, !isBusy else { return }
         let generation = libraryGeneration
+        let start = nextIndex
         isBusy = true
         defer { if generation == libraryGeneration { isBusy = false } }
         do {
-            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: currentSearch, start: nextIndex, types: videoKind.itemTypes, sort: videoSort, parentID: videoParentID, sourceProvider: videoSourceProvider, luminaCategory: videoLuminaCategory, filters: videoFilters)
+            let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: currentSearch, start: start, types: videoKind.itemTypes, sort: videoSort, parentID: videoParentID, sourceProvider: videoSourceProvider, luminaCategory: videoLuminaCategory, filters: videoFilters)
             guard generation == libraryGeneration, isCurrent(active) else { return }
             let playable = page.items.filter { ($0.isPlayable || $0.isCollection) && !$0.isAudio }
             items.append(contentsOf: playable)
-            nextIndex += page.items.count
+            nextIndex = (page.startIndex ?? start) + page.items.count
             hasMore = !page.items.isEmpty && nextIndex < page.total
         } catch {
             guard generation == libraryGeneration, isCurrent(active) else { return }
             errorMessage = Self.message(for: error, signingIn: false)
+        }
+    }
+
+    /// Replaces the visible page with the first server page at an alphabet
+    /// anchor. The returned id lets a platform focus its first newly-loaded card.
+    @discardableResult
+    public func jumpLibrary(to anchor: LibraryAlphabetAnchor) async -> String? {
+        guard let active = session,
+              supportsLibraryAlphabet,
+              anchor.index >= 0,
+              libraryAlphabet.contains(anchor) else { return nil }
+        libraryGeneration += 1
+        let generation = libraryGeneration
+        isBusy = true
+        errorMessage = nil
+        defer { if generation == libraryGeneration { isBusy = false } }
+        do {
+            let page = try await client.items(
+                origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID,
+                search: currentSearch, start: anchor.index, types: videoKind.itemTypes, sort: videoSort,
+                parentID: videoParentID, sourceProvider: videoSourceProvider,
+                luminaCategory: videoLuminaCategory, filters: videoFilters
+            )
+            guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return nil }
+            items = page.items.filter { ($0.isPlayable || $0.isCollection) && !$0.isAudio }
+            nextIndex = (page.startIndex ?? anchor.index) + page.items.count
+            hasMore = !page.items.isEmpty && nextIndex < page.total
+            return items.first?.id
+        } catch {
+            guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return nil }
+            errorMessage = Self.message(for: error, signingIn: false)
+            return nil
         }
     }
 
@@ -523,9 +635,23 @@ let tickScale = 10_000_000.0
 
     public func artworkFraming(for source: URL) async -> HeroFraming? {
         guard let active = session, source.path.hasSuffix("/Images/Backdrop/0") else { return nil }
+        if let cached = readyArtworkFramings[source] { return cached }
         let result = try? await client.heroFraming(origin: active.serverURL, token: active.accessToken,
                                                   deviceID: active.deviceID, backdrop: source)
-        return isCurrent(active) ? result : nil
+        guard isCurrent(active), let result else { return nil }
+        guard result.state == "ready" else { return result }
+        cacheReadyArtworkFraming(result, for: source)
+        return result
+    }
+
+    private func cacheReadyArtworkFraming(_ framing: HeroFraming, for source: URL) {
+        if readyArtworkFramings[source] == nil {
+            readyArtworkFramingOrder.append(source)
+            if readyArtworkFramingOrder.count > maximumReadyArtworkFramings {
+                readyArtworkFramings.removeValue(forKey: readyArtworkFramingOrder.removeFirst())
+            }
+        }
+        readyArtworkFramings[source] = framing
     }
 
     public func backdropFraming(for item: MediaItem) async -> HeroFraming? {
@@ -561,7 +687,7 @@ let tickScale = 10_000_000.0
     }
 
     public func preparePlayback(for item: MediaItem, forceTranscode: Bool = false,
-                                quality: PlaybackQuality = .automatic,
+                                quality: PlaybackQuality? = nil,
                                 audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil,
                                 mediaSourceID: String? = nil, startPositionSeconds: Double? = nil) async throws -> PlaybackRequest {
         guard let active = session else { throw LuminaError.notSignedIn }
@@ -572,19 +698,53 @@ let tickScale = 10_000_000.0
         let current = try await client.item(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, id: item.id, userID: active.userID)
         guard isCurrent(active) else { throw LuminaError.notSignedIn }
         if current.isAudio { return try client.audioRequest(origin: active.serverURL, token: active.accessToken, item: current) }
+        let resolvedQuality = quality ?? playbackPreferences.quality
         let result = try await client.playbackInfo(origin: active.serverURL, token: active.accessToken,
                                                     deviceID: active.deviceID, item: current,
                                                     forceTranscode: forceTranscode,
-                                                    quality: quality,
+                                                    quality: resolvedQuality,
                                                     audioStreamIndex: audioStreamIndex,
                                                     subtitleStreamIndex: subtitleStreamIndex,
                                                     mediaSourceID: mediaSourceID,
                                                     startPositionSeconds: startPositionSeconds)
         guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        let source = try client.preferredSource(in: result, mediaSourceID: mediaSourceID)
+        let streams = try client.playbackStreams(for: source, origin: active.serverURL)
+        let preferredAudio = audioStreamIndex ?? playbackPreferences.preferredAudioStreamIndex(in: streams)
+        let preferredSubtitle = subtitleStreamIndex ?? playbackPreferences.preferredSubtitleStreamIndex(in: streams)
+        let selectedExternalSubtitle = preferredSubtitle.flatMap { index in
+            index >= 0 ? streams.first { $0.index == index && $0.hasExternalSubtitle } : nil
+        }
+        // AVFoundation cannot append a sidecar legible group to a progressive MP4. Preserve
+        // Matroska's local packaging route, but ask the server for its compatible HLS decision
+        // before handing a direct MP4 sidecar to the playback layer.
+        let isMatroska = ["mkv", "matroska"].contains((source.container ?? current.container ?? "").lowercased())
+        let requiresServerHLS = selectedExternalSubtitle != nil && source.supportsDirectPlay && !isMatroska
+        let needsSelectionRequest = (audioStreamIndex == nil && preferredAudio != nil && preferredAudio != source.defaultAudioStreamIndex)
+            || (subtitleStreamIndex == nil && preferredSubtitle != nil && preferredSubtitle != source.defaultSubtitleStreamIndex)
+            || requiresServerHLS
+
+        if needsSelectionRequest {
+            let selected = try await client.playbackInfo(origin: active.serverURL, token: active.accessToken,
+                                                          deviceID: active.deviceID, item: current,
+                                                          forceTranscode: forceTranscode || requiresServerHLS,
+                                                          quality: resolvedQuality,
+                                                          audioStreamIndex: preferredAudio,
+                                                          subtitleStreamIndex: preferredSubtitle,
+                                                          mediaSourceID: source.id,
+                                                          startPositionSeconds: startPositionSeconds)
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            let request = try client.playbackRequest(origin: active.serverURL, token: active.accessToken, item: current,
+                                                      result: selected, quality: resolvedQuality,
+                                                      audioStreamIndex: preferredAudio, subtitleStreamIndex: preferredSubtitle,
+                                                      mediaSourceID: source.id, startPositionSeconds: startPositionSeconds)
+            guard !requiresServerHLS || request.isTranscoding else { throw LuminaError.malformedResponse }
+            return request
+        }
         return try client.playbackRequest(origin: active.serverURL, token: active.accessToken, item: current,
-                                          result: result, subtitleStreamIndex: subtitleStreamIndex,
-                                          mediaSourceID: mediaSourceID,
-                                          startPositionSeconds: startPositionSeconds)
+                                          result: result, quality: resolvedQuality,
+                                          audioStreamIndex: preferredAudio, subtitleStreamIndex: preferredSubtitle,
+                                          mediaSourceID: source.id, startPositionSeconds: startPositionSeconds)
     }
 
     /// Downloads an origin-validated WebVTT sidecar to a private temporary file. The caller owns

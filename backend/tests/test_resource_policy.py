@@ -18,13 +18,24 @@ def test_owner_defaults_overrides_reset_and_authorization(api_client, db_factory
     client = api_client(user=owner, base_url="http://localhost")
     policy = client.get("/api/admin/resources").json()
     assert policy["upload_bps"] is None
+    assert policy["defaults"]["remote_stream_bps"] == 0
+    assert policy["defaults"]["remote_member_bps"] == 0
     assert policy["defaults"]["download_running"] == 1
-    assert client.put("/api/admin/resources", json={**policy, "upload_bps": 20_000_000}).status_code == 200
+    enabled = client.put("/api/admin/resources", json={**policy, "upload_bps": 20_000_000}).json()
+    assert enabled["defaults"]["remote_stream_bps"] == 0
+    assert enabled["defaults"]["remote_member_bps"] == 0
+    explicit = client.put("/api/admin/resources", json={
+        **enabled,
+        "defaults": {**enabled["defaults"], "remote_stream_bps": 8_000_000, "remote_member_bps": 10_000_000},
+    }).json()
+    assert client.get("/api/admin/resources").json()["defaults"] == explicit["defaults"]
     path = f"/api/admin/members/{member.id}/resources"
-    changed = client.put(path, json={"download_running": 3, "ai_queued": 0}).json()
-    assert changed["overrides"] == {"download_running": 3, "ai_queued": 0}
+    changed = client.put(path, json={"download_running": 3, "ai_queued": 0, "remote_stream_bps": 5_000_000, "remote_member_bps": 6_000_000}).json()
+    assert changed["overrides"] == {"download_running": 3, "ai_queued": 0, "remote_stream_bps": 5_000_000, "remote_member_bps": 6_000_000}
     assert changed["effective"]["download_running"] == 3
     assert changed["effective"]["playback_sessions"] == 2
+    assert changed["effective"]["remote_stream_bps"] == 5_000_000
+    assert changed["effective"]["remote_member_bps"] == 6_000_000
     assert client.put(path, json={"remote_member_bps": 1_000_000}).status_code == 422
     assert client.put(path, json={"download_running": -1}).status_code == 422
     assert client.put(path, json={"download_running": True}).status_code == 422

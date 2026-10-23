@@ -35,8 +35,11 @@ def playback_device(request: Request) -> str:
 
 class ResourceAllowances(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    remote_stream_bps: int = Field(default=8_000_000, ge=0, le=10_000_000_000)
-    remote_member_bps: int = Field(default=10_000_000, ge=0, le=10_000_000_000)
+    # A household upload budget protects aggregate remote delivery. Per-stream and
+    # per-member ceilings are opt-in, so a newly enabled budget does not silently
+    # downscale a source a client can play directly.
+    remote_stream_bps: int = Field(default=0, ge=0, le=10_000_000_000)
+    remote_member_bps: int = Field(default=0, ge=0, le=10_000_000_000)
     playback_sessions: int = Field(default=2, ge=0, le=1000)
     video_encodes: int = Field(default=1, ge=0, le=1000)
     download_running: int = Field(default=1, ge=0, le=1000)

@@ -85,7 +85,6 @@ private struct TVConnectionView: View {
     @State private var decodedShowcaseIDs = Set<String>()
     @State private var decodedPosterIDs = Set<String>()
     @State private var showcaseOrigin: String?
-    @State private var artworkPaused = false
     @State private var helpPresented = false
     @AppStorage("lumina.tv.lastSuccessfulServerOrigin") private var lastSuccessfulServerOrigin = ""
     @FocusState private var focusedField: Field?
@@ -257,25 +256,8 @@ private struct TVConnectionView: View {
 
             Spacer()
 
-            if canOfferArtworkPause {
-                artworkPauseButton
-            }
         }
         .focusSection()
-    }
-
-    private var artworkPauseButton: some View {
-        Button {
-            artworkPaused.toggle()
-        } label: {
-            Image(systemName: artworkPaused ? "play.fill" : "pause.fill")
-                .font(.body.weight(.semibold))
-                .frame(width: 64, height: 64)
-        }
-        .buttonStyle(LuminaQuietActionStyle(mediaOverlay: true))
-        .accessibilityLabel(artworkPaused ? "Resume artwork" : "Pause artwork")
-        .accessibilityValue(artworkPaused ? "Paused" : "Playing")
-        .accessibilityIdentifier("connectionArtworkPauseButton")
     }
 
     private var canConnect: Bool {
@@ -333,17 +315,12 @@ private struct TVConnectionView: View {
 
     private var shouldRotateArtwork: Bool {
         activeShowcaseSlides.count > 1 &&
-            !artworkPaused &&
             !reduceMotion &&
             !voiceOver &&
             scenePhase == .active &&
             displayedShowcase != nil &&
             pendingShowcase != nil &&
             isShowcaseReady(pendingShowcase)
-    }
-
-    private var canOfferArtworkPause: Bool {
-        activeShowcaseSlides.count > 1 && !reduceMotion && !voiceOver && scenePhase == .active
     }
 
     private var slideshowKey: String {
@@ -382,7 +359,6 @@ private struct TVConnectionView: View {
         displayedShowcaseID = Self.bundledShowcaseSlides[0].id
         decodedShowcaseIDs = []
         decodedPosterIDs = []
-        artworkPaused = false
     }
 
     private func artworkDecoded(_ id: String) {
@@ -622,9 +598,20 @@ private struct TVLibraryView: View {
     let onPlayback: (PlaybackRequest) -> Void
     let onSignOut: () -> Void
     @State private var destination: TVDestination = .home
-    @State private var accountPresented = false
-    @State private var licensesPresented = false
+    @State private var homeSearchPresented = false
+    @State private var downloadsPresented = false
+    @State private var homeLayout = LuminaHomeLayout()
+    @State private var homeFeed = LuminaHomeFeed()
+    @State private var homeSessionScope: TVHomeSessionScope?
+    @State private var destinationHistory = [TVDestination]()
+    @State private var homeHeroID: String?
+    @State private var homeRefinement = HomeRefinement()
+    @State private var videoBrowse = TVVideoBrowseState()
+    @State private var audioBrowse = TVAudioBrowseState()
+    @State private var deviceSettingsPresented = false
     @State private var contentFocusRequest = 0
+    @State private var restorationDestination: TVDestination?
+    @State private var restorationRequest = 0
     @FocusState private var focusedDestination: TVDestination?
     @FocusState private var focusedAccount: Bool
 
@@ -633,11 +620,37 @@ private struct TVLibraryView: View {
             Group {
                 switch destination {
                 case .home:
-                    TVHomeView(store: store, onOpen: onOpen, onPlayback: onPlayback, focusRequest: contentFocusRequest)
+                    if homeSessionScope == TVHomeSessionScope(store.session) {
+                        TVHomeView(
+                            store: store,
+                            layout: homeLayout,
+                            feed: homeFeed,
+                            heroSelection: $homeHeroID,
+                            category: $homeRefinement.category,
+                            genre: $homeRefinement.genre,
+                            onOpen: onOpen,
+                            onPlayback: onPlayback,
+                            focusRequest: contentFocusRequest
+                        )
+                    } else {
+                        ProgressView("Loading Home…")
+                    }
                 case .video:
-                    TVVideoView(store: store, onOpen: onOpen, focusRequest: contentFocusRequest)
+                    TVVideoView(
+                        store: store,
+                        onOpen: onOpen,
+                        browse: $videoBrowse,
+                        focusRequest: contentFocusRequest,
+                        restoreFocusRequest: restorationDestination == .video ? restorationRequest : nil
+                    )
                 case .audio:
-                    TVAudioView(store: store, onOpen: onOpen, focusRequest: contentFocusRequest)
+                    TVAudioView(
+                        store: store,
+                        onOpen: onOpen,
+                        browse: $audioBrowse,
+                        focusRequest: contentFocusRequest,
+                        restoreFocusRequest: restorationDestination == .audio ? restorationRequest : nil
+                    )
                 case .requests:
                     TVRequestsView(store: store, focusRequest: contentFocusRequest)
                 }
@@ -658,18 +671,65 @@ private struct TVLibraryView: View {
                 }
         }
         .background(LuminaTheme.theater.ignoresSafeArea())
+        .sheet(isPresented: $homeSearchPresented) {
+            TVHomeSearchView(store: store) { item in
+                homeSearchPresented = false
+                onOpen(item)
+            }
+        }
+        .sheet(isPresented: $downloadsPresented) {
+            NativeMusicLibraryView(store: store, section: .downloads)
+                .onExitCommand { downloadsPresented = false }
+        }
+        .fullScreenCover(isPresented: $deviceSettingsPresented) {
+            DeviceSettingsView(
+                store: store,
+                onSignOut: {
+                    deviceSettingsPresented = false
+                    Task {
+                        await store.signOut()
+                        onSignOut()
+                    }
+                },
+                onClose: {
+                    deviceSettingsPresented = false
+                }
+            )
+            .background(LuminaTheme.theater.ignoresSafeArea())
+            .preferredColorScheme(.dark)
+        }
+        .task(id: TVHomeSessionScope(store.session)) {
+            homeLayout.configure(session: store.session)
+            homeFeed.configure(session: store.session)
+            homeSessionScope = TVHomeSessionScope(store.session)
+        }
         .onExitCommand(perform: backAction)
-        .sheet(isPresented: $licensesPresented) { PlaybackLicensesView() }
     }
 
     private var backAction: (() -> Void)? {
-        guard destination != .home, isAtNavigationRoot else { return nil }
-        return { returnHome() }
+        guard !deviceSettingsPresented, isAtNavigationRoot, !destinationHistory.isEmpty else { return nil }
+        return { returnToPreviousDestination() }
     }
 
-    private func returnHome() {
-        destination = .home
-        focusedDestination = .home
+    /// Keep chronological selections, including revisited tabs. Back only pops
+    /// this trail so each press returns to the preceding browsing context.
+    private func selectDestination(_ next: TVDestination) {
+        guard next != destination else { return }
+        destinationHistory.append(destination)
+        if destinationHistory.count > 32 {
+            destinationHistory.removeFirst(destinationHistory.count - 32)
+        }
+        destination = next
+        restorationDestination = nil
+    }
+
+    private func returnToPreviousDestination() {
+        guard let previous = destinationHistory.popLast() else { return }
+        destination = previous
+        restorationDestination = previous
+        restorationRequest &+= 1
+        // A tab button should not steal the restored card's focus.
+        focusedDestination = nil
     }
 
     private var header: some View {
@@ -684,7 +744,7 @@ private struct TVLibraryView: View {
             }
             Spacer()
             ForEach(TVDestination.allCases, id: \.self) { tab in
-                Button { destination = tab } label: {
+                Button { selectDestination(tab) } label: {
                     Text(tab.title)
                         .font(.system(size: 26, weight: destination == tab ? .semibold : .regular))
                         .foregroundStyle(destination == tab || focusedDestination == tab ? LuminaTheme.ink : LuminaTheme.muted)
@@ -700,7 +760,23 @@ private struct TVLibraryView: View {
                 .accessibilityIdentifier("\(tab.rawValue)Tab")
             }
             Spacer()
-            Button { accountPresented = true } label: {
+            if destination == .home {
+                Button { homeSearchPresented = true } label: {
+                    Label("Search", systemImage: "magnifyingglass").labelStyle(.iconOnly)
+                        .frame(width: 64, height: 64)
+                }
+                .buttonStyle(LuminaUnderlineTabStyle())
+                .accessibilityIdentifier("homeSearchButton")
+                if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
+                    Button { downloadsPresented = true } label: {
+                        Label("Downloads", systemImage: "arrow.down.circle").labelStyle(.iconOnly)
+                            .frame(width: 64, height: 64)
+                    }
+                    .buttonStyle(LuminaUnderlineTabStyle())
+                    .accessibilityIdentifier("homeDownloadsButton")
+                }
+            }
+            Button { deviceSettingsPresented = true } label: {
                 Image(systemName: "person.crop.circle")
                     .font(.system(size: 28))
                     .foregroundStyle(focusedAccount ? LuminaTheme.gold : .white.opacity(0.85))
@@ -711,16 +787,6 @@ private struct TVLibraryView: View {
             .focused($focusedAccount)
             .accessibilityLabel("Account")
             .accessibilityIdentifier("accountMenuButton")
-            .confirmationDialog("Account", isPresented: $accountPresented, titleVisibility: .visible) {
-                Button("Open-source licenses") { licensesPresented = true }
-                Button("Refresh library") { Task { await store.refresh() } }
-                Button("Sign out", role: .destructive) {
-                    Task { await store.signOut(); onSignOut() }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                if let username = store.session?.username { Text(username) }
-            }
         }
     }
 }
@@ -736,25 +802,153 @@ private struct TVNavigationButtonStyle: ButtonStyle {
     }
 }
 
-private struct TVHomeView: View {
+private struct TVHomeSessionScope: Hashable {
+    let serverURL: URL
+    let userID: String
+    let accessToken: String
+
+    init?(_ session: LuminaSession?) {
+        guard let session else { return nil }
+        serverURL = session.serverURL
+        userID = session.userID
+        accessToken = session.accessToken
+    }
+}
+
+/// Keep the visible Video controls and the last focused card while another tab
+/// is selected. The destination view is recreated on a tab change, so its own
+/// `@State` would otherwise discard the person's search and place focus back
+/// in the header when they return with Menu.
+private struct TVVideoBrowseState {
+    var query = ""
+    var kind: VideoBrowseKind = .movies
+    var sort: VideoSort = .name
+    var filters = VideoFilters()
+    var focusedItemID: String?
+}
+
+/// Audio uses the same root-owned lifetime as Video. `focusedItemID` includes
+/// the featured album so Menu can return to the actual prior selection.
+private struct TVAudioBrowseState {
+    var kind: MusicBrowseKind = .albums
+    var query = ""
+    var focusedItemID: String?
+}
+
+private struct TVHomeSearchView: View {
     let store: LuminaStore
     let onOpen: (MediaItem) -> Void
-    let onPlayback: (PlaybackRequest) -> Void
-    let focusRequest: Int
-    @State private var layout: LuminaHomeLayout?
-    @State private var feed: LuminaHomeFeed?
-    @Environment(\.scenePhase) private var scenePhase
-
-    private var shelves: [HomeShelfPreference] {
-        layout?.shelves ?? HomeShelfID.allCases.map { HomeShelfPreference(id: $0, visible: true) }
-    }
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var results: [MediaItem] = []
+    @State private var loading = false
+    @State private var message: String?
+    @State private var searchTask: Task<Void, Never>?
+    @State private var searchGeneration = 0
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
-                if !store.featuredItems.isEmpty {
-                    TVFeaturedView(store: store, onOpen: onOpen, onPlayback: onPlayback, focusRequest: focusRequest)
+                HStack {
+                    TextField("Search films, shows, and music", text: $query)
+                        .focused($searchFocused)
+                        .onSubmit { search() }
+                        .accessibilityIdentifier("homeSearchField")
+                    Button("Search", systemImage: "magnifyingglass") { search() }
+                        .buttonStyle(LuminaUnderlineTabStyle())
+                    Button("Done") { dismiss() }.buttonStyle(LuminaUnderlineTabStyle())
+                }
+                if loading { ProgressView("Searching…") }
+                if let message { Text(message).foregroundStyle(LuminaTheme.muted) }
+                TVRail(title: "Results", items: results, store: store, poster: true,
+                    identifierPrefix: "homeSearchResult", onOpen: onOpen)
+            }.padding(64)
+        }
+        .background(LuminaTheme.theater)
+        .accessibilityIdentifier("homeSearchScreen")
+        .defaultFocus($searchFocused, true)
+        .onChange(of: query) { _, _ in
+            searchTask?.cancel()
+            searchGeneration += 1
+            loading = false
+            results = []
+            message = nil
+        }
+        .onDisappear { searchTask?.cancel(); searchGeneration += 1 }
+        .onExitCommand { dismiss() }
+    }
+
+    private func search() {
+        searchTask?.cancel()
+        searchGeneration += 1
+        let generation = searchGeneration
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { results = []; message = nil; return }
+        loading = true; message = nil
+        searchTask = Task {
+            do {
+                let found = try await store.searchHome(query: term)
+                guard !Task.isCancelled, generation == searchGeneration else { return }
+                results = found
+                loading = false
+                if found.isEmpty { message = "No results. Try another title." }
+            } catch {
+                guard !Task.isCancelled, generation == searchGeneration else { return }
+                loading = false
+                message = "Search could not finish. Try again."
+            }
+        }
+    }
+}
+
+private struct TVHomeView: View {
+    let store: LuminaStore
+    let layout: LuminaHomeLayout
+    let feed: LuminaHomeFeed
+    @Binding var heroSelection: String?
+    @Binding var category: HomeBrowseCategory
+    @Binding var genre: String?
+    let onOpen: (MediaItem) -> Void
+    let onPlayback: (PlaybackRequest) -> Void
+    let focusRequest: Int
+    @Environment(\.scenePhase) private var scenePhase
+
+    @State private var loadingInitialLibrary = false
+    private var refinement: HomeRefinementResult {
+        feed.refined(HomeRefinement(category: category, genre: genre), heroItems: store.featuredItems)
+    }
+    private func filtered(_ items: [MediaItem]) -> [MediaItem] {
+        feed.refined(HomeRefinement(category: category, genre: genre), heroItems: items).items
+    }
+
+
+    private var shelves: [HomeShelfPreference] {
+        layout.shelves
+    }
+
+    var body: some View {
+        let snapshot = refinement
+        ScrollView {
+            VStack(alignment: .leading, spacing: 32) {
+                HomeBrowsingRow(category: $category, genre: $genre, genres: snapshot.genres)
+                    .padding(.horizontal, 64)
+                    .padding(.top, 160)
+                    .focusSection()
+                if !snapshot.items.isEmpty {
+                    TVFeaturedView(
+                        store: store,
+                        items: snapshot.items,
+                        heroSelection: $heroSelection,
+                        onOpen: onOpen,
+                        onPlayback: onPlayback,
+                        focusRequest: focusRequest,
+                        onWatchlistChanged: { await feed.load() }
+                    )
                         .focusSection()
+                } else if category != .all || genre != nil {
+                    Text("No featured titles match. Browse the shelves below or choose another filter.")
+                        .foregroundStyle(LuminaTheme.muted).padding(.horizontal, 64)
                 } else if store.isHomeBusy {
                     ProgressView("Loading Home…").frame(maxWidth: .infinity, minHeight: 650)
                 } else {
@@ -763,20 +957,22 @@ private struct TVHomeView: View {
                     }
                     .padding(.top, 112)
                 }
-                if let feed, feed.hasLoaded {
-                    ForEach(feed.rows) { row in
+                if feed.hasLoaded {
+                    ForEach(shelves.filter(\.visible)) { shelf in
+                    ForEach(snapshot.rows.filter { $0.shelfID == shelf.id }) { row in
                         TVRail(title: row.title, items: row.items, store: store,
                                poster: row.shape == .poster,
                                identifierPrefix: row.shelfID == .continueWatching ? "resumeItem" : row.shelfID == .nextUp ? "nextUpItem" : "homeRow-\(row.id)",
                                onOpen: onOpen)
                             .focusSection()
                     }
+                    }
                 } else {
                     ForEach(shelves.filter(\.visible)) { shelf in
                         homeShelf(shelf.id)
                     }
                 }
-                if let feed, let error = feed.errorMessage {
+                if let error = feed.errorMessage {
                     TVMessageView(title: "Some Home shelves could not load", message: error, actionTitle: "Try again") {
                         Task { await feed.load() }
                     }
@@ -786,24 +982,27 @@ private struct TVHomeView: View {
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .top])
         .accessibilityIdentifier("homeScreen")
-        .task(id: store.session?.accessToken) {
-            guard let session = store.session else { layout = nil; feed = nil; return }
-            let preferences = LuminaHomeLayout(session: session)
-            let homeFeed = LuminaHomeFeed(session: session)
-            layout = preferences
-            feed = homeFeed
-            async let library: Void = store.loadHome()
-            async let savedLayout: Void = preferences.load()
-            async let rows: Void = homeFeed.load()
-            _ = await (library, savedLayout, rows)
+        .task(id: TVHomeSessionScope(store.session)) {
+            guard store.session != nil else { return }
+            let needsInitialLibraryLoad = !layout.hasLoaded || !feed.hasLoaded
+            loadingInitialLibrary = needsInitialLibraryLoad
+            defer { loadingInitialLibrary = false }
+            async let savedLayout: Void = layout.load()
+            async let rows: Void = feed.load()
+            if needsInitialLibraryLoad {
+                async let library: Void = store.loadHome()
+                _ = await (library, savedLayout, rows)
+            } else {
+                _ = await (savedLayout, rows)
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                Task { await layout?.load(); await feed?.load() }
+                Task { await layout.load(); await feed.load() }
             }
         }
         .onChange(of: store.resumeItems) { _, _ in
-            if feed?.hasLoaded == true { Task { await feed?.load() } }
+            if feed.hasLoaded, !loadingInitialLibrary { Task { await feed.load() } }
         }
     }
 
@@ -811,15 +1010,15 @@ private struct TVHomeView: View {
         switch id {
         case .continueWatching:
             if !store.resumeItems.isEmpty {
-                TVRail(title: id.title, items: store.resumeItems, store: store, onOpen: onOpen).focusSection()
+                TVRail(title: id.title, items: filtered(store.resumeItems), store: store, onOpen: onOpen).focusSection()
             }
         case .nextUp:
             if !store.nextUpItems.isEmpty {
-                TVRail(title: id.title, items: store.nextUpItems, store: store, identifierPrefix: "nextUpItem", onOpen: onOpen).focusSection()
+                TVRail(title: id.title, items: filtered(store.nextUpItems), store: store, identifierPrefix: "nextUpItem", onOpen: onOpen).focusSection()
             }
         case .newInLibrary:
             if !store.recentItems.isEmpty {
-                TVRail(title: id.title, items: store.recentItems, store: store, poster: true, identifierPrefix: "recentItem", onOpen: onOpen).focusSection()
+                TVRail(title: id.title, items: filtered(store.recentItems), store: store, poster: true, identifierPrefix: "recentItem", onOpen: onOpen).focusSection()
             }
         default:
             EmptyView()
@@ -830,45 +1029,81 @@ private struct TVHomeView: View {
 private struct TVVideoView: View {
     let store: LuminaStore
     let onOpen: (MediaItem) -> Void
+    @Binding var browse: TVVideoBrowseState
     let focusRequest: Int
-    @State private var query = ""
-    @State private var kind: VideoBrowseKind = .movies
-    @State private var sort: VideoSort = .name
-    @State private var filters = VideoFilters()
+    let restoreFocusRequest: Int?
     @State private var filtersPresented = false
+    @State private var pendingRestoredItemID: String?
     @FocusState private var focusedItemID: String?
     @FocusState private var focusedCategory: VideoBrowseKind?
 
-    private var requestKey: String { "\(kind.rawValue)-\(sort.rawValue)-\(query)-\(filters.genre)-\(filters.year ?? 0)-\(filters.unwatchedOnly)-\(filters.favoritesOnly)" }
-    private var hasFilters: Bool { filters != VideoFilters() }
+    @State private var alphabetLetter: String?
+    @State private var alphabetRequestKey: String?
+    @State private var fastScrolling = false
+    @State private var lastScrollSample: (offset: Int, time: TimeInterval)?
+    @State private var alphabetTask: Task<Void, Never>?
+    @FocusState private var alphabetFocused: Bool
+
+    private var requestKey: String { "\(browse.kind.rawValue)-\(browse.sort.rawValue)-\(browse.query)-\(browse.filters.genre)-\(browse.filters.year ?? 0)-\(browse.filters.unwatchedOnly)-\(browse.filters.favoritesOnly)" }
+    private var hasFilters: Bool { browse.filters != VideoFilters() }
+    private var canBrowseAlphabet: Bool {
+        alphabetRequestKey == requestKey && browse.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && browse.sort == .name && [.movies, .shows, .anime].contains(browse.kind)
+            && store.supportsLibraryAlphabet && !store.libraryAlphabet.isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 32) {
             HStack(spacing: 28) {
+                if browse.query.isEmpty {
+                    Menu {
+                        Picker("Sort", selection: $browse.sort) {
+                            ForEach(VideoSort.allCases, id: \.self) { Text($0.label).tag($0) }
+                        }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text(browse.sort == .name ? "Title A–Z" : browse.sort.label)
+                            Image(systemName: "chevron.down").font(.system(size: 16, weight: .semibold))
+                        }
+                    }
+                    .buttonStyle(LuminaUnderlineTabStyle())
+                    .accessibilityIdentifier("videoSortPicker")
+                    .accessibilityLabel("Sort library")
+                    .accessibilityValue(browse.sort.label)
+                } else {
+                    Text("By relevance").font(.body).foregroundStyle(LuminaTheme.muted)
+                }
                 HStack(spacing: 16) {
                     ForEach([VideoBrowseKind.movies, .shows, .anime, .youtube], id: \.self) { category in
-                        Button { kind = category } label: {
+                        Button { browse.kind = category } label: {
                             Text(category.label)
-                                .font(.system(size: 24, weight: kind == category ? .semibold : .regular))
                         }
-                        .buttonStyle(LuminaQuietActionStyle())
-                        .tint(kind == category ? LuminaTheme.gold : .white)
-                        .accessibilityAddTraits(kind == category ? .isSelected : [])
+                        .buttonStyle(LuminaUnderlineTabStyle(selected: browse.kind == category))
+                        .accessibilityAddTraits(browse.kind == category ? .isSelected : [])
                         .accessibilityIdentifier("videoCategory-\(category.rawValue)")
                         .focused($focusedCategory, equals: category)
+                        .onMoveCommand { direction in
+                            if direction == .down { focusVisibleGridItem() }
+                        }
                     }
                 }
-                if query.isEmpty {
-                    Picker("Sort", selection: $sort) {
-                        ForEach(VideoSort.allCases, id: \.self) { Text($0.label).tag($0) }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 240)
-                } else {
-                    Text("By relevance").font(.body).foregroundStyle(LuminaTheme.muted).frame(width: 240)
+                Button { filtersPresented = true } label: {
+                    Label(hasFilters ? "Filters applied" : "Filters", systemImage: "line.3.horizontal.decrease")
+                }
+                .buttonStyle(LuminaUnderlineTabStyle(selected: hasFilters))
+                .accessibilityIdentifier("videoFiltersButton")
+                .accessibilityValue(hasFilters ? filterSummary : "No filters")
+                .onMoveCommand { direction in
+                    if direction == .down { focusVisibleGridItem() }
+                }
+                if hasFilters {
+                    Button("Clear") { browse.filters = VideoFilters() }
+                        .buttonStyle(LuminaUnderlineTabStyle())
+                        .accessibilityLabel("Clear filters")
+                        .accessibilityIdentifier("videoClearFiltersButton")
                 }
                 Spacer()
-                TextField("Search video", text: $query)
+                TextField("Search video", text: $browse.query)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .frame(width: 340)
@@ -877,71 +1112,144 @@ private struct TVVideoView: View {
             .padding(.horizontal, 64)
             .focusSection()
 
-            HStack(spacing: 28) {
-                Button { filtersPresented = true } label: {
-                    Label(hasFilters ? "Filters applied" : "Filters", systemImage: "line.3.horizontal.decrease")
-                }
-                .buttonStyle(LuminaQuietActionStyle())
-                .accessibilityIdentifier("videoFiltersButton")
-                if hasFilters {
-                    Text(filterSummary).font(.caption).foregroundStyle(LuminaTheme.muted)
-                    Spacer()
-                    Button("Clear filters") { filters = VideoFilters() }
-                        .buttonStyle(LuminaQuietActionStyle())
-                        .accessibilityIdentifier("videoClearFiltersButton")
-                }
-            }
-            .padding(.horizontal, 64)
-            .focusSection()
-
-            ScrollView {
-                if store.isBusy && store.items.isEmpty {
-                    ProgressView("Loading video…").frame(maxWidth: .infinity, minHeight: 360)
-                } else if store.items.isEmpty {
-                    TVMessageView(title: query.isEmpty && !hasFilters ? "No videos here yet" : "No matching videos", message: store.errorMessage ?? "Try another search or choose a different category.", actionTitle: "Refresh") { Task { await reload() } }
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 32, alignment: .top)], spacing: 52) {
-                        ForEach(store.items) { item in
-                            TVMediaCard(item: item, store: store, poster: true) { onOpen(item) }
-                                .focused($focusedItemID, equals: item.id)
-                                .accessibilityIdentifier("libraryItem-\(item.id)")
-                                .onAppear {
-                                    if store.hasMore && item.id == store.items.suffix(6).first?.id { Task { await store.loadMore() } }
+            ScrollViewReader { proxy in
+                HStack(alignment: .center, spacing: 0) {
+                    ScrollView {
+                        if store.isBusy && store.items.isEmpty {
+                            ProgressView("Loading video…").frame(maxWidth: .infinity, minHeight: 360)
+                        } else if store.items.isEmpty {
+                            TVMessageView(title: browse.query.isEmpty && !hasFilters ? "No videos here yet" : "No matching videos", message: store.errorMessage ?? "Try another search or choose a different category.", actionTitle: "Refresh") { Task { await reload() } }
+                        } else {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 32, alignment: .top)], spacing: 52) {
+                                ForEach(store.items) { item in
+                                    TVMediaCard(item: item, store: store, poster: true) { onOpen(item) }
+                                        .focused($focusedItemID, equals: item.id)
+                                        .id(item.id)
+                                        .accessibilityIdentifier("libraryItem-\(item.id)")
+                                        .onAppear {
+                                            if store.hasMore && item.id == store.items.suffix(6).first?.id { Task { await store.loadMore() } }
+                                        }
                                 }
+                            }
+                            .padding(.horizontal, 64)
+                            .padding(.top, 24)
+                            .focusSection()
+                            if store.hasMore {
+                                Button("Show more") { Task { await store.loadMore() } }
+                                    .buttonStyle(LuminaQuietActionStyle())
+                                    .padding(32)
+                            }
+                            if let error = store.errorMessage {
+                                Text(error).foregroundStyle(LuminaTheme.spotlight).padding(24)
+                            }
                         }
                     }
-                    .padding(.horizontal, 64)
-                    .padding(.top, 24)
-                    .focusSection()
-                    if store.hasMore {
-                        Button("Show more") { Task { await store.loadMore() } }
-                            .buttonStyle(LuminaQuietActionStyle())
-                            .padding(32)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("libraryScreen")
+                    .onScrollGeometryChange(for: Int.self) { geometry in
+                        Int(geometry.contentOffset.y / 128)
+                    } action: { _, offset in
+                        let now = ProcessInfo.processInfo.systemUptime
+                        if let lastScrollSample {
+                            let elapsed = now - lastScrollSample.time
+                            if elapsed > 0, elapsed < 0.7,
+                               Double(abs(offset - lastScrollSample.offset) * 128) / elapsed > 900 {
+                                fastScrolling = true
+                            }
+                        }
+                        lastScrollSample = (offset, now)
                     }
-                    if let error = store.errorMessage {
-                        Text(error).foregroundStyle(LuminaTheme.spotlight).padding(24)
+                    .onScrollPhaseChange { _, phase in
+                        if phase == .idle { fastScrolling = false; lastScrollSample = nil }
+                    }
+                    if canBrowseAlphabet {
+                        TVLibraryAlphabetRail(
+                            letters: store.libraryAlphabet.map(\.letter),
+                            selection: $alphabetLetter,
+                            expanded: fastScrolling || alphabetFocused,
+                            isFocused: alphabetFocused,
+                            onReturn: {
+                                alphabetFocused = false
+                                focusedItemID = store.items.first { $0.id == browse.focusedItemID }?.id ?? store.items.first?.id
+                            },
+                            onSelect: { letter in
+                                guard canBrowseAlphabet,
+                                      let anchor = store.libraryAlphabet.first(where: { $0.letter == letter }) else { return }
+                                alphabetTask?.cancel()
+                                alphabetTask = Task {
+                                    guard let firstID = await store.jumpLibrary(to: anchor), !Task.isCancelled else { return }
+                                    await Task.yield()
+                                    guard !Task.isCancelled else { return }
+                                    proxy.scrollTo(firstID, anchor: .top)
+                                    await Task.yield()
+                                    guard !Task.isCancelled else { return }
+                                    focusedItemID = firstID
+                                    alphabetFocused = false
+                                }
+                            }
+                        )
+                        .focused($alphabetFocused)
+                        .onExitCommand {
+                            alphabetFocused = false
+                            focusedItemID = store.items.first { $0.id == browse.focusedItemID }?.id ?? store.items.first?.id
+                        }
+                        .padding(.trailing, 32)
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .accessibilityIdentifier("libraryScreen")
         }
-        .onChange(of: focusRequest) { _, _ in focusedCategory = kind }
+        .onChange(of: focusedItemID) { _, itemID in
+            if let itemID { browse.focusedItemID = itemID }
+        }
+        .onChange(of: focusRequest) { _, _ in
+            // Moving down from the tab bar begins normal content navigation.
+            // Menu restoration is handled separately, so it does not pull
+            // focus away from the last selected card.
+            focusedCategory = browse.kind
+        }
+        .onChange(of: restoreFocusRequest, initial: true) { _, request in
+            guard request != nil else { return }
+            pendingRestoredItemID = browse.focusedItemID
+            restoreLastSelectionIfAvailable()
+        }
+        .onChange(of: store.items.map(\.id)) { _, _ in restoreLastSelectionIfAvailable() }
         .sheet(isPresented: $filtersPresented) {
-            TVVideoFiltersView(filters: filters) { filters = $0 }
+            TVVideoFiltersView(filters: browse.filters) { browse.filters = $0 }
         }
+        .onDisappear { alphabetTask?.cancel() }
         .task(id: requestKey) {
+            let requestedKey = requestKey
+            alphabetTask?.cancel()
+            alphabetLetter = nil
+            alphabetRequestKey = nil
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
             guard !Task.isCancelled else { return }
             await reload()
+            guard !Task.isCancelled, requestedKey == requestKey else { return }
+            alphabetRequestKey = requestedKey
         }
     }
 
     private var filterSummary: String {
-        [filters.genre.isEmpty ? nil : filters.genre, filters.year.map(String.init), filters.unwatchedOnly ? "Unwatched" : nil, filters.favoritesOnly ? "Favorites" : nil]
+        [browse.filters.genre.isEmpty ? nil : browse.filters.genre, browse.filters.year.map(String.init), browse.filters.unwatchedOnly ? "Unwatched" : nil, browse.filters.favoritesOnly ? "Favorites" : nil]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
-    private func reload() async { await store.loadLibrary(search: query, kind: kind, sort: sort, filters: filters) }
+    private func focusVisibleGridItem() {
+        focusedItemID = store.items.first { $0.id == browse.focusedItemID }?.id ?? store.items.first?.id
+    }
+
+    private func restoreLastSelectionIfAvailable() {
+        guard let itemID = pendingRestoredItemID,
+              store.items.contains(where: { $0.id == itemID }) else { return }
+        focusedItemID = itemID
+        pendingRestoredItemID = nil
+    }
+
+    private func reload() async {
+        await store.loadLibrary(search: browse.query, kind: browse.kind, sort: browse.sort, filters: browse.filters)
+    }
 }
 
 private struct TVVideoFiltersView: View {
@@ -997,9 +1305,10 @@ private struct TVVideoFiltersView: View {
 private struct TVAudioView: View {
     let store: LuminaStore
     let onOpen: (MediaItem) -> Void
+    @Binding var browse: TVAudioBrowseState
     let focusRequest: Int
-    @State private var kind: MusicBrowseKind = .albums
-    @State private var query = ""
+    let restoreFocusRequest: Int?
+    @State private var pendingRestoredItemID: String?
     @FocusState private var focusedItemID: String?
     @FocusState private var focusedSearch: Bool
 
@@ -1009,17 +1318,12 @@ private struct TVAudioView: View {
                 .padding(.horizontal, 64)
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
-                    if kind == .albums, let featured = store.audioItems.first(where: { $0.type == "MusicAlbum" }) {
+                    if browse.kind == .albums, let featured = store.audioItems.first(where: { $0.type == "MusicAlbum" }) {
                         Button { onOpen(featured) } label: {
                             MusicCollectionSpotlight(item: featured, store: store)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(TVArtworkButtonStyle(aspect: 16 / 9))
                         .focused($focusedItemID, equals: "audioFeaturedAlbum")
-                        .background(focusedItemID == "audioFeaturedAlbum" ? LuminaTheme.ink.opacity(0.08) : .clear)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(focusedItemID == "audioFeaturedAlbum" ? LuminaTheme.gold : .clear, lineWidth: 2)
-                        }
                         .accessibilityLabel("Open album \(featured.name), \(featured.displaySubtitle)")
                         .accessibilityIdentifier("audioFeaturedAlbum")
                         .padding(.horizontal, 64)
@@ -1027,13 +1331,16 @@ private struct TVAudioView: View {
                         .focusSection()
                     }
                     HStack(spacing: 32) {
-                        Picker("Browse", selection: $kind) {
-                            ForEach(MusicBrowseKind.allCases, id: \.self) { Text($0.label).tag($0) }
+                        HStack(spacing: 28) {
+                            ForEach(MusicBrowseKind.allCases, id: \.self) { category in
+                                Button(category.label) { browse.kind = category }
+                                    .buttonStyle(LuminaUnderlineTabStyle(selected: browse.kind == category))
+                                    .accessibilityAddTraits(browse.kind == category ? .isSelected : [])
+                                    .accessibilityIdentifier("audioCategory-\(category.rawValue)")
+                            }
                         }
-                        .pickerStyle(.segmented)
-                        .frame(maxWidth: 700)
                         Spacer()
-                        TextField("Search music", text: $query)
+                        TextField("Search music", text: $browse.query)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .frame(width: 440)
@@ -1045,11 +1352,12 @@ private struct TVAudioView: View {
                     if store.isAudioBusy && store.audioItems.isEmpty {
                         ProgressView("Loading music…").frame(maxWidth: .infinity, minHeight: 360)
                     } else if store.audioItems.isEmpty {
-                        TVMessageView(title: "Your music library", message: store.errorMessage ?? "Add music to Lumina, or try another search.", actionTitle: "Refresh") { Task { await store.loadAudio(kind: kind, search: query) } }
+                        TVMessageView(title: "Your music library", message: store.errorMessage ?? "Add music to Lumina, or try another search.", actionTitle: "Refresh") { Task { await store.loadAudio(kind: browse.kind, search: browse.query) } }
                     } else {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 290), spacing: 32, alignment: .top)], spacing: 48) {
                             ForEach(store.audioItems) { item in
                                 TVMediaCard(item: item, store: store) { onOpen(item) }
+                                    .focused($focusedItemID, equals: item.id)
                                     .accessibilityIdentifier("audioItem-\(item.id)")
                                     .onAppear {
                                         if store.audioHasMore && item.id == store.audioItems.suffix(6).first?.id { Task { await store.loadMoreAudio() } }
@@ -1072,63 +1380,159 @@ private struct TVAudioView: View {
             }
         }
         .accessibilityIdentifier("audioScreen")
+        .onChange(of: focusedItemID) { _, itemID in
+            if let itemID { browse.focusedItemID = itemID }
+        }
         .onChange(of: focusRequest) { _, _ in
-            if kind == .albums, store.audioItems.contains(where: { $0.type == "MusicAlbum" }) {
+            if browse.kind == .albums, store.audioItems.contains(where: { $0.type == "MusicAlbum" }) {
                 focusedItemID = "audioFeaturedAlbum"
             } else { focusedSearch = true }
         }
-        .task(id: "\(kind.rawValue)-\(query)") {
+        .onChange(of: restoreFocusRequest, initial: true) { _, request in
+            guard request != nil else { return }
+            pendingRestoredItemID = browse.focusedItemID
+            restoreLastSelectionIfAvailable()
+        }
+        .onChange(of: store.audioItems.map(\.id)) { _, _ in restoreLastSelectionIfAvailable() }
+        .task(id: "\(browse.kind.rawValue)-\(browse.query)") {
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
             guard !Task.isCancelled else { return }
-            await store.loadAudio(kind: kind, search: query)
+            await store.loadAudio(kind: browse.kind, search: browse.query)
+        }
+    }
+
+    private func restoreLastSelectionIfAvailable() {
+        guard let itemID = pendingRestoredItemID else { return }
+        if itemID == "audioFeaturedAlbum",
+           browse.kind == .albums,
+           store.audioItems.contains(where: { $0.type == "MusicAlbum" }) {
+            focusedItemID = itemID
+            pendingRestoredItemID = nil
+        } else if store.audioItems.contains(where: { $0.id == itemID }) {
+            focusedItemID = itemID
+            pendingRestoredItemID = nil
         }
     }
 }
 
 private struct TVFeaturedView: View {
     let store: LuminaStore
+    var items: [MediaItem]? = nil
+    @Binding var heroSelection: String?
     let onOpen: (MediaItem) -> Void
     let onPlayback: (PlaybackRequest) -> Void
     let focusRequest: Int
+    var onWatchlistChanged: @MainActor () async -> Void = {}
     @State private var preparing = false
     @State private var playbackError: String?
+    @State private var watchlist: LuminaWatchlist?
+    @State private var watchlistItemID: String?
+    @State private var heroIsVisible = true
     @FocusState private var focusedAction: String?
 
     var body: some View {
-        FeaturedShelf(items: store.featuredItems, store: store, isInteracting: preparing || focusedAction != nil, showsContext: false, showsProgress: false, wideMinimumHeight: 650) { item in
-            HStack(spacing: 24) {
-                Button {
-                    guard !preparing else { return }
-                    preparing = true
-                    playbackError = nil
-                    Task {
-                        defer { preparing = false }
-                        do { onPlayback(try await store.preparePlayback(for: item)) }
-                        catch { playbackError = "Playback could not start. Open Details to try compatible video." }
-                    }
-                } label: {
-                    Label(preparing ? "Preparing…" : "Play", systemImage: "play.fill")
+        FeaturedShelf(
+            items: items ?? store.featuredItems,
+            store: store,
+            isInteracting: preparing || focusedAction != nil || !heroIsVisible,
+            showsOverview: false,
+            showsContext: false,
+            showsMetadata: false,
+            showsProgress: false,
+            wideMinimumHeight: 440,
+            onOpen: onOpen,
+            selection: $heroSelection
+        ) { item in
+            VStack(alignment: .leading, spacing: 16) {
+                if let context = context(for: item) {
+                    Text(context)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .lineLimit(1)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(LuminaTheme.gold)
-                .foregroundStyle(LuminaTheme.theater)
-                .disabled(preparing)
-                .accessibilityIdentifier("featuredPlayButton")
-                .focused($focusedAction, equals: "play")
-
-                Button { onOpen(item) } label: {
-                    Label("Details", systemImage: "info.circle")
+                HStack(spacing: 24) {
+                    heroActionButtons(for: item)
                 }
-                .buttonStyle(LuminaQuietActionStyle())
-                .tint(.white)
-                .foregroundStyle(focusedAction == "details" ? LuminaTheme.theater : .white)
-                .accessibilityIdentifier("featuredDetailsButton")
-                .focused($focusedAction, equals: "details")
             }
-            .controlSize(.large)
             if let playbackError { Text(playbackError).font(.body) }
         }
-        .onChange(of: focusRequest) { _, _ in focusedAction = "play" }
+        .onScrollVisibilityChange(threshold: 0.2) { heroIsVisible = $0 }
+        .task(id: watchlistTaskID) {
+            guard let item = selectedItem else {
+                watchlist = nil
+                watchlistItemID = nil
+                return
+            }
+            let model = LuminaWatchlist(session: store.session)
+            watchlist = model
+            watchlistItemID = item.id
+            await model.load(itemID: item.id)
+        }
+        // Menu restores the last browsing selection. Deliberately avoid
+        // redirecting that return path to Play when Home is recreated.
+    }
+
+    @ViewBuilder private func heroActionButtons(for item: MediaItem) -> some View {
+        Button {
+            guard !preparing else { return }
+            preparing = true
+            playbackError = nil
+            Task {
+                defer { preparing = false }
+                do { onPlayback(try await store.preparePlayback(for: item)) }
+                catch { playbackError = "Playback could not start. Try again." }
+            }
+        } label: {
+            Label(preparing ? "Preparing…" : item.resumeSeconds > 0 ? "Resume" : "Play", systemImage: "play.fill")
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(LuminaTheme.gold)
+        .foregroundStyle(LuminaTheme.theater)
+        .disabled(preparing)
+        .accessibilityIdentifier("featuredPlayButton")
+        .focused($focusedAction, equals: "play")
+
+        Button {
+            guard watchlistItemID == item.id, let watchlist else { return }
+            if watchlist.errorMessage != nil {
+                Task { await watchlist.load(itemID: item.id) }
+            } else {
+                Task {
+                    let didChange = await watchlist.set(itemID: item.id, included: !watchlist.isIncluded)
+                    if didChange { await onWatchlistChanged() }
+                }
+            }
+        } label: {
+            Label(
+                watchlist?.errorMessage == nil
+                    ? watchlist?.isIncluded == true ? "In watchlist" : "Add to watchlist"
+                    : "Retry watchlist",
+                systemImage: watchlist?.isIncluded == true ? "checkmark" : "plus"
+            )
+        }
+        .buttonStyle(LuminaQuietActionStyle(mediaOverlay: true))
+        .disabled(watchlistItemID != item.id || watchlist?.isLoading == true || watchlist?.isSaving == true)
+        .accessibilityIdentifier("featuredWatchlistButton")
+        .accessibilityValue(watchlist?.isIncluded == true ? "In watchlist" : "Not in watchlist")
+        .accessibilityHint(watchlist?.isIncluded == true ? "Remove from your watchlist" : "Save to your watchlist")
+        .focused($focusedAction, equals: "watchlist")
+    }
+
+    private var selectedItem: MediaItem? {
+        (items ?? store.featuredItems).first { $0.id == heroSelection } ?? (items ?? store.featuredItems).first
+    }
+
+    private var watchlistTaskID: String {
+        "\(selectedItem?.id ?? "")-\(store.session?.accessToken ?? "")"
+    }
+
+    private func context(for item: MediaItem) -> String? {
+        if item.resumeSeconds > 0, item.durationSeconds > item.resumeSeconds {
+            return Duration.seconds(item.durationSeconds - item.resumeSeconds)
+                .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)) + " remaining"
+        }
+        guard item.type == "Episode" else { return nil }
+        return item.displaySubtitle.isEmpty ? "Episode" : item.displaySubtitle
     }
 }
 
@@ -1154,6 +1558,14 @@ private struct TVRail: View {
     var identifierPrefix = "resumeItem"
     let onOpen: (MediaItem) -> Void
 
+    private var captionPresentation: TVRailCaptionPresentation {
+        TVRailCaptionPresentation(identifierPrefix: identifierPrefix)
+    }
+
+    private var presentsPosters: Bool {
+        poster || captionPresentation != .standard
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             TVSectionHeading(title: title, count: items.count)
@@ -1161,8 +1573,8 @@ private struct TVRail: View {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 32) {
                     ForEach(items) { item in
-                        TVMediaCard(item: item, store: store, poster: poster) { onOpen(item) }
-                            .frame(width: item.isAudio || item.type.hasPrefix("Music") ? 260 : poster ? 220 : 400)
+                        TVMediaCard(item: item, store: store, poster: presentsPosters, captionPresentation: captionPresentation) { onOpen(item) }
+                            .frame(width: item.isAudio || item.type.hasPrefix("Music") ? 260 : presentsPosters ? 220 : 400)
                             .accessibilityIdentifier("\(identifierPrefix)-\(item.id)")
                     }
                 }
@@ -1178,7 +1590,14 @@ struct TVMediaCard: View {
     let item: MediaItem
     let store: LuminaStore
     var poster = false
+    var captionPresentation: TVRailCaptionPresentation = .standard
     let action: () -> Void
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var caption: TVRailCaption {
+        TVRailCaption(item: item, presentation: captionPresentation)
+    }
 
     var body: some View {
         Button(action: action) {
@@ -1195,39 +1614,123 @@ struct TVMediaCard: View {
                         }
                     }
 
-                Text(item.name)
+                Text(caption.primary)
                     .font(.system(size: 23, weight: .medium))
                     .foregroundStyle(LuminaTheme.ink)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
+                    .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 58, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text(item.displaySubtitle)
-                    .font(.system(size: 19))
+                Group {
+                    if let secondary = caption.secondary {
+                        Text(secondary)
+                    } else {
+                        Color.clear.accessibilityHidden(true)
+                    }
+                }
+                .font(.system(size: 19))
+                .foregroundStyle(LuminaTheme.muted)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 24, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if captionPresentation.reservesProgressBaseline {
+                    Group {
+                        if let progress = caption.progress {
+                            Text(progress)
+                        } else {
+                            Color.clear.accessibilityHidden(true)
+                        }
+                    }
+                    .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(LuminaTheme.muted)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 22, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.rect)
         }
         .buttonStyle(TVArtworkButtonStyle(aspect: item.isAudio || item.type.hasPrefix("Music") ? 1 : poster ? 2 / 3 : 16 / 9))
-        .accessibilityLabel("\(item.name), \(item.displaySubtitle)")
+        .accessibilityLabel(caption.accessibilityLabel)
+        .accessibilityValue(caption.progress ?? "")
+    }
+}
+
+enum TVRailCaptionPresentation: Equatable {
+    case standard
+    case continueWatching
+    case nextUp
+
+    init(identifierPrefix: String) {
+        switch identifierPrefix {
+        case "resumeItem": self = .continueWatching
+        case "nextUpItem": self = .nextUp
+        default: self = .standard
+        }
+    }
+
+    var reservesProgressBaseline: Bool {
+        self != .standard
+    }
+}
+
+private struct TVRailCaption {
+    let primary: String
+    let secondary: String?
+    let progress: String?
+
+    init(item: MediaItem, presentation: TVRailCaptionPresentation) {
+        guard presentation != .standard else {
+            primary = item.name
+            secondary = item.displaySubtitle.isEmpty ? nil : item.displaySubtitle
+            progress = nil
+            return
+        }
+
+        let episodeLabel = Self.episodeLabel(for: item)
+        primary = item.type == "Episode" ? item.seriesName ?? item.name : item.name
+        secondary = episodeLabel ?? (item.displaySubtitle.isEmpty ? nil : item.displaySubtitle)
+
+        if item.resumeSeconds > 0, item.durationSeconds > item.resumeSeconds {
+            let remaining = Duration.seconds(item.durationSeconds - item.resumeSeconds)
+                .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+            progress = "\(remaining) remaining"
+        } else if presentation == .nextUp, item.type == "Episode" {
+            progress = "Next episode"
+        } else {
+            progress = nil
+        }
+    }
+
+    private static func episodeLabel(for item: MediaItem) -> String? {
+        guard item.type == "Episode" else { return nil }
+        let number: String? = switch (item.parentIndexNumber, item.indexNumber) {
+        case let (.some(season), .some(episode)): "S\(season) · E\(episode)"
+        default: nil
+        }
+        return [number, item.name].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    var accessibilityLabel: String {
+        [primary, secondary, progress].compactMap { $0 }.joined(separator: ", ")
     }
 }
 
 /// Focus follows the artwork; captions stay directly on the page.
 struct TVArtworkButtonStyle: ButtonStyle {
-    let aspect: CGFloat
+    /// Callers provide the artwork aspect so existing media-card declarations
+    /// remain explicit even though focus now scales the full card.
+    init(aspect _: CGFloat) {}
+
     @Environment(\.isFocused) private var isFocused
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .overlay(alignment: .top) {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(isFocused ? .white : .clear, lineWidth: 3)
-                    .aspectRatio(aspect, contentMode: .fit)
-            }
             .scaleEffect(isFocused ? 1.04 : 1, anchor: .top)
             .opacity(configuration.isPressed ? 0.75 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isFocused)
@@ -1287,5 +1790,78 @@ struct TVMessageView: View {
         }
         .frame(maxWidth: .infinity, minHeight: 360)
         .padding(48)
+    }
+}
+
+/// A single remote scrubber avoids 27 tiny focus targets. Up/Down previews a
+/// letter; Select commits one indexed page request, Left returns to the grid.
+private struct TVLibraryAlphabetRail: View {
+    let letters: [String]
+    @Binding var selection: String?
+    let expanded: Bool
+    let isFocused: Bool
+    let onReturn: () -> Void
+    let onSelect: (String) -> Void
+
+    private var selectedIndex: Int { letters.firstIndex(of: selection ?? "") ?? 0 }
+    private var visibleLetters: [String] {
+        let lower = max(0, min(selectedIndex - 3, letters.count - 7))
+        return Array(letters.dropFirst(lower).prefix(7))
+    }
+
+    var body: some View {
+        Button { if !letters.isEmpty { onSelect(letters[selectedIndex]) } } label: {
+            VStack(spacing: 14) {
+                Image(systemName: "chevron.up").font(.system(size: 13, weight: .medium))
+                if expanded {
+                    ForEach(visibleLetters, id: \.self) { letter in
+                        Text(letter)
+                            .font(.system(size: letter == letters[selectedIndex] ? 34 : 20,
+                                          weight: letter == letters[selectedIndex] ? .semibold : .regular))
+                            .foregroundStyle(.white.opacity(letter == letters[selectedIndex] ? 1 : 0.4))
+                            .frame(height: 36)
+                            .overlay(alignment: .bottom) {
+                                if isFocused && letter == letters[selectedIndex] {
+                                    Rectangle().frame(width: 26, height: 2)
+                                }
+                            }
+                    }
+                } else {
+                    Text("A–Z").font(.system(size: 19, weight: .medium)).frame(height: 44)
+                }
+                Image(systemName: "chevron.down").font(.system(size: 13, weight: .medium))
+            }
+            .foregroundStyle(.white.opacity(isFocused ? 1 : 0.5))
+            .frame(width: 72, height: 420)
+            .contentShape(.rect)
+        }
+        .buttonStyle(TVAlphabetButtonStyle())
+        .accessibilityIdentifier("libraryAlphabetIndex")
+        .accessibilityLabel("Jump to title letter")
+        .accessibilityValue(letters.isEmpty ? "" : letters[selectedIndex])
+        .accessibilityHint("Up or down chooses a letter. Select jumps to its first title.")
+        .accessibilityAdjustableAction { direction in
+            guard !letters.isEmpty else { return }
+            switch direction {
+            case .increment: selection = letters[min(letters.count - 1, selectedIndex + 1)]
+            case .decrement: selection = letters[max(0, selectedIndex - 1)]
+            @unknown default: break
+            }
+        }
+        .onMoveCommand { direction in
+            guard !letters.isEmpty else { return }
+            switch direction {
+            case .up: selection = letters[max(0, selectedIndex - 1)]
+            case .down: selection = letters[min(letters.count - 1, selectedIndex + 1)]
+            case .left: onReturn()
+            default: break
+            }
+        }
+    }
+}
+
+private struct TVAlphabetButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? 0.65 : 1)
     }
 }

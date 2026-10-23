@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi import HTTPException
@@ -10,6 +11,7 @@ from app.services.playback_decision import BROWSER_DEFAULT, Limits, decide
 from app.services.playback_resources import PlaybackResources
 from app.services.resource_policy import HouseholdResources, ResourceAllowances
 from tests.test_jellyfin_dto_compat import HEADERS, HEX, MOVIE_4K, jf
+from title_support import ALICE
 from tests.test_v1_artifacts import household
 
 
@@ -21,7 +23,17 @@ def _facts(*, bitrate: int | None = 100_000_000) -> dict:
 
 
 def _policy(upload: int = 100_000_000) -> HouseholdResources:
-    return HouseholdResources(upload_bps=upload, defaults=ResourceAllowances(playback_sessions=3, video_encodes=3))
+    # Resource-admission exercises intentionally use explicit quality caps. The
+    # durable household default remains uncapped per stream/member.
+    return HouseholdResources(
+        upload_bps=upload,
+        defaults=ResourceAllowances(
+            remote_stream_bps=8_000_000,
+            remote_member_bps=10_000_000,
+            playback_sessions=3,
+            video_encodes=3,
+        ),
+    )
 
 
 def _protected(monkeypatch: pytest.MonkeyPatch, policy: HouseholdResources) -> PlaybackResources:
@@ -215,6 +227,7 @@ def test_protected_web_options_refuse_original_but_head_does_not_reserve(
         assert raw.json()["detail"]["code"] == "resource_conversion_required"
     finally:
         playback_resources._items.clear()
+        resource_policy.configure_runtime(HouseholdResources())
 
 
 def test_protected_jellyfin_playback_info_advertises_hls_conversion(jf, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
@@ -243,6 +256,68 @@ def test_protected_jellyfin_playback_info_advertises_hls_conversion(jf, monkeypa
         assert source["SupportsDirectPlay"] is False and source["SupportsTranscoding"] is True
     finally:
         playback_resources._items.clear()
+
+
+def test_jellyfin_4k_direct_default_and_explicit_global_member_caps(
+    jf, monkeypatch: pytest.MonkeyPatch,
+) -> None:  # noqa: ANN001
+    """An upload budget alone does not downscale direct 4K; explicit caps do."""
+    from app import db as db_module
+    from app.models import User
+    from app.services import resource_policy
+    from app.services.media_probe import MediaProbeService
+    from app.services.playback_resources import playback_resources
+    from app.services.yt_dlp_service import YtDlpService
+
+    profile = {
+        "DirectPlayProfiles": [{"Type": "Video", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "aac"}],
+        "TranscodingProfiles": [{"Type": "Video", "Protocol": "hls", "Container": "mp4", "VideoCodec": "h264", "AudioCodec": "aac"}],
+    }
+    body = {"MediaSourceId": HEX(MOVIE_4K), "DeviceProfile": profile}
+    monkeypatch.setattr(MediaProbeService, "facts", lambda *_args: _facts())
+
+    def source() -> dict:
+        response = jf.post(f"/Items/{HEX(MOVIE_4K)}/PlaybackInfo", headers=HEADERS, json=body)
+        assert response.status_code == 200, response.text
+        return response.json()["MediaSources"][0]
+
+    try:
+        # An unconfigured household and an upload-only policy both retain a
+        # compatible 4K original. The upload budget remains the aggregate cap.
+        resource_policy.configure_runtime(HouseholdResources())
+        assert source()["SupportsDirectPlay"] is True
+
+        upload_only = HouseholdResources(upload_bps=200_000_000)
+        with db_module.SessionLocal() as db:
+            YtDlpService(db).ensure_app_settings().resource_policy = upload_only.model_dump(mode="json")
+            db.commit()
+        resource_policy.configure_runtime(upload_only)
+        assert source()["SupportsDirectPlay"] is True
+        assert jf.get(f"/Videos/{HEX(MOVIE_4K)}/stream", headers=HEADERS | {"Range": "bytes=0-9"}).status_code == 206
+        # Model a fresh playback after an administrator changes policy rather
+        # than treating an already admitted direct stream as a new request.
+        playback_resources._items.clear()
+
+        capped = _policy(upload=200_000_000)
+        with db_module.SessionLocal() as db:
+            YtDlpService(db).ensure_app_settings().resource_policy = capped.model_dump(mode="json")
+            db.commit()
+        resource_policy.configure_runtime(capped)
+        globally_capped = source()
+        assert globally_capped["SupportsDirectPlay"] is False
+        assert parse_qs(urlparse(globally_capped["TranscodingUrl"]).query)["MaxHeight"] == ["720"]
+        # The raw Jellyfin stream route cannot bypass a server-selected rendition.
+        assert jf.get(f"/Videos/{HEX(MOVIE_4K)}/stream", headers=HEADERS | {"Range": "bytes=0-9"}).status_code == 409
+        playback_resources._items.clear()
+
+        with db_module.SessionLocal() as db:
+            db.get(User, ALICE).resource_overrides = {"remote_stream_bps": 3_000_000, "remote_member_bps": 4_000_000}
+            db.commit()
+        member_capped = source()
+        assert parse_qs(urlparse(member_capped["TranscodingUrl"]).query)["MaxHeight"] == ["480"]
+    finally:
+        playback_resources._items.clear()
+        resource_policy.configure_runtime(HouseholdResources())
 
 
 def test_reused_allocation_obeys_new_client_and_household_quality_limits(monkeypatch: pytest.MonkeyPatch) -> None:

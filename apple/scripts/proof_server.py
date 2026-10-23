@@ -47,6 +47,7 @@ SYNTHETIC_LYRIC = "A lantern answers through the quiet night"
 SHOW_TITLE = "The Observatory Signal Logs"
 EPISODE_TITLE = "The First Signal"
 SECOND_EPISODE_TITLE = "Morning Coordinates"
+SECOND_SEASON_EPISODE_TITLE = "The Signal Returns"
 EPISODE_INTRO_END_SECONDS = 10
 EPISODE_CREDITS_START_SECONDS = 75
 PERFORMANCE_CATALOGUE_COUNT_ENV = "LUMINA_NATIVE_PERF_CATALOGUE_COUNT"
@@ -55,6 +56,8 @@ PERFORMANCE_VIDEO_SIZE_ENV = "LUMINA_NATIVE_PERF_VIDEO_SIZE"
 PERFORMANCE_VIDEO_SIZES = frozenset({"320x180", "1920x1080"})
 PERFORMANCE_REQUEST_LOG_ENV = "LUMINA_NATIVE_PERF_REQUEST_LOG"
 MAX_PERFORMANCE_REQUEST_LOG_BYTES = 4 * 1024 * 1024
+ARTWORK_METRICS_PATH_ENV = "LUMINA_NATIVE_ARTWORK_METRICS_PATH"
+MAX_ARTWORK_METRICS_BYTES = 1 * 1024 * 1024
 PLAYBACK_INFO_DELAY_ENV = "LUMINA_NATIVE_PLAYBACK_INFO_DELAY_SECONDS"
 MAX_PLAYBACK_INFO_DELAY_SECONDS = 5
 REQUEST_MOVIE_KEY = "movie:603"
@@ -403,6 +406,127 @@ def performance_request_log_path() -> Path | None:
     return path
 
 
+def artwork_metrics_path() -> Path | None:
+    """Return the optional, private evidence file for native artwork requests."""
+    raw = os.environ.get(ARTWORK_METRICS_PATH_ENV)
+    if not raw:
+        return None
+    path = Path(raw)
+    if not path.is_absolute():
+        raise RuntimeError(f"{ARTWORK_METRICS_PATH_ENV} must be an absolute path.")
+    return path
+
+
+def _metric_phase(value: str | None) -> str:
+    phase = (value or "snapshot").strip()
+    if not phase or len(phase) > 64 or not all(character.isalnum() or character in "._-" for character in phase):
+        raise ValueError("phase must be 1-64 letters, digits, dots, underscores, or hyphens.")
+    return phase
+
+
+def _artwork_metric_kind(path: str) -> str | None:
+    """Classify only first-party Jellyfin artwork routes; query values never enter evidence."""
+    segments = urlsplit(path).path.strip("/").split("/")
+    if len(segments) < 4 or segments[0] != "Items" or segments[2] != "Images":
+        return None
+    kind = segments[3].lower()
+    return kind if kind in {"primary", "backdrop", "logo"} else None
+
+
+class _ArtworkRequestMetrics:
+    """Opt-in aggregate evidence for artwork requests made by a native proof journey."""
+
+    def __init__(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.fchmod(self._descriptor, 0o600)
+        self._lock = threading.Lock()
+        self._counts = {"primary": 0, "backdrop": 0, "logo": 0}
+        self._active = False
+        self._stopped = False
+        self._bytes_written = 0
+
+    def activate(self) -> None:
+        with self._lock:
+            self._active = True
+
+    def record(self, *, method: str, path: str, status: int) -> None:  # noqa: ARG002
+        # Count every artwork GET after fixture verification. A failed retry is
+        # still a real request and must not make the warm-return audit pass.
+        if method != "GET":
+            return
+        kind = _artwork_metric_kind(path)
+        if kind is None:
+            return
+        with self._lock:
+            if self._active and not self._stopped:
+                self._counts[kind] += 1
+
+    def reset(self, phase: str) -> dict[str, int]:
+        with self._lock:
+            self._counts = {"primary": 0, "backdrop": 0, "logo": 0}
+            snapshot = dict(self._counts)
+            self._write_locked(event="reset", phase=phase, counts=snapshot)
+            return snapshot
+
+    def snapshot(self, phase: str) -> dict[str, int]:
+        with self._lock:
+            snapshot = dict(self._counts)
+            self._write_locked(event="snapshot", phase=phase, counts=snapshot)
+            return snapshot
+
+    def close(self) -> None:
+        with self._lock:
+            if self._descriptor >= 0:
+                os.close(self._descriptor)
+                self._descriptor = -1
+
+    def _write_locked(self, *, event: str, phase: str, counts: dict[str, int]) -> None:
+        if self._stopped or self._descriptor < 0:
+            return
+        line = json.dumps({
+            "timestamp": round(time.time(), 3),
+            "event": event,
+            "phase": phase,
+            "primary": counts["primary"],
+            "backdrop": counts["backdrop"],
+            "logo": counts["logo"],
+        }, separators=(",", ":")).encode("utf-8") + b"\n"
+        if self._bytes_written + len(line) > MAX_ARTWORK_METRICS_BYTES:
+            self._stopped = True
+            return
+        os.write(self._descriptor, line)
+        self._bytes_written += len(line)
+
+
+def install_artwork_request_metrics(app: Any, path: Path) -> _ArtworkRequestMetrics:
+    """Add proof-only aggregate counters without exposing artwork URLs or credentials."""
+    from fastapi import HTTPException
+
+    recorder = _ArtworkRequestMetrics(path)
+
+    @app.middleware("http")
+    async def record_artwork_request(request, call_next):  # noqa: ANN001, ANN202
+        recorder.record(method=request.method, path=request.url.path, status=0)
+        return await call_next(request)
+
+    async def artwork_metrics(phase: str | None = None):  # noqa: ANN202
+        try:
+            return recorder.snapshot(_metric_phase(phase))
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    async def reset_artwork_metrics(phase: str | None = None):  # noqa: ANN202
+        try:
+            return recorder.reset(_metric_phase(phase))
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    app.add_api_route("/Lumina/Proof/artwork-metrics", artwork_metrics, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/Lumina/Proof/artwork-metrics/reset", reset_artwork_metrics, methods=["POST"], include_in_schema=False)
+    return recorder
+
+
 def _normalise_request_path(path: str) -> str:
     path = urlsplit(path).path
     segments = path.split("/")
@@ -622,17 +746,23 @@ def make_performance_catalogue(media_root: Path, count: int) -> None:
 def make_show(media_root: Path) -> None:
     """Reuse only this harness's original generated video and artwork."""
     show = media_root / "Shows" / SHOW_TITLE
-    season = show / "Season 01"
-    season.mkdir(parents=True)
+    show.mkdir(parents=True, exist_ok=True)
     (show / "tvshow.nfo").write_text(f"<tvshow><title>{SHOW_TITLE}</title><plot>Synthetic observatory episode fixture.</plot></tvshow>", encoding="utf-8")
     movie = media_root / "Movies" / f"{DIRECT_TITLE} (2026)"
     poster = movie / "poster.png" if (movie / "poster.png").is_file() else movie / "poster.jpg"
     shutil.copyfile(poster, show / poster.name)
-    for number, title in [(1, EPISODE_TITLE), (2, SECOND_EPISODE_TITLE)]:
-        stem = f"{SHOW_TITLE} S01E{number:02d}"
+    episodes = [
+        (1, 1, EPISODE_TITLE),
+        (1, 2, SECOND_EPISODE_TITLE),
+        (2, 1, SECOND_SEASON_EPISODE_TITLE),
+    ]
+    for season_number, episode_number, title in episodes:
+        season = show / f"Season {season_number:02d}"
+        season.mkdir(parents=True, exist_ok=True)
+        stem = f"{SHOW_TITLE} S{season_number:02d}E{episode_number:02d}"
         shutil.copyfile(movie / f"{DIRECT_TITLE} (2026).mp4", season / f"{stem}.mp4")
         (season / f"{stem}.nfo").write_text(
-            f"<episodedetails><title>{title}</title><showtitle>{SHOW_TITLE}</showtitle><season>1</season><episode>{number}</episode><plot>Synthetic episode.</plot></episodedetails>",
+            f"<episodedetails><title>{title}</title><showtitle>{SHOW_TITLE}</showtitle><season>{season_number}</season><episode>{episode_number}</episode><plot>Synthetic episode.</plot></episodedetails>",
             encoding="utf-8",
         )
 
@@ -699,8 +829,15 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
         items = {item.title: item.id for item in db.query(LibraryItem).all()}
         titles = {(title.type, title.name): title.id for title in db.query(MediaTitle).all()}
         show_id = titles[("series", SHOW_TITLE)]
-        season_id = db.query(MediaTitle).filter_by(type="season", parent_id=show_id).one().id
-        first_episode_item = db.query(LibraryItem).filter_by(title_id=titles[("episode", EPISODE_TITLE)]).one()
+        first_episode_title = db.query(MediaTitle).filter_by(type="episode", name=EPISODE_TITLE).one()
+        second_season_episode_title = db.query(MediaTitle).filter_by(
+            type="episode", name=SECOND_SEASON_EPISODE_TITLE
+        ).one()
+        season_id = first_episode_title.parent_id
+        second_season_id = second_season_episode_title.parent_id
+        if not season_id or not second_season_id or season_id == second_season_id:
+            raise RuntimeError("The synthetic show did not import two distinct seasons.")
+        first_episode_item = db.query(LibraryItem).filter_by(title_id=first_episode_title.id).one()
         media_segments.save_user_segments(db, first_episode_item.id, [
             MediaSegmentInput(type="intro", start_seconds=0, end_seconds=EPISODE_INTRO_END_SECONDS),
             MediaSegmentInput(type="credits", start_seconds=EPISODE_CREDITS_START_SECONDS, end_seconds=90),
@@ -722,10 +859,13 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
             "showID": uuid.UUID(show_id).hex,
             "showTitle": SHOW_TITLE,
             "seasonID": uuid.UUID(season_id).hex,
+            "secondSeasonID": uuid.UUID(second_season_id).hex,
             "episodeID": uuid.UUID(titles[("episode", EPISODE_TITLE)]).hex,
             "episodeTitle": EPISODE_TITLE,
             "secondEpisodeID": uuid.UUID(titles[("episode", SECOND_EPISODE_TITLE)]).hex,
             "secondEpisodeTitle": SECOND_EPISODE_TITLE,
+            "secondSeasonEpisodeID": uuid.UUID(second_season_episode_title.id).hex,
+            "secondSeasonEpisodeTitle": SECOND_SEASON_EPISODE_TITLE,
             "episodeIntroEndSeconds": EPISODE_INTRO_END_SECONDS,
             "episodeCreditsStartSeconds": EPISODE_CREDITS_START_SECONDS,
             "audioAlbumID": uuid.UUID(titles[("album", AUDIO_ALBUM)]).hex,
@@ -816,11 +956,14 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
     if expected["showID"] not in {item.get("Id") for item in shows.get("Items", [])}:
         raise RuntimeError("The imported synthetic show was absent from the public catalog.")
     seasons = request_json(f"/Shows/{expected['showID']}/Seasons", token=token)
-    if expected["seasonID"] not in {item.get("Id") for item in seasons.get("Items", [])}:
-        raise RuntimeError("The synthetic show did not expose its imported season.")
+    if not {expected["seasonID"], expected["secondSeasonID"]}.issubset({item.get("Id") for item in seasons.get("Items", [])}):
+        raise RuntimeError("The synthetic show did not expose both imported seasons.")
     episodes = request_json(f"/Items?ParentId={expected['seasonID']}&IncludeItemTypes=Episode&Limit=50", token=token)
     if not {expected["episodeID"], expected["secondEpisodeID"]}.issubset({item.get("Id") for item in episodes.get("Items", [])}):
         raise RuntimeError("The synthetic season did not expose both imported episodes.")
+    second_season_episodes = request_json(f"/Items?ParentId={expected['secondSeasonID']}&IncludeItemTypes=Episode&Limit=50", token=token)
+    if expected["secondSeasonEpisodeID"] not in {item.get("Id") for item in second_season_episodes.get("Items", [])}:
+        raise RuntimeError("The synthetic second season did not expose its episode.")
     segments = request_json(f"/MediaSegments/{expected['episodeID']}", token=token)
     expected_segments = [("Intro", 0, EPISODE_INTRO_END_SECONDS * 10_000_000),
                          ("Outro", EPISODE_CREDITS_START_SECONDS * 10_000_000, 900_000_000)]
@@ -953,6 +1096,7 @@ def main() -> None:
     thread: threading.Thread | None = None
     server: Any = None
     performance_request_log: _PerformanceRequestLog | None = None
+    artwork_metrics: _ArtworkRequestMetrics | None = None
     try:
         playback_info_delay = playback_info_delay_seconds()
         artwork = fixture_artwork()
@@ -982,6 +1126,8 @@ def main() -> None:
         install_playback_info_delay(app, playback_info_delay)
         if performance_catalogue and (request_log_path := performance_request_log_path()) is not None:
             performance_request_log = install_performance_request_log(app, request_log_path)
+        if (metrics_path := artwork_metrics_path()) is not None:
+            artwork_metrics = install_artwork_request_metrics(app, metrics_path)
 
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="warning", timeout_keep_alive=30))
         thread = threading.Thread(target=lambda: server.run(sockets=[listener]), name="lumina-apple-proof", daemon=True)
@@ -999,6 +1145,8 @@ def main() -> None:
         verified = verify_api(provisioned, username, password)
         if performance_request_log is not None:
             performance_request_log.activate()
+        if artwork_metrics is not None:
+            artwork_metrics.activate()
         write_fixture(state_root, username, password, verified)
         print(f"Lumina Apple proof server ready at {ORIGIN}")
         print(f"Fixture: {FIXTURE_PATH}")
@@ -1012,6 +1160,8 @@ def main() -> None:
             thread.join(timeout=60)
         if performance_request_log is not None:
             performance_request_log.close()
+        if artwork_metrics is not None:
+            artwork_metrics.close()
         listener.close()
         FIXTURE_PATH.unlink(missing_ok=True)
         shutil.rmtree(state_root)

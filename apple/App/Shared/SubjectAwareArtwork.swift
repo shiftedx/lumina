@@ -13,9 +13,15 @@ struct SubjectAwareArtwork: View {
     @State private var loadedURL: URL?
     @State private var framing: HeroFraming?
 
+    private var displayedSource: UIImage? {
+        if loadedURL == url, let source { return source }
+        guard let url, let image = ArtworkImageCache.shared.cachedImage(for: url) else { return nil }
+        return UIImage(cgImage: image)
+    }
+
     var body: some View {
         GeometryReader { geometry in
-            if let source, loadedURL == url {
+            if let source = displayedSource {
                 if fit {
                     Image(uiImage: source).resizable().scaledToFit()
                         .frame(width: geometry.size.width, height: geometry.size.height)
@@ -35,19 +41,12 @@ struct SubjectAwareArtwork: View {
             framing = nil
             guard let url else { return }
             async let proposed: HeroFraming? = fit ? nil : loadFraming(url)
-            do {
-                let (data, response) = try await URLSession.shared.data(from: url)
-                guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode),
-                      data.count <= BillboardArtworkPreparation.maximumEncodedBytes, !Task.isCancelled else { return }
-                let image = await Task.detached(priority: .userInitiated) {
-                    BillboardArtworkPreparation.image(from: data)
-                }.value
-                let chosen = await proposed
-                guard !Task.isCancelled, let image else { return }
-                framing = chosen
-                source = UIImage(cgImage: image)
-                loadedURL = url
-            } catch { /* Retain the artwork placeholder when the source is unavailable. */ }
+            let image = await ArtworkImageCache.shared.image(for: url)
+            let chosen = await proposed
+            guard !Task.isCancelled, let image else { return }
+            framing = chosen
+            source = UIImage(cgImage: image)
+            loadedURL = url
         }
         .accessibilityHidden(true)
         .allowsHitTesting(false)

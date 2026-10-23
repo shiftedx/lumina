@@ -6,6 +6,7 @@ import LuminaCore
 struct MobileRootView: View {
     @Bindable var store: LuminaStore
     @State private var audioSession = NativeAudioSession()
+    @State private var userSettings = LuminaUserSettings()
     @AppStorage("lumina.appearance") private var appearance = "dark"
     @Environment(\.scenePhase) private var scenePhase
 
@@ -21,17 +22,29 @@ struct MobileRootView: View {
         .foregroundStyle(LuminaTheme.ink)
         .background(LuminaTheme.paper.ignoresSafeArea())
         .environment(audioSession)
+        .environment(userSettings)
         .preferredColorScheme(appearance == "system" ? nil : appearance == "light" ? .light : .dark)
         .onChange(of: store.session?.accessToken) { _, token in
             if token == nil { audioSession.stop() }
         }
         .task(id: store.session?.accessToken) {
-            if store.session != nil { await audioSession.restore(store: store) }
+            userSettings.configure(session: store.session)
+            if store.session != nil {
+                await userSettings.load()
+                if userSettings.hasLoaded { appearance = userSettings.theme }
+                await audioSession.restore(store: store)
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 audioSession.resumeAfterActivation()
-                Task { await audioSession.refreshSharedQueue() }
+                Task {
+                    await audioSession.refreshSharedQueue()
+                    if store.session != nil {
+                        await userSettings.load()
+                        if userSettings.hasLoaded { appearance = userSettings.theme }
+                    }
+                }
             } else if phase == .background {
                 Task { await audioSession.flushCheckpoint() }
             }
@@ -60,12 +73,15 @@ private struct ConnectionView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Lumina")
-                        .font(.system(.largeTitle, design: .serif))
-                        .fontWeight(.bold)
-                        .italic()
+                    HStack(spacing: 12) {
+                        LuminaBrandMark()
+                            .frame(width: 46, height: 28)
+                        Text("LUMINA")
+                            .font(.title2.weight(.black))
+                            .tracking(3)
+                    }
                     Text("Your household library, ready for the room you are in.")
-                        .font(.system(.title3, design: .serif))
+                        .font(LuminaTheme.editorial(23, relativeTo: .title3, italic: true))
                         .foregroundStyle(LuminaTheme.muted)
                 }
 
@@ -105,6 +121,8 @@ private struct ConnectionView: View {
                             .accessibilityIdentifier("passwordField")
                     }
                 }
+                .padding(18)
+                .background(LuminaTheme.ink.opacity(0.07), in: .rect(cornerRadius: 16))
 
                 Button {
                     connect()
@@ -145,8 +163,8 @@ private struct ConnectionView: View {
                 }
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 36)
-            .frame(maxWidth: 560)
+            .padding(.vertical, 44)
+            .frame(maxWidth: 480)
             .frame(maxWidth: .infinity)
         }
         .background(LuminaTheme.paper)
@@ -185,27 +203,27 @@ private struct ConnectionField<Content: View>: View {
 }
 
 private enum LibraryDestination: Hashable, CaseIterable {
-    case home, video, audio, books, requests, account
+    case home, library, requests, account
+}
+
+private enum LibraryCategory: String, CaseIterable {
+    case movies, tv, anime, music, books
 
     var title: String {
         switch self {
-        case .home: "Home"
-        case .video: "Video"
-        case .audio: "Audio"
+        case .movies: "Movies"
+        case .tv: "TV"
+        case .anime: "Anime"
+        case .music: "Music"
         case .books: "Books"
-        case .requests: "Requests"
-        case .account: "Account"
         }
     }
 
-    var symbol: String {
+    var videoKind: VideoBrowseKind {
         switch self {
-        case .home: "house"
-        case .video: "film"
-        case .audio: "music.note"
-        case .books: "books.vertical"
-        case .requests: "sparkles.tv"
-        case .account: "person.crop.circle"
+        case .tv: .shows
+        case .anime: .anime
+        default: .movies
         }
     }
 }
@@ -214,30 +232,13 @@ private enum LibraryDestination: Hashable, CaseIterable {
 private struct LibraryShellView: View {
     @Bindable var store: LuminaStore
     @State private var destination: LibraryDestination = .home
-    @State private var compactColumn: NavigationSplitViewColumn = .detail
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var category: LibraryCategory = .movies
     @Environment(\.horizontalSizeClass) private var widthClass
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $compactColumn) {
-            List(selection: Binding<LibraryDestination?>(
-                get: { destination },
-                set: { if let value = $0 { destination = value } }
-            )) {
-                ForEach(LibraryDestination.allCases, id: \.self) { tab in
-                    Label(tab.title, systemImage: tab.symbol)
-                        .tag(tab)
-                        .accessibilityIdentifier("\(tab.title.lowercased())Tab")
-                }
-            }
-            .navigationTitle("Lumina")
-            .scrollContentBackground(.hidden)
-            .background(LuminaTheme.paper)
-            .accessibilityIdentifier("librarySidebar")
-        } detail: {
-            destinations
-        }
-        .navigationSplitViewStyle(.balanced)
+        // TabView is system managed, so iPhone Duo can relocate it to the
+        // appropriate edge without a second app-made sidebar duplicating it.
+        destinations
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if widthClass == .regular {
                 NativeNowPlayingBar(store: store)
@@ -247,42 +248,78 @@ private struct LibraryShellView: View {
 
     private var destinations: some View {
         TabView(selection: $destination) {
-            Tab("Home", systemImage: "house", value: .home) {
+            Tab("Home", image: "LuminaNavHome", value: .home) {
                 destinationStack {
-                    HomeLibraryView(store: store, destination: $destination)
+                    HomeLibraryView(store: store)
                 }
             }
-            Tab("Video", systemImage: "film", value: .video) {
-                destinationStack { VideoLibraryView(store: store) }
+            Tab("Library", image: "LuminaNavLibrary", value: .library) {
+                destinationStack {
+                    libraryContent
+                        .safeAreaInset(edge: .top, spacing: 0) { libraryCategories }
+                }
             }
-            Tab("Audio", systemImage: "music.note", value: .audio) {
-                destinationStack { AudioLibraryView(store: store) }
-            }
-            Tab("Books", systemImage: "books.vertical", value: .books) {
+            Tab("Requests", image: "LuminaNavRequests", value: .requests) {
                 destinationStack {
                     if let session = store.session {
-                        NativeBooksView(session: session).id(session.accessToken)
+                        NativeRequestsView(session: session, isActive: destination == .requests)
+                            .id(session.accessToken)
                     }
                 }
             }
-            Tab("Requests", systemImage: "sparkles.tv", value: .requests) {
-                destinationStack {
-                    if let session = store.session {
-                        NativeRequestsView(session: session, isActive: destination == .requests).id(session.accessToken)
-                    }
-                }
-            }
-            Tab("Account", systemImage: "person.crop.circle", value: .account) {
-                destinationStack { AccountView(store: store) }
+            Tab("Account", image: "LuminaNavAccount", value: .account) {
+                destinationStack { NativeAccountSettingsView(store: store) }
             }
         }
+    }
+
+    @ViewBuilder private var libraryContent: some View {
+        switch category {
+        case .movies, .tv, .anime:
+            VideoLibraryView(store: store, kind: .constant(category.videoKind))
+                .id(category)
+        case .music:
+            AudioLibraryView(store: store)
+        case .books:
+            if let session = store.session {
+                NativeBooksView(session: session).id(session.accessToken)
+            }
+        }
+    }
+
+    private var libraryCategories: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 26) {
+                ForEach(LibraryCategory.allCases, id: \.self) { value in
+                    Button {
+                        category = value
+                    } label: {
+                        Text(value.title)
+                            .font(.subheadline.weight(category == value ? .bold : .medium))
+                            .foregroundStyle(category == value ? LuminaTheme.ink : LuminaTheme.muted)
+                            .padding(.vertical, 13)
+                            .overlay(alignment: .bottom) {
+                                if category == value {
+                                    Capsule().fill(LuminaTheme.gold).frame(height: 2)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(category == value ? .isSelected : [])
+                    .accessibilityIdentifier("libraryCategory-\(value.rawValue)")
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+        .scrollIndicators(.hidden)
+        .background(LuminaTheme.paper)
+        .accessibilityIdentifier("libraryCategories")
     }
 
     private func destinationStack<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         NavigationStack {
             content()
                 .safeAreaInset(edge: .bottom, spacing: 0) { compactPlayerBar }
-                .toolbarVisibility(widthClass == .regular && columnVisibility != .detailOnly ? .hidden : .visible, for: .tabBar)
                 .navigationDestination(for: MediaItem.self) { item in
                     Group {
                         if item.type == "MusicAlbum" || item.type == "MusicArtist" {
@@ -308,140 +345,331 @@ private struct LibraryShellView: View {
 }
 
 @MainActor
-private struct AccountView: View {
-    @State private var licensesPresented = false
-    let store: LuminaStore
-    @AppStorage("lumina.appearance") private var appearance = "dark"
-
-    var body: some View {
-        Form {
-            Section {
-                Label {
-                    Text(store.session?.username ?? "Your account")
-                        .font(LuminaTheme.editorial(30, relativeTo: .title, italic: true))
-                } icon: {
-                    Image(systemName: "person.crop.circle")
-                        .font(.title)
-                        .foregroundStyle(LuminaTheme.gold)
-                }
-                .padding(.vertical, 12)
-            }
-            .listRowBackground(Color.clear)
-
-            Section { Button("Open-source licenses") { licensesPresented = true } }
-
-            Section("Appearance") {
-                Picker("Appearance", selection: $appearance) {
-                    Text("Dark").tag("dark")
-                    Text("Light").tag("light")
-                    Text("System").tag("system")
-                }
-                .pickerStyle(.menu)
-                .accessibilityValue(appearance == "system" ? Text("System") : appearance == "light" ? Text("Light") : Text("Dark"))
-                .accessibilityIdentifier("appearancePicker")
-            }
-            .listRowBackground(LuminaTheme.ink.opacity(0.06))
-
-            Section {
-                Button(role: .destructive) {
-                    Task {
-                        store.clearError()
-                        await store.signOut()
-                    }
-                } label: {
-                    Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-                }
-                .accessibilityIdentifier("signOutButton")
-            }
-            .listRowBackground(LuminaTheme.ink.opacity(0.06))
-        }
-        .scrollContentBackground(.hidden)
-        .background(LuminaTheme.paper)
-        .toolbarVisibility(.hidden, for: .navigationBar)
-        .accessibilityIdentifier("accountScreen")
-        .sheet(isPresented: $licensesPresented) { PlaybackLicensesView() }
-    }
-}
-
-@MainActor
 private struct HomeLibraryView: View {
     let store: LuminaStore
-    @Binding var destination: LibraryDestination
+    @State private var homeLayout: LuminaHomeLayout?
+    @State private var feed: LuminaHomeFeed?
+    @State private var completedInitialHomeLoad = false
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var shelves: [HomeShelfPreference] {
+        homeLayout?.shelves ?? HomeShelfID.allCases.map { HomeShelfPreference(id: $0, visible: true) }
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack(alignment: .firstTextBaseline, spacing: 16) {
-                    Text("Welcome home")
-                        .font(LuminaTheme.editorial(28, relativeTo: .title, italic: true))
-                        .accessibilityAddTraits(.isHeader)
-                    Spacer(minLength: 0)
-                    Text(Date.now, format: .dateTime.month(.abbreviated).day())
-                        .font(.caption)
-                        .foregroundStyle(LuminaTheme.muted)
-                        .fixedSize()
-                }
-                .padding(.bottom, 4)
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(LuminaTheme.ink.opacity(0.18)).frame(height: 1)
-                }
+            VStack(alignment: .leading, spacing: 28) {
                 if !store.featuredItems.isEmpty {
                     LibraryFeaturedView(store: store)
                         .padding(.horizontal, -20)
+                        .padding(.top, -20)
                 }
-                if !store.resumeItems.isEmpty {
-                    MediaRail(title: "Continue watching", items: store.resumeItems, store: store, identifierPrefix: "resumeItem")
+                ForEach(shelves.filter(\.visible)) { shelf in
+                    homeShelf(shelf.id)
                 }
-                if !store.nextUpItems.isEmpty {
-                    MediaRail(title: "Next up", items: store.nextUpItems, store: store, identifierPrefix: "nextUpItem")
-                }
-                if !store.recentItems.isEmpty {
-                    MediaRail(title: "Recently added", items: store.recentItems, store: store, identifierPrefix: "recentItem", wide: false)
-                } else if store.isHomeBusy || store.isBusy {
+                if store.isHomeBusy || store.isBusy {
                     ProgressView("Loading your library…")
-                } else if store.featuredItems.isEmpty && store.errorMessage == nil {
+                } else if store.featuredItems.isEmpty && store.errorMessage == nil && !(feed?.rows.contains(where: \.hasItems) ?? false) {
                     EmptyLibraryView { Task { await store.loadHome() } }
+                }
+                if let error = feed?.errorMessage {
+                    InlineErrorView(message: error) { Task { await feed?.load() } }
                 }
                 if let message = store.errorMessage {
                     InlineErrorView(message: message) { Task { await store.loadHome() } }
                 }
-                Button { destination = .audio } label: {
-                    HStack(alignment: .top, spacing: 16) {
-                        Image(systemName: "music.note")
-                            .font(.title)
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("A little listening room")
-                                .font(LuminaTheme.editorial(24, relativeTo: .title2, italic: true))
-                            Text("Explore your albums, artists, and tracks.")
-                                .font(.body)
-                                .foregroundStyle(LuminaTheme.muted)
-                            Label("Open Audio", systemImage: "arrow.right")
-                                .font(.subheadline.weight(.semibold))
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(22)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(LuminaTheme.gold.opacity(0.1), in: .rect(cornerRadius: 18))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("homeAudioButton")
-                Button("Explore all video", systemImage: "film") { destination = .video }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("homeVideoButton")
             }
             .padding(20)
             .frame(maxWidth: 1200)
             .frame(maxWidth: .infinity)
         }
+        .scrollClipDisabled()
         .background(LuminaTheme.paper)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarVisibility(.hidden, for: .navigationBar)
+        .toolbarVisibility(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .topBarLeading) {
+                    HomeHeroChrome().fixedSize()
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarLeading) {
+                    HomeHeroChrome().fixedSize()
+                }
+            }
+        }
         .accessibilityIdentifier("homeScreen")
-        .refreshable { await store.loadHome() }
-        .task { if store.recentItems.isEmpty { await store.loadHome() } }
+        .refreshable { await store.loadHome(); await homeLayout?.load(); await feed?.load() }
+        .task(id: store.session?.accessToken) {
+            guard let session = store.session else {
+                homeLayout = nil
+                feed = nil
+                completedInitialHomeLoad = false
+                return
+            }
+            completedInitialHomeLoad = false
+            let layout = LuminaHomeLayout(session: session)
+            homeLayout = layout
+            let homeFeed = LuminaHomeFeed(session: session, includesExternalSources: true)
+            feed = homeFeed
+            async let savedLayout: Void = layout.load()
+            async let rows: Void = homeFeed.load()
+            _ = await (savedLayout, rows)
+            guard !Task.isCancelled else { return }
+            completedInitialHomeLoad = true
+            if store.recentItems.isEmpty { await store.loadHome() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { refreshHomeRowsAfterInitialLoad() }
+        }
+        .onAppear { refreshHomeRowsAfterInitialLoad() }
     }
+
+    private func refreshHomeRowsAfterInitialLoad() {
+        guard completedInitialHomeLoad, let homeLayout, let feed else { return }
+        Task {
+            async let layout: Void = homeLayout.load()
+            async let rows: Void = feed.load()
+            _ = await (layout, rows)
+        }
+    }
+
+    @ViewBuilder
+    private func homeShelf(_ id: HomeShelfID) -> some View {
+        Group {
+            if let feed, feed.hasLoaded {
+                ForEach(feed.rows.filter { $0.shelfID == id }) { row in
+                    if !row.items.isEmpty {
+                    MediaRail(title: row.title, items: row.items, store: store,
+                              identifierPrefix: id == .continueWatching ? "resumeItem" : id == .nextUp ? "nextUpItem" : id == .newInLibrary ? "recentItem" : "homeRow-\(row.id)",
+                              wide: row.shape == .still && id != .continueWatching && id != .nextUp)
+                    }
+                    if !(row.externalItems ?? []).isEmpty { HomeExternalRail(row: row) }
+                }
+            } else {
+            switch id.rawValue {
+            case "continue":
+                if !store.resumeItems.isEmpty {
+                    MediaRail(title: id.title, items: store.resumeItems, store: store, identifierPrefix: "resumeItem", wide: false)
+                }
+            case "next_up":
+                if !store.nextUpItems.isEmpty {
+                    MediaRail(title: id.title, items: store.nextUpItems, store: store, identifierPrefix: "nextUpItem", wide: false)
+                }
+            case "new_in_library":
+                if !store.recentItems.isEmpty {
+                    MediaRail(title: id.title, items: store.recentItems, store: store, identifierPrefix: "recentItem", wide: false)
+                }
+            default: EmptyView()
+            }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("homeShelf-\(id.rawValue)")
+    }
+}
+
+@MainActor
+private struct HomeExternalRail: View {
+    let row: HomeFeedRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(row.title).font(.title3.weight(.bold)).padding(.top, 10)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 10) {
+                    ForEach(row.externalItems ?? []) { item in
+                        if let destination = item.sourceURL {
+                            Link(destination: destination) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    ArtworkView(url: item.artworkURL, name: item.title, aspect: 16 / 9)
+                                    Text(item.title).font(.caption.weight(.semibold)).lineLimit(2)
+                                    Text(item.subtitle).font(.caption2).foregroundStyle(LuminaTheme.muted).lineLimit(1)
+                                    Label("Open source", systemImage: "arrow.up.right").font(.caption2)
+                                }
+                                .containerRelativeFrame(.horizontal) { width, _ in min(276, width * 0.68) }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(item.title), \(item.subtitle). Open source app or website.")
+                            .accessibilityIdentifier("homeExternal-\(item.id)")
+                        }
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.viewAligned)
+        }
+    }
+}
+
+/// Account owns Home customization; the editor keeps the same server-backed layout contract.
+@MainActor
+struct NativeHomePreferencesView: View {
+    let store: LuminaStore
+    @State private var layout: LuminaHomeLayout?
+
+    var body: some View {
+        Group {
+            if let layout {
+                NativeHomeLayoutEditor(layout: layout, store: store, feed: nil)
+            } else {
+                ProgressView("Loading Home layout…")
+            }
+        }
+        .task(id: store.session?.accessToken) {
+            guard let session = store.session else { return }
+            let loaded = LuminaHomeLayout(session: session)
+            layout = loaded
+            await loaded.load()
+        }
+    }
+}
+
+@MainActor
+private struct NativeHomeLayoutEditor: View {
+    let layout: LuminaHomeLayout
+    let store: LuminaStore
+    let feed: LuminaHomeFeed?
+    @State private var draft: [HomeShelfPreference] = []
+    @State private var changed = false
+    @State private var reset = false
+    @Environment(\.dismiss) private var dismiss
+    private var rows: [HomeShelfPreference] { draft }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(rows) { shelf in
+                        HStack(spacing: 16) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(shelf.id.title)
+                                if feed?.hasLoaded == true && isEmpty(shelf.id) {
+                                    Text("Nothing to show right now").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .accessibilityHidden(true)
+                            Spacer(minLength: 8)
+                            Toggle(shelf.id.title, isOn: Binding(get: {
+                                draft.first { $0.id == shelf.id }?.visible ?? true
+                            }, set: { visible in
+                                if let index = draft.firstIndex(where: { $0.id == shelf.id }) {
+                                    draft[index] = HomeShelfPreference(id: shelf.id, visible: visible)
+                                    changed = true; reset = false
+                                }
+                            }))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .accessibilityLabel(shelf.id.title)
+                            .accessibilityIdentifier("homeShelfVisibility-\(shelf.id.rawValue)")
+                            .accessibilityAction(named: "Move up") { move(shelf.id, offset: -1) }
+                            .accessibilityAction(named: "Move down") { move(shelf.id, offset: 1) }
+                        }
+                    }
+                    .onMove { source, target in
+                        var reordered = rows
+                        reordered.move(fromOffsets: source, toOffset: target)
+                        applyOrder(reordered)
+                    }
+                } footer: {
+                    Text("Drag the handles to reorder your Home rows. Turn off a row to hide it. Your changes also apply on the website.")
+                }
+                .disabled(!layout.hasLoaded || layout.isSaving)
+                Section {
+                    Button("Reset to default") {
+                        draft = HomeShelfID.allCases.map { HomeShelfPreference(id: $0, visible: true) }
+                        changed = true; reset = true
+                    }.accessibilityIdentifier("homeLayoutResetButton")
+                        .disabled(!layout.hasLoaded || layout.isSaving)
+                }
+                if layout.isLoading { ProgressView("Loading Home layout…") }
+                if let error = layout.errorMessage {
+                    Section {
+                        Text(error).foregroundStyle(.red)
+                        Button("Try again") { Task { await layout.load() } }
+                    }
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Edit Home").navigationBarTitleDisplayMode(.inline)
+            .toolbarVisibility(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.disabled(layout.isSaving)
+                        .accessibilityIdentifier("homeLayoutCancelButton")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        Task { if await layout.save(reset ? nil : draft) { dismiss() } }
+                    }.disabled(!layout.hasLoaded || layout.isSaving)
+                        .accessibilityIdentifier("homeLayoutSaveButton")
+                }
+            }
+            .interactiveDismissDisabled(layout.isSaving)
+            .onAppear {
+                draft = layout.shelves
+                changed = false
+                reset = false
+            }
+            .onChange(of: layout.shelves, initial: true) { _, value in
+                if !changed { draft = value }
+            }
+            .accessibilityIdentifier("homeLayoutEditor")
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func applyOrder(_ reordered: [HomeShelfPreference]) {
+        draft = reordered
+        changed = true; reset = false
+    }
+
+    private func move(_ id: HomeShelfID, offset: Int) {
+        var reordered = rows
+        guard let index = reordered.firstIndex(where: { $0.id == id }) else { return }
+        let target = index + offset
+        guard reordered.indices.contains(target) else { return }
+        reordered.swapAt(index, target)
+        applyOrder(reordered)
+    }
+
+    private func isEmpty(_ id: HomeShelfID) -> Bool {
+        if let feed, feed.hasLoaded {
+            return !feed.rows.contains { $0.shelfID == id && $0.hasItems }
+        }
+        return switch id.rawValue {
+        case "continue": store.resumeItems.isEmpty
+        case "next_up": store.nextUpItems.isEmpty
+        case "new_in_library": store.recentItems.isEmpty
+        default: true
+        }
+    }
+}
+
+@MainActor
+private struct HomeHeroChrome: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                LuminaBrandMark()
+                    .frame(width: 24, height: 24 * 34 / 56)
+                    .alignmentGuide(.firstTextBaseline) { dimensions in
+                        // SunriseShape's horizon is at 31/34 of its height;
+                        // include the rounded stroke's lower edge.
+                        dimensions.height * 31 / 34 + dimensions.width * 1.5 / 56
+                    }
+                Text("LUMINA")
+                    .font(.caption.weight(.black))
+                    .tracking(1.8)
+            }
+            .foregroundStyle(LuminaTheme.ink)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Lumina")
+            .accessibilityIdentifier("homeMasthead")
+        }
+    }
+
 }
 
 @MainActor
@@ -450,7 +678,7 @@ private struct VideoLibraryView: View {
 
     @State private var searchText = ""
     @State private var searchVisible = false
-    @State private var kind: VideoBrowseKind = .all
+    @Binding var kind: VideoBrowseKind
     @State private var sort: VideoSort = .name
     @State private var filters = VideoFilters()
     @State private var filtersVisible = false
@@ -461,7 +689,7 @@ private struct VideoLibraryView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 14) {
                 if searchVisible {
                     HStack(spacing: 0) {
                         LibrarySearchBar(text: $searchText, onSubmit: search)
@@ -474,23 +702,6 @@ private struct VideoLibraryView: View {
                         .font(.body)
                     }
                     .frame(height: 56)
-                }
-
-                ViewThatFits(in: .horizontal) {
-                    HStack { catalogueFilters }
-                    VStack(alignment: .leading) { catalogueFilters }
-                }
-
-                if filters != VideoFilters() {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(filterSummary)
-                            .font(.footnote)
-                            .foregroundStyle(LuminaTheme.muted)
-                        Spacer()
-                        Button("Clear filters") { filters = VideoFilters() }
-                            .font(.footnote.weight(.semibold))
-                            .accessibilityIdentifier("videoClearFiltersButton")
-                    }
                 }
 
                 if store.isBusy && store.items.isEmpty {
@@ -523,7 +734,7 @@ private struct VideoLibraryView: View {
                     }
 
                     if !store.items.isEmpty {
-                        LibraryGrid(items: store.items, store: store)
+                        VideoPosterWall(items: store.items, store: store)
                     }
 
                     if store.hasMore {
@@ -589,6 +800,8 @@ private struct VideoLibraryView: View {
         .onChange(of: filters) { search() }
         .sheet(isPresented: $filtersVisible) {
             VideoFilterSheet(filters: $filters)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -596,32 +809,35 @@ private struct VideoLibraryView: View {
                     .accessibilityIdentifier("videoSearchButton")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Filter video", systemImage: filters == VideoFilters() ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill") {
-                    filtersVisible = true
+                Menu {
+                    Picker("Sort: \(sort.label)", selection: $sort) {
+                        ForEach(VideoSort.allCases, id: \.self) { sort in Text(sort.label).tag(sort) }
+                    }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("videoSortPicker")
+                    .accessibilityValue(sort.label)
+
+                    Divider()
+                    Button("Filters", systemImage: filters == VideoFilters() ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill") {
+                        filtersVisible = true
+                    }
+                    .accessibilityIdentifier("videoFiltersButton")
+                    .accessibilityValue(filters == VideoFilters() ? "No filters" : filterSummary)
+
+                    if filters != VideoFilters() {
+                        Button("Clear filters", systemImage: "xmark.circle") { filters = VideoFilters() }
+                            .accessibilityIdentifier("videoClearFiltersButton")
+                    }
+                } label: {
+                    Label("Video options, \(optionsAccessibilityValue)", systemImage: "ellipsis.circle")
+                        .labelStyle(.iconOnly)
                 }
-                .accessibilityIdentifier("videoFiltersButton")
-                .accessibilityValue(filters == VideoFilters() ? "No filters" : filterSummary)
+                .accessibilityIdentifier("videoOptionsMenu")
+                .accessibilityValue(optionsAccessibilityValue)
             }
         }
         .task {
             await loadInitialContent()
-        }
-    }
-
-    @ViewBuilder private var catalogueFilters: some View {
-        Picker("Video type", selection: $kind) {
-            ForEach(VideoBrowseKind.allCases, id: \.self) { kind in Text(kind.label).tag(kind) }
-        }
-        .pickerStyle(.menu)
-        .accessibilityIdentifier("videoKindPicker")
-        if searchText.isEmpty {
-            Picker("Sort", selection: $sort) {
-                ForEach(VideoSort.allCases, id: \.self) { sort in Text(sort.label).tag(sort) }
-            }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("videoSortPicker")
-        } else {
-            Text("By relevance").font(.subheadline).foregroundStyle(LuminaTheme.muted)
         }
     }
 
@@ -632,6 +848,11 @@ private struct VideoLibraryView: View {
         if filters.unwatchedOnly { labels.append("Unwatched") }
         if filters.favoritesOnly { labels.append("Favorites") }
         return labels.joined(separator: " · ")
+    }
+
+    private var optionsAccessibilityValue: String {
+        let activeFilters = filters == VideoFilters() ? "No filters" : filterSummary
+        return "\(kind.label), sorted by \(sort.label); \(activeFilters)"
     }
 
     private func loadInitialContent() async {
@@ -731,26 +952,72 @@ private struct VideoFilterSheet: View {
 }
 
 @MainActor
+private struct NativeWatchlistButton: View {
+    let item: MediaItem
+    let store: LuminaStore
+    @State private var watchlist: LuminaWatchlist?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                guard let watchlist else { return }
+                Task { await watchlist.set(itemID: item.id, included: !watchlist.isIncluded) }
+            } label: {
+                Label(watchlist?.isIncluded == true ? "In watchlist" : "Add to watchlist",
+                      systemImage: watchlist?.isIncluded == true ? "checkmark" : "plus")
+            }
+            .buttonStyle(LuminaMediaActionStyle())
+            .disabled(watchlist == nil || watchlist?.isLoading == true || watchlist?.isSaving == true || watchlist?.errorMessage != nil)
+            .accessibilityIdentifier("videoWatchlistButton")
+            .accessibilityValue(watchlist?.isIncluded == true ? "In watchlist" : "Not in watchlist")
+            .accessibilityHint(watchlist?.isIncluded == true ? "Remove from your watchlist" : "Save to your watchlist")
+
+            if let message = watchlist?.errorMessage {
+                InlineErrorView(message: message) {
+                    Task { await watchlist?.load(itemID: item.id) }
+                }
+            }
+        }
+        .task(id: item.id + (store.session?.accessToken ?? "")) {
+            let model = LuminaWatchlist(session: store.session)
+            watchlist = model
+            await model.load(itemID: item.id)
+        }
+    }
+}
+
+@MainActor
 private struct VideoCollectionView: View {
     let item: MediaItem
     let store: LuminaStore
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var children: [MediaItem] = []
+    @State private var detailItem: MediaItem?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var playbackRequest: PlaybackRequest?
+    @State private var isPreparingPlayback = false
+    @State private var playbackError: String?
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                MediaBillboard(item: item, store: store, context: LocalizedStringKey(item.type == "Series" ? "TV show" : item.seriesName ?? "Season"), showsOverview: true) {
-                    Text(item.type == "Series" ? "Explore the seasons below." : "Choose an episode below.")
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.85))
+            VStack(alignment: .leading, spacing: 18) {
+                MediaBillboard(item: detailItem ?? item, store: store, context: "", showsOverview: true, showsContext: false, compactMinimumHeight: 460, wideMinimumHeight: 540) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 12) { playbackActions }
+                        VStack(alignment: .leading, spacing: 12) { playbackActions }
+                    }
+                    if let playbackError {
+                        Label(playbackError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout)
+                            .foregroundStyle(LuminaTheme.gold)
+                            .accessibilityIdentifier("videoCollectionPlaybackError")
+                    }
                 }
                 .padding(.horizontal, -20)
 
                 Text(item.type == "Series" ? "Seasons" : "Episodes")
-                    .font(LuminaTheme.editorial(25, relativeTo: .title2, italic: true))
+                    .font(.title2.weight(.bold))
                     .accessibilityAddTraits(.isHeader)
                 if let errorMessage {
                     InlineErrorView(message: errorMessage) { Task { await load() } }
@@ -763,32 +1030,44 @@ private struct VideoCollectionView: View {
                     LazyVGrid(columns: libraryGridColumns(for: dynamicTypeSize), alignment: .leading, spacing: 28) {
                         ForEach(children) { child in
                             NavigationLink(value: child) {
-                                MediaCard(item: child, imageURL: store.imageURL(for: child), identifierPrefix: "season")
+                                MediaCard(item: child, imageURL: store.imageURL(for: child), identifierPrefix: "season", loadFraming: { await store.artworkFraming(for: $0) })
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape([.interaction, .accessibility], Rectangle())
                             .buttonStyle(.plain)
                             .accessibilityElement(children: .ignore)
+                            .accessibilityAddTraits(.isButton)
                             .accessibilityLabel(child.name)
                             .accessibilityIdentifier("videoSeason-\(child.id)")
                         }
                     }
                 } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(children) { episode in
-                            NavigationLink(value: episode) {
-                                episodeRow(episode)
+                    if dynamicTypeSize.isAccessibilitySize {
+                        LazyVStack(spacing: 12) {
+                            ForEach(children) { episode in
+                                episodeLink(episode)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(mediaAccessibilityLabel(for: episode) + (episode.userData?.played == true ? ", Watched" : ""))
-                            .accessibilityIdentifier("videoEpisode-\(episode.id)")
-                            Divider()
                         }
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(alignment: .top, spacing: 12) {
+                                ForEach(children) { episode in
+                                    episodeLink(episode)
+                                        .containerRelativeFrame(.horizontal) { width, _ in
+                                            min(max(340, width * 0.30), width * 0.86)
+                                        }
+                                }
+                            }
+                            .scrollTargetLayout()
+                        }
+                        .scrollTargetBehavior(.viewAligned)
                     }
                 }
+                NativeTitleSupplement(item: detailItem ?? item, store: store)
+                    .padding(.top, 18)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 28)
-            .frame(maxWidth: 1000)
             .frame(maxWidth: .infinity)
         }
         .background(LuminaTheme.paper)
@@ -797,55 +1076,160 @@ private struct VideoCollectionView: View {
         .accessibilityIdentifier("videoCollectionScreen")
         .task(id: item.id) { await load() }
         .refreshable { await load() }
+        .fullScreenCover(item: $playbackRequest, onDismiss: {
+            Task { await load() }
+        }) { request in
+            PlaybackScreen(request: request, store: store)
+        }
     }
 
-    private func episodeRow(_ episode: MediaItem) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            if !dynamicTypeSize.isAccessibilitySize {
-                ArtworkView(url: store.backdropURL(for: episode, maxWidth: 400) ?? store.imageURL(for: episode), name: episode.name, aspect: 16 / 9, loadFraming: { await store.artworkFraming(for: $0) })
-                    .frame(width: 112)
-            }
-            VStack(alignment: .leading, spacing: 6) {
+    @ViewBuilder
+    private var playbackActions: some View {
+        Button {
+            preparePlayback()
+        } label: {
+            Label(isPreparingPlayback ? "Preparing…" : "Play", systemImage: "play.fill")
+        }
+        .buttonStyle(LuminaMediaActionStyle(primary: true))
+        .disabled(isPreparingPlayback)
+        .accessibilityIdentifier("playButton")
+
+        NativeWatchlistButton(item: item, store: store)
+            .buttonStyle(LuminaMediaActionStyle(primary: false))
+            .accessibilityIdentifier("videoWatchlistButton")
+    }
+
+    private func episodeLink(_ episode: MediaItem) -> some View {
+        NavigationLink(value: episode) {
+            episodeCard(episode)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(mediaAccessibilityLabel(for: episode) + (episode.userData?.played == true ? ", Watched" : ""))
+        .accessibilityIdentifier("videoEpisode-\(episode.id)")
+    }
+
+    private func episodeCard(_ episode: MediaItem) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            ArtworkView(
+                url: store.backdropURL(for: episode, maxWidth: 920) ?? store.imageURL(for: episode),
+                name: episode.name,
+                aspect: 16 / 9,
+                loadFraming: { await store.artworkFraming(for: $0) }
+            )
+            LinearGradient(
+                colors: [.clear, LuminaTheme.theater.opacity(0.22), LuminaTheme.theater.opacity(0.96)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    if !episode.displaySubtitle.isEmpty {
+                        Text(episode.displaySubtitle)
+                    }
+                    if episode.durationSeconds > 0 {
+                        Text(Duration.seconds(episode.durationSeconds).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)))
+                    }
+                    if episode.userData?.played == true {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(LuminaTheme.spotlight)
+                            .accessibilityLabel("Watched")
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.88))
                 Text(episode.name)
-                    .font(LuminaTheme.editorial(19, relativeTo: .headline))
-                Text(episode.displaySubtitle)
-                    .font(.caption)
-                    .foregroundStyle(LuminaTheme.muted)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                 if let overview = episode.overview, !overview.isEmpty {
                     Text(overview)
-                        .font(.subheadline)
-                        .foregroundStyle(LuminaTheme.muted)
-                        .lineLimit(3)
-                }
-                if episode.userData?.played == true {
-                    Label("Watched", systemImage: "checkmark.circle.fill")
                         .font(.caption)
-                        .foregroundStyle(LuminaTheme.gold)
-                } else if episode.resumeSeconds > 0 {
-                    Text("Continue watching")
-                        .font(.caption)
-                        .foregroundStyle(LuminaTheme.gold)
+                        .foregroundStyle(.white.opacity(0.84))
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "chevron.forward")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(LuminaTheme.muted)
-                .padding(.top, 4)
+            .padding(14)
+            .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
+            .background {
+                if dynamicTypeSize.isAccessibilitySize {
+                    LuminaTheme.theater
+                }
+            }
+            if episode.resumeSeconds > 0, episode.durationSeconds > 0 {
+                ProgressView(value: min(episode.resumeSeconds / episode.durationSeconds, 1))
+                    .progressViewStyle(.linear)
+                    .tint(LuminaTheme.spotlight)
+                    .frame(height: 3)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 5)
+                    .frame(maxWidth: .infinity, alignment: .bottom)
+            }
         }
-        .padding(.vertical, 16)
+        .clipShape(.rect(cornerRadius: 8))
         .contentShape(Rectangle())
     }
 
     private func load() async {
         isLoading = true
         errorMessage = nil
+        detailItem = try? await store.loadItem(item)
         do {
             children = try await store.loadChildren(of: item)
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "This collection could not load. Check your connection and try again."
         }
         isLoading = false
+    }
+
+    private func preparePlayback() {
+        guard !isPreparingPlayback else { return }
+        isPreparingPlayback = true
+        playbackError = nil
+        Task {
+            defer { isPreparingPlayback = false }
+            do {
+                let episode = try await playableEpisode()
+                playbackRequest = try await store.preparePlayback(for: episode)
+            } catch {
+                playbackError = (error as? LocalizedError)?.errorDescription ?? "No playable episode is available yet. Check the collection and try again."
+            }
+        }
+    }
+
+    private func playableEpisode() async throws -> MediaItem {
+        if let resume = store.resumeItems.first(where: { candidate in
+            candidate.type == "Episode" && (candidate.seriesID == item.id || candidate.seasonID == item.id) && candidate.userData?.played != true
+        }) {
+            return resume
+        }
+
+        let seasons: [MediaItem]
+        if item.type == "Series" {
+            seasons = children.isEmpty ? try await store.loadChildren(of: item) : children
+        } else {
+            seasons = [item]
+        }
+        var episodes = [MediaItem]()
+        for season in seasons {
+            episodes.append(contentsOf: try await store.loadChildren(of: season))
+        }
+        guard let episode = episodes.first(where: { $0.resumeSeconds > 0 && $0.userData?.played != true })
+            ?? episodes.first(where: { $0.userData?.played != true })
+            ?? episodes.first else {
+            throw VideoCollectionPlaybackError.noEpisodes
+        }
+        return episode
+    }
+}
+
+private enum VideoCollectionPlaybackError: LocalizedError {
+    case noEpisodes
+
+    var errorDescription: String? {
+        switch self {
+        case .noEpisodes: "No playable episode is available yet."
+        }
     }
 }
 
@@ -858,7 +1242,6 @@ private struct AudioLibraryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                NativeMusicLibraryLinks(store: store)
                 if kind == .albums, let album = store.audioItems.first(where: { $0.type == "MusicAlbum" }) {
                     NavigationLink(value: album) {
                         MusicCollectionSpotlight(item: album, store: store)
@@ -873,22 +1256,6 @@ private struct AudioLibraryView: View {
                         Text("Albums to return to. Artists to spend time with.")
                             .foregroundStyle(LuminaTheme.muted)
                     }
-                }
-                HStack(alignment: .firstTextBaseline) {
-                    Text("YOUR COLLECTION")
-                        .font(.caption2.weight(.semibold))
-                        .tracking(1.5)
-                        .foregroundStyle(LuminaTheme.muted)
-                    Spacer()
-                    Picker("Browse music", selection: $kind) {
-                        ForEach(MusicBrowseKind.allCases, id: \.self) { kind in Text(kind.label).tag(kind) }
-                    }
-                    .pickerStyle(.menu)
-                    .accessibilityIdentifier("audioKindPicker")
-                }
-                .padding(.vertical, 12)
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(LuminaTheme.ink.opacity(0.18)).frame(height: 1)
                 }
                 if let message = store.errorMessage {
                     InlineErrorView(message: message) { Task { await load() } }
@@ -931,6 +1298,26 @@ private struct AudioLibraryView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("audioScreen")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    ForEach(NativeMusicSection.allCases, id: \.self) { section in
+                        NavigationLink {
+                            NativeMusicLibraryView(store: store, section: section)
+                        } label: {
+                            Label(section.rawValue, systemImage: section.symbol)
+                        }
+                        .accessibilityIdentifier("musicLibrary-\(section.rawValue.lowercased())")
+                    }
+                    Divider()
+                    Picker("Browse music", selection: $kind) {
+                        ForEach(MusicBrowseKind.allCases, id: \.self) { value in Text(value.label).tag(value) }
+                    }
+                    .accessibilityIdentifier("audioKindPicker")
+                } label: { Label("Music options", systemImage: "ellipsis.circle") }
+                .accessibilityIdentifier("musicOptionsMenu")
+            }
+        }
         .searchable(text: $searchText, prompt: "Search music")
         .onSubmit(of: .search) { Task { await load() } }
         .onChange(of: searchText) { if searchText.isEmpty { Task { await load() } } }
@@ -1087,7 +1474,7 @@ private struct MusicCollectionView: View {
         } label: {
             Label("Shuffle", systemImage: "shuffle")
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(LuminaQuietActionStyle())
         .controlSize(.large)
         .disabled(preparingPlayback)
         .accessibilityIdentifier("musicShuffleButton")
@@ -1139,7 +1526,7 @@ private struct MusicGrid: View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
             ForEach(items) { item in
                 NavigationLink(value: item) {
-                    MediaCard(item: item, imageURL: store.imageURL(for: item), identifierPrefix: identifierPrefix)
+                    MediaCard(item: item, imageURL: store.imageURL(for: item), identifierPrefix: identifierPrefix, loadFraming: { await store.artworkFraming(for: $0) })
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
@@ -1192,15 +1579,24 @@ private struct LibrarySearchBar: UIViewRepresentable {
 private struct LibraryFeaturedView: View {
     let store: LuminaStore
 
-    @Environment(\.horizontalSizeClass) private var widthClass
-    private var compact: Bool { widthClass != .regular }
-
     @State private var request: PlaybackRequest?
     @State private var preparing = false
     @State private var playbackError: String?
+    @State private var detailItem: MediaItem?
 
     var body: some View {
-        FeaturedShelf(items: store.featuredItems, store: store, isInteracting: preparing || request != nil) { item in
+        FeaturedShelf(
+            items: store.featuredItems,
+            store: store,
+            isInteracting: preparing || request != nil,
+            showsOverview: false,
+            showsContext: false,
+            showsMetadata: false,
+            showsProgress: false,
+            compactMinimumHeight: 360,
+            wideMinimumHeight: 480,
+            onOpen: { detailItem = $0 }
+        ) { item in
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) { actions(for: item) }
                 VStack(alignment: .leading, spacing: 12) { actions(for: item) }
@@ -1213,6 +1609,10 @@ private struct LibraryFeaturedView: View {
             Task { await store.refresh() }
         }) { request in
             PlaybackScreen(request: request, store: store)
+        }
+        .navigationDestination(item: $detailItem) { item in
+            TitleDetailView(item: item, store: store)
+                .toolbarVisibility(.visible, for: .navigationBar)
         }
     }
 
@@ -1227,61 +1627,88 @@ private struct LibraryFeaturedView: View {
                 catch { playbackError = "Playback could not start. Open Details to try compatible video." }
             }
         } label: {
-            Label(preparing ? "Preparing…" : item.resumeSeconds > 0 ? "Resume" : "Play", systemImage: "play.fill")
+            Label(preparing ? "Preparing…" : "Play", systemImage: "play.fill")
         }
-        .buttonStyle(.borderedProminent)
-        .tint(compact ? LuminaTheme.ink : .white)
-        .foregroundStyle(compact ? LuminaTheme.paper : LuminaTheme.theater)
-        .controlSize(.large)
+        .buttonStyle(LuminaMediaActionStyle(primary: true))
         .disabled(preparing)
         .accessibilityIdentifier("featuredPlayButton")
 
-        NavigationLink(value: item) {
-            Label("Details", systemImage: "info.circle")
+        Button { detailItem = item } label: {
+            Label("Details", systemImage: "arrow.right")
         }
-        .buttonStyle(.bordered)
-        .tint(compact ? LuminaTheme.ink : .white)
-        .controlSize(.large)
+        .buttonStyle(LuminaMediaActionStyle())
         .accessibilityIdentifier("featuredDetailsButton")
     }
 }
 
 @MainActor
-private struct LibraryGrid: View {
+private struct VideoPosterWall: View {
     let items: [MediaItem]
     let store: LuminaStore
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var minimumPosterWidth: CGFloat = 128
+    @ScaledMetric(relativeTo: .body) private var posterGap: CGFloat = 10
+    @State private var availableWidth: CGFloat = 0
 
     var body: some View {
-        LazyVGrid(
-            columns: libraryGridColumns(for: dynamicTypeSize),
-            alignment: .leading,
-            spacing: 18
-        ) {
-            ForEach(items) { item in
-                NavigationLink(value: item) {
-                    MediaCard(
-                        item: item,
-                        imageURL: store.imageURL(for: item),
-                        identifierPrefix: "library"
-                    )
+        wall(width: availableWidth)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
+    }
+
+    @ViewBuilder
+    private func wall(width: CGFloat) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            LazyVStack(alignment: .leading, spacing: posterGap) {
+                ForEach(items) { item in
+                    posterLink(item)
+                        .frame(width: min(width, 220), alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape([.interaction, .accessibility], Rectangle())
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .ignore)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(mediaAccessibilityLabel(for: item))
-                .accessibilityIdentifier("libraryItem-\(item.id)")
-                .onAppear {
-                    if store.hasMore && item.id == items.suffix(6).first?.id {
-                        Task { await store.loadMore() }
-                    }
+            }
+        } else {
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: posterGap), count: columnCount(for: width)),
+                alignment: .leading,
+                spacing: posterGap
+            ) {
+                ForEach(items) { item in
+                    posterLink(item)
                 }
             }
         }
     }
+
+    private func posterLink(_ item: MediaItem) -> some View {
+        NavigationLink(value: item) {
+            MediaCard(
+                item: item,
+                imageURL: store.imageURL(for: item),
+                identifierPrefix: "library",
+                showsCaption: false,
+                loadFraming: { await store.artworkFraming(for: $0) }
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape([.interaction, .accessibility], Rectangle())
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(mediaAccessibilityLabel(for: item))
+        .accessibilityIdentifier("libraryItem-\(item.id)")
+        .onAppear {
+            if store.hasMore && item.id == items.suffix(6).first?.id {
+                Task { await store.loadMore() }
+            }
+        }
+    }
+
+    private func columnCount(for width: CGFloat) -> Int {
+        let count = Int((width + posterGap) / (minimumPosterWidth + posterGap))
+        return min(max(count, 2), 6)
+    }
+
+
 }
 
 @MainActor
@@ -1292,34 +1719,32 @@ private struct MediaRail: View {
     let identifierPrefix: String
     var wide = true
 
-    @ScaledMetric(relativeTo: .body) private var posterWidth: CGFloat = 168
-    @ScaledMetric(relativeTo: .body) private var stillWidth: CGFloat = 320
+    @ScaledMetric(relativeTo: .body) private var posterWidth: CGFloat = 132
+    @ScaledMetric(relativeTo: .body) private var stillWidth: CGFloat = 276
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(LuminaTheme.editorial(25, relativeTo: .title2, italic: true))
-                .padding(.top, 16)
+                .font(.title3.weight(.bold))
+                .padding(.top, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .overlay(alignment: .top) {
-                    Rectangle().fill(LuminaTheme.ink.opacity(0.18)).frame(height: 1)
-                }
 
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 16) {
+                LazyHStack(alignment: .top, spacing: 10) {
                     ForEach(items) { item in
                         NavigationLink(value: item) {
                             MediaCard(
                                 item: item,
-                                imageURL: wide ? store.backdropURL(for: item, maxWidth: 760) ?? store.imageURL(for: item) : store.imageURL(for: item),
+                                imageURL: wide ? store.backdropURL(for: item, maxWidth: 760) ?? store.imageURL(for: item) : store.posterURL(for: item),
                                 identifierPrefix: identifierPrefix,
-                                wide: wide
+                                wide: wide,
+                                loadFraming: { await store.artworkFraming(for: $0) }
                             )
                             .containerRelativeFrame(.horizontal) { availableWidth, _ in
                                 let square = item.isAudio || item.type.hasPrefix("Music")
                                 if square { return min(posterWidth * 1.2, availableWidth * 0.4) }
-                                if wide { return min(stillWidth, availableWidth < 600 ? min(300, availableWidth * 0.72) : availableWidth * 0.48) }
-                                return min(posterWidth, availableWidth * 0.3)
+                                if wide { return min(stillWidth, availableWidth < 600 ? min(276, availableWidth * 0.68) : availableWidth * 0.42) }
+                                return min(posterWidth, availableWidth * 0.26)
                             }
                         }
                         .contentShape([.interaction, .accessibility], Rectangle())
@@ -1344,11 +1769,13 @@ private struct MediaCard: View {
     let imageURL: URL?
     let identifierPrefix: String
     var wide = false
+    var showsCaption = true
+    var loadFraming: @MainActor (URL) async -> HeroFraming? = { _ in nil }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        let content = VStack(alignment: .leading, spacing: 8) {
-            ArtworkView(url: imageURL, name: item.name, aspect: item.isAudio || item.type == "MusicAlbum" || item.type == "MusicArtist" ? 1 : wide ? 16 / 9 : 2 / 3, symbol: item.isAudio || item.type.hasPrefix("Music") ? "music.note" : "film", loadFraming: { await store.artworkFraming(for: $0) })
+        let content = VStack(alignment: .leading, spacing: 6) {
+            ArtworkView(url: imageURL, name: item.name, aspect: item.isAudio || item.type == "MusicAlbum" || item.type == "MusicArtist" ? 1 : wide ? 16 / 9 : 2 / 3, symbol: item.isAudio || item.type.hasPrefix("Music") ? "music.note" : "film", loadFraming: loadFraming)
                 .accessibilityIdentifier("\(identifierPrefix)Artwork-\(item.id)")
                 .overlay(alignment: .bottom) {
                     if progressFraction > 0 {
@@ -1360,22 +1787,24 @@ private struct MediaCard: View {
                     }
                 }
 
-            Text(item.name)
-                .font(LuminaTheme.editorial(15, relativeTo: .subheadline))
-                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
-                .truncationMode(.tail)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("\(identifierPrefix)Title-\(item.id)")
-
-            if !item.displaySubtitle.isEmpty {
-                Text(item.displaySubtitle)
-                    .font(.caption2)
-                    .foregroundStyle(LuminaTheme.muted)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+            if showsCaption {
+                Text(item.name)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("\(identifierPrefix)Title-\(item.id)")
+
+                if !item.displaySubtitle.isEmpty {
+                    Text(item.displaySubtitle)
+                        .font(.caption2)
+                        .foregroundStyle(LuminaTheme.muted)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
 
@@ -1407,7 +1836,7 @@ private struct ArtworkView: View {
                     SubjectAwareArtwork(url: url, loadFraming: loadFraming)
                 }
             }
-            .clipShape(.rect(cornerRadius: 12))
+            .clipShape(.rect(cornerRadius: 6))
             .accessibilityHidden(true)
     }
 
@@ -1422,6 +1851,63 @@ private struct ArtworkView: View {
         }
         .foregroundStyle(LuminaTheme.muted)
         .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+@MainActor
+private struct NativeTitleSupplement: View {
+    let item: MediaItem
+    let store: LuminaStore
+    @State private var related: [MediaItem] = []
+
+    private var cast: [MediaPerson] {
+        Array((item.people ?? []).filter { $0.type?.lowercased() == "actor" }.prefix(24))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 32) {
+            if !cast.isEmpty {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Cast").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(alignment: .top, spacing: 16) {
+                            ForEach(Array(cast.enumerated()), id: \.offset) { _, person in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    AsyncImage(url: store.personImageURL(for: person)) { image in
+                                        image.resizable().scaledToFill()
+                                    } placeholder: {
+                                        LuminaTheme.ink.opacity(0.06)
+                                            .overlay { Image(systemName: "person.fill").font(.largeTitle).foregroundStyle(LuminaTheme.muted) }
+                                    }
+                                    .frame(width: 112, height: 148)
+                                    .clipShape(.rect(cornerRadius: 8))
+                                    .accessibilityHidden(true)
+                                    Text(person.name).font(.subheadline.weight(.medium)).lineLimit(2)
+                                    if let role = person.role, !role.isEmpty {
+                                        Text(role).font(.caption).foregroundStyle(LuminaTheme.muted).lineLimit(2)
+                                    }
+                                }
+                                .frame(width: 112, alignment: .topLeading)
+                                .accessibilityElement(children: .combine)
+                            }
+                        }
+                    }
+                }
+                .accessibilityIdentifier("detailCastSection")
+            }
+            if !related.isEmpty {
+                MediaRail(title: "More like this", items: related, store: store, identifierPrefix: "related", wide: false)
+                    .accessibilityIdentifier("detailRelatedSection")
+            }
+        }
+        .foregroundStyle(LuminaTheme.ink)
+        .task(id: item.id) {
+            related = []
+            let matches = (try? await store.relatedItems(for: item)) ?? []
+            guard !Task.isCancelled else { return }
+            related = matches
+        }
     }
 }
 
@@ -1429,8 +1915,6 @@ private struct ArtworkView: View {
 private struct TitleDetailView: View {
     let item: MediaItem
     @Bindable var store: LuminaStore
-
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @State private var playbackRequest: PlaybackRequest?
     @State private var isPreparingPlayback = false
@@ -1444,42 +1928,51 @@ private struct TitleDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 24) {
                 detailHeader
+                    .padding(.horizontal, -20)
+                    .padding(.top, -20)
 
-                if !currentItem.isAudio {
-                    personalActions
-                }
-                if let stateError {
-                    Label(stateError, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
-                        .foregroundStyle(LuminaTheme.gold)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityIdentifier("videoStateError")
-                }
+                VStack(alignment: .leading, spacing: 20) {
+                    if let stateError {
+                        Label(stateError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout)
+                            .foregroundStyle(LuminaTheme.gold)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("videoStateError")
+                    }
 
-                if let overview = currentItem.overview, !overview.isEmpty {
-                    Text(overview)
-                        .font(LuminaTheme.editorial(17, relativeTo: .body))
-                        .lineSpacing(4)
-                        .foregroundStyle(LuminaTheme.ink)
-                }
+                    if let overview = currentItem.overview, !overview.isEmpty {
+                        Text(overview)
+                            .font(LuminaTheme.editorial(17, relativeTo: .body))
+                            .lineSpacing(4)
+                            .foregroundStyle(LuminaTheme.ink)
+                    }
 
-                if let playbackError, !playbackError.isEmpty {
-                    Label(playbackError, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
-                        .foregroundStyle(LuminaTheme.gold)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityAddTraits(.isStaticText)
+                    if let playbackError, !playbackError.isEmpty {
+                        Label(playbackError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout)
+                            .foregroundStyle(LuminaTheme.gold)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityAddTraits(.isStaticText)
+                    }
                 }
+                .frame(maxWidth: 680, alignment: .leading)
+                NativeTitleSupplement(item: currentItem, store: store)
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 28)
-            .frame(maxWidth: 900)
+            .padding(.bottom, 28)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(LuminaTheme.paper)
         .accessibilityIdentifier("detailScreen")
+        .toolbar {
+            if !currentItem.isAudio {
+                ToolbarItem(placement: .topBarTrailing) {
+                    titleActionsMenu
+                }
+            }
+        }
         .task(id: item.id) { await refreshItem() }
         .fullScreenCover(item: $playbackRequest, onDismiss: {
             Task {
@@ -1491,45 +1984,47 @@ private struct TitleDetailView: View {
         }
     }
 
-    private var personalActions: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 20) {
-                watchedButton
-                favoriteButton
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                watchedButton
-                favoriteButton
-            }
-        }
-        .disabled(isSavingState || isLoadingItem)
-        .opacity(isSavingState || isLoadingItem ? 0.6 : 1)
-    }
-
-    private var watchedButton: some View {
-        Button {
-            updateState(played: currentItem.userData?.played != true)
-        } label: {
-            Label(currentItem.userData?.played == true ? "Mark unwatched" : "Mark watched", systemImage: currentItem.userData?.played == true ? "checkmark.circle.fill" : "checkmark.circle")
-                .frame(minHeight: 44)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(LuminaTheme.gold)
-        .accessibilityValue(currentItem.userData?.played == true ? "Watched" : "Unwatched")
-        .accessibilityIdentifier("videoWatchedButton")
-    }
-
     private var favoriteButton: some View {
         Button {
             updateState(favorite: currentItem.userData?.isFavorite != true)
         } label: {
             Label(currentItem.userData?.isFavorite == true ? "Remove favorite" : "Add favorite", systemImage: currentItem.userData?.isFavorite == true ? "heart.fill" : "heart")
-                .frame(minHeight: 44)
+                .frame(minWidth: 132)
+                .foregroundStyle(.white)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(LuminaTheme.gold)
+        .buttonStyle(LuminaMediaActionStyle())
+        .controlSize(.large)
+        .disabled(isSavingState || isLoadingItem)
         .accessibilityValue(currentItem.userData?.isFavorite == true ? "Favorite" : "Not a favorite")
         .accessibilityIdentifier("videoFavoriteButton")
+    }
+
+    private var titleActionsMenu: some View {
+        Menu {
+            favoriteButton
+            Button {
+                updateState(played: currentItem.userData?.played != true)
+            } label: {
+                Label(currentItem.userData?.played == true ? "Mark unwatched" : "Mark watched", systemImage: currentItem.userData?.played == true ? "checkmark.circle.fill" : "checkmark.circle")
+            }
+            .accessibilityValue(currentItem.userData?.played == true ? "Watched" : "Unwatched")
+            .accessibilityIdentifier("videoWatchedButton")
+
+            if currentItem.isPlayable {
+                Button {
+                    preparePlayback(forceTranscode: true)
+                } label: {
+                    Label("Convert", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(isPreparingPlayback)
+                .accessibilityHint("Use compatibility conversion before playback.")
+                .accessibilityIdentifier("convertButton")
+            }
+        } label: {
+            Label("More actions", systemImage: "ellipsis.circle")
+        }
+        .disabled(isSavingState || isLoadingItem)
+        .accessibilityIdentifier("titleActionsMenu")
     }
 
     private func updateState(played: Bool? = nil, favorite: Bool? = nil) {
@@ -1558,7 +2053,7 @@ private struct TitleDetailView: View {
     }
 
     private var detailHeader: some View {
-        MediaBillboard(item: currentItem, store: store, context: "In your library", showsOverview: false) {
+        MediaBillboard(item: currentItem, store: store, context: "", showsOverview: false, showsContext: false, compactMinimumHeight: 460, wideMinimumHeight: 540) {
             if currentItem.isPlayable {
                 playbackActions
             } else {
@@ -1566,26 +2061,18 @@ private struct TitleDetailView: View {
                     .font(.callout)
             }
         }
-        .padding(.horizontal, -20)
     }
 
     @ViewBuilder
     private var playbackActions: some View {
-        if dynamicTypeSize.isAccessibilitySize {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                playbackButton
+                if !currentItem.isAudio { NativeWatchlistButton(item: currentItem, store: store) }
+            }
             VStack(alignment: .leading, spacing: 12) {
                 playbackButton
-                convertButton
-            }
-        } else {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
-                    playbackButton
-                    convertButton
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    playbackButton
-                    convertButton
-                }
+                if !currentItem.isAudio { NativeWatchlistButton(item: currentItem, store: store) }
             }
         }
     }
@@ -1600,35 +2087,14 @@ private struct TitleDetailView: View {
                 }
                 Label(playLabel, systemImage: "play.fill")
             }
-            .frame(minWidth: 132)
-            .foregroundStyle(LuminaTheme.theater)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(.white)
-        .controlSize(.large)
+        .buttonStyle(LuminaMediaActionStyle(primary: true))
         .disabled(isPreparingPlayback)
         .accessibilityIdentifier("playButton")
     }
 
-    @ViewBuilder private var convertButton: some View {
-        if !currentItem.isAudio {
-            Button {
-                preparePlayback(forceTranscode: true)
-            } label: {
-                Label("Convert", systemImage: "arrow.triangle.2.circlepath")
-                    .frame(minWidth: 132)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(isPreparingPlayback)
-            .tint(.white)
-            .accessibilityHint("Use compatibility conversion before playback.")
-            .accessibilityIdentifier("convertButton")
-        }
-    }
-
     private var playLabel: String {
-        currentItem.resumeSeconds > 0 ? "Resume" : "Play"
+        currentItem.resumeSeconds > 5 ? "Resume" : "Play"
     }
 
     private func preparePlayback(forceTranscode: Bool) {
@@ -1678,7 +2144,7 @@ private func libraryGridColumns(for dynamicTypeSize: DynamicTypeSize) -> [GridIt
     if dynamicTypeSize.isAccessibilitySize {
         return [GridItem(.flexible(minimum: 0, maximum: 220), spacing: 20, alignment: .top)]
     }
-    return [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 12, alignment: .top)]
+    return [GridItem(.adaptive(minimum: 96, maximum: 166), spacing: 10, alignment: .top)]
 }
 
 @MainActor

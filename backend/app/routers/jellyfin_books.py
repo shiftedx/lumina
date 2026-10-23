@@ -17,9 +17,11 @@ Db = Annotated[Session, Depends(get_db, scope="function")]
 @router.get("")
 def catalog(caller: Caller, db: Db, q: str | None = Query(None, max_length=200), cursor: str | None = None,
             kind: Literal["ebook", "manga"] | None = None, shelf_id: str | None = None,
+            status: Literal["all", "unread", "reading", "read", "favorites", "reading_list"] = "all",
+            sort: Literal["added", "title", "author", "custom"] = "added",
             limit: int = Query(40, ge=1, le=100)) -> dict:
     return books.list_books(kind=kind, q=q, cursor=cursor, limit=limit, shelf_id=shelf_id,
-                            sort="custom" if shelf_id else "added", current_user=caller.user, db=db)
+                            sort="custom" if shelf_id else sort, status=status, current_user=caller.user, db=db)
 
 
 @router.get("/overview")

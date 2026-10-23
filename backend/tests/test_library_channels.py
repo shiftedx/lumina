@@ -80,6 +80,12 @@ def test_matches_jellyfin_s_channel_series_on_the_same_seed(seeded) -> None:  # 
     assert {key: channel.count for key, channel in mine.items()} == {key: channel.count for key, channel in series.items()}
 
 
+def test_jellyfin_youtube_query_is_limited_to_saved_youtube_videos(seeded) -> None:  # noqa: ANN001
+    with seeded() as session:
+        rows = list(session.scalars(jellyfin.channel_items_query(ALICE, source="youtube", kinds=("video",))))
+    assert [row.id for row in rows] == ["h1", "n1", "a1", "h2"]
+
+
 def test_caps_at_500(db_factory, monkeypatch) -> None:  # noqa: ANN001
     monkeypatch.setattr("app.services.library.LIBRARY_GROUPS_MAX", 3)
     with db_factory() as session:

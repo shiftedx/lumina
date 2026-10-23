@@ -27,6 +27,7 @@ from app.models import AppSettings, DeviceToken, LibraryItem, LibraryItemArtifac
 from app.schemas import PlaybackProgressUpdateRequest
 from app.services.artwork import ArtworkError, ArtworkService
 from app.services.connected_apps import jellyfin_server_id, jellyfin_server_key
+from app.services.chapters import normalize_chapters
 from app.services.library import LibraryService
 from app.services.media_artifacts import MediaArtifactService, artifact_file
 from app.services.media_titles import jellyfin_id, parse_item_id, person_name_id, synthetic_id, to_ticks
@@ -92,6 +93,21 @@ def jf_day(value: object) -> str | None:
 
 def query_result(items: list[dict], total: int, start: int = 0) -> dict:
     return {"Items": items, "TotalRecordCount": total, "StartIndex": start}
+
+
+def chapter_dtos(probe: object) -> list[dict]:
+    """Safe cached ffprobe chapters in the standard Jellyfin detail projection."""
+    if not isinstance(probe, Mapping):
+        return []
+    chapters = normalize_chapters(
+        provider_chapters=probe.get("chapters"),
+        description=None,
+        duration=probe.get("duration"),
+    )["chapters"]
+    return [
+        {"Name": chapter["title"], "StartPositionTicks": to_ticks(chapter["start_time"])}
+        for chapter in chapters
+    ]
 
 
 def image_tag(key: bytes, target_id: str, image_type: str, source: object, scope: str = "") -> str:
@@ -362,9 +378,22 @@ def channel_index(db: Session, user: User | None) -> dict[str, Channel]:
     return index
 
 
-def channel_items_query(user: User | None, channel: Channel | None = None):  # noqa: ANN201
+def channel_items_query(
+    user: User | None,
+    channel: Channel | None = None,
+    *,
+    source: str | None = None,
+    kinds: tuple[str, ...] = CHANNEL_KINDS,
+):  # noqa: ANN201
     """Visible Channels videos (all, one uploader, or one uploader-year) in upload order (``user=None``: every member's)."""
-    query = select(LibraryItem).options(defer(LibraryItem.metadata_json)).where(*CHANNEL_ITEM, *([LibraryService.visible_predicate(user)] if user is not None else []))
+    query = select(LibraryItem).options(defer(LibraryItem.metadata_json)).where(
+        LibraryItem.title_id.is_(None),
+        LibraryItem.extractor.is_not(None),
+        LibraryItem.kind.in_(kinds),
+        LibraryItem.status != "missing",
+        *LibraryService.view_filters(source=source),
+        *([LibraryService.visible_predicate(user)] if user is not None else []),
+    )
     if channel is not None:
         query = query.where(LibraryItem.extractor == channel.extractor, UPLOADER == channel.uploader)
         if channel.year is not None:
@@ -391,6 +420,8 @@ class ItemsQuery(BaseModel):
     isplayed: bool | None = None
     isfavorite: bool | None = None
     anyprovideridequals: list[str] = []
+    sourceprovider: str | None = Field(None, max_length=120)
+    luminacategory: str | None = Field(None, max_length=16)
     seriesid: str | None = Field(None, max_length=64)
     fields: list[str] = []
     # Shows/{id}/Episodes only:
@@ -596,6 +627,8 @@ class JellyfinMapper:
             dto |= {"People": [], "Taglines": [], "Tags": [], "Chapters": []}
         if sources and not folder:
             versions = sorted(batch.versions.get(title.id, []), key=lambda item: preferred is None or item.id != preferred.id)
+            if versions:
+                dto["Chapters"] = chapter_dtos((batch.artifacts.get(versions[0].id).probe if batch.artifacts.get(versions[0].id) else None))
             dto["MediaSources"] = [media_source(item, batch.artifacts.get(item.id)) for item in versions]
             dto["MediaSourceCount"] = len(dto["MediaSources"])
             if dto["MediaSources"]:
@@ -633,7 +666,7 @@ class JellyfinMapper:
             })
             dto |= self.channel_fields(item)
             if sources:
-                dto |= {"People": [], "Taglines": [], "Tags": [], "Chapters": []}
+                dto |= {"People": [], "Taglines": [], "Tags": [], "Chapters": chapter_dtos(artifact.probe if artifact else None)}
                 dto["MediaSources"] = [media_source(item, artifact)]
                 dto["MediaSourceCount"] = 1
                 dto["MediaStreams"] = dto["MediaSources"][0]["MediaStreams"]
@@ -788,6 +821,11 @@ class JellyfinMapper:
         if not wanted:
             return None
         stmt = stmt.where(MediaTitle.type.in_(sorted(wanted)))
+        if parent is None and q.luminacategory:
+            category = q.luminacategory.casefold()
+            if category not in {"movies", "anime"}:
+                return None
+            stmt = stmt.where(MediaTitle.category == category)
         if q.seriesid:
             series_id = parse_item_id(q.seriesid)
             if series_id is None:
@@ -965,7 +1003,20 @@ class JellyfinMapper:
         if parent.item is not None or (wanted and not wanted & {"series", "season", "episode"}):
             return query_result([], 0, start)  # a video has no children; Channels hold no movies, boxsets, ...
         if "episode" in wanted or (not wanted and (q.recursive or (channel is not None and channel.year is not None))):
-            query = channel_items_query(self.user, channel)
+            source = q.sourceprovider.strip().casefold() if q.sourceprovider else None
+            if source not in (None, "youtube", "twitch", "kick"):
+                return query_result([], 0, start)
+            # Source-filtered requests are the saved web-video shelf. Recordings
+            # remain in the ordinary Channels hierarchy and are never discovery.
+            query = channel_items_query(
+                self.user,
+                channel,
+                source=source,
+                kinds=("video",) if source else CHANNEL_KINDS,
+            )
+            if q.searchterm:
+                term = q.searchterm.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                query = query.where(LibraryItem.title.ilike(f"%{term}%", escape="\\"))
             rows = self.db.execute(query.add_columns(func.count().over()).offset(start).limit(limit)).all()
             total = rows[0][1] if rows else self.db.scalar(select(func.count()).select_from(query.subquery()))
             return query_result(self.item_dtos([row[0] for row in rows]), total, start)

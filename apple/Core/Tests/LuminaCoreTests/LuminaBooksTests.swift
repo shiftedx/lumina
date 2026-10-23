@@ -12,6 +12,7 @@ final class LuminaBooksTests: XCTestCase {
         let catalog = try await api.catalog(search: "Night")
         XCTAssertEqual(catalog.items.first?.readingFileID, bookID)
         XCTAssertEqual(catalog.items.first?.seriesID, bookID)
+        _ = try await api.catalog(search: "Night", kind: .manga, status: .reading, sort: .author)
         let overview = try await api.overview()
         XCTAssertEqual(overview.shelves.first?.bookIDs, [bookID])
         let series = try await api.series()
@@ -124,6 +125,16 @@ private final class BooksProtocol: URLProtocol, @unchecked Sendable {
         XCTAssertFalse(request.url?.query?.lowercased().contains("token") == true)
         var book: [String: Any] = ["id": bookID, "reading_file_id": bookID, "title": "Night", "author": "Synthetic", "format": "cbz", "kind": "manga", "series_id": bookID, "available": true, "files": [], "progress": ["unit_index": 0, "offset": 0, "completed": false]]
         let result: [String: Any]
+        if request.url?.path == "/Lumina/Books", let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false) {
+            let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+                item.value.map { (item.name, $0) }
+            })
+            if query["kind"] != nil {
+                XCTAssertEqual(query["kind"], "manga")
+                XCTAssertEqual(query["status"], "reading")
+                XCTAssertEqual(query["sort"], "author")
+            }
+        }
         if request.httpMethod == "PATCH" {
             var body = request.httpBody ?? Data()
             if body.isEmpty, let stream = request.httpBodyStream {

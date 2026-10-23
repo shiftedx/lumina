@@ -1,34 +1,37 @@
 import SwiftUI
 import UIKit
 
-/// Lumina's small shared palette. The dynamic providers keep the native clients
-/// aligned with the web paper/ink tokens while respecting the system appearance.
+/// Neutral theater surfaces with Lumina's warm accent and adaptive light appearance.
 public enum LuminaTheme {
     /// The same licensed Newsreader face used by the web gallery, scaled with native text settings.
     public static func editorial(_ size: CGFloat, relativeTo style: Font.TextStyle = .title2, italic: Bool = false) -> Font {
         .custom(italic ? "Newsreader-16ptItalic" : "Newsreader-16ptRegular", size: size, relativeTo: style)
     }
 
-    public static let theater = Color(red: 15 / 255, green: 14 / 255, blue: 12 / 255)
+    public static let theater = Color(red: 11 / 255, green: 11 / 255, blue: 13 / 255)
     public static let spotlight = Color(red: 240 / 255, green: 180 / 255, blue: 58 / 255)
-    public static let paper = dynamicColor(
-        dark: (15, 14, 12),
+    public static var paper: Color {
+        if UserDefaults.standard.string(forKey: "lumina.appearance") == "oled" { return .black }
+        return standardPaper
+    }
+    private static let standardPaper = dynamicColor(
+        dark: (11, 11, 13),
         light: (244, 241, 234),
         highContrastDark: (0, 0, 0),
         highContrastLight: (255, 255, 255)
     )
 
     public static let ink = dynamicColor(
-        dark: (239, 233, 221),
+        dark: (245, 245, 247),
         light: (21, 19, 15),
         highContrastDark: (255, 255, 255),
         highContrastLight: (0, 0, 0)
     )
 
     public static let muted = dynamicColor(
-        dark: (157, 150, 138),
+        dark: (171, 171, 179),
         light: (97, 92, 83),
-        highContrastDark: (190, 184, 172),
+        highContrastDark: (202, 202, 210),
         highContrastLight: (65, 60, 52)
     )
 

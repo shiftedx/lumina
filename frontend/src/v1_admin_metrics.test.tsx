@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -127,6 +127,6 @@ describe('admin overview', () => {
     await browser.click(save);
     expect(await screen.findByText(/^Saved\./)).not.toBeNull();
     expect(api.updateAdminSettings).toHaveBeenLastCalledWith({ concurrency: 2, max_active_jobs_per_user: 25, min_free_disk_mb: 2048, extra_source_ports: [8080, 8000] });
-    expect(ports.value).toBe('8000, 8080');
+    await waitFor(() => expect(ports.value).toBe('8000, 8080'));
   });
 });

@@ -11,6 +11,12 @@ from app.services.media_probe import PROBE_CACHE_VERSION, is_stale, normalize, r
 
 RAW = {
     "format": {"format_name": "matroska,webm", "duration": "5400.5", "bit_rate": "24000000"},
+    "chapters": [
+        {"start_time": "100", "end_time": "200", "tags": {"title": " Middle "}},
+        {"start_time": "0", "end_time": "100", "tags": {"title": "Opening"}},
+        {"start_time": "-1", "end_time": "0", "tags": {"title": "Ignored"}},
+        {"start_time": "5400.5", "tags": {"title": "Past end"}},
+    ],
     "streams": [
         {"index": 0, "codec_type": "video", "codec_name": "hevc", "profile": "Main 10", "level": 153, "width": 3840, "height": 2160,
          "pix_fmt": "yuv420p10le", "color_transfer": "smpte2084", "avg_frame_rate": "24000/1001", "disposition": {"default": 1},
@@ -45,6 +51,10 @@ def test_every_real_stream_is_listed_with_normalized_facts() -> None:
     assert srt["hearing_impaired"] is True
     # The compact facts the web player already shows are unchanged.
     assert (facts["video_codec"], facts["audio_codec"], facts["height"], facts["audio_tracks"]) == ("hevc", "truehd", 2160, 3)
+    assert facts["chapters"] == [
+        {"start_time": 0.0, "end_time": 100.0, "title": "Opening"},
+        {"start_time": 100.0, "end_time": 200.0, "title": "Middle"},
+    ]
 
 
 def test_frame_colors_follow_playable_video_when_cover_art_comes_first(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -81,6 +91,11 @@ def test_zero_rates_and_junk_values_become_none() -> None:
     assert facts["bit_rate"] is None
 
 
+def test_non_list_chapters_are_ignored() -> None:
+    facts = normalize({"format": {"duration": "60"}, "chapters": {"start_time": "0"}}, "clip.mp4")
+    assert facts["chapters"] == []
+
+
 def test_audio_precision_uses_actual_bits_when_the_probe_reports_them() -> None:
     facts = normalize({"streams": [
         {"index": 0, "codec_type": "audio", "codec_name": "flac", "bits_per_raw_sample": "24", "bits_per_sample": "32"},
@@ -93,7 +108,10 @@ def test_audio_precision_uses_actual_bits_when_the_probe_reports_them() -> None:
 def test_legacy_successful_caches_are_stale_but_cached_errors_are_not() -> None:
     assert is_stale(None, "1:2")
     assert is_stale({"fingerprint": "1:2", "container": "mp4"}, "1:2")  # legacy successful cache: no streams
-    assert is_stale({"fingerprint": "1:1", "streams": []}, "1:2")  # the file changed
-    assert is_stale({"fingerprint": "1:2", "streams": []}, "1:2")  # legacy successful cache lacks decoded-frame colors
-    assert not is_stale({"fingerprint": "1:2", "streams": [], "_probe_cache_version": PROBE_CACHE_VERSION}, "1:2")
+    assert is_stale({"fingerprint": "1:1", "streams": [], "chapters": []}, "1:2")  # the file changed
+    assert is_stale({"fingerprint": "1:2", "streams": []}, "1:2")  # cache predates current facts
+    assert is_stale({"fingerprint": "1:2", "streams": [], "chapters": []}, "1:2")  # cache predates current version
+    assert not is_stale({
+        "fingerprint": "1:2", "streams": [], "chapters": [], "_probe_cache_version": PROBE_CACHE_VERSION,
+    }, "1:2")
     assert not is_stale({"fingerprint": "1:2", "error": "probe_failed"}, "1:2")

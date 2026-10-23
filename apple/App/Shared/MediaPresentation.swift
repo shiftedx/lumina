@@ -89,34 +89,55 @@ struct MediaBillboard<Actions: View>: View {
     let store: LuminaStore
     let context: LocalizedStringKey
     var showsOverview = true
+    var showsContext = true
+    var showsMetadata = true
+    var showsProgress = true
     var featured = false
+    var compactMinimumHeight: CGFloat?
+    var wideMinimumHeight: CGFloat?
+    var onOpen: ((MediaItem) -> Void)? = nil
     @ViewBuilder let actions: Actions
     @State private var compactLayout = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorSchemeContrast) private var contrast
     #if !os(tvOS)
     @ScaledMetric(relativeTo: .largeTitle) private var minimumWideWidth: CGFloat = 600
+    @ScaledMetric(relativeTo: .caption) private var featureHeaderClearance: CGFloat = 116
     #endif
 
     var body: some View {
         Group {
             if compact {
-                VStack(alignment: .leading, spacing: 0) {
-                    BillboardArtwork(item: item, store: store, showsPoster: true, home: featured)
-                        .aspectRatio(16 / 9, contentMode: .fit)
-                    copy
-                        .foregroundStyle(LuminaTheme.ink)
-                        .padding(20)
-                        .frame(maxWidth: .infinity, minHeight: featured ? 216 : 0, alignment: .topLeading)
-                        .background(LuminaTheme.paper)
-                }
+                // Keep the title, actions, and artwork in one cinematic field on
+                // compact displays. The copy remains above the gradient instead
+                // of becoming a second, disconnected card below the artwork.
+                copy
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: compactMinimumHeight ?? (featured ? 336 : 380), alignment: .bottomLeading)
+                    .padding(.horizontal, 20)
+                    .padding(.top, topInset)
+                    .padding(.bottom, featured ? 68 : 26)
+                    .background {
+                        ZStack {
+                            BillboardArtwork(item: item, store: store, showsPoster: true, home: featured)
+                            LinearGradient(stops: [
+                                .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.92 : 0.16), location: 0),
+                                .init(color: LuminaTheme.theater.opacity(0.16), location: 0.40),
+                                .init(color: LuminaTheme.theater.opacity(0.96), location: 1),
+                            ], startPoint: .top, endPoint: .bottom)
+                            LinearGradient(colors: [LuminaTheme.theater.opacity(0.64), .clear], startPoint: .leading, endPoint: .trailing)
+                        }
+                        #if !os(tvOS)
+                        .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                        #endif
+                    }
             } else {
                 copy
                     .foregroundStyle(.white)
                     .frame(maxWidth: copyWidth, alignment: .leading)
                     .padding(.horizontal, contentInset)
-                    .padding(.top, 32)
-                    .padding(.bottom, featured ? 52 : 44)
+                    .padding(.top, topInset)
+                    .padding(.bottom, featured ? 68 : 44)
                     .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .bottomLeading)
                     .background {
                         ZStack {
@@ -132,41 +153,42 @@ struct MediaBillboard<Actions: View>: View {
                                 .init(color: LuminaTheme.theater, location: 1),
                             ], startPoint: .top, endPoint: .bottom)
                         }
+                        #if !os(tvOS)
+                        .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                        #endif
                     }
             }
         }
         #if !os(tvOS)
         .onGeometryChange(for: Bool.self) { $0.size.width < minimumWideWidth } action: { compactLayout = $0 }
         #endif
-        .tint(compact ? LuminaTheme.ink : .white)
+        .tint(.white)
     }
 
     private var copy: some View {
         VStack(alignment: .leading, spacing: copySpacing) {
-            Text(context)
-                .font(.system(size: compact ? 11 : labelSize, weight: .semibold))
-                .tracking(2)
-                .textCase(.uppercase)
-                .foregroundStyle(compact ? LuminaTheme.muted : .white.opacity(0.85))
-            Text(item.name)
-                .font(titleFont)
-                .tracking(-0.6)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier(featured ? "featuredTitle" : "detailTitle")
-            MediaMetadata(item: item, onArtwork: !compact)
+            if showsContext {
+                Text(context)
+                    .font(.system(size: compact ? 11 : labelSize, weight: .semibold))
+                    .tracking(2)
+                    .textCase(.uppercase)
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            title
+            if showsMetadata {
+                MediaMetadata(item: item, onArtwork: true)
+            }
             if showsOverview && !(featured && compact), let overview = item.overview, !overview.isEmpty {
                 Text(overview)
                     .font(LuminaTheme.editorial(bodySize, relativeTo: .body))
-                    .foregroundStyle(compact ? LuminaTheme.muted : .white.opacity(0.9))
+                    .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if item.resumeSeconds > 0, item.durationSeconds > item.resumeSeconds {
+            if showsProgress, item.resumeSeconds > 0, item.durationSeconds > item.resumeSeconds {
                 VStack(alignment: .leading, spacing: 6) {
                     GeometryReader { geometry in
-                        Rectangle().fill((compact ? LuminaTheme.ink : Color.white).opacity(0.2))
+                        Rectangle().fill(Color.white.opacity(0.2))
                         Rectangle().fill(LuminaTheme.spotlight)
                             .frame(width: geometry.size.width * min(1, item.resumeSeconds / item.durationSeconds))
                     }
@@ -189,11 +211,52 @@ struct MediaBillboard<Actions: View>: View {
         compactLayout
         #endif
     }
+
+    @ViewBuilder private var title: some View {
+        if let onOpen {
+            Button { onOpen(item) } label: { titleArtwork }
+                #if os(tvOS)
+                .buttonStyle(BillboardTitleButtonStyle())
+                #else
+                .buttonStyle(.plain)
+                #endif
+                .accessibilityLabel(item.name)
+                .accessibilityHint("Open details")
+                .accessibilityIdentifier("featuredTitleButton")
+        } else {
+            titleArtwork
+        }
+    }
+
+    private var titleArtwork: some View {
+        MediaTitleArtwork(name: item.name, url: store.logoURL(for: item),
+                          maximumWidth: compact ? 280 : 440,
+                          maximumHeight: compact ? 88 : 140) {
+            titleText
+        }
+    }
+
+    private var titleText: some View {
+        Text(item.name)
+            .font(titleFont)
+            .tracking(-0.6)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier(featured ? "featuredTitle" : "detailTitle")
+    }
     private var titleFont: Font {
         #if os(tvOS)
-        LuminaTheme.editorial(68, relativeTo: .largeTitle, italic: true).weight(.bold)
+        LuminaTheme.editorial(featured ? 54 : 64, relativeTo: .largeTitle, italic: true).weight(.bold)
         #else
-        LuminaTheme.editorial(compact ? 34 : 58, relativeTo: .largeTitle, italic: true).weight(.bold)
+        LuminaTheme.editorial((compact ? 34 : 58) * (featured ? 0.75 : 1), relativeTo: .largeTitle, italic: true).weight(.bold)
+        #endif
+    }
+    private var topInset: CGFloat {
+        #if os(tvOS)
+        32
+        #else
+        featured ? featureHeaderClearance : compact ? 88 : 32
         #endif
     }
     private var labelSize: CGFloat {
@@ -212,7 +275,7 @@ struct MediaBillboard<Actions: View>: View {
     }
     private var copyWidth: CGFloat {
         #if os(tvOS)
-        1000
+        820
         #else
         dynamicTypeSize.isAccessibilitySize ? .infinity : 600
         #endif
@@ -233,9 +296,9 @@ struct MediaBillboard<Actions: View>: View {
     }
     private var minimumHeight: CGFloat {
         #if os(tvOS)
-        560
+        wideMinimumHeight ?? 560
         #else
-        featured ? 480 : 420
+        wideMinimumHeight ?? (featured ? 480 : 420)
         #endif
     }
 }
@@ -300,6 +363,13 @@ struct FeaturedShelf<Actions: View>: View {
     let items: [MediaItem]
     let store: LuminaStore
     var isInteracting = false
+    var showsOverview = true
+    var showsContext = true
+    var showsMetadata = true
+    var showsProgress = true
+    var compactMinimumHeight: CGFloat?
+    var wideMinimumHeight: CGFloat?
+    var onOpen: ((MediaItem) -> Void)? = nil
     @ViewBuilder let actions: (MediaItem) -> Actions
     @State private var selectedID: String?
     @State private var movingForward = true
@@ -343,7 +413,19 @@ struct FeaturedShelf<Actions: View>: View {
     var body: some View {
         if let selected {
             ZStack {
-                MediaBillboard(item: selected, store: store, context: selected.resumeSeconds > 0 ? "Continue watching" : "New in your library", featured: true) {
+                MediaBillboard(
+                    item: selected,
+                    store: store,
+                    context: selected.resumeSeconds > 0 ? "Continue watching" : "New in your library",
+                    showsOverview: showsOverview,
+                    showsContext: showsContext,
+                    showsMetadata: showsMetadata,
+                    showsProgress: showsProgress,
+                    featured: true,
+                    compactMinimumHeight: compactMinimumHeight,
+                    wideMinimumHeight: wideMinimumHeight,
+                    onOpen: onOpen
+                ) {
                     actions(selected)
                 }
                 .id(selected.id)
@@ -352,17 +434,17 @@ struct FeaturedShelf<Actions: View>: View {
                     removal: .move(edge: movingForward ? .leading : .trailing).combined(with: .opacity)
                 ))
             }
+            // On iPhone Duo the artwork is allowed to become the canvas under
+            // the system rail. Only tvOS needs this local transition clip.
+            #if os(tvOS)
             .clipped()
-            .overlay(alignment: .bottomTrailing) {
-                if items.count > 1 && !compact {
-                    controls.padding(.trailing, controlInset).padding(.bottom, 20)
-                }
-            }
-            .overlay(alignment: .top) {
-                if items.count > 1 && compact {
-                    Color.clear.aspectRatio(16 / 9, contentMode: .fit)
-                        .overlay(alignment: .bottomTrailing) { controls.padding(8) }
-                        .frame(maxHeight: .infinity, alignment: .top)
+            #endif
+            .overlay(alignment: .bottom) {
+                if items.count > 1 {
+                    controls
+                        .frame(maxWidth: .infinity, alignment: compact ? .center : .trailing)
+                        .padding(.horizontal, compact ? 12 : controlInset)
+                        .padding(.bottom, 8)
                 }
             }
             #if !os(tvOS)
@@ -381,6 +463,7 @@ struct FeaturedShelf<Actions: View>: View {
                     }
                 })
             .onHover { hovered = $0 }
+            .gesture(TapGesture().onEnded { onOpen?(selected) }, including: .gesture)
             #endif
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Featured titles, \(index + 1) of \(items.count)")
@@ -438,6 +521,8 @@ struct FeaturedShelf<Actions: View>: View {
             .accessibilityIdentifier("featuredPauseButton")
         }
         .foregroundStyle(.white)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("featuredControls")
         .padding(.horizontal, 4)
         .shadow(color: .black.opacity(0.65), radius: 2, y: 1)
         #if os(tvOS)
@@ -647,6 +732,7 @@ struct MusicCollectionSpotlight: View {
     }
 }
 
+/// Flat, compact media actions use Lumina's warm accent without the system's oversized capsule treatment.
 struct LuminaMediaActionStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var primary = false
@@ -663,24 +749,41 @@ struct LuminaMediaActionStyle: ButtonStyle {
     }
 }
 
+#if os(tvOS)
+private struct BillboardTitleButtonStyle: ButtonStyle {
+    @Environment(\.isFocused) private var isFocused
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .overlay(alignment: .bottomLeading) {
+                Rectangle().fill(isFocused ? .white : .clear)
+                    .frame(height: 2).offset(y: 8)
+            }
+    }
+}
+#endif
+
+/// Secondary actions stay quiet at rest while keeping an unmistakable TV focus state.
 struct LuminaQuietActionStyle: ButtonStyle {
     @Environment(\.isFocused) private var isFocused
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.colorSchemeContrast) private var contrast
+    var primary = false
     var selected = false
     var mediaOverlay = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.body.weight(selected ? .semibold : .regular))
+            .font(.body.weight(primary || selected ? .semibold : .regular))
             .padding(.horizontal, 16)
             #if os(tvOS)
             .frame(minWidth: 64, minHeight: 64)
             #else
             .frame(minWidth: 44, minHeight: 44)
             #endif
-            .foregroundStyle(isFocused ? LuminaTheme.theater : Color.primary)
-            .background(isFocused ? Color.white : mediaOverlay ? Color.black.opacity(0.72) : Color.primary.opacity(configuration.isPressed ? 0.18 : selected ? 0.12 : 0.06), in: .rect(cornerRadius: 10))
+            .foregroundStyle(isFocused || primary ? LuminaTheme.theater : Color.primary)
+            .background(isFocused ? Color.white : primary ? LuminaTheme.gold : mediaOverlay ? Color.black.opacity(0.72) : Color.primary.opacity(configuration.isPressed ? 0.18 : selected ? 0.12 : 0.06), in: .rect(cornerRadius: 10))
             .overlay {
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(isFocused ? Color.white : contrast == .increased ? Color.primary : Color.clear, lineWidth: 2)

@@ -48,6 +48,9 @@ for platform in ${LUMINA_PLATFORMS:-iOS tvOS}; do
         if [ "$mode" = export ]; then
             for ipa in "$release_root/$mode-$platform/"*.ipa; do
                 python3 scripts/validate_archive.py "$ipa" "$platform" "$version" "$LUMINA_BUILD_NUMBER"
+                organizer="$release_root/Lumina-$platform-Organizer.xcarchive"
+                python3 scripts/prepare_organizer_archive.py "$archive" "$ipa" "$organizer"
+                python3 scripts/validate_archive.py "$organizer" "$platform" "$version" "$LUMINA_BUILD_NUMBER"
             done
         fi
     fi

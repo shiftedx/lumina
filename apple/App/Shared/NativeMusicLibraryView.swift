@@ -25,14 +25,16 @@ private struct NativeMusicList<Content: View>: View {
         }
         .background(LuminaTheme.paper.ignoresSafeArea())
         .foregroundStyle(LuminaTheme.ink)
-        .buttonStyle(.bordered)
+        .buttonStyle(LuminaQuietActionStyle())
         .focusSection()
         #else
         List {
             content
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .contentMargins(.horizontal, 20, for: .scrollContent)
+        .listRowBackground(Color.clear)
         .background(LuminaTheme.paper.ignoresSafeArea())
         .foregroundStyle(LuminaTheme.ink)
         #endif
@@ -41,18 +43,27 @@ private struct NativeMusicList<Content: View>: View {
 
 enum NativeMusicSection: String, CaseIterable {
     case playlists = "Playlists", mixes = "Mixes", downloads = "Downloads", queue = "Queue"
+
+    var symbol: String {
+        switch self {
+        case .playlists: "music.note.list"
+        case .mixes: "sparkles"
+        case .downloads: "arrow.down.circle"
+        case .queue: "list.bullet"
+        }
+    }
 }
 
 struct NativeMusicLibraryLinks: View {
     let store: LuminaStore
     var body: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: 16) {
+            HStack(spacing: 10) {
                 ForEach(NativeMusicSection.allCases, id: \.self) { section in
                     NavigationLink {
                         NativeMusicLibraryView(store: store, section: section)
                     } label: {
-                        Label(section.rawValue, systemImage: section == .playlists ? "music.note.list" : section == .mixes ? "sparkles" : section == .downloads ? "arrow.down.circle" : "list.bullet")
+                        Label(section.rawValue, systemImage: section.symbol)
                             .frame(minHeight: 44)
                             .contentShape(.rect)
                     }
@@ -62,12 +73,13 @@ struct NativeMusicLibraryLinks: View {
                     #else
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(LuminaTheme.ink)
+                    .padding(.horizontal, 4)
                     .buttonStyle(.plain)
                     #endif
                     .accessibilityIdentifier("musicLibrary-\(section.rawValue.lowercased())")
                 }
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
         }
         #if os(tvOS)
         .scrollClipDisabled()
@@ -105,6 +117,7 @@ struct NativeMusicLibraryView: View {
                     ForEach(NativeMusicSection.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.menu)
+                .tint(LuminaTheme.gold)
                 .accessibilityIdentifier("musicLibrarySectionPicker")
             }
             switch section {
@@ -239,7 +252,7 @@ struct NativeMusicLibraryView: View {
                     Button("Remove download", systemImage: "trash", role: .destructive) { store.offline.remove(id: item.id) }
                         .labelStyle(.iconOnly)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(LuminaQuietActionStyle())
             }
             Button("Refresh downloads", systemImage: "arrow.clockwise") { store.offline.refresh() }
             Button("Remove all downloads", systemImage: "trash", role: .destructive) { clearDownloads = true }
@@ -447,11 +460,11 @@ private struct NativeMusicTrackSections: View {
 
     var body: some View {
         Section {
-            HStack {
-                Button("Play", systemImage: "play.fill") { play(at: 0, shuffle: false) }
-                Button("Shuffle", systemImage: "shuffle") { play(at: 0, shuffle: true) }
+            ViewThatFits(in: .horizontal) {
+                HStack { transportActions }
+                VStack(alignment: .leading) { transportActions }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(LuminaQuietActionStyle())
             .disabled(tracks.isEmpty || preparing)
             NativeDownloadControls(items: tracks.map(\.mediaItem), store: store)
             if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
@@ -465,6 +478,11 @@ private struct NativeMusicTrackSections: View {
                 .accessibilityIdentifier("playlistTrack-\(track.nativeID)")
             }
         }
+    }
+
+    @ViewBuilder private var transportActions: some View {
+        Button("Play", systemImage: "play.fill") { play(at: 0, shuffle: false) }
+        Button("Shuffle", systemImage: "shuffle") { play(at: 0, shuffle: true) }
     }
 
     private func play(at index: Int, shuffle: Bool) {
@@ -486,15 +504,16 @@ private struct NativeMusicTrackLabel: View {
             AsyncImage(url: store.imageURL(for: item, maxWidth: 160)) { image in
                 image.resizable().scaledToFill()
             } placeholder: { Image(systemName: "music.note").frame(maxWidth: .infinity, maxHeight: .infinity) }
-                .frame(width: 52, height: 52)
-                .clipShape(.rect(cornerRadius: 6))
+                .frame(width: 58, height: 58)
+                .clipShape(.rect(cornerRadius: 9))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.name).font(.headline).lineLimit(2)
-                Text(item.displaySubtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(item.displaySubtitle).font(.caption).foregroundStyle(LuminaTheme.muted).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.vertical, 4)
     }
 }
 

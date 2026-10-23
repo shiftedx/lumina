@@ -16,7 +16,7 @@ from app.services.yt_dlp_service import YtDlpService
 from support import make_user
 
 DEFAULTS = {
-    "jellyfin_enabled": False, "jellyfin_url": None, "jellyfin_public_url": None, "has_tmdb_key": False, "metadata_language": "en-US",
+    "jellyfin_enabled": False, "native_streaming_enabled": False, "jellyfin_url": None, "jellyfin_public_url": None, "has_tmdb_key": False, "metadata_language": "en-US",
     "introdb_enabled": False, "hwaccel": "auto", "max_playback_sessions": 2, "transcode_cache_gb": 10,
     "jellyfin_import_url": None, "plex_import_url": None, "anime_folders": ["Anime"], "recategorising": False,
     "members_edit_metadata": False,
@@ -44,15 +44,16 @@ def test_fresh_database_serves_defaults(admin) -> None:
 def test_update_persists_fields_and_keeps_the_tmdb_key_write_only(admin) -> None:
     client, _, _, factory = admin
     saved = client.put("/api/admin/media-server", json={
-        "jellyfin_enabled": True, "tmdb_api_key": "  tmdb-secret-123 ", "metadata_language": "de-DE",
+        "jellyfin_enabled": True, "native_streaming_enabled": True, "tmdb_api_key": "  tmdb-secret-123 ", "metadata_language": "de-DE",
         "introdb_enabled": True, "hwaccel": "qsv", "max_playback_sessions": 4, "transcode_cache_gb": 50,
     })
     assert saved.status_code == 200, saved.text
-    assert saved.json() == {**DEFAULTS, "jellyfin_enabled": True, "has_tmdb_key": True, "metadata_language": "de-DE",
+    assert saved.json() == {**DEFAULTS, "jellyfin_enabled": True, "native_streaming_enabled": True, "has_tmdb_key": True, "metadata_language": "de-DE",
                             "introdb_enabled": True, "hwaccel": "qsv", "max_playback_sessions": 4, "transcode_cache_gb": 50}
     assert "tmdb-secret-123" not in saved.text and "tmdb-secret-123" not in client.get("/api/admin/media-server").text
     with factory() as db:
         assert db.get(AppSettings, 1).tmdb_api_key == "tmdb-secret-123"
+        assert db.get(AppSettings, 1).native_streaming_enabled is True
 
     assert client.put("/api/admin/media-server", json={}).json()["has_tmdb_key"] is True  # omitted = unchanged
     assert client.put("/api/admin/media-server", json={"tmdb_api_key": None}).json()["has_tmdb_key"] is True
@@ -103,7 +104,7 @@ def test_members_cannot_read_or_change_media_server_settings(admin) -> None:
     client, current, member, _ = admin
     current["user"] = member
     assert client.get("/api/admin/media-server").status_code == 403
-    assert client.put("/api/admin/media-server", json={"jellyfin_enabled": True}).status_code == 403
+    assert client.put("/api/admin/media-server", json={"native_streaming_enabled": True}).status_code == 403
 
 
 def test_backups_null_the_tmdb_key_but_keep_the_server_identity() -> None:

@@ -5,30 +5,151 @@ import Foundation
 /// Owns on-demand, stream-copy MKV packaging; AVPlayer still owns decoding and transport.
 @MainActor
 public final class NativeVideoSource {
-    private var demux: PrismCoreSession?
-    private var statusObservation: NSKeyValueObservation?
+    public enum SelectionError: Error, Equatable, Sendable {
+        /// PrismCore's muxed shape can only carry a stream-copyable audio track.
+        /// Callers retain the existing item and use their server fallback instead.
+        case unsupportedAudioStream(Int)
+        case externalSubtitleMustBeLocal
+        case externalSubtitleMustBeWebVTT
+        case externalSubtitleDurationRequired
+        case externalSubtitleRequiresHLS
+        case externalSubtitleTooLarge
+        case subtitleDelayUnavailable
+        case externalSubtitleUnsupportedTiming
+    }
 
-    // AVKit owns the visible timeline; app progress only needs the server reporting cadence.
+    public struct ExternalSubtitle: Sendable, Equatable {
+        public let fileURL: URL
+        public let language: String?
+        public let name: String?
+        public let isForced: Bool
+        /// Required when wrapping an existing HLS stream without PrismCore.
+        public let durationSeconds: Double?
+
+        public init(
+            fileURL: URL,
+            language: String? = nil,
+            name: String? = nil,
+            isForced: Bool = false,
+            durationSeconds: Double? = nil
+        ) {
+            self.fileURL = fileURL
+            self.language = language
+            self.name = name
+            self.isForced = isForced
+            self.durationSeconds = durationSeconds
+        }
+    }
+
+    private struct SubtitleMaster {
+        let server: LoopbackHTTPServer
+        let directory: URL
+        let playlistURL: URL
+    }
+
+    private var demux: PrismCoreSession?
+    private var subtitleMaster: SubtitleMaster?
+    private var externalSubtitleDirectory: URL?
+    private var statusObservation: NSKeyValueObservation?
+    public private(set) var activeAudioStreamIndex: Int?
+    public private(set) var requestedSubtitleStreamIndex: Int?
+    /// Positive values render subtitles later than the picture, bounded to +/-10 seconds.
+    public private(set) var subtitleDelaySeconds = 0.0
+    /// `true` only while this source owns a master that declares sidecar tracks.
+    public private(set) var hasSelectableExternalSubtitles = false
+    public private(set) var externalSubtitleDisplayName: String?
+
+    // Server reporting cadence; the app-owned timeline can update more frequently.
     public static let progressObservationInterval = CMTime(seconds: 5, preferredTimescale: 600)
+    private static let maximumExternalSubtitleBytes = 10 << 20
+    private static let maximumWebVTTSeconds = Double(Int.max / 1_000)
 
     public init() {}
 
     // Internal accounting for the host cue replay cache, independent of HLS subtitle files.
     var retainedSubtitleHistoryBytes: Int { demux?.subtitleCueHistoryStats.retainedBytes ?? 0 }
 
-    public func prepare(url: URL, usesClientDemux: Bool) async throws -> AVPlayerItem {
+    /// When attaching sidecars without client demux, `url` must be a resolved muxed
+    /// HLS media playlist. Resolve server masters through LuminaStore first.
+    public func prepare(
+        url: URL,
+        usesClientDemux: Bool,
+        preferredAudioStreamIndex: Int? = nil,
+        preferredSubtitleStreamIndex: Int? = nil,
+        externalSubtitles: [ExternalSubtitle] = [],
+        bandwidth: Int? = nil,
+        enableSubtitleRenditions: Bool = true,
+        subtitleDelaySeconds: Double = 0
+    ) async throws -> AVPlayerItem {
         stop()
-        guard usesClientDemux else { return AVPlayerItem(url: url) }
+        self.subtitleDelaySeconds = Self.normalizedSubtitleDelay(subtitleDelaySeconds)
+        try validate(externalSubtitles)
+        guard usesClientDemux || !externalSubtitles.isEmpty || self.subtitleDelaySeconds == 0 else {
+            throw SelectionError.subtitleDelayUnavailable
+        }
+        guard usesClientDemux else {
+            return try await prepareServerHLSWithSidecars(
+                url: url,
+                externalSubtitles: externalSubtitles,
+                bandwidth: bandwidth
+            )
+        }
         let session = try PrismCoreSession(url: url, display: .current(),
-                                          segmentCacheBytes: 64 << 20, forceMuxedShape: true, coordinatedHTTP: true,
+                                          segmentCacheBytes: 64 << 20, forceMuxedShape: true,
+                                          preferredAudioStreamIndex: preferredAudioStreamIndex,
+                                          preferredSubtitleStreamIndex: preferredSubtitleStreamIndex,
+                                          coordinatedHTTP: true,
                                           // No host overlay needs cue replay; packaged subtitle files are independent.
                                           subtitleCueHistory: .bounded(maxCues: 1, maxBytes: 1))
-        demux = session
         do {
+            let retainedSubtitles = try retainExternalSubtitles(externalSubtitles)
+            externalSubtitleDirectory = retainedSubtitles.directory
+            for subtitle in retainedSubtitles.subtitles {
+                try await session.addExternalSubtitle(url: subtitle.fileURL, language: subtitle.language,
+                                                name: subtitle.name, isForced: subtitle.isForced)
+            }
+            _ = await session.setSubtitleDelaySeconds(self.subtitleDelaySeconds)
+            try Task.checkCancellation()
+            demux = session
             let playlist = try await session.start()
             try Task.checkCancellation()
             guard demux === session else { throw CancellationError() }
-            let item = AVPlayerItem(url: playlist)
+            let deliveredAudio = session.audioTrackDeliveries
+            if let preferredAudioStreamIndex {
+                guard deliveredAudio.contains(where: {
+                    $0.streamIndex == preferredAudioStreamIndex && $0.delivery == .streamCopy
+                }) else {
+                    throw SelectionError.unsupportedAudioStream(preferredAudioStreamIndex)
+                }
+            } else if let selected = deliveredAudio.first(where: { $0.delivery != .unavailable }) {
+                guard selected.delivery == .streamCopy else {
+                    throw SelectionError.unsupportedAudioStream(selected.streamIndex)
+                }
+                activeAudioStreamIndex = selected.streamIndex
+            }
+            activeAudioStreamIndex = preferredAudioStreamIndex ?? activeAudioStreamIndex
+            requestedSubtitleStreamIndex = preferredSubtitleStreamIndex
+            let renditions = enableSubtitleRenditions ? await session.subtitleRenditions : []
+            let playableURL: URL
+            if renditions.isEmpty {
+                playableURL = playlist
+            } else {
+                let master = try await makeSubtitleMaster(
+                    variantURL: playlist,
+                    prismRenditions: renditions,
+                    externalSubtitles: [],
+                    bandwidth: bandwidth
+                )
+                guard demux === session else {
+                    await Self.stop(master)
+                    throw CancellationError()
+                }
+                subtitleMaster = master
+                hasSelectableExternalSubtitles = !externalSubtitles.isEmpty
+                externalSubtitleDisplayName = externalSubtitles.first.map { hlsValue($0.name ?? $0.language ?? "Subtitle 1") }
+                playableURL = master.playlistURL
+            }
+            let item = AVPlayerItem(url: playableURL)
             item.preferredForwardBufferDuration = 4
             statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
                 guard item.status == .failed else { return }
@@ -39,10 +160,336 @@ public final class NativeVideoSource {
             }
             return item
         } catch {
+            let master = subtitleMaster
+            let retainedDirectory = externalSubtitleDirectory
+            subtitleMaster = nil
+            self.externalSubtitleDirectory = nil
             if demux === session { demux = nil }
+            activeAudioStreamIndex = nil
+            requestedSubtitleStreamIndex = nil
+            hasSelectableExternalSubtitles = false
+            externalSubtitleDisplayName = nil
+            if let master { await Self.stop(master) }
             await session.stop()
+            if let retainedDirectory { try? FileManager.default.removeItem(at: retainedDirectory) }
             throw error
         }
+    }
+
+    private struct SubtitleRendition {
+        let name: String
+        let language: String
+        let uri: String
+        let isForced: Bool
+        let isDefault: Bool
+    }
+
+    private func prepareServerHLSWithSidecars(
+        url: URL,
+        externalSubtitles: [ExternalSubtitle],
+        bandwidth: Int?
+    ) async throws -> AVPlayerItem {
+        guard !externalSubtitles.isEmpty else { return AVPlayerItem(url: url) }
+        guard url.pathExtension.lowercased() == "m3u8" else {
+            throw SelectionError.externalSubtitleRequiresHLS
+        }
+        for subtitle in externalSubtitles {
+            guard subtitle.fileURL.pathExtension.lowercased() == "vtt" else {
+                throw SelectionError.externalSubtitleMustBeWebVTT
+            }
+            guard let duration = subtitle.durationSeconds, duration.isFinite,
+                  duration > 0, duration <= Double(Int32.max) else {
+                throw SelectionError.externalSubtitleDurationRequired
+            }
+        }
+
+        let master = try await makeSubtitleMaster(
+            variantURL: url,
+            prismRenditions: [],
+            externalSubtitles: externalSubtitles,
+            bandwidth: bandwidth
+        )
+        subtitleMaster = master
+        hasSelectableExternalSubtitles = true
+        externalSubtitleDisplayName = externalSubtitles.first.map { hlsValue($0.name ?? $0.language ?? "Subtitle 1") }
+        let item = AVPlayerItem(url: master.playlistURL)
+        item.preferredForwardBufferDuration = 4
+        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            guard item.status == .failed else { return }
+            Task { @MainActor [weak self] in
+                guard self?.subtitleMaster?.playlistURL == master.playlistURL else { return }
+                self?.stop()
+            }
+        }
+        return item
+    }
+
+    private func validate(_ externalSubtitles: [ExternalSubtitle]) throws {
+        for subtitle in externalSubtitles {
+            guard subtitle.fileURL.isFileURL else {
+                throw SelectionError.externalSubtitleMustBeLocal
+            }
+            let values = try subtitle.fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+            guard values.isRegularFile == true,
+                  let size = values.fileSize,
+                  size <= Self.maximumExternalSubtitleBytes else {
+                throw SelectionError.externalSubtitleTooLarge
+            }
+        }
+    }
+
+    private func retainExternalSubtitles(
+        _ subtitles: [ExternalSubtitle]
+    ) throws -> (directory: URL?, subtitles: [ExternalSubtitle]) {
+        guard !subtitles.isEmpty else { return (nil, []) }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LuminaExternalSubtitles-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+            let retained = try subtitles.enumerated().map { ordinal, subtitle in
+                let data = try Data(contentsOf: subtitle.fileURL, options: .mappedIfSafe)
+                guard data.count <= Self.maximumExternalSubtitleBytes else {
+                    throw SelectionError.externalSubtitleTooLarge
+                }
+                let ext = subtitle.fileURL.pathExtension.lowercased()
+                let url = directory.appendingPathComponent("subtitle-\(ordinal).\(ext)")
+                try data.write(to: url, options: .atomic)
+                return ExternalSubtitle(
+                    fileURL: url,
+                    language: subtitle.language,
+                    name: subtitle.name,
+                    isForced: subtitle.isForced,
+                    durationSeconds: subtitle.durationSeconds
+                )
+            }
+            return (directory, retained)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    private func makeSubtitleMaster(
+        variantURL: URL,
+        prismRenditions: [MasterPlaylistBuilder.SubtitleRendition],
+        externalSubtitles: [ExternalSubtitle],
+        bandwidth: Int?
+    ) async throws -> SubtitleMaster {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LuminaSubtitleMaster-\(UUID().uuidString)", isDirectory: true)
+        var server: LoopbackHTTPServer?
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+            var renditions = try prismRenditions.enumerated().map { ordinal, rendition in
+                guard let uri = URL(string: rendition.uri, relativeTo: variantURL)?.absoluteURL else {
+                    throw URLError(.badURL)
+                }
+                return SubtitleRendition(
+                    name: rendition.name,
+                    language: rendition.language ?? "und",
+                    uri: uri.absoluteString,
+                    isForced: rendition.isForced,
+                    isDefault: rendition.isDefault
+                )
+            }
+            renditions.append(contentsOf: try copyExternalSubtitles(externalSubtitles, into: directory))
+            guard !renditions.isEmpty else { throw URLError(.resourceUnavailable) }
+            try Data(subtitleMasterPlaylist(
+                variantURL: variantURL, renditions: renditions, bandwidth: bandwidth
+            ).utf8).write(
+                to: directory.appendingPathComponent("master.m3u8"), options: .atomic
+            )
+            let newServer = LoopbackHTTPServer(root: directory)
+            server = newServer
+            let baseURL = try await newServer.start()
+            return SubtitleMaster(
+                server: newServer,
+                directory: directory,
+                playlistURL: baseURL.appendingPathComponent("master.m3u8")
+            )
+        } catch {
+            if let server { await server.stop() }
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    private func copyExternalSubtitles(
+        _ subtitles: [ExternalSubtitle],
+        into directory: URL
+    ) throws -> [SubtitleRendition] {
+        try subtitles.enumerated().map { ordinal, subtitle in
+            let data = try Data(contentsOf: subtitle.fileURL, options: .mappedIfSafe)
+            guard data.count <= Self.maximumExternalSubtitleBytes else {
+                throw SelectionError.externalSubtitleTooLarge
+            }
+            let fileName = "sidecar-\(ordinal).vtt"
+            try normalizedWebVTT(data, delaySeconds: subtitleDelaySeconds).write(
+                to: directory.appendingPathComponent(fileName), options: .atomic
+            )
+            let duration = subtitle.durationSeconds ?? 1
+            try Data(sidecarPlaylist(fileName: fileName, duration: duration).utf8).write(
+                to: directory.appendingPathComponent("sidecar-\(ordinal).m3u8"), options: .atomic
+            )
+            return SubtitleRendition(
+                name: subtitle.name ?? subtitle.language ?? "Subtitle \(ordinal + 1)",
+                language: subtitle.language ?? "und",
+                uri: "sidecar-\(ordinal).m3u8",
+                isForced: subtitle.isForced,
+                isDefault: false
+            )
+        }
+    }
+
+    private func normalizedWebVTT(_ data: Data, delaySeconds: Double) throws -> Data {
+        guard var text = String(data: data, encoding: .utf8) else {
+            throw SelectionError.externalSubtitleMustBeWebVTT
+        }
+        if text.unicodeScalars.first == "\u{FEFF}" { text.removeFirst() }
+        text = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        guard let newline = text.firstIndex(of: "\n") else {
+            throw SelectionError.externalSubtitleMustBeWebVTT
+        }
+        let header = text[..<newline]
+        guard header == "WEBVTT" || header == "WEBVTT\r" || header.hasPrefix("WEBVTT ") || header.hasPrefix("WEBVTT\t") else {
+            throw SelectionError.externalSubtitleMustBeWebVTT
+        }
+        if !text.contains("X-TIMESTAMP-MAP=") {
+            text.insert(contentsOf: "\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000", at: newline)
+        }
+        if delaySeconds != 0,
+           text.range(of: #"<(?:(?:\d{2}:)?\d{2}:\d{2}\.\d{3})>"#, options: .regularExpression) != nil {
+            // Karaoke timestamp tags need the same offset as their containing
+            // cue. Do not silently leave them behind the shifted cue timing.
+            throw SelectionError.externalSubtitleUnsupportedTiming
+        }
+        return Data(try shiftWebVTTCues(in: text, by: delaySeconds).utf8)
+    }
+
+    private func shiftWebVTTCues(in text: String, by delay: Double) throws -> String {
+        guard delay != 0 else { return text }
+        let blocks = text.components(separatedBy: "\n\n")
+        return try blocks.compactMap { block in
+            let lines = block.components(separatedBy: "\n")
+            guard let first = lines.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  first != "NOTE", !first.hasPrefix("NOTE "), !first.hasPrefix("NOTE\t"),
+                  first != "STYLE", first != "REGION" else {
+                return block
+            }
+            let timingIndices = lines.indices.filter { lines[$0].contains("-->") }
+            guard !timingIndices.isEmpty else { return block }
+            guard timingIndices.count == 1, let timingIndex = timingIndices.first,
+                  let timing = parseWebVTTTiming(lines[timingIndex]) else {
+                throw SelectionError.externalSubtitleUnsupportedTiming
+            }
+            let start = timing.start + delay
+            let end = timing.end + delay
+            guard end > 0 else { return nil }
+            var shifted = lines
+            shifted[timingIndex] = "\(webVTTTimestamp(max(0, start))) --> \(webVTTTimestamp(end))\(timing.settings)"
+            return shifted.joined(separator: "\n")
+        }.joined(separator: "\n\n")
+    }
+
+    private func parseWebVTTTiming(_ line: String) -> (start: Double, end: Double, settings: String)? {
+        let parts = line.components(separatedBy: "-->")
+        guard parts.count == 2,
+              let start = webVTTSeconds(parts[0].trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        let endAndSettings = parts[1].split(whereSeparator: { $0.isWhitespace })
+        guard let endPart = endAndSettings.first,
+              let end = webVTTSeconds(String(endPart)), end > start else { return nil }
+        let settings = endAndSettings.dropFirst().isEmpty ? "" : " " + endAndSettings.dropFirst().joined(separator: " ")
+        return (start, end, settings)
+    }
+
+    private func webVTTSeconds(_ timestamp: String) -> Double? {
+        let fields = timestamp.split(separator: ":")
+        guard (fields.count == 2 || fields.count == 3),
+              let seconds = Double(fields[fields.count - 1]),
+              let minutes = Double(fields[fields.count - 2]),
+              seconds.isFinite, minutes.isFinite,
+              seconds >= 0, seconds < 60, minutes >= 0 else { return nil }
+        let hours: Double
+        if fields.count == 3 {
+            guard let parsedHours = Double(fields[0]), parsedHours.isFinite, parsedHours >= 0 else { return nil }
+            hours = parsedHours
+        } else {
+            hours = 0
+        }
+        let total = hours * 3_600 + minutes * 60 + seconds
+        guard total.isFinite, total <= Self.maximumWebVTTSeconds else { return nil }
+        return total
+    }
+
+    private func webVTTTimestamp(_ seconds: Double) -> String {
+        let bounded = seconds.isFinite ? min(Self.maximumWebVTTSeconds, max(0, seconds)) : 0
+        let milliseconds = Int((bounded * 1_000).rounded())
+        let hours = milliseconds / 3_600_000
+        let minutes = (milliseconds % 3_600_000) / 60_000
+        let remainder = milliseconds % 60_000
+        return String(format: "%02d:%02d:%02d.%03d", locale: Locale(identifier: "en_US_POSIX"),
+                      hours, minutes, remainder / 1_000, remainder % 1_000)
+    }
+
+    /// Positive values render text later. The same bound is used by PrismCore.
+    public static func normalizedSubtitleDelay(_ seconds: Double) -> Double {
+        guard seconds.isFinite else { return 0 }
+        return min(10, max(-10, seconds))
+    }
+
+    private func sidecarPlaylist(fileName: String, duration: Double) -> String {
+        let targetDuration = max(1, Int(ceil(duration)))
+        return """
+        #EXTM3U
+        #EXT-X-VERSION:3
+        #EXT-X-TARGETDURATION:\(targetDuration)
+        #EXT-X-PLAYLIST-TYPE:VOD
+        #EXTINF:\(String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), duration)),
+        \(fileName)
+        #EXT-X-ENDLIST
+        """
+    }
+
+    private func subtitleMasterPlaylist(
+        variantURL: URL,
+        renditions: [SubtitleRendition],
+        bandwidth: Int?
+    ) -> String {
+        let groupID = "lumina-subtitles"
+        var lines = ["#EXTM3U", "#EXT-X-VERSION:7"]
+        for rendition in renditions {
+            lines.append(
+                "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\(hlsQuoted(groupID)),NAME=\(hlsQuoted(rendition.name)),LANGUAGE=\(hlsQuoted(rendition.language)),DEFAULT=\(rendition.isDefault ? "YES" : "NO"),AUTOSELECT=\(rendition.isDefault ? "YES" : "NO"),FORCED=\(rendition.isForced ? "YES" : "NO"),URI=\(hlsQuoted(rendition.uri))"
+            )
+        }
+        // PrismCore intentionally keeps codec/display signalling private when
+        // `forceMuxedShape` is active, so this wrapper must not invent it. The
+        // server's source bitrate is preferred; the fallback only overstates a
+        // fixed variant's scheduling budget rather than claiming a false codec.
+        let declaredBandwidth = bandwidth.flatMap { $0 > 0 ? $0 : nil } ?? 50_000_000
+        lines.append("#EXT-X-STREAM-INF:BANDWIDTH=\(declaredBandwidth),SUBTITLES=\(hlsQuoted(groupID))")
+        lines.append(variantURL.absoluteString)
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func hlsQuoted(_ value: String) -> String { "\"" + hlsValue(value) + "\"" }
+
+    private func hlsValue(_ value: String) -> String {
+        String(value.unicodeScalars.map { scalar in
+            switch scalar.value {
+            case 0...31, 34, 92, 127:
+                return " "
+            default:
+                return Character(String(scalar))
+            }
+        })
+    }
+
+    private static func stop(_ master: SubtitleMaster) async {
+        await master.server.stop()
+        try? FileManager.default.removeItem(at: master.directory)
     }
 
     /// Resume on readiness, failure, item replacement or cancellation without a recurring timer.
@@ -80,13 +527,31 @@ public final class NativeVideoSource {
     @discardableResult
     public func stop() -> Task<Void, Never> {
         let session = demux
+        let master = subtitleMaster
+        let retainedDirectory = externalSubtitleDirectory
         demux = nil
+        subtitleMaster = nil
+        self.externalSubtitleDirectory = nil
         statusObservation = nil
-        return Task { if let session { await session.stop() } }
+        activeAudioStreamIndex = nil
+        requestedSubtitleStreamIndex = nil
+        hasSelectableExternalSubtitles = false
+        externalSubtitleDisplayName = nil
+        return Task {
+            if let master { await Self.stop(master) }
+            if let session { await session.stop() }
+            if let retainedDirectory { try? FileManager.default.removeItem(at: retainedDirectory) }
+        }
     }
 
     isolated deinit {
         let session = demux
-        if let session { Task { await session.stop() } }
+        let master = subtitleMaster
+        let retainedDirectory = externalSubtitleDirectory
+        Task {
+            if let master { await Self.stop(master) }
+            if let session { await session.stop() }
+            if let retainedDirectory { try? FileManager.default.removeItem(at: retainedDirectory) }
+        }
     }
 }

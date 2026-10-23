@@ -10,7 +10,7 @@ vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeo
 const { AnimeFolders, animeFolderProblem, RESORT_POLL_MS, RESORTED_NOTE_MS } = await import('./AnimeFolders');
 
 const settings = (patch: Partial<MediaServerSettings> = {}): MediaServerSettings => ({
-  jellyfin_enabled: true, jellyfin_url: 'https://vault.example', has_tmdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto',
+  jellyfin_enabled: true, native_streaming_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto',
   max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null, plex_import_url: null, anime_folders: ['Anime'], recategorising: false, ...patch,
 });
 const flush = (ms = 0) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });

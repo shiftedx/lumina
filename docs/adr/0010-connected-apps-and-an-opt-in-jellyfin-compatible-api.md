@@ -101,6 +101,24 @@ Movies and episodes carry watched state, dated resume positions and provider ide
 
 Protocol references: [Plex Media Server API](https://developer.plex.tv/pms/), [Python PlexAPI source for server-sharing tokens](https://python-plexapi.readthedocs.io/en/latest/_modules/plexapi/myplex.html), and [Plex authentication token instructions](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
 
+## Amendment (2026-10-21): native Requests extensions
+
+The opt-in Jellyfin-authenticated surface exposes member Requests at `/Lumina/Requests`: catalog discovery under `/catalog`, the member's own request list, quota and create operation. These adapters reuse the browser catalog, request engine and schemas with the Connected-app caller as the member. They never grant a Jellyfin credential access to `/api/requests`, and there are no administrative request decisions on this surface. Request policy, quota, configured-request switch, member visibility and connected-app revocation remain authoritative. This Lumina-specific namespace may return structured JSON errors; ordinary Jellyfin endpoints retain empty error bodies.
+
+## Amendment (2026-10-22): native Home layout
+
+The opt-in Jellyfin-authenticated surface exposes the active member's Home layout at `/Lumina/Home/layout`. It reads and updates only `UserSettings.ui_prefs.home_shelves`, the same preference used by the website; an update preserves every other UI preference. A null layout resets to the website default, while reads sanitize malformed older data against the frozen shelf catalogue. This does not make a Connected-app credential usable on `/api/settings/me` or any other browser API.
+
+## Amendment (2026-10-22): native member settings and reauthentication
+
+The opt-in Jellyfin-authenticated surface exposes the caller's member settings at `/Lumina/Settings`, using the same settings service and durable preference record as the website. It has explicit, member-scoped paths for personal profile, notification, access, history, export, two-step verification and Connected-app actions; there is no generic proxy to browser `/api` routes and no server or household administration path, including for an owner.
+
+A sensitive native mutation requires a fresh `POST /Lumina/Settings/reauth` proof. That endpoint checks the account's local password and, when enabled, the current second factor. It returns a random proof held only as a hash in process memory, bound to the authenticated Connected-app token, valid for five minutes and consumed once through `X-Lumina-Reauth`. The proof never becomes a browser session, has no authority outside the explicit Settings routes, and is lost on restart. Password and recovery credentials remain request-only and are never stored or logged; changing a password still revokes all of the member's Connected-app tokens as it does in the browser flow.
+
+### Native detail watchlist actions
+
+The Jellyfin-authenticated `/Lumina/Watchlist/{item_id}` adapter reads or sets the caller's membership in the existing website WatchQueue. It resolves movie/episode titles to a visible preferred library version, series to their current play-next episode, and seasons to their first visible episode. It stores the same concrete queue entry as the website rather than creating a separate native list or using Favorites. The adapter is member scoped and does not grant Connected-app credentials access to browser `/api` routes.
+
 
 ## Amendment (2026-10-22): first-owner household transfer
 
@@ -113,3 +131,7 @@ The onboarding flow uses `POST /api/admin/household-transfer/{provider}/discover
 The stream owns its database scope and Jellyfin sign-in context, closing both on completion, failure or disconnect; an in-flight bounded source read may finish before cancellation is observed, but no later member is started after stream closure. Streams bypass compression/proxy buffering and use `Cache-Control: no-store`. Existing source byte/time/page/user limits and per-owner attempt limits apply. The browser consumes bounded, incrementally decoded events, requires an explicit terminal event, holds timeout/cancellation through body consumption, retains committed results on a transport failure, and never automatically retries an account-creating request. The owner can stop the transfer and keep received results, retry unfinished people, or discover the same source household again if membership changed. Continue Watching is refreshed after the first-owner setup finishes so imported resumes are immediately available on Home.
 
 Plex reads use server-side watched and in-progress filters and deduplicate overlapping results by rating key. Episode matching fetches only referenced shows in bounded ID batches, sharing the page budget; unrelated movies, episodes and show metadata are not traversed. Referenced show metadata is separately capped at 20,000 records. This keeps transfer work proportional to activity rather than total library size.
+
+### Native external-streaming settings opt-in
+
+External-provider controls in the native app require the persisted admin-owned `AppSettings.native_streaming_enabled` setting, default false. `/Lumina/Settings/capabilities` returns member-effective `streaming_enabled` and `youtube_session_enabled` booleans; unrestricted members and admins do not bypass the server opt-in. This setting changes Connected-app settings visibility, not the browser Streaming surface or local-media playback. Native YouTube-session operations reject disabled or YouTube-blocked callers before reading credential status or consuming a reauthentication proof. Native clients hide these controls for absent, failed, or malformed capability responses, including older servers.

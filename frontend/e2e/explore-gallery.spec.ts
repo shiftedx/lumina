@@ -71,10 +71,8 @@ test('a search groups results in order, offers jump links and a source retry, an
   await field.fill('harbor');
   await field.press('Enter');
   await expect(page.getByRole('heading', { level: 2, name: 'Results for “harbor”' })).toBeVisible();
-  const headings = await page.locator('.g-explore h2, .g-explore .g-rail-head h2, .g-explore [id^="rail-results-"]').allInnerTexts();
-  const order = ['Channels', 'Live now', 'Videos', 'Shorts', 'Playlists'].map((name) => headings.findIndex((text) => text.trim() === name));
-  expect(order.every((index) => index >= 0), headings.join(' | ')).toBe(true);
-  expect([...order].sort((a, b) => a - b)).toEqual(order);
+  const resultHeadings = page.locator('#g-explore-channels, #rail-results-live, #g-explore-videos, #rail-results-shorts, #g-explore-playlists');
+  await expect(resultHeadings).toHaveText(['Channels', 'Live now', 'Videos', 'Shorts', 'Playlists']);
   await expect(page.getByRole('navigation', { name: 'Jump to' })).toBeVisible();
   await expect(page.getByRole('alert').filter({ hasText: 'SoundCloud results are unavailable' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Retry SoundCloud' })).toBeVisible();

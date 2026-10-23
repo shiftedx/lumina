@@ -11,7 +11,7 @@ test('adds, validates and saves anime folders, then follows the re-sort', async 
   await mockApi(page, { sidebar_collapsed: false, settings_advanced: true }); // anime folders are an advanced row
   await mockAdminFixtures(page);
   let current = {
-    jellyfin_enabled: true, jellyfin_url: 'https://vault.example', has_tmdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto',
+    jellyfin_enabled: true, native_streaming_enabled: false, jellyfin_url: 'https://vault.example', has_tmdb_key: true, metadata_language: 'en-US', introdb_enabled: false, hwaccel: 'auto',
     max_playback_sessions: 3, transcode_cache_gb: 10, jellyfin_import_url: null, anime_folders: ['Anime'], recategorising: false,
   };
   let polls = 0;

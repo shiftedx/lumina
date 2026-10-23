@@ -80,8 +80,8 @@ def _build(client: tmdb.TmdbClient, today: date) -> list[dict]:
             logo = f"{tmdb.IMAGE_BASE}/w500/{logo.rsplit('/', 1)[1]}" if logo and logo.endswith(".png") else None
             return {
                 "key": (kind, item["tmdb_id"]), "title": item["title"] if item["kind"] == "anime" else full["title"],
-                "caption": _caption(section, item.get("release_date"), today), "kind": item["kind"],
-                "backdrop": backdrop, "logo": logo,
+                "caption": _caption(section, item.get("release_date"), today), "kind": item["kind"], "section": section,
+                "backdrop": backdrop, "poster": full.get("poster_url"), "logo": logo,
             }
 
         group = []
@@ -94,8 +94,8 @@ def _build(client: tmdb.TmdbClient, today: date) -> list[dict]:
     sources: dict[str, str] = {}
     slides = []
     for s in ordered:
-        out = {"title": s["title"], "caption": s["caption"], "kind": s["kind"]}
-        for field, url in (("backdrop_url", s["backdrop"]), ("logo_url", s["logo"])):
+        out = {"title": s["title"], "caption": s["caption"], "kind": s["kind"], "section": s["section"]}
+        for field, url in (("backdrop_url", s["backdrop"]), ("poster_url", s["poster"]), ("logo_url", s["logo"])):
             if url:
                 token = _token(url)
                 sources[token] = url

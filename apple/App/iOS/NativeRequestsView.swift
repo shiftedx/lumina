@@ -291,15 +291,21 @@ struct NativeRequestsView: View {
     }
 
     private func posterRail(_ title: String, items: [RequestCatalogItem]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let posterWidth: CGFloat = compact ? 144 : 176
+        let posterHeight = posterWidth * 1.5
+
+        return VStack(alignment: .leading, spacing: 14) {
             Text(title).font(.title2.weight(.bold)).padding(.horizontal, 20)
             ScrollView(.horizontal) {
-                LazyHStack(alignment: .bottom, spacing: 12) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        poster(item).frame(width: index % 7 == 0 ? 198 : 144, height: index % 7 == 0 ? 297 : 216)
+                LazyHStack(alignment: .top, spacing: 12) {
+                    ForEach(items) { item in
+                        poster(item)
+                            .frame(width: posterWidth, height: posterHeight, alignment: .top)
                     }
-                }.padding(.horizontal, 20)
-            }.scrollIndicators(.hidden)
+                }
+                .padding(.horizontal, 20)
+            }
+            .scrollIndicators(.hidden)
         }
     }
 

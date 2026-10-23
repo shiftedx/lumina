@@ -378,6 +378,9 @@ def test_channels_view_groups_uploads_by_uploader_and_year(jf: TestClient) -> No
     assert names(get(jf, "/Items", ParentId=CHAN, IncludeItemTypes="Season")) == ["2024", "2025"]
     everything = get(jf, "/Items", ParentId=CHANNELS, Recursive="true", IncludeItemTypes="Episode").json()
     assert [i["Name"] for i in everything["Items"]] == ["Old upload", "New upload"] and everything["TotalRecordCount"] == 2
+    saved_youtube = get(jf, "/Items", ParentId=CHANNELS, Recursive="true", IncludeItemTypes="Episode", SourceProvider="youtube", SearchTerm="New").json()
+    assert [item["Name"] for item in saved_youtube["Items"]] == ["New upload"]
+    assert get(jf, "/Items", ParentId=CHANNELS, Recursive="true", IncludeItemTypes="Episode", SourceProvider="twitch").json()["Items"] == []
 
 
 def test_channel_video_dto_points_at_its_synthetic_folders(jf: TestClient) -> None:
@@ -424,6 +427,9 @@ def test_shows_seasons_and_episodes(jf: TestClient) -> None:
     path = f"/Shows/{HEX(SERIES)}/Episodes"
     assert names(get(jf, path, SeasonId=HEX(SEASON1))) == ["Pilot", "Second"]
     assert names(get(jf, path, Season=2)) == ["Return"]
+    # StartItemId is a forward cursor in the server's complete series order. Native
+    # players use the following entry after the current one, including across seasons.
+    assert names(get(jf, path, StartItemId=HEX(S1E1))) == ["Pilot", "Second", "Return"]
     assert names(get(jf, path, StartItemId=HEX(S1E2))) == ["Second", "Return"]
     assert get(jf, path, Limit=1, StartIndex=1).json()["TotalRecordCount"] == 4
     assert get(jf, f"/Shows/{HEX(MOVIE)}/Episodes").json()["Items"] == []
@@ -553,7 +559,8 @@ def test_stream_direct_play_with_range(jf: TestClient) -> None:
     assert head.status_code == 200 and head.headers["content-length"] == "4096"
     ranged = jf.get(path, params=query, headers={"Range": "bytes=0-99"})
     assert ranged.status_code == 206 and len(ranged.content) == 100
-    assert jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"ApiKey": ALICE_TOKEN}).status_code == 200  # preferred version
+    preferred = jf.get(f"/Videos/{HEX(MOVIE)}/stream", params={"ApiKey": ALICE_TOKEN})
+    assert preferred.status_code == 200
     assert jf.get(f"/Videos/{HEX(CHANNEL_NEW)}/stream", headers={"X-Emby-Token": ALICE_TOKEN}).status_code == 200
     assert jf.get(path, params={"Static": "true"}).status_code == 401
     assert jf.get(f"/Videos/{HEX(SECRET_EPISODE)}/stream", params={"api_key": ALICE_TOKEN}).status_code == 404

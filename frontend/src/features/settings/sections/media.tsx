@@ -16,6 +16,7 @@ import type { SettingsSectionDef } from '../settingsTypes';
 
 export type MediaServerDraft = {
   tmdb_api_key: string; clear_tmdb_key: boolean; metadata_language: string; introdb_enabled: boolean; jellyfin_enabled: boolean;
+  native_streaming_enabled: boolean;
   hwaccel: HwaccelMode; max_playback_sessions: string; transcode_cache_gb: string; jellyfin_import_url: string; plex_import_url: string;
 };
 const HWACCEL: Array<[HwaccelMode, string]> = [['auto', 'Automatic'], ['qsv', 'Intel Quick Sync (QSV)'], ['vaapi', 'VA-API'], ['off', 'Off (software only)']];
@@ -23,6 +24,7 @@ const ACTIVE_LABELS: Record<TranscodeDiagnostics['active'], string> = { qsv: 'In
 
 export const draftOf = (settings: MediaServerSettings): MediaServerDraft => ({
   tmdb_api_key: '', clear_tmdb_key: false, metadata_language: settings.metadata_language, introdb_enabled: settings.introdb_enabled, jellyfin_enabled: settings.jellyfin_enabled,
+  native_streaming_enabled: settings.native_streaming_enabled,
   hwaccel: settings.hwaccel, max_playback_sessions: String(settings.max_playback_sessions), transcode_cache_gb: String(settings.transcode_cache_gb),
   jellyfin_import_url: settings.jellyfin_import_url ?? '',
   plex_import_url: settings.plex_import_url ?? '',
@@ -34,7 +36,7 @@ export function mediaServerChanges(settings: MediaServerSettings, draft: MediaSe
   if (draft.clear_tmdb_key) update.tmdb_api_key = '';
   else if (draft.tmdb_api_key.trim()) update.tmdb_api_key = draft.tmdb_api_key.trim();
   if (draft.metadata_language.trim() !== settings.metadata_language) update.metadata_language = draft.metadata_language.trim();
-  for (const key of ['introdb_enabled', 'jellyfin_enabled'] as const) if (draft[key] !== settings[key]) update[key] = draft[key];
+  for (const key of ['introdb_enabled', 'jellyfin_enabled', 'native_streaming_enabled'] as const) if (draft[key] !== settings[key]) update[key] = draft[key];
   if (draft.hwaccel !== settings.hwaccel) update.hwaccel = draft.hwaccel;
   for (const key of ['max_playback_sessions', 'transcode_cache_gb'] as const) if (Number(draft[key]) !== settings[key]) update[key] = Number(draft[key]);
   if (draft.jellyfin_import_url.trim() !== (settings.jellyfin_import_url ?? '')) update.jellyfin_import_url = draft.jellyfin_import_url.trim();
@@ -85,7 +87,7 @@ function mediaServerForm(label: string, saveLabel: string) {
 
     return (
       <MediaFormContext.Provider value={{ settings, draft, set }}>
-        <SectionForm saveSettings={['media.tmdb-key', 'media.language', 'media.introdb', 'media.jellyfin', 'media.jellyfin-import', 'media.plex-import', 'transcoding.hwaccel', 'transcoding.max-sessions', 'transcoding.cache']} dirty={Object.keys(update).length > 0} label={label} onDiscard={() => { setStatus(null); setDraft(draftOf(settings)); }} onSave={() => { void save(); }} saveLabel={saveLabel} saving={saving} status={status}>{children}</SectionForm>
+        <SectionForm saveSettings={['media.tmdb-key', 'media.language', 'media.introdb', 'media.jellyfin', 'media.native-streaming', 'media.jellyfin-import', 'media.plex-import', 'transcoding.hwaccel', 'transcoding.max-sessions', 'transcoding.cache']} dirty={Object.keys(update).length > 0} label={label} onDiscard={() => { setStatus(null); setDraft(draftOf(settings)); }} onSave={() => { void save(); }} saveLabel={saveLabel} saving={saving} status={status}>{children}</SectionForm>
       </MediaFormContext.Provider>
     );
   };
@@ -162,6 +164,11 @@ function RefreshAll() {
 function Jellyfin() {
   const { draft, set } = useMediaForm();
   return <SettingSwitch checked={draft.jellyfin_enabled} onChange={(next) => set('jellyfin_enabled', next)} />;
+}
+
+function NativeStreaming() {
+  const { draft, set } = useMediaForm();
+  return <SettingSwitch checked={draft.native_streaming_enabled} onChange={(next) => set('native_streaming_enabled', next)} />;
 }
 
 function JellyfinAddress() {
@@ -280,6 +287,7 @@ export const MEDIA_SECTIONS: readonly SettingsSectionDef[] = [
       { id: 'media.introdb', label: 'Intro and credits times', layout: 'switch', advanced: true, description: 'Looked up on TheIntroDB.', keywords: ['theintrodb', 'skip intro', 'segments', 'privacy', 'lookup'], info: 'Looks up where intros and credits start on TheIntroDB, so Skip buttons appear on more episodes. It is off by default because each lookup tells TheIntroDB which episodes this household owns. Affects everyone on this server.', Control: IntroDb },
       { id: 'media.refresh-all', label: 'Refresh all details', keywords: ['refresh all metadata', 'metadata', 'update artwork', 'rescan details'], info: 'Fetches details and artwork again for every movie and show, in the background. It needs a saved TMDB key and never overwrites NFO files or your edits. Affects everyone on this server.', Control: RefreshAll },
       { id: 'media.jellyfin', label: 'Let apps like Infuse connect', layout: 'switch', keywords: ['jellyfin', 'infuse', 'swiftfin', 'apple tv', 'clients', 'let apps connect'], info: 'Lets Infuse, Swiftfin and other Jellyfin apps browse and play this vault. Each member signs in with their own Lumina account and sees only what they can see here. Affects everyone on this server.', Control: Jellyfin },
+      { id: 'media.native-streaming', label: 'External streaming in the native app', layout: 'switch', keywords: ['native app', 'external streaming', 'providers', 'youtube session', 'iphone', 'ipad'], description: 'Controls external providers and personal YouTube sessions in Lumina\'s native app.', info: 'Lets members see and use external streaming providers and their personal YouTube sessions in Lumina\'s native app. Browser Streaming and local playback stay unchanged. Affects everyone on this server.', Control: NativeStreaming },
       { id: 'media.jellyfin-address', label: 'Address for apps', layout: 'block', keywords: ['server address for apps', 'url', 'host', 'port', 'connect infuse', 'copy address', 'steps'], info: 'The address to type into Infuse or another Jellyfin app: the same address you open Lumina at, nothing added. It appears once apps like Infuse are allowed and saved. There is nothing to change here, and it is the same for everyone.', Control: JellyfinAddress },
       { id: 'media.jellyfin-import', label: 'Jellyfin server to import from', advanced: true, keywords: ['jellyfin server address', 'import watch history', 'move from jellyfin', 'migrate', 'watched', 'favorites'], info: "The address of the household's old Jellyfin server, such as http://192.168.1.20:8096, so members can bring their watch history and favorites over. Each member signs in to it with their own Jellyfin account under Privacy & data, and Lumina never stores that password. Leave it empty to turn importing off; it affects everyone on this server.", Control: ImportServer },
       { id: 'media.plex-import', label: 'Plex server to import from', advanced: true, keywords: ['plex server address', 'import watch history', 'move from plex', 'migrate', 'watched', 'resume'], info: "The address of the household's Plex server, such as http://192.168.1.20:32400, so members can bring over what they watched and where they stopped. Each import uses a Plex token once under Privacy & data, and Lumina never saves it. Leave this empty to turn Plex importing off for everyone on this server.", Control: PlexImportServer },

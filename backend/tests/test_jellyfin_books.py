@@ -61,6 +61,9 @@ def test_native_books_auth_visibility_resources_and_member_progress(tmp_path):
             saved = client.patch(f"{base}/{cbz}/state", json={"unit_index": unit, "offset": offset})
             assert saved.status_code == 200, saved.text
             assert saved.json()["progress"]["unit_index"] == unit
+        filtered = client.get(base, params={"kind": "manga", "status": "reading", "sort": "title"})
+        assert filtered.status_code == 200, filtered.text
+        assert [row["id"] for row in filtered.json()["items"]] == [cbz]
         assert client.get(f"{base}/{cbz}/reader").json()["book"]["progress"]["offset"] == 0.2
         with db_module.SessionLocal.begin() as db:
             db.get(BookItem, cbz).visibility = "shared"

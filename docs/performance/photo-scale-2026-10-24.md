@@ -113,3 +113,27 @@ viewport and two horizontal cards, retaining its concurrency, response-size and
 no-duplicate-transfer limits. A count proportional to currently visible images
 cannot represent that spatial budget when an empty shelf disappears and nearby
 rails have different shapes and densities.
+
+Final verification of implementation commit `a0fc623` passed `make check` with
+the pinned toolchain and the shared performance lock held for the complete gate:
+5,397 backend tests passed (11 existing skips), 2,682 frontend tests passed across
+310 files, and all 655 browser cases passed. The browser tier finished in
+1,025.656 seconds with no skipped or flaky cases. Type, build and style checks
+also passed. Disposable logs remain under `output/photo-scale-make-check-green.log`;
+the performance harnesses retain their portable raw observations above.
+
+## Storage capacity
+
+The 16-photo HEIC fixture produced 39,258,848 bytes across its 48 renditions:
+2,453,678 bytes per photo. A straight size extrapolation is about **2.45 TB of
+previews for one million photos**, in addition to the **4–12 TB of originals** in
+the requested 4–12 MB/original example. This is fixture arithmetic, not a measured
+million-file store: natural images, dimensions and image entropy change rendition
+sizes. Durable storage deliberately retains these outputs instead of cycling them
+through a small LRU.
+
+The preview directory can use a separate large volume. With the bundled Compose
+layout, a bind mount at `/app/backend/.data/photos/derivatives` separates preview
+capacity from the local SQLite database. Preserve the configured container user's
+write permissions, and include that volume in backups if fast preview restoration
+is required.

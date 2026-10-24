@@ -172,6 +172,13 @@ class StorageRootService:
         """Deregister metadata only; the directory and its contents are never touched."""
         if self.db.query(MediaArtifact.id).filter_by(root_id=root.id).first() is not None:
             raise StorageRootInUseError("Storage root still holds registered media; it cannot be removed.")
+        from app.photo_models import PhotoItem
+        from app.photo_root_models import PhotoImportSource
+        if (
+            self.db.query(PhotoImportSource.id).filter_by(root_id=root.id).first() is not None
+            or self.db.query(PhotoItem.id).filter_by(root_id=root.id).first() is not None
+        ):
+            raise StorageRootInUseError("Storage root still holds a registered photo source; remove it first.")
         rule_set = self.db.get(StorageRuleSet, 1)
         if rule_set is not None and (rule_set.default_root_id == root.id or any(rule.get("target_root_id") == root.id for rule in rule_set.rules)):
             raise StorageRootInUseError("Storage rules still route media to this root; change them first.")

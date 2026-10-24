@@ -231,3 +231,13 @@
 @media (prefers-reduced-motion: reduce) {
   :root { --g-fade: 0ms linear; --g-page: 0ms linear; --g-drawer: 0ms linear; --g-hover: 0ms linear; --g-pop: 0ms linear; --g-dialog: 0ms linear; --g-toast: 0ms linear; }
 }
+
+.ph-viewer-panel {
+  --g-paper: var(--g-overlay-panel); --g-ink: var(--g-overlay-ink);
+  --g-ink-2: var(--g-overlay-ink-2); --g-ink-3: var(--g-overlay-ink-2);
+  --g-wash: var(--g-overlay-hover); --g-selected: var(--g-overlay-hover);
+  --g-field-rule: var(--g-overlay-rule); --g-rule-soft: var(--g-overlay-rule);
+  --g-gold-ink: var(--g-gold); --g-focus: var(--g-overlay-focus);
+  --g-danger: #e58a74; --g-danger-wash: var(--g-overlay-hover);
+}
+@media (forced-colors: active) { .ph-viewer-panel { --g-danger: CanvasText; } }

@@ -124,7 +124,9 @@ describe('MusicPlayer', () => {
     mocks.status.mockResolvedValue({ transport_state: 'PLAYING', volume: 42, track: { track_number: 2, position_seconds: 40, duration_seconds: 200 } });
     render(<MusicPlayer {...props} />);
     expect(await screen.findByText('Second Song')).toBeTruthy();
-    fireEvent.change(screen.getByRole('slider', { name: /^Track position/ }), { target: { value: '55' } });
+    const expand = screen.queryByRole('button', { name: 'Expand music player for Second Song' });
+    if (expand) await userEvent.click(expand);
+    fireEvent.change(await screen.findByRole('slider', { name: /^Track position/ }), { target: { value: '55' } });
     await waitFor(() => expect(mocks.control).toHaveBeenCalledWith('ticket-1', 'seek', 55));
     handlers.get('nexttrack')?.({ action: 'nexttrack' } as MediaSessionActionDetails);
     await waitFor(() => expect(mocks.control).toHaveBeenCalledWith('ticket-1', 'next', undefined));

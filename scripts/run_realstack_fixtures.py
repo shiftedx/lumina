@@ -54,6 +54,9 @@ def build_media(media: Path) -> None:
         # WebM (bundled Chromium decodes it) at 90 s: series.spec.ts seeks, resumes and plays to the end.
         ffmpeg(*SEEK_LAVFI, *WEBM, "-shortest", show / "Season 01" / f"Realstack Show S01E0{number}.webm")
     anime(media)
+    photos = media / "Photos"
+    photos.mkdir(parents=True)
+    ffmpeg("-f", "lavfi", "-i", "testsrc2=size=960x640", "-frames:v", "1", photos / "Realstack source.png")
 
 
 def anime(media: Path) -> None:

@@ -501,6 +501,14 @@ def app_password_allows(method: str, path: str) -> bool:
     return not path.startswith(_APP_PASSWORD_NO_READ)
 
 
+PASSIVE_AUTHENTICATED_GET_PATHS = frozenset({
+    "/api/library/activity",
+    "/api/admin/photo-sources",
+    "/api/photo-faces/settings",
+    "/api/photo-people",
+})
+
+
 def get_current_user(
     request: Request,
     db: Session = Depends(get_db, scope="function"),
@@ -508,8 +516,10 @@ def get_current_user(
 ) -> User:
     user = resolve_user_from_request(db, request=request, credentials=credentials)
     request.state.resource_user_id = user.id
-    # Passive progress polling must allow the server to become idle between real interactions.
-    if request.method != "GET" or request.url.path != "/api/library/activity":
+    # Passive progress/status polling must allow the server to become idle
+    # between real interactions. Authentication and route authorization above
+    # remain identical; only the background-work activity marker is omitted.
+    if request.method != "GET" or request.url.path not in PASSIVE_AUTHENTICATED_GET_PATHS:
         background_work.begin_request(request.scope)
     return user
 

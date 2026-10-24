@@ -1,3 +1,4 @@
+import { parsePhotosRoute, photosRoutePath, type PhotosRoute } from '../features/photos/routes';
 import { booksRouteFocusKey, booksRoutePath, parseBooksRoute, type BooksRoute } from '../features/books/routes';
 import { resolveSettingsPage, type SettingsSpace } from '../features/settings/navigation';
 import { LIBRARY_LENSES, type LibraryLens, titleLens } from '../features/gallery/libraryLens';
@@ -13,7 +14,7 @@ export type StreamingView = 'home' | 'live' | 'search' | 'channels';
 export type StreamingProvider = 'youtube' | 'twitch' | 'kick';
 
 /** Signed-in surfaces. Video, Audio and Books are separate; Library remains a bookmark alias. */
-export type Surface = 'home' | 'streaming' | 'requests' | 'subscriptions' | 'video' | 'audio' | 'books' | 'library' | 'downloads' | 'settings' | 'watch';
+export type Surface = 'home' | 'streaming' | 'requests' | 'subscriptions' | 'video' | 'audio' | 'books' | 'photos' | 'library' | 'downloads' | 'settings' | 'watch';
 
 /** Requests: what a member can discover and ask the household's Sonarr/Radarr for. */
 export type RequestKind = 'movie' | 'show' | 'anime';
@@ -45,8 +46,9 @@ const ownKey = (record: object, key: string) => Object.prototype.hasOwnProperty.
 
 /** One canonical, bookmarkable app location. `watch` carries exactly one media reference. */
 export type AppRoute =
-  | { surface: Exclude<Surface, 'watch' | 'streaming' | 'settings' | 'subscriptions' | 'requests' | 'books'> }
+  | { surface: Exclude<Surface, 'watch' | 'streaming' | 'settings' | 'subscriptions' | 'requests' | 'books' | 'photos'> }
   | BooksRoute
+  | PhotosRoute
   | RequestsRoute
   | { surface: 'streaming'; view: StreamingView; provider?: StreamingProvider; query?: string; rail?: string }
   | { surface: 'subscriptions'; youtubeChannelId: string; tab?: ChannelPageTab }
@@ -142,6 +144,8 @@ export function parseRoute(pathname: string, search: string): AppRoute {
   const mediaSurface = requested === '/video' || requested.startsWith('/video/') ? 'video' : 'library';
   const path = requested.replace(/^\/video\/title\//, '/title/').replace(/^\/video(?=\/|$)/, '/library');
   const params = new URLSearchParams(search);
+  const photos = parsePhotosRoute(requested, params);
+  if (photos) return photos;
   const books = parseBooksRoute(requested, params);
   if (books) return books;
   if (['/audio', '/music', '/library/music', '/audio/music', '/audio/albums', '/audio/artists', '/audio/saved'].includes(requested)) {
@@ -267,6 +271,7 @@ export function routePath(route: AppRoute): string {
     const path = routePath({ ...route, surface: 'library' } as AppRoute);
     return path.replace(/^\/title\//, '/video/title/').replace(/^\/library(?=\/|$)/, '/video');
   }
+  if (route.surface === 'photos') return photosRoutePath(route);
   if (route.surface === 'books') return booksRoutePath(route);
   if (route.surface === 'home') return '/';
   if (route.surface === 'requests') {

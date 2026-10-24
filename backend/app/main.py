@@ -47,7 +47,7 @@ from app.routers import title_images as title_images_routes  # 2.1.0 title artwo
 from app.routers import metadata_editor as metadata_editor_routes
 from app.routers import music as music_routes
 from app.services import metadata_history, tmdb
-from app.routers import hero_framing as hero_framing_routes, jellyfin, titles
+from app.routers import hero_framing as hero_framing_routes, jellyfin, photo_faces as photo_face_routes, photos, titles
 from app.routers import requests_catalog, showcase as showcase_routes
 from app.routers import library_sections  # library gallery sections
 from app.routers import requests as requests_routes  # 2.6.0 Requests (BE-B)
@@ -239,7 +239,7 @@ from app.services.household_collections import (
 from app.media_schemas import ItemProgress, SearchScope, SmartCollectionRule
 from app.services import smart_collections
 from app.services import backups
-from app.services import model_downloads, model_supervisor
+from app.services import model_downloads, model_supervisor, photo_cache, photo_faces, photo_imports
 from app.services import enrichment as enrichment_jobs
 from app.services.background_work import background_work
 from app.services import music_cast_capabilities
@@ -743,6 +743,7 @@ def run_library_maintenance_cycle() -> None:
         tmdb.cap_pinned(db, artwork)  # the pinned TMDB art folder's size cap; throttles itself to hourly
     from app.services import music_providers
     music_providers.maintenance()
+    photo_cache.trim()
     local_playback_sessions.reap()
     model_supervisor.supervisor.reap_idle()  # idle model servers stop (5 min); crashed ones are noticed
     start_embedding_backfill()  # non-blocking; restart-safe catch-up
@@ -936,6 +937,9 @@ async def lifespan(app: FastAPI):
     events.bind(asyncio.get_running_loop())
     admin_models.wire(events)
     model_downloads.manager.resume_wanted()  # model downloads a restart interrupted continue from their .part files
+    await asyncio.to_thread(photo_cache.recover)
+    photo_imports.worker.start()
+    photo_faces.worker.start()
     import_stop_event.clear()
     await jobs.start(concurrency=configured_concurrency)
     # Re-launch or finalize every live recording left non-terminal by a restart,
@@ -1005,6 +1009,8 @@ async def lifespan(app: FastAPI):
             await connector_observer_task
         with suppress(asyncio.CancelledError):
             await listening_export_task
+        await asyncio.to_thread(photo_imports.worker.close)
+        await asyncio.to_thread(photo_faces.worker.close)
         await asyncio.to_thread(model_downloads.manager.shutdown)  # partial files stay for the next start
         await asyncio.to_thread(model_supervisor.supervisor.close)
         try:
@@ -1065,6 +1071,8 @@ resource_routes.register(app, on_change=_resource_policy_changed)
 admin_diagnostics.register(app, events, lambda: maintenance_sweep_health.snapshot())
 client_metrics.register(app)
 books.register(app)
+photos.register(app)
+photo_face_routes.register(app)
 reco_routes.register(app)
 admin_recording_retention.register(app)
 admin_tasks.register(app, jobs)

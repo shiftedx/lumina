@@ -266,6 +266,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     32: (),  # Encrypted member-owned YouTube sessions; create_all adds the table.
     33: ("ALTER TABLE app_settings ADD COLUMN plex_import_url TEXT",),
     34: ("ALTER TABLE app_settings ADD COLUMN native_streaming_enabled BOOLEAN NOT NULL DEFAULT 0",),
+    35: (),  # Standalone Photos tables come from create_all; rollback preserves managed originals on disk.
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
@@ -296,7 +297,7 @@ def init_storage() -> None:
 
 def init_db() -> None:
     """Create the schema on a fresh database, upgrade an older one, refuse a newer one."""
-    from app import book_models, models  # noqa: F401  (registers model metadata)
+    from app import book_models, models, photo_face_models, photo_models, photo_root_models  # noqa: F401  (registers model metadata)
     from app.services.library_search import ensure_search_index
 
     if sqlite3.sqlite_version_info < (3, 33):  # UPDATE … FROM (CATEGORY_SQL)

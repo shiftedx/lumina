@@ -1,7 +1,20 @@
 {
-  "hosts": ["huggingface.co"],
+  "hosts": ["huggingface.co", "media.githubusercontent.com"],
   "cdn_host_suffixes": [".hf.co"],
   "models": [
+    {
+      "id": "opencv-sface-2021dec",
+      "role": "face",
+      "default": true,
+      "name": "OpenCV SFace 2021dec",
+      "description": "Local face embeddings paired with Lumina's bundled YuNet detector. The model directory is Apache-2.0 licensed.",
+      "licence": "Apache-2.0",
+      "ram_bytes": 268435456,
+      "engine": {"dimensions": 128},
+      "files": [
+        {"name": "sface.onnx", "url": "https://media.githubusercontent.com/media/opencv/opencv_zoo/48b10fa505aeb51fbd127fc60a5c660040e823b7/models/face_recognition_sface/face_recognition_sface_2021dec.onnx", "sha256": "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79", "size": 38696353}
+      ]
+    },
     {
       "id": "granite-embedding-97m-multilingual-r2-q8",
       "role": "search",

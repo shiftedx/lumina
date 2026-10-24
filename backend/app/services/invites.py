@@ -24,7 +24,7 @@ from app.services.users import UserService
 logger = logging.getLogger(__name__)
 INVITE_DAYS = 7
 SERVER_NAME = "Lumina"
-SECTION_NAMES = {"movies": "Movies", "shows": "TV shows", "anime": "Anime", "music": "Music", "books": "Books", "books:ebook": "Ebooks", "books:manga": "Manga & comics", "vault": "Videos & downloads"}
+SECTION_NAMES = {"movies": "Movies", "shows": "TV shows", "anime": "Anime", "music": "Music", "photos": "Photos", "books": "Books", "books:ebook": "Ebooks", "books:manga": "Manga & comics", "vault": "Videos & downloads"}
 
 
 class InvitePreset(MemberAccessIn):

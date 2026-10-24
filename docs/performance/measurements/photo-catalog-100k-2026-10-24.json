@@ -1,0 +1,40 @@
+{
+  "photos": 100000,
+  "page_size": 100,
+  "trials": 5,
+  "deep_fraction": 0.9,
+  "measurements": {
+    "captured_first": {
+      "median_ms": 19.12,
+      "max_ms": 47.41,
+      "sql_queries": 5,
+      "plan": [
+        "SEARCH photo_items USING INDEX ix_photo_items_catalog_captured (deleted_at=?)"
+      ]
+    },
+    "captured_deep": {
+      "median_ms": 15.69,
+      "max_ms": 24.43,
+      "sql_queries": 5,
+      "plan": [
+        "SEARCH photo_items USING INDEX ix_photo_items_catalog_captured (deleted_at=? AND <expr><?)"
+      ]
+    },
+    "added_first": {
+      "median_ms": 13.66,
+      "max_ms": 15.01,
+      "sql_queries": 5,
+      "plan": [
+        "SEARCH photo_items USING INDEX ix_photo_items_catalog_added (deleted_at=?)"
+      ]
+    },
+    "added_deep": {
+      "median_ms": 20.53,
+      "max_ms": 31.03,
+      "sql_queries": 5,
+      "plan": [
+        "SEARCH photo_items USING INDEX ix_photo_items_catalog_added (deleted_at=? AND (created_at,id)<(?,?))"
+      ]
+    }
+  }
+}

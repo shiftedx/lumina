@@ -46,6 +46,16 @@ class EnvSettings(BaseSettings):
     remote_stream_refresh_margin_seconds: int = 60
     remote_stream_cache_dirname: str = "stream-cache"
     remote_stream_cache_max_bytes_global: int = 20 * 1024 * 1024 * 1024
+    # Disposable 400/1200/2400px photo renditions. Originals are never counted
+    # or evicted; missing renditions are regenerated on demand.
+    photo_derivative_cache_max_bytes: int = Field(default=20 * 1024 * 1024 * 1024, ge=0)
+
+    @model_validator(mode="after")
+    def validate_photo_derivative_cache(self) -> EnvSettings:
+        limit = self.photo_derivative_cache_max_bytes
+        if limit != 0 and limit < 32 * 1024 * 1024:
+            raise ValueError("photo derivative cache must be 0 (unlimited) or at least 32 MiB")
+        return self
     # Guarded upstream-HLS relay (the Twitch VOD playback path).
     relay_max_sessions_global: int = 24
     relay_max_sessions_per_user: int = 4

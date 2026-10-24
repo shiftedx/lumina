@@ -58,7 +58,7 @@ export const PRESETS: Record<PresetId, { label: string; hint: string; access: Om
 export const applyPreset = (access: MemberAccess, preset: PresetId): MemberAccess => ({ ...structuredClone(PRESETS[preset].access), sections: access.sections });
 
 export const BOOK_SECTION_IDS = ['books:ebook', 'books:manga'] as const;
-const SECTION_LABELS: Record<string, string> = { movies: 'Movies', shows: 'TV shows', anime: 'Anime', music: 'Music', books: 'Books', 'books:ebook': 'Ebooks', 'books:manga': 'Manga & comics', vault: 'Videos & downloads' };
+const SECTION_LABELS: Record<string, string> = { movies: 'Movies', shows: 'TV shows', anime: 'Anime', music: 'Music', photos: 'Photos', books: 'Books', 'books:ebook': 'Ebooks', 'books:manga': 'Manga & comics', vault: 'Videos & downloads' };
 
 /** Expand the pre-books-library grant without losing its meaning when a member edits libraries. */
 export function expandLegacyBookSections(ids: readonly string[]): string[] {

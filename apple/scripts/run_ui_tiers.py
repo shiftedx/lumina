@@ -46,7 +46,15 @@ TVOS_FULL = [name for name in IOS_FULL if name not in {
     "NativeHomeCarouselEdgeTests",
     "NativeLibraryEdgeTests",
     "NativeCompatibleHLSReplayRequestsFreshSessionTests",
-}] + ["NativeAudioAlbumPlayAfterUnavailableRestoreTests"]
+}] + [
+    "NativeAudioAlbumPlayAfterUnavailableRestoreTests",
+    "NativeTVHomeNavigationPreservesSelectionTests",
+    "NativeTVNavigationArtworkAndVideoCategoriesTests",
+    "NativeTVLibraryAlphabetTests",
+    "NativeTVEpisodeFocusedCollectionTests",
+    "NativeMediaDetailsTests",
+    "NativeTitleLogoArtworkAndTextFallbackTests",
+]
 TEST_CASE_COUNTS = {
     "NativeAudioAlbumTrackPlaybackReportsProgressTests": 2,
     "NativeBookCurlTests": 2,

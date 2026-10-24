@@ -4,6 +4,7 @@ import SwiftUI
 struct NativeAudioOptions: View {
     @Bindable var session: NativeAudioSession
     let playback: PlaybackModel
+    var focusLyricsRequest: Int? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -18,7 +19,8 @@ struct NativeAudioOptions: View {
                 }
                 .padding(.vertical, 20)
             }
-            NativeAudioDisclosure("Lyrics", identifier: "audioLyrics") { lyrics }
+            NativeAudioDisclosure("Lyrics", identifier: "audioLyrics",
+                                  focusRequest: focusLyricsRequest) { lyrics }
             NativeAudioDisclosure("Listening options", identifier: "audioListeningOptions") {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(session.isSonos ? "Sonos output" : session.playbackMode == .progressive ? "Progressive source audio" : session.playbackMode == .decoded ? "Gapless buffer · 48 kHz" : "Streaming source audio")
@@ -111,10 +113,11 @@ struct NativeAudioOptions: View {
         }
         #if os(tvOS)
         .buttonStyle(.bordered)
+        .tint(nil)
         #else
         .buttonStyle(.plain)
-        #endif
         .tint(LuminaTheme.spotlight)
+        #endif
     }
 
     private var albumItems: [MediaItem] {
@@ -227,12 +230,16 @@ struct NativeAudioOptions: View {
 private struct NativeAudioDisclosure<Content: View>: View {
     let title: String
     let identifier: String
+    let focusRequest: Int?
     let content: Content
     @State private var expanded = false
+    @FocusState private var headingFocused: Bool
 
-    init(_ title: String, identifier: String, @ViewBuilder content: () -> Content) {
+    init(_ title: String, identifier: String, focusRequest: Int? = nil,
+         @ViewBuilder content: () -> Content) {
         self.title = title
         self.identifier = identifier
+        self.focusRequest = focusRequest
         self.content = content()
     }
 
@@ -250,6 +257,10 @@ private struct NativeAudioDisclosure<Content: View>: View {
             #if os(tvOS)
             .buttonStyle(.bordered)
             .padding(.vertical, 12)
+            .focused($headingFocused)
+            .onChange(of: focusRequest) { _, request in
+                if request != nil { headingFocused = true }
+            }
             #else
             .buttonStyle(.plain)
             .padding(.vertical, 4)

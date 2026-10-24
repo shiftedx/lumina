@@ -124,6 +124,7 @@ struct PlaybackScreen: View {
     @State private var attemptedAudioAdoption = false
     @State private var presentationError: String?
     @State private var queuePresented = false
+    @State private var audioOptionsFocusRequest = 0
     @State private var isMuted = false
     @State private var videoChromeVisible = true
     @State private var videoSettingsVisible = false
@@ -137,6 +138,16 @@ struct PlaybackScreen: View {
     @State private var videoTracksLoadTask: Task<Void, Never>?
     @FocusState private var videoControlsSurfaceFocused: Bool
     @FocusState private var focusedVideoControl: String?
+    #if os(tvOS)
+    private enum TVAudioFocus: Hashable {
+        case artwork
+        case queue
+        case playPause
+        case repeatMode
+        case stop
+    }
+    @FocusState private var focusedAudioControl: TVAudioFocus?
+    #endif
     @State private var videoIsScrubbing = false
     private let store: LuminaStore
 
@@ -351,41 +362,105 @@ struct PlaybackScreen: View {
     #if os(tvOS)
     private var audioStage: some View {
         GeometryReader { geometry in
-            ScrollView {
-                VStack(spacing: 36) {
-                    #if !os(tvOS)
-                    if let error = displayedError {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .font(.callout)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if let syncError = playback.syncError { Text(syncError).font(.caption) }
-                    #endif
-                    if geometry.size.width >= 700 || geometry.size.width > geometry.size.height {
-                        HStack(alignment: .center, spacing: geometry.size.width < 700 ? 24 : 48) {
-                            audioArtwork.frame(width: min(geometry.size.width * 0.33, 420))
-                            audioControls(compact: geometry.size.width < 700,
-                                metadataMinimumHeight: geometry.size.width >= 700 ? geometry.size.height * 0.4 : 0)
-                                .frame(maxWidth: 560)
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ZStack(alignment: .bottom) {
+                            CachedArtworkImage(url: store.imageURL(for: playback.request.item, maxWidth: 2000)) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                Color.black.overlay {
+                                    Image(systemName: "music.note").font(.largeTitle)
+                                }
+                            }
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipped()
+                            .accessibilityHidden(true)
+
+                            Button { playback.togglePlayback() } label: {
+                                Color.clear
+                                    .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .focused($focusedAudioControl, equals: .artwork)
+                            .defaultFocus($focusedAudioControl, .artwork)
+                            .accessibilityLabel("Album artwork for \(playback.request.item.album ?? playback.request.item.name)")
+                            .accessibilityValue(playback.request.item.name)
+                            .accessibilityIdentifier("audioAlbumArtwork")
+                            .accessibilityAction(named: "Next track") { skipAudioTrack(offset: 1) }
+                            .accessibilityAction(named: "Previous track") { skipAudioTrack(offset: -1) }
+                            .onMoveCommand { direction in
+                                switch direction {
+                                case .left:
+                                    skipAudioTrack(offset: -1)
+                                case .right:
+                                    skipAudioTrack(offset: 1)
+                                case .down:
+                                    focusedAudioControl = playback.queue.isEmpty ? .playPause : .queue
+                                default:
+                                    break
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: 12) {
+                                audioTimeline
+                            }
+                            .padding(.horizontal, audioHorizontalInset)
+                            .padding(.bottom, 60)
+                            .background {
+                                LinearGradient(colors: [.clear, .black.opacity(0.88)], startPoint: .top, endPoint: .bottom)
+                                    .frame(height: 220)
+                                    .frame(maxHeight: .infinity, alignment: .bottom)
+                            }
+                            .allowsHitTesting(false)
                         }
-                    } else {
-                        VStack(alignment: .leading, spacing: 20) {
-                            audioArtwork.frame(width: min(200, max(120, geometry.size.height * 0.28)))
-                                .frame(maxWidth: .infinity)
-                            audioControls(compact: true)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+
+                        VStack(alignment: .leading, spacing: 32) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(playback.request.item.name)
+                                    .font(.system(size: 42, weight: .semibold))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .accessibilityIdentifier("nowPlayingTitle")
+                                Text(playback.request.item.artists?.joined(separator: ", ") ?? playback.request.item.albumArtist ?? "")
+                                    .font(.system(size: 25))
+                                    .foregroundStyle(.white.opacity(0.9))
+                                if let album = playback.request.item.album {
+                                    Text(album)
+                                        .font(.system(size: 23))
+                                        .foregroundStyle(.white.opacity(0.65))
+                                }
+                            }
+                            Text(playback.request.methodLabel)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.6))
+                                .accessibilityIdentifier("audioPlaybackMethod")
+                            NativeAudioOptions(session: audioSession, playback: playback,
+                                               focusLyricsRequest: audioOptionsFocusRequest)
                         }
-                    }
-                    NativeAudioOptions(session: audioSession, playback: playback)
                         .frame(maxWidth: 1120, alignment: .leading)
+                        .padding(.horizontal, audioHorizontalInset)
+                        .padding(.vertical, 60)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                        .background(LuminaTheme.theater)
+                        .focusSection()
+                    }
                 }
-                .frame(maxWidth: 1120)
-                .padding(.horizontal, audioHorizontalInset)
-                .padding(.vertical, geometry.size.width < 700 ? 16 : 32)
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
+                .scrollIndicators(.hidden)
+                .scrollClipDisabled()
+                tvAudioControlBand
+                    .padding(.trailing, audioHorizontalInset)
             }
         }
+        .ignoresSafeArea()
         .foregroundStyle(.white)
         .accessibilityIdentifier("audioPlayerStage")
+        .onAppear { focusedAudioControl = .artwork }
+        .onChange(of: queuePresented) { _, presented in
+            if !presented { focusedAudioControl = .queue }
+        }
     }
 
     #else
@@ -1076,142 +1151,38 @@ struct PlaybackScreen: View {
         16
         #endif
     }
-    private var audioTitleSize: CGFloat {
-        #if os(tvOS)
-        52
-        #else
-        36
-        #endif
-    }
-
-    private var audioArtwork: some View {
-        Rectangle().fill(.white.opacity(0.08))
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                if let url = store.imageURL(for: playback.request.item, maxWidth: 1000) {
-                    CachedArtworkImage(url: url) { image in
-                        image.resizable().scaledToFit()
-                    } placeholder: {
-                        Image(systemName: "music.note").font(.largeTitle)
-                    }
-                } else {
-                    Image(systemName: "music.note").font(.largeTitle)
+    #if os(tvOS)
+    private var tvAudioControlBand: some View {
+        VStack(spacing: 18) {
+            Button("Queue", systemImage: "list.bullet") { queuePresented = true }
+                .labelStyle(.iconOnly)
+                .accessibilityValue(playback.queue.isEmpty ? "Empty" : "\(playback.queueIndex + 1) of \(playback.queue.count)")
+                .accessibilityIdentifier("audioQueueButton")
+                .disabled(playback.queue.isEmpty)
+                .focused($focusedAudioControl, equals: .queue)
+                .onMoveCommand { direction in
+                    if direction == .up { focusedAudioControl = .artwork }
                 }
-            }
-            .clipShape(.rect(cornerRadius: 4))
-            .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(.white.opacity(0.1), lineWidth: 1) }
-            .shadow(color: .black.opacity(0.35), radius: 24, y: 16)
-            .accessibilityHidden(true)
-    }
-
-    private func audioControls(compact: Bool, metadataMinimumHeight: CGFloat = 0) -> some View {
-        VStack(alignment: .leading, spacing: compact ? 10 : 22) {
-            VStack(alignment: .leading, spacing: compact ? 10 : 22) {
-                #if !os(tvOS)
-                if !compact {
-                    Text("NOW PLAYING").font(.caption.weight(.semibold)).tracking(2)
-                        .foregroundStyle(LuminaTheme.spotlight)
-                }
-                #endif
-                Text(playback.request.item.name)
-                    #if os(tvOS)
-                    .font(.system(size: compact ? 34 : 42, weight: .semibold))
-                    .lineLimit(3)
-                    #else
-                    .font(LuminaTheme.editorial(compact ? 26 : audioTitleSize, relativeTo: .largeTitle))
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : compact ? 2 : 3)
-                    #endif
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("nowPlayingTitle")
-                Text(playback.request.item.artists?.joined(separator: ", ") ?? playback.request.item.albumArtist ?? "")
-                    #if os(tvOS)
-                    .font(.system(size: 25))
-                    #else
-                    .font(LuminaTheme.editorial(compact ? 18 : audioTitleSize * 0.62, relativeTo: .title3))
-                    #endif
-                    .foregroundStyle(.white.opacity(0.9))
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-                    .accessibilityLabel(playback.request.item.artists?.joined(separator: ", ") ?? playback.request.item.albumArtist ?? "")
-                if let album = playback.request.item.album {
-                    Text(album)
-                        #if os(tvOS)
-                        .font(.system(size: 23))
-                        #else
-                        .font(LuminaTheme.editorial(compact ? 15 : audioTitleSize * 0.5, relativeTo: .body))
-                        #endif
-                        .foregroundStyle(.white.opacity(0.65))
-                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-                        .accessibilityLabel(album)
-                }
-            }
-            #if !os(tvOS)
-            // Keep the timeline below Duo's native navigation controls while the backdrop fills the canvas.
-            .frame(minHeight: metadataMinimumHeight, alignment: .topLeading)
-            .padding(.bottom, compact ? 24 : 0)
-            #endif
-            audioTimeline
-            HStack(spacing: 28) {
-                Spacer(minLength: 0)
-                audioTransportButtons
-                Spacer(minLength: 0)
-            }
-            .font(.title3)
-            #if os(tvOS)
-            .buttonStyle(LuminaQuietActionStyle())
-            // Include the row's empty space when navigating up from the seek buttons.
-            .focusSection()
-            #else
-            .buttonStyle(.plain)
-            #endif
-            .controlSize(.large)
-            #if os(tvOS)
-            HStack(spacing: 24) {
-                Button("Back 15 seconds", systemImage: "gobackward.15") { playback.seek(to: playback.elapsedSeconds - 15) }
-                    .accessibilityIdentifier("audioSeekBackwardButton")
-                Button("Forward 15 seconds", systemImage: "goforward.15") { playback.seek(to: playback.elapsedSeconds + 15) }
-                    .accessibilityIdentifier("audioSeekForwardButton")
-            }
-            .labelStyle(.iconOnly)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .buttonStyle(LuminaQuietActionStyle())
-            .focusSection()
-            #endif
-            if !playback.queue.isEmpty {
-                HStack(spacing: 24) {
-                    #if os(tvOS)
-                    Button("Queue · \(playback.queueIndex + 1)/\(playback.queue.count)", systemImage: "list.bullet") { queuePresented = true }
-                        .accessibilityIdentifier("audioQueueButton")
-                    Spacer(minLength: 8)
-                    #endif
-                    audioRepeatButton
-                }
-                .font(.callout)
-                #if os(tvOS)
-                .buttonStyle(LuminaQuietActionStyle())
-                .focusSection()
-                #else
-                .buttonStyle(.plain)
-                .frame(minHeight: 44)
-                #endif
-            }
-            Text(playback.request.methodLabel).font(.caption).foregroundStyle(.white.opacity(0.6))
-                .accessibilityIdentifier("audioPlaybackMethod")
-            #if os(tvOS)
-            HStack(spacing: 24) {
-                Button { finish() } label: {
-                    Label("Back", systemImage: "chevron.left").frame(maxWidth: .infinity)
-                }
-                .accessibilityIdentifier("audioDoneButton")
-                Button { stopAudio() } label: {
-                    Label("Stop", systemImage: "stop.fill").frame(maxWidth: .infinity)
-                }
+            audioPlayPauseButton
+                .focused($focusedAudioControl, equals: .playPause)
+            audioRepeatButton
+                .labelStyle(.iconOnly)
+                .focused($focusedAudioControl, equals: .repeatMode)
+            Button("Stop", systemImage: "stop.fill") { stopAudio() }
+                .labelStyle(.iconOnly)
                 .accessibilityIdentifier("audioStopButton")
-            }
-            .buttonStyle(LuminaQuietActionStyle())
-            .focusSection()
-            #endif
+                .focused($focusedAudioControl, equals: .stop)
+                .onMoveCommand { direction in
+                    if direction == .down { audioOptionsFocusRequest += 1 }
+                }
         }
+        .font(.title2)
+        .buttonStyle(LuminaQuietActionStyle(mediaOverlay: true))
+        .focusSection()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("audioControlBand")
     }
+    #endif
 
     private var audioTimeline: some View {
         VStack(spacing: 8) {
@@ -1235,28 +1206,11 @@ struct PlaybackScreen: View {
         .accessibilityIdentifier("audioTimeline")
     }
 
-    @ViewBuilder private var audioTransportButtons: some View {
-        Button("Previous track", systemImage: "backward.end.fill") { Task { await playback.playQueued(offset: -1) } }
-            .labelStyle(.iconOnly).disabled(!playback.hasPrevious || playback.isReplaying)
-            .accessibilityIdentifier("audioPreviousButton")
-        audioPlayPauseButton
-        Button("Next track", systemImage: "forward.end.fill") { Task { await playback.playQueued(offset: 1) } }
-            .labelStyle(.iconOnly).disabled(!playback.hasNext || playback.isReplaying)
-            .accessibilityIdentifier("audioNextButton")
-    }
-
     private var audioPlayPauseButton: some View {
         Button(playback.errorMessage != nil ? "Retry" : playback.hasFinished ? "Replay" : playback.isPlaying ? "Pause" : "Play", systemImage: playback.errorMessage != nil ? "arrow.clockwise" : playback.hasFinished ? "arrow.counterclockwise" : playback.isPlaying ? "pause.fill" : "play.fill") {
             if playback.hasFinished { replay() } else { playback.togglePlayback() }
         }
         .labelStyle(.iconOnly)
-        #if os(tvOS)
-        .font(.title)
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.circle)
-        .tint(LuminaTheme.spotlight)
-        .foregroundStyle(LuminaTheme.theater)
-        #endif
         .accessibilityIdentifier("audioPlayPauseButton")
         .disabled(playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
     }

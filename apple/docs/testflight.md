@@ -148,3 +148,30 @@ workflows passed on open and closed Duo displays. The full repository gate
 retains nine existing web failures; backend and frontend typecheck/build/style
 passed. Physical device formats/output require dogfooding. The package retains
 source-input hashes, the working-tree patch, IPA hashes and What to Test notes.
+
+### Internal dogfood package 15, 2026-10-24
+
+Version **0.1.0 (15)** was built for **iOS only** from merged revision
+`01be59b587b4fbd75d3a8885c80c2eaf0345cbde` (PR #150), with a clean source tree.
+The package in ignored `apple/Distribution/0.1.0-15/` contains source-input and
+IPA hashes, an unsigned source archive, a distribution-signed IPA, a signed
+Organizer reference archive, matching executable/debug symbols and What to Test.
+Identity, artwork, privacy, fixture exclusion and distribution signatures passed.
+
+Xcode cloud-managed signing exported and uploaded **iOS 0.1.0 (15)** with
+**TestFlight Internal Only** enabled and automatic build-number changes disabled.
+Organizer confirmed **Uploaded to Apple**, and the package retains that screenshot.
+Do not upload build 15 again. Processing and tester-group assignment have not
+been verified. The unsigned source archive was re-signed by Xcode during upload;
+the signed Organizer copy is retained as a local reference.
+
+This build includes artwork-first browsing/player layouts, the Lumina detail
+masthead, search clearance, neutral navigation with gold selected destinations,
+Home category routing, bounded session-private artwork caching, and the staged
+reader/audio recovery fixes. The full repository gate passed (5,305 backend tests,
+11 skipped; 2,660 frontend tests; typecheck/build/style; 650 browser cases).
+Core ran 140 cases with 5 platform skips and no failures. Four iOS release
+workflows passed separately on clean iPad simulators: format recovery, downloaded
+audio, advanced listening/queue controls, and direct resume/compatible video
+progress. Native fixture refresh and UI navigation repairs preserve those
+behavior assertions. Physical-device formats and output remain for dogfooding.

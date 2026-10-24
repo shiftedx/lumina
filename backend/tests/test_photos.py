@@ -4,6 +4,7 @@ import hashlib
 import io
 import os
 import threading
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -41,11 +42,12 @@ def _jpeg(*, orientation: int = 1) -> bytes:
 
 
 def _stub_pipeline(monkeypatch) -> None:  # noqa: ANN001
-    monkeypatch.setattr(photo_derivatives, "inspect", lambda _path, _type: {
-        "content_type": "image/jpeg", "width": 12, "height": 20, "orientation": 1,
-        "captured_at": "2024-02-03T04:05:06", "captured_at_raw": "2024:02:03 04:05:06",
-        "camera_make": "Camera Co", "camera_model": "Small One", "metadata": {},
-    })
+    def inspect(_path, _type):  # noqa: ANN001,ANN202
+        return {
+            "content_type": "image/jpeg", "width": 12, "height": 20, "orientation": 1,
+            "captured_at": "2024-02-03T04:05:06", "captured_at_raw": "2024:02:03 04:05:06",
+            "camera_make": "Camera Co", "camera_model": "Small One", "metadata": {},
+        }
 
     def render(_path, content_hash):  # noqa: ANN001,ANN202
         products = {}
@@ -57,7 +59,27 @@ def _stub_pipeline(monkeypatch) -> None:  # noqa: ANN001
             products[width] = (key, target.stat().st_size)
         return products
 
+    monkeypatch.setattr(photo_derivatives, "inspect", inspect)
     monkeypatch.setattr(photo_derivatives, "render", render)
+    monkeypatch.setattr(
+        photo_derivatives, "prepare",
+        lambda path, content_type, content_hash: (inspect(path, content_type), render(path, content_hash)),
+    )
+
+
+def _prepared_test_file(relative, entry):  # noqa: ANN001,ANN202
+    path = Path(entry.path)
+    info = entry.stat(follow_symlinks=False)
+    source = path.read_bytes()
+    content_hash = hashlib.sha256(source).hexdigest()
+    content_type = photo_derivatives.sniff(source[:128])
+    assert content_type is not None
+    facts, products = photo_derivatives.prepare(path, content_type, content_hash)
+    return photo_imports.PreparedPhoto(
+        relative=relative, root_relative=relative, filename=path.name,
+        size=info.st_size, mtime_ns=info.st_mtime_ns, unchanged=False,
+        content_type=content_type, content_hash=content_hash, facts=facts, products=products,
+    )
 
 
 def test_import_preserves_original_dedupes_per_owner_and_builds_stable_derivatives(
@@ -198,11 +220,11 @@ def test_isolated_pipeline_orients_and_strips_source_metadata(tmp_path, monkeypa
     source = tmp_path / "oriented.jpg"
     source.write_bytes(_jpeg(orientation=6))
     monkeypatch.chdir(tmp_path)
-    facts = photo_derivatives.inspect(source, "image/jpeg")
+    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    facts, products = photo_derivatives.prepare(source, "image/jpeg", source_hash)
     assert (facts["width"], facts["height"], facts["orientation"]) == (20, 12, 6)
     assert facts["captured_at"] == "2024-02-03T04:05:06"
     assert facts["camera_make"] == "Camera Co" and "gps" not in facts["metadata"]
-    products = photo_derivatives.render(source, hashlib.sha256(source.read_bytes()).hexdigest())
     derivative = photo_derivatives.derivative_path(products[400][0])
     with Image.open(derivative) as image:
         assert image.size == (20, 12)
@@ -287,17 +309,17 @@ def test_registered_external_source_indexes_in_place_resumes_and_never_deletes_s
     # Slow decoding happens without a SQLite write transaction: an unrelated
     # foreground household write can still commit while the decoder is blocked.
     entered, release = threading.Event(), threading.Event()
-    original_inspect = photo_derivatives.inspect
+    original_prepare = photo_derivatives.prepare
     source_file.write_bytes(_jpeg(orientation=6))
     os.utime(source_file, ns=(source_file.stat().st_atime_ns, source_file.stat().st_mtime_ns + 1_000_000))
     with api_client(user=admin, base_url="http://localhost") as client:
         assert client.post(f"/api/admin/photo-sources/{source['id']}/scan").status_code == 202
-    def blocked_inspect(path, content_type):  # noqa: ANN001,ANN202
+    def blocked_prepare(path, content_type, content_hash):  # noqa: ANN001,ANN202
         entered.set()
         assert release.wait(2)
-        return original_inspect(path, content_type)
+        return original_prepare(path, content_type, content_hash)
     with monkeypatch.context() as scoped:
-        scoped.setattr(photo_derivatives, "inspect", blocked_inspect)
+        scoped.setattr(photo_derivatives, "prepare", blocked_prepare)
         thread = threading.Thread(target=photo_imports.worker.run_once)
         thread.start()
         assert entered.wait(2)
@@ -363,6 +385,312 @@ def test_external_publication_rehashes_same_size_same_mtime_replacement(tmp_path
     source.write_bytes(replacement)
     os.utime(source, ns=(source.stat().st_atime_ns, modified))
     assert photo_imports._still_current(str(root), prepared) is False  # noqa: SLF001 - publication trust boundary
+
+
+def test_one_external_source_prepares_two_files_with_bounded_ordered_lookahead(
+    api_client, db_factory, monkeypatch, tmp_path,
+) -> None:
+    _stub_pipeline(monkeypatch)
+    monkeypatch.setattr(background_work, "closed", False)
+    monkeypatch.setattr(photo_imports, "session_scope", lambda: session_scope(db_factory))
+    monkeypatch.setattr(StorageRootService, "is_online", lambda _service, _root: True)
+    monkeypatch.setattr(photo_imports.worker, "start", lambda: None)
+    monkeypatch.setattr(photo_imports.worker, "close", lambda: None)
+    folder = tmp_path / "parallel-nas"
+    folder.mkdir()
+    for name in ("a.jpg", "b.jpg", "c.jpg", "d.jpg"):
+        (folder / name).write_bytes(_jpeg() + name.encode())
+    admin = _user(db_factory, "parallel-photo-admin")
+    admin.role = "admin"
+    with db_factory() as db:
+        db.get(User, admin.id).role = "admin"
+        db.add(StorageRoot(
+            id="parallel-photo-root", label="Parallel", path=str(folder), mode="external",
+            enabled=True, identity="test", observation={},
+        ))
+        db.commit()
+    with api_client(user=admin, base_url="http://localhost") as client:
+        source = client.post("/api/admin/photo-sources", json={
+            "root_id": "parallel-photo-root", "relative_folder": "", "visibility": "private",
+        }).json()
+    background_work.closed = False  # TestClient lifespan shutdown closes the process-wide gate.
+
+    original_walk = photo_imports.walk
+    walked: list[str] = []
+    entered: list[str] = []
+    release = threading.Event()
+    two_entered = threading.Event()
+    lock = threading.Lock()
+
+    def tracked_walk(*args, **kwargs):  # noqa: ANN002,ANN003,ANN202
+        for relative, entry in original_walk(*args, **kwargs):
+            walked.append(relative)
+            yield relative, entry
+
+    def blocked_prepare(source_id, relative, entry):  # noqa: ANN001,ANN202
+        with lock:
+            entered.append(relative)
+            if len(entered) == 2:
+                two_entered.set()
+        assert release.wait(5)
+        return _prepared_test_file(relative, entry)
+
+    monkeypatch.setattr(photo_imports, "walk", tracked_walk)
+    monkeypatch.setattr(photo_imports, "_prepare_one", blocked_prepare)
+    worker = photo_imports.PhotoImportWorker()
+    lane = threading.Thread(target=worker.run_once)
+    lane.start()
+    try:
+        assert two_entered.wait(5), "one source never used its second preparation slot"
+        assert set(entered) == {"a.jpg", "b.jpg"}
+        assert walked == ["a.jpg", "b.jpg"], "the source prefetched past its bounded lookahead"
+        release.set()
+        lane.join(timeout=10)
+        assert not lane.is_alive()
+        with db_factory() as db:
+            stored = db.get(photo_root_models.PhotoImportSource, source["id"])
+            run = db.query(photo_root_models.PhotoImportRun).filter_by(source_id=stored.id).one()
+            assert run.state == "succeeded" and run.cursor == "d.jpg"
+            assert run.seen_count == 4 and db.query(PhotoItem).filter_by(source_id=stored.id).count() == 4
+    finally:
+        release.set()
+        lane.join(timeout=5)
+        worker.close()
+
+
+def test_cancel_does_not_advance_cursor_past_a_slower_earlier_file(
+    api_client, db_factory, monkeypatch, tmp_path,
+) -> None:
+    _stub_pipeline(monkeypatch)
+    monkeypatch.setattr(background_work, "closed", False)
+    monkeypatch.setattr(photo_imports, "session_scope", lambda: session_scope(db_factory))
+    monkeypatch.setattr(StorageRootService, "is_online", lambda _service, _root: True)
+    monkeypatch.setattr(photo_imports.worker, "start", lambda: None)
+    monkeypatch.setattr(photo_imports.worker, "close", lambda: None)
+    folder = tmp_path / "cancel-nas"
+    folder.mkdir()
+    for name in ("a.jpg", "b.jpg", "c.jpg"):
+        (folder / name).write_bytes(_jpeg() + name.encode())
+    admin = _user(db_factory, "cancel-photo-admin")
+    admin.role = "admin"
+    with db_factory() as db:
+        db.get(User, admin.id).role = "admin"
+        db.add(StorageRoot(
+            id="cancel-photo-root", label="Cancel", path=str(folder), mode="external",
+            enabled=True, identity="test", observation={},
+        ))
+        db.commit()
+    with api_client(user=admin, base_url="http://localhost") as client:
+        source = client.post("/api/admin/photo-sources", json={
+            "root_id": "cancel-photo-root", "relative_folder": "", "visibility": "private",
+        }).json()
+    background_work.closed = False  # TestClient lifespan shutdown closes the process-wide gate.
+
+    first_entered, release_first, second_finished = threading.Event(), threading.Event(), threading.Event()
+
+    def out_of_order_prepare(source_id, relative, entry):  # noqa: ANN001,ANN202
+        if relative == "a.jpg":
+            first_entered.set()
+            assert release_first.wait(5)
+        result = _prepared_test_file(relative, entry)
+        if relative == "b.jpg":
+            second_finished.set()
+        return result
+
+    monkeypatch.setattr(photo_imports, "_prepare_one", out_of_order_prepare)
+    worker = photo_imports.PhotoImportWorker()
+    lane = threading.Thread(target=worker.run_once)
+    lane.start()
+    try:
+        assert first_entered.wait(5) and second_finished.wait(5)
+        with api_client(user=admin, base_url="http://localhost") as client:
+            assert client.post(f"/api/admin/photo-sources/{source['id']}/cancel").status_code == 200
+        lane.join(timeout=5)
+        assert not lane.is_alive(), "cancel waited for the blocked preparation"
+        with db_factory() as db:
+            run = db.query(photo_root_models.PhotoImportRun).filter_by(source_id=source["id"]).one()
+            assert run.state == "canceled" and run.cursor == "" and run.seen_count == 0
+            assert db.query(PhotoItem).filter_by(source_id=source["id"]).count() == 0
+    finally:
+        release_first.set()
+        lane.join(timeout=5)
+        worker.close()
+
+    monkeypatch.setattr(
+        photo_imports, "_prepare_one",
+        lambda _source_id, relative, entry: _prepared_test_file(relative, entry),
+    )
+    with api_client(user=admin, base_url="http://localhost") as client:
+        assert client.post(f"/api/admin/photo-sources/{source['id']}/scan").status_code == 202
+    background_work.closed = False
+    restarted = photo_imports.PhotoImportWorker()
+    try:
+        assert restarted.run_once() is True
+    finally:
+        restarted.close()
+    with db_factory() as db:
+        runs = db.query(photo_root_models.PhotoImportRun).filter_by(source_id=source["id"]).all()
+        assert sorted(run.state for run in runs) == ["canceled", "succeeded"]
+        assert db.query(PhotoItem).filter_by(source_id=source["id"]).count() == 3
+
+
+def test_shutdown_retirement_discards_a_late_preparation(
+    api_client, db_factory, monkeypatch, tmp_path,
+) -> None:
+    _stub_pipeline(monkeypatch)
+    monkeypatch.setattr(photo_imports, "session_scope", lambda: session_scope(db_factory))
+    monkeypatch.setattr(StorageRootService, "is_online", lambda _service, _root: True)
+    monkeypatch.setattr(photo_imports.worker, "start", lambda: None)
+    monkeypatch.setattr(photo_imports.worker, "close", lambda: None)
+    folder = tmp_path / "shutdown-nas"
+    folder.mkdir()
+    (folder / "late.jpg").write_bytes(_jpeg())
+    admin = _user(db_factory, "shutdown-photo-admin")
+    admin.role = "admin"
+    with db_factory() as db:
+        db.get(User, admin.id).role = "admin"
+        db.add(StorageRoot(
+            id="shutdown-photo-root", label="Shutdown", path=str(folder), mode="external",
+            enabled=True, identity="test", observation={},
+        ))
+        db.commit()
+    with api_client(user=admin, base_url="http://localhost") as client:
+        source = client.post("/api/admin/photo-sources", json={
+            "root_id": "shutdown-photo-root", "relative_folder": "", "visibility": "private",
+        }).json()
+    background_work.closed = False
+
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+
+    def blocked_prepare(_source_id, relative, entry):  # noqa: ANN001,ANN202
+        entered.set()
+        assert release.wait(5)
+        try:
+            return _prepared_test_file(relative, entry)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(photo_imports, "_prepare_one", blocked_prepare)
+    worker = photo_imports.PhotoImportWorker()
+    generation = worker._generation  # noqa: SLF001 - exercise retirement of this exact generation
+    lane = threading.Thread(target=worker._run_guarded_once, args=(generation,))  # noqa: SLF001
+    lane.start()
+    try:
+        assert entered.wait(5)
+        worker.close()
+        with db_factory() as db:
+            run = db.query(photo_root_models.PhotoImportRun).filter_by(source_id=source["id"]).one()
+            assert run.state == "running" and run.cursor == ""
+            assert db.query(PhotoItem).filter_by(source_id=source["id"]).count() == 0
+        release.set()
+        assert finished.wait(5)
+        lane.join(timeout=5)
+        with db_factory() as db:
+            run = db.query(photo_root_models.PhotoImportRun).filter_by(source_id=source["id"]).one()
+            assert run.state == "running" and run.cursor == ""
+            assert db.query(PhotoItem).filter_by(source_id=source["id"]).count() == 0
+    finally:
+        release.set()
+        lane.join(timeout=5)
+        worker.close()
+
+
+def test_preparation_pool_close_retires_global_admission_waiters(monkeypatch) -> None:
+    class HeldAdmission:
+        def __init__(self) -> None:
+            self.entered = threading.Event()
+            self._lock = threading.Lock()
+            self._waiters: set[int] = set()
+
+        def acquire(self, *, timeout):  # noqa: ANN001,ANN202
+            with self._lock:
+                self._waiters.add(threading.get_ident())
+                if len(self._waiters) == photo_imports.MAX_PREPARATION_WORKERS:
+                    self.entered.set()
+            threading.Event().wait(timeout)
+            return False
+
+        def release(self) -> None:
+            raise AssertionError("a waiter without admission released the global slot")
+
+    admission = HeldAdmission()
+    prepared = threading.Event()
+    monkeypatch.setattr(photo_imports, "_PREPARATION_SLOTS", admission)
+    monkeypatch.setattr(photo_imports, "_prepare_result", lambda *_args: prepared.set())
+    pool = photo_imports._PreparationPool()  # noqa: SLF001 - bounded shutdown contract
+    futures = [
+        pool.submit("source", f"{index}.jpg", None, lambda: (True, True))
+        for index in range(4)
+    ]
+    assert admission.entered.wait(5)
+    pool.close()
+    assert not prepared.is_set()
+    assert all(future.done() and isinstance(future.exception(), RuntimeError) for future in futures)
+    assert not any(thread.is_alive() for thread in pool._threads)  # noqa: SLF001
+
+
+def test_automatic_preparation_rechecks_gate_after_global_admission(monkeypatch) -> None:
+    class ControlledAdmission:
+        def __init__(self) -> None:
+            self.waiting = threading.Event()
+            self.capacity = threading.Event()
+            self.released = threading.Event()
+
+        def acquire(self, *, timeout):  # noqa: ANN001,ANN202
+            self.waiting.set()
+            return self.capacity.wait(timeout)
+
+        def release(self) -> None:
+            self.released.set()
+
+    admission = ControlledAdmission()
+    allowed, paused, prepared = threading.Event(), threading.Event(), threading.Event()
+    allowed.set()
+    monkeypatch.setattr(background_work, "backfill_allowed", lambda: allowed.is_set())
+
+    def ready() -> tuple[bool, bool]:
+        backfill_allowed = background_work.backfill_allowed()
+        if not backfill_allowed:
+            paused.set()
+        return True, backfill_allowed
+
+    monkeypatch.setattr(photo_imports, "_PREPARATION_SLOTS", admission)
+    monkeypatch.setattr(photo_imports, "_prepare_result", lambda *_args: prepared.set())
+    pool = photo_imports._PreparationPool()  # noqa: SLF001 - automatic admission contract
+    first = pool.submit("source", "first.jpg", None, ready)
+    try:
+        assert admission.waiting.wait(5)
+        allowed.clear()
+        admission.capacity.set()
+        assert admission.released.wait(5)
+        assert paused.wait(5)
+        assert not prepared.is_set(), "automatic work ran after its window closed"
+        allowed.set()
+        assert prepared.wait(5)
+        first.result(timeout=5)
+
+        admission.capacity.clear()
+        admission.waiting.clear()
+        prepared.clear()
+        stopped = threading.Event()
+        canceled = pool.submit(
+            "source", "canceled.jpg", None,
+            lambda: (not stopped.is_set(), True),
+        )
+        assert admission.waiting.wait(5)
+        stopped.set()
+        assert isinstance(canceled.exception(timeout=5), RuntimeError)
+        assert not prepared.is_set(), "canceled queued work reached preparation"
+
+        allowed.clear()
+        paused.clear()
+        second = pool.submit("source", "second.jpg", None, ready)
+        assert paused.wait(5)
+        pool.close()
+        assert isinstance(second.exception(timeout=5), RuntimeError)
+        assert not any(thread.is_alive() for thread in pool._threads)  # noqa: SLF001
+    finally:
+        pool.close()
 
 
 def test_external_scan_skips_one_bad_file_without_starving_later_photos(
@@ -459,7 +787,9 @@ def test_stalled_nas_source_does_not_block_another_source(
         for name in ("stalled", "healthy"):
             folder = tmp_path / name
             folder.mkdir()
-            (folder / f"{name}.jpg").write_bytes(_jpeg() + name.encode())
+            filenames = ("stalled-a.jpg", "stalled-b.jpg") if name == "stalled" else ("healthy.jpg",)
+            for filename in filenames:
+                (folder / filename).write_bytes(_jpeg() + filename.encode())
             root_id = f"{name}-photo-root"
             roots.append((root_id, folder))
             db.add(StorageRoot(
@@ -474,19 +804,27 @@ def test_stalled_nas_source_does_not_block_another_source(
             }).status_code == 201
 
     entered, release = threading.Event(), threading.Event()
-    def online(_service, root):  # noqa: ANN001,ANN202
-        if root.id == "stalled-photo-root":
-            entered.set()
+    stalled_count = 0
+    stalled_lock = threading.Lock()
+
+    def prepare(_source_id, relative, entry):  # noqa: ANN001,ANN202
+        nonlocal stalled_count
+        if relative.startswith("stalled-"):
+            with stalled_lock:
+                stalled_count += 1
+                if stalled_count == 2:
+                    entered.set()
             assert release.wait(5)
-        return True
-    monkeypatch.setattr(StorageRootService, "is_online", online)
+        return _prepared_test_file(relative, entry)
+
+    monkeypatch.setattr(photo_imports, "_prepare_one", prepare)
     background_work.closed = False  # TestClient lifespan shutdown closes the process-wide gate.
     worker = photo_imports.PhotoImportWorker()
     stalled_lane = threading.Thread(target=worker._run_guarded_once, args=(None,))  # noqa: SLF001
     healthy_lane = threading.Thread(target=worker._run_guarded_once, args=(None,))  # noqa: SLF001
     stalled_lane.start()
     try:
-        assert entered.wait(5)
+        assert entered.wait(5), "one stalled source did not fill its two-slot lookahead"
         healthy_lane.start()
         healthy_lane.join(timeout=5)
         assert not healthy_lane.is_alive(), "a stalled NAS consumed every photo source lane"
@@ -496,6 +834,7 @@ def test_stalled_nas_source_does_not_block_another_source(
         release.set()
         stalled_lane.join(timeout=5)
         assert not stalled_lane.is_alive()
+        worker.close()
 
 
 def test_worker_lane_failure_does_not_fail_another_active_scan(
@@ -531,7 +870,7 @@ def test_worker_lane_failure_does_not_fail_another_active_scan(
     original_prepare = photo_imports._prepare_one  # noqa: SLF001 - inject one unexpected lane failure
     def prepare(source_id, relative, entry):  # noqa: ANN001,ANN202
         if entry.name == "bad-lane.jpg":
-            raise RuntimeError("synthetic decoder crash")
+            raise SystemExit("synthetic decoder crash")
         if entry.name == "healthy-lane.jpg":
             healthy_entered.set()
             assert release_healthy.wait(5)
@@ -569,6 +908,7 @@ def test_worker_lane_failure_does_not_fail_another_active_scan(
         healthy_lane.join(timeout=5)
         if bad_lane.ident is not None:
             bad_lane.join(timeout=5)
+        worker.close()
 
 
 def test_manual_scan_progresses_during_http_activity_but_watch_scan_waits(
@@ -622,3 +962,4 @@ def test_manual_scan_progresses_during_http_activity_but_watch_scan_waits(
         assert db.query(PhotoItem).filter_by(source_id=manual_source.id).count() == 1
         assert watch_run.state == "queued"
     assert worker.run_once() is False
+    worker.close()

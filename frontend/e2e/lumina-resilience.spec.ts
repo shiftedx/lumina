@@ -695,9 +695,9 @@ test('new Lumina discovery, hidden navigation, chapter, and theater controls hol
   await page.keyboard.press('Enter');
   await expect(dialog.getByRole('button', { name: 'Home' })).toBeFocused();
   await page.setViewportSize({ width: 920, height: 420 });
-  const bounds = await dialog.boundingBox();
-  expect(bounds!.width).toBeLessThan(920);
-  expect(bounds!.height).toBeLessThanOrEqual(420);
+  // Viewport acknowledgement can precede the popover's responsive layout update.
+  await expect.poll(async () => (await dialog.boundingBox())?.width ?? Infinity).toBeLessThan(920);
+  await expect.poll(async () => (await dialog.boundingBox())?.height ?? Infinity).toBeLessThanOrEqual(420);
   await expect(page.locator('.lumina-main')).toHaveCSS('margin-left', '0px');
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1280, height: 900 });

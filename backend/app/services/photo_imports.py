@@ -4,13 +4,16 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import queue
 import stat
 import threading
 import uuid
+from collections import deque
+from concurrent.futures import Future, TimeoutError as FutureTimeout
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path, PurePosixPath
-from typing import Iterator
+from typing import Callable, Iterator
 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
@@ -29,8 +32,11 @@ from app.services.storage_roots import StorageRootService
 BATCH_SIZE = 200
 POLL_SECONDS = 900
 MAX_SOURCE_WORKERS = 4
+MAX_PREPARATION_WORKERS = 4
+SOURCE_LOOKAHEAD = 2
 PHOTO_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".avif", ".heic", ".heif"})
 logger = logging.getLogger(__name__)
+_PREPARATION_SLOTS = threading.BoundedSemaphore(MAX_PREPARATION_WORKERS)
 
 
 class PhotoImportError(ValueError):
@@ -60,6 +66,107 @@ class PreparedPhoto:
     facts: dict | None = None
     products: dict[int, tuple[str, int]] | None = None
     error_code: str | None = None
+
+
+class _PreparationPool:
+    """FIFO daemon pool bounded by the source lanes' two-item lookahead."""
+
+    def __init__(self) -> None:
+        self._queue: queue.Queue[
+            tuple[
+                Future[PreparedPhoto], tuple[str, str, os.DirEntry], Callable[[], tuple[bool, bool]],
+            ] | None
+        ] = queue.Queue(
+            maxsize=MAX_SOURCE_WORKERS * SOURCE_LOOKAHEAD,
+        )
+        self._closed = threading.Event()
+        self._lock = threading.Lock()
+        self._threads = [
+            threading.Thread(
+                target=self._loop, daemon=True, name=f"photo-prepare-worker-{index + 1}",
+            )
+            for index in range(MAX_PREPARATION_WORKERS)
+        ]
+        for thread in self._threads:
+            thread.start()
+
+    def submit(
+        self, source_id: str, relative: str, entry: os.DirEntry,
+        ready: Callable[[], tuple[bool, bool]],
+    ) -> Future[PreparedPhoto]:
+        future: Future[PreparedPhoto] = Future()
+        with self._lock:
+            if self._closed.is_set():
+                future.cancel()
+                return future
+            self._queue.put((future, (source_id, relative, entry), ready))
+        return future
+
+    def close(self) -> None:
+        # A thread inside an uninterruptible NAS syscall cannot be killed safely.
+        # Cancel queued work and join normal completions; daemon status is the
+        # bounded-shutdown escape hatch. The retired lane generation can no
+        # longer publish any result from a task that eventually returns.
+        with self._lock:
+            if self._closed.is_set():
+                return
+            self._closed.set()
+            while True:
+                try:
+                    task = self._queue.get_nowait()
+                except queue.Empty:
+                    break
+                if task is not None:
+                    task[0].cancel()
+                self._queue.task_done()
+            for _thread in self._threads:
+                self._queue.put_nowait(None)
+        for thread in self._threads:
+            thread.join(timeout=0.5)
+
+    def _loop(self) -> None:
+        while True:
+            task = self._queue.get()
+            try:
+                if task is None:
+                    return
+                future, args, ready = task
+                if not future.set_running_or_notify_cancel():
+                    continue
+                admitted = False
+                while not self._closed.is_set():
+                    active, allowed = ready()
+                    if not active:
+                        break
+                    if not allowed:
+                        self._closed.wait(0.1)
+                        continue
+                    admitted = _PREPARATION_SLOTS.acquire(timeout=0.1)
+                    if admitted:
+                        active, allowed = ready()
+                        if active and allowed and not self._closed.is_set():
+                            break
+                        _PREPARATION_SLOTS.release()
+                        admitted = False
+                        if not active:
+                            break
+                if not admitted:
+                    future.set_exception(RuntimeError("Photo preparation stopped unexpectedly."))
+                    continue
+                try:
+                    result = _prepare_result(*args)
+                except Exception as exc:
+                    future.set_exception(exc)
+                except BaseException:
+                    # A control-flow exception belongs to this daemon worker,
+                    # never to the source lane consuming its Future.
+                    future.set_exception(RuntimeError("Photo preparation stopped unexpectedly."))
+                else:
+                    future.set_result(result)
+                finally:
+                    _PREPARATION_SLOTS.release()
+            finally:
+                self._queue.task_done()
 
 
 def normalize_folder(value: str | None) -> str:
@@ -188,7 +295,7 @@ class PhotoImportService:
 def _prepare_one(source_id: str, relative: str, entry: os.DirEntry) -> PreparedPhoto:
     try:
         before = entry.stat(follow_symlinks=False)
-        if before.st_size <= 0 or before.st_size > photo_derivatives.MAX_OUTPUT_BYTES * 16:
+        if before.st_size <= 0 or before.st_size > photo_derivatives.MAX_SOURCE_BYTES:
             raise FileSkipped("file_size")
         with session_scope() as db:
             source = db.get(PhotoImportSource, source_id)
@@ -215,8 +322,9 @@ def _prepare_one(source_id: str, relative: str, entry: os.DirEntry) -> PreparedP
                 content_type = photo_derivatives.sniff(handle.read(128))
             if content_type is None:
                 raise FileSkipped("unsupported")
-            facts = photo_derivatives.inspect(snapshot.path, content_type)
-            products = photo_derivatives.render(snapshot.path, fingerprint.sha256)
+            facts, products = photo_derivatives.prepare(
+                snapshot.path, content_type, fingerprint.sha256,
+            )
             return PreparedPhoto(
                 relative, root_relative, Path(relative).name, fingerprint.size, fingerprint.mtime_ns, False,
                 content_type, fingerprint.sha256, facts, products,
@@ -229,6 +337,16 @@ def _prepare_one(source_id: str, relative: str, entry: os.DirEntry) -> PreparedP
         raise FileSkipped("file_changed") from exc
     except (OSError, PhotoFileUnavailable, PhotoImportError, photo_derivatives.PhotoDecodeError) as exc:
         raise FileSkipped("decode_failed") from exc
+
+
+def _prepare_result(source_id: str, relative: str, entry: os.DirEntry) -> PreparedPhoto:
+    try:
+        return _prepare_one(source_id, relative, entry)
+    except FileSkipped as exc:
+        return PreparedPhoto(
+            relative=relative, root_relative=relative, filename=Path(relative).name,
+            size=0, mtime_ns=0, unchanged=False, error_code=exc.code,
+        )
 
 
 def _still_current(root_path: str, prepared: PreparedPhoto) -> bool:
@@ -320,16 +438,22 @@ class PhotoImportWorker:
         self._stop, self._wake = threading.Event(), threading.Event()
         self._threads: list[threading.Thread] = []
         self._claim_lock = threading.Lock()
+        self._lifecycle_lock = threading.Lock()
+        self._preparation_lock = threading.Lock()
+        self._preparations: _PreparationPool | None = None
         self._current = threading.local()
         self._generation = 0
 
     def start(self) -> None:
         if any(thread.is_alive() for thread in self._threads):
             return
-        self._stop.clear()
-        with session_scope() as db, write_transaction(db, name="photo_import_recover"):
-            db.query(PhotoImportRun).filter(PhotoImportRun.state == "running").update({"state": "queued"})
-        generation = self._generation
+        with self._lifecycle_lock:
+            self._stop.clear()
+            with session_scope() as db, write_transaction(db, name="photo_import_recover"):
+                db.query(PhotoImportRun).filter(PhotoImportRun.state == "running").update({"state": "queued"})
+            generation = self._generation
+        if self._preparation_pool(generation) is None:
+            return
         self._threads = [
             threading.Thread(target=self._loop, args=(generation,), daemon=True, name=f"photo-import-worker-{index + 1}")
             for index in range(MAX_SOURCE_WORKERS)
@@ -341,26 +465,42 @@ class PhotoImportWorker:
         self._wake.set()
 
     def close(self) -> None:
-        self._generation += 1
-        self._stop.set(); self._wake.set()
+        with self._lifecycle_lock:
+            self._generation += 1
+            self._stop.set(); self._wake.set()
+        with self._preparation_lock:
+            preparations, self._preparations = self._preparations, None
+        if preparations is not None:
+            preparations.close()
         for thread in self._threads:
             thread.join(timeout=2)
         self._threads = []
 
-    def _schedule_poll(self) -> None:
+    def _preparation_pool(self, generation: int | None = None) -> _PreparationPool | None:
+        with self._preparation_lock:
+            if not self._active(generation):
+                return None
+            if self._preparations is None:
+                self._preparations = _PreparationPool()
+            return self._preparations
+
+    def _schedule_poll(self, generation: int) -> None:
         if not background_work.backfill_allowed():
             return
         cutoff = utcnow() - timedelta(seconds=POLL_SECONDS)
-        with session_scope() as db, write_transaction(db, name="photo_import_poll"):
-            sources = list(db.scalars(select(PhotoImportSource).where(
-                PhotoImportSource.enabled.is_(True),
-                (PhotoImportSource.last_scan_at.is_(None) | (PhotoImportSource.last_scan_at < cutoff)),
-            ).limit(10)))
-            for source in sources:
-                _run(db, source, "watch")
+        with self._lifecycle_lock:
+            if not self._active(generation) or not background_work.backfill_allowed():
+                return
+            with session_scope() as db, write_transaction(db, name="photo_import_poll"):
+                sources = list(db.scalars(select(PhotoImportSource).where(
+                    PhotoImportSource.enabled.is_(True),
+                    (PhotoImportSource.last_scan_at.is_(None) | (PhotoImportSource.last_scan_at < cutoff)),
+                ).limit(10)))
+                for source in sources:
+                    _run(db, source, "watch")
 
     def _active(self, generation: int | None) -> bool:
-        return generation is None or generation == self._generation and not self._stop.is_set()
+        return (generation is None or generation == self._generation) and not self._stop.is_set()
 
     def run_once(self, generation: int | None = None) -> bool:
         self._current.run_id = None
@@ -384,11 +524,14 @@ class PhotoImportWorker:
                 return False
             source = db.get(PhotoImportSource, run.source_id)
             now = utcnow()
-            with write_transaction(db, name="photo_import_claim"):
-                run.state, run.started_at = "running", run.started_at or now
-                if source is not None:
-                    source.last_scan_at = now
-                    source.state, source.error_code = "scanning", None
+            with self._lifecycle_lock:
+                if not self._active(generation):
+                    return False
+                with write_transaction(db, name="photo_import_claim"):
+                    run.state, run.started_at = "running", run.started_at or now
+                    if source is not None:
+                        source.last_scan_at = now
+                        source.state, source.error_code = "scanning", None
             run_id = run.id
             self._current.run_id = run_id
         with session_scope() as db:
@@ -399,73 +542,134 @@ class PhotoImportWorker:
             if source is not None:
                 root = db.get(StorageRoot, source.root_id)
             if source is None or root is None:
-                with write_transaction(db, name="photo_import_orphan"):
-                    run.state, run.finished_at = "failed", utcnow()
+                with self._lifecycle_lock:
+                    if not self._active(generation):
+                        return False
+                    with write_transaction(db, name="photo_import_orphan"):
+                        run.state, run.finished_at = "failed", utcnow()
                 return True
             online = StorageRootService(db).is_online(root)
             if not self._active(generation):
                 return False
             if self._canceled(run_id):
-                self._cancel(run_id)
+                self._cancel(run_id, generation)
                 return True
             if not online:
-                with write_transaction(db, name="photo_import_offline"):
-                    run.state, run.finished_at = "failed", utcnow()
-                    source.state, source.error_code = "offline", "root_offline"
+                with self._lifecycle_lock:
+                    if not self._active(generation):
+                        return False
+                    with write_transaction(db, name="photo_import_offline"):
+                        run.state, run.finished_at = "failed", utcnow()
+                        source.state, source.error_code = "offline", "root_offline"
                 return True
             try:
                 folder = source_folder(root, source.relative_folder)
             except PhotoImportError:
-                with write_transaction(db, name="photo_import_folder"):
-                    run.state, run.finished_at = "failed", utcnow()
-                    source.state, source.error_code = "failed", "folder_unavailable"
+                with self._lifecycle_lock:
+                    if not self._active(generation):
+                        return False
+                    with write_transaction(db, name="photo_import_folder"):
+                        run.state, run.finished_at = "failed", utcnow()
+                        source.state, source.error_code = "failed", "folder_unavailable"
                 return True
             cursor = run.cursor
 
         if not self._active(generation):
             return False
         if self._canceled(run_id):
-            self._cancel(run_id)
+            self._cancel(run_id, generation)
             return True
         prepared: list[PreparedPhoto] = []
+        pending: deque[Future[PreparedPhoto]] = deque()
+        listing = iter(walk(folder, cursor))
+        listing_error: ScanIncomplete | None = None
+        listing_done = False
+        pool = self._preparation_pool(generation)
+        if pool is None:
+            return False
+        automatic = run.trigger == "watch"
+        preparation_stop = threading.Event()
+
+        def preparation_ready() -> tuple[bool, bool]:
+            if preparation_stop.is_set():
+                return False, False
+            active = self._active(generation)
+            if not active:
+                return False, False
+            allowed = background_work.backfill_allowed() if automatic else not background_work.closed
+            return True, allowed
+
         try:
-            for relative, entry in walk(folder, cursor):
-                automatic = run.trigger == "watch"
+            while pending or not listing_done:
                 while (
                     (not background_work.backfill_allowed() if automatic else background_work.closed)
                     and self._active(generation) and not self._stop.wait(0.5)
                 ):
                     if self._canceled(run.id):
-                        self._cancel(run.id)
+                        self._cancel(run.id, generation)
                         return True
                 if not self._active(generation):
                     return False
                 if self._canceled(run.id):
-                    self._cancel(run.id)
+                    self._cancel(run.id, generation)
                     return True
-                try:
-                    prepared.append(_prepare_one(run.source_id, relative, entry))
-                except FileSkipped as exc:
-                    prepared.append(PreparedPhoto(
-                        relative=relative, root_relative=relative, filename=Path(relative).name,
-                        size=0, mtime_ns=0, unchanged=False, error_code=exc.code,
-                    ))
+                while len(pending) < SOURCE_LOOKAHEAD and not listing_done:
+                    try:
+                        relative, entry = next(listing)
+                    except StopIteration:
+                        listing_done = True
+                    except ScanIncomplete as exc:
+                        listing_error, listing_done = exc, True
+                    else:
+                        pending.append(pool.submit(
+                            run.source_id, relative, entry, preparation_ready,
+                        ))
+                if not pending:
+                    if listing_error is not None:
+                        raise listing_error
+                    break
+                future = pending[0]
+                while True:
+                    if not self._active(generation):
+                        return False
+                    if self._canceled(run.id):
+                        self._cancel(run.id, generation)
+                        return True
+                    if not (
+                        background_work.backfill_allowed() if automatic
+                        else not background_work.closed
+                    ):
+                        self._stop.wait(0.5)
+                        continue
+                    try:
+                        item = future.result(timeout=0.25)
+                    except FutureTimeout:
+                        continue
+                    break
+                pending.popleft()
+                prepared.append(item)
                 if len(prepared) >= BATCH_SIZE:
                     if not self._commit_batch(run.id, prepared, generation):
                         return True
                     prepared = []
+            if listing_error is not None:
+                raise listing_error
             if prepared and not self._commit_batch(run.id, prepared, generation):
                 return True
         except ScanIncomplete:
             if prepared and not self._commit_batch(run.id, prepared, generation):
                 return True
-            self._fail(run.id, "scan_incomplete")
+            self._fail(run.id, "scan_incomplete", generation)
             return True
         except PhotoSnapshotBusy:
-            self._defer(run.id)
+            self._defer(run.id, generation)
             # False makes the worker loop take its normal five-second wait;
             # capacity pressure must not become a hot durable-queue retry loop.
             return False
+        finally:
+            preparation_stop.set()
+            for future in pending:
+                future.cancel()
         if not self._active(generation):
             return False
         self._finish(run.id, generation)
@@ -477,40 +681,46 @@ class PhotoImportWorker:
             run = db.get(PhotoImportRun, run_id)
             return run is None or run.cancel_requested
 
-    @staticmethod
-    def _cancel(run_id: str) -> None:
-        with session_scope() as db, write_transaction(db, name="photo_import_cancel"):
-            run = db.get(PhotoImportRun, run_id)
-            if run is None:
+    def _cancel(self, run_id: str, generation: int | None) -> None:
+        with self._lifecycle_lock:
+            if not self._active(generation):
                 return
-            source = db.get(PhotoImportSource, run.source_id)
-            run.state, run.finished_at = "canceled", utcnow()
-            if source is not None:
-                source.state, source.scan_requested = "idle", False
+            with session_scope() as db, write_transaction(db, name="photo_import_cancel"):
+                run = db.get(PhotoImportRun, run_id)
+                if run is None:
+                    return
+                source = db.get(PhotoImportSource, run.source_id)
+                run.state, run.finished_at = "canceled", utcnow()
+                if source is not None:
+                    source.state, source.scan_requested = "idle", False
 
-    @staticmethod
-    def _fail(run_id: str, code: str) -> None:
-        with session_scope() as db, write_transaction(db, name="photo_import_incomplete"):
-            run = db.get(PhotoImportRun, run_id)
-            if run is None or run.state != "running":
+    def _fail(self, run_id: str, code: str, generation: int | None) -> None:
+        with self._lifecycle_lock:
+            if not self._active(generation):
                 return
-            source = db.get(PhotoImportSource, run.source_id)
-            run.state, run.finished_at = "failed", utcnow()
-            run.error_count += 1
-            if source is not None:
-                source.state, source.error_code, source.scan_requested = "failed", code, False
+            with session_scope() as db, write_transaction(db, name="photo_import_incomplete"):
+                run = db.get(PhotoImportRun, run_id)
+                if run is None or run.state != "running":
+                    return
+                source = db.get(PhotoImportSource, run.source_id)
+                run.state, run.finished_at = "failed", utcnow()
+                run.error_count += 1
+                if source is not None:
+                    source.state, source.error_code, source.scan_requested = "failed", code, False
 
-    @staticmethod
-    def _defer(run_id: str) -> None:
+    def _defer(self, run_id: str, generation: int | None) -> None:
         """Return capacity-contended work to the durable queue without an error."""
-        with session_scope() as db, write_transaction(db, name="photo_import_defer"):
-            run = db.get(PhotoImportRun, run_id)
-            if run is None:
+        with self._lifecycle_lock:
+            if not self._active(generation):
                 return
-            source = db.get(PhotoImportSource, run.source_id)
-            run.state = "queued"
-            if source is not None:
-                source.state, source.scan_requested = "queued", True
+            with session_scope() as db, write_transaction(db, name="photo_import_defer"):
+                run = db.get(PhotoImportRun, run_id)
+                if run is None:
+                    return
+                source = db.get(PhotoImportSource, run.source_id)
+                run.state = "queued"
+                if source is not None:
+                    source.state, source.scan_requested = "queued", True
 
     def _commit_batch(
         self, run_id: str, batch: list[PreparedPhoto], generation: int | None = None,
@@ -524,7 +734,7 @@ class PhotoImportWorker:
             source = db.get(PhotoImportSource, run.source_id) if run else None
             root = db.get(StorageRoot, source.root_id) if source else None
             if run is None or source is None or root is None:
-                self._fail(run_id, "source_changed")
+                self._fail(run_id, "source_changed", generation)
                 return False
             batch = [
                 prepared if prepared.error_code is not None or _still_current(root.path, prepared)
@@ -534,26 +744,27 @@ class PhotoImportWorker:
                 )
                 for prepared in batch
             ]
-        with session_scope() as db, write_transaction(db, name="photo_import_batch"):
-            run = db.get(PhotoImportRun, run_id)
-            source = db.get(PhotoImportSource, run.source_id) if run else None
+        with self._lifecycle_lock:
             if not self._active(generation):
                 return False
-            if run is None or source is None or run.cancel_requested:
-                if run is not None:
-                    run.state, run.finished_at = "canceled", utcnow()
-                if source is not None:
-                    source.state, source.scan_requested = "idle", False
-                return False
-            for prepared in batch:
-                outcome, replaced = _apply_prepared(db, source, run, prepared)
-                run.seen_count += 1
-                if prepared.error_code is not None:
-                    run.error_count += 1
-                if outcome is not None:
-                    changed.append(outcome); run.indexed_count += 1
-                obsolete.update(replaced)
-                run.cursor = prepared.relative
+            with session_scope() as db, write_transaction(db, name="photo_import_batch"):
+                run = db.get(PhotoImportRun, run_id)
+                source = db.get(PhotoImportSource, run.source_id) if run else None
+                if run is None or source is None or run.cancel_requested:
+                    if run is not None:
+                        run.state, run.finished_at = "canceled", utcnow()
+                    if source is not None:
+                        source.state, source.scan_requested = "idle", False
+                    return False
+                for prepared in batch:
+                    outcome, replaced = _apply_prepared(db, source, run, prepared)
+                    run.seen_count += 1
+                    if prepared.error_code is not None:
+                        run.error_count += 1
+                    if outcome is not None:
+                        changed.append(outcome); run.indexed_count += 1
+                    obsolete.update(replaced)
+                    run.cursor = prepared.relative
         if obsolete:
             with session_scope() as db:
                 referenced = set(db.scalars(select(PhotoDerivative.source_key).where(
@@ -580,53 +791,59 @@ class PhotoImportWorker:
             source = db.get(PhotoImportSource, run.source_id) if run else None
             root = db.get(StorageRoot, source.root_id) if source else None
             if run is None or source is None or root is None:
-                if run is not None and self._active(generation):
-                    with write_transaction(db, name="photo_import_finish_orphan"):
-                        run.state, run.finished_at = "failed", utcnow()
+                if run is not None:
+                    with self._lifecycle_lock:
+                        if not self._active(generation):
+                            return
+                        with write_transaction(db, name="photo_import_finish_orphan"):
+                            run.state, run.finished_at = "failed", utcnow()
                 return
             if not self._active(generation):
                 return
             if run.cancel_requested:
-                with write_transaction(db, name="photo_import_finish_cancel"):
+                with self._lifecycle_lock:
                     if not self._active(generation):
                         return
-                    run.state, run.finished_at = "canceled", utcnow()
-                    source.state, source.scan_requested = "idle", False
+                    with write_transaction(db, name="photo_import_finish_cancel"):
+                        run.state, run.finished_at = "canceled", utcnow()
+                        source.state, source.scan_requested = "idle", False
                 return
             if not StorageRootService(db).is_online(root):
-                with write_transaction(db, name="photo_import_finish_offline"):
+                with self._lifecycle_lock:
                     if not self._active(generation):
                         return
-                    run.state, run.finished_at = "failed", utcnow()
-                    source.state, source.error_code, source.scan_requested = "offline", "root_offline", False
+                    with write_transaction(db, name="photo_import_finish_offline"):
+                        run.state, run.finished_at = "failed", utcnow()
+                        source.state, source.error_code, source.scan_requested = "offline", "root_offline", False
                 return
             now = utcnow()
-            with write_transaction(db, name="photo_import_finish"):
+            with self._lifecycle_lock:
                 if not self._active(generation):
                     return
-                if run.error_count:
+                with write_transaction(db, name="photo_import_finish"):
+                    if run.error_count:
+                        count = db.scalar(select(func.count()).select_from(PhotoItem).where(
+                            PhotoItem.source_id == source.id, PhotoItem.missing_at.is_(None),
+                        )) or 0
+                        run.state, run.finished_at = "failed", now
+                        source.state, source.error_code, source.scan_requested = "failed", "partial_scan", False
+                        source.indexed_count = count
+                        return
+                    db.query(PhotoItem).filter(
+                        PhotoItem.source_id == source.id,
+                        (PhotoItem.source_seen_run_id.is_(None) | (PhotoItem.source_seen_run_id != run.id)),
+                    ).update({"missing_at": now}, synchronize_session=False)
                     count = db.scalar(select(func.count()).select_from(PhotoItem).where(
                         PhotoItem.source_id == source.id, PhotoItem.missing_at.is_(None),
                     )) or 0
-                    run.state, run.finished_at = "failed", now
-                    source.state, source.error_code, source.scan_requested = "failed", "partial_scan", False
-                    source.indexed_count = count
-                    return
-                db.query(PhotoItem).filter(
-                    PhotoItem.source_id == source.id,
-                    (PhotoItem.source_seen_run_id.is_(None) | (PhotoItem.source_seen_run_id != run.id)),
-                ).update({"missing_at": now}, synchronize_session=False)
-                count = db.scalar(select(func.count()).select_from(PhotoItem).where(
-                    PhotoItem.source_id == source.id, PhotoItem.missing_at.is_(None),
-                )) or 0
-                run.state, run.finished_at = "succeeded", now
-                source.state, source.scan_requested = "idle", False
-                source.last_completed_at, source.indexed_count = now, count
+                    run.state, run.finished_at = "succeeded", now
+                    source.state, source.scan_requested = "idle", False
+                    source.last_completed_at, source.indexed_count = now, count
 
     def _loop(self, generation: int) -> None:
         while self._active(generation):
             try:
-                self._schedule_poll()
+                self._schedule_poll(generation)
             except Exception:
                 if not self._active(generation):
                     return
@@ -646,7 +863,7 @@ class PhotoImportWorker:
             logger.error("External photo scan failed")
             run_id = getattr(self._current, "run_id", None)
             if run_id is not None:
-                self._fail(run_id, "scan_failed")
+                self._fail(run_id, "scan_failed", generation)
             return True
         finally:
             self._current.run_id = None

@@ -71,32 +71,37 @@ async def import_photo(
         content_type = photo_derivatives.sniff(header)
         if content_type is None:
             raise HTTPException(status_code=422, detail="Photos must be JPEG, PNG, WebP, TIFF, AVIF or HEIC/HEIF images.")
+        service = PhotoService(db)
+        content_hash = digest.hexdigest()
+        duplicate = service.duplicate(current_user, content_hash)
+        if duplicate is not None:
+            return service.serialize(duplicate, current_user)
+        db.rollback()  # do not hold the duplicate-check read transaction across decode/render
         try:
-            facts = await anyio.to_thread.run_sync(photo_derivatives.inspect, staged, content_type)
-            service = PhotoService(db)
+            facts, products = await anyio.to_thread.run_sync(
+                photo_derivatives.prepare, staged, content_type, content_hash,
+            )
             with write_transaction(db, name="photo_import"):
-                photo, created = service.import_staged(staged, filename, current_user, digest.hexdigest(), size, facts)
+                photo, created = service.import_staged(staged, filename, current_user, content_hash, size, facts)
                 if created:
                     target = source_path(db, photo)
+                    service.mark_derivatives(photo, products)
         except IntegrityError as exc:
             if target is not None: target.unlink(missing_ok=True)
             db.rollback()
             # A simultaneous upload by the same owner is the same idempotent
             # operation. Its random losing target was removed by import_staged.
-            photo = service.duplicate(current_user, digest.hexdigest())
+            photo = service.duplicate(current_user, content_hash)
             if photo is None:
                 raise _error(exc) from exc
             created = False
         except (PhotoError, photo_derivatives.PhotoDecodeError) as exc:
             if target is not None: target.unlink(missing_ok=True)
             raise _error(exc) from exc
+        except Exception:
+            if target is not None: target.unlink(missing_ok=True)
+            raise
         if created:
-            try:
-                products = await anyio.to_thread.run_sync(photo_derivatives.render, target, photo.sha256)
-            except photo_derivatives.PhotoDecodeError:
-                products = None
-            with write_transaction(db, name="photo_derivatives"):
-                service.mark_derivatives(photo, products, "render_failed")
             try:
                 from app.services import photo_faces
                 photo_faces.queue_photo(db, photo, requested=False)

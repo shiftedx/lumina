@@ -19,7 +19,7 @@ from app.photo_models import PhotoItem
 from app.services import photo_derivatives
 from app.services.storage_roots import StorageRootService
 
-MAX_ORIGINAL_BYTES = 128 * 1024 * 1024
+MAX_ORIGINAL_BYTES = photo_derivatives.MAX_SOURCE_BYTES
 MAX_ACTIVE_SNAPSHOTS = 4
 _READ_FLAGS = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY_FLAGS = _READ_FLAGS | getattr(os, "O_DIRECTORY", 0)
@@ -183,7 +183,7 @@ def photo_location(db: Session, photo: PhotoItem) -> tuple[Path, str]:
 def build_derivatives(
     root: str | Path, relative_path: str, expected_sha256: str,
 ) -> tuple[dict[int, tuple[str, int]], PhotoFingerprint]:
-    """Render all cache products from one hash-bound immutable snapshot."""
+    """Repair all cache products from one hash-bound immutable snapshot."""
     with snapshot_external(
         root, relative_path, photo_derivatives.photos_root() / ".snapshots",
         expected_sha256=expected_sha256, max_bytes=MAX_ORIGINAL_BYTES,

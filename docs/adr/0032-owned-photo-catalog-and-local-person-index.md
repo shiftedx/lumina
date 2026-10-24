@@ -50,3 +50,24 @@ face recognition. Photo and face tables are additive; the operator guide records
 The research notes in `docs/research/image-*-2026-10-24.md` record evaluated alternatives,
 upstream licenses, integration costs, and limitations. Large-library performance claims
 require measured browser evidence, separately from passing functional tests.
+
+## Bulk-processing implementation follow-up (2026-10-24)
+
+Initial import returns metadata and every configured rendition from one bounded
+decoder invocation. Registered sources use two-file ordered lookahead under a global
+four-preparation/two-decoder budget. Preparation and source revalidation remain outside
+short serialized database writes; lifecycle retirement is linearized with publication.
+Cursors advance only through ordered committed results. Uninterruptible filesystem
+reads can outlive cancellation, but remain globally bounded and cannot publish after
+retirement.
+
+Face inference reuses one supervised YuNet/SFace child, following ADR 0014's resident
+model pattern. Versioned length-prefixed requests/responses have byte, pixel, CPU,
+active-runtime, output, and memory bounds. Models are verified before loading,
+responses are validated before persistence, idle children are reaped, and repeated
+crashes stop admission until explicit retry or an artifact-generation change. Resident
+processes register with background-work admission only while serving a request.
+
+This does not change the existing derivative-cache retention policy or qualify
+million-face grouping. The opt-in full-pipeline benchmark and measurements record
+completion counts, output equivalence, and remaining scale limits separately.

@@ -26,6 +26,26 @@ def jpeg(color: str = "red") -> bytes:
     return output.getvalue()
 
 
+def _prepared_payload(target, **updates) -> dict:  # noqa: ANN001
+    products = {}
+    for width in photo_derivatives.WIDTHS:
+        output = target / f"{width}.webp"
+        Image.new("RGB", (2, 1), "red").save(output, format="WEBP")
+        products[str(width)] = output.name
+    payload = {
+        "ok": True, "products": products, "content_type": "image/jpeg",
+        "width": 16, "height": 12, "orientation": 1,
+        "captured_at": None, "captured_at_raw": None,
+        "camera_make": None, "camera_model": None,
+        "metadata": {
+            "lens": None, "iso": None, "focal_length": None,
+            "aperture": None, "exposure_time": None, "has_embedded_icc": False,
+        },
+    }
+    payload.update(updates)
+    return payload
+
+
 def test_external_snapshot_is_immutable_and_refuses_symlink_swaps(tmp_path) -> None:  # noqa: ANN001
     root = tmp_path / "nas"
     nested = root / "family"
@@ -84,6 +104,61 @@ def test_render_refuses_to_install_bytes_under_the_wrong_content_hash(tmp_path) 
     with pytest.raises(photo_derivatives.PhotoDecodeError, match="content changed"):
         photo_derivatives.render(source, wrong)
     assert not photo_derivatives.derivative_path(photo_derivatives.source_key(wrong, 400)).exists()
+
+
+@pytest.mark.parametrize(
+    ("invalid_facts", "message"),
+    [({"content_type": "image/png"}, "container"), ({"orientation": 9}, "metadata")],
+)
+def test_prepare_rejects_untrusted_facts_before_publishing(
+    tmp_path, monkeypatch, invalid_facts, message,
+) -> None:  # noqa: ANN001
+    source = tmp_path / "photo.jpg"
+    source.write_bytes(jpeg())
+    content_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    def invalid_child(_mode, _source, target):  # noqa: ANN001,ANN202
+        return _prepared_payload(target, **invalid_facts)
+
+    monkeypatch.setattr(photo_derivatives, "_run", invalid_child)
+    with pytest.raises(photo_derivatives.PhotoDecodeError, match=message):
+        photo_derivatives.prepare(source, "image/jpeg", content_hash)
+    for width in photo_derivatives.WIDTHS:
+        assert not photo_derivatives.derivative_path(photo_derivatives.source_key(content_hash, width)).exists()
+
+
+def test_prepare_rehashes_source_after_decode_before_publishing(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    source = tmp_path / "photo.jpg"
+    source.write_bytes(jpeg("red"))
+    content_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    def mutating_child(_mode, _source, target):  # noqa: ANN001,ANN202
+        payload = _prepared_payload(target)
+        source.write_bytes(jpeg("blue"))
+        return payload
+
+    monkeypatch.setattr(photo_derivatives, "_run", mutating_child)
+    with pytest.raises(photo_derivatives.PhotoDecodeError, match="content changed"):
+        photo_derivatives.prepare(source, "image/jpeg", content_hash)
+    for width in photo_derivatives.WIDTHS:
+        assert not photo_derivatives.derivative_path(photo_derivatives.source_key(content_hash, width)).exists()
+
+
+def test_prepare_validates_the_complete_product_set_before_publishing(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    source = tmp_path / "photo.jpg"
+    source.write_bytes(jpeg())
+    content_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    def incomplete_child(_mode, _source, target):  # noqa: ANN001,ANN202
+        payload = _prepared_payload(target)
+        del payload["products"]["2400"]
+        return payload
+
+    monkeypatch.setattr(photo_derivatives, "_run", incomplete_child)
+    with pytest.raises(photo_derivatives.PhotoDecodeError, match="incomplete"):
+        photo_derivatives.prepare(source, "image/jpeg", content_hash)
+    for width in photo_derivatives.WIDTHS:
+        assert not photo_derivatives.derivative_path(photo_derivatives.source_key(content_hash, width)).exists()
 
 
 def test_original_endpoint_never_follows_replaced_external_path(api_client, db_factory, monkeypatch, tmp_path) -> None:  # noqa: ANN001

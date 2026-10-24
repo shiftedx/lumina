@@ -7,6 +7,8 @@ import logging
 import math
 import os
 import resource
+import signal
+import struct
 import subprocess
 import sys
 import threading
@@ -25,7 +27,7 @@ from app.persistence import queue_after_commit, write_transaction
 from app.photo_face_models import PhotoFace, PhotoFaceEdit, PhotoFaceJob, PhotoFacePreference, PhotoPerson
 from app.photo_models import PhotoDerivative, PhotoItem
 from app.services import model_catalog, photo_cache, photo_derivatives, photo_files
-from app.services.background_work import background_work
+from app.services.background_work import BackgroundWorkClosed, background_work
 from app.services.raster_images import image_size
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,16 @@ MAX_PERSON_PROTOTYPES = 4096
 MAX_UNASSIGNED_CANDIDATES = 4096
 CHILD_TIMEOUT_SECONDS = 45
 CHILD_OUTPUT_BYTES = 256 * 1024
+CHILD_IDLE_SECONDS = 300
+CHILD_REQUEST_VERSION = 1
+CHILD_REQUEST_BYTES = photo_derivatives.MAX_OUTPUT_BYTES + 1
+CHILD_CPU_SECONDS = 30
+CHILD_IO_JOIN_SECONDS = 1.0
+CRASH_WINDOW_SECONDS = 600
+CRASH_BACKOFF_SECONDS = 1.0
+MAX_RECENT_CRASHES = 2
+UNIT_NORM_TOLERANCE = 1e-3
+FRAME_HEADER = struct.Struct("!I")
 
 
 class FaceError(ValueError):
@@ -76,6 +88,10 @@ class AnalysisInterrupted(FaceError):
     code = "interrupted"
 
 
+class AnalysisCircuitOpen(AnalysisFailed):
+    """Repeated child faults stopped the runtime until an explicit Retry or artifact replacement."""
+
+
 @dataclass(frozen=True)
 class DetectedFace:
     score: float
@@ -95,6 +111,25 @@ def model_ready() -> bool:
         return model_catalog.is_installed(face_model())
     except StopIteration:
         return False
+
+
+def _model_generation() -> tuple[object, ...]:
+    """Cheap artifact identity; a replacement clears a process-local failure circuit without rehashing here."""
+    model = face_model()
+    root = Path(__file__).resolve().parents[1] / "data" / "hero_models"
+    paths = (
+        root / "yunet.onnx",
+        model_catalog.model_dir(model) / "sface.onnx",
+        model_catalog.model_dir(model) / model_catalog.READY_MARKER,
+    )
+    identity: list[object] = [model.id]
+    for path in paths:
+        try:
+            found = path.stat()
+            identity.append((found.st_dev, found.st_ino, found.st_size, found.st_mtime_ns))
+        except OSError:
+            identity.append(None)
+    return tuple(identity)
 
 
 def _sha256(path: Path) -> str:
@@ -148,7 +183,9 @@ class OpenCvFaceAnalyzer:
         cv2.setNumThreads(1)
         cv2.ocl.setUseOpenCL(False)
         self.cv2 = cv2
-        self.yunet = str(yunet)
+        self.detector = cv2.FaceDetectorYN.create(
+            str(yunet), "", (320, 320), DETECTION_SCORE, 0.3, MAX_FACES * 4,
+        )
         self.recognizer = cv2.FaceRecognizerSF.create(str(sface), "")
 
     def analyze(self, data: bytes) -> list[DetectedFace]:
@@ -168,8 +205,8 @@ class OpenCvFaceAnalyzer:
             scale = 1200 / max(width, height)
             image = cv2.resize(image, (max(1, round(width * scale)), max(1, round(height * scale))), interpolation=cv2.INTER_AREA)
             height, width = image.shape[:2]
-        detector = cv2.FaceDetectorYN.create(self.yunet, "", (width, height), DETECTION_SCORE, 0.3, MAX_FACES * 4)
-        _result, raw_faces = detector.detect(image)
+        self.detector.setInputSize((width, height))
+        _result, raw_faces = self.detector.detect(image)
         if raw_faces is None:
             return []
         if not isinstance(raw_faces, np.ndarray) or raw_faces.ndim != 2 or raw_faces.shape[1] < 15:
@@ -225,6 +262,8 @@ def _enabled(db: Session, owner_id: str) -> bool:
 def queue_photo(db: Session, photo: PhotoItem, *, requested: bool) -> PhotoFaceJob:
     if not _enabled(db, photo.owner_user_id):
         raise FaceError("face analysis is not enabled")
+    if requested:
+        _face_process.retry()
     row = db.scalar(select(PhotoFaceJob).where(
         PhotoFaceJob.photo_id == photo.id, PhotoFaceJob.pipeline_signature == PIPELINE_SIGNATURE,
     ))
@@ -254,6 +293,8 @@ def queue_photo(db: Session, photo: PhotoItem, *, requested: bool) -> PhotoFaceJ
 
 def queue_all(db: Session, user: User, *, requested: bool) -> int:
     """Keyset through ids in bounded transactions; never retain a whole library."""
+    if requested:
+        _face_process.retry()
     queued, cursor = 0, ""
     while True:
         photos = list(db.execute(select(PhotoItem.id, PhotoItem.sha256).where(
@@ -485,6 +526,392 @@ def _preview(db: Session, photo_id: str, source_sha256: str) -> bytes:
     return data
 
 
+class _ChildExited(RuntimeError):
+    pass
+
+
+class _ChildProtocolError(RuntimeError):
+    pass
+
+
+class _ChildRecycle(RuntimeError):
+    pass
+
+
+def _read_exact(stream, size: int) -> bytes:  # noqa: ANN001
+    chunks: list[bytes] = []
+    remaining = size
+    while remaining:
+        chunk = stream.read(remaining)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def _read_frame(stream, limit: int) -> bytes | None:  # noqa: ANN001
+    header = _read_exact(stream, FRAME_HEADER.size)
+    if not header:
+        return None
+    if len(header) != FRAME_HEADER.size:
+        raise _ChildProtocolError("truncated frame header")
+    (size,) = FRAME_HEADER.unpack(header)
+    if size <= 0 or size > limit:
+        raise _ChildProtocolError("invalid frame size")
+    payload = _read_exact(stream, size)
+    if len(payload) != size:
+        raise _ChildProtocolError("truncated frame")
+    return payload
+
+
+def _write_frame(stream, payload: bytes, limit: int) -> None:  # noqa: ANN001
+    if not payload or len(payload) > limit:
+        raise _ChildProtocolError("invalid frame size")
+    stream.write(FRAME_HEADER.pack(len(payload)))
+    stream.write(payload)
+    stream.flush()
+
+
+def _child_payload(error: str | None = None, rows: list[DetectedFace] | None = None) -> bytes:
+    value: dict[str, object]
+    if error is not None:
+        value = {"error": error}
+    else:
+        value = {"ok": [{
+            "score": row.score, "x1": row.x1, "y1": row.y1, "x2": row.x2, "y2": row.y2,
+            "embedding": row.embedding.hex(),
+        } for row in rows or []]}
+    try:
+        encoded = json.dumps(value, allow_nan=False, separators=(",", ":")).encode()
+    except (TypeError, ValueError) as exc:
+        raise InvalidModelOutput("child_output") from exc
+    if len(encoded) > CHILD_OUTPUT_BYTES:
+        raise InvalidModelOutput("child_output")
+    return encoded
+
+
+def _decode_child_payload(raw: bytes) -> list[DetectedFace]:
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _ChildProtocolError("invalid child json") from exc
+    if not isinstance(payload, dict) or len(payload) != 1:
+        raise _ChildProtocolError("invalid child envelope")
+    if "error" in payload:
+        code = payload["error"]
+        if code == "restart_required":
+            raise _ChildRecycle("restart_required")
+        errors: dict[str, type[FaceError]] = {
+            "model_unavailable": ModelUnavailable,
+            "invalid_image": InvalidImage,
+            "invalid_model_output": InvalidModelOutput,
+            "analysis_failed": AnalysisFailed,
+        }
+        if not isinstance(code, str) or code not in errors:
+            raise _ChildProtocolError("invalid child error")
+        raise errors[code](code)
+    rows = payload.get("ok")
+    if not isinstance(rows, list) or len(rows) > MAX_FACES:
+        raise _ChildProtocolError("invalid child detections")
+    found: list[DetectedFace] = []
+    expected = {"score", "x1", "y1", "x2", "y2", "embedding"}
+    try:
+        for row in rows:
+            if not isinstance(row, dict) or set(row) != expected:
+                raise _ChildProtocolError("invalid child detection")
+            raw_numbers = (row["score"], row["x1"], row["y1"], row["x2"], row["y2"])
+            if any(type(value) not in (int, float) for value in raw_numbers):
+                raise _ChildProtocolError("invalid child detection")
+            score, x1, y1, x2, y2 = (float(value) for value in raw_numbers)
+            encoded = row["embedding"]
+            if not isinstance(encoded, str):
+                raise _ChildProtocolError("invalid child embedding")
+            embedding = bytes.fromhex(encoded)
+            if (not all(math.isfinite(value) for value in (score, x1, y1, x2, y2))
+                    or not DETECTION_SCORE <= score <= 1.0
+                    or not (0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1)):
+                raise _ChildProtocolError("invalid child detection")
+            values = vector(embedding)
+            norm = float(np.linalg.norm(values))
+            if not math.isfinite(norm) or norm < 1e-6 or abs(norm - 1.0) > UNIT_NORM_TOLERANCE:
+                raise _ChildProtocolError("invalid child embedding")
+            embedding = np.asarray(values / norm, dtype="<f4").tobytes()
+            found.append(DetectedFace(score, x1, y1, x2, y2, embedding))
+    except (KeyError, OverflowError, TypeError, ValueError, InvalidModelOutput) as exc:
+        raise _ChildProtocolError("invalid child detection") from exc
+    return found
+
+
+class _FaceProcess:
+    """One serial, resident native analyzer process; every request remains bounded and supervised."""
+
+    def __init__(self, *, clock=time.monotonic) -> None:  # noqa: ANN001
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._process: subprocess.Popen | None = None
+        self._io_threads: tuple[threading.Thread, ...] = ()
+        self._last_used = 0.0
+        self._generation: tuple[object, ...] | None = None
+        self._crashes: list[float] = []
+        self._retry_after = 0.0
+        self._failed = False
+        self._retry_requested = threading.Event()
+        self.starts = 0
+
+    def _sync_generation(self, generation: tuple[object, ...]) -> None:
+        if generation == self._generation:
+            return
+        self._discard()
+        self._generation = generation
+        self._crashes = []
+        self._retry_after = 0.0
+        self._failed = False
+
+    def retry(self, generation: tuple[object, ...] | None = None) -> None:
+        """Explicit Retry clears crash history; artifact replacement also starts a fresh generation."""
+        del generation  # generation identity is synchronized by the next claim without blocking this caller
+        self._retry_requested.set()
+
+    def _apply_retry(self) -> None:
+        if self._retry_requested.is_set():
+            self._retry_requested.clear()
+            self._crashes = []
+            self._retry_after = 0.0
+            self._failed = False
+
+    def available(self, generation: tuple[object, ...]) -> bool:
+        with self._lock:
+            self._sync_generation(generation)
+            self._apply_retry()
+            return not self._failed and self._clock() >= self._retry_after
+
+    def _record_crash(self) -> None:
+        now = self._clock()
+        self._crashes = [found for found in self._crashes if now - found < CRASH_WINDOW_SECONDS]
+        self._crashes.append(now)
+        self._retry_after = now + CRASH_BACKOFF_SECONDS
+        if len(self._crashes) >= MAX_RECENT_CRASHES:
+            self._failed = True
+
+    def _start(self) -> subprocess.Popen:
+        process = self._process
+        if process is not None and process.poll() is None:
+            return process
+        if process is not None:
+            self._discard(process)
+        env = os.environ.copy()
+        env.update({"OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "OPENCV_FOR_THREADS_NUM": "1"})
+        try:
+            process = subprocess.Popen(
+                [sys.executable, "-m", "app.services.photo_faces", "analyze"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                cwd=Path(__file__).resolve().parents[2], env=env, bufsize=0,
+                start_new_session=True, close_fds=True,
+            )
+        except OSError as exc:
+            raise AnalysisFailed("analysis_failed") from exc
+        self._process = process
+        self._last_used = self._clock()
+        self.starts += 1
+        return process
+
+    def _join_io(self) -> None:
+        threads, self._io_threads = self._io_threads, ()
+        deadline = time.monotonic() + CHILD_IO_JOIN_SECONDS
+        for thread in threads:
+            thread.join(max(0.0, deadline - time.monotonic()))
+        if any(thread.is_alive() for thread in threads):
+            logger.error("Resident photo face pipe thread did not stop")
+
+    @staticmethod
+    def _close_pipes(process: subprocess.Popen) -> None:
+        for stream in (process.stdin, process.stdout):
+            if stream is not None:
+                try:
+                    stream.close()
+                except (AttributeError, OSError):
+                    pass
+
+    def _discard(self, process: subprocess.Popen | None = None) -> None:
+        process = process or self._process
+        if process is None:
+            self._join_io()
+            return
+        if self._process is process:
+            self._process = None
+        if process.poll() is None:
+            try:
+                process.send_signal(signal.SIGCONT)
+            except (AttributeError, OSError, ProcessLookupError):
+                pass
+            try:
+                process.terminate()
+            except (AttributeError, OSError, ProcessLookupError):
+                pass
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except (AttributeError, OSError, ProcessLookupError):
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                logger.error("Resident photo face child could not be reaped")
+        self._close_pipes(process)
+        self._join_io()
+
+    @staticmethod
+    def _resume_and_unregister(process: subprocess.Popen) -> None:
+        """Atomically release background_work's pause ownership with the child running."""
+        with background_work._lock:  # noqa: SLF001 - paired with BackgroundWork's private pause state
+            _automatic, paused = background_work._processes.get(process, (False, False))  # noqa: SLF001
+            if paused and process.poll() is None:
+                try:
+                    process.send_signal(signal.SIGCONT)
+                except (OSError, ProcessLookupError):
+                    pass
+            background_work.unregister(process)
+
+    def _once(
+        self, data: bytes, *, backfill: bool, cancel: threading.Event, active_seconds: list[float],
+    ) -> list[DetectedFace]:
+        process = self._start()
+        registered = False
+        try:
+            background_work.register(process, backfill=backfill)
+            registered = True
+            if not backfill:
+                background_work.promote(process)
+            if process.stdin is None or process.stdout is None:
+                raise _ChildExited("child pipes unavailable")
+            response: list[bytes | None] = []
+            failure: list[BaseException] = []
+            ready = threading.Event()
+
+            def feed() -> None:
+                try:
+                    _write_frame(process.stdin, bytes([CHILD_REQUEST_VERSION]) + data, CHILD_REQUEST_BYTES)
+                except (BrokenPipeError, OSError, _ChildProtocolError) as exc:
+                    failure.append(exc)
+                    ready.set()
+
+            def drain() -> None:
+                try:
+                    response.append(_read_frame(process.stdout, CHILD_OUTPUT_BYTES))
+                except BaseException as exc:  # captured and interpreted on the supervising thread
+                    failure.append(exc)
+                finally:
+                    ready.set()
+
+            drain_thread = threading.Thread(target=drain, daemon=True, name="photo-face-output")
+            feed_thread = threading.Thread(target=feed, daemon=True, name="photo-face-input")
+            self._io_threads = (drain_thread, feed_thread)
+            drain_thread.start()
+            feed_thread.start()
+            last = self._clock()
+            while not ready.is_set():
+                paused = background_work.sync(process, backfill=backfill)
+                now = self._clock()
+                if not paused:
+                    active_seconds[0] += now - last
+                last = now
+                if cancel.is_set():
+                    raise AnalysisInterrupted("analysis_stopped")
+                if active_seconds[0] > CHILD_TIMEOUT_SECONDS:
+                    raise AnalysisTimeout("analysis_timeout")
+                if process.poll() is not None:
+                    ready.wait(0.1)
+                    break
+                ready.wait(0.05)
+            if failure:
+                error = failure[0]
+                if isinstance(error, _ChildProtocolError):
+                    raise error
+                raise _ChildExited("child pipe failed") from error
+            if not ready.is_set() or not response or response[0] is None:
+                raise _ChildExited("child exited")
+            if cancel.is_set():
+                raise AnalysisInterrupted("analysis_stopped")
+            self._join_io()
+            self._last_used = self._clock()
+            return _decode_child_payload(response[0])
+        except BackgroundWorkClosed as exc:
+            raise AnalysisInterrupted("analysis_stopped") from exc
+        finally:
+            if registered:
+                self._resume_and_unregister(process)
+
+    def analyze(
+        self, data: bytes, *, backfill: bool, cancel: threading.Event,
+        generation: tuple[object, ...] | None = None,
+    ) -> list[DetectedFace]:
+        if not isinstance(data, bytes) or not data or len(data) > photo_derivatives.MAX_OUTPUT_BYTES:
+            raise InvalidImage("preview")
+        with self._lock:
+            self._sync_generation(generation or _model_generation())
+            self._apply_retry()
+            if self._failed or self._clock() < self._retry_after:
+                raise ModelUnavailable("face model stopped unexpectedly; Retry")
+            active_seconds = [0.0]
+            for attempt in range(2):
+                try:
+                    return self._once(data, backfill=backfill, cancel=cancel, active_seconds=active_seconds)
+                except _ChildRecycle as exc:
+                    self._discard()
+                    if attempt:
+                        self._record_crash()
+                        self._record_crash()
+                        raise AnalysisCircuitOpen("analysis_failed") from exc
+                except (_ChildExited, _ChildProtocolError) as exc:
+                    self._record_crash()
+                    self._discard()
+                    if self._failed:
+                        raise AnalysisCircuitOpen("analysis_failed") from exc
+                    if attempt:
+                        if isinstance(exc, _ChildProtocolError):
+                            raise InvalidModelOutput("child_output") from exc
+                        raise AnalysisFailed("analysis_failed") from exc
+                except AnalysisTimeout:
+                    self._record_crash()
+                    self._discard()
+                    if self._failed:
+                        raise AnalysisCircuitOpen("analysis_failed")
+                    raise
+                except AnalysisInterrupted:
+                    self._discard()
+                    raise
+                except (AnalysisFailed, ModelUnavailable):
+                    self._record_crash()
+                    self._discard()
+                    if self._failed:
+                        raise AnalysisCircuitOpen("analysis_failed")
+                    raise
+        raise AnalysisFailed("analysis_failed")
+
+    def reap_idle(self) -> None:
+        with self._lock:
+            process = self._process
+            if process is not None and (process.poll() is not None or self._clock() - self._last_used >= CHILD_IDLE_SECONDS):
+                self._discard(process)
+
+    def close(self) -> None:
+        with self._lock:
+            self._discard()
+
+
+_face_process = _FaceProcess()
+
+
+def analyze_in_child(data: bytes, *, backfill: bool) -> list[DetectedFace]:
+    """Analyze through the resident native child while keeping the historic call boundary."""
+    return _face_process.analyze(
+        data, backfill=backfill, cancel=worker._stop, generation=_model_generation(),  # noqa: SLF001
+    )
+
+
 class FaceWorker:
     def __init__(self) -> None:
         self._stop = threading.Event()
@@ -506,12 +933,18 @@ class FaceWorker:
     def close(self) -> None:
         self._stop.set()
         self._wake.set()
-        if self._thread is not None:
-            self._thread.join(timeout=10)
-        self._thread = None
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=10)
+        stopped = thread is None or not thread.is_alive()
+        self._thread = None if stopped else thread
+        _face_process.close()
+        if stopped:
+            # Lifespans and tests may start this process-wide worker again.
+            self._stop.clear()
 
     def _claim(self, db: Session) -> str | None:
-        if not model_ready():
+        if not model_ready() or not _face_process.available(_model_generation()):
             return None
         # An explicit Enable/Scan is interactive work: ordinary browser traffic
         # must not starve it. Shutdown admission remains authoritative.
@@ -568,6 +1001,9 @@ class FaceWorker:
         except ModelUnavailable:
             with session_scope() as db:
                 _fail(db, job_id, "model_unavailable")
+        except AnalysisCircuitOpen:
+            with session_scope() as db:
+                _fail(db, job_id, "analysis_failed", terminal=True)
         except (AnalysisFailed, AnalysisTimeout, AnalysisInterrupted) as exc:
             with session_scope() as db:
                 _fail(db, job_id, exc.code)
@@ -583,6 +1019,7 @@ class FaceWorker:
     def _loop(self) -> None:
         while not self._stop.is_set():
             if not self.run_once():
+                _face_process.reap_idle()
                 self._wake.wait(5)
                 self._wake.clear()
 
@@ -592,7 +1029,6 @@ worker = FaceWorker()
 
 def _child_limits() -> None:
     limits = [
-        (resource.RLIMIT_CPU, 30, 31),
         (resource.RLIMIT_FSIZE, CHILD_OUTPUT_BYTES, CHILD_OUTPUT_BYTES),
     ]
     if sys.platform == "linux":
@@ -612,90 +1048,60 @@ def _child_limits() -> None:
         pass
 
 
-def analyze_in_child(data: bytes, *, backfill: bool) -> list[DetectedFace]:
-    """Run native OpenCV in a bounded child; activity can pause the child."""
-    process = subprocess.Popen(
-        [sys.executable, "-m", "app.services.photo_faces", "analyze"],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        cwd=Path(__file__).resolve().parents[2],
-    )
+def _rearm_child_cpu_limit() -> bool:
+    """Give this request a cumulative CPU deadline without exhausting a resident process after N photos."""
     try:
-        background_work.register(process, backfill=backfill)
-        if not backfill:
-            background_work.promote(process)
-        assert process.stdin is not None
-        assert process.stdout is not None
-        output: list[bytes] = []
-        output_ready = threading.Event()
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        used = usage.ru_utime + usage.ru_stime
+        _soft, hard = resource.getrlimit(resource.RLIMIT_CPU)
+        target = max(1, math.ceil(used + CHILD_CPU_SECONDS))
+        if hard != resource.RLIM_INFINITY and target > hard:
+            # A process may lower but cannot raise an inherited finite hard cap.
+            # One fresh request gets the available cap; a used process recycles.
+            if used >= 1.0:
+                return False
+            target = hard
+        resource.setrlimit(resource.RLIMIT_CPU, (target, hard))
+        return True
+    except (AttributeError, OSError, ValueError):
+        return True  # request wall-time supervision remains authoritative
 
-        def feed() -> None:
+
+def _serve_child(source, sink) -> int:  # noqa: ANN001
+    """Serve fixed analyze requests until EOF; malformed framing terminates this child."""
+    try:
+        analyzer: OpenCvFaceAnalyzer | None = None
+        while True:
+            request = _read_frame(source, CHILD_REQUEST_BYTES)
+            if request is None:
+                return 0
+            if request[0] != CHILD_REQUEST_VERSION:
+                return 1
+            if not _rearm_child_cpu_limit():
+                _write_frame(sink, _child_payload("restart_required"), CHILD_OUTPUT_BYTES)
+                return 0
+            if analyzer is None:
+                try:
+                    analyzer = OpenCvFaceAnalyzer()
+                except ModelUnavailable:
+                    _write_frame(sink, _child_payload("model_unavailable"), CHILD_OUTPUT_BYTES)
+                    return 1
             try:
-                process.stdin.write(data)
-                process.stdin.close()
-            except (BrokenPipeError, OSError):
-                pass
-
-        def drain() -> None:
-            try:
-                output.append(process.stdout.read(CHILD_OUTPUT_BYTES + 1))
-            finally:
-                output_ready.set()
-
-        threading.Thread(target=drain, daemon=True, name="photo-face-output").start()
-        threading.Thread(target=feed, daemon=True, name="photo-face-input").start()
-        active_seconds, last = 0.0, time.monotonic()
-        while process.poll() is None:
-            paused = background_work.sync(process, backfill=backfill)
-            now = time.monotonic()
-            if not paused:
-                active_seconds += now - last
-            last = now
-            if output_ready.is_set() and output and len(output[0]) > CHILD_OUTPUT_BYTES:
-                raise InvalidModelOutput("child_output")
-            if active_seconds > CHILD_TIMEOUT_SECONDS:
-                raise AnalysisTimeout("analysis_timeout")
-            if worker._stop.wait(0.1):  # noqa: SLF001 - worker-owned child cancellation
-                raise AnalysisInterrupted("analysis_stopped")
-        if not output_ready.wait(1) or not output:
-            raise InvalidModelOutput("child_output")
-        raw = output[0]
-        if process.returncode != 0 or len(raw) > CHILD_OUTPUT_BYTES:
-            raise AnalysisFailed("analysis_failed")
-        payload = json.loads(raw)
-        if not isinstance(payload, list) or len(payload) > MAX_FACES:
-            raise InvalidModelOutput("detections")
-        return [DetectedFace(
-            score=float(row["score"]), x1=float(row["x1"]), y1=float(row["y1"]),
-            x2=float(row["x2"]), y2=float(row["y2"]), embedding=bytes.fromhex(row["embedding"]),
-        ) for row in payload]
-    except FaceError:
-        raise
-    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        raise InvalidModelOutput("child_output") from exc
-    finally:
-        background_work.unregister(process)
-        if process.poll() is None:
-            process.kill()
-        process.wait(timeout=5)
+                rows = analyzer.analyze(request[1:])
+                response = _child_payload(rows=rows)
+            except FaceError as exc:
+                response = _child_payload(exc.code)
+            except Exception:
+                response = _child_payload("analysis_failed")
+            _write_frame(sink, response, CHILD_OUTPUT_BYTES)
+    except Exception:
+        return 1
 
 
 def _child_main() -> int:
-    try:
-        if os.name == "posix":
-            _child_limits()
-        data = sys.stdin.buffer.read(photo_derivatives.MAX_OUTPUT_BYTES + 1)
-        rows = OpenCvFaceAnalyzer().analyze(data)
-        payload = [{
-            "score": row.score, "x1": row.x1, "y1": row.y1, "x2": row.x2, "y2": row.y2,
-            "embedding": row.embedding.hex(),
-        } for row in rows]
-        encoded = json.dumps(payload, allow_nan=False, separators=(",", ":")).encode()
-        if len(encoded) > CHILD_OUTPUT_BYTES:
-            return 1
-        sys.stdout.buffer.write(encoded)
-        return 0
-    except Exception:
-        return 1
+    if os.name == "posix":
+        _child_limits()
+    return _serve_child(sys.stdin.buffer, sys.stdout.buffer)
 
 
 def delete_owner_data(db: Session, user: User) -> None:

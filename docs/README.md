@@ -29,6 +29,7 @@
 - [`adr/0027-record-external-acquisition-before-dispatch.md`](adr/0027-record-external-acquisition-before-dispatch.md): durable external operation ownership and uncertain outcomes.
 - [`adr/0028-member-owned-listening-export-ledger.md`](adr/0028-member-owned-listening-export-ledger.md): opt-in export, play identity and provider replay policy.
 - [`adr/0029-check-published-releases-without-installing-updates.md`](adr/0029-check-published-releases-without-installing-updates.md): stable release checks, cached admin notices and optional best-effort email without automatic installation.
+- [Photo pipeline optimization](performance/photo-pipeline-optimization-2026-10-24.md): full HEIC import/preview/face-processing comparison and reproduction commands.
 - [Photo library validation](performance/photo-library-2026-10-24.md): synthetic 100,000-photo catalog timings and photo workflow coverage.
 - [`performance/comprehensive-audit-2026-10-17.md`](performance/comprehensive-audit-2026-10-17.md): current backend/all-media benchmark coverage, methodology, results and qualification gaps.
 - [`performance/audit-remediation-2026-10-17.md`](performance/audit-remediation-2026-10-17.md): search, playback, UI and long-audio fixes with independent follow-up measurements.

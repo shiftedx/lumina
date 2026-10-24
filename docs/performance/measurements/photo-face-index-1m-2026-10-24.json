@@ -1,0 +1,109 @@
+{
+  "benchmark": "synthetic-photo-face-index",
+  "config": {
+    "base_embeddings": 1000000,
+    "candidate_count": 32,
+    "chunk_size": 8192,
+    "dimensions": 128,
+    "ef_construction": 96,
+    "ef_search": 96,
+    "faiss_threads": 1,
+    "hnsw_m": 16,
+    "incremental_embeddings": 10000,
+    "noise": 0.08,
+    "old_people": 8000,
+    "people": 10000,
+    "query_people": 64,
+    "recency_cap": 16000,
+    "seed": 20261024
+  },
+  "environment": {
+    "faiss_version": "1.15.1",
+    "machine": "arm64",
+    "numpy_version": "2.2.6",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "python": "3.12.14"
+  },
+  "generated_at": "2026-10-24T19:40:54.799955+00:00",
+  "limits": [
+    "Synthetic vectors exercise only the native Faiss core; they are not face-model, grouping-accuracy, SQLite, NAS, or photo-ingestion measurements.",
+    "Representative exact-search timing scans one representative per synthetic person. Separately, streamed global exact ground truth scans every synthetic embedding without retaining the corpus.",
+    "The recency-cap comparison intentionally queries old people absent from the final chronological window; zero coverage demonstrates the cap's selection bias, not Faiss accuracy.",
+    "Peak RSS is process-wide getrusage high-water mark and includes Python/NumPy; it is not an index-only memory measurement.",
+    "The optional service path uses a disposable SQLite database and data directory; it intentionally creates one unassigned face per synthetic photo so prototype-person behavior is not measured.",
+    "The service path was rerun separately from the direct-core phases against the source hash recorded in service_path."
+  ],
+  "results": {
+    "hnsw_search": {
+      "candidate_recall_at_k": 1.0,
+      "exact_recall_at_k": 1.0,
+      "older_person_coverage": 1.0,
+      "p50_ms": 0.144,
+      "p95_ms": 0.191
+    },
+    "incremental_add": {
+      "embeddings_per_second": 8784.85,
+      "peak_rss_bytes": 986677248,
+      "seconds": 1.138
+    },
+    "initial_build": {
+      "embeddings_per_second": 6126.02,
+      "peak_rss_bytes": 986677248,
+      "seconds": 163.238
+    },
+    "rebuild": {
+      "embeddings_per_second": 6212.53,
+      "peak_rss_bytes": 986677248,
+      "seconds": 162.575,
+      "skipped": false
+    },
+    "recency_cap_exact_search": {
+      "candidate_recall_at_k": 0.0,
+      "exact_recall_at_k": 0.0,
+      "older_person_coverage": 0.0,
+      "p50_ms": 0.154,
+      "p95_ms": 0.2,
+      "vectors_scanned_per_query": 16000
+    },
+    "representative_exact_search": {
+      "candidate_recall_at_k": 1.0,
+      "older_person_coverage": 1.0,
+      "p50_ms": 0.111,
+      "p95_ms": 0.134,
+      "vectors_scanned_per_query": 10000
+    },
+    "serialized_restart": {
+      "artifact_bytes": 670901799,
+      "load_seconds": 0.063,
+      "peak_rss_bytes": 986677248,
+      "save_seconds": 0.072,
+      "search": {
+        "candidate_recall_at_k": 1.0,
+        "exact_recall_at_k_against_base": 1.0,
+        "older_person_coverage": 1.0,
+        "p50_ms": 0.135,
+        "p95_ms": 0.199
+      }
+    },
+    "service_path": {
+      "candidate_exact_recall_at_k": 1.0,
+      "candidate_search_p50_ms": 2.382,
+      "candidate_search_p95_ms": 2.649,
+      "checkpoint_restart_seconds": 4.401,
+      "fixture_write_seconds": 113.848,
+      "initial_build_and_checkpoint_seconds": 167.355,
+      "journal_replay_after_32_assignment_updates_and_32_deletes_seconds": 0.003,
+      "peak_rss_bytes": 3473653760,
+      "photo_face_index_source_sha256": "c99949da3b6afb3426dde1c3cf6c68ebfea812db45dd577356eaca83220fb4bf",
+      "restart_exact_recall_at_k": 1.0,
+      "settle_pending_after_mutations_seconds": 1.217,
+      "settled_scope_count": 1,
+      "sqlite_bytes": 4348391424
+    },
+    "streamed_global_exact_ground_truth": {
+      "query_vectors": 64,
+      "seconds": 0.962,
+      "vectors_scanned_per_query": 1000000
+    }
+  }
+}

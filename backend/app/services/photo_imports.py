@@ -329,7 +329,7 @@ def _prepare_one(source_id: str, relative: str, entry: os.DirEntry) -> PreparedP
                 relative, root_relative, Path(relative).name, fingerprint.size, fingerprint.mtime_ns, False,
                 content_type, fingerprint.sha256, facts, products,
             )
-    except PhotoSnapshotBusy:
+    except (PhotoSnapshotBusy, photo_cache.PhotoStorageFull, photo_cache.PhotoStorageBusy):
         raise
     except FileSkipped:
         raise
@@ -347,6 +347,16 @@ def _prepare_result(source_id: str, relative: str, entry: os.DirEntry) -> Prepar
             relative=relative, root_relative=relative, filename=Path(relative).name,
             size=0, mtime_ns=0, unchanged=False, error_code=exc.code,
         )
+
+
+def _release_prepared(items: list[PreparedPhoto]) -> None:
+    keys = {key for item in items if item.products for key, _size in item.products.values()}
+    photo_cache.release_publication(keys)
+
+
+def _release_abandoned_future(future: Future[PreparedPhoto]) -> None:
+    if not future.cancelled() and future.exception() is None:
+        _release_prepared([future.result()])
 
 
 def _still_current(root_path: str, prepared: PreparedPhoto) -> bool:
@@ -651,16 +661,30 @@ class PhotoImportWorker:
                 if len(prepared) >= BATCH_SIZE:
                     if not self._commit_batch(run.id, prepared, generation):
                         return True
+                    _release_prepared(prepared)
                     prepared = []
             if listing_error is not None:
                 raise listing_error
             if prepared and not self._commit_batch(run.id, prepared, generation):
                 return True
         except ScanIncomplete:
-            if prepared and not self._commit_batch(run.id, prepared, generation):
-                return True
+            try:
+                if prepared and not self._commit_batch(run.id, prepared, generation):
+                    return True
+            except PhotoSnapshotBusy:
+                self._defer(run.id, generation)
+                return False
             self._fail(run.id, "scan_incomplete", generation)
             return True
+        except (photo_cache.PhotoStorageFull, photo_cache.PhotoStorageBusy) as exc:
+            try:
+                if prepared and not self._commit_batch(run.id, prepared, generation):
+                    return True
+            except PhotoSnapshotBusy:
+                self._defer(run.id, generation, code=exc.code)
+                return False
+            self._defer(run.id, generation, code=exc.code)
+            return False
         except PhotoSnapshotBusy:
             self._defer(run.id, generation)
             # False makes the worker loop take its normal five-second wait;
@@ -668,8 +692,12 @@ class PhotoImportWorker:
             return False
         finally:
             preparation_stop.set()
-            for future in pending:
-                future.cancel()
+            try:
+                for future in pending:
+                    future.add_done_callback(_release_abandoned_future)
+                    future.cancel()
+            finally:
+                _release_prepared(prepared)
         if not self._active(generation):
             return False
         self._finish(run.id, generation)
@@ -708,7 +736,7 @@ class PhotoImportWorker:
                 if source is not None:
                     source.state, source.error_code, source.scan_requested = "failed", code, False
 
-    def _defer(self, run_id: str, generation: int | None) -> None:
+    def _defer(self, run_id: str, generation: int | None, *, code: str | None = None) -> None:
         """Return capacity-contended work to the durable queue without an error."""
         with self._lifecycle_lock:
             if not self._active(generation):
@@ -720,7 +748,7 @@ class PhotoImportWorker:
                 source = db.get(PhotoImportSource, run.source_id)
                 run.state = "queued"
                 if source is not None:
-                    source.state, source.scan_requested = "queued", True
+                    source.state, source.scan_requested, source.error_code = "queued", True, code
 
     def _commit_batch(
         self, run_id: str, batch: list[PreparedPhoto], generation: int | None = None,

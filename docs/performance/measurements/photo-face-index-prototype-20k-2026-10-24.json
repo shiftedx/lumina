@@ -1,0 +1,40 @@
+{
+  "benchmark": "synthetic-photo-face-index-prototype-service",
+  "config": {
+    "assigned_embeddings": 20000,
+    "candidate_count": 32,
+    "chunk_size": 8192,
+    "noise": 0.08,
+    "query_people": 64,
+    "seed": 20261024,
+    "synthetic_people": 10000
+  },
+  "environment": {
+    "machine": "arm64",
+    "numpy_version": "2.2.6",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "python": "3.12.14"
+  },
+  "generated_at": "2026-10-24T19:55:34.318072+00:00",
+  "limits": [
+    "Every synthetic face is assigned to a synthetic person. This measures one retained ANN prototype per person, not face-model or person-grouping accuracy.",
+    "The journal exercise reassigns 32 faces between existing people; it is a bounded person-prototype refresh, not a bulk correction benchmark."
+  ],
+  "results": {
+    "checkpoint_restart_seconds": 0.219,
+    "fixture_write_seconds": 1.994,
+    "journal_replay_after_32_person_reassignments_seconds": 0.004,
+    "peak_rss_bytes": 185532416,
+    "person_reassignments_excluded_query_source_and_target_people": 32,
+    "photo_face_index_source_sha256": "3b37ec6ff06df00a84e9eea0dd17c59714aa8d23d10c661fcad2784a77610610",
+    "prototype_build_and_checkpoint_seconds": 0.94,
+    "prototype_person_recall_at_k": 1.0,
+    "prototype_search_p50_ms": 2.514,
+    "prototype_search_p95_ms": 2.699,
+    "restart_prototype_person_recall_at_k": 1.0,
+    "second_restart_prototype_person_recall_at_k": 1.0,
+    "settle_pending_after_person_reassignments_seconds": 0.013,
+    "settled_scope_count": 1,
+    "sqlite_bytes": 94576640
+  }
+}

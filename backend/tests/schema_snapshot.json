@@ -761,23 +761,6 @@
    "photo",
    "updated_at"
   ],
-  "playback_history": [
-   "client",
-   "ended_at",
-   "hardware",
-   "id",
-   "item_id",
-   "method",
-   "source",
-   "started_at",
-   "stopped_by_admin",
-   "subtitle",
-   "title",
-   "user_id",
-   "user_name",
-   "video",
-   "watched_seconds"
-  ],
   "photo_album_memberships": [
    "album_id",
    "created_at",
@@ -814,6 +797,46 @@
    "id",
    "operation",
    "owner_user_id"
+  ],
+  "photo_face_index_changes": [
+   "created_at",
+   "face_id",
+   "id",
+   "new_owner_user_id",
+   "new_person_id",
+   "new_pipeline_signature",
+   "old_owner_user_id",
+   "old_person_id",
+   "old_pipeline_signature",
+   "operation"
+  ],
+  "photo_face_index_snapshots": [
+   "created_at",
+   "dimensions",
+   "ef_construction",
+   "ef_search",
+   "generation",
+   "hnsw_m",
+   "metric",
+   "owner_user_id",
+   "pipeline_signature",
+   "prototype_path",
+   "prototype_sha256",
+   "prototype_size",
+   "runtime_version",
+   "unassigned_path",
+   "unassigned_sha256",
+   "unassigned_size",
+   "watermark"
+  ],
+  "photo_face_index_vectors": [
+   "active",
+   "created_at",
+   "embedding",
+   "face_id",
+   "id",
+   "owner_user_id",
+   "pipeline_signature"
   ],
   "photo_face_jobs": [
    "attempts",
@@ -853,36 +876,6 @@
    "y1",
    "y2"
   ],
-  "photo_items": [
-   "bytes",
-   "camera_make",
-   "camera_model",
-   "captured_at",
-   "captured_at_raw",
-   "content_type",
-   "created_at",
-   "deleted_at",
-   "height",
-   "id",
-   "metadata_json",
-   "missing_at",
-   "orientation",
-   "original_filename",
-   "owner_user_id",
-   "relative_path",
-   "root_id",
-   "sha256",
-   "source_id",
-   "source_mtime_ns",
-   "source_seen_run_id",
-   "source_size",
-   "storage_key",
-   "storage_kind",
-   "title",
-   "updated_at",
-   "visibility",
-   "width"
-  ],
   "photo_import_runs": [
    "cancel_requested",
    "created_at",
@@ -914,6 +907,36 @@
    "updated_at",
    "visibility"
   ],
+  "photo_items": [
+   "bytes",
+   "camera_make",
+   "camera_model",
+   "captured_at",
+   "captured_at_raw",
+   "content_type",
+   "created_at",
+   "deleted_at",
+   "height",
+   "id",
+   "metadata_json",
+   "missing_at",
+   "orientation",
+   "original_filename",
+   "owner_user_id",
+   "relative_path",
+   "root_id",
+   "sha256",
+   "source_id",
+   "source_mtime_ns",
+   "source_seen_run_id",
+   "source_size",
+   "storage_key",
+   "storage_kind",
+   "title",
+   "updated_at",
+   "visibility",
+   "width"
+  ],
   "photo_people": [
    "created_at",
    "feature_face_id",
@@ -926,6 +949,24 @@
    "revision",
    "updated_at"
   ],
+  "photo_preview_assets": [
+   "bytes",
+   "content_hash",
+   "created_at",
+   "reservation_id",
+   "reserved_bytes",
+   "source_key",
+   "state",
+   "updated_at",
+   "width"
+  ],
+  "photo_preview_storage": [
+   "id",
+   "reserved_bytes",
+   "sweep_after",
+   "updated_at",
+   "used_bytes"
+  ],
   "photo_states": [
    "created_at",
    "favorite",
@@ -933,6 +974,23 @@
    "photo_id",
    "updated_at",
    "user_id"
+  ],
+  "playback_history": [
+   "client",
+   "ended_at",
+   "hardware",
+   "id",
+   "item_id",
+   "method",
+   "source",
+   "started_at",
+   "stopped_by_admin",
+   "subtitle",
+   "title",
+   "user_id",
+   "user_name",
+   "video",
+   "watched_seconds"
   ],
   "playback_progress": [
    "completed",
@@ -1263,5 +1321,5 @@
    "user_id"
   ]
  },
- "version": 35
+ "version": 37
 }

@@ -71,3 +71,30 @@ processes register with background-work admission only while serving a request.
 This does not change the existing derivative-cache retention policy or qualify
 million-face grouping. The opt-in full-pipeline benchmark and measurements record
 completion counts, output equivalence, and remaining scale limits separately.
+
+## Durable previews and scalable matching (2026-10-24)
+
+Presentation images are durable catalog assets. The historical derivative-cache
+limit becomes an admission quota, with an unlimited default and a separate free
+space floor. Processing reserves its bounded output budget before decoding.
+Catalog references and outstanding publication holds prevent reclamation;
+completed, unreferenced outputs are reclaimed through indexed batches. Storage
+pressure leaves folder scans queued at their committed cursor and uploads
+retryable. Existing catalog promises are adopted during the additive upgrade.
+Originals remain the recovery source for missing or damaged previews.
+
+Local face matching uses FAISS CPU HNSW as a candidate accelerator over two
+owner/pipeline-scoped populations: one current prototype per person, and
+unassigned automatic faces. This replaces recency limits that silently omitted
+older identities. SQLite retains authoritative embeddings, stable numeric vector
+versions and transactional change capture. Checksummed, private graph checkpoints
+accelerate restart; failed validation rebuilds from SQLite. Journal reconciliation
+and graph work happen before acquiring the catalog writer. Every suggested match
+is revalidated for current ownership, live photo state and assignment, then
+rescored using float32 embeddings before the existing threshold/margin rules.
+Approximate retrieval does not establish an identity or guarantee recognition
+accuracy; manual corrections remain authoritative.
+
+The opt-in scale benchmarks distinguish synthetic index performance, preview
+retention under pressure, and the real HEIC processing pipeline. None substitutes
+for a measured million-original ingestion on the operator's storage and hardware.

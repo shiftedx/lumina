@@ -70,6 +70,7 @@ describe('StillWall', () => {
     const list = vi.spyOn(api, 'listLibrary').mockResolvedValueOnce(page([stillItem('v1')], 'next')).mockResolvedValueOnce(page([stillItem('v2', { title: 'Second page' })]));
     wall();
     await screen.findByRole('button', { name: /^Harbor walk at dawn, / });
+    await waitFor(() => expect(observers.length).toBeGreaterThan(0));
     act(() => observers.at(-1)!.callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
     expect(await screen.findByRole('button', { name: /^Second page, / })).toBeTruthy();
     expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'next' }));

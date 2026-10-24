@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from sqlalchemy import func, select
+from sqlalchemy import bindparam, func, select, text
 from sqlalchemy.orm import Session
 
 from app.db import session_scope
@@ -26,7 +26,7 @@ from app.models import User, utcnow
 from app.persistence import queue_after_commit, write_transaction
 from app.photo_face_models import PhotoFace, PhotoFaceEdit, PhotoFaceJob, PhotoFacePreference, PhotoPerson
 from app.photo_models import PhotoDerivative, PhotoItem
-from app.services import model_catalog, photo_cache, photo_derivatives, photo_files
+from app.services import model_catalog, photo_cache, photo_derivatives, photo_face_index, photo_files
 from app.services.background_work import BackgroundWorkClosed, background_work
 from app.services.raster_images import image_size
 
@@ -44,8 +44,6 @@ AUTO_MARGIN = 0.05
 AUTO_SEED_FACES = 3
 MAX_ATTEMPTS = 3
 QUEUE_BATCH = 500
-MAX_PERSON_PROTOTYPES = 4096
-MAX_UNASSIGNED_CANDIDATES = 4096
 CHILD_TIMEOUT_SECONDS = 45
 CHILD_OUTPUT_BYTES = 256 * 1024
 CHILD_IDLE_SECONDS = 300
@@ -358,33 +356,28 @@ def _record(db: Session, owner_id: str, operation: str, detail: dict) -> None:
     ))
 
 
-def _candidate_faces(db: Session, owner_id: str) -> tuple[list[PhotoFace], list[PhotoFace]]:
-    """Return bounded person prototypes and recent outliers, never the whole library."""
-    assigned = list(db.scalars(select(PhotoFace).where(
-        PhotoFace.owner_user_id == owner_id, PhotoFace.pipeline_signature == PIPELINE_SIGNATURE,
-        PhotoFace.person_id.is_not(None),
-    ).order_by(PhotoFace.updated_at.desc(), PhotoFace.id).limit(MAX_PERSON_PROTOTYPES * 4)))
-    prototypes: list[PhotoFace] = []
-    seen: set[str] = set()
-    for row in assigned:
-        if row.person_id not in seen:
-            prototypes.append(row)
-            seen.add(row.person_id)
-        if len(prototypes) >= MAX_PERSON_PROTOTYPES:
-            break
-    unassigned = list(db.scalars(select(PhotoFace).where(
-        PhotoFace.owner_user_id == owner_id, PhotoFace.pipeline_signature == PIPELINE_SIGNATURE,
-        PhotoFace.person_id.is_(None), PhotoFace.assignment_source == "automatic",
-    ).order_by(PhotoFace.updated_at.desc(), PhotoFace.id).limit(MAX_UNASSIGNED_CANDIDATES)))
-    return prototypes, unassigned
-
-
-def _cluster_new_faces(db: Session, owner_id: str, new_faces: list[PhotoFace]) -> None:
+def _cluster_new_faces(
+    db: Session, owner_id: str, new_faces: list[PhotoFace],
+    candidate_ids: tuple[photo_face_index.CandidateIds, ...],
+) -> None:
+    """Recheck ANN suggestions against authoritative live rows inside the short write."""
     pref = db.get(PhotoFacePreference, owner_id)
     if not pref or not pref.auto_group:
         return
-    prototypes, unassigned = _candidate_faces(db, owner_id)
-    candidates = [*prototypes, *unassigned]
+    ids = {key for result in candidate_ids
+           for key in (*result.prototype_face_ids, *result.unassigned_face_ids)}
+    candidates = []
+    ordered_ids = sorted(ids)
+    live_candidates = select(PhotoFace).from_statement(text("""
+        SELECT f.* FROM photo_faces f INDEXED BY sqlite_autoindex_photo_faces_1
+        CROSS JOIN photo_items i ON i.id=f.photo_id
+        WHERE f.id IN :ids AND f.owner_user_id=:owner AND f.pipeline_signature=:pipeline
+          AND i.owner_user_id=:owner AND i.deleted_at IS NULL AND i.missing_at IS NULL
+    """).bindparams(bindparam("ids", expanding=True))).execution_options(populate_existing=True)
+    for start in range(0, len(ordered_ids), 400):
+        candidates.extend(db.scalars(live_candidates, {
+            "ids": ordered_ids[start:start + 400], "owner": owner_id, "pipeline": PIPELINE_SIGNATURE,
+        }))
     matrix = np.stack([vector(row.embedding) for row in candidates]) if candidates else np.empty((0, EMBEDDING_DIMENSIONS), dtype=np.float32)
     for face in new_faces:
         if face.assignment_source != "automatic" or face.person_id is not None:
@@ -423,7 +416,7 @@ def _cluster_new_faces(db: Session, owner_id: str, new_faces: list[PhotoFace]) -
 
 def commit_analysis(db: Session, job_id: str, detections: list[DetectedFace]) -> None:
     job = db.get(PhotoFaceJob, job_id)
-    if job is None or job.state != "running":
+    if job is None or job.state != "running" or worker._stop.is_set():  # noqa: SLF001
         return
     for found in detections:
         if not (math.isfinite(found.score) and DETECTION_SCORE <= found.score <= 1.0):
@@ -431,9 +424,16 @@ def commit_analysis(db: Session, job_id: str, detections: list[DetectedFace]) ->
         if not (0 <= found.x1 < found.x2 <= 1 and 0 <= found.y1 < found.y2 <= 1):
             raise InvalidModelOutput("box")
         vector(found.embedding)
+    pref = db.get(PhotoFacePreference, job.owner_user_id)
+    candidate_ids = photo_face_index.prepare_candidates(
+        db, job.owner_user_id, PIPELINE_SIGNATURE, [found.embedding for found in detections], cancel=worker._stop,  # noqa: SLF001
+    ) if detections and pref is not None and pref.enabled and pref.auto_group else ()
     with write_transaction(db, name="photo_face_commit"):
+        job = db.get(PhotoFaceJob, job_id, populate_existing=True)
+        if job is None or job.state != "running" or worker._stop.is_set():  # noqa: SLF001
+            return
         photo = db.scalar(select(PhotoItem).where(PhotoItem.id == job.photo_id).execution_options(populate_existing=True))
-        if photo is None or photo.deleted_at is not None or photo.owner_user_id != job.owner_user_id:
+        if photo is None or photo.deleted_at is not None or photo.missing_at is not None or photo.owner_user_id != job.owner_user_id:
             job.state, job.error_code, job.finished_at, job.updated_at = "failed", "photo_unavailable", utcnow(), utcnow()
             return
         if photo.sha256 != job.source_sha256:
@@ -442,7 +442,7 @@ def commit_analysis(db: Session, job_id: str, detections: list[DetectedFace]) ->
             job.attempts, job.started_at, job.finished_at, job.updated_at = 0, None, None, utcnow()
             queue_after_commit(db, worker.wake)
             return
-        pref = db.get(PhotoFacePreference, photo.owner_user_id)
+        pref = db.get(PhotoFacePreference, photo.owner_user_id, populate_existing=True)
         if pref is None or not pref.enabled:
             job.state, job.error_code, job.finished_at, job.updated_at = "canceled", "disabled", utcnow(), utcnow()
             return
@@ -465,7 +465,7 @@ def commit_analysis(db: Session, job_id: str, detections: list[DetectedFace]) ->
             if preserve:
                 manual.remove(kept)
         db.flush()
-        _cluster_new_faces(db, photo.owner_user_id, new_rows)
+        _cluster_new_faces(db, photo.owner_user_id, new_rows, candidate_ids)
         job.state, job.error_code, job.finished_at, job.updated_at = "succeeded", None, utcnow(), utcnow()
 
 
@@ -510,17 +510,20 @@ def _preview(db: Session, photo_id: str, source_sha256: str) -> bytes:
     root, relative = photo_files.photo_location(db, photo)
     db.rollback()  # end the read transaction before slow I/O and the later BEGIN IMMEDIATE
     products, fingerprint = photo_files.build_derivatives(root, relative, source_sha256)
-    with write_transaction(db, name="photo_face_preview_repair"):
-        photo = db.get(PhotoItem, photo_id)
-        if photo is None:
-            raise photo_files.PhotoFileChanged("Photo content changed.")
-        if photo.deleted_at is not None or photo.missing_at is not None or photo.sha256 != fingerprint.sha256:
-            raise photo_files.PhotoFileChanged("Photo content changed.")
-        rows = list(db.scalars(select(PhotoDerivative).where(PhotoDerivative.photo_id == photo.id)))
-        for derivative in rows:
-            product = products.get(derivative.width)
-            if product is not None:
-                derivative.source_key, derivative.bytes, derivative.state, derivative.error = product[0], product[1], "ready", None
+    try:
+        with write_transaction(db, name="photo_face_preview_repair"):
+            photo = db.get(PhotoItem, photo_id)
+            if photo is None:
+                raise photo_files.PhotoFileChanged("Photo content changed.")
+            if photo.deleted_at is not None or photo.missing_at is not None or photo.sha256 != fingerprint.sha256:
+                raise photo_files.PhotoFileChanged("Photo content changed.")
+            rows = list(db.scalars(select(PhotoDerivative).where(PhotoDerivative.photo_id == photo.id)))
+            for derivative in rows:
+                product = products.get(derivative.width)
+                if product is not None:
+                    derivative.source_key, derivative.bytes, derivative.state, derivative.error = product[0], product[1], "ready", None
+    finally:
+        photo_cache.release_publication({key for key, _size in products.values()})
     data = photo_derivatives.read(expected_key)
     photo_cache.touch(expected_key)
     return data
@@ -980,11 +983,19 @@ class FaceWorker:
         with session_scope() as db:
             job_id = self._claim(db)
             if job_id is None:
+                if not background_work.closed and not self._stop.is_set():
+                    try:
+                        photo_face_index.settle_pending(db, cancel=self._stop)
+                    except photo_face_index.IndexInterrupted:
+                        pass
                 return False
             job = db.get(PhotoFaceJob, job_id)
             requested = job.requested
             try:
                 data = _preview(db, job.photo_id, job.source_sha256)
+            except (photo_cache.PhotoStorageFull, photo_cache.PhotoStorageBusy) as exc:
+                _defer(db, job_id, exc.code)
+                return False
             except photo_files.PhotoSnapshotBusy:
                 _defer(db, job_id, "snapshot_busy")
                 return False
@@ -998,6 +1009,10 @@ class FaceWorker:
             found = analyze_in_child(data, backfill=not requested)
             with session_scope() as db:
                 commit_analysis(db, job_id, found)
+        except photo_face_index.IndexInterrupted:
+            with session_scope() as db:
+                _defer(db, job_id, "interrupted")
+            return False
         except ModelUnavailable:
             with session_scope() as db:
                 _fail(db, job_id, "model_unavailable")
@@ -1105,9 +1120,10 @@ def _child_main() -> int:
 
 
 def delete_owner_data(db: Session, user: User) -> None:
-    with write_transaction(db, name="photo_face_delete_all"):
+    with photo_face_index.serialized_index_mutation(), write_transaction(db, name="photo_face_delete_all"):
         for model in (PhotoFaceEdit, PhotoFace, PhotoPerson, PhotoFaceJob):
             db.query(model).filter(model.owner_user_id == user.id).delete(synchronize_session=False)
+        photo_face_index.delete_owner_data(db, user.id)
         row = preference(db, user.id)
         row.enabled, row.consented_at = False, None
 

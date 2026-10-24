@@ -12,6 +12,8 @@ const LABELS: Record<PhotoSource['state'], string> = {
   queued: 'Waiting', scanning: 'Scanning', idle: 'Up to date', canceling: 'Stopping', offline: 'Folder offline', failed: 'Needs attention',
 };
 const ERRORS: Record<string, string> = {
+  preview_storage_full: 'Waiting for preview storage. Free disk space or increase the configured photo storage limit to resume.',
+  preview_storage_busy: 'Waiting for another photo to finish preparing. The scan will resume automatically.',
   root_offline: 'The storage root is offline. Reconnect it, then scan again.',
   permission_denied: 'Lumina cannot read this folder. Check its permissions.',
   invalid_image: 'Some images could not be read. Other photos remain available.',

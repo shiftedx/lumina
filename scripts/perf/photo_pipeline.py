@@ -93,7 +93,7 @@ def trial(repo: Path, corpus: Path) -> dict:
         data = Path(temporary).resolve()
         os.environ["LUMINA_DATA_DIR"] = str(data)
         sys.path.insert(0, str(repo / "backend"))
-        from sqlalchemy import func, select
+        from sqlalchemy import func, inspect as inspect_sql, select, text
         from app.db import init_db, session_scope, engine
         from app.models import StorageRoot, User, utcnow
         from app.photo_face_models import PhotoFace, PhotoFaceJob, PhotoFacePreference, PhotoPerson
@@ -158,6 +158,24 @@ def trial(repo: Path, corpus: Path) -> dict:
                     "faces": db.scalar(select(func.count()).select_from(PhotoFace)),
                     "people": db.scalar(select(func.count()).select_from(PhotoPerson)),
                 }
+                if inspect_sql(engine).has_table("photo_preview_assets"):
+                    counts["preview_publication_pins"] = db.scalar(text(
+                        "SELECT count(*) FROM photo_preview_assets WHERE reservation_id IS NOT NULL"
+                    ))
+                    counts["preview_reserved_bytes"] = db.scalar(text(
+                        "SELECT coalesce(sum(reserved_bytes),0) FROM photo_preview_storage"
+                    ))
+                    counts["index_uncheckpointed_changes"] = db.scalar(text("""
+                        SELECT count(*) FROM photo_face_index_changes c
+                        WHERE c.id > coalesce((SELECT s.watermark FROM photo_face_index_snapshots s
+                          WHERE s.owner_user_id=:owner AND s.pipeline_signature=:pipeline),0)
+                          AND ((c.old_owner_user_id=:owner AND c.old_pipeline_signature=:pipeline)
+                            OR (c.new_owner_user_id=:owner AND c.new_pipeline_signature=:pipeline))
+                    """), {"owner": owner.id, "pipeline": photo_faces.PIPELINE_SIGNATURE})
+                    if any(counts[key] for key in (
+                        "preview_publication_pins", "preview_reserved_bytes", "index_uncheckpointed_changes",
+                    )):
+                        raise RuntimeError(f"Derived storage did not fully settle: {counts}")
                 artifacts = list(db.scalars(select(PhotoDerivative)))
                 if not all(photo_derivatives.derivative_path(row.source_key).is_file() for row in artifacts):
                     raise RuntimeError("A promised rendition is missing")

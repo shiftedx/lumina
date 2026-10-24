@@ -21,6 +21,16 @@ from app.services.photos import PhotoService
 from app.services.storage_roots import StorageRootService
 
 
+@pytest.fixture
+def db_factory():  # noqa: ANN201
+    """Importer lookahead requires independent SQLite connections per thread."""
+    from app.db import init_db
+    from support import file_backed_session_factory
+
+    init_db()
+    return file_backed_session_factory()
+
+
 def _user(db_factory, user_id: str) -> User:  # noqa: ANN001
     with db_factory() as db:
         user = User(id=user_id, username=user_id, display_name=user_id, role="viewer", is_active=True)
@@ -217,6 +227,8 @@ def test_catalog_failure_after_original_publication_removes_only_losing_target(d
 
 
 def test_isolated_pipeline_orients_and_strips_source_metadata(tmp_path, monkeypatch) -> None:
+    from app.db import init_db
+    init_db()
     source = tmp_path / "oriented.jpg"
     source.write_bytes(_jpeg(orientation=6))
     monkeypatch.chdir(tmp_path)
@@ -727,7 +739,7 @@ def test_external_scan_skips_one_bad_file_without_starving_later_photos(
     with api_client(user=admin, base_url="http://localhost") as client:
         page = client.get("/api/photos").json()
         status = client.get("/api/admin/photo-sources").json()["items"][0]
-        assert sorted(item["filename"] for item in page["items"]) == ["a.jpg", "c.jpg"]
+        assert sorted(item["filename"] for item in page["items"]) == ["a.jpg", "c.jpg"], status
         assert status["state"] == "failed" and status["error_code"] == "partial_scan"
         assert status["error_count"] == 1 and status["indexed_count"] == 2
         (folder / "b.jpg").write_bytes(_jpeg() + b"b")
@@ -963,3 +975,88 @@ def test_manual_scan_progresses_during_http_activity_but_watch_scan_waits(
         assert watch_run.state == "queued"
     assert worker.run_once() is False
     worker.close()
+
+
+@pytest.mark.parametrize("reason", ["full", "busy"])
+def test_upload_storage_pressure_is_retryable_without_a_catalog_entry(api_client, db_factory, monkeypatch, reason) -> None:  # noqa: ANN001
+    from app.services import photo_cache
+
+    user = _user(db_factory, "storage-pressure")
+    error = photo_cache.PhotoStorageFull("quota") if reason == "full" else photo_cache.PhotoStorageBusy()
+
+    def blocked(*_args):  # noqa: ANN002,ANN202
+        raise error
+
+    monkeypatch.setattr(photo_derivatives, "prepare", blocked)
+    response = api_client(user=user, base_url="http://localhost").put(
+        "/api/photos/import?filename=photo.jpg", content=_jpeg(), headers={"Content-Type": "application/octet-stream"},
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == error.code
+    assert response.headers["retry-after"] == str(error.retry_after)
+    with db_factory() as db:
+        assert db.query(PhotoItem).count() == 0
+
+
+@pytest.mark.parametrize("prefix_busy", [False, True])
+def test_external_storage_pressure_preserves_cursor_and_resumes(api_client, db_factory, monkeypatch, tmp_path, prefix_busy) -> None:  # noqa: ANN001
+    from app.photo_root_models import PhotoImportRun
+    from app.services import photo_cache
+
+    _stub_pipeline(monkeypatch)
+    prepare = photo_imports._prepare_one  # noqa: SLF001
+    monkeypatch.setattr(StorageRootService, "is_online", lambda _service, _root: True)
+    monkeypatch.setattr(photo_imports, "session_scope", lambda: session_scope(db_factory))
+    monkeypatch.setattr(background_work, "busy", lambda: False)
+    monkeypatch.setattr(background_work, "close", lambda: None)
+    monkeypatch.setattr(photo_imports.worker, "start", lambda: None)
+    monkeypatch.setattr(photo_imports.worker, "close", lambda: None)
+    photo_imports.worker._stop.clear()  # noqa: SLF001
+    folder = tmp_path / "storage-pressure-source"
+    folder.mkdir()
+    (folder / "a.jpg").write_bytes(_jpeg())
+    (folder / "b.jpg").write_bytes(_jpeg() + b"second")
+    admin = _user(db_factory, "storage-pressure-admin")
+    admin.role = "admin"
+    with db_factory() as db:
+        db.get(User, admin.id).role = "admin"
+        db.add(StorageRoot(id="pressure-root", label="Photos", path=str(folder), mode="external", enabled=True, identity="test", observation={}))
+        db.commit()
+    with api_client(user=admin, base_url="http://localhost") as client:
+        assert client.post("/api/admin/photo-sources", json={"root_id": "pressure-root", "relative_folder": "", "visibility": "private"}).status_code == 201
+
+    def blocked(source_id, relative, entry):  # noqa: ANN001,ANN202
+        if relative == "b.jpg":
+            raise photo_cache.PhotoStorageFull("quota")
+        return prepare(source_id, relative, entry)
+
+    monkeypatch.setattr(photo_imports, "_prepare_one", blocked)
+    original_check = photo_imports._still_current  # noqa: SLF001
+    contended = prefix_busy
+
+    def revalidate(*args):  # noqa: ANN002,ANN202
+        nonlocal contended
+        if contended:
+            contended = False
+            raise photo_imports.PhotoSnapshotBusy()
+        return original_check(*args)
+
+    monkeypatch.setattr(photo_imports, "_still_current", revalidate)
+    background_work.closed = False
+    assert photo_imports.worker.run_once() is False
+    if prefix_busy:
+        with db_factory() as db:
+            run = db.query(PhotoImportRun).one()
+            assert run.state == "queued" and run.error_count == 0 and not run.cursor
+            assert db.query(PhotoItem).count() == 0
+        assert photo_imports.worker.run_once() is False
+    with db_factory() as db:
+        run = db.query(PhotoImportRun).one()
+        assert run.state == "queued" and run.error_count == 0 and run.cursor == "a.jpg"
+        assert db.query(PhotoItem).count() == 1
+    monkeypatch.setattr(photo_imports, "_prepare_one", prepare)
+    assert photo_imports.worker.run_once() is True
+    with db_factory() as db:
+        run = db.query(PhotoImportRun).one()
+        assert run.state == "succeeded" and run.error_count == 0
+        assert db.query(PhotoItem).count() == 2

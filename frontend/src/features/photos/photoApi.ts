@@ -169,7 +169,12 @@ export function uploadPhoto(file: File, onProgress: (state: UploadState) => void
       try { body = JSON.parse(xhr.responseText || 'null'); } catch { body = null; }
       if (xhr.status >= 200 && xhr.status < 300) { resolve(body as Photo); return; }
       const detail = body && typeof body === 'object' && 'detail' in body ? (body as { detail?: unknown }).detail : null;
-      reject(new Error(typeof detail === 'string' ? detail : `Upload failed with ${xhr.status}.`));
+      const message = detail === 'preview_storage_full'
+        ? 'Photo storage is full. Free space or increase the photo storage limit, then retry.'
+        : detail === 'preview_storage_busy'
+          ? 'Another copy of this photo is still being prepared. Retry in a moment.'
+          : typeof detail === 'string' ? detail : `Upload failed with ${xhr.status}.`;
+      reject(new Error(message));
     };
     xhr.send(file);
   });

@@ -46,9 +46,12 @@ class EnvSettings(BaseSettings):
     remote_stream_refresh_margin_seconds: int = 60
     remote_stream_cache_dirname: str = "stream-cache"
     remote_stream_cache_max_bytes_global: int = 20 * 1024 * 1024 * 1024
-    # Disposable 400/1200/2400px photo renditions. Originals are never counted
-    # or evicted; missing renditions are regenerated on demand.
-    photo_derivative_cache_max_bytes: int = Field(default=20 * 1024 * 1024 * 1024, ge=0)
+    # Durable 400/1200/2400px photo previews. The historical variable name is
+    # retained for upgrades; it is now an admission quota, never an eviction cap.
+    photo_derivative_cache_max_bytes: int = Field(default=0, ge=0)
+    photo_preview_min_free_bytes: int = Field(default=1024 * 1024 * 1024, ge=0)
+    # Soft resident graph-cache budget; one large active owner can exceed it.
+    photo_face_index_cache_max_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=32 * 1024 * 1024)
 
     @model_validator(mode="after")
     def validate_photo_derivative_cache(self) -> EnvSettings:

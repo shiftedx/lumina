@@ -52,6 +52,13 @@ face can also be named manually. Names and corrections are owner-scoped; other m
 viewing a shared photograph do not receive your face measurements or private identity
 labels. Choosing a person opens the matching photo filter.
 
+Matching searches local owner-specific indexes covering older photographs as well
+as recent additions. SQLite retains the measurements and transactional changes;
+checksummed graph files under `app-data/face-index/` accelerate restart and can be
+rebuilt from the database. `LUMINA_PHOTO_FACE_INDEX_CACHE_MAX_BYTES` sets a soft
+resident-cache budget across owners (2 GiB by default). Construction and checkpoint
+buffers require additional memory, and one active owner may exceed that budget.
+
 Turning analysis off stops new work. **Delete face data** removes your measurements,
 groups, names, and analysis history while keeping the photographs. Face recognition is
 probabilistic; matching thresholds have not been qualified against a household accuracy
@@ -61,16 +68,23 @@ are recorded in the [research note](research/image-face-recognition-2026-10-24.m
 ## Storage and backup
 
 Uploaded originals live under `app-data/photos/originals/`; NAS originals remain in their
-registered roots. Photo previews are disposable and regenerate after eviction. Their
-cache budget is configured with `LUMINA_PHOTO_DERIVATIVE_CACHE_MAX_BYTES` (20 GiB by default).
+registered roots. Catalog-backed previews remain in durable storage across restarts.
+`LUMINA_PHOTO_DERIVATIVE_CACHE_MAX_BYTES` retains its historical name but now sets
+an admission quota (unlimited by default). Reaching or lowering it never evicts
+referenced previews: uploads return a retryable storage error and folder scans
+wait at their committed cursor until capacity returns. `LUMINA_PHOTO_PREVIEW_MIN_FREE_BYTES`
+reserves disk headroom before decoding; its default is 1 GiB.
 
 Lumina's built-in database backup does **not** include photo files. Back up the database
 and managed originals together, and protect the external photo roots separately. A stopped
 server/full-volume snapshot is the simplest consistent backup. For an online backup, take
 the database snapshot before copying immutable managed originals; keep the database's
 existing server-key/restore requirements from the [operator guide](../docker/README.md).
-Do not treat a copy of the derivative cache as a backup of the photographs.
+Include `photos/derivatives/` in the same backup to avoid rebuilding previews after
+restore. Previews retain less detail than originals and cannot replace their backup.
 
 The implementation and its local 100,000-row catalog measurements are documented in
 [ADR 0032](adr/0032-owned-photo-catalog-and-local-person-index.md) and the
-[pipeline research](research/image-pipeline-2026-10-24.md).
+[pipeline research](research/image-pipeline-2026-10-24.md). The
+[scale measurements](performance/photo-scale-2026-10-24.md) separately cover
+three-million-row preview accounting and synthetic million-face lookup/restart.

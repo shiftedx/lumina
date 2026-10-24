@@ -470,7 +470,7 @@ class NativeProofJourney: XCTestCase {
 
         #endif
         if requiresCompatibleAudio {
-            try revealMusicControl(element("audioPlaybackMethod"))
+            try waitForExistence(element("audioPlaybackMethod"), timeout: 15, named: "compatible audio playback method")
             XCTAssertEqual(element("audioPlaybackMethod").label, "Compatible audio")
             XCTAssertFalse(element("replayButton").exists, "A rejected source must not be reported as completed.")
             try revealMusicControl(element("audioLyrics"))
@@ -4034,7 +4034,7 @@ class NativeProofJourney: XCTestCase {
         usernameField.typeText("\n")
         try waitForExistence(passwordField, timeout: 10, named: "password field after Next")
         passwordField.typeText(fixture.password)
-        passwordField.typeText("\n")
+        try activate(element("connectButton"))
         #else
         try enter(fixture.serverURL, into: serverField)
         try enter(fixture.username, into: usernameField)

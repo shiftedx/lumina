@@ -102,3 +102,49 @@ What to Test notes. Native settings persistence and nested TV Back passed simula
 workflows on TV and a standard iPhone. Duo and physical 4K/HDR/HDMI/audio
 qualification remain incomplete; see [verification](verification.md). Use the
 matching updated server for the native library index and playback policy changes.
+
+### Internal dogfood package 13, 2026-10-24
+
+Version **0.1.0 (13)** is packaged for iOS and tvOS in ignored
+`apple/Distribution/0.1.0-13/`. Both signed IPAs and signed Organizer archives
+passed distribution validation, including matching executable/debug-symbol UUIDs.
+The packages use **TestFlight Internal Only** and retain build 13.
+
+Xcode Organizer confirmed **iOS 0.1.0 (13) uploaded to Apple**. Processing and
+Device Testing group assignment have not been verified. **tvOS is staged locally
+and has not been uploaded**; the user will distribute it. Select the signed
+`Lumina-tvOS-Organizer.xcarchive` to upload. Do not upload the iOS package again.
+
+This package includes the unified native masthead, expanded Home hero, video
+control positioning/dismissal, music playback recovery, lyrics and native music
+navigation/layout fixes. The iOS reader defaults to consecutive two-page spreads
+on open/wide displays and one page on the closed screen, with native artwork page
+curl. Focused Core and native simulator workflows passed, including reader
+turn/cancel/zoom/restore and music format recovery. The full repository check
+retains nine existing web test failures in `LuminaKeyboard.test.tsx` and
+`v1_home.test.tsx`; backend, web typecheck, build and style passed. Physical-device
+household formats/output remain to be qualified.
+
+The release directory contains source-input hashes, the included working-tree
+patch, per-platform upload status, signed IPA hashes and What to Test notes.
+
+### Internal dogfood package 14, 2026-10-24
+
+Version **0.1.0 (14)** is packaged for **iOS only** in ignored
+`apple/Distribution/0.1.0-14/`. tvOS is deferred at the user's request for
+UI/alignment dogfooding. The signed IPA and `Lumina-iOS-Organizer.xcarchive`
+passed local distribution-signature, identity, privacy, artwork and matching
+executable/debug-symbol checks. Xcode's Apple validation succeeded.
+
+The packaging interaction exported locally and staged the signed archive.
+Subsequent Xcode logs independently confirm **upload succeeded** for iOS build 14;
+processing and tester/group assignment have not been verified. The unsigned
+source archive is labeled “UNSIGNED source — do not distribute” in Organizer.
+
+This build includes the expanded Home photo hero, Home category routing to the
+full Library, wider category scrolling, genre header clearance, and poster
+carousels/catalogs that extend beneath Liquid Glass navigation. Focused native
+workflows passed on open and closed Duo displays. The full repository gate
+retains nine existing web failures; backend and frontend typecheck/build/style
+passed. Physical device formats/output require dogfooding. The package retains
+source-input hashes, the working-tree patch, IPA hashes and What to Test notes.

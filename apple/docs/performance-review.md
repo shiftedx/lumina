@@ -357,6 +357,41 @@ The 2026-10-21 follow-up replaces full-resolution image construction with off-ma
 
 Remaining qualification: trace real-device body invalidation, image requests, main-thread work and hitches during resize/scroll. The host microbenchmark does not establish those device results or total process memory.
 
+#### Large-library artwork retention (2026-10-24)
+
+Native artwork now uses one session-private cache across grid cards, album heroes,
+playback artwork, track labels and cast portraits. The existing decoded tier targets
+64 MiB / 80 images. A second compressed tier targets 32 MiB / 2,000 renditions so
+returning to an evicted decoded image can prepare it again without another request.
+Both tiers retain complete signed rendition URL keys, clear on member/session changes,
+and remain in process memory; this adds no persistent disk cache. Image preparation
+stays off the main actor and retains the 12 MiB encoded / 1,920-pixel input limits.
+The shared transport rejects oversized declared responses before receiving the body
+and cancels unknown-length responses as soon as streamed bytes exceed the limit.
+
+Video and music grids nominate only the next 16 artwork renditions. One utility
+worker shares a four-load speculative budget across successive windows; new windows
+replace queued stale work. Visible and prefetched requests coalesce, and a remounted
+view can read a decoded hit synchronously without flashing its placeholder.
+
+`BillboardArtworkPreparationTests` reproduces the evicted-rendition re-fetch before
+the change and retains compressed-budget, member clearing, signed-tag separation,
+in-flight cancellation, lookahead readiness and overlapping-window limits.
+
+The updated `scripts/benchmark_artwork_preparation.swift` compares compressed retention
+with retention disabled, forcing the decoded tier to evict the same 400 × 600 JPEG.
+Across five alternating runs with a synthetic 100 ms URLProtocol delay, median return
+latency was **108.981 ms without compressed retention versus 0.657 ms with it**;
+additional requests were **5 versus 0**. This isolates cache-return work on the host;
+it does not establish device scrolling FPS, cold-image latency or behavior under real
+memory pressure. Run from `apple/`:
+
+```sh
+mise exec -- swiftc -swift-version 6 -O Core/Sources/LuminaCore/BillboardArtworkPreparation.swift Core/Sources/LuminaCore/ArtworkImageCache.swift scripts/benchmark_artwork_preparation.swift -o /tmp/lumina-artwork-benchmark
+mise exec -- ../scripts/with-lock.sh /tmp/lumina-perf.lock 1800 /tmp/lumina-artwork-benchmark
+mise exec -- swift test --package-path Core --filter BillboardArtworkPreparationTests
+```
+
 ### 5. Home loading — concurrent in the Home follow-up
 
 Source: `Core/Sources/LuminaCore/LuminaStore.swift:190` and `:195`.

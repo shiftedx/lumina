@@ -20,7 +20,6 @@ struct MobileRootView: View {
                 LibraryShellView(store: store)
             }
         }
-        .tint(LuminaTheme.gold)
         .foregroundStyle(LuminaTheme.ink)
         .background(LuminaTheme.paper.ignoresSafeArea())
         .environment(audioSession)
@@ -242,31 +241,30 @@ private struct LibraryShellView: View {
     @State private var homeLayout = LuminaHomeLayout()
     @State private var homeFeed = LuminaHomeFeed(includesExternalSources: true)
     @State private var homeSessionScope: MobileHomeSessionScope?
-    @Environment(\.horizontalSizeClass) private var widthClass
 
     var body: some View {
         // TabView is system managed, so iPhone Duo can relocate it to the
         // appropriate edge without a second app-made sidebar duplicating it.
-        destinations
+        GeometryReader { geometry in
+            destinations(categoryBarWidth: min(560, max(100, geometry.size.width - 180)))
+        }
         .task(id: MobileHomeSessionScope(store.session)) {
             let scope = MobileHomeSessionScope(store.session)
             homeLayout.configure(session: store.session)
             homeFeed.configure(session: store.session)
             homeSessionScope = scope
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if widthClass == .regular {
-                NativeNowPlayingBar(store: store)
-            }
-        }
     }
 
-    private var destinations: some View {
+    private func destinations(categoryBarWidth: CGFloat) -> some View {
         TabView(selection: $destination) {
             Tab("Home", image: "LuminaNavHome", value: .home) {
                 destinationStack {
                     if homeSessionScope == MobileHomeSessionScope(store.session) {
-                        HomeLibraryView(store: store, homeLayout: homeLayout, feed: homeFeed)
+                        HomeLibraryView(store: store, homeLayout: homeLayout, feed: homeFeed, categoryBarWidth: categoryBarWidth) { selected in
+                            category = selected
+                            destination = .library
+                        }
                     } else {
                         ProgressView("Loading Home…")
                     }
@@ -275,7 +273,22 @@ private struct LibraryShellView: View {
             Tab("Library", image: "LuminaNavLibrary", value: .library) {
                 destinationStack {
                     libraryContent
-                        .safeAreaInset(edge: .top, spacing: 0) { libraryCategories }
+                        .toolbarBackground(.hidden, for: .navigationBar)
+                        .toolbar {
+                            ToolbarItem(placement: .principal) {
+                                libraryCategories.frame(width: categoryBarWidth)
+                            }
+                            if #available(iOS 26.0, *) {
+                                ToolbarItem(placement: .topBarLeading) {
+                                    HomeHeroChrome().fixedSize()
+                                }
+                                .sharedBackgroundVisibility(.hidden)
+                            } else {
+                                ToolbarItem(placement: .topBarLeading) {
+                                    HomeHeroChrome().fixedSize()
+                                }
+                            }
+                        }
                 }
             }
             Tab("Requests", image: "LuminaNavRequests", value: .requests) {
@@ -290,6 +303,7 @@ private struct LibraryShellView: View {
                 destinationStack { NativeAccountSettingsView(store: store) }
             }
         }
+        .tint(LuminaTheme.gold)
     }
 
     @ViewBuilder private var libraryContent: some View {
@@ -307,38 +321,27 @@ private struct LibraryShellView: View {
     }
 
     private var libraryCategories: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 26) {
-                ForEach(LibraryCategory.allCases, id: \.self) { value in
-                    Button {
-                        category = value
-                    } label: {
-                        Text(value.title)
-                            .font(.subheadline.weight(category == value ? .bold : .medium))
-                            .foregroundStyle(category == value ? LuminaTheme.ink : LuminaTheme.muted)
-                            .padding(.vertical, 13)
-                            .overlay(alignment: .bottom) {
-                                if category == value {
-                                    Capsule().fill(LuminaTheme.gold).frame(height: 2)
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(category == value ? .isSelected : [])
-                    .accessibilityIdentifier("libraryCategory-\(value.rawValue)")
+        LuminaCategoryBar(selection: category.rawValue) {
+            ForEach(LibraryCategory.allCases, id: \.self) { value in
+                Button {
+                    category = value
+                } label: {
+                    Text(value.title)
                 }
+                .buttonStyle(LuminaUnderlineTabStyle(selected: category == value, alignsWithMasthead: true))
+                .accessibilityValue(category == value ? "Selected" : "")
+                .accessibilityAddTraits(category == value ? .isSelected : [])
+                .accessibilityIdentifier("libraryCategory-\(value.rawValue)")
+                .id(value.rawValue)
             }
-            .padding(.horizontal, 20)
         }
-        .scrollIndicators(.hidden)
-        .background(LuminaTheme.paper)
         .accessibilityIdentifier("libraryCategories")
     }
 
     private func destinationStack<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         NavigationStack {
             content()
-                .safeAreaInset(edge: .bottom, spacing: 0) { compactPlayerBar }
+                .safeAreaInset(edge: .bottom, spacing: 0) { playerBar }
                 .navigationDestination(for: MediaItem.self) { item in
                     Group {
                         if item.type == "MusicAlbum" || item.type == "MusicArtist" {
@@ -350,16 +353,14 @@ private struct LibraryShellView: View {
                         }
                     }
                     .toolbarVisibility(.visible, for: .navigationBar)
-                    .safeAreaInset(edge: .bottom, spacing: 0) { compactPlayerBar }
+                    .safeAreaInset(edge: .bottom, spacing: 0) { playerBar }
                 }
         }
+        .tint(nil)
     }
 
-    @ViewBuilder
-    private var compactPlayerBar: some View {
-        if widthClass != .regular {
-            NativeNowPlayingBar(store: store)
-        }
+    private var playerBar: some View {
+        NativeNowPlayingBar(store: store)
     }
 }
 
@@ -381,20 +382,21 @@ private struct HomeLibraryView: View {
     let store: LuminaStore
     let homeLayout: LuminaHomeLayout
     let feed: LuminaHomeFeed
+    let categoryBarWidth: CGFloat
+    let onOpenLibrary: (LibraryCategory) -> Void
     @State private var completedInitialHomeLoad = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(NativeAudioSession.self) private var audioSession
     @State private var category: HomeBrowseCategory = .all
-    @State private var genre: String?
     @State private var compactHeader = false
+    @State private var scrollPosition = ScrollPosition(edge: .top)
 
     private var refinement: HomeRefinementResult {
-        feed.refined(HomeRefinement(category: category, genre: genre), heroItems: store.featuredItems)
+        feed.refined(HomeRefinement(category: category), heroItems: store.featuredItems)
     }
 
     private func refinedItems(_ items: [MediaItem]) -> [MediaItem] {
-        // The feed result uses the same membership and genre rules for every surface.
-        feed.refined(HomeRefinement(category: category, genre: genre), heroItems: items).items
+        feed.refined(HomeRefinement(category: category), heroItems: items).items
     }
 
 
@@ -407,21 +409,21 @@ private struct HomeLibraryView: View {
         GeometryReader { geometry in
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                HomeBrowsingRow(category: $category, genre: $genre, genres: snapshot.genres)
                 if !snapshot.items.isEmpty {
                     LibraryFeaturedView(store: store, items: snapshot.items,
-                        compactMinimumHeight: min(360, max(260, geometry.size.height * 0.52)),
-                        wideMinimumHeight: min(380, max(240, geometry.size.height * 0.56)),
+                        compactMinimumHeight: max(460, geometry.size.height * 0.78),
+                        wideMinimumHeight: min(720, max(540, geometry.size.height * 0.78)),
+                        topContentClearance: geometry.safeAreaInsets.top + 32,
                         onWatchlistChanged: { await feed.load() })
                         .padding(.horizontal, -20)
                 }
                 ForEach(shelves.filter(\.visible)) { shelf in
                     homeShelf(shelf.id, rows: snapshot.rows)
                 }
-                if (category != .all || genre != nil), snapshot.items.isEmpty,
+                if category != .all, snapshot.items.isEmpty,
                    !snapshot.rows.contains(where: \.hasItems), feed.hasLoaded {
                     ContentUnavailableView("No matches on Home", systemImage: "line.3.horizontal.decrease",
-                        description: Text("Try another category or genre."))
+                        description: Text("Choose All or add something to your watchlist."))
                 }
                 if store.isHomeBusy || store.isBusy {
                     ProgressView("Loading your library…")
@@ -435,20 +437,32 @@ private struct HomeLibraryView: View {
                     InlineErrorView(message: message) { Task { await store.loadHome() } }
                 }
             }
-            .padding(20)
-            .frame(maxWidth: 1200)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
             .frame(maxWidth: .infinity)
         }
+        .ignoresSafeArea(edges: snapshot.items.isEmpty ? [] : .top)
+        .modifier(HomeHeroScrollEdge(isEnabled: !snapshot.items.isEmpty))
         .scrollClipDisabled()
+        .scrollPosition($scrollPosition)
+        .onChange(of: category) { _, _ in
+            scrollPosition.scrollTo(edge: .top)
+        }
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top > 80
         } action: { _, scrolled in compactHeader = scrolled }
         }
 
+        .navigationBarTitleDisplayMode(.inline)
         .background(LuminaTheme.paper)
         .toolbarVisibility(.visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(snapshot.items.isEmpty ? nil : .dark, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                HomeBrowsingRow(category: category, onSelect: selectCategory)
+                    .frame(width: categoryBarWidth)
+            }
             if #available(iOS 26.0, *) {
                 ToolbarItem(placement: .topBarLeading) {
                     HomeHeroChrome(compact: compactHeader).fixedSize()
@@ -496,6 +510,18 @@ private struct HomeLibraryView: View {
             if phase == .active { refreshHomeRowsAfterInitialLoad() }
         }
         .onAppear { refreshHomeRowsAfterInitialLoad() }
+    }
+
+    private func selectCategory(_ selected: HomeBrowsingDestination) {
+        switch selected {
+        case .movies: onOpenLibrary(.movies)
+        case .tv: onOpenLibrary(.tv)
+        case .anime: onOpenLibrary(.anime)
+        case .music: onOpenLibrary(.music)
+        case .books: onOpenLibrary(.books)
+        case .all: category = .all
+        case .watchlist: category = .watchlist
+        }
     }
 
     private func refreshHomeRowsAfterInitialLoad() {
@@ -643,6 +669,7 @@ private struct HomeExternalRail: View {
                 .scrollTargetLayout()
             }
             .scrollTargetBehavior(.viewAligned)
+            .modifier(LuminaCarouselEdges())
         }
     }
 }
@@ -791,6 +818,46 @@ private struct NativeHomeLayoutEditor: View {
     }
 }
 
+private struct HomeHeroScrollEdge: ViewModifier {
+    var isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.scrollEdgeEffectHidden(isEnabled, for: .top)
+        } else { content }
+    }
+}
+
+private struct VideoDetailChrome: ViewModifier {
+    var isEnabled = true
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content
+                .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                .modifier(HomeHeroScrollEdge(isEnabled: true))
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbar {
+                    if #available(iOS 26.0, *) {
+                        ToolbarItem(placement: .topBarLeading) {
+                            HomeHeroChrome().fixedSize()
+                        }
+                        .sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .topBarLeading) {
+                            HomeHeroChrome().fixedSize()
+                        }
+                    }
+                }
+        } else {
+            content
+        }
+    }
+}
+
 @MainActor
 private struct HomeHeroChrome: View {
     var compact = false
@@ -845,6 +912,7 @@ private struct VideoLibraryView: View {
     private enum PullIntent { case none, search, refresh }
 
     var body: some View {
+        GeometryReader { geometry in
         ScrollViewReader { scrollProxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
@@ -858,7 +926,9 @@ private struct VideoLibraryView: View {
                             }
                             .buttonStyle(.plain)
                             .font(.body)
+                            .accessibilityIdentifier("videoSearchCancelButton")
                         }
+                        .padding(.trailing, geometry.safeAreaInsets.trailing)
                         .frame(height: 56)
                     }
 
@@ -915,8 +985,7 @@ private struct VideoLibraryView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 28)
-                .frame(maxWidth: 1200)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .overlay(alignment: .trailing) {
                 if isAlphabetRailAvailable && alphabetRailVisible && !usesAlphabetMenu {
@@ -932,6 +1001,7 @@ private struct VideoLibraryView: View {
                 }
             }
             .background(LuminaTheme.paper)
+            .ignoresSafeArea(.container, edges: .horizontal)
             .accessibilityIdentifier("libraryScreen")
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -983,7 +1053,7 @@ private struct VideoLibraryView: View {
                     .presentationDragIndicator(.visible)
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Search video", systemImage: "magnifyingglass") { searchVisible = true }
                         .accessibilityIdentifier("videoSearchButton")
                 }
@@ -1023,6 +1093,7 @@ private struct VideoLibraryView: View {
             .task {
                 await loadInitialContent()
             }
+        }
         }
     }
 
@@ -1283,7 +1354,6 @@ private struct VideoFilterSheet: View {
                 favoritesOnly = filters.favoritesOnly
             }
         }
-        .tint(LuminaTheme.gold)
         .presentationDetents([.large])
         .accessibilityIdentifier("videoFiltersSheet")
     }
@@ -1407,6 +1477,7 @@ private struct VideoCollectionView: View {
                             .scrollTargetLayout()
                         }
                         .scrollTargetBehavior(.viewAligned)
+                        .modifier(LuminaCarouselEdges())
                     }
                 }
                 NativeTitleSupplement(item: detailItem ?? item, store: store)
@@ -1417,8 +1488,8 @@ private struct VideoCollectionView: View {
             .frame(maxWidth: .infinity)
         }
         .background(LuminaTheme.paper)
-        .navigationTitle(item.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .modifier(VideoDetailChrome())
+        .scrollClipDisabled()
         .accessibilityIdentifier("videoCollectionScreen")
         .task(id: item.id) { await load() }
         .refreshable { await load() }
@@ -1585,23 +1656,24 @@ private struct AudioLibraryView: View {
     @State private var kind: MusicBrowseKind = .albums
     @State private var searchText = ""
 
+    private var featuredAlbum: MediaItem? {
+        guard kind == .albums, searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return store.audioItems.first { $0.type == "MusicAlbum" }
+    }
+
     var body: some View {
+        GeometryReader { geometry in
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if kind == .albums, let album = store.audioItems.first(where: { $0.type == "MusicAlbum" }) {
+                if let album = featuredAlbum {
                     NavigationLink(value: album) {
-                        MusicCollectionSpotlight(item: album, store: store)
+                        MusicCollectionSpotlight(item: album, store: store,
+                            minimumHeight: min(680, max(360, geometry.size.height * 0.78)),
+                            topContentClearance: geometry.safeAreaInsets.top)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("audioFeaturedAlbum")
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Your listening room")
-                            .font(LuminaTheme.editorial(34, relativeTo: .largeTitle, italic: true))
-                            .accessibilityAddTraits(.isHeader)
-                        Text("Albums to return to. Artists to spend time with.")
-                            .foregroundStyle(LuminaTheme.muted)
-                    }
+                    .padding(.horizontal, -20)
                 }
                 if let message = store.errorMessage {
                     InlineErrorView(message: message) { Task { await load() } }
@@ -1636,13 +1708,18 @@ private struct AudioLibraryView: View {
                     }
                 }
             }
-            .padding(20)
-            .frame(maxWidth: 1200)
+            .padding(.horizontal, 20)
+            .padding(.top, featuredAlbum == nil ? 20 : 0)
+            .padding(.bottom, 28)
             .frame(maxWidth: .infinity)
         }
         .background(LuminaTheme.paper)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .ignoresSafeArea(.container, edges: featuredAlbum == nil ? .horizontal : [.top, .horizontal])
+        .modifier(HomeHeroScrollEdge(isEnabled: featuredAlbum != nil))
+        .scrollClipDisabled()
+        .toolbarColorScheme(featuredAlbum == nil ? nil : .dark, for: .navigationBar)
         .accessibilityIdentifier("audioScreen")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -1669,6 +1746,7 @@ private struct AudioLibraryView: View {
         .onChange(of: searchText) { if searchText.isEmpty { Task { await load() } } }
         .task(id: kind) { await load() }
         .refreshable { await load() }
+        }
     }
 
     private func load() async {
@@ -1721,10 +1799,8 @@ private struct MusicCollectionView: View {
         .accessibilityIdentifier("musicCollectionScreen")
         .task(id: item.id) { await load() }
         .refreshable { await load() }
-        .fullScreenCover(isPresented: Binding(get: { albumPlayback != nil }, set: { if !$0 { albumPlayback = nil } }), onDismiss: {
+        .nativeAudioPlayer(playback: $albumPlayback, store: store) {
             Task { await store.refresh() }
-        }) {
-            if let albumPlayback { PlaybackScreen(playback: albumPlayback, store: store) }
         }
     }
 
@@ -1861,6 +1937,7 @@ private struct MusicGrid: View {
     let identifierPrefix: String
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.horizontalSizeClass) private var widthClass
+    @State private var lastVisibleItemID: String?
 
     private var columns: [GridItem] {
         if dynamicTypeSize.isAccessibilitySize { return libraryGridColumns(for: dynamicTypeSize) }
@@ -1878,7 +1955,11 @@ private struct MusicGrid: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(mediaAccessibilityLabel(for: item))
                 .accessibilityIdentifier("\(identifierPrefix)-\(item.id)")
+                .onAppear { lastVisibleItemID = item.id }
             }
+        }
+        .task(id: lastVisibleItemID, priority: .utility) {
+            await store.prefetchArtwork(after: lastVisibleItemID, in: items)
         }
     }
 }
@@ -1926,7 +2007,8 @@ private struct LibraryFeaturedView: View {
     let store: LuminaStore
     var items: [MediaItem]? = nil
     var compactMinimumHeight: CGFloat? = 320
-    var wideMinimumHeight: CGFloat? = 360
+    var wideMinimumHeight: CGFloat? = 540
+    var topContentClearance: CGFloat = 0
     var onWatchlistChanged: @MainActor () async -> Void = {}
 
     @State private var request: PlaybackRequest?
@@ -1947,6 +2029,7 @@ private struct LibraryFeaturedView: View {
             showsProgress: false,
             compactMinimumHeight: compactMinimumHeight,
             wideMinimumHeight: wideMinimumHeight,
+            topContentClearance: topContentClearance,
             onOpen: { detailItem = $0 }
         ) { item in
             VStack(alignment: .leading, spacing: 12) {
@@ -1966,10 +2049,8 @@ private struct LibraryFeaturedView: View {
             }
         }
         .onScrollVisibilityChange(threshold: 0.2) { heroIsVisible = $0 }
-        .fullScreenCover(item: $request, onDismiss: {
+        .nativePlayback(request: $request, store: store) {
             Task { await store.refresh() }
-        }) { request in
-            PlaybackScreen(request: request, store: store)
         }
         .navigationDestination(item: $detailItem) { item in
             TitleDetailView(item: item, store: store)
@@ -2022,11 +2103,15 @@ private struct VideoPosterWall: View {
     @ScaledMetric(relativeTo: .body) private var minimumPosterWidth: CGFloat = 128
     @ScaledMetric(relativeTo: .body) private var posterGap: CGFloat = 10
     @State private var availableWidth: CGFloat = 0
+    @State private var lastVisibleItemID: String?
 
     var body: some View {
         wall(width: availableWidth)
             .frame(maxWidth: .infinity, alignment: .leading)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
+            .task(id: lastVisibleItemID, priority: .utility) {
+                await store.prefetchArtwork(after: lastVisibleItemID, in: items)
+            }
     }
 
     @ViewBuilder
@@ -2070,6 +2155,7 @@ private struct VideoPosterWall: View {
         .accessibilityIdentifier("libraryItem-\(item.id)")
         .id(item.id)
         .onAppear {
+            lastVisibleItemID = item.id
             if store.hasMore && item.id == items.suffix(6).first?.id {
                 Task { await store.loadMore() }
             }
@@ -2129,9 +2215,10 @@ private struct MediaRail: View {
                     }
                 }
                 .scrollTargetLayout()
-                .padding(.horizontal, 1)
             }
             .scrollTargetBehavior(.viewAligned)
+            .modifier(LuminaCarouselEdges())
+            .accessibilityIdentifier("mediaRail-\(identifierPrefix)")
         }
     }
 
@@ -2340,7 +2427,7 @@ private struct NativeTitleSupplement: View {
                         LazyHStack(alignment: .top, spacing: 16) {
                             ForEach(Array(cast.enumerated()), id: \.offset) { _, person in
                                 VStack(alignment: .leading, spacing: 8) {
-                                    AsyncImage(url: store.personImageURL(for: person)) { image in
+                                    CachedArtworkImage(url: store.personImageURL(for: person)) { image in
                                         image.resizable().scaledToFill()
                                     } placeholder: {
                                         LuminaTheme.ink.opacity(0.06)
@@ -2359,6 +2446,7 @@ private struct NativeTitleSupplement: View {
                             }
                         }
                     }
+                    .modifier(LuminaCarouselEdges())
                 }
                 .accessibilityIdentifier("detailCastSection")
             }
@@ -2397,7 +2485,7 @@ private struct TitleDetailView: View {
             VStack(alignment: .leading, spacing: 24) {
                 detailHeader
                     .padding(.horizontal, -20)
-                    .padding(.top, -20)
+                    .padding(.top, currentItem.isAudio ? -20 : 0)
 
                 VStack(alignment: .leading, spacing: 20) {
                     if let stateError {
@@ -2431,7 +2519,9 @@ private struct TitleDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(LuminaTheme.paper)
+        .scrollClipDisabled()
         .accessibilityIdentifier("detailScreen")
+        .modifier(VideoDetailChrome(isEnabled: !currentItem.isAudio))
         .toolbar {
             if !currentItem.isAudio {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -2440,13 +2530,11 @@ private struct TitleDetailView: View {
             }
         }
         .task(id: item.id) { await refreshItem() }
-        .fullScreenCover(item: $playbackRequest, onDismiss: {
+        .nativePlayback(request: $playbackRequest, store: store) {
             Task {
                 await store.refresh()
                 await refreshItem()
             }
-        }) { request in
-            PlaybackScreen(request: request, store: store)
         }
     }
 

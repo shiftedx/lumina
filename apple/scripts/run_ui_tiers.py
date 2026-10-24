@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import plistlib
 import signal
 import subprocess
 import sys
@@ -28,15 +29,28 @@ IOS_FULL = [
     "NativeAudioAlbumTrackPlaybackReportsProgressTests",
     "NativeNativePlaybackReportsResumeAndConversionProgressTests",
     "NativeNativeBooksReadTurnAndRestoreAllFormatsTests",
+    "NativeBookCurlTests",
+    "NativeHomeEmptyWatchlistLayoutTests",
+    "NativeHomeCarouselEdgeTests",
+    "NativeLibraryEdgeTests",
     "NativeDownloadedAudioPlaysFromLocalFilesTests",
+    "NativeAudioFormatRecoveryTests",
     "NativeMusicAdvancedControlsPausedRestoreAndQueueConflictTests",
     "NativeOriginalMKVReportsPeriodicProgressAndResumesTests",
     "NativeCompatibleHLSReplayRequestsFreshSessionTests",
 ]
 TVOS_FULL = [name for name in IOS_FULL if name not in {
     "NativeNativeBooksReadTurnAndRestoreAllFormatsTests",
+    "NativeBookCurlTests",
+    "NativeHomeEmptyWatchlistLayoutTests",
+    "NativeHomeCarouselEdgeTests",
+    "NativeLibraryEdgeTests",
     "NativeCompatibleHLSReplayRequestsFreshSessionTests",
-}]
+}] + ["NativeAudioAlbumPlayAfterUnavailableRestoreTests"]
+TEST_CASE_COUNTS = {
+    "NativeAudioAlbumTrackPlaybackReportsProgressTests": 2,
+    "NativeBookCurlTests": 2,
+}
 BUDGET = {"smoke": 600, "full": 2700}
 IOS_RUNTIME: str | None = None
 CANCELLED = threading.Event()
@@ -150,6 +164,10 @@ def split_shards(values: list[str], count: int = 2) -> list[list[str]]:
     return [values[index::count] for index in range(count)]
 
 
+def expected_case_count(selectors: list[str]) -> int:
+    return sum(TEST_CASE_COUNTS.get(selector.rsplit("/", 1)[-1], 1) for selector in selectors)
+
+
 def broker_config_path(output: Path, platform: str) -> Path:
     return output / f"{platform}-broker.json"
 
@@ -233,6 +251,49 @@ def xctestrun_path(derived: Path, scheme: str) -> Path:
     raise RuntimeError(f"expected one {scheme} xctestrun under {derived}, found {len(matching) or len(paths)}")
 
 
+def refresh_broker_fixture(xctestrun: Path, broker_file: Path) -> None:
+    """Copy a fresh broker into the UI bundle selected by an xctestrun file."""
+    if not broker_file.is_file():
+        raise RuntimeError("fixture broker configuration is missing")
+    try:
+        configuration = plistlib.loads(xctestrun.read_bytes())
+    except (OSError, plistlib.InvalidFileException) as error:
+        raise RuntimeError("could not read the xctestrun configuration") from error
+    targets = [target for name, target in configuration.items()
+               if name != "__xctestrun_metadata__" and isinstance(target, dict)
+               and target.get("IsUITestBundle")]
+    if len(targets) != 1:
+        raise RuntimeError("expected one UI test bundle in the xctestrun configuration")
+    target = targets[0]
+    host_path = target.get("TestHostPath")
+    bundle_path = target.get("TestBundlePath")
+    if not isinstance(host_path, str) or not isinstance(bundle_path, str):
+        raise RuntimeError("xctestrun is missing its UI test host or bundle path")
+    test_root = xctestrun.parent.resolve()
+    host = Path(host_path.replace("__TESTROOT__", str(test_root)))
+    bundle = Path(bundle_path.replace("__TESTROOT__", str(test_root)).replace("__TESTHOST__", str(host)))
+    if not bundle.is_relative_to(test_root):
+        raise RuntimeError("xctestrun UI test bundle is outside its build products")
+
+    environment = os.environ | {
+        "SRCROOT": str(APPLE),
+        "TARGET_BUILD_DIR": str(bundle.parent),
+        "UNLOCALIZED_RESOURCES_FOLDER_PATH": bundle.name,
+        "LUMINA_NATIVE_BROKER_FILE": str(broker_file),
+    }
+    copied = subprocess.run([str(APPLE / "scripts" / "copy_test_fixture.sh")], cwd=ROOT,
+                            text=True, capture_output=True, env=environment, check=False)
+    if copied.returncode:
+        raise RuntimeError("could not refresh the UI test fixture broker")
+    embedded = bundle / "FixtureBroker.json"
+    try:
+        matches = embedded.read_bytes() == broker_file.read_bytes()
+    except OSError as error:
+        raise RuntimeError("UI test bundle did not contain the refreshed fixture broker") from error
+    if not matches:
+        raise RuntimeError("UI test bundle fixture broker did not match the fresh broker")
+
+
 def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_file: Path, run_id: str,
                  derived_root: Path | None = None, cohort: threading.Barrier | None = None) -> dict[str, object]:
     scheme = f"Lumina-{platform}"
@@ -262,6 +323,7 @@ def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_fil
             return outcome
         check_cancelled()
         xctestrun = xctestrun_path(derived, scheme)
+        refresh_broker_fixture(xctestrun, broker_file)
         selected = selectors(platform, tier)
         shards = split_shards(selected)
         for index in range(repeat):
@@ -273,14 +335,15 @@ def one_platform(platform: str, tier: str, repeat: int, output: Path, broker_fil
             def run_shard(number: int) -> dict[str, object]:
                 result = output / f"{platform}-{tier}-{index + 1}-shard-{number + 1}.xcresult"
                 log = output / f"{platform}-{tier}-{index + 1}-shard-{number + 1}.log"
+                expected_count = expected_case_count(shards[number])
                 test = ["xcodebuild", "test-without-building", "-xctestrun", str(xctestrun),
                         "-destination", f"platform={platform} Simulator,id={simulators[number]}",
                         "-parallel-testing-enabled", "NO", "-collect-test-diagnostics", "never",
                         "-resultBundlePath", str(result), *shards[number]]
                 code, seconds, shard_started, shard_finished = run_xcode(test, log)
-                return {"shard": number + 1, "tests": len(shards[number]), "seconds": round(seconds, 3),
+                return {"shard": number + 1, "tests": expected_count, "seconds": round(seconds, 3),
                         "startedMonotonic": shard_started, "finishedMonotonic": shard_finished,
-                        "exit": code, "passed": code == 0 and result_ok(result, log, len(shards[number]))}
+                        "exit": code, "passed": code == 0 and result_ok(result, log, expected_count)}
             with ThreadPoolExecutor(max_workers=2) as pool:
                 shard_results = list(pool.map(run_shard, range(2)))
             outcome["tests"].append({"repeat": index + 1, "seconds": round(time.monotonic() - started, 3),

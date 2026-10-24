@@ -3,11 +3,11 @@ import Foundation
 import ImageIO
 
 // From apple/, compile with the production preparation code:
-// mise exec -- swiftc -swift-version 6 -O Core/Sources/LuminaCore/BillboardArtworkPreparation.swift scripts/benchmark_artwork_preparation.swift -o /tmp/lumina-artwork-benchmark
+// mise exec -- swiftc -swift-version 6 -O Core/Sources/LuminaCore/BillboardArtworkPreparation.swift Core/Sources/LuminaCore/ArtworkImageCache.swift scripts/benchmark_artwork_preparation.swift -o /tmp/lumina-artwork-benchmark
 // mise exec -- ../scripts/with-lock.sh /tmp/lumina-perf.lock 1800 /tmp/lumina-artwork-benchmark
 @main
 struct ArtworkPreparationBenchmark {
-    static func main() throws {
+    @MainActor static func main() async throws {
         let data = try sourceJPEG(width: 4_000, height: 3_000)
         let source = try fullResolutionImage(data)
         let prepared = try unwrap(BillboardArtworkPreparation.image(from: data))
@@ -30,6 +30,41 @@ struct ArtworkPreparationBenchmark {
         print("after samples ms=\(preparedTimes.map(milliseconds).joined(separator: ","))")
         print("before=\(source.width)x\(source.height); decoded RGBA bytes=\(rgbaBytes(source)); median decode ms=\(milliseconds(fullTimes.sorted()[2]))")
         print("after=\(prepared.width)x\(prepared.height); decoded RGBA bytes=\(rgbaBytes(prepared)); median prepare ms=\(milliseconds(preparedTimes.sorted()[2]))")
+        try await benchmarkLibraryReturns()
+
+    }
+
+    @MainActor private static func benchmarkLibraryReturns() async throws {
+        ArtworkDelayProtocol.artwork = try sourceJPEG(width: 400, height: 600)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ArtworkDelayProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let clock = ContinuousClock()
+        var before = [Double](), after = [Double]()
+        var beforeRequests = 0, afterRequests = 0
+        for run in 0..<5 {
+            for encodedBytes in run.isMultiple(of: 2) ? [0, ArtworkImageCache.defaultEncodedByteLimit] : [ArtworkImageCache.defaultEncodedByteLimit, 0] {
+                let cache = ArtworkImageCache(session: session, maximumDecodedBytes: 4,
+                    maximumEncodedBytes: encodedBytes)
+                let url = URL(string: "https://images.example/Items/\(run)-\(encodedBytes)/Images/Primary?tag=current")!
+                _ = try unwrap(await cache.image(for: url))
+                let requests = ArtworkDelayProtocol.requestCount
+                let start = clock.now
+                _ = try unwrap(await cache.image(for: url))
+                let elapsed = seconds(start.duration(to: clock.now))
+                if encodedBytes == 0 {
+                    before.append(elapsed)
+                    beforeRequests += ArtworkDelayProtocol.requestCount - requests
+                } else {
+                    after.append(elapsed)
+                    afterRequests += ArtworkDelayProtocol.requestCount - requests
+                }
+            }
+        }
+        print("library-return fixture=400x600 JPEG; encoded bytes=\(ArtworkDelayProtocol.artwork.count); network delay=100 ms; decoded residency forced off; runs=5")
+        print("without compressed cache: median return ms=\(milliseconds(before.sorted()[2])); additional requests=\(beforeRequests)")
+        print("with compressed cache: median return ms=\(milliseconds(after.sorted()[2])); additional requests=\(afterRequests)")
     }
 
     private static func sourceJPEG(width: Int, height: Int) throws -> Data {
@@ -71,4 +106,23 @@ struct ArtworkPreparationBenchmark {
     private static func unwrap<T>(_ value: T?) throws -> T { guard let value else { throw BenchmarkError.image }; return value }
 
     private enum BenchmarkError: Error { case image }
+}
+
+private final class ArtworkDelayProtocol: URLProtocol {
+    nonisolated(unsafe) static var artwork = Data()
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var count = 0
+    static var requestCount: Int { lock.withLock { count } }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Thread.sleep(forTimeInterval: 0.1)
+        Self.lock.withLock { Self.count += 1 }
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.artwork)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

@@ -2,6 +2,48 @@ import SwiftUI
 import LuminaCore
 import UIKit
 
+/// Presents decoded artwork from Lumina's process cache and keeps loading work tied to the URL.
+/// A remounted cell can synchronously reuse its decoded image instead of flashing its placeholder.
+@MainActor
+struct CachedArtworkImage<Content: View, Placeholder: View>: View {
+    let url: URL?
+    @ViewBuilder let content: (Image) -> Content
+    @ViewBuilder let placeholder: () -> Placeholder
+    @State private var source: UIImage?
+    @State private var loadedURL: URL?
+
+    private var displayedSource: UIImage? {
+        if loadedURL == url, let source { return source }
+        guard let url, let image = ArtworkImageCache.shared.cachedImage(for: url) else { return nil }
+        return UIImage(cgImage: image)
+    }
+
+    var body: some View {
+        Group {
+            if let displayedSource {
+                content(Image(uiImage: displayedSource))
+            } else {
+                placeholder()
+            }
+        }
+        .task(id: url) {
+            guard let url else {
+                source = nil
+                loadedURL = nil
+                return
+            }
+            if let cached = ArtworkImageCache.shared.cachedImage(for: url) {
+                source = UIImage(cgImage: cached)
+                loadedURL = url
+                return
+            }
+            guard let image = await ArtworkImageCache.shared.image(for: url), !Task.isCancelled else { return }
+            source = UIImage(cgImage: image)
+            loadedURL = url
+        }
+    }
+}
+
 /// Catalog heroes use the same static crop as library billboards on both platforms.
 @MainActor
 struct SubjectAwareArtwork: View {

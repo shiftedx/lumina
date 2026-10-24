@@ -80,6 +80,7 @@ struct NativeBooksView: View {
                                     }
                                 }.padding(.horizontal, 4)
                             }.scrollIndicators(.hidden)
+                            .modifier(LuminaCarouselEdges(inset: horizontalSizeClass == .compact ? 16 : 28))
                         }
                         if let shelves = overview?.shelves, !shelves.isEmpty {
                             sectionTitle("Shelves")
@@ -98,6 +99,7 @@ struct NativeBooksView: View {
                                     }
                                 }.padding(.horizontal, 8).padding(.top, 12)
                             }.scrollIndicators(.hidden)
+                            .modifier(LuminaCarouselEdges(inset: horizontalSizeClass == .compact ? 16 : 28))
                         }
                         if !seriesItems.isEmpty {
                             sectionTitle("Manga series")
@@ -146,11 +148,12 @@ struct NativeBooksView: View {
                     }
                 }
             }
-            .frame(maxWidth: 1_000, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, horizontalSizeClass == .compact ? 16 : 28)
             .padding(.vertical, 18)
         }
+        .ignoresSafeArea(.container, edges: .horizontal)
+        .scrollClipDisabled()
         .background(LuminaTheme.paper.ignoresSafeArea())
         .navigationTitle(title)
         .toolbarVisibility(.visible, for: .navigationBar)

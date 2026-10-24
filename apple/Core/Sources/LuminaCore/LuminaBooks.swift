@@ -285,11 +285,16 @@ public actor BookPageWindow {
     }
 }
 
-/// Physical right is primary even in RTL locales. Artwork itself is never mirrored.
+/// Stable consecutive spreads: 1–2, 3–4, 5–6. Artwork is never mirrored.
 public enum BookSpread {
+    public static func start(current: Int) -> Int { max(0, current) / 2 * 2 }
+    public static func primary(current: Int, count: Int, rightToLeft: Bool) -> Int? {
+        let right = start(current: current) + (rightToLeft ? 0 : 1)
+        return (0..<count).contains(right) ? right : nil
+    }
     public static func companion(current: Int, count: Int, rightToLeft: Bool) -> Int? {
-        let other = current + (rightToLeft ? 1 : -1)
-        return (0..<count).contains(other) ? other : nil
+        let left = start(current: current) + (rightToLeft ? 1 : 0)
+        return (0..<count).contains(left) ? left : nil
     }
 }
 

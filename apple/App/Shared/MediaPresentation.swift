@@ -89,6 +89,7 @@ struct MediaBillboard<Actions: View>: View {
     var featured = false
     var compactMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat?
+    var topContentClearance: CGFloat = 0
     var onOpen: ((MediaItem) -> Void)? = nil
     /// tvOS Home uses the focused title as its single browse surface. Detail
     /// billboards leave this nil so their remote directions remain unchanged.
@@ -265,7 +266,7 @@ struct MediaBillboard<Actions: View>: View {
         #if os(tvOS)
         32
         #else
-        featured ? featureHeaderClearance : compact ? 88 : 32
+        featured ? max(featureHeaderClearance, topContentClearance) : compact ? 88 : 32
         #endif
     }
     private var labelSize: CGFloat {
@@ -321,23 +322,20 @@ struct MediaTitleArtwork<Fallback: View>: View {
     @ViewBuilder let fallback: Fallback
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            if let image = phase.image {
-                image
-                    .resizable()
-                    .renderingMode(.original)
-                    .scaledToFit()
-                    .frame(maxWidth: maximumWidth, maxHeight: maximumHeight, alignment: .leading)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityHidden(false)
-                    .accessibilityLabel(name)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier("titleLogoArtwork")
-            } else {
-                fallback
-            }
+        CachedArtworkImage(url: url) { image in
+            image
+                .resizable()
+                .renderingMode(.original)
+                .scaledToFit()
+                .frame(maxWidth: maximumWidth, maxHeight: maximumHeight, alignment: .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityHidden(false)
+                .accessibilityLabel(name)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("titleLogoArtwork")
+        } placeholder: {
+            fallback
         }
-        .id(url)
     }
 }
 
@@ -378,6 +376,7 @@ struct FeaturedShelf<Actions: View>: View {
     var showsProgress = true
     var compactMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat?
+    var topContentClearance: CGFloat = 0
     var onOpen: ((MediaItem) -> Void)? = nil
     /// An optional owner for the chosen hero. tvOS keeps this in its tab root
     /// so Back returns to the title the viewer last browsed; iOS keeps the
@@ -438,6 +437,7 @@ struct FeaturedShelf<Actions: View>: View {
                     featured: true,
                     compactMinimumHeight: compactMinimumHeight,
                     wideMinimumHeight: wideMinimumHeight,
+                    topContentClearance: topContentClearance,
                     onOpen: onOpen,
                     onBrowse: { direction in step(direction) }
                 ) {
@@ -649,121 +649,57 @@ private extension FocusedValues {
 }
 #endif
 
-/// The listening room starts with a record, using the same collection composition as the web.
+/// Album art leads the music library; its caption stays on the artwork.
 struct MusicCollectionSpotlight: View {
     let item: MediaItem
     let store: LuminaStore
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    #if !os(tvOS)
-    @State private var layoutWidth: CGFloat = 0
-    @ScaledMetric(relativeTo: .largeTitle) private var minimumWideWidth: CGFloat = 720
-    #endif
+    var minimumHeight: CGFloat = 460
+    var topContentClearance: CGFloat = 0
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        Group {
-            if wide {
-                HStack(alignment: .center, spacing: 64) {
-                    VStack(alignment: .leading, spacing: 18) {
-                        Text("Your collection").font(LuminaTheme.editorial(20, relativeTo: .body))
-                        Text("A room full\nof records")
-                            .font(LuminaTheme.editorial(displaySize, relativeTo: .largeTitle))
-                            .tracking(-1)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text("Pick a record from your library and settle into a listen.")
-                            .font(.body).foregroundStyle(LuminaTheme.muted)
-                            .frame(maxWidth: 360, alignment: .leading)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 14) {
-                        artwork.frame(width: coverSize)
-                        albumCopy
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                if !dynamicTypeSize.isAccessibilitySize {
-                    HStack(alignment: .center, spacing: 20) {
-                        artwork.frame(width: 132)
-                        albumCopy.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 20) {
-                        artwork.frame(maxWidth: 220)
-                        albumCopy
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 24)
-        .padding(.bottom, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(LuminaTheme.ink.opacity(0.18)).frame(height: 1)
-        }
-        .foregroundStyle(LuminaTheme.ink)
-        .multilineTextAlignment(.leading)
-        #if !os(tvOS)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { layoutWidth = $0 }
-        #endif
-    }
-
-    private var albumCopy: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !wide {
-                Text("From your library").font(.caption).foregroundStyle(LuminaTheme.muted)
-            }
             Text(item.name)
-                .font(LuminaTheme.editorial(wide ? 26 : 25, relativeTo: .title2))
+                .font(LuminaTheme.editorial(28, relativeTo: .title2))
                 .fixedSize(horizontal: false, vertical: true)
             if !item.displaySubtitle.isEmpty {
-                Text(item.displaySubtitle).font(.subheadline).foregroundStyle(LuminaTheme.muted)
+                Text(item.displaySubtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
             }
             Label("Open album", systemImage: "arrow.right")
-                .font(.caption.weight(.semibold)).foregroundStyle(LuminaTheme.gold)
-                .padding(.top, 6)
+                .font(.callout.weight(.semibold))
+                .padding(.top, 8)
         }
-    }
-
-    private var artwork: some View {
-        Rectangle().fill(LuminaTheme.ink.opacity(0.06))
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                GeometryReader { geometry in
-                    AsyncImage(url: store.imageURL(for: item, maxWidth: 760)) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        Image(systemName: "music.note").font(.largeTitle)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .foregroundStyle(LuminaTheme.muted)
+        .foregroundStyle(.white)
+        .multilineTextAlignment(.leading)
+        .padding(.horizontal, 24)
+        .padding(.top, topContentClearance + 32)
+        .padding(.bottom, 32)
+        .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .bottomLeading)
+        .background {
+            GeometryReader { geometry in
+                CachedArtworkImage(url: store.imageURL(for: item, maxWidth: 1920)) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    LuminaTheme.theater.overlay {
+                        Image(systemName: "music.note").font(.largeTitle).foregroundStyle(.white.opacity(0.5))
                     }
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .clipped()
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+                .overlay {
+                    LinearGradient(stops: [
+                        .init(color: .black.opacity(contrast == .increased ? 0.8 : 0.66), location: 0),
+                        .init(color: .black.opacity(contrast == .increased ? 0.7 : 0.6), location: 0.22),
+                        .init(color: .clear, location: 0.5),
+                        .init(color: .black.opacity(0.86), location: 1),
+                    ], startPoint: .top, endPoint: .bottom)
                 }
             }
-            .clipShape(.rect(cornerRadius: 12))
             .accessibilityHidden(true)
-    }
-    private var wide: Bool {
-        #if os(tvOS)
-        true
-        #else
-        layoutWidth >= minimumWideWidth && !dynamicTypeSize.isAccessibilitySize
-        #endif
-    }
-    private var displaySize: CGFloat {
-        #if os(tvOS)
-        64
-        #else
-        52
-        #endif
-    }
-    private var coverSize: CGFloat {
-        #if os(tvOS)
-        280
-        #else
-        240
-        #endif
+        }
     }
 }
 
@@ -802,6 +738,7 @@ private struct BillboardTitleButtonStyle: ButtonStyle {
 /// Category and section navigation uses one underline, without a button plate.
 struct LuminaUnderlineTabStyle: ButtonStyle {
     var selected = false
+    var alignsWithMasthead = false
     @Environment(\.isFocused) private var isFocused
     @Environment(\.isEnabled) private var isEnabled
 
@@ -812,6 +749,10 @@ struct LuminaUnderlineTabStyle: ButtonStyle {
             .frame(minWidth: 64, minHeight: 64)
             #else
             .font(.body.weight(.medium))
+            .offset(y: alignsWithMasthead
+                ? (UIFont.preferredFont(forTextStyle: .body).descender
+                    - UIFont.preferredFont(forTextStyle: .caption1).descender)
+                : 0)
             .frame(minWidth: 44, minHeight: 44)
             #endif
             .foregroundStyle(LuminaTheme.ink.opacity(selected || isFocused ? 1 : 0.8))
@@ -854,52 +795,104 @@ struct LuminaQuietActionStyle: ButtonStyle {
     }
 }
 
-/// Home refinements are transient; the member's saved shelf layout remains untouched.
-struct HomeBrowsingRow: View {
-    @Binding var category: HomeBrowseCategory
-    @Binding var genre: String?
-    let genres: [String]
+#if os(iOS)
+/// Cards keep their resting inset while their scroll viewport reaches the bezel.
+struct LuminaCarouselEdges: ViewModifier {
+    var inset: CGFloat = 20
+
+    func body(content: Content) -> some View {
+        content
+            .contentMargins(.horizontal, inset, for: .scrollContent)
+            .padding(.horizontal, -inset)
+            .ignoresSafeArea(.container, edges: .horizontal)
+            .scrollClipDisabled()
+    }
+}
+#endif
+
+/// Keeps short category menus centered and long menus reachable by scrolling.
+struct LuminaCategoryBar<Content: View>: View {
+    var selection: String? = nil
+    @ViewBuilder let content: Content
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 20) {
-                ForEach(HomeBrowseCategory.allCases, id: \.self) { option in
-                    Button { category = option } label: { Text(title(option)) }
-                        .buttonStyle(LuminaUnderlineTabStyle(selected: category == option))
-                        .accessibilityValue(category == option ? "Selected" : "")
-                        .accessibilityAddTraits(category == option ? .isSelected : [])
-                        .accessibilityIdentifier("homeBrowse-\(option.rawValue)")
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 20) {
+                    content
                 }
-                Menu {
-                    Button("All genres") { genre = nil }
-                    ForEach(genres, id: \.self) { value in
-                        Button { genre = value } label: {
-                            if genre == value { Label(value, systemImage: "checkmark") }
-                            else { Text(value) }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(genre ?? "Genres")
-                        Image(systemName: "chevron.down").font(.caption)
-                    }
-                }
-                .buttonStyle(LuminaUnderlineTabStyle(selected: genre != nil))
-                .accessibilityIdentifier("homeGenresMenu")
+                #if os(iOS)
+                .padding(.horizontal, 20)
+                #else
+                .padding(.horizontal, 2)
+                #endif
             }
-            .padding(.horizontal, 2)
+            #if os(iOS)
+            .defaultScrollAnchor(.center, for: .alignment)
+            .fixedSize(horizontal: false, vertical: true)
+            #else
+            .scrollClipDisabled()
+            #endif
+            .onAppear { revealSelection(using: proxy) }
+            .onChange(of: selection) { revealSelection(using: proxy) }
         }
-        .scrollClipDisabled()
-        .accessibilityIdentifier("homeBrowsingRow")
     }
 
-    private func title(_ category: HomeBrowseCategory) -> String {
-        switch category {
+    private func revealSelection(using proxy: ScrollViewProxy) {
+        guard let selection else { return }
+        proxy.scrollTo(selection, anchor: .center)
+    }
+}
+
+enum HomeBrowsingDestination: String, CaseIterable, Hashable {
+    case all
+    case movies
+    case tv
+    case anime
+    case music
+    case books
+    case watchlist
+
+    var title: String {
+        switch self {
         case .all: "All"
         case .movies: "Movies"
-        case .shows: "Shows"
+        case .tv: "TV"
         case .anime: "Anime"
+        case .music: "Music"
+        case .books: "Books"
         case .watchlist: "Watchlist"
         }
+    }
+
+    var homeCategory: HomeBrowseCategory? {
+        switch self {
+        case .all: .all
+        case .watchlist: .watchlist
+        case .movies, .tv, .anime, .music, .books: nil
+        }
+    }
+}
+
+/// All and Watchlist refine Home in place. Library destinations remain neutral
+/// commands so returning to Home preserves the member's current Home selection.
+struct HomeBrowsingRow: View {
+    let category: HomeBrowseCategory
+    var destinations = HomeBrowsingDestination.allCases
+    let onSelect: (HomeBrowsingDestination) -> Void
+
+    var body: some View {
+        LuminaCategoryBar(selection: destinations.first { $0.homeCategory == category }?.rawValue) {
+            ForEach(destinations, id: \.self) { option in
+                let selected = option.homeCategory == category
+                Button { onSelect(option) } label: { Text(option.title) }
+                    .buttonStyle(LuminaUnderlineTabStyle(selected: selected, alignsWithMasthead: true))
+                    .accessibilityValue(selected ? "Selected" : "")
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityIdentifier("homeBrowse-\(option.rawValue)")
+                    .id(option.rawValue)
+            }
+        }
+        .accessibilityIdentifier("homeBrowsingRow")
     }
 }

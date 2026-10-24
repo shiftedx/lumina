@@ -87,7 +87,7 @@ struct TVMusicDetailView: View {
 
                 actionRow
                 pivotActions
-                if let errorMessage {
+                if let errorMessage = displayedError {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 23))
                         .foregroundStyle(LuminaTheme.spotlight)
@@ -96,6 +96,7 @@ struct TVMusicDetailView: View {
                 }
             }
             .frame(width: 440, alignment: .leading)
+            .focusSection()
 
             trackListing
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -118,7 +119,7 @@ struct TVMusicDetailView: View {
                         .font(.system(size: 23))
                         .foregroundStyle(LuminaTheme.muted)
                 }
-                if let errorMessage {
+                if let errorMessage = displayedError {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 23))
                         .foregroundStyle(LuminaTheme.spotlight)
@@ -159,11 +160,13 @@ struct TVMusicDetailView: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 16) {
+        VStack(alignment: .leading, spacing: 16) {
             Button {
                 playSelectedTrack()
             } label: {
                 Label(preparing ? "Preparing…" : primaryButtonLabel, systemImage: primaryButtonSymbol)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(LuminaQuietActionStyle(primary: true))
             .disabled(preparing || albumTracks.isEmpty)
@@ -177,6 +180,8 @@ struct TVMusicDetailView: View {
                     play(at: 0, shuffle: true)
                 } label: {
                     Label("Shuffle", systemImage: "shuffle")
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(LuminaQuietActionStyle())
                 .disabled(preparing)
@@ -190,18 +195,22 @@ struct TVMusicDetailView: View {
 
     @ViewBuilder private var pivotActions: some View {
         if album != nil || artist != nil {
-            HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 16) {
                 if let album, currentItem.isAudio {
-                    Button("Album", systemImage: "square.stack") { onOpen(album) }
-                        .buttonStyle(LuminaQuietActionStyle())
-                        .accessibilityIdentifier("musicAlbumButton")
-                        .focused($focusedControl, equals: .album)
+                    Button { onOpen(album) } label: {
+                        Label("Album", systemImage: "square.stack").frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(LuminaQuietActionStyle())
+                    .accessibilityIdentifier("musicAlbumButton")
+                    .focused($focusedControl, equals: .album)
                 }
                 if let artist {
-                    Button("Artist", systemImage: "person") { onOpen(artist) }
-                        .buttonStyle(LuminaQuietActionStyle())
-                        .accessibilityIdentifier("musicArtistButton")
-                        .focused($focusedControl, equals: .artist)
+                    Button { onOpen(artist) } label: {
+                        Label("Artist", systemImage: "person").frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(LuminaQuietActionStyle())
+                    .accessibilityIdentifier("musicArtistButton")
+                    .focused($focusedControl, equals: .artist)
                 }
             }
             .focusSection()
@@ -254,7 +263,10 @@ struct TVMusicDetailView: View {
     private var artistName: String? { currentItem.artists?.joined(separator: ", ") ?? currentItem.albumArtist ?? artist?.name }
     private var playLabel: String { currentItem.isAudio ? "Play song" : "Play album" }
     private var controlsCurrentAlbum: Bool {
-        sharesActiveAlbumQueue && audioSession.playback != nil
+        sharesActiveAlbumQueue && audioSession.playback != nil && audioSession.playback?.errorMessage == nil
+    }
+    private var displayedError: String? {
+        errorMessage ?? (sharesActiveAlbumQueue ? audioSession.playback?.errorMessage : nil)
     }
     private var primaryButtonLabel: String {
         guard controlsCurrentAlbum else { return playLabel }
@@ -369,7 +381,8 @@ struct TVMusicDetailView: View {
 
     private func play(at index: Int, shuffle: Bool) {
         guard albumTracks.indices.contains(index), !preparing else { return }
-        if !shuffle, sharesActiveAlbumQueue {
+        // Queue metadata can survive a failed restore without an active player.
+        if !shuffle, controlsCurrentAlbum {
             Task { await audioSession.select(index) }
             return
         }

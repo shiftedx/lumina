@@ -116,7 +116,6 @@ struct NativeMusicLibraryView: View {
                     ForEach(NativeMusicSection.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.menu)
-                .tint(LuminaTheme.gold)
                 .accessibilityIdentifier("musicLibrarySectionPicker")
             }
             switch section {
@@ -140,9 +139,7 @@ struct NativeMusicLibraryView: View {
         .confirmationDialog("Clear the listening queue?", isPresented: $clearingQueue, titleVisibility: .visible) {
             Button("Clear queue", role: .destructive) { audioSession.stop() }
         } message: { Text("Playback stops and the saved queue is cleared for your account.") }
-        .fullScreenCover(isPresented: Binding(get: { playback != nil }, set: { if !$0 { playback = nil } })) {
-            if let playback { PlaybackScreen(playback: playback, store: store) }
-        }
+        .nativeAudioPlayer(playback: $playback, store: store)
         .onChange(of: scenePhase) { _, phase in
             if phase == .active, section == .downloads { store.offline.refresh() }
         }
@@ -384,9 +381,7 @@ private struct NativePlaylistDetail: View {
         }
         .navigationTitle(current.name)
         .accessibilityIdentifier("musicPlaylistDetailScreen")
-        .fullScreenCover(isPresented: Binding(get: { playback != nil }, set: { if !$0 { playback = nil } })) {
-            if let playback { PlaybackScreen(playback: playback, store: store) }
-        }
+        .nativeAudioPlayer(playback: $playback, store: store)
         .task(id: playlist.id) { await load() }
         .sheet(isPresented: $editing) {
             NativePlaylistEditor(store: store, playlist: current, initialTracks: tracks.map(\.mediaItem)) {
@@ -435,9 +430,7 @@ private struct NativeMusicMixView: View {
             NativeMusicTrackSections(store: store, tracks: tracks) { playback = $0 }
         }
         .navigationTitle(title)
-        .fullScreenCover(isPresented: Binding(get: { playback != nil }, set: { if !$0 { playback = nil } })) {
-            if let playback { PlaybackScreen(playback: playback, store: store) }
-        }
+        .nativeAudioPlayer(playback: $playback, store: store)
         .task { await load() }
     }
 
@@ -500,7 +493,7 @@ private struct NativeMusicTrackLabel: View {
     let store: LuminaStore
     var body: some View {
         HStack(spacing: 14) {
-            AsyncImage(url: store.imageURL(for: item, maxWidth: 160)) { image in
+            CachedArtworkImage(url: store.imageURL(for: item, maxWidth: 160)) { image in
                 image.resizable().scaledToFill()
             } placeholder: { Image(systemName: "music.note").frame(maxWidth: .infinity, maxHeight: .infinity) }
                 .frame(width: 58, height: 58)

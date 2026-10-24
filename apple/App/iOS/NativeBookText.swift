@@ -150,17 +150,18 @@ struct NativeBookTextPage: UIViewRepresentable {
 @MainActor
 final class BookReadingGestures: NSObject, UIGestureRecognizerDelegate {
     weak var scrollView: UIScrollView?
+    private let nativeCurl: Bool
     var rightToLeft = false
     var onTurn: ((Bool) -> Void)?
     var onControls: (() -> Void)?
-    init(scrollView: UIScrollView, accessibilityTarget: UIView, doubleTap: UITapGestureRecognizer? = nil) {
-        self.scrollView = scrollView
+    init(scrollView: UIScrollView, accessibilityTarget: UIView, doubleTap: UITapGestureRecognizer? = nil, nativeCurl: Bool = false) {
+        self.scrollView = scrollView; self.nativeCurl = nativeCurl
         super.init()
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         tap.cancelsTouchesInView = false; tap.delegate = self
         if let doubleTap { tap.require(toFail: doubleTap) }
         scrollView.addGestureRecognizer(tap)
-        for direction: UISwipeGestureRecognizer.Direction in [.left, .right] {
+        for direction: UISwipeGestureRecognizer.Direction in nativeCurl ? [] : [.left, .right] {
             let swipe = UISwipeGestureRecognizer(target: self, action: #selector(swiped(_:)))
             swipe.direction = direction; swipe.delegate = self
             scrollView.addGestureRecognizer(swipe)
@@ -172,6 +173,10 @@ final class BookReadingGestures: NSObject, UIGestureRecognizerDelegate {
         ]
     }
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if nativeCurl, let tap = gestureRecognizer as? UITapGestureRecognizer, let scrollView {
+            let x = tap.location(in: scrollView).x - scrollView.bounds.minX
+            return x > scrollView.bounds.width * 0.2 && x < scrollView.bounds.width * 0.8
+        }
         if let text = scrollView as? UITextView, text.selectedRange.length > 0 { return false }
         if gestureRecognizer is UISwipeGestureRecognizer {
             guard let scrollView else { return false }

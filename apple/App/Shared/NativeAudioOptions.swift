@@ -18,14 +18,14 @@ struct NativeAudioOptions: View {
                 }
                 .padding(.vertical, 20)
             }
+            NativeAudioDisclosure("Lyrics", identifier: "audioLyrics") { lyrics }
             NativeAudioDisclosure("Listening options", identifier: "audioListeningOptions") {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(session.isSonos ? "Sonos output" : session.playbackMode == .progressive ? "Progressive source audio" : session.playbackMode == .decoded ? "Gapless buffer · 48 kHz" : "Streaming source audio")
                         .font(.caption).foregroundStyle(.secondary)
-                    if let sourceFormat {
-                        Text(sourceFormat).font(.caption).foregroundStyle(.secondary)
-                            .accessibilityIdentifier("audioSourceFormat")
-                    }
+                    Text(sourceFormat ?? "Source format information is unavailable.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("audioSourceFormat")
                     Toggle("Normalize loudness", isOn: $session.normalization)
                         .accessibilityIdentifier("audioNormalizeToggle")
                         .disabled(session.isSonos || session.playbackMode == .streaming || !hasLoudnessMetadata)
@@ -65,7 +65,6 @@ struct NativeAudioOptions: View {
                 }
                 .padding(.vertical, 8)
             }
-            NativeAudioDisclosure("Lyrics", identifier: "audioLyrics") { lyrics }
             NativeAudioDisclosure("Audio output", identifier: "audioOutput") { output }
             if !session.pendingEntries.isEmpty {
                 NativeAudioDisclosure("Requested albums", identifier: "audioRequestedAlbums") {
@@ -170,9 +169,11 @@ struct NativeAudioOptions: View {
     private var activeCue: Int? { session.lyrics?.cues.lastIndex(where: { $0.start <= playback.elapsedSeconds }) }
 
     private var sourceFormat: String? {
-        guard let track = session.tracks[safe: playback.queueIndex] else { return nil }
-        let parts = [track.codec?.uppercased(), track.sampleRate.map { "\($0.formatted()) Hz" },
-                     track.bitDepth.map { "\($0)-bit" }, track.channels.map { "\($0) " + ($0 == 1 ? "channel" : "channels") }].compactMap { $0 }
+        let track = session.tracks[safe: playback.queueIndex]
+        let encoding = track?.codec?.uppercased()
+            ?? playback.request.item.container.map { "Container: \($0.uppercased())" }
+        let parts = [encoding, track?.sampleRate.map { "\($0.formatted()) Hz" },
+                     track?.bitDepth.map { "\($0)-bit" }, track?.channels.map { "\($0) " + ($0 == 1 ? "channel" : "channels") }].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
     private var hasLoudnessMetadata: Bool {

@@ -1642,6 +1642,20 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertFalse(request.isTranscoding, "Compatibility audio is a cached file, not an HLS playback session")
     }
 
+    func testRejectedNativeAudioCanRequestAnAuthenticatedCompatibleCopy() throws {
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(["Id": "track-1", "Name": "Synthetic song", "Type": "Audio", "Container": "mp3"]))
+        let client = LuminaClient()
+        let origin = URL(string: "http://127.0.0.1:8765")!
+        let direct = try client.audioRequest(origin: origin, token: "test-token", item: item)
+        XCTAssertFalse(URLComponents(url: direct.url, resolvingAgainstBaseURL: false)!.queryItems!.contains { $0.name == "format" })
+        let retry = try client.audioRequest(origin: origin, token: "test-token", item: item, forceCompatible: true)
+        XCTAssertEqual(retry.url.path, direct.url.path)
+        let query = URLComponents(url: retry.url, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first { $0.name == "format" }?.value, "flac")
+        XCTAssertEqual(query?.first { $0.name == "ApiKey" }?.value, "test-token")
+        XCTAssertEqual(retry.methodLabel, "Compatible audio")
+    }
+
     func testUnauthorizedRestoreClearsStoredSessionAndExplainsAppPassword() async throws {
         let credentials = TestCredentials(session: LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "expired-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device"))
         let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials)

@@ -278,7 +278,7 @@ final class NativeMusicTransportTests: XCTestCase {
             await transport.start()
             try await observe(timeout: 5) { revoked && transport.state.error != nil }
             XCTAssertFalse(transport.state.playing)
-            XCTAssertTrue(transport.state.finished)
+            XCTAssertFalse(transport.state.finished, "Revoked playback is an error rather than a completed recording")
             XCTAssertTrue(try privateAudioInputs().subtracting(existingInputs).isEmpty,
                 "Authorization failure must release the downloaded input")
             await transport.resume()
@@ -669,6 +669,38 @@ final class NativeMusicTransportTests: XCTestCase {
         XCTAssertNil(transport.state.error)
     }
 
+    func testProgressiveFLACStartsFromTheExtensionlessAudioEndpoint() async throws {
+        var fixture = try audioFixture(duration: 3, sampleRate: 44_100, flac: true)
+        fixture.track.codec = "flac"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let server = try ProgressiveAudioHTTPFixture(bytes: Data(contentsOf: fixture.url), mime: "audio/flac", delay: 0)
+        let url = try await server.start().appendingPathComponent("Audio/synthetic/stream")
+        defer { server.stop() }
+        let transport = transport(tracks: [fixture.track], url: url)
+        defer { transport.stop() }
+        await transport.start()
+        let confirmed = await transport.confirmPlaying(timeout: 5)
+        XCTAssertTrue(confirmed, transport.state.error ?? "FLAC did not start")
+        try await observe(timeout: 5) { transport.state.position > 0.2 }
+        XCTAssertNil(transport.state.error)
+    }
+
+    func testInvalidProgressiveAudioIsAnErrorRatherThanACompletedTrack() async throws {
+        var fixture = try audioFixture(duration: 3)
+        fixture.track.codec = "mp3"
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let server = try ProgressiveAudioHTTPFixture(bytes: Data(repeating: 0xA5, count: 32_768), mime: "audio/mpeg", delay: 0)
+        let url = try await server.start()
+        defer { server.stop() }
+        let transport = transport(tracks: [fixture.track], url: url)
+        defer { transport.stop() }
+        await transport.start()
+        try await observe(timeout: 6) { transport.state.error != nil || transport.state.finished }
+        XCTAssertNotNil(transport.state.error)
+        XCTAssertFalse(transport.state.finished, "A format failure at 0:00 must offer retry, not Replay.")
+        XCTAssertFalse(transport.state.playing)
+    }
+
     func testProgressiveDeliveryRejectsCrossOriginRedirectsDenialsAndOversizedInput() async throws {
         var fixture = try audioFixture(duration: 2)
         fixture.track.codec = "pcm_f32le"
@@ -693,7 +725,7 @@ final class NativeMusicTransportTests: XCTestCase {
             let confirmed = await transport.confirmPlaying(timeout: 0.1)
             XCTAssertFalse(confirmed)
             if index == 1 || index == 2 {
-                XCTAssertTrue(transport.state.finished, "Authorization denial tears down the active owner")
+                XCTAssertFalse(transport.state.finished, "Authorization denial is a stopped error, not completed playback")
                 XCTAssertTrue(transport.state.error?.contains("Access to this track was denied") == true)
             }
             transport.stop()
@@ -805,9 +837,9 @@ final class NativeMusicTransportTests: XCTestCase {
         await transport.resume()
         server.reject(403)
         await transport.seek(50)
-        try await observe(timeout: 4) { transport.state.finished }
+        try await observe(timeout: 4) { transport.state.error?.contains("Access to this track was denied") == true }
         XCTAssertFalse(transport.state.playing)
-        XCTAssertTrue(transport.state.error?.contains("Access to this track was denied") == true)
+        XCTAssertFalse(transport.state.finished, "A denied seek must not expose Replay")
         try await observe(timeout: 3) { server.activeConnections == 0 }
     }
 
@@ -836,7 +868,8 @@ final class NativeMusicTransportTests: XCTestCase {
             XCTAssertEqual(transport.state.index, 0)
             try await Task.sleep(for: .milliseconds(300))
             XCTAssertEqual(resolutions, [0, repeatMode == "one" ? 0 : 1], "A failed progressive preload must not retry on every clock tick")
-            try await observe(timeout: 6) { transport.state.finished }
+            try await observe(timeout: 6) { resolutions.count == 3 && !transport.state.playing && transport.state.error != nil }
+            XCTAssertFalse(transport.state.finished, "A failed successor is an error rather than completed playback")
             XCTAssertEqual(resolutions, repeatMode == "one" ? [0, 0, 0] : [0, 1, 1], "Only the actual boundary may retry the failed occurrence")
             XCTAssertFalse(transport.state.playing)
         }
@@ -881,8 +914,8 @@ final class NativeMusicTransportTests: XCTestCase {
             includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("lumina-audio-") })
     }
 
-    private func audioFixture(duration: Double, sampleRate: Double = 48_000, channelCount: UInt32 = 2, aac: Bool = false) throws -> (url: URL, track: LuminaCore.MusicTrack) {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lumina-engine-\(UUID()).\(aac ? "m4a" : "wav")")
+    private func audioFixture(duration: Double, sampleRate: Double = 48_000, channelCount: UInt32 = 2, aac: Bool = false, flac: Bool = false) throws -> (url: URL, track: LuminaCore.MusicTrack) {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lumina-engine-\(UUID()).\(flac ? "flac" : aac ? "m4a" : "wav")")
         let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channelCount))
         let frames = AVAudioFrameCount(duration * sampleRate)
         let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
@@ -893,7 +926,8 @@ final class NativeMusicTransportTests: XCTestCase {
                 channels[channel][frame] = Float(sin(Double(frame) * 2 * .pi * 440 / sampleRate)) * 0.01
             }
         }
-        let settings: [String: Any] = aac ? [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: sampleRate,
+        let settings: [String: Any] = flac ? [AVFormatIDKey: kAudioFormatFLAC, AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: channelCount, AVEncoderBitDepthHintKey: 16] : aac ? [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: sampleRate,
             AVNumberOfChannelsKey: channelCount, AVEncoderBitRateKey: 128_000] : format.settings
         let file = try AVAudioFile(forWriting: url, settings: settings)
         try file.write(from: buffer)

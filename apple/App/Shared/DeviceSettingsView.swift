@@ -199,6 +199,7 @@ private struct DeviceSubtitleAppearanceView: View {
         Form {
             Section {
                 Toggle("Customize subtitles", isOn: $style.isCustom)
+                    .tint(LuminaTheme.brand)
                     .accessibilityIdentifier("deviceCustomizeSubtitlesToggle")
             } footer: {
                 Text("When off, Lumina leaves caption presentation to system preferences and authored subtitle styling.")
@@ -642,7 +643,7 @@ private struct TVDeviceSettingsRowStyle: ButtonStyle {
             .foregroundStyle(destructive ? Color.red.opacity(isFocused ? 1 : 0.82) : LuminaTheme.ink.opacity(isFocused ? 1 : 0.86))
             .overlay(alignment: .bottom) {
                 Rectangle()
-                    .fill(isFocused ? Color.white : selected ? LuminaTheme.gold : .clear)
+                    .fill(isFocused ? Color.white : selected ? LuminaTheme.brand : .clear)
                     .frame(height: isFocused ? 3 : selected ? 2 : 1)
             }
             .opacity(isEnabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
@@ -678,7 +679,7 @@ private struct TVDeviceChoiceScreen<Value: Hashable>: View {
                             if selection == choice {
                                 Image(systemName: "checkmark")
                                     .font(.system(size: 22, weight: .semibold))
-                                    .foregroundStyle(LuminaTheme.gold)
+                                    .foregroundStyle(LuminaTheme.accentInk)
                             }
                         }
                         .font(.system(size: 28))

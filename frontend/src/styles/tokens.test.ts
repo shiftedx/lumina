@@ -25,6 +25,11 @@ const dark = block(/^:root \{/m);
 const light = { ...dark, ...block(/^:root\[data-theme='light'\] \{/m) };
 const oled = { ...dark, ...block(/^:root\[data-theme='oled'\] \{/m) };
 
+function resolveToken(theme: Record<string, string>, value: string): string {
+  const token = value.match(/^var\((--[\w-]+)\)$/)?.[1];
+  return token ? resolveToken(theme, theme[token]) : value;
+}
+
 function luminance(hex: string): number {
   const value = hex.replace('#', '');
   const full = value.length === 3 ? value.split('').map((c) => c + c).join('') : value;
@@ -55,11 +60,11 @@ describe('tokens.css contrast', () => {
     it(`every text token meets its ratio on every surface (${name})`, () => {
       for (const [text, surfaces, minimum] of PAIRS) {
         for (const surface of surfaces) {
-          expect(ratio(theme[text], theme[surface]), `${name} ${text} on ${surface}`).toBeGreaterThanOrEqual(minimum);
+          expect(ratio(resolveToken(theme, theme[text]), resolveToken(theme, theme[surface])), `${name} ${text} on ${surface}`).toBeGreaterThanOrEqual(minimum);
         }
       }
-      expect(ratio(theme['--g-on-gold'], theme['--g-gold']), `${name} on-gold`).toBeGreaterThanOrEqual(4.5);
-      expect(ratio(theme['--g-paper'], theme['--g-danger']), `${name} paper on danger`).toBeGreaterThanOrEqual(6);
+      expect(ratio(resolveToken(theme, theme['--g-on-gold']), resolveToken(theme, theme['--g-gold'])), `${name} on-gold`).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(resolveToken(theme, theme['--g-paper']), resolveToken(theme, theme['--g-danger'])), `${name} paper on danger`).toBeGreaterThanOrEqual(6);
     });
   }
 
@@ -67,7 +72,7 @@ describe('tokens.css contrast', () => {
     expect(ratio(dark['--g-art-paper'], '#15130f'), 'LiveBadge ink on its chip').toBeGreaterThanOrEqual(12);
     expect(ratio(dark['--g-overlay-ink'], '#0f0e0c')).toBeGreaterThanOrEqual(7);
     expect(ratio(dark['--g-overlay-ink-2'], '#0f0e0c')).toBeGreaterThanOrEqual(7);
-    expect(ratio(dark['--g-gold'], dark['--g-overlay-bg'])).toBeGreaterThanOrEqual(3);
+    expect(ratio(resolveToken(dark, dark['--g-gold']), dark['--g-overlay-bg'])).toBeGreaterThanOrEqual(3);
     expect(light['--g-overlay-ink']).toBe(dark['--g-overlay-ink']);
     expect(light['--g-art-paper']).toBe(dark['--g-art-paper']);
   });
@@ -85,11 +90,19 @@ describe('tokens.css contrast', () => {
     }
   });
 
+  it('uses the approved brand token for selected navigation, progress and badges without retaining the old gold palette', () => {
+    expect(dark['--g-brand']).toBe('#dbb688');
+    expect(dark['--g-gold']).toBe('var(--g-brand)');
+    expect(dark['--g-gold-ink']).toBe('var(--g-brand)');
+    expect(light['--g-gold-ink']).toBe('var(--g-ink)');
+    expect(css).not.toMatch(/#(?:e5a00d|f0b43a|8a5a00)\b/i);
+  });
+
   it('defines every token name', () => {
     for (const token of ['--g-art-paper', '--g-art-chip', '--g-paper-3', '--g-wash', '--g-selected', '--g-on-gold', '--g-danger-wash', '--g-success', '--g-scrim-modal',
       '--g-overlay-panel', '--g-overlay-halo', '--g-overlay-hover', '--g-caption-box', '--g-elev-1', '--g-elev-2', '--g-type-h3',
       '--g-type-ui', '--g-type-ui-strong', '--g-type-small', '--g-type-mono', '--g-control', '--g-topbar', '--g-sidebar',
-      '--g-focus-width', '--g-z-menu', '--g-z-toast', '--g-pop', '--g-dialog', '--g-toast', '--g-radius-round', '--g-reading-width']) {
+      '--g-focus-width', '--g-z-menu', '--g-z-toast', '--g-pop', '--g-dialog', '--g-toast', '--g-radius-round', '--g-reading-width', '--g-brand']) {
       expect(dark[token], token).toBeTruthy();
     }
   });

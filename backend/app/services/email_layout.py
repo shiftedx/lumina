@@ -20,19 +20,19 @@ ART_PATHS = {
 }
 PAPER, PAPER_2, PAPER_3 = "#0f0e0c", "#1a1814", "#221f1a"
 INK, INK_2, INK_3 = "#efe9dd", "#c9c2b4", "#9d968a"
-GOLD, GOLD_INK, ON_GOLD, RULE = "#e5a00d", "#f0b43a", "#15130f", "#36322b"
+BRAND, LIGHT_INK, RULE = "#dbb688", "#15130f", "#36322b"
 SERIF = "Newsreader,Georgia,'Times New Roman',serif"
 SANS = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
 # Functional status colours mirror the app; colour never carries the status by itself.
 STATES = {
-    "pending": ("◷", GOLD_INK, "#8a5a00"),
-    "approved": ("✓", GOLD_INK, "#8a5a00"),
+    "pending": ("◷", BRAND, LIGHT_INK),
+    "approved": ("✓", BRAND, LIGHT_INK),
     "available": ("▶", "#8cc79a", "#2f6b3a"),
     "declined": ("—", INK_2, "#4a463f"),
     "failed": ("!", "#e58a74", "#a3321f"),
     "security": ("!", "#e58a74", "#a3321f"),
     "connected": ("✓", "#8cc79a", "#2f6b3a"),
-    "invite": ("↗", GOLD_INK, "#8a5a00"),
+    "invite": ("↗", BRAND, LIGHT_INK),
 }
 
 _LIGHT = """
@@ -43,7 +43,8 @@ _LIGHT = """
   .lm-ink { color:#15130f !important; }
   .lm-ink2 { color:#4a463f !important; }
   .lm-ink3 { color:#615c53 !important; }
-  .lm-gold { color:#8a5a00 !important; }
+  .lm-accent, a { color:#15130f !important; }
+  .lm-btn a { background:#15130f !important; color:#f4f1ea !important; }
   .lm-rule { border-color:#e2dccf !important; }
   .lm-future { background:#e2dccf !important; }
 }"""
@@ -90,12 +91,12 @@ def _progress(step: int) -> str:
     cells = []
     for i, name in enumerate(("Requested", "Approved", "Ready")):
         active = i <= step
-        colour = GOLD if active else RULE
+        colour = BRAND if active else RULE
         cells.append(
             f'<td width="33%" style="padding:0 {0 if i == 2 else 8}px 0 0">'
             f'<div class="{"" if active else "lm-future"}" style="height:3px;background:{colour};font-size:1px;line-height:3px">&nbsp;</div>'
-            f'<p class="{"lm-gold" if active else "lm-ink3"}" style="margin:8px 0 0;font-family:{SANS};font-size:11px;'
-            f'line-height:1.4;color:{GOLD_INK if active else INK_3}">{"✓ " if i < step else ""}{name}</p></td>')
+            f'<p class="{"lm-accent" if active else "lm-ink3"}" style="margin:8px 0 0;font-family:{SANS};font-size:11px;'
+            f'line-height:1.4;color:{BRAND if active else INK_3}">{"✓ " if i < step else ""}{name}</p></td>')
     return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' + "".join(cells) + '</tr></table>'
 
 
@@ -105,7 +106,7 @@ def _html(subject, preheader, eyebrow, heading, why, paragraphs, meta, poster, l
     label = f"font-family:{SANS};font-size:11px;line-height:1.4;font-weight:600;letter-spacing:.12em;text-transform:uppercase"
     body = f"font-family:{SANS};font-size:15px;line-height:1.65;color:{INK_2}"
     small = f"font-family:{SANS};font-size:12px;line-height:1.6;color:{INK_3}"
-    symbol, status_colour, light_colour = STATES.get(status, ("", GOLD_INK, "#8a5a00"))
+    symbol, status_colour, light_colour = STATES.get(status, ("", BRAND, LIGHT_INK))
     status_block = (
         f'<p class="lm-status" style="margin:0 0 14px;{label};color:{status_colour}">'
         f'<span aria-hidden="true" style="font-size:16px;vertical-align:middle">{symbol}</span> {e(eyebrow)}</p>')
@@ -139,8 +140,8 @@ def _html(subject, preheader, eyebrow, heading, why, paragraphs, meta, poster, l
     if listing:
         if status == "connected" and len(listing[1]) == 3:
             items = "".join(
-                f'<td width="33%" valign="top" style="padding-right:12px"><p class="lm-gold" aria-hidden="true" style="margin:0 0 10px;'
-                f'font-family:{SANS};font-size:25px;line-height:1;color:{GOLD_INK}">{symbol}</p>'
+                f'<td width="33%" valign="top" style="padding-right:12px"><p class="lm-accent" aria-hidden="true" style="margin:0 0 10px;'
+                f'font-family:{SANS};font-size:25px;line-height:1;color:{BRAND}">{symbol}</p>'
                 f'<p class="lm-ink" style="margin:0 0 5px;font-family:{SANS};font-size:13px;font-weight:600;line-height:1.5;color:{INK}">{e(item.partition(" · ")[0])}</p>'
                 f'<p class="lm-ink3" style="margin:0;{small}">{e(item.partition(" · ")[2])}</p></td>'
                 for symbol, item in zip(("↗", "▶", "!"), listing[1], strict=True))
@@ -157,8 +158,8 @@ def _html(subject, preheader, eyebrow, heading, why, paragraphs, meta, poster, l
                     f'<p class="lm-ink" style="margin:0;{body};color:{INK}">{e(note[1])}</p></td></tr></table></td></tr>')
     if button:
         rows.append(f'<tr><td style="padding:6px 0 8px">{_button(*button)}</td></tr>')
-        rows.append(f'<tr><td style="padding-top:12px;{small}">Button not working? <a class="lm-gold" href="{e(button[1], quote=True)}" '
-                    f'style="color:{GOLD_INK};text-decoration:underline">Open this link</a>.</td></tr>')
+        rows.append(f'<tr><td style="padding-top:12px;{small}">Button not working? <a class="lm-accent" href="{e(button[1], quote=True)}" '
+                    f'style="color:{BRAND};text-decoration:underline">Open this link</a>.</td></tr>')
     rows += [f'<tr><td class="lm-ink3" style="padding-top:14px;{small};overflow-wrap:anywhere">{e(text)}</td></tr>' for text in fineprint]
     footer_html = "".join(f'<p class="lm-ink3" style="margin:0 0 6px;{small}">{e(line)}</p>' for line in (why, unsubscribe, footer) if line)
     art_path = ART_PATHS.get(status, HERO_PATH)
@@ -183,7 +184,7 @@ def _html(subject, preheader, eyebrow, heading, why, paragraphs, meta, poster, l
 <style>{font}
 :root {{ color-scheme:light dark; supported-color-schemes:light dark; }}
 body {{ margin:0 !important;padding:0 !important;width:100% !important;-webkit-text-size-adjust:100%; }}
-a {{ color:{GOLD_INK}; }}
+a {{ color:{BRAND}; }}
 @media (max-width:600px) {{
 .lm-outer {{ padding:20px 12px 28px !important; }}
 .lm-pad {{ padding:28px 24px !important; }}
@@ -219,10 +220,10 @@ def _button(label: str, url: str) -> str:
     """Live HTML action, with VML for classic Outlook; no image is needed to act."""
     href, text = escape(url, quote=True), escape(label)
     width = max(200, len(label) * 10 + 64)
-    style = (f"display:inline-block;background:{GOLD};color:{ON_GOLD};font-family:{SANS};font-size:12px;font-weight:700;"
+    style = (f"display:inline-block;background:{INK};color:{PAPER};font-family:{SANS};font-size:12px;font-weight:700;"
              "line-height:48px;letter-spacing:.1em;text-transform:uppercase;text-decoration:none;padding:0 28px;border-radius:2px;mso-hide:all")
     return (
         f'<div class="lm-btn"><!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" '
-        f'href="{href}" style="height:48px;v-text-anchor:middle;width:{width}px;" arcsize="4%" stroke="f" fillcolor="{GOLD}">'
-        f'<w:anchorlock/><center style="color:{ON_GOLD};font-family:Segoe UI,Arial,sans-serif;font-size:12px;font-weight:bold;letter-spacing:1px">'
+        f'href="{href}" style="height:48px;v-text-anchor:middle;width:{width}px;" arcsize="4%" stroke="f" fillcolor="{INK}">'
+        f'<w:anchorlock/><center style="color:{PAPER};font-family:Segoe UI,Arial,sans-serif;font-size:12px;font-weight:bold;letter-spacing:1px">'
         f'{escape(label.upper())}</center></v:roundrect><![endif]--><a href="{href}" target="_blank" style="{style}">{text} &nbsp;↗</a></div>')

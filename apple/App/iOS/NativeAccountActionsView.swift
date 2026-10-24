@@ -52,6 +52,7 @@ struct NativeAccountActionsView: View {
         if matches("Notifications request email approved declined ready") {
             Section {
                 Toggle("Email me about my requests", isOn: $notificationsEnabled)
+                    .tint(LuminaTheme.brand)
                     .accessibilityIdentifier("requestNotificationsEnabled")
                 TextField("Email address", text: $notificationEmail)
                     .textContentType(.emailAddress)
@@ -79,6 +80,7 @@ struct NativeAccountActionsView: View {
                 } else {
                     ForEach(interests) { interest in
                         Toggle(interest.label, isOn: interestBinding(for: interest.key))
+                            .tint(LuminaTheme.brand)
                             .disabled(isSavingInterests)
                             .accessibilityIdentifier("accountInterest-\(interest.key)")
                     }

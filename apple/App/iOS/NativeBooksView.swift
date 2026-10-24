@@ -204,7 +204,7 @@ struct NativeBooksView: View {
                     .overlay(alignment: .bottomLeading) {
                         if !book.progress.completed, let percent = book.progress.percent, percent > 0 {
                             GeometryReader { geometry in
-                                Rectangle().fill(LuminaTheme.gold).frame(width: geometry.size.width * min(1, max(0.01, percent / 100)))
+                                Rectangle().fill(LuminaTheme.brand).frame(width: geometry.size.width * min(1, max(0.01, percent / 100)))
                             }.frame(height: 4)
                         }
                     }
@@ -408,7 +408,7 @@ struct NativeBookCover: View {
         self.id = id; self.title = title; self.author = author; self.covers = covers
     }
     var body: some View {
-        Rectangle().fill(LuminaTheme.gold.opacity(0.14)).aspectRatio(2 / 3, contentMode: .fit)
+        Rectangle().fill(LuminaTheme.brand.opacity(0.14)).aspectRatio(2 / 3, contentMode: .fit)
             .overlay {
                 if let image { Image(uiImage: image).resizable().scaledToFill() }
                 else {

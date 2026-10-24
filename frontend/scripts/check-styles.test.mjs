@@ -21,7 +21,7 @@ describe('check-styles', () => {
     expect(cssHits(".a { color: white; }\n.b { content: 'white'; }\n.c { --tint: black; }").map((hit) => hit.line)).toEqual([1, 3]);
   });
   it('flags a literal in a custom property definition outside tokens.css', () => {
-    expect(cssHits(':root { --g-live-gold: #e5a00d; }\n.a { --chip: rgb(21 19 15 / .86); }').map((hit) => hit.line)).toEqual([1, 2]);
+    expect(cssHits(':root { --g-live-gold: #dbb688; }\n.a { --chip: rgb(21 19 15 / .86); }').map((hit) => hit.line)).toEqual([1, 2]);
     expect(cssHits(':root { --g-live-gold: var(--g-gold); }')).toEqual([]);
   });
   it('catches the colour functions and names the retired gallery lint caught', () => {
@@ -49,7 +49,7 @@ describe('check-styles', () => {
     expect(redHits('.a-live { color: #ff89a2; }\n:root { --g-live-pink: #ff89a2; }\n.b-lifecycle { color: rgba(192, 38, 74, .5); }\n.c { background: color-mix(in srgb, #f00 40%, transparent); }').map((hit) => hit.line)).toEqual([1, 2, 3, 4]);
   });
   it('leaves the danger tokens, golds and neutrals alone', () => {
-    expect(redHits(':root { --g-danger: #e58a74; --g-danger-wash: color-mix(in srgb, var(--g-danger) 12%, transparent); }\n:root { --g-gold: #e5a00d; --g-ink: #efe9dd; --g-scrim-modal: rgb(0 0 0 / .6); --g-art-chip: rgb(21 19 15 / .86); }')).toEqual([]);
+    expect(redHits(':root { --g-danger: #e58a74; --g-danger-wash: color-mix(in srgb, var(--g-danger) 12%, transparent); }\n:root { --g-brand: #dbb688; --g-gold: var(--g-brand); --g-ink: #efe9dd; --g-scrim-modal: rgb(0 0 0 / .6); --g-art-chip: rgb(21 19 15 / .86); }')).toEqual([]);
     expect(redHits('.err { color: var(--g-danger); }')).toEqual([]);
   });
   it('scans debt files and tokens.css for red, which the literal rule skips', () => {

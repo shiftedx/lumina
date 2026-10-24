@@ -191,7 +191,7 @@ class UITierRunnerTests(unittest.TestCase):
                     run_ui_tiers.refresh_broker_fixture(xctestrun, broker)
             self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("iOS", "smoke")), 3)
             self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("iOS", "full")), 14)
-            self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("tvOS", "full")), 8)
+            self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("tvOS", "full")), 14)
 
     def test_result_requires_the_exact_selected_count_and_a_clean_summary(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

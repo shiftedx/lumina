@@ -205,6 +205,7 @@ private struct NativeSettingRow: View {
             switch field.control {
             case .toggle:
                 Toggle(field.title, isOn: Binding(get: { value.boolValue ?? false }, set: { onChange(.bool($0)) }))
+                    .tint(LuminaTheme.brand)
             case .choice(let choices):
                 Picker(field.title, selection: Binding(get: { choices.firstIndex { $0.1 == value } ?? 0 }, set: { onChange(choices[$0].1) })) {
                     ForEach(choices.indices, id: \.self) { index in Text(choices[index].0).tag(index) }

@@ -71,7 +71,7 @@
 .g-settings-sidebar ul { display: grid; margin: 0; padding: 0; list-style: none; }
 .g-settings-link { display: flex; gap: 12px; min-height: var(--g-control); align-items: center; padding: 7px 12px; border-radius: var(--g-radius); color: var(--g-ink-2); font: var(--g-type-ui); text-decoration: none; white-space: nowrap; transition: background-color var(--g-hover); }
 .g-settings-link > svg { width: 18px; height: 18px; flex: none; }
-.g-settings-link[aria-current='page'] { color: var(--g-ink); font: var(--g-type-ui-strong); text-decoration: underline 2px var(--g-gold-ink); text-underline-offset: 7px; }
+.g-settings-link[aria-current='page'] { color: var(--g-ink); font: var(--g-type-ui-strong); text-decoration: underline 2px var(--g-gold); text-underline-offset: 7px; }
 .g-settings-pane { container-type: inline-size; grid-area: pane; min-width: 0; max-width: 900px; }
 .g-settings-section-head { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
 .g-settings-section-head > div { flex: 1 1 260px; }

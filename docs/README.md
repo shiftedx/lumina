@@ -2,6 +2,7 @@
 
 ## Choosing and using Lumina
 
+- [Shared brand identity](../apple/docs/brand-assets.md): approved sunrise assets, adaptive control roles, and cross-platform change/verification procedure.
 - [Photo library](photos.md): uploads, synced NAS folders, albums, local people filtering, and original-file backups.
 
 - [Lumina vs Plex vs Jellyfin](lumina-vs-plex-vs-jellyfin.md): compare media servers by household needs, client support and operating model.

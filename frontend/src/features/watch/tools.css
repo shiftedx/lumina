@@ -110,7 +110,7 @@
 .transcript-cues button:hover { background: var(--g-wash); color: var(--g-ink); }
 .transcript-cues button:focus-visible { outline: 2px solid var(--g-ink); outline-offset: -2px; }
 .transcript-cues button[aria-current='true'] { background: var(--g-selected); color: var(--g-ink); }
-.transcript-cues button.current-match { box-shadow: inset 3px 0 0 var(--g-gold-ink); }
+.transcript-cues button.current-match { box-shadow: inset 3px 0 0 var(--g-gold); }
 .transcript-time { color: var(--g-ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .transcript-cues button[aria-current='true'] .transcript-time { color: var(--g-ink); }
 .transcript-cues mark { border-radius: 3px; background: color-mix(in srgb, var(--g-gold) 35%, transparent); color: inherit; }

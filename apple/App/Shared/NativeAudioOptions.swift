@@ -4,6 +4,7 @@ import SwiftUI
 struct NativeAudioOptions: View {
     @Bindable var session: NativeAudioSession
     let playback: PlaybackModel
+    var focusLyricsRequest: Int? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -18,7 +19,8 @@ struct NativeAudioOptions: View {
                 }
                 .padding(.vertical, 20)
             }
-            NativeAudioDisclosure("Lyrics", identifier: "audioLyrics") { lyrics }
+            NativeAudioDisclosure("Lyrics", identifier: "audioLyrics",
+                                  focusRequest: focusLyricsRequest) { lyrics }
             NativeAudioDisclosure("Listening options", identifier: "audioListeningOptions") {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(session.isSonos ? "Sonos output" : session.playbackMode == .progressive ? "Progressive source audio" : session.playbackMode == .decoded ? "Gapless buffer · 48 kHz" : "Streaming source audio")
@@ -27,6 +29,7 @@ struct NativeAudioOptions: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .accessibilityIdentifier("audioSourceFormat")
                     Toggle("Normalize loudness", isOn: $session.normalization)
+                        .tint(LuminaTheme.brand)
                         .accessibilityIdentifier("audioNormalizeToggle")
                         .disabled(session.isSonos || session.playbackMode == .streaming || !hasLoudnessMetadata)
                     if !hasLoudnessMetadata {
@@ -114,7 +117,7 @@ struct NativeAudioOptions: View {
         #else
         .buttonStyle(.plain)
         #endif
-        .tint(LuminaTheme.spotlight)
+        .tint(LuminaTheme.ink)
     }
 
     private var albumItems: [MediaItem] {
@@ -135,7 +138,7 @@ struct NativeAudioOptions: View {
                                 Button { playback.seek(to: cue.start) } label: {
                                     Text(cue.text)
                                         .font(LuminaTheme.editorial(index == activeCue ? 28 : 24, relativeTo: .body))
-                                        .foregroundStyle(index == activeCue ? LuminaTheme.spotlight : .white.opacity(0.75))
+                                        .foregroundStyle(index == activeCue ? LuminaTheme.accentInk : .white.opacity(0.75))
                                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                                         .padding(.vertical, 6)
                                 }
@@ -204,6 +207,7 @@ struct NativeAudioOptions: View {
                 Button("Retry stopping speaker") { Task { await session.retryStoppingSpeaker() } }
             }
             Toggle("Compatibility mode for Sonos S1", isOn: $session.compatibility)
+                .tint(LuminaTheme.brand)
             Button(session.busy ? "Looking for speakers…" : "Refresh Sonos speakers") { Task { await session.discoverSpeakers() } }
                 .disabled(session.busy)
                 .accessibilityIdentifier("audioRefreshSpeakersButton")
@@ -227,12 +231,16 @@ struct NativeAudioOptions: View {
 private struct NativeAudioDisclosure<Content: View>: View {
     let title: String
     let identifier: String
+    let focusRequest: Int?
     let content: Content
     @State private var expanded = false
+    @FocusState private var headingFocused: Bool
 
-    init(_ title: String, identifier: String, @ViewBuilder content: () -> Content) {
+    init(_ title: String, identifier: String, focusRequest: Int? = nil,
+         @ViewBuilder content: () -> Content) {
         self.title = title
         self.identifier = identifier
+        self.focusRequest = focusRequest
         self.content = content()
     }
 
@@ -250,6 +258,10 @@ private struct NativeAudioDisclosure<Content: View>: View {
             #if os(tvOS)
             .buttonStyle(.bordered)
             .padding(.vertical, 12)
+            .focused($headingFocused)
+            .onChange(of: focusRequest) { _, request in
+                if request != nil { headingFocused = true }
+            }
             #else
             .buttonStyle(.plain)
             .padding(.vertical, 4)

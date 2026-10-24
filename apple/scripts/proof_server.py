@@ -657,9 +657,21 @@ def ffmpeg(*args: str | Path) -> None:
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *map(str, args)], check=True)
 
 
+def make_title_logo(target: Path) -> None:
+    """Create a deterministic transparent wordmark stand-in for the direct proof title."""
+    ffmpeg(
+        "-f", "lavfi", "-i",
+        "color=c=black@0.0:s=600x180,format=rgba,"
+        "drawbox=x=36:y=36:w=528:h=12:color=0xD4AF37@1:t=fill:replace=1,"
+        "drawbox=x=36:y=66:w=390:h=16:color=white@1:t=fill:replace=1,"
+        "drawbox=x=36:y=100:w=470:h=16:color=white@0.82:t=fill:replace=1",
+        "-frames:v", "1", target,
+    )
+
+
 def make_movie(media_root: Path, title: str, year: int, extension: str, poster_size: str, duration: int = 90,
                artwork: Path | None = None, embedded_subtitle: bool = False, embedded_chapters: bool = False,
-               video_size: str = "320x180") -> None:
+               video_size: str = "320x180", title_logo: bool = False) -> None:
     folder = media_root / "Movies" / f"{title} ({year})"
     folder.mkdir(parents=True)
     output = folder / f"{title} ({year}){extension}"
@@ -717,6 +729,8 @@ def make_movie(media_root: Path, title: str, year: int, extension: str, poster_s
             "-f", "lavfi", "-i", f"testsrc2=size={poster_size}:rate=1:duration=1",
             "-frames:v", "1", folder / "poster.jpg",
         )
+    if title_logo:
+        make_title_logo(folder / "logo.png")
 
 
 def make_music(media_root: Path, artwork: Path | None = None) -> None:
@@ -979,12 +993,22 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
         raise RuntimeError("The Jellyfin-compatible items endpoint did not expose all imported videos.")
     if any(not item.get("ImageTags", {}).get("Primary") for item in (direct, converted, matrix)):
         raise RuntimeError("The Jellyfin-compatible items endpoint did not expose all synthetic posters.")
+    if not direct.get("ImageTags", {}).get("Logo") or converted.get("ImageTags", {}).get("Logo"):
+        raise RuntimeError("The direct proof title must expose a logo while the converted title remains a text fallback.")
+
+    direct_detail = request_json(f"/Users/{signed_in['User']['Id']}/Items/{direct['Id']}", token=token)
+    if direct_detail.get("Id") != direct["Id"] or not direct_detail.get("ImageTags", {}).get("Logo"):
+        raise RuntimeError("The authenticated fresh-item route did not preserve the direct title logo tag.")
 
     for item in (direct, converted, matrix):
         artwork_url = ORIGIN + f"/Items/{item['Id']}/Images/Primary?" + urlencode({"maxWidth": "400", "ApiKey": token})
         with urlopen(Request(artwork_url), timeout=60) as response:
             if not response.headers.get_content_type().startswith("image/") or not response.read(1):
                 raise RuntimeError("A synthetic poster did not load through the authenticated artwork route.")
+    logo_url = ORIGIN + f"/Items/{direct['Id']}/Images/Logo?" + urlencode({"maxWidth": "600", "ApiKey": token})
+    with urlopen(Request(logo_url), timeout=60) as response:
+        if response.status != 200 or not response.headers.get_content_type().startswith("image/") or not response.read(1):
+            raise RuntimeError("The synthetic title logo did not load through the authenticated artwork route.")
 
     shows = request_json("/Items?IncludeItemTypes=Series&Recursive=true&Limit=50", token=token)
     if expected["showID"] not in {item.get("Id") for item in shows.get("Items", [])}:
@@ -1139,7 +1163,7 @@ def main() -> None:
         # Default sidecars are generated locally; optional original PNGs are copied unchanged.
         print("Generating synthetic proof video and music media...", flush=True)
         make_movie(state_root / "media", DIRECT_TITLE, 2026, ".mp4", "360x540", artwork=artwork.get("lanterns.png"),
-                   video_size=perf_video_size)
+                   video_size=perf_video_size, title_logo=True)
         make_movie(state_root / "media", CONVERTED_TITLE, 2025, ".mkv", "960x540", artwork=artwork.get("cartographer.png"),
                    embedded_subtitle=True, embedded_chapters=True, video_size=perf_video_size)
         make_movie(state_root / "media", MATRIX_TITLE, 2024, ".mp4", "360x540", duration=40, artwork=artwork.get("observatory.png"))

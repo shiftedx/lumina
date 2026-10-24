@@ -30,6 +30,7 @@ make check                                      # full gate, required before a P
 
 - Run focused tests while iterating and `make check` before handing work back.
 - Match the surrounding code: naming, comment density, idioms. No speculative abstractions.
+- Branding: before changing logos, color tokens, buttons or navigation styling, read [the shared web/iOS/tvOS brand contract](apple/docs/brand-assets.md).
 - Behavior changes must have a meaningful regression check at the public API, service boundary, or user workflow. Reuse or extend an existing contract test before adding another.
 - Do not add one test per helper, CSS declaration, class name, or implementation detail. Prefer observable behavior; keep release/build contracts and trust-boundary edge cases.
 - Before deleting a test, name the retained contract that covers its useful behavior. Do not merge unrelated assertions merely to lower the reported count.

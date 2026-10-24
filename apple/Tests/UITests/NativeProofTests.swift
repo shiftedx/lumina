@@ -502,12 +502,35 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 5) { repeatButton.hasFocus })
         XCUIRemote.shared.press(.down)
         XCTAssertTrue(waitUntil(timeout: 5) { stop.hasFocus })
-        for _ in 0..<4 where !lyrics.hasFocus && !listeningOptions.hasFocus {
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitUntil(timeout: 5) { timeline.hasFocus },
+                      "Remote Down from Stop must reach the full-width track timeline.")
+
+        XCUIRemote.shared.press(.playPause)
+        XCTAssertTrue(waitUntil(timeout: 8) { transport.label == "Play" },
+                      "The remote must pause before validating timeline seeking.")
+        let pausedBeforeSeek = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+        XCUIRemote.shared.press(.right)
+        let sought = try waitForPlaybackValue(element("playbackTime"), timeout: 8) { $0 >= pausedBeforeSeek + 14 }
+        try await Task.sleep(for: .seconds(2))
+        let stillPausedAfterSeek = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+        XCTAssertLessThanOrEqual(stillPausedAfterSeek, sought + 0.5,
+                                 "Seeking on the focused timeline must not resume paused audio.")
+        XCUIRemote.shared.press(.playPause)
+        XCTAssertTrue(waitUntil(timeout: 8) { transport.label == "Pause" })
+
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitUntil(timeout: 5) { artwork.hasFocus },
+                      "Remote Up from the timeline must return to the artwork surface.")
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitUntil(timeout: 5) { queue.hasFocus })
+        for control in [transport, repeatButton, stop, timeline] {
             XCUIRemote.shared.press(.down)
-            _ = waitUntil(timeout: 2) { lyrics.hasFocus || listeningOptions.hasFocus }
+            XCTAssertTrue(waitUntil(timeout: 5) { control.hasFocus })
         }
-        XCTAssertTrue(lyrics.hasFocus || listeningOptions.hasFocus,
-                      "Remote Down from Stop must reach the below-fold listening options without a focus trap.")
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitUntil(timeout: 8) { lyrics.hasFocus },
+                      "Remote Down from the timeline must reach Lyrics without a focus trap.")
         for control in [queue, transport, repeatButton, stop] {
             XCTAssertTrue(hasVisibleFrame(control), "The TV listening rail must persist while options scroll.")
         }
@@ -974,10 +997,13 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(element("audioKeepDeviceButton"), timeout: 20, named: "explicit device/server conflict choices")
         try attachFrame(named: "Queue revision conflict requires a deliberate choice")
         try activate(element("audioUseServerButton"))
-        guard waitUntil(timeout: 20, condition: { self.currentAudioTitle() == fixture.audioSecondTrackTitle }) else {
-            throw ProofFailure.ui("Choosing the server queue did not install its selected track")
+        guard waitUntil(timeout: 20, condition: {
+            self.hasVisibleFrame(self.element("audioPlayerStage"))
+                && self.currentAudioTitle() == fixture.audioSecondTrackTitle
+                && self.element("audioPlayPauseButton").label == "Play"
+        }) else {
+            throw ProofFailure.ui("Choosing the server queue did not retain the paused player with its selected track")
         }
-        XCTAssertEqual(element("audioPlayPauseButton").label, "Play")
         try revealMusicControl(element("audioQueueButton"))
         try activate(element("audioQueueButton"))
         try waitForExistence(element("audioQueueScreen"), timeout: 15, named: "server queue with duplicate tracks")
@@ -1081,6 +1107,21 @@ class NativeProofJourney: XCTestCase {
     private func revealMusicControl(_ control: XCUIElement) throws {
         #if os(tvOS)
         try waitForExistence(control, timeout: 15, named: "music control \(control.identifier)")
+        let railOrder = ["audioQueueButton", "audioPlayPauseButton", "audioRepeatButton", "audioStopButton"]
+        if let railIndex = railOrder.firstIndex(of: control.identifier) {
+            let artwork = element("audioAlbumArtwork")
+            try waitForExistence(artwork, timeout: 15, named: "music artwork focus anchor")
+            guard focus(artwork, timeout: 15) else {
+                throw ProofFailure.ui("The Siri Remote could not focus the music artwork before entering its control rail.")
+            }
+            let queueOffset = element("audioQueueButton").isEnabled ? 0 : 1
+            let presses = railIndex + 1 - min(railIndex, queueOffset)
+            for _ in 0..<presses { XCUIRemote.shared.press(.down) }
+            guard waitUntil(timeout: 8, condition: { control.hasFocus }) else {
+                throw ProofFailure.ui("The Siri Remote could not reach the music control \(control.identifier) through its ordered rail.")
+            }
+            return
+        }
         guard focus(control, timeout: 15) else {
             throw ProofFailure.ui("The Siri Remote could not focus the music control \(control.identifier.isEmpty ? control.label : control.identifier).")
         }

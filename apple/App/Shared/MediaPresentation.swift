@@ -674,7 +674,7 @@ struct MusicCollectionSpotlight: View {
         }
         .foregroundStyle(.white)
         .multilineTextAlignment(.leading)
-        .padding(.horizontal, 24)
+        .padding(.horizontal, horizontalInset)
         .padding(.top, topContentClearance + 32)
         .padding(.bottom, 32)
         .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .bottomLeading)
@@ -700,6 +700,14 @@ struct MusicCollectionSpotlight: View {
             }
             .accessibilityHidden(true)
         }
+    }
+
+    private var horizontalInset: CGFloat {
+        #if os(tvOS)
+        80
+        #else
+        24
+        #endif
     }
 }
 

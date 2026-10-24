@@ -145,6 +145,7 @@ struct PlaybackScreen: View {
         case playPause
         case repeatMode
         case stop
+        case timeline
     }
     @FocusState private var focusedAudioControl: TVAudioFocus?
     #endif
@@ -414,7 +415,6 @@ struct PlaybackScreen: View {
                                     .frame(height: 220)
                                     .frame(maxHeight: .infinity, alignment: .bottom)
                             }
-                            .allowsHitTesting(false)
                         }
                         .frame(width: geometry.size.width, height: geometry.size.height)
 
@@ -1173,7 +1173,7 @@ struct PlaybackScreen: View {
                 .accessibilityIdentifier("audioStopButton")
                 .focused($focusedAudioControl, equals: .stop)
                 .onMoveCommand { direction in
-                    if direction == .down { audioOptionsFocusRequest += 1 }
+                    if direction == .down { focusedAudioControl = .timeline }
                 }
         }
         .font(.title2)
@@ -1188,8 +1188,7 @@ struct PlaybackScreen: View {
         VStack(spacing: 8) {
             #if os(tvOS)
             ProgressView(value: min(playback.elapsedSeconds, max(1, playback.request.item.durationSeconds)), total: max(1, playback.request.item.durationSeconds))
-                .tint(LuminaTheme.spotlight)
-                .accessibilityLabel("Track position")
+                .tint(focusedAudioControl == .timeline ? .white : LuminaTheme.spotlight)
             #else
             Slider(value: Binding(get: { playback.elapsedSeconds }, set: { playback.seek(to: $0) }), in: 0...max(1, playback.request.item.durationSeconds))
                 .tint(LuminaTheme.spotlight)
@@ -1202,7 +1201,41 @@ struct PlaybackScreen: View {
             }
             .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.8))
         }
+        #if os(tvOS)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(focusedAudioControl == .timeline ? .white.opacity(0.1) : .clear,
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(.rect)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focusedAudioControl, equals: .timeline)
+        .onMoveCommand { direction in
+            switch direction {
+            case .left:
+                playback.seek(to: playback.elapsedSeconds - 15)
+            case .right:
+                playback.seek(to: playback.elapsedSeconds + 15)
+            case .up:
+                focusedAudioControl = .artwork
+            case .down:
+                audioOptionsFocusRequest += 1
+            default:
+                break
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Track position")
+        .accessibilityValue(
+            "\(Duration.seconds(playback.elapsedSeconds).formatted(.time(pattern: .minuteSecond))) of "
+                + Duration.seconds(playback.request.item.durationSeconds).formatted(.time(pattern: .minuteSecond))
+        )
+        .accessibilityAdjustableAction { direction in
+            playback.seek(to: playback.elapsedSeconds + (direction == .increment ? 15 : -15))
+        }
+        #else
         .accessibilityElement(children: .contain)
+        #endif
         .accessibilityIdentifier("audioTimeline")
     }
 
@@ -2339,14 +2372,24 @@ final class PlaybackModel {
 struct NativeNowPlayingBar: View {
     let store: LuminaStore
     @Environment(NativeAudioSession.self) private var audioSession
+    #if os(tvOS)
+    @State private var presentedPlayback: PlaybackModel?
+    #else
     @State private var expanded = false
+    #endif
 
     var body: some View {
         // Keep the presentation host alive when pausing removes the bar's content.
         VStack(spacing: 0) {
         if let playback = audioSession.playback, playback.isPlaying, !playback.hasFinished {
             HStack(spacing: 16) {
-                Button { expanded = true } label: {
+                Button {
+                    #if os(tvOS)
+                    presentedPlayback = playback
+                    #else
+                    expanded = true
+                    #endif
+                } label: {
                     HStack(spacing: 14) {
                         CachedArtworkImage(url: store.imageURL(for: playback.request.item, maxWidth: 160)) { image in
                             image.resizable().scaledToFill()
@@ -2409,17 +2452,18 @@ struct NativeNowPlayingBar: View {
         }
         }
         #if os(tvOS)
-        .fullScreenCover(isPresented: $expanded) {
-            if let playback = audioSession.playback { PlaybackScreen(playback: playback, store: store) }
+        .nativeAudioPlayer(playback: $presentedPlayback, store: store)
+        .onChange(of: audioSession.snapshot.queue.isEmpty) { _, empty in
+            if empty { presentedPlayback = nil }
         }
         #else
         .navigationDestination(isPresented: $expanded) {
             if let playback = audioSession.playback { PlaybackScreen(playback: playback, store: store) }
         }
-        #endif
         .onChange(of: audioSession.playback == nil) { _, stopped in
             if stopped { expanded = false }
         }
+        #endif
         #if os(tvOS)
         .onPlayPauseCommand { Task { await audioSession.toggle() } }
         #endif

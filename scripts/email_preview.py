@@ -92,7 +92,7 @@ main {{ max-width:1120px; margin:0 auto; padding:48px 16px 96px; }}
 h1 {{ font:italic 600 44px/1 Georgia, serif; margin:0 0 8px; letter-spacing:-.015em; }}
 .lede {{ color:#9d968a; margin:0 0 40px; }}
 section {{ border-top:1px solid #2a2722; padding:32px 0 8px; }}
-.name {{ margin:0; color:#f0b43a; font-weight:600; font-size:11px; letter-spacing:.18em; text-transform:uppercase; }}
+.name {{ margin:0; color:#dbb688; font-weight:600; font-size:11px; letter-spacing:.18em; text-transform:uppercase; }}
 h2 {{ font:italic 600 24px/1.2 Georgia, serif; margin:6px 0 20px; }}
 h2::before {{ content:'Subject: '; font:400 13px/1 -apple-system, sans-serif; color:#9d968a; font-style:normal; }}
 .row {{ display:flex; gap:32px; align-items:flex-start; flex-wrap:wrap; }}

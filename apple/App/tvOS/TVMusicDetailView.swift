@@ -90,7 +90,7 @@ struct TVMusicDetailView: View {
                 if let errorMessage = displayedError {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 23))
-                        .foregroundStyle(LuminaTheme.spotlight)
+                        .foregroundStyle(LuminaTheme.accentInk)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("musicDetailError")
                 }
@@ -122,7 +122,7 @@ struct TVMusicDetailView: View {
                 if let errorMessage = displayedError {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 23))
-                        .foregroundStyle(LuminaTheme.spotlight)
+                        .foregroundStyle(LuminaTheme.accentInk)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("musicDetailError")
                 }
@@ -437,7 +437,7 @@ private struct TVMusicTrackRow: View {
             Text(track.indexNumber.map(String.init) ?? "–")
                 .font(.system(size: 23, weight: .medium, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(isFocused ? Color.black.opacity(0.7) : isCurrent ? LuminaTheme.gold : LuminaTheme.muted)
+                .foregroundStyle(isFocused ? Color.black.opacity(0.7) : isCurrent ? LuminaTheme.accentInk : LuminaTheme.muted)
                 .frame(width: 48, alignment: .trailing)
             VStack(alignment: .leading, spacing: 4) {
                 Text(track.name)
@@ -453,7 +453,7 @@ private struct TVMusicTrackRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             if isCurrent {
                 Image(systemName: "speaker.wave.2.fill")
-                    .foregroundStyle(isFocused ? Color.black : LuminaTheme.gold)
+                    .foregroundStyle(isFocused ? Color.black : LuminaTheme.accentInk)
                     .accessibilityHidden(true)
             }
             Text(duration)

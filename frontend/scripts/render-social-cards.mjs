@@ -30,10 +30,10 @@ try {
       .brand { position: absolute; left: 64px; top: 59px; display: flex; align-items: center; gap: 17px; }
       .brand img { width: 64px; height: 39px; }
       .brand span { padding-top: 6px; font: 500 34px / 1 Newsreader, serif; letter-spacing: 4px; }
-      .kicker { position: absolute; left: 68px; top: 180px; margin: 0; color: #D2A875; font: 600 13px / 1.4 Arial, sans-serif; letter-spacing: 2.3px; }
+      .kicker { position: absolute; left: 68px; top: 180px; margin: 0; color: #DBB688; font: 600 13px / 1.4 Arial, sans-serif; letter-spacing: 2.3px; }
       h1 { position: absolute; left: 64px; top: 217px; width: 455px; margin: 0; font: italic 700 72px / 1.02 Newsreader, serif; letter-spacing: -1.5px; }
       .copy { position: absolute; left: 68px; top: 430px; margin: 0; color: #ded7c9; font: 400 22px / 1.55 Arial, sans-serif; }
-      .horizon { position: absolute; left: 68px; bottom: 74px; width: 64px; height: 3px; background: #D2A875; }
+      .horizon { position: absolute; left: 68px; bottom: 74px; width: 64px; height: 3px; background: #DBB688; }
     </style></head><body>
       <div class="brand">${mark}<span>LUMINA</span></div>
       <p class="kicker">${kicker}</p><h1>${headline}</h1><p class="copy">${copy}</p><span class="horizon"></span>

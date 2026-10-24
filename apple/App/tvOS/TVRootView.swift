@@ -67,6 +67,7 @@ public struct TVRootView: View {
             PlaybackScreen(request: request, store: store)
         }
         .environment(audioSession)
+        .tint(LuminaTheme.ink)
     }
 
     private func toggleAudioPlayback() {
@@ -222,7 +223,7 @@ private struct TVConnectionView: View {
 
                 if let error = store.errorMessage, !error.isEmpty {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(LuminaTheme.spotlight)
+                        .foregroundStyle(LuminaTheme.accentInk)
                         .font(.callout)
                         .accessibilityLabel("Connection error: \(error)")
                         .accessibilityIdentifier("connectionError")
@@ -235,7 +236,7 @@ private struct TVConnectionView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LuminaQuietActionStyle(primary: true))
                 .controlSize(.large)
                 .accessibilityIdentifier("connectButton")
                 .focused($focusedField, equals: .connect)
@@ -574,7 +575,7 @@ private struct TVConnectionHelp: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Button("Done") { dismiss() }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LuminaQuietActionStyle())
                 .controlSize(.large)
                 .accessibilityIdentifier("connectionHelpDoneButton")
                 .focused($doneFocused)
@@ -833,7 +834,7 @@ private struct TVLibraryView: View {
                 Button { deviceSettingsPresented = true } label: {
                     Image(systemName: "person.crop.circle")
                         .font(.system(size: 27, weight: deviceSettingsPresented ? .semibold : .regular))
-                        .foregroundStyle(deviceSettingsPresented ? LuminaTheme.gold : accountFocused ? LuminaTheme.ink : LuminaTheme.muted)
+                        .foregroundStyle(deviceSettingsPresented ? LuminaTheme.accentInk : accountFocused ? LuminaTheme.ink : LuminaTheme.muted)
                         .frame(width: 64, height: 64)
                 }
                 .buttonStyle(TVNavigationButtonStyle())
@@ -873,7 +874,7 @@ private struct TVLibraryView: View {
         return Button { selectDestination(target) } label: {
             Image(systemName: symbol)
                 .font(.system(size: 27, weight: selected ? .semibold : .regular))
-                .foregroundStyle(selected ? LuminaTheme.gold : focusedDestination == target ? LuminaTheme.ink : LuminaTheme.muted)
+                .foregroundStyle(selected ? LuminaTheme.accentInk : focusedDestination == target ? LuminaTheme.ink : LuminaTheme.muted)
                 .frame(width: 64, height: 64)
         }
         .buttonStyle(TVNavigationButtonStyle())
@@ -1220,7 +1221,7 @@ private struct TVVideoView: View {
                                     .padding(32)
                             }
                             if let error = store.errorMessage {
-                                Text(error).foregroundStyle(LuminaTheme.spotlight).padding(24)
+                                Text(error).foregroundStyle(LuminaTheme.accentInk).padding(24)
                             }
                         }
                     }
@@ -1357,10 +1358,12 @@ private struct TVVideoFiltersView: View {
                         .accessibilityIdentifier("videoGenreField")
                     TextField("Year", text: $year)
                         .accessibilityIdentifier("videoYearField")
-                    if !validYear { Text("Enter a year, or leave it blank for all years.").foregroundStyle(LuminaTheme.spotlight) }
+                    if !validYear { Text("Enter a year, or leave it blank for all years.").foregroundStyle(LuminaTheme.accentInk) }
                     Toggle("Unwatched only", isOn: $unwatchedOnly)
+                        .tint(LuminaTheme.brand)
                         .accessibilityIdentifier("videoUnwatchedToggle")
                     Toggle("Favorites only", isOn: $favoritesOnly)
+                        .tint(LuminaTheme.brand)
                         .accessibilityIdentifier("videoFavoritesToggle")
                 }
                 Section {
@@ -1480,7 +1483,7 @@ private struct TVAudioView: View {
                                 .buttonStyle(LuminaQuietActionStyle()).padding(32)
                         }
                         if let error = store.errorMessage {
-                            Text(error).foregroundStyle(LuminaTheme.spotlight).padding(24)
+                            Text(error).foregroundStyle(LuminaTheme.accentInk).padding(24)
                         }
                     }
                 }
@@ -1597,9 +1600,7 @@ private struct TVFeaturedView: View {
         } label: {
             Label(preparing ? "Preparing…" : item.resumeSeconds > 0 ? "Resume" : "Play", systemImage: "play.fill")
         }
-        .buttonStyle(.borderedProminent)
-        .tint(LuminaTheme.gold)
-        .foregroundStyle(LuminaTheme.theater)
+        .buttonStyle(LuminaQuietActionStyle(primary: true))
         .disabled(preparing)
         .accessibilityIdentifier("featuredPlayButton")
         .focused($focusedAction, equals: "play")
@@ -1725,7 +1726,7 @@ struct TVMediaCard: View {
                     .overlay(alignment: .bottom) {
                         if item.resumeSeconds > 0, item.durationSeconds > 0 {
                             ProgressView(value: min(item.resumeSeconds, item.durationSeconds), total: item.durationSeconds)
-                                .progressViewStyle(.linear).tint(LuminaTheme.gold)
+                                .progressViewStyle(.linear).tint(LuminaTheme.brand)
                                 .frame(height: 3).background(.black.opacity(0.4))
                                 .accessibilityLabel("Watch progress")
                                 .accessibilityValue("\(Int(min(1, item.resumeSeconds / item.durationSeconds) * 100)) percent")
@@ -1911,7 +1912,7 @@ struct TVArtwork: View {
 
     private var placeholder: some View {
         ZStack {
-            LinearGradient(colors: [LuminaTheme.gold.opacity(0.40), LuminaTheme.paper], startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(colors: [LuminaTheme.brand.opacity(0.40), LuminaTheme.paper], startPoint: .topLeading, endPoint: .bottomTrailing)
             Image(systemName: item.isAudio || item.type.hasPrefix("Music") ? "music.note" : "film")
                 .font(.largeTitle)
                 .foregroundStyle(LuminaTheme.ink.opacity(0.7))
@@ -1940,7 +1941,7 @@ struct TVMessageView: View {
                 .foregroundStyle(LuminaTheme.muted)
                 .multilineTextAlignment(.center)
             Button(actionTitle, action: action)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LuminaQuietActionStyle(primary: true))
                 .controlSize(.large)
         }
         .frame(maxWidth: .infinity, minHeight: 360)

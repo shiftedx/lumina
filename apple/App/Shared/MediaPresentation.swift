@@ -187,7 +187,7 @@ struct MediaBillboard<Actions: View>: View {
                 VStack(alignment: .leading, spacing: 6) {
                     GeometryReader { geometry in
                         Rectangle().fill(Color.white.opacity(0.2))
-                        Rectangle().fill(LuminaTheme.spotlight)
+                        Rectangle().fill(LuminaTheme.brand)
                             .frame(width: geometry.size.width * min(1, item.resumeSeconds / item.durationSeconds))
                     }
                     .frame(height: 3)
@@ -711,18 +711,20 @@ struct MusicCollectionSpotlight: View {
     }
 }
 
-/// Flat, compact media actions use Lumina's warm accent without the system's oversized capsule treatment.
+/// Compact media actions use the web gallery's neutral ink/paper hierarchy.
 struct LuminaMediaActionStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var primary = false
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let foreground: Color = configuration.role == .destructive ? .red : primary ? LuminaTheme.onPrimaryControl : .white
+        return configuration.label
             .font(.subheadline.weight(.semibold))
             .imageScale(.small)
             .padding(.horizontal, 18)
             .frame(minWidth: 44, minHeight: 44)
-            .foregroundStyle(primary ? LuminaTheme.theater : .white)
-            .background(primary ? LuminaTheme.spotlight : Color.white.opacity(configuration.isPressed ? 0.14 : 0.06), in: .rect(cornerRadius: 10))
+            .foregroundStyle(foreground)
+            .tint(foreground)
+            .background(primary ? LuminaTheme.primaryControlFill : Color.white.opacity(configuration.isPressed ? 0.14 : 0), in: .rect(cornerRadius: 10))
             .opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.45)
             .contentShape(.rect(cornerRadius: 10))
     }
@@ -753,10 +755,10 @@ struct LuminaUnderlineTabStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             #if os(tvOS)
-            .font(.system(size: 24, weight: .medium))
+            .font(.system(size: 24, weight: selected ? .semibold : .medium))
             .frame(minWidth: 64, minHeight: 64)
             #else
-            .font(.body.weight(.medium))
+            .font(.body.weight(selected ? .semibold : .medium))
             .offset(y: alignsWithMasthead
                 ? (UIFont.preferredFont(forTextStyle: .body).descender
                     - UIFont.preferredFont(forTextStyle: .caption1).descender)
@@ -766,7 +768,7 @@ struct LuminaUnderlineTabStyle: ButtonStyle {
             .foregroundStyle(LuminaTheme.ink.opacity(selected || isFocused ? 1 : 0.8))
             .overlay(alignment: .bottom) {
                 Rectangle()
-                    .fill(isFocused ? LuminaTheme.ink : selected ? LuminaTheme.gold : Color.clear)
+                    .fill(isFocused ? LuminaTheme.ink : selected ? LuminaTheme.brand : Color.clear)
                     .frame(height: isFocused ? 3 : 2)
             }
             .opacity(isEnabled ? configuration.isPressed ? 0.65 : 1 : 0.4)
@@ -784,7 +786,8 @@ struct LuminaQuietActionStyle: ButtonStyle {
     var mediaOverlay = false
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let foreground: Color = configuration.role == .destructive ? .red : isFocused ? LuminaTheme.theater : primary ? LuminaTheme.onPrimaryControl : Color.primary
+        return configuration.label
             .font(.body.weight(primary || selected ? .semibold : .regular))
             .padding(.horizontal, 16)
             #if os(tvOS)
@@ -792,8 +795,9 @@ struct LuminaQuietActionStyle: ButtonStyle {
             #else
             .frame(minWidth: 44, minHeight: 44)
             #endif
-            .foregroundStyle(isFocused || primary ? LuminaTheme.theater : Color.primary)
-            .background(isFocused ? Color.white : primary ? LuminaTheme.gold : mediaOverlay ? Color.black.opacity(0.72) : Color.primary.opacity(configuration.isPressed ? 0.18 : selected ? 0.12 : 0.06), in: .rect(cornerRadius: 10))
+            .foregroundStyle(foreground)
+            .tint(foreground)
+            .background(isFocused ? Color.white : primary ? LuminaTheme.primaryControlFill : mediaOverlay ? Color.black.opacity(0.72) : Color.primary.opacity(configuration.isPressed ? 0.18 : selected ? 0.12 : 0), in: .rect(cornerRadius: 10))
             .overlay {
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(isFocused ? Color.white : contrast == .increased ? Color.primary : Color.clear, lineWidth: 2)

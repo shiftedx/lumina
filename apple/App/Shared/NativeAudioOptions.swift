@@ -29,6 +29,7 @@ struct NativeAudioOptions: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .accessibilityIdentifier("audioSourceFormat")
                     Toggle("Normalize loudness", isOn: $session.normalization)
+                        .tint(LuminaTheme.brand)
                         .accessibilityIdentifier("audioNormalizeToggle")
                         .disabled(session.isSonos || session.playbackMode == .streaming || !hasLoudnessMetadata)
                     if !hasLoudnessMetadata {
@@ -113,11 +114,10 @@ struct NativeAudioOptions: View {
         }
         #if os(tvOS)
         .buttonStyle(.bordered)
-        .tint(nil)
         #else
         .buttonStyle(.plain)
-        .tint(LuminaTheme.spotlight)
         #endif
+        .tint(LuminaTheme.ink)
     }
 
     private var albumItems: [MediaItem] {
@@ -138,7 +138,7 @@ struct NativeAudioOptions: View {
                                 Button { playback.seek(to: cue.start) } label: {
                                     Text(cue.text)
                                         .font(LuminaTheme.editorial(index == activeCue ? 28 : 24, relativeTo: .body))
-                                        .foregroundStyle(index == activeCue ? LuminaTheme.spotlight : .white.opacity(0.75))
+                                        .foregroundStyle(index == activeCue ? LuminaTheme.accentInk : .white.opacity(0.75))
                                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                                         .padding(.vertical, 6)
                                 }
@@ -207,6 +207,7 @@ struct NativeAudioOptions: View {
                 Button("Retry stopping speaker") { Task { await session.retryStoppingSpeaker() } }
             }
             Toggle("Compatibility mode for Sonos S1", isOn: $session.compatibility)
+                .tint(LuminaTheme.brand)
             Button(session.busy ? "Looking for speakers…" : "Refresh Sonos speakers") { Task { await session.discoverSpeakers() } }
                 .disabled(session.busy)
                 .accessibilityIdentifier("audioRefreshSpeakersButton")

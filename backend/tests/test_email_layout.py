@@ -112,3 +112,13 @@ def test_subject_names_cannot_carry_header_line_breaks() -> None:
 def test_empty_library_names_do_not_promise_unrestricted_access() -> None:
     _, text, html = invite_email.render(inviter="Maya", server="Lumina", libraries=[], link="https://lumina.example.com/invite", expires=datetime(2026, 10, 12))
     assert "Everything" not in text and "Shared with you" not in html
+
+
+def test_email_variants_share_the_brand_accent_and_neutral_actions() -> None:
+    for _, _, html in every_email(title="Example film", year=2026):
+        rendered = html.lower()
+        assert "#dbb688" in rendered
+        assert not any(retired in rendered for retired in ("#e5a00d", "#f0b43a", "#8a5a00"))
+        if "<v:roundrect" in rendered:
+            assert 'fillcolor="#efe9dd"' in rendered
+            assert "background:#efe9dd;color:#0f0e0c" in rendered

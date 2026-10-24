@@ -4,6 +4,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import os
+import plistlib
 import subprocess
 import sys
 import tempfile
@@ -139,27 +140,58 @@ class UITierRunnerTests(unittest.TestCase):
             "-only-testing:Lumina-iOS-UITests/NativeNativePlaybackReportsResumeAndConversionProgressTests",
         ]
         validations: list[int] = []
-        with tempfile.TemporaryDirectory() as directory, \
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            xctestrun = root / "Build" / "Products" / "tests.xctestrun"
+            xctestrun.parent.mkdir(parents=True)
+            runner = xctestrun.parent / "Debug-iphonesimulator" / "Runner.app"
+            bundle = runner / "PlugIns" / "Lumina-iOS-UITests.xctest"
+            bundle.mkdir(parents=True)
+            embedded_broker = bundle / "FixtureBroker.json"
+            embedded_broker.write_bytes(b"old broker")
+            broker = root / "broker.json"
+            broker.write_bytes(b"new broker")
+            with xctestrun.open("wb") as stream:
+                plistlib.dump({
+                    "__xctestrun_metadata__": {},
+                    "Lumina-iOS-UITests": {
+                        "IsUITestBundle": True,
+                        "TestHostPath": "__TESTROOT__/Debug-iphonesimulator/Runner.app",
+                        "TestBundlePath": "__TESTHOST__/PlugIns/Lumina-iOS-UITests.xctest",
+                    },
+                }, stream)
+            phases: list[str] = []
+
+            def run_xcode(arguments: list[str], _: Path) -> tuple[int, float, float, float]:
+                if "build-for-testing" in arguments:
+                    phases.append("build")
+                    self.assertEqual(embedded_broker.read_bytes(), b"old broker")
+                    return 0, 0.0, 0.0, 0.0
+                phases.append("test")
+                self.assertEqual(embedded_broker.read_bytes(), b"new broker")
+                return 0, 1.0, 1.0, 2.0
+
+            with \
              mock.patch.object(run_ui_tiers, "boot_simulators", return_value=(["one", "two"], 0.0, 0.0)), \
              mock.patch.object(run_ui_tiers, "latest_runtime", return_value="runtime"), \
-             mock.patch.object(run_ui_tiers, "xctestrun_path", return_value=Path(directory) / "tests.xctestrun"), \
+             mock.patch.object(run_ui_tiers, "xctestrun_path", return_value=xctestrun), \
              mock.patch.object(run_ui_tiers, "selectors", return_value=selected), \
-             mock.patch.object(run_ui_tiers, "run_xcode", side_effect=[
-                 (0, 0.0, 0.0, 0.0),
-                 (0, 1.0, 1.0, 2.0),
-                 (0, 1.0, 1.0, 2.0),
-             ]), \
+             mock.patch.object(run_ui_tiers, "run_xcode", side_effect=run_xcode), \
              mock.patch.object(run_ui_tiers, "result_ok", side_effect=lambda _result, _log, count: validations.append(count) or True), \
              mock.patch.object(run_ui_tiers, "command", return_value=subprocess.CompletedProcess([], 0, "", "")):
-            outcome = run_ui_tiers.one_platform(
-                "iOS", "smoke", 1, Path(directory), Path(directory) / "broker.json", "run"
-            )
-        shards = outcome["tests"][0]["shards"]
-        self.assertEqual({item["tests"] for item in shards}, {1, 2})
-        self.assertEqual(set(validations), {1, 2})
-        self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("iOS", "smoke")), 3)
-        self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("iOS", "full")), 14)
-        self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("tvOS", "full")), 8)
+                outcome = run_ui_tiers.one_platform("iOS", "smoke", 1, root, broker, "run")
+            shards = outcome["tests"][0]["shards"]
+            self.assertEqual({item["tests"] for item in shards}, {1, 2})
+            self.assertEqual(set(validations), {1, 2})
+            self.assertEqual(phases, ["build", "test", "test"])
+            self.assertEqual(embedded_broker.read_bytes(), b"new broker")
+            embedded_broker.write_bytes(b"stale broker")
+            with mock.patch.object(run_ui_tiers.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")):
+                with self.assertRaisesRegex(RuntimeError, "did not match"):
+                    run_ui_tiers.refresh_broker_fixture(xctestrun, broker)
+            self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("iOS", "smoke")), 3)
+            self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("iOS", "full")), 14)
+            self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("tvOS", "full")), 8)
 
     def test_result_requires_the_exact_selected_count_and_a_clean_summary(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -717,7 +717,7 @@ class NativeProofJourney: XCTestCase {
         try launchAndResetSession()
         try signIn(using: fixture)
         try selectDestination("Audio", screen: "audioScreen")
-        try activate(element("musicLibrary-downloads"))
+        try openMusicLibrarySection("downloads")
         let clearDownloads = application!.buttons.matching(NSPredicate(format: "label == %@", "Remove all downloads")).firstMatch
         if clearDownloads.exists && clearDownloads.isEnabled {
             try revealMusicControl(clearDownloads)
@@ -725,12 +725,13 @@ class NativeProofJourney: XCTestCase {
             try activate(menuAction("Remove downloads"))
         }
         try musicBack()
-        try activate(element("musicLibrary-playlists"))
+        try openMusicLibrarySection("playlists")
         try activate(element("musicPlaylist-\(sharedID)"))
         try waitForExistence(element("musicPlaylistDetailScreen"), timeout: 20, named: "shared playlist")
         try revealMusicControl(element("downloadAudioButton"))
         try activate(element("downloadAudioButton"))
         try musicBack()
+        try waitForExistence(element("musicLibraryScreen"), timeout: 20, named: "music library after playlist")
         try activate(element("musicLibrarySectionPicker"))
         try activate(menuAction("Downloads"))
         try waitForExistence(element("downloadedTrack-\(fixture.audioTrackID)"), timeout: 60, named: "downloaded first track")
@@ -773,7 +774,7 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Audio", screen: "audioScreen")
         try activate(element("audioItem-\(fixture.audioAlbumID)"))
         try waitForExistence(element("musicCollectionScreen"), timeout: 20, named: "album queue before restoration")
-        try activate(menuAction("Play album"))
+        try startMusicCollectionPlayback()
         try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "album's advanced player")
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 4 }
         try activate(element("audioPlayPauseButton"))
@@ -847,7 +848,7 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Audio", screen: "audioScreen")
         try activate(element("audioItem-\(fixture.audioAlbumID)"))
         try waitForExistence(element("musicCollectionScreen"), timeout: 20, named: "album after paused queue relaunch")
-        try activate(menuAction("Play album"))
+        try startMusicCollectionPlayback()
         try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "explicitly resumed iPhone audio stage")
         try activate(element("audioPlayPauseButton"))
         #endif
@@ -934,7 +935,7 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Audio", screen: "audioScreen")
         try activate(element("audioItem-\(fixture.audioAlbumID)"))
         try waitForExistence(element("musicCollectionScreen"), timeout: 20, named: "fresh album in the same app process")
-        try activate(menuAction("Play album"))
+        try startMusicCollectionPlayback()
         try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "new playback after Stop")
         try revealMusicControl(element("audioRepeatButton"))
         try activate(element("audioRepeatButton"))
@@ -1008,6 +1009,27 @@ class NativeProofJourney: XCTestCase {
         #else
         try activate(application!.buttons.matching(identifier: "BackButton").firstMatch)
         #endif
+    }
+
+    private func startMusicCollectionPlayback() throws {
+        let play = element("musicPlayButton")
+        try waitForExistence(play, timeout: 20, named: "loaded album play action")
+        guard waitUntil(timeout: 20, condition: { play.isEnabled }) else {
+            throw ProofFailure.timeout("Timed out waiting for the loaded album play action to become enabled.")
+        }
+        try activate(play)
+    }
+
+    /// iOS exposes music-library sections inside its options menu, while tvOS
+    /// exposes the same destinations directly. Wait for the pushed library
+    /// before continuing so a TV Menu press cannot leave it immediately.
+    private func openMusicLibrarySection(_ section: String) throws {
+        #if os(iOS)
+        try activate(element("musicOptionsMenu"))
+        #endif
+        try activate(element("musicLibrary-\(section)"))
+        try waitForExistence(element("musicLibraryScreen"), timeout: 20, named: "\(section) music library")
+        try waitForExistence(element("musicLibrarySectionPicker"), timeout: 10, named: "\(section) music library picker")
     }
 
     #if os(tvOS)
@@ -4056,24 +4078,38 @@ class NativeProofJourney: XCTestCase {
 
     #if os(iOS)
     private func waitForPostLoginAccountDestination() throws {
-        let predicate = NSPredicate { [self] _, _ in
-            let prompt = application!.sheets["Save Password?"]
-            let promptVisible = prompt.exists || application!.staticTexts["Save Password?"].exists
-            if promptVisible {
-                let decline = application!.buttons["Not Now"]
-                if hasVisibleFrame(decline), decline.isEnabled, decline.isHittable {
-                    decline.tap()
-                }
-                return false
-            }
+        let prompt = application!.sheets["Save Password?"]
+        let promptTitle = application!.staticTexts["Save Password?"]
+        let decline = application!.buttons["Not Now"]
 
-            // The system sheet replaces the accessibility snapshot. Resolve the
-            // destination only after it is gone instead of retaining a stale row.
-            let account = destinationControl("Account")
-            return hasVisibleFrame(account) && account.isEnabled && account.isHittable
+        // Saving a password is an OS-owned interruption. A direct tap can wait
+        // for the sheet's dismissal before returning, so it must not share the
+        // same predicate deadline as the destination assertion.
+        guard waitUntil(timeout: 25, condition: {
+            if prompt.exists || promptTitle.exists { return true }
+            let account = self.destinationControl("Account")
+            return self.hasVisibleFrame(account) && account.isEnabled && account.isHittable
+        }) else {
+            throw ProofFailure.timeout("Timed out waiting for password storage or the Account tab after login.")
         }
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
-        guard XCTWaiter().wait(for: [expectation], timeout: 25) == .completed else {
+        if prompt.exists || promptTitle.exists {
+            guard waitUntil(timeout: 10, condition: {
+                self.hasVisibleFrame(decline) && decline.isEnabled && decline.isHittable
+            }) else {
+                throw ProofFailure.timeout("Timed out waiting for the password-storage decline action.")
+            }
+            decline.tap()
+            guard waitUntil(timeout: 25, condition: { !prompt.exists && !promptTitle.exists }) else {
+                throw ProofFailure.timeout("Password storage did not dismiss after declining it.")
+            }
+        }
+
+        // The system sheet replaces the accessibility snapshot. Resolve the
+        // destination only after it is gone instead of retaining a stale row.
+        guard waitUntil(timeout: 25, condition: {
+            let account = self.destinationControl("Account")
+            return self.hasVisibleFrame(account) && account.isEnabled && account.isHittable
+        }) else {
             throw ProofFailure.timeout("Timed out waiting for hittable Account tab after declining password storage.")
         }
     }
@@ -4372,28 +4408,19 @@ class NativeProofJourney: XCTestCase {
     }
 
     private func resumeNativePlayer(pausedAt: Double) throws -> Double {
-        let player = element("nativeVideoPlayer")
-        try waitForExistence(player, timeout: 10, named: "native player after returning from Home")
-        player.tap()
-        let play = player.descendants(matching: .button).matching(
-            NSPredicate(format: "label == %@ OR label == %@", "Play", "Resume")
-        ).firstMatch
-        let deadline = Date().addingTimeInterval(15)
-        var activatedPlay = false
-        while Date() < deadline {
-            // AVKit replaces accessibility nodes when its controls appear. Re-query
-            // the clock, and observe playback while Play is still visible.
-            let clock = element("playbackTime")
-            if clock.exists, let value = Self.numericAccessibilityValue(of: clock), value >= pausedAt + 1 {
-                return value
-            }
-            if !activatedPlay, play.exists, play.isHittable {
-                try activate(play)
-                activatedPlay = true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        // The native AV layer is intentionally hidden from accessibility and does
+        // not accept test input. Reveal Lumina's transport, then resume through
+        // its real user-facing action.
+        try waitForExistence(element("nativeVideoPlayer"), timeout: 10, named: "native player after returning from Home")
+        let controlsSurface = application!.buttons.matching(identifier: "videoControlsSurface").firstMatch
+        let play = application!.buttons.matching(identifier: "videoPlayPauseButton").firstMatch
+        if !play.isHittable {
+            try activate(controlsSurface)
         }
-        throw ProofFailure.timeout("The native player's clock did not advance after resume.")
+        try waitForHittable(play, timeout: 10, named: "resumed native video transport")
+        XCTAssertEqual(play.label, "Play", "Returning from Home must leave native playback paused until an explicit resume.")
+        try activate(play)
+        return try waitForPlaybackValue(element("playbackTime"), timeout: 15) { $0 >= pausedAt + 1 }
     }
 
     private func pauseAndResumeNativePlayer(after directAdvanced: Double) async throws {
@@ -4422,10 +4449,20 @@ class NativeProofJourney: XCTestCase {
     #endif
 
     private func startPlayback(using buttonIdentifier: String) throws -> XCUIElement {
+        if buttonIdentifier == "convertButton" {
+            let actions = element("titleActionsMenu")
+            try waitForExistence(actions, timeout: 20, named: "title actions menu")
+            #if os(iOS)
+            try revealDetailControl(actions, named: "title actions menu")
+            #endif
+            try activate(actions)
+        }
         let button = element(buttonIdentifier)
         try waitForExistence(button, timeout: 20, named: buttonIdentifier)
         #if os(iOS)
-        try revealDetailControl(button, named: buttonIdentifier)
+        if buttonIdentifier != "convertButton" {
+            try revealDetailControl(button, named: buttonIdentifier)
+        }
         #endif
         try activate(button)
         try waitForExistence(element("playbackScreen"), timeout: 35, named: "native playback screen")
@@ -4484,11 +4521,28 @@ class NativeProofJourney: XCTestCase {
             throw ProofFailure.ui("The tvOS menu button did not close the native player.")
         }
         #else
-        let closeButton = element("audioPlayerStage").exists
+        let audioPlayer = element("audioPlayerStage").exists
+        let closeButton = audioPlayer
             ? application!.buttons.matching(identifier: "BackButton").firstMatch
-            : element("closePlayerButton")
-        try waitForExistence(closeButton, timeout: 10, named: "iOS player back or close button")
-        try activate(closeButton)
+            : application!.buttons.matching(identifier: "closePlayerButton").firstMatch
+        if audioPlayer {
+            try waitForExistence(closeButton, timeout: 10, named: "iOS player back button")
+            try activate(closeButton)
+        } else {
+            let controlsSurface = application!.buttons.matching(identifier: "videoControlsSurface").firstMatch
+            if controlsSurface.label == "Show playback controls" || !closeButton.exists {
+                try activate(controlsSurface)
+            }
+            if let visibleClose = try? waitForHittable(closeButton, timeout: 2, named: "visible iOS player close button") {
+                visibleClose.tap()
+            } else {
+                // The running video can auto-hide between the first probe and
+                // its tap. Reveal exactly once through the user-facing surface.
+                try activate(controlsSurface)
+                let revealedClose = try waitForHittable(closeButton, timeout: 2, named: "revealed iOS player close button")
+                revealedClose.tap()
+            }
+        }
         guard disappears(element("playbackScreen"), timeout: 10) else {
             throw ProofFailure.ui("The iOS close player button did not dismiss the native player.")
         }
@@ -4748,7 +4802,7 @@ class NativeProofJourney: XCTestCase {
                                 "downloadAudioButton", "playDownloadsButton", "audioListeningOptions", "audioLyrics",
                                 "audioNormalizeToggle", "audioCrossfadePicker", "audioSleepTimerButton",
                                 "audioUseServerButton", "audioKeepDeviceButton", "audioPlayPauseButton",
-                                "audioRepeatButton", "audioStopButton"]
+                                "audioRepeatButton", "audioStopButton", "musicPlayButton"]
         let musicLabels = ["Refresh playlist", "Remove all downloads", "Remove downloads",
                                 "Save listening queue as a playlist", "Downloads", "3 seconds", "15 minutes", "Play album"]
         let musicTarget = targetIdentifier.hasPrefix("musicLibrary") || targetIdentifier.hasPrefix("musicPlaylist")

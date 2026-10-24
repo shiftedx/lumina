@@ -22,7 +22,7 @@ def render(index_html: str, *, origin: str, invite: bool) -> str:
     image = INVITE_IMAGE if invite else GENERIC_IMAGE
     title = escape(title, quote=True)
     description = escape(description, quote=True)
-    image_url = escape(f"{base}{image}", quote=True)
+    image_url = escape(f"{base}{image}?v=brand-dbb688", quote=True)
     image_alt = escape("Lumina’s horizon mark beside an ivory-and-gold drawing of a media vault holding film reels and records.", quote=True)
     canonical_url = escape(f"{base}/invite" if invite else f"{base}/", quote=True)
     tags = f"""

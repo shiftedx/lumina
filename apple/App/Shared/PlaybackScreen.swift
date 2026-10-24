@@ -1188,10 +1188,10 @@ struct PlaybackScreen: View {
         VStack(spacing: 8) {
             #if os(tvOS)
             ProgressView(value: min(playback.elapsedSeconds, max(1, playback.request.item.durationSeconds)), total: max(1, playback.request.item.durationSeconds))
-                .tint(focusedAudioControl == .timeline ? .white : LuminaTheme.spotlight)
+                .tint(focusedAudioControl == .timeline ? .white : LuminaTheme.brand)
             #else
             Slider(value: Binding(get: { playback.elapsedSeconds }, set: { playback.seek(to: $0) }), in: 0...max(1, playback.request.item.durationSeconds))
-                .tint(LuminaTheme.spotlight)
+                .tint(LuminaTheme.brand)
                 .accessibilityLabel("Track position")
             #endif
             HStack {
@@ -3207,7 +3207,7 @@ private struct VideoRoutePicker: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let picker = AVRoutePickerView()
         picker.tintColor = .white
-        picker.activeTintColor = UIColor(LuminaTheme.spotlight)
+        picker.activeTintColor = UIColor(LuminaTheme.brand)
         picker.accessibilityLabel = "Audio output"
         return picker
     }

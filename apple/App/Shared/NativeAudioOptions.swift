@@ -137,7 +137,7 @@ struct NativeAudioOptions: View {
                                 Button { playback.seek(to: cue.start) } label: {
                                     Text(cue.text)
                                         .font(LuminaTheme.editorial(index == activeCue ? 28 : 24, relativeTo: .body))
-                                        .foregroundStyle(index == activeCue ? LuminaTheme.spotlight : .white.opacity(0.75))
+                                        .foregroundStyle(index == activeCue ? LuminaTheme.accentInk : .white.opacity(0.75))
                                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                                         .padding(.vertical, 6)
                                 }

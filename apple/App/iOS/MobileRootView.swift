@@ -159,7 +159,7 @@ private struct ConnectionView: View {
                 if let message = store.errorMessage, !message.isEmpty {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
                         .font(.callout)
-                        .foregroundStyle(LuminaTheme.gold)
+                        .foregroundStyle(LuminaTheme.accentInk)
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(.isStaticText)
                         .accessibilityIdentifier("connectionError")
@@ -301,7 +301,7 @@ private struct LibraryShellView: View {
                 destinationStack { NativeAccountSettingsView(store: store) }
             }
         }
-        .tint(LuminaTheme.gold)
+        .tint(LuminaTheme.accentInk)
     }
 
     @ViewBuilder private var libraryContent: some View {
@@ -571,7 +571,7 @@ private struct HomePlaybackRoutePicker: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let picker = AVRoutePickerView()
         picker.tintColor = UIColor(LuminaTheme.ink)
-        picker.activeTintColor = UIColor(LuminaTheme.gold)
+        picker.activeTintColor = UIColor(LuminaTheme.accentInk)
         return picker
     }
     func updateUIView(_ view: AVRoutePickerView, context: Context) { }
@@ -950,7 +950,7 @@ private struct VideoLibraryView: View {
                         if store.isBusy {
                             ProgressView("Refreshing…")
                                 .font(.footnote)
-                                .tint(LuminaTheme.gold)
+                                .tint(LuminaTheme.brand)
                         }
 
                         if let message = store.errorMessage, !message.isEmpty {
@@ -1251,7 +1251,7 @@ private struct VideoAlphabetRail: View {
                 ForEach(anchors) { anchor in
                     Text(anchor.letter)
                         .font(.caption2.weight(selectedAnchor == anchor ? .bold : .medium))
-                        .foregroundStyle(selectedAnchor == anchor ? LuminaTheme.gold : LuminaTheme.muted)
+                        .foregroundStyle(selectedAnchor == anchor ? LuminaTheme.accentInk : LuminaTheme.muted)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -1424,7 +1424,7 @@ private struct VideoCollectionView: View {
                     if let playbackError {
                         Label(playbackError, systemImage: "exclamationmark.triangle.fill")
                             .font(.callout)
-                            .foregroundStyle(LuminaTheme.gold)
+                            .foregroundStyle(LuminaTheme.accentInk)
                             .accessibilityIdentifier("videoCollectionPlaybackError")
                     }
                 }
@@ -1547,7 +1547,7 @@ private struct VideoCollectionView: View {
                     }
                     if episode.userData?.played == true {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(LuminaTheme.spotlight)
+                            .foregroundStyle(LuminaTheme.accentInk)
                             .accessibilityLabel("Watched")
                     }
                 }
@@ -1574,7 +1574,7 @@ private struct VideoCollectionView: View {
             if episode.resumeSeconds > 0, episode.durationSeconds > 0 {
                 ProgressView(value: min(episode.resumeSeconds / episode.durationSeconds, 1))
                     .progressViewStyle(.linear)
-                    .tint(LuminaTheme.spotlight)
+                    .tint(LuminaTheme.brand)
                     .frame(height: 3)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 5)
@@ -2251,7 +2251,7 @@ private struct MediaCard: View {
                     if progressFraction > 0 {
                         ProgressView(value: progressFraction)
                             .progressViewStyle(.linear)
-                            .tint(LuminaTheme.gold)
+                            .tint(LuminaTheme.brand)
                             .frame(height: 3)
                             .clipShape(.rect(cornerRadius: 2))
                     }
@@ -2489,7 +2489,7 @@ private struct TitleDetailView: View {
                     if let stateError {
                         Label(stateError, systemImage: "exclamationmark.triangle.fill")
                             .font(.callout)
-                            .foregroundStyle(LuminaTheme.gold)
+                            .foregroundStyle(LuminaTheme.accentInk)
                             .accessibilityElement(children: .combine)
                             .accessibilityIdentifier("videoStateError")
                     }
@@ -2504,7 +2504,7 @@ private struct TitleDetailView: View {
                     if let playbackError, !playbackError.isEmpty {
                         Label(playbackError, systemImage: "exclamationmark.triangle.fill")
                             .font(.callout)
-                            .foregroundStyle(LuminaTheme.gold)
+                            .foregroundStyle(LuminaTheme.accentInk)
                             .accessibilityElement(children: .combine)
                             .accessibilityAddTraits(.isStaticText)
                     }
@@ -2706,7 +2706,7 @@ private struct EmptyLibraryView: View {
         VStack(alignment: .leading, spacing: 14) {
             Image(systemName: "film.stack")
                 .font(.largeTitle)
-                .foregroundStyle(LuminaTheme.gold)
+                .foregroundStyle(LuminaTheme.accentInk)
                 .accessibilityHidden(true)
             Text("Your video library is quiet.")
                 .font(.system(.title2, design: .serif))
@@ -2730,7 +2730,7 @@ private struct InlineErrorView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(.callout)
-                .foregroundStyle(LuminaTheme.gold)
+                .foregroundStyle(LuminaTheme.accentInk)
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isStaticText)
             Button("Try again", action: onRetry)

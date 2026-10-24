@@ -187,7 +187,7 @@ struct MediaBillboard<Actions: View>: View {
                 VStack(alignment: .leading, spacing: 6) {
                     GeometryReader { geometry in
                         Rectangle().fill(Color.white.opacity(0.2))
-                        Rectangle().fill(LuminaTheme.spotlight)
+                        Rectangle().fill(LuminaTheme.brand)
                             .frame(width: geometry.size.width * min(1, item.resumeSeconds / item.durationSeconds))
                     }
                     .frame(height: 3)
@@ -755,10 +755,10 @@ struct LuminaUnderlineTabStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             #if os(tvOS)
-            .font(.system(size: 24, weight: .medium))
+            .font(.system(size: 24, weight: selected ? .semibold : .medium))
             .frame(minWidth: 64, minHeight: 64)
             #else
-            .font(.body.weight(.medium))
+            .font(.body.weight(selected ? .semibold : .medium))
             .offset(y: alignsWithMasthead
                 ? (UIFont.preferredFont(forTextStyle: .body).descender
                     - UIFont.preferredFont(forTextStyle: .caption1).descender)
@@ -768,7 +768,7 @@ struct LuminaUnderlineTabStyle: ButtonStyle {
             .foregroundStyle(LuminaTheme.ink.opacity(selected || isFocused ? 1 : 0.8))
             .overlay(alignment: .bottom) {
                 Rectangle()
-                    .fill(isFocused ? LuminaTheme.ink : selected ? LuminaTheme.gold : Color.clear)
+                    .fill(isFocused ? LuminaTheme.ink : selected ? LuminaTheme.brand : Color.clear)
                     .frame(height: isFocused ? 3 : 2)
             }
             .opacity(isEnabled ? configuration.isPressed ? 0.65 : 1 : 0.4)

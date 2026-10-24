@@ -39,8 +39,9 @@
   --g-field-rule: color-mix(in srgb, var(--g-ink) 50%, transparent);
   --g-wash: color-mix(in srgb, var(--g-ink) 8%, transparent);
   --g-selected: color-mix(in srgb, var(--g-ink) 12%, transparent);
-  --g-gold: #e5a00d;
-  --g-gold-ink: #f0b43a;
+  --g-brand: #dbb688;
+  --g-gold: var(--g-brand);
+  --g-gold-ink: var(--g-brand);
   --g-on-gold: #15130f;
   --g-focus: #efe9dd;
   --g-danger: #e58a74;
@@ -123,7 +124,7 @@
   --g-ink-3: #615c53;
   --g-wash: color-mix(in srgb, var(--g-ink) 6%, transparent);
   --g-selected: color-mix(in srgb, var(--g-ink) 10%, transparent);
-  --g-gold-ink: #8a5a00;
+  --g-gold-ink: var(--g-ink);
   --g-focus: #15130f;
   --g-danger: #a3321f;
   --g-danger-wash: color-mix(in srgb, var(--g-danger) 8%, transparent);
@@ -146,7 +147,7 @@
   --g-paper: #0f0e0c; --g-paper-2: #1a1814; --g-paper-3: #221f1a; --g-ink: #efe9dd; --g-ink-2: #c9c2b4; --g-ink-3: #9d968a;
   --g-rule-soft: color-mix(in srgb, var(--g-ink) 18%, transparent); --g-field-rule: color-mix(in srgb, var(--g-ink) 50%, transparent);
   --g-wash: color-mix(in srgb, var(--g-ink) 8%, transparent); --g-selected: color-mix(in srgb, var(--g-ink) 12%, transparent);
-  --g-gold-ink: #f0b43a; --g-focus: #efe9dd; --g-danger: #e58a74; --g-danger-wash: color-mix(in srgb, var(--g-danger) 12%, transparent); --g-success: #8cc79a;
+  --g-gold-ink: var(--g-brand); --g-focus: #efe9dd; --g-danger: #e58a74; --g-danger-wash: color-mix(in srgb, var(--g-danger) 12%, transparent); --g-success: #8cc79a;
 }
 
 @media (min-width: 1600px) {

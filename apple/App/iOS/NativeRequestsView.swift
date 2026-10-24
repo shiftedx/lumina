@@ -389,7 +389,7 @@ private struct RequestDetailSheet: View {
                         if loading { ProgressView("Loading title details…") }
                         else if let created {
                             Label(created.status.label, systemImage: "checkmark.circle.fill")
-                                .font(.title3.weight(.semibold)).foregroundStyle(LuminaTheme.gold)
+                                .font(.title3.weight(.semibold)).foregroundStyle(LuminaTheme.accentInk)
                                 .accessibilityIdentifier("requestSubmittedStatus")
                             Text(created.status == .pending ? "Your household’s administrator will review this request." : "Your request is saved. Follow its progress in My requests.")
                                 .foregroundStyle(.secondary)
@@ -541,9 +541,9 @@ private struct RequestHistorySheet: View {
                             RequestArtwork(url: record.posterURL, catalog: catalog).frame(width: 68, height: 102).clipShape(.rect(cornerRadius: 6))
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(record.title).font(.headline)
-                                Text(record.status.label).foregroundStyle(LuminaTheme.gold)
+                                Text(record.status.label).foregroundStyle(LuminaTheme.accentInk)
                                 if record.status == .processing {
-                                    ProgressView(value: min(1, max(0, record.progress ?? 0))).tint(LuminaTheme.gold)
+                                    ProgressView(value: min(1, max(0, record.progress ?? 0))).tint(LuminaTheme.brand)
                                 }
                                 if let language = record.language {
                                     Text(language == .dub ? "English dub" : "Japanese + subtitles").font(.caption).foregroundStyle(.secondary)

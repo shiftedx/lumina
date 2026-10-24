@@ -121,12 +121,12 @@ struct TVDetailView: View {
     @ViewBuilder private var detailStatus: some View {
         if let detailError {
             Label(detailError, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(LuminaTheme.spotlight)
+                .foregroundStyle(LuminaTheme.accentInk)
                 .accessibilityIdentifier("detailStateError")
         }
         if let playbackError {
             Label(playbackError, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(LuminaTheme.spotlight)
+                .foregroundStyle(LuminaTheme.accentInk)
                 .accessibilityIdentifier("playbackError")
         }
     }
@@ -291,7 +291,7 @@ struct TVVideoCollectionView: View {
             if let errorMessage, !isLoading {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 23))
-                    .foregroundStyle(LuminaTheme.spotlight)
+                    .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("collectionError")
             }
         }
@@ -460,7 +460,7 @@ struct TVVideoCollectionView: View {
                 .overlay(alignment: .bottom) {
                     if episode.resumeSeconds > 0, episode.durationSeconds > 0 {
                         ProgressView(value: min(episode.resumeSeconds / episode.durationSeconds, 1))
-                            .tint(LuminaTheme.gold).padding(.horizontal, 10).padding(.bottom, 8)
+                            .tint(LuminaTheme.brand).padding(.horizontal, 10).padding(.bottom, 8)
                     }
                 }
             Text(episodeHeading(episode))
@@ -749,7 +749,7 @@ private struct TVWatchlistButton: View {
             if let message = watchlist?.errorMessage {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(LuminaTheme.spotlight)
+                    .foregroundStyle(LuminaTheme.accentInk)
             }
         }
         .task(id: item.id + (store.session?.accessToken ?? "")) {
@@ -813,7 +813,7 @@ private struct TVDetailOverflowActions: View {
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(LuminaTheme.spotlight)
+                    .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("videoStateError")
             }
         }
@@ -850,7 +850,7 @@ private struct TVDetailTextActionStyle: ButtonStyle {
             .foregroundStyle(.white.opacity(isFocused || primary ? 1 : 0.82))
             .overlay(alignment: .bottom) {
                 Rectangle()
-                    .fill(isFocused ? .white : selected ? LuminaTheme.gold : .clear)
+                    .fill(isFocused ? .white : selected ? LuminaTheme.brand : .clear)
                     .frame(height: isFocused ? 3 : 1)
             }
             .opacity(isEnabled ? configuration.isPressed ? 0.65 : 1 : 0.4)

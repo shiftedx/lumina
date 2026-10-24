@@ -630,12 +630,12 @@ private struct TVRequestDetailView: View {
             if let created {
                 Label(created.status.label, systemImage: "checkmark.circle.fill")
                     .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(LuminaTheme.gold)
+                    .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestSubmittedStatus")
             } else if !current.status.label.isEmpty, !current.status.canCreateRequest {
                 Label(current.status.label, systemImage: "clock.fill")
                     .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(LuminaTheme.gold)
+                    .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestStatus")
             } else if current.canRequest && current.status.canCreateRequest {
                 requestChoices
@@ -646,7 +646,7 @@ private struct TVRequestDetailView: View {
 
             if let problem {
                 Label(problem, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(LuminaTheme.spotlight)
+                    .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestSubmissionError")
             }
         }
@@ -725,7 +725,7 @@ private struct TVRequestDetailView: View {
         case .failed(let message):
             VStack(alignment: .leading, spacing: 12) {
                 Label("Could not check your request allowance", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(LuminaTheme.spotlight)
+                    .foregroundStyle(LuminaTheme.accentInk)
                 Text(message)
                     .font(.body)
                     .foregroundStyle(LuminaTheme.muted)
@@ -743,7 +743,7 @@ private struct TVRequestDetailView: View {
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Your request allowance is unavailable", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(LuminaTheme.spotlight)
+                        .foregroundStyle(LuminaTheme.accentInk)
                     Button("Try again") {
                         Task { await refreshQuota() }
                     }
@@ -845,7 +845,7 @@ private struct TVRequestHistory: View {
                                 .frame(width: 90)
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(record.title).font(.system(size: 26, weight: .semibold))
-                                Text(record.status.label).foregroundStyle(LuminaTheme.gold)
+                                Text(record.status.label).foregroundStyle(LuminaTheme.accentInk)
                                 if record.status == .processing {
                                     ProgressView(value: min(1, max(0, record.progress ?? 0)))
                                         .frame(width: 360)

@@ -4,6 +4,8 @@ Source updates and small UI changes do not trigger a TestFlight release. For exp
 
 SwiftUI applications for iPhone, iPad, and Apple TV, sharing a Foundation API client and an AVKit video player. These are native apps; they contain no web view. Home and the media libraries browse the household's existing Lumina server. Direct and compatible HLS video synchronize watch progress with the web UI; music uses authenticated native audio streams.
 
+The shared [Lumina brand identity contract](docs/brand-assets.md) defines the approved sunrise assets, adaptive native/web control roles, and the change/verification procedure.
+
 This is an engineering proof, not an App Store release or an Infuse playback replacement. AI discovery, profile switching, PiP, acquisition, administration, and third-party streaming services are outside this proof. Native AVKit audio/subtitle controls expose the tracks present in the selected stream; full library subtitle delivery and premium codec parity still need implementation and device qualification.
 
 ## Build and install

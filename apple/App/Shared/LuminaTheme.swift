@@ -11,7 +11,6 @@ public enum LuminaTheme {
     public static let theater = Color(red: 11 / 255, green: 11 / 255, blue: 13 / 255)
     /// Approved sunrise foreground shared with media-mark.svg and the app icon (#DBB688).
     public static let brand = Color(red: 219 / 255, green: 182 / 255, blue: 136 / 255)
-    public static let spotlight = Color(red: 240 / 255, green: 180 / 255, blue: 58 / 255)
     public static var paper: Color {
         if requestedAppearance == "oled" { return .black }
         return standardPaper
@@ -58,11 +57,12 @@ public enum LuminaTheme {
         highContrastLight: (255, 255, 255)
     )
 
-    public static let gold = dynamicColor(
-        dark: (229, 160, 13),
-        light: (138, 90, 0),
-        highContrastDark: (255, 184, 32),
-        highContrastLight: (112, 70, 0)
+    /// Brand-colored text on dark surfaces; neutral ink preserves light/contrast readability.
+    public static let accentInk = dynamicColor(
+        dark: (219, 182, 136),
+        light: (21, 19, 15),
+        highContrastDark: (255, 255, 255),
+        highContrastLight: (0, 0, 0)
     )
 
     private static func dynamicColor(

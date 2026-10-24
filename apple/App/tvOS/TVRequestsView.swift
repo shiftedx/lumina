@@ -701,11 +701,11 @@ private struct TVRequestDetailView: View {
                 Task { await submit() }
             } label: {
                 HStack(spacing: 12) {
-                    if submitting { ProgressView().tint(LuminaTheme.theater) }
+                    if submitting { ProgressView() }
                     Label("Request \(current.title)", systemImage: "plus")
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(LuminaQuietActionStyle(primary: true))
             .controlSize(.large)
             .disabled(!canSubmit)
             .accessibilityIdentifier("requestConfirmButton")
@@ -955,7 +955,9 @@ private struct TVRequestMessage: View {
         VStack(spacing: 20) {
             Text(title).font(.title.weight(.semibold))
             Text(message).font(.system(size: 24)).foregroundStyle(LuminaTheme.muted).multilineTextAlignment(.center)
-            Button(actionTitle, action: action).buttonStyle(.borderedProminent).controlSize(.large)
+            Button(actionTitle, action: action)
+                .buttonStyle(LuminaQuietActionStyle(primary: true))
+                .controlSize(.large)
         }
         .padding(48)
     }

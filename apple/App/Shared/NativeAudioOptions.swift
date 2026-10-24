@@ -113,11 +113,10 @@ struct NativeAudioOptions: View {
         }
         #if os(tvOS)
         .buttonStyle(.bordered)
-        .tint(nil)
         #else
         .buttonStyle(.plain)
-        .tint(LuminaTheme.spotlight)
         #endif
+        .tint(LuminaTheme.ink)
     }
 
     private var albumItems: [MediaItem] {

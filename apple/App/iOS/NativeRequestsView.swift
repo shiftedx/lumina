@@ -491,7 +491,7 @@ private struct RequestDetailSheet: View {
                 Task { await submit() }
             } label: {
                 HStack {
-                    if submitting { ProgressView().tint(.black) }
+                    if submitting { ProgressView() }
                     Label("Request \(current.title)", systemImage: "plus")
                 }
                 .frame(maxWidth: .infinity)

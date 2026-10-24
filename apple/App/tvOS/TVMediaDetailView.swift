@@ -112,7 +112,6 @@ struct TVDetailView: View {
                 .frame(minWidth: 172)
         }
         .buttonStyle(TVDetailTextActionStyle(primary: true))
-        .tint(LuminaTheme.gold)
         .controlSize(.large)
         .disabled(isPreparingPlayback || !currentItem.isPlayable)
         .accessibilityIdentifier("playButton")

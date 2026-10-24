@@ -711,18 +711,20 @@ struct MusicCollectionSpotlight: View {
     }
 }
 
-/// Flat, compact media actions use Lumina's warm accent without the system's oversized capsule treatment.
+/// Compact media actions use the web gallery's neutral ink/paper hierarchy.
 struct LuminaMediaActionStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var primary = false
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let foreground: Color = configuration.role == .destructive ? .red : primary ? LuminaTheme.onPrimaryControl : .white
+        return configuration.label
             .font(.subheadline.weight(.semibold))
             .imageScale(.small)
             .padding(.horizontal, 18)
             .frame(minWidth: 44, minHeight: 44)
-            .foregroundStyle(primary ? LuminaTheme.theater : .white)
-            .background(primary ? LuminaTheme.spotlight : Color.white.opacity(configuration.isPressed ? 0.14 : 0.06), in: .rect(cornerRadius: 10))
+            .foregroundStyle(foreground)
+            .tint(foreground)
+            .background(primary ? LuminaTheme.primaryControlFill : Color.white.opacity(configuration.isPressed ? 0.14 : 0), in: .rect(cornerRadius: 10))
             .opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.45)
             .contentShape(.rect(cornerRadius: 10))
     }
@@ -784,7 +786,8 @@ struct LuminaQuietActionStyle: ButtonStyle {
     var mediaOverlay = false
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let foreground: Color = configuration.role == .destructive ? .red : isFocused ? LuminaTheme.theater : primary ? LuminaTheme.onPrimaryControl : Color.primary
+        return configuration.label
             .font(.body.weight(primary || selected ? .semibold : .regular))
             .padding(.horizontal, 16)
             #if os(tvOS)
@@ -792,8 +795,9 @@ struct LuminaQuietActionStyle: ButtonStyle {
             #else
             .frame(minWidth: 44, minHeight: 44)
             #endif
-            .foregroundStyle(isFocused || primary ? LuminaTheme.theater : Color.primary)
-            .background(isFocused ? Color.white : primary ? LuminaTheme.gold : mediaOverlay ? Color.black.opacity(0.72) : Color.primary.opacity(configuration.isPressed ? 0.18 : selected ? 0.12 : 0.06), in: .rect(cornerRadius: 10))
+            .foregroundStyle(foreground)
+            .tint(foreground)
+            .background(isFocused ? Color.white : primary ? LuminaTheme.primaryControlFill : mediaOverlay ? Color.black.opacity(0.72) : Color.primary.opacity(configuration.isPressed ? 0.18 : selected ? 0.12 : 0), in: .rect(cornerRadius: 10))
             .overlay {
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(isFocused ? Color.white : contrast == .increased ? Color.primary : Color.clear, lineWidth: 2)

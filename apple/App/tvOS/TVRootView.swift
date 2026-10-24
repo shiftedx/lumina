@@ -67,6 +67,7 @@ public struct TVRootView: View {
             PlaybackScreen(request: request, store: store)
         }
         .environment(audioSession)
+        .tint(LuminaTheme.ink)
     }
 
     private func toggleAudioPlayback() {
@@ -235,7 +236,7 @@ private struct TVConnectionView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LuminaQuietActionStyle(primary: true))
                 .controlSize(.large)
                 .accessibilityIdentifier("connectButton")
                 .focused($focusedField, equals: .connect)
@@ -574,7 +575,7 @@ private struct TVConnectionHelp: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Button("Done") { dismiss() }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LuminaQuietActionStyle())
                 .controlSize(.large)
                 .accessibilityIdentifier("connectionHelpDoneButton")
                 .focused($doneFocused)
@@ -1597,9 +1598,7 @@ private struct TVFeaturedView: View {
         } label: {
             Label(preparing ? "Preparing…" : item.resumeSeconds > 0 ? "Resume" : "Play", systemImage: "play.fill")
         }
-        .buttonStyle(.borderedProminent)
-        .tint(LuminaTheme.gold)
-        .foregroundStyle(LuminaTheme.theater)
+        .buttonStyle(LuminaQuietActionStyle(primary: true))
         .disabled(preparing)
         .accessibilityIdentifier("featuredPlayButton")
         .focused($focusedAction, equals: "play")
@@ -1940,7 +1939,7 @@ struct TVMessageView: View {
                 .foregroundStyle(LuminaTheme.muted)
                 .multilineTextAlignment(.center)
             Button(actionTitle, action: action)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LuminaQuietActionStyle(primary: true))
                 .controlSize(.large)
         }
         .frame(maxWidth: .infinity, minHeight: 360)

@@ -135,14 +135,12 @@ private struct ConnectionView: View {
                     HStack(spacing: 10) {
                         if store.isBusy {
                             ProgressView()
-                                .tint(LuminaTheme.paper)
                         }
                         Text(store.isBusy ? "Connecting…" : "Connect")
                     }
                     .frame(maxWidth: .infinity)
-                    .foregroundStyle(LuminaTheme.paper)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LuminaMediaActionStyle(primary: true))
                 .controlSize(.large)
                 .disabled(!canConnect || store.isBusy)
                 .accessibilityIdentifier("connectButton")
@@ -356,7 +354,7 @@ private struct LibraryShellView: View {
                     .safeAreaInset(edge: .bottom, spacing: 0) { playerBar }
                 }
         }
-        .tint(nil)
+        .tint(LuminaTheme.ink)
     }
 
     private var playerBar: some View {
@@ -977,7 +975,7 @@ private struct VideoLibraryView: View {
                                 }
                                 .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(LuminaQuietActionStyle())
                             .controlSize(.large)
                             .disabled(store.isBusy)
                         }
@@ -1702,7 +1700,7 @@ private struct AudioLibraryView: View {
                             }
                             .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(LuminaQuietActionStyle())
                         .disabled(store.isAudioBusy)
                         .accessibilityIdentifier("audioLoadMoreButton")
                     }
@@ -1887,7 +1885,7 @@ private struct MusicCollectionView: View {
         } label: {
             Label(preparingPlayback ? "Preparing…" : "Play album", systemImage: "play.fill")
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(LuminaMediaActionStyle(primary: true))
         .controlSize(.large)
         .disabled(preparingPlayback)
         .accessibilityIdentifier("musicPlayButton")
@@ -2544,7 +2542,6 @@ private struct TitleDetailView: View {
         } label: {
             Label(currentItem.userData?.isFavorite == true ? "Remove favorite" : "Add favorite", systemImage: currentItem.userData?.isFavorite == true ? "heart.fill" : "heart")
                 .frame(minWidth: 132)
-                .foregroundStyle(.white)
         }
         .buttonStyle(LuminaMediaActionStyle())
         .controlSize(.large)
@@ -2718,7 +2715,7 @@ private struct EmptyLibraryView: View {
             Text("Add video to Lumina, then refresh to see it here.")
                 .foregroundStyle(LuminaTheme.muted)
             Button("Refresh", action: onRefresh)
-                .buttonStyle(.bordered)
+                .buttonStyle(LuminaQuietActionStyle())
         }
         .padding(.vertical, 24)
     }
@@ -2737,7 +2734,7 @@ private struct InlineErrorView: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isStaticText)
             Button("Try again", action: onRetry)
-                .buttonStyle(.bordered)
+                .buttonStyle(LuminaQuietActionStyle())
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

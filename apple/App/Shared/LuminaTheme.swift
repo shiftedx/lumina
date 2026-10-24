@@ -9,6 +9,8 @@ public enum LuminaTheme {
     }
 
     public static let theater = Color(red: 11 / 255, green: 11 / 255, blue: 13 / 255)
+    /// Approved sunrise foreground shared with media-mark.svg and the app icon (#DBB688).
+    public static let brand = Color(red: 219 / 255, green: 182 / 255, blue: 136 / 255)
     public static let spotlight = Color(red: 240 / 255, green: 180 / 255, blue: 58 / 255)
     public static var paper: Color {
         if requestedAppearance == "oled" { return .black }
@@ -39,6 +41,21 @@ public enum LuminaTheme {
         light: (97, 92, 83),
         highContrastDark: (202, 202, 210),
         highContrastLight: (65, 60, 52)
+    )
+
+    /// Neutral primary actions match the web gallery's ink/paper controls.
+    public static let primaryControlFill = dynamicColor(
+        dark: (239, 233, 221),
+        light: (21, 19, 15),
+        highContrastDark: (255, 255, 255),
+        highContrastLight: (0, 0, 0)
+    )
+
+    public static let onPrimaryControl = dynamicColor(
+        dark: (15, 14, 12),
+        light: (244, 241, 234),
+        highContrastDark: (0, 0, 0),
+        highContrastLight: (255, 255, 255)
     )
 
     public static let gold = dynamicColor(
@@ -80,7 +97,7 @@ public enum LuminaTheme {
 struct LuminaBrandMark: View {
     var body: some View {
         GeometryReader { geometry in
-            SunriseShape().stroke(LuminaTheme.spotlight,
+            SunriseShape().stroke(LuminaTheme.brand,
                 style: StrokeStyle(lineWidth: geometry.size.width * 3 / 56, lineCap: .round, lineJoin: .round))
         }
         .aspectRatio(56 / 34, contentMode: .fit)

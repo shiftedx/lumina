@@ -2866,6 +2866,7 @@ private struct VideoPlaybackSettings: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Appearance").font(.headline)
             Toggle("Customize subtitles", isOn: $subtitleStyle.isCustom)
+                .tint(LuminaTheme.brand)
                 .accessibilityIdentifier("videoSubtitleCustomizeToggle")
             if subtitleStyle.isCustom {
                 Button("Caption appearance", systemImage: subtitleAppearanceExpanded ? "chevron.up" : "chevron.down") {

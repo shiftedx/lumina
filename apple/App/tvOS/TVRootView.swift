@@ -1360,8 +1360,10 @@ private struct TVVideoFiltersView: View {
                         .accessibilityIdentifier("videoYearField")
                     if !validYear { Text("Enter a year, or leave it blank for all years.").foregroundStyle(LuminaTheme.accentInk) }
                     Toggle("Unwatched only", isOn: $unwatchedOnly)
+                        .tint(LuminaTheme.brand)
                         .accessibilityIdentifier("videoUnwatchedToggle")
                     Toggle("Favorites only", isOn: $favoritesOnly)
+                        .tint(LuminaTheme.brand)
                         .accessibilityIdentifier("videoFavoritesToggle")
                 }
                 Section {

@@ -1534,6 +1534,7 @@ class NativeProofJourney: XCTestCase {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
+        let requestMovieKey = try XCTUnwrap(fixture.requestMovieKey, "Generate the Requests movie fixture.")
         let origin = try localOrigin(from: fixture.serverURL)
         let session = makeTestAPISession(origin: origin)
         defer { session.invalidateAndCancel() }
@@ -1650,6 +1651,17 @@ class NativeProofJourney: XCTestCase {
         try activate(requestFeature)
         try waitForExistence(element("requestDetailScreen"), timeout: 20, named: "TV request details")
         try attachFrame(named: "TV Requests title details")
+        let requestConfirm = try waitForPerformanceControl(
+            element("requestConfirmButton"),
+            timeout: 20,
+            named: "TV request confirmation"
+        )
+        try activate(requestConfirm)
+        try waitForExistence(element("requestSubmittedStatus"), timeout: 15, named: "TV submitted request status")
+        let requests = try await api.requestRecords(identity: identity)
+        XCTAssertTrue(requests.contains { $0.key == requestMovieKey },
+                      "The confirmed TV request did not reach the server.")
+        try attachFrame(named: "TV Requests confirmed through the server")
         XCUIRemote.shared.press(.menu)
         XCTAssertTrue(disappears(element("requestDetailScreen"), timeout: 15), "Back must pop the request detail.")
         try waitForExistence(element("requestsScreen"), timeout: 15, named: "Request detail Back returns to Requests")

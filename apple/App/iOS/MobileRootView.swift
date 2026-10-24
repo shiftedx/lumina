@@ -730,6 +730,7 @@ private struct NativeHomeLayoutEditor: View {
                             }))
                             .labelsHidden()
                             .toggleStyle(.switch)
+                            .tint(LuminaTheme.brand)
                             .accessibilityLabel(shelf.id.title)
                             .accessibilityIdentifier("homeShelfVisibility-\(shelf.id.rawValue)")
                             .accessibilityAction(named: "Move up") { move(shelf.id, offset: -1) }
@@ -1313,8 +1314,10 @@ private struct VideoFilterSheet: View {
                 }
                 Section("Your activity") {
                     Toggle("Unwatched only", isOn: $unwatchedOnly)
+                        .tint(LuminaTheme.brand)
                         .accessibilityIdentifier("videoUnwatchedToggle")
                     Toggle("Favorites only", isOn: $favoritesOnly)
+                        .tint(LuminaTheme.brand)
                         .accessibilityIdentifier("videoFavoritesToggle")
                 }
                 Button("Reset filters") {

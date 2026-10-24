@@ -547,9 +547,13 @@ struct NativePlaylistEditor: View {
                         .focused($focusedField, equals: .name)
                         .submitLabel(.done)
                         .accessibilityIdentifier("musicPlaylistNameField")
-                    Toggle("Share with household", isOn: $shared).accessibilityIdentifier("musicPlaylistSharedToggle")
+                    Toggle("Share with household", isOn: $shared)
+                        .tint(LuminaTheme.brand)
+                        .accessibilityIdentifier("musicPlaylistSharedToggle")
                     if playlist == nil {
-                        Toggle("Smart playlist", isOn: $smart).accessibilityIdentifier("musicPlaylistSmartToggle")
+                        Toggle("Smart playlist", isOn: $smart)
+                            .tint(LuminaTheme.brand)
+                            .accessibilityIdentifier("musicPlaylistSmartToggle")
                     }
                 }
                 if smart {
@@ -565,8 +569,11 @@ struct NativePlaylistEditor: View {
                             .focused($focusedField, equals: .yearTo)
                             .submitLabel(.done)
                         Toggle("Favorites only", isOn: $favorites)
+                            .tint(LuminaTheme.brand)
                         Toggle("Unplayed only", isOn: $unplayed)
+                            .tint(LuminaTheme.brand)
                         Toggle("Current artist", isOn: $currentArtist)
+                            .tint(LuminaTheme.brand)
                             .disabled(artistID == nil)
                         if !validYears { Text("Use years from 1000 to 2200, with the end after the start.").foregroundStyle(.secondary) }
                     }

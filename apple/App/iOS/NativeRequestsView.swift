@@ -469,6 +469,7 @@ private struct RequestDetailSheet: View {
                                 Text("\(season.episodeCount) episodes").font(.caption).foregroundStyle(.secondary)
                             }
                         }
+                        .tint(LuminaTheme.brand)
                         .accessibilityIdentifier("requestSeason-\(season.number)")
                     }
                 }

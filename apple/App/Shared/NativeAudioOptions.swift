@@ -29,6 +29,7 @@ struct NativeAudioOptions: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .accessibilityIdentifier("audioSourceFormat")
                     Toggle("Normalize loudness", isOn: $session.normalization)
+                        .tint(LuminaTheme.brand)
                         .accessibilityIdentifier("audioNormalizeToggle")
                         .disabled(session.isSonos || session.playbackMode == .streaming || !hasLoudnessMetadata)
                     if !hasLoudnessMetadata {
@@ -206,6 +207,7 @@ struct NativeAudioOptions: View {
                 Button("Retry stopping speaker") { Task { await session.retryStoppingSpeaker() } }
             }
             Toggle("Compatibility mode for Sonos S1", isOn: $session.compatibility)
+                .tint(LuminaTheme.brand)
             Button(session.busy ? "Looking for speakers…" : "Refresh Sonos speakers") { Task { await session.discoverSpeakers() } }
                 .disabled(session.busy)
                 .accessibilityIdentifier("audioRefreshSpeakersButton")

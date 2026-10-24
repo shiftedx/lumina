@@ -20,9 +20,12 @@ The native generator's `#D2A875` sunrise and `#111112` charcoal literals are **g
 | Icon charcoal | Charcoal-backed icon and mark artwork | `#151517`. |
 | Primary control | Ordinary primary actions, including email | Adaptive neutral fill: dark `#EFE9DD`, light `#15130F`; inverse text: dark `#0F0E0C`, light `#F4F1EA`; high contrast uses black/white inverses. |
 | Secondary control | Ordinary secondary actions | Clear at rest; neutral pressed/selected wash. Keep existing focus, pressed, disabled, destructive, and hit-target behavior. |
+| Enabled switch | Native switch track | Use the brand accent on the switch itself; keep its system thumb and native state behavior. Ordinary surrounding controls retain neutral tint. |
 | Accessible accent text | Text that needs an accent relationship | Dark appearance uses `#DBB688`; light and high-contrast appearances use neutral readable ink, never a brown legacy accent. |
 
 Native `LuminaTheme.gold` and `LuminaTheme.spotlight` are removed; no native alias describes an alternate palette. Web UI `--g-gold` and website `--gold` names are compatibility aliases to `var(--g-brand)`; text aliases follow the readable accent-text role above. The warm accent must not become a blanket `.tint`, primary fill, or local hex override. Preserve semantic red/destructive treatment and existing focus, pressed, disabled, and target-size behavior.
+
+Selection underlines and decorative state lines use the brand role directly, including in light appearance. Do not route these lines through the adaptive accent-text role. Keep a non-color selected cue such as label weight or the native switch position, and retain accessible neutral focus outlines.
 
 ## Source of truth and change procedure
 
@@ -33,7 +36,7 @@ When a role changes:
 1. Change the canonical role and its shared tokens/styles, rather than adding local hex overrides or a blanket warm tint.
 2. Inspect logo output against the approved SVG/icon assets in the intended ICC/sRGB context before changing generator inputs. Regenerate affected social previews and website product captures through their documented commands; update cache revisions/content-hashed URLs and capture provenance.
 3. Check dark, light, and high-contrast appearances, then tvOS focus, pressed, disabled, and destructive states without changing hit targets.
-4. Exercise a meaningful existing UI workflow and run `mise exec -- make check`. Do not add color-per-declaration tests or checklist-only test churn.
+4. Exercise a meaningful existing UI workflow. Run `mise exec -- make check` for the application repository; use the standalone website README’s build, capture, and check commands for that repository. Keep coverage at the workflow or shared brand-contract boundary rather than adding a test per color declaration.
 
 ## Historical qualification and rollout record
 

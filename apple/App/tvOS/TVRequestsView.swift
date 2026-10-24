@@ -677,6 +677,7 @@ private struct TVRequestDetailView: View {
                             )) {
                                 Text("\(season.name) · \(season.episodeCount) episodes")
                             }
+                            .tint(LuminaTheme.brand)
                             .accessibilityIdentifier("requestSeason-\(season.number)")
                         }
                     }

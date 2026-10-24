@@ -199,6 +199,7 @@ private struct DeviceSubtitleAppearanceView: View {
         Form {
             Section {
                 Toggle("Customize subtitles", isOn: $style.isCustom)
+                    .tint(LuminaTheme.brand)
                     .accessibilityIdentifier("deviceCustomizeSubtitlesToggle")
             } footer: {
                 Text("When off, Lumina leaves caption presentation to system preferences and authored subtitle styling.")

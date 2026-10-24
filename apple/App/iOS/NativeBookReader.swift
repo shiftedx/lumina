@@ -379,6 +379,7 @@ struct NativeBookReader: View {
         NavigationStack {
             Form {
                 Toggle("Single page", isOn: $single)
+                    .tint(LuminaTheme.brand)
                 if model.manifest?.book.format == "epub" {
                     Slider(value: $textScale, in: 1...2, step: 0.1) { Text("Text size") }
                 } else {

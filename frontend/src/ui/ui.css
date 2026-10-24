@@ -23,7 +23,7 @@
 .g-icon-button { display: inline-grid; width: var(--g-control); height: var(--g-control); flex: none; place-items: center; padding: 0; border: 0; border-radius: var(--g-radius); background: transparent; color: var(--g-ink); cursor: pointer; }
 .g-h2 { margin: 0; font: var(--g-type-h2); }
 .g-chip { border: 0; border-radius: var(--g-radius-round); color: var(--g-ink-2); font: var(--g-type-ui); }
-.g-chip[aria-pressed='true'] { color: var(--g-ink); text-decoration: underline 2px var(--g-gold-ink); text-underline-offset: 6px; }
+.g-chip[aria-pressed='true'] { color: var(--g-ink); text-decoration: underline 2px var(--g-gold); text-underline-offset: 6px; }
 .g-text-button::before { position: absolute; inset: 0 -8px; content: ''; }
 .g-text-button { position: relative; display: inline-flex; min-width: 44px; min-height: var(--g-control); align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: var(--g-ink); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; font: var(--g-type-ui-strong); }
 .g-inline-error, .g-empty-result { display: grid; justify-items: start; gap: var(--g-button-gap); margin: 0; padding: 32px 0; font: var(--g-type-lede); }
@@ -116,7 +116,7 @@
 .g-segmented-options { display: inline-flex; flex-wrap: wrap; gap: 0 24px; }
 .g-segment { position: relative; display: inline-flex; min-width: var(--g-control); min-height: var(--g-control); align-items: center; gap: 8px; color: var(--g-ink-2); cursor: pointer; font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; }
 .g-segment input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
-.g-segment:has(input:checked) { color: var(--g-ink); font-weight: 700; box-shadow: inset 0 -2px var(--g-gold-ink); }
+.g-segment:has(input:checked) { color: var(--g-ink); font-weight: 700; box-shadow: inset 0 -2px var(--g-gold); }
 .g-segment:has(input:focus-visible) { outline: var(--g-focus-width) solid var(--g-focus); outline-offset: 2px; }
 .g-segment:has(input:disabled) { cursor: default; opacity: .6; }
 

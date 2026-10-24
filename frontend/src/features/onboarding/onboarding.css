@@ -64,7 +64,7 @@
 .g-onboarding-interest:active { transform: scale(.98); }
 .g-onboarding-interest-icon { width: 24px; height: 24px; stroke-width: 1.25; }
 .g-onboarding-interest input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.g-onboarding-interest:has(input:checked) { background: var(--g-selected); color: var(--g-ink); box-shadow: inset 0 0 0 1px var(--g-gold-ink); }
+.g-onboarding-interest:has(input:checked) { background: var(--g-selected); color: var(--g-ink); box-shadow: inset 0 0 0 1px var(--g-gold); }
 .g-onboarding-interest:has(input:checked) .g-onboarding-interest-icon { color: var(--g-gold-ink); }
 .g-onboarding-interest:has(input:focus-visible) { outline: var(--g-focus-width) solid var(--g-focus); outline-offset: 3px; }
 .g-onboarding-interest:has(input:disabled) { opacity: .65; cursor: default; }

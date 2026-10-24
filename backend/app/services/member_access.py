@@ -23,7 +23,7 @@ from app.db import session_scope
 from app.models import LibraryItem, LibraryItemArtifact, MediaArtifact, MediaTitle, MemberAccess, ScreenTime, StorageRoot, User
 from app.persistence import queue_after_commit, write_transaction
 
-SECTIONS = ("movies", "shows", "anime", "music", "books", "books:ebook", "books:manga", "vault")  # plus "root:<storage_root_id>" for untitled files of a root
+SECTIONS = ("movies", "shows", "anime", "music", "photos", "books", "books:ebook", "books:manga", "vault")  # plus "root:<storage_root_id>" for untitled files of a root
 VIDEO_SECTIONS = ("movies", "shows", "anime")  # media_titles.category values
 MUSIC_TYPES = ("album", "artist")
 ROOT_PREFIX = "root:"
@@ -486,6 +486,10 @@ def section_counts(db: Session) -> list[dict[str, Any]]:
     ).all())
     rows = [{"id": s, "label": "TV shows" if s == "shows" else s.title(), "count": counts.get(s, 0)} for s in VIDEO_SECTIONS]
     rows.append({"id": "music", "label": "Music", "count": db.scalar(select(func.count()).where(MediaTitle.type == "album")) or 0, "description": "Albums, artists and shared songs."})
+    from app.photo_models import PhotoItem
+    rows.append({"id": "photos", "label": "Photos", "count": db.scalar(select(func.count()).where(
+        PhotoItem.visibility == "shared", PhotoItem.deleted_at.is_(None), PhotoItem.missing_at.is_(None),
+    )) or 0, "description": "Shared photos only. Private photos stay private."})
     from app.book_models import BookItem
     book_counts = dict(db.execute(select(BookItem.kind, func.count()).where(
         BookItem.available.is_(True), BookItem.visibility == "shared", BookItem.deleted_at.is_(None),

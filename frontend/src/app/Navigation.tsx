@@ -15,6 +15,7 @@ export const navGroups: ReadonlyArray<{ label: string; items: readonly NavItem[]
     { surface: 'video', label: 'Video', icon: 'library' },
     { surface: 'audio', label: 'Audio', icon: 'music' },
     { surface: 'books', label: 'Books', icon: 'books' },
+    { surface: 'photos', label: 'Photos', icon: 'photos' },
     { surface: 'streaming', label: 'Streaming', icon: 'live' },
     { surface: 'requests', label: 'Requests', icon: 'requests' },
   ] },

@@ -38,6 +38,7 @@ const MAX_QUERY = 200;
 const SURFACES: Array<{ label: string; path: string; keywords: string[]; meta?: string }> = [
   { label: 'Home', path: '/', keywords: [] },
   { label: 'Library', path: '/library', keywords: ['movies', 'shows', 'anime', 'music'] },
+  { label: 'Photos', path: '/photos', keywords: ['images', 'gallery', 'pictures', 'albums', 'people'] },
   { label: 'Settings', path: '/settings', keywords: ['preferences'] },
 ];
 // One row per destination: these pages are reached by their Actions row (actions.ts `path`), never also by Go to.

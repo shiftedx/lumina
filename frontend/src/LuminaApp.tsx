@@ -1,3 +1,4 @@
+import type { PhotosRoute } from './features/photos/routes';
 import { WatchFullscreenHost } from './fullscreenHost';
 import { AccessProvider, allStreamingBlocked, BlockedSurface, providerBlocked, TimeLeftNotice, useMyAccess, watchGate, WatchStopState } from './features/access/access';
 import { StreamingProvidersProvider, type OptionalProvider } from './features/streaming/providers';
@@ -107,9 +108,11 @@ const OnboardingSurface = lazy(() => import('./features/onboarding/Onboarding').
 const ChannelDiscoveryStep = lazy(() => import('./features/onboarding/Onboarding').then((module) => ({ default: module.ChannelDiscoveryStep })));
 const FirstOwnerSetup = lazy(() => import('./features/onboarding/FirstOwnerSetup').then((module) => ({ default: module.FirstOwnerSetup })));
 const TitleEditorPage = preloadableSurface(() => import('./features/titles/editor/EditorPage').then((module) => module.EditorPage));
+const PhotosSurface = preloadableSurface(() => import('./features/photos/PhotosSurface').then((module) => module.PhotosSurface));
 const BooksSurface = preloadableSurface(() => import('./features/books/BooksSurface').then((module) => module.BooksSurface));
 // A cold Books link overlaps its route chunks with sign-in and workspace loading. Direct reader links start the
 // nested reader chunk beside BooksSurface instead of discovering it only after the surface renders.
+if (typeof window !== 'undefined' && window.location.pathname.startsWith('/photos')) PhotosSurface.preload();
 if (typeof window !== 'undefined' && window.location.pathname.startsWith('/books')) {
   BooksSurface.preload();
   if (window.location.pathname.startsWith('/books/read/')) void import('./features/books/BookReader').catch(() => undefined);
@@ -132,7 +135,7 @@ export function useShellErrorToast(error: string | null, clear?: () => void, ide
 }
 
 export function preloadLikelySurfaces(pathname = window.location.pathname): void {
-  if (pathname.startsWith('/books')) return;
+  if (pathname.startsWith('/books') || pathname.startsWith('/photos')) return;
   WatchSurface.preload();
   SettingsSurface.preload();
   TitleDetailPage.preload();
@@ -242,7 +245,7 @@ export default function LuminaApp() {
     if (!signedInRole) return undefined;
     // A direct reader already overlaps its own route chunks with session startup. Keep unrelated
     // surfaces off that critical network path; their first deliberate navigation still imports them.
-    if (window.location.pathname.startsWith('/books')) return undefined;
+    if (window.location.pathname.startsWith('/books') || window.location.pathname.startsWith('/photos')) return undefined;
     // After the landing surface settles, fetch the next likely surfaces so opening them never waits on a chunk.
     // The Watch chunk goes at once: a Play inside the first second or two used to wait on it and then on React's ~300 ms fallback hold.
     WatchSurface.preload();
@@ -269,6 +272,7 @@ export default function LuminaApp() {
   const [settingsPage, setSettingsPage] = useState<string | null>(initialRoute.surface === 'settings' && 'page' in initialRoute ? initialRoute.page ?? null : null);
   const [settingsMember, setSettingsMember] = useState<string | null>(initialRoute.surface === 'settings' && 'memberId' in initialRoute ? initialRoute.memberId : null);
   const [requestsRoute, setRequestsRoute] = useState<RequestsRoute>(initialRoute.surface === 'requests' ? initialRoute : { surface: 'requests', view: 'discover' });
+  const [photosRoute, setPhotosRoute] = useState<PhotosRoute>(initialRoute.surface === 'photos' ? initialRoute : { surface: 'photos', view: 'timeline' });
   const [booksRoute, setBooksRoute] = useState<BooksRoute>(initialRoute.surface === 'books' ? initialRoute : { surface: 'books', view: 'overview' });
   const [pendingRequests, setPendingRequests] = useState(0);
   const [requestsQueueGeneration, setRequestsQueueGeneration] = useState(0);
@@ -785,7 +789,7 @@ export default function LuminaApp() {
     setChannelSuggestions([]); setChannelSuggestionsError(null); setChannelSuggestionsLoading(false);
     acquisition.resetSession();
     playbackMutationRef.current = Promise.resolve();
-    activeLibraryItemIdRef.current = null; setSurface('home'); setLibraryLocation({}); setBooksRoute({ surface: 'books', view: 'overview' }); setLibraryWatchItem(null); setActivePlayback(null); closePalette();
+    activeLibraryItemIdRef.current = null; setSurface('home'); setLibraryLocation({}); setBooksRoute({ surface: 'books', view: 'overview' }); setPhotosRoute({ surface: 'photos', view: 'timeline' }); setLibraryWatchItem(null); setActivePlayback(null); closePalette();
   }
 
   async function handleLogout() {
@@ -846,7 +850,7 @@ export default function LuminaApp() {
   const leaveSettingsOk = () => confirmLeaveSettings();
   function resetWatch() { playbackLoadRequestRef.current += 1; curationMutationGenerationRef.current += 1; acquisition.reset(); setLibraryWatchItem(null); activeLibraryItemIdRef.current = null; setPlaybackLoading(false); }
   // Leaving Watch keeps the selection: its surface docks as the mini-player.
-  function navigate(next: Surface, confirmed = false) { navigationMarked.current = null; if (!confirmed && !confirmLeaveSettings()) return false; if (surface !== 'watch') setPreviousSurface(surface); if (surface === next) focusSurfaceHeading(); else window.scrollTo({ top: 0 }); setSurface(next); setStreamingView('home'); setStreamingProvider('youtube'); setChannelId(null); setChannelPage(null); setExploreRail(null); setLiveRail(null); setRequestsRoute({ surface: 'requests', view: 'discover' }); if (next === 'books') setBooksRoute({ surface: 'books', view: 'overview' }); if (next !== 'watch') setLibraryLocation(next === 'audio' ? { view: 'music' } : {}); closePalette(); setNavigationOpen(false); return true; }
+  function navigate(next: Surface, confirmed = false) { navigationMarked.current = null; if (!confirmed && !confirmLeaveSettings()) return false; if (surface !== 'watch') setPreviousSurface(surface); if (surface === next) focusSurfaceHeading(); else window.scrollTo({ top: 0 }); setSurface(next); setStreamingView('home'); setStreamingProvider('youtube'); setChannelId(null); setChannelPage(null); setExploreRail(null); setLiveRail(null); setRequestsRoute({ surface: 'requests', view: 'discover' }); if (next === 'photos') setPhotosRoute({ surface: 'photos', view: 'timeline' }); if (next === 'books') setBooksRoute({ surface: 'books', view: 'overview' }); if (next !== 'watch') setLibraryLocation(next === 'audio' ? { view: 'music' } : {}); closePalette(); setNavigationOpen(false); return true; }
   // Watch's Back returns where the member came from, including the title page and season.
   function leaveWatch() { const back = previousSurface === 'watch' ? 'home' : previousSurface; const location = libraryLocation; const page = channelPage; const view = streamingView; const provider = streamingProvider; navigate(back); if (back === 'streaming') { setStreamingView(view); setStreamingProvider(provider); } if ((back === 'library' || back === 'video' || back === 'audio')) setLibraryLocation(location); if (back === 'subscriptions') setChannelPage(page); }
 
@@ -862,6 +866,7 @@ export default function LuminaApp() {
       }
       if (route.view === 'home') { setExploreQuery(''); setExploreResults(NO_EXPLORE_RESULTS); }
     }
+    if (route.surface === 'photos' && surface === 'photos') { setPhotosRoute(route); return; }
     if (route.surface === 'books' && surface === 'books') { setBooksRoute(route); return; }
     // Switching tabs inside the open editor keeps the draft: no unsaved-changes prompt.
     if ((route.surface === 'library' || route.surface === 'video' || route.surface === 'audio') && 'edit' in route && route.edit && (surface === 'library' || surface === 'video' || surface === 'audio') && libraryLocation.edit && libraryLocation.titleId === route.titleId) { setLibraryLocation(libraryLocationOf(route)); return; }
@@ -877,6 +882,7 @@ export default function LuminaApp() {
       }
       if ((route.surface === 'library' || route.surface === 'video' || route.surface === 'audio')) setLibraryLocation(libraryLocationOf(route));
       if (route.surface === 'requests') setRequestsRoute(route);
+      if (route.surface === 'photos') setPhotosRoute(route);
       if (route.surface === 'books') setBooksRoute(route);
       return;
     }
@@ -1085,6 +1091,7 @@ export default function LuminaApp() {
       : watchSelection?.item.webpage_url ? { surface: 'watch', url: watchSelection.item.webpage_url }
         : null
     : (surface === 'library' || surface === 'video' || surface === 'audio') ? ({ ...libraryRoute, surface: surface === 'audio' ? 'audio' : 'video' } as AppRoute)
+      : surface === 'photos' ? photosRoute
       : surface === 'books' ? booksRoute
       : surface === 'streaming' ? streamingRoute
         : surface === 'settings' ? (settingsSection === 'members' && settingsMember ? { surface, section: 'members', memberId: settingsMember, ...(settingsSpace ? { space: settingsSpace } : {}) } : { surface, ...(settingsSection ? { section: settingsSection } : {}), ...(settingsPage ? { page: settingsPage } : {}), ...(settingsSpace ? { space: settingsSpace } : {}) })
@@ -1600,7 +1607,7 @@ export default function LuminaApp() {
           : libraryLocation.titleId
           ? <TitleDetailPage onPlayArtist={(id, shuffle) => { resetWatch(); startForegroundMusic(state.currentUser!.id, playMusic(state.currentUser!.id, { title_id: id }, undefined, 0, shuffle)); }} onWatchVideo={(url, itemId) => { pauseMusic(); if (itemId) openLibraryIdStable(itemId); else void openRemote({ title: 'Music performance', webpage_url: url }); }} onResolvedTitle={correctTitleSurfaceStable} backLabel={titleBackLabel()} id={libraryLocation.titleId} key={libraryLocation.titleId} onBack={titleBackStable} onEdit={(titleId) => openRoute({ surface: surface === 'audio' ? 'audio' : 'video', titleId, edit: true })} onOpenTitle={openTitleStable} onPlay={openLibraryIdStable} onSearch={runExploreStable} onSeason={(season) => setLibraryLocation((current) => ({ ...current, season }))} season={libraryLocation.season ?? null} user={state.currentUser} />
           : surface === 'audio' ? <AudioSurface user={state.currentUser} wall={libraryLocation.wall} onWallChange={(wall) => setLibraryLocation({ view: 'music', ...(wall ? { wall } : {}) })} onOpenTitle={openTitleStable} onPlay={openLibraryStable} onItemChanged={libraryItemChangedStable} /> : <LibraryBrowser videoOnly collections={householdCollections} collectionsPage={collectionsPage} currentUser={state.currentUser} onItemChanged={libraryItemChangedStable} onOpenTitle={openTitleStable} onPlay={openLibraryStable} onPlayAt={(libraryId, startSeconds) => openRoute({ surface: 'watch', libraryId, startSeconds })} onViewChange={openPlaceStable} onWallChange={(wall) => setLibraryLocation((current) => (wall ? { view: current.view, wall } : { view: current.view }))} view={libraryLocation.collections ? 'collections' : libraryLocation.view ?? 'all'} wall={libraryLocation.wall} />)
-            : surface === 'books' ? <BooksSurface onRoute={booksRouteStable} route={booksRoute} user={state.currentUser} /> : surface === 'downloads' ? <DownloadsSurface hasMoreJobs={state.jobsNextCursor !== null} jobs={state.jobs} loadingMoreJobs={state.jobsLoadingMore} loadMoreJobsError={state.jobsLoadMoreError} loadState={state.jobsState} onCancel={handleCancelStable} onClear={handleClear} onLoadMoreJobs={loadMoreJobsStable} onOpenItem={openLibraryIdStable} onRetry={handleRetryStable} onRetryLoad={retryJobs} onSignIn={returnToSignIn} playlistActivity={playlistActivity} recordingActivity={<LiveRecordingActivity key={`recordings:${state.currentUser.id}`} onOpenItem={openLibraryIdStable} session={workspace} />} problem={state.jobsProblem} retryingLoad={state.jobsRetrying} />
+            : surface === 'photos' ? <PhotosSurface key={state.currentUser.id} user={state.currentUser} route={photosRoute} onRoute={setPhotosRoute} /> : surface === 'books' ? <BooksSurface onRoute={booksRouteStable} route={booksRoute} user={state.currentUser} /> : surface === 'downloads' ? <DownloadsSurface hasMoreJobs={state.jobsNextCursor !== null} jobs={state.jobs} loadingMoreJobs={state.jobsLoadingMore} loadMoreJobsError={state.jobsLoadMoreError} loadState={state.jobsState} onCancel={handleCancelStable} onClear={handleClear} onLoadMoreJobs={loadMoreJobsStable} onOpenItem={openLibraryIdStable} onRetry={handleRetryStable} onRetryLoad={retryJobs} onSignIn={returnToSignIn} playlistActivity={playlistActivity} recordingActivity={<LiveRecordingActivity key={`recordings:${state.currentUser.id}`} onOpenItem={openLibraryIdStable} session={workspace} />} problem={state.jobsProblem} retryingLoad={state.jobsRetrying} />
               : surface === 'requests' ? <RequestsSurface key={state.currentUser.id} onOpenRoute={openRouteStable} onQueueChanged={requestsQueueChangedStable} onRoute={requestsRouteStable} route={requestsRoute} session={workspace} user={state.currentUser} />
               : surface === 'settings' ? <SettingsSurface acquisitionDefaults={acquisitionDefaultsSettings} advanced={state.preferences.settingsAdvanced} onAdvancedChange={(settingsAdvanced) => workspace.dispatch({ type: 'preferences/patch', patch: { settingsAdvanced } })} captions={state.preferences.captions} onCaptionsChange={(captions) => workspace.dispatch({ type: 'preferences/patch', patch: { captions } })} autoplayUpNext={state.preferences.autoplayUpNext} onAutoplayUpNextChange={(autoplayUpNext) => workspace.dispatch({ type: 'preferences/patch', patch: { autoplayUpNext } })} playbackMaxHeight={state.preferences.playbackMaxHeight} onPlaybackMaxHeightChange={(playbackMaxHeight) => workspace.dispatch({ type: 'preferences/patch', patch: { playbackMaxHeight } })} onClearSearchHistory={clearSearchHistoryStable} onUpdateDisplayName={updateDisplayNameStable} searchHistory={searchHistory} onThemeChange={(theme) => workspace.dispatch({ type: 'preferences/patch', patch: { theme } })} theme={state.preferences.theme} formatPreset={acquisition.state.format} interests={memberInterests} onFormatChange={acquisition.chooseFormat} onLogout={handleLogout} playbackPrefs={playbackPrefs} onPlaybackPrefsChange={patchPlaybackPrefsStable} onRemotePlaybackCacheChange={handleRemotePlaybackCacheChange} onRestoreSuppression={restoreSuppressionStable} onSaveInterests={saveMemberInterests} remotePlaybackCache={state.userSettings?.remote_playback_cache || undefined} key={state.currentUser.id} onMessage={reportMessage} onLocation={(location) => { setSettingsSection(location.section); setSettingsPage(location.page); setSettingsSpace(location.space); }} space={settingsSpace} page={settingsPage} onSection={setSettingsSection} section={settingsSection} member={settingsMember} onMember={setSettingsMember} suppressions={suppressions} user={state.currentUser} />
                 : watchSelection ? null : surfaceLoading;

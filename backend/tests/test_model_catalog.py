@@ -11,18 +11,24 @@ from app.services import model_catalog
 from app.services.model_catalog import CatalogError, parse
 from model_support import REV, default_pair, install, use_catalog
 
-PINNED = re.compile(r"^https://huggingface\.co/[\w.-]+/[\w.-]+/resolve/[0-9a-f]{40}/[\w.-]+$")
+PINNED = re.compile(
+    r"^https://(?:huggingface\.co/[\w.-]+/[\w.-]+/resolve/[0-9a-f]{40}/[\w.-]+|"
+    r"media\.githubusercontent\.com/media/[\w.-]+/[\w.-]+/[0-9a-f]{40}/[\w./-]+)$"
+)
 
 
 def test_shipped_catalog_pins_every_file() -> None:
     catalog = model_catalog.catalog()
     assert [model.id for model in catalog.models] == [
+        "opencv-sface-2021dec",
         "granite-embedding-97m-multilingual-r2-q8", "nomic-embed-text-v1.5-q8",
         "faster-whisper-small-int8", "faster-whisper-large-v3-turbo-int8",
     ]
     assert catalog.default_for("search").id == "granite-embedding-97m-multilingual-r2-q8"
     assert catalog.default_for("speech").id == "faster-whisper-small-int8"
-    assert catalog.allows_host("huggingface.co") and catalog.allows_host("us.aws.cdn.hf.co")
+    assert catalog.default_for("face").id == "opencv-sface-2021dec"
+    assert catalog.allows_host("huggingface.co") and catalog.allows_host("media.githubusercontent.com")
+    assert catalog.allows_host("us.aws.cdn.hf.co")
     assert not catalog.allows_host("example.com") and not catalog.allows_host("hf.co.example.com")
     for model in catalog.models:
         assert model.licence in {"Apache-2.0", "MIT"} and model.ram_bytes > 0

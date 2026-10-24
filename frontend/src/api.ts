@@ -825,7 +825,7 @@ export type AiConfig = {
 export type AiConfigUpdate = Partial<Omit<AiConfig, 'has_api_key' | 'enabled' | 'asr_available' | 'features' | 'model_threads' | 'model_threads_auto'>> & { api_key?: string; model_threads?: number };
 export const getAiConfig = (): Promise<AiConfig> => requestJson('/api/admin/ai/config');
 export const updateAiConfig = (payload: AiConfigUpdate): Promise<AiConfig> => put('/api/admin/ai/config', payload);
-export type LocalModelRole = 'search' | 'speech';
+export type LocalModelRole = 'search' | 'speech' | 'face';
 export type LocalModelState = 'absent' | 'downloading' | 'verifying' | 'ready' | 'failed';
 /** One on-device model row (GET /api/admin/models and the `model_state` event); admin-only. */
 export type LocalModel = {

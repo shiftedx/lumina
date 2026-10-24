@@ -4,6 +4,17 @@ import { LIBRARY_LENSES } from '../features/gallery/libraryLens';
 import { canonicalRoute, libraryBackRoute, parseRoute, routeFocusKey, routePath, SETTINGS_SECTION_IDS, type AppRoute } from './routes';
 
 describe('app routes', () => {
+  it('round trips photo filters and keeps malformed photo links inside the library', () => {
+    const route = { surface: 'photos', view: 'timeline', q: 'Autumn & light', favorite: true, personId: 'person-1', albumId: 'album-1', sort: 'added', camera: 'Camera A', dateFrom: '2026-01-01', dateTo: '2026-10-24' } as const;
+    const url = new URL(routePath(route), 'https://example.com');
+    expect(parseRoute(url.pathname, url.search)).toEqual(route);
+    expect(parseRoute('/photos/people', '?person=..%2Fprivate')).toEqual({ surface: 'photos', view: 'people' });
+    expect(parseRoute('/photos/trash', '')).toEqual({ surface: 'photos', view: 'trash' });
+    expect(parseRoute('/photos/nope', '')).toEqual({ surface: 'photos', view: 'timeline' });
+    expect(parseRoute('/photos', '?from=2026-02-31&to=wrong')).toEqual({ surface: 'photos', view: 'timeline' });
+    expect(routeFocusKey(route)).toBe('photos');
+  });
+
   it('round-trips every canonical route', () => {
     const routes: AppRoute[] = [
       { surface: 'home' }, { surface: 'library' }, { surface: 'settings' },

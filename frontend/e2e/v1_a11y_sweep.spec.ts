@@ -245,6 +245,7 @@ test('Home and Home in edit mode: no serious axe findings, sideways scroll or sm
   await page.goto('/');
   await settle(page);
   await openHomeEditor(page, true);
+  await expect(page.getByRole('button', { name: 'Reorder Continue watching' })).toBeFocused();
   const stops: string[] = [];
   for (let step = 0; step < 4; step += 1) {
     stops.push(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent ?? ''));

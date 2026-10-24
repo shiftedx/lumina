@@ -15,7 +15,7 @@ export const modelFacts = (model: LocalModel): string => `${sizeText(model.size_
 
 const STATE_LABELS: Record<LocalModel['state'], string> = { absent: 'Not installed', downloading: 'Downloading', verifying: 'Checking the download', ready: 'Ready', failed: 'Failed' };
 const STATE_TONES: Record<LocalModel['state'], StatusTone> = { absent: 'muted', downloading: 'attention', verifying: 'attention', ready: 'ok', failed: 'danger' };
-const REQUIREMENT: Record<LocalModelRole, 'search_model' | 'speech_model'> = { search: 'search_model', speech: 'speech_model' };
+const REQUIREMENT: Partial<Record<LocalModelRole, 'search_model' | 'speech_model'>> = { search: 'search_model', speech: 'speech_model' };
 
 function ModelItem({ model }: { model: LocalModel }) {
   const { config, set, replaceModel, reloadModels, reloadConfig } = useAiForm();
@@ -39,7 +39,10 @@ function ModelItem({ model }: { model: LocalModel }) {
   const cancel = () => run(async () => replaceModel(await cancelLocalModelDownload(model.id)));
   // Choosing a model flips the other row's `active` and may change readiness, so both reload.
   const activate = () => run(async () => { replaceModel(await activateLocalModel(model.id)); reloadModels(); reloadConfig(); });
-  const needs = () => model.features.filter((key) => config.features[key]?.requires === REQUIREMENT[model.role]).map(featureName).join(', ');
+  const needs = () => {
+    const requirement = REQUIREMENT[model.role];
+    return requirement ? model.features.filter((key) => config.features[key]?.requires === requirement).map(featureName).join(', ') : '';
+  };
   const effectText = () => (model.active && needs() ? ` Features that need it (${needs()}) turn off unless an external server covers them.` : '');
   function remove() {
     void run(async () => {

@@ -22,15 +22,19 @@ CATALOG_PATH = Path(__file__).resolve().parents[1] / "model_catalog.json"
 READY_MARKER = ".ready"
 WANTED_MARKER = ".wanted"
 LOCAL_PREFIX = "local:"
-ROLES = ("search", "speech")
+ROLES = ("search", "speech", "face")
 # The ai_features_disabled keys whose work uses each role's model.
-FEATURES: dict[str, tuple[str, ...]] = {"search": ("semantic_search",), "speech": ("subtitles_from_speech", "sync")}
+FEATURES: dict[str, tuple[str, ...]] = {
+    "search": ("semantic_search",), "speech": ("subtitles_from_speech", "sync"), "face": (),
+}
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]{0,63}$")
 FILE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-PINNED_PATH = re.compile(r"^/[^/]+/[^/]+/resolve/[0-9a-f]{40}/[^/]+$")
+PINNED_PATH = re.compile(
+    r"^(?:/[^/]+/[^/]+/resolve/[0-9a-f]{40}/[^/]+|/media/[^/]+/[^/]+/[0-9a-f]{40}/.+)$"
+)
 
-Role = Literal["search", "speech"]
+Role = Literal["search", "speech", "face"]
 
 
 class CatalogError(ValueError):
@@ -110,13 +114,15 @@ def _model(raw: dict, hosts: frozenset[str]) -> CatalogModel:
     if not isinstance(model.id, str) or not ID_PATTERN.fullmatch(model.id):
         raise CatalogError("Model ids must be short lowercase names")
     if model.role not in ROLES:
-        raise CatalogError("A model's role is search or speech")
+        raise CatalogError("A model's role is search, speech or face")
     if not model.files or len({file.name for file in model.files}) != len(model.files):
         raise CatalogError("A model needs distinct files")
     if type(model.ram_bytes) is not int or model.ram_bytes <= 0:
         raise CatalogError("A model needs a RAM estimate in bytes")
     if model.role == "search" and (type(model.engine.get("dimensions")) is not int or len(model.files) != 1):
         raise CatalogError("A search model is one GGUF file with known dimensions")
+    if model.role == "face" and (model.engine.get("dimensions") != 128 or len(model.files) != 1):
+        raise CatalogError("A face model is one ONNX file with 128 dimensions")
     return model
 
 
@@ -132,7 +138,8 @@ def parse(data: dict) -> Catalog:
     if len({model.id for model in models}) != len(models):
         raise CatalogError("Model ids must be unique")
     for role in ROLES:
-        if sum(model.default for model in models if model.role == role) != 1:
+        count = sum(model.default for model in models if model.role == role)
+        if count != 1 and not (role == "face" and count == 0 and all(model.role != "face" for model in models)):
             raise CatalogError(f"The catalog needs exactly one default {role} model")
     return Catalog(hosts=hosts, cdn_host_suffixes=suffixes, models=models)
 

@@ -32,7 +32,7 @@ ModelState = Literal["absent", "downloading", "verifying", "ready", "failed"]
 
 class ModelView(BaseModel):
     id: str
-    role: Literal["search", "speech"]
+    role: Literal["search", "speech", "face"]
     name: str
     description: str
     licence: str
@@ -68,9 +68,9 @@ def view(record: AppSettings, model: CatalogModel) -> ModelView:
     return ModelView(
         id=model.id, role=model.role, name=model.name, description=model.description, licence=model.licence,
         size_bytes=model.size_bytes, ram_bytes=model.ram_bytes, default=model.default,
-        active=model_endpoints.active_model(record, model.role) is model, state=state,
+        active=True if model.role == "face" else model_endpoints.active_model(record, model.role) is model, state=state,
         bytes_done=status.bytes_done, bytes_total=status.bytes_total, reason=reason,
-        running=supervisor.running(model.id), features=list(model_catalog.FEATURES[model.role]),
+        running=False if model.role == "face" else supervisor.running(model.id), features=list(model_catalog.FEATURES[model.role]),
     )
 
 
@@ -91,7 +91,8 @@ def download_model(model_id: str, db: Session = Depends(get_db, scope="function"
     model = _model_or_404(model_id)
     if model.role == "search" and model_supervisor.supervisor.is_failed(model.id):
         embeddings.reset_caches()  # its kept index lacks what was imported meanwhile: serve another until it is topped up
-    model_supervisor.supervisor.retry(model.id)  # emits a change: wire() starts the backfill for a ready search model
+    if model.role != "face":
+        model_supervisor.supervisor.retry(model.id)  # emits a change: wire() starts the backfill for a ready search model
     model_downloads.manager.start(model)
     return view(YtDlpService(db).get_app_settings(), model)
 
@@ -106,14 +107,16 @@ def remove_model(model_id: str, db: Session = Depends(get_db, scope="function"))
     """Delete a model's files. If it was its role's active model and nothing external serves that role,
     the features that need it are switched off (the UI asks for confirmation first)."""
     model = _model_or_404(model_id)
-    model_supervisor.supervisor.stop(model.id)
+    if model.role != "face":
+        model_supervisor.supervisor.stop(model.id)
     model_downloads.manager.remove(model)
-    requirement = "search_model" if model.role == "search" else "speech_model"
+    requirement = "search_model" if model.role == "search" else "speech_model" if model.role == "speech" else None
     disabled: list[str] = []
     with write_transaction(db, name="model_remove"):
         record = YtDlpService(db).ensure_app_settings()
-        external = model_endpoints.external_serves(effective_config(record), model.role)
-        if model_endpoints.active_model(record, model.role) is model and not external:
+        external = requirement is not None and model_endpoints.external_serves(effective_config(record), model.role)
+        active = requirement is not None and model_endpoints.active_model(record, model.role) is model
+        if active and not external:
             current = list(record.ai_features_disabled or [])
             disabled = [key for key in model_catalog.FEATURES[model.role] if model_endpoints.REQUIRES.get(key) == requirement and key not in current]
             record.ai_features_disabled = current + disabled
@@ -126,6 +129,8 @@ def remove_model(model_id: str, db: Session = Depends(get_db, scope="function"))
 def activate_model(model_id: str, db: Session = Depends(get_db, scope="function")) -> ModelView:
     """Choose the active model for its role; switching search models re-indexes in the background."""
     model = _model_or_404(model_id)
+    if model.role == "face":
+        return view(YtDlpService(db).ensure_app_settings(), model)
     with write_transaction(db, name="model_activate"):
         record = YtDlpService(db).ensure_app_settings()
         changed = model_endpoints.active_model(record, model.role) is not model

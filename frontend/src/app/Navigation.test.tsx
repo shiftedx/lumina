@@ -7,12 +7,13 @@ import { MobileTabs, navGroups, NavigationPopover } from './Navigation';
 describe('NavigationPopover', () => {
   it('makes Video, Audio, and Books primary destinations, without the old Library item', () => {
     expect(navGroups.map((group) => [group.label, group.items.map((item) => item.label)])).toEqual([
-      ['Watch', ['Home', 'Video', 'Audio', 'Books', 'Streaming', 'Requests']],
+      ['Watch', ['Home', 'Video', 'Audio', 'Books', 'Photos', 'Streaming', 'Requests']],
       ['Vault', ['Downloads', 'My Settings']],
     ]);
     render(<NavigationPopover activeDownloads={2} onClose={vi.fn()} onNavigate={vi.fn()} open surface="audio" />);
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     expect(within(nav).queryByRole('button', { name: 'Library' })).toBeNull();
+    expect(within(nav).getByRole('button', { name: 'Photos' })).toBeTruthy();
     expect(within(nav).getByRole('button', { name: 'Audio' }).getAttribute('aria-current')).toBe('page');
     expect(within(nav).getByRole('button', { name: 'Downloads, 2 active' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /settings$/ })).toBeNull();

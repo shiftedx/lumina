@@ -66,6 +66,12 @@ opencv-python-headless==4.12.0.88
     # via lumina-backend (backend/pyproject.toml)
 packaging==26.2
     # via pytest
+pillow==12.2.0
+    # via
+    #   lumina-backend (backend/pyproject.toml)
+    #   pillow-heif
+pillow-heif==1.8.1
+    # via lumina-backend (backend/pyproject.toml)
 pluggy==1.6.0
     # via pytest
 pycparser==3.0 ; implementation_name != 'PyPy' and implementation_name != 'cpython'

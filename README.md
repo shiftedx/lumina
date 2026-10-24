@@ -86,6 +86,7 @@ Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and a
 
 | To | See |
 | --- | --- |
+| Browse and organize photographs | [Photo library](docs/photos.md) |
 | Configure, add media folders, back up, upgrade | [Operator guide](docker/README.md) |
 | Reach it from other devices | [Remote HTTPS](docker/README.md#remote-https) · [LAN HTTP mode](docker/README.md#lan-http-mode) |
 | Use hardware transcoding | [Intel QSV/VAAPI](docker/README.md#hardware-transcoding-intel-qsvvaapi) |

@@ -674,12 +674,10 @@ private struct TVDetailCastMember: View {
 
     @ViewBuilder private var portrait: some View {
         if let url = store.personImageURL(for: person, maxWidth: 240) {
-            AsyncImage(url: url) { phase in
-                if case .success(let image) = phase {
-                    image.resizable().scaledToFill()
-                } else {
-                    placeholder
-                }
+            CachedArtworkImage(url: url) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                placeholder
             }
         } else {
             placeholder

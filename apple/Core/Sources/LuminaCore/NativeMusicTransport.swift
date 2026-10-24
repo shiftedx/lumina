@@ -37,6 +37,7 @@ public final class NativeMusicTransport {
     public var onChange: ((State) -> Void)?
     public var onTrack: ((PlaybackRequest, Int) -> Void)?
     public var onMode: ((Mode) -> Void)?
+    public var onUnsupportedAudio: (() -> Void)?
     public var allowsAdvance: ((Int, Int?) -> Bool)?
     public var onBlockedAdvance: ((Int, Int?) -> Void)?
     public var source: (Int) async throws -> PlaybackRequest
@@ -67,6 +68,7 @@ public final class NativeMusicTransport {
     private var volume: Float = 0.8
     private var streamIndex: Int?
     private var streamCurrentItem: ObjectIdentifier?
+    private var currentStreamItem: AVPlayerItem?
     private var fallbackNext: Int?
     private var preparingNext = false
     private var blockedAdvance: (from: Int, to: Int?)?
@@ -126,6 +128,7 @@ public final class NativeMusicTransport {
     private func start(playing: Bool, reusing request: PlaybackRequest?) async {
         stopRuntime()
         wantsPlayback = playing
+        state.finished = false; state.error = nil
         let token = generation
         guard tracks.indices.contains(state.index) else { return }
         do {
@@ -281,7 +284,7 @@ public final class NativeMusicTransport {
         streamObserver = nil
         streaming?.pause(); streaming?.removeAllItems(); streaming = nil
         progressiveAssets.values.forEach { $0.cancel() }; progressiveAssets.removeAll(); bufferedStreams.removeAll()
-        streamItems.removeAll(); streamIndex = nil; streamCurrentItem = nil
+        streamItems.removeAll(); streamIndex = nil; streamCurrentItem = nil; currentStreamItem = nil
         requests.removeAll()
         current = nil; next = nil; retiring = nil
     }
@@ -360,9 +363,7 @@ public final class NativeMusicTransport {
             } catch {
                 guard token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled else { return }
                 if (error as? URLError)?.code == .userAuthenticationRequired {
-                    stop()
-                    state.error = "Access to this track was denied. Sign in again before continuing."
-                    onChange?(state)
+                    fail("Access to this track was denied. Sign in again before continuing.")
                     return
                 }
                 fallbackNext = index
@@ -403,7 +404,7 @@ public final class NativeMusicTransport {
             guard let streaming else { return }
             state.playing = streaming.timeControlStatus == .playing
             if let item = streaming.currentItem, let index = streamItems[ObjectIdentifier(item)], ObjectIdentifier(item) != streamCurrentItem {
-                streamCurrentItem = ObjectIdentifier(item); streamIndex = index; state.index = index
+                streamCurrentItem = ObjectIdentifier(item); currentStreamItem = item; streamIndex = index; state.index = index
                 let retained = Set(streaming.items().map { ObjectIdentifier($0) })
                 streamItems = streamItems.filter { retained.contains($0.key) }
                 discardProgressiveAssets(except: retained)
@@ -411,6 +412,13 @@ public final class NativeMusicTransport {
                 prepareNext()
             }
             if mode == .progressive { updateProgressiveBuffers(streaming) }
+            // AVQueuePlayer can remove a failed item before the next clock callback.
+            // Retain the current occurrence until its failure has been inspected.
+            if (streaming.currentItem ?? currentStreamItem)?.status == .failed {
+                fail("This audio format could not stream. Try a compatible copy.")
+                onUnsupportedAudio?()
+                return
+            }
             if streaming.currentItem == nil {
                 if let index = fallbackNext {
                     fallbackNext = nil
@@ -420,11 +428,6 @@ public final class NativeMusicTransport {
                         await select(index)
                     }
                 } else { ended() }
-            }
-            else if streaming.currentItem?.status == .failed {
-                state.error = "This audio format could not stream. Try a compatible copy."
-                state.playing = false
-                stopRuntime()
             }
             if state.playing { prepareNext() }
             publishTick()
@@ -478,6 +481,12 @@ public final class NativeMusicTransport {
            previous.finished == state.finished, previous.error == state.error,
            abs(previous.position - state.position) < 1 { return }
         lastTickState = state
+        onChange?(state)
+    }
+
+    private func fail(_ message: String) {
+        stopRuntime()
+        state.playing = false; state.finished = false; state.error = message
         onChange?(state)
     }
 
@@ -565,10 +574,10 @@ public final class NativeMusicTransport {
                         self.fallbackNext = index
                         self.state.error = "The next track could not preload. It will be tried at the boundary."
                     } else {
-                        self.stop()
-                        self.state.error = code == .userAuthenticationRequired
+                        self.fail(code == .userAuthenticationRequired
                             ? "Access to this track was denied. Sign in again before continuing."
-                            : "This audio could not stream. Try again."
+                            : "This audio could not stream. Try again.")
+                        return
                     }
                     self.onChange?(self.state)
                 }
@@ -589,6 +598,7 @@ public final class NativeMusicTransport {
         let queue = AVQueuePlayer(items: [item])
         streamItems[ObjectIdentifier(item)] = state.index; streamIndex = state.index; streamCurrentItem = ObjectIdentifier(item)
         streaming = queue
+        currentStreamItem = item
         // Native clock delivery avoids synchronous currentTime() calls across queue handoffs.
         streamObserver = queue.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self, weak queue] time in
             MainActor.assumeIsolated {
@@ -631,9 +641,7 @@ public final class NativeMusicTransport {
             } catch {
                 if token == generation, lookaheadToken == lookaheadGeneration, !Task.isCancelled {
                     if (error as? URLError)?.code == .userAuthenticationRequired {
-                        stop()
-                        state.error = "Access to this track was denied. Sign in again before continuing."
-                        onChange?(state)
+                        fail("Access to this track was denied. Sign in again before continuing.")
                         return
                     }
                     fallbackNext = index

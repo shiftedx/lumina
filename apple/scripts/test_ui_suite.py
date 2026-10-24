@@ -133,6 +133,34 @@ class UITierRunnerTests(unittest.TestCase):
                 self.assertEqual(sorted(item for shard in shards for item in shard), sorted(selected))
                 self.assertEqual(len({item for shard in shards for item in shard}), len(selected))
 
+    def test_shard_validation_counts_concrete_cases_without_splitting_classes(self) -> None:
+        selected = [
+            "-only-testing:Lumina-iOS-UITests/NativeAudioAlbumTrackPlaybackReportsProgressTests",
+            "-only-testing:Lumina-iOS-UITests/NativeNativePlaybackReportsResumeAndConversionProgressTests",
+        ]
+        validations: list[int] = []
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.object(run_ui_tiers, "boot_simulators", return_value=(["one", "two"], 0.0, 0.0)), \
+             mock.patch.object(run_ui_tiers, "latest_runtime", return_value="runtime"), \
+             mock.patch.object(run_ui_tiers, "xctestrun_path", return_value=Path(directory) / "tests.xctestrun"), \
+             mock.patch.object(run_ui_tiers, "selectors", return_value=selected), \
+             mock.patch.object(run_ui_tiers, "run_xcode", side_effect=[
+                 (0, 0.0, 0.0, 0.0),
+                 (0, 1.0, 1.0, 2.0),
+                 (0, 1.0, 1.0, 2.0),
+             ]), \
+             mock.patch.object(run_ui_tiers, "result_ok", side_effect=lambda _result, _log, count: validations.append(count) or True), \
+             mock.patch.object(run_ui_tiers, "command", return_value=subprocess.CompletedProcess([], 0, "", "")):
+            outcome = run_ui_tiers.one_platform(
+                "iOS", "smoke", 1, Path(directory), Path(directory) / "broker.json", "run"
+            )
+        shards = outcome["tests"][0]["shards"]
+        self.assertEqual({item["tests"] for item in shards}, {1, 2})
+        self.assertEqual(set(validations), {1, 2})
+        self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("iOS", "smoke")), 3)
+        self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("iOS", "full")), 14)
+        self.assertEqual(run_ui_tiers.expected_case_count(run_ui_tiers.selectors("tvOS", "full")), 8)
+
     def test_result_requires_the_exact_selected_count_and_a_clean_summary(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "run.log"

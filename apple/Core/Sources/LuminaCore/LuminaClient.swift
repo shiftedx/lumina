@@ -167,9 +167,9 @@ final class LuminaClient: @unchecked Sendable {
         _ = try await send(request(origin: origin, path: "/Users/\(userID)/Items/\(id)/UserData", method: "POST", token: token, deviceID: deviceID, body: body))
     }
 
-    func audioRequest(origin: URL, token: String, item: MediaItem) throws -> PlaybackRequest {
+    func audioRequest(origin: URL, token: String, item: MediaItem, forceCompatible: Bool = false) throws -> PlaybackRequest {
         let nativeContainers = ["mp3", "aac", "m4a", "mp4", "m4b", "flac", "wav", "wave", "aif", "aiff", "caf", "alac"]
-        let compatible = item.container.map { !nativeContainers.contains($0.lowercased()) } ?? false
+        let compatible = forceCompatible || (item.container.map { !nativeContainers.contains($0.lowercased()) } ?? false)
         var query = [URLQueryItem(name: "ApiKey", value: token)]
         if compatible { query.append(URLQueryItem(name: "format", value: "flac")) }
         guard item.isAudio, let stream = url(origin: origin, path: "/Audio/\(item.id)/stream", query: query), sameOrigin(origin, stream) else { throw LuminaError.unsafeURL }

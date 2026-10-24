@@ -46,3 +46,25 @@ Raw samples and diagnostics remain locally in `output/native-book-reader/image-b
 ## Review
 
 Standards review found one failed-prefetch retry defect; it was fixed and covered at the Core service boundary. Requirements review found no unresolved source gaps. Final native workflow gates passed after correcting SDK back-button/offscreen-control selectors and anchoring test gestures in the catalog column. No broader shell redesign was retained.
+
+## Immersive artwork update — 2026-10-24
+
+PDF, CBZ and CBR now use an interactive UIKit paper curl, with a center spine for
+side-by-side spreads and direction-aware single-page turning. The user can lift a
+page, complete the fold or let it settle back; only completed turns select a new
+reading position. Artwork fills the reader's available canvas with system chrome
+hidden, including Fit mode. Existing Fill/Fit, zoom, contents, appearance, progress
+recovery and format-specific checkpoints remain available. Magnified artwork pans
+without turning. EPUB text, Reduce Motion and horizontal fold panes retain the
+direct-turn renderer.
+
+The reader stages only neighboring curl leaves at a maximum decoded edge of 2,048
+pixels; it cancels discarded work. ADR 0022 records the revised staging bounds.
+The native workflow checks RTL manga and LTR PDF dragging, cancellation, zoom/pan,
+and checkpoint restoration; the existing four-format workflow retains EPUB/PDF/
+CBZ/CBR reading and reopen coverage.
+
+Two-page layout uses stable consecutive pairs by default on expanded displays:
+1–2, 3–4, 5–6. Manga reverses their physical placement, without mirroring artwork.
+The reading position label displays both visible page numbers, and page turns move
+between complete pairs. Opening either member of a saved pair restores that spread.

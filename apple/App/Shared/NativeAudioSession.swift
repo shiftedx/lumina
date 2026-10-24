@@ -6,6 +6,7 @@ import UIKit
 @MainActor @Observable
 final class NativeAudioSession {
     private(set) var playback: PlaybackModel?
+    private var compatibleAudioIDs = Set<String>()
     private(set) var tracks: [LuminaCore.MusicTrack] = []
     private(set) var lyrics: MusicLyrics?
     private(set) var lyricsError: String?
@@ -97,11 +98,12 @@ final class NativeAudioSession {
         guard playback !== model else { return }
         generation += 1
         startTask?.cancel(); lyricsTask?.cancel(); statusTask?.cancel()
-        transport?.onChange = nil; transport?.onTrack = nil
+        transport?.onChange = nil; transport?.onTrack = nil; transport?.onUnsupportedAudio = nil
         playback?.audioOwner = nil
         playback?.close()
         transport?.stop(); transport = nil
         playback = model
+        compatibleAudioIDs.removeAll()
         let ownerChanged = identity != model.store.music.sessionIdentity
         store = model.store
         identity = model.store.music.sessionIdentity
@@ -167,7 +169,8 @@ final class NativeAudioSession {
             model.configureAudioQueue(resolved.map(\.mediaItem), index: model.queueIndex, repeatMode: snapshot.repeatMode)
             let transport = NativeMusicTransport(tracks: resolved, index: model.queueIndex, position: model.elapsedSeconds) { [weak self, weak store] index in
                 guard let self, let store, self.identity == owner, self.tracks.indices.contains(index) else { throw LuminaError.notSignedIn }
-                return try await store.preparePlayback(for: self.tracks[index].mediaItem)
+                return try await store.preparePlayback(for: self.tracks[index].mediaItem,
+                    forceTranscode: self.compatibleAudioIDs.contains(self.tracks[index].mediaItem.id))
             }
             self.transport = transport; model.audioTransport = transport
             waitingForEntry = nil; waitingNextIndex = nil
@@ -205,6 +208,18 @@ final class NativeAudioSession {
                 self.enforceSleepDeadline()
             }
             transport.onMode = { [weak self] mode in self?.playbackMode = mode }
+            transport.onUnsupportedAudio = { [weak self, weak model, weak transport] in
+                guard let self, let model, let transport, self.playback === model,
+                      !self.compatibleAudioIDs.contains(model.request.item.id) else { return }
+                let itemID = model.request.item.id, index = model.queueIndex, position = model.elapsedSeconds
+                self.compatibleAudioIDs.insert(itemID)
+                Task { [weak self, weak model, weak transport] in
+                    guard let self, let model, let transport, self.playback === model,
+                          self.transport === transport, model.request.item.id == itemID,
+                          model.queueIndex == index else { return }
+                    await transport.select(index, position: position)
+                }
+            }
             configureTransport()
             if isSonos {
                 await transport.start(playing: false)
@@ -222,10 +237,11 @@ final class NativeAudioSession {
         generation += 1
         let token = generation
         startTask?.cancel(); lyricsTask?.cancel(); statusTask?.cancel(); syncTask?.cancel(); syncTask = nil
-        transport?.onChange = nil; transport?.onTrack = nil
+        transport?.onChange = nil; transport?.onTrack = nil; transport?.onUnsupportedAudio = nil
         playback?.audioOwner = nil; playback?.close(); playback = nil; transport?.stop(); transport = nil
         self.store = store; identity = owner
         tracks = []; lyrics = nil; conflict = nil; message = nil
+        compatibleAudioIDs.removeAll()
         speakers = []; outputStatus = nil; pendingSpeakerStop = nil; busy = false; transferring = false
         volumeTask?.cancel(); volumeTask = nil; remoteVolumeDraft = nil
         snapshot = MusicListeningSnapshot()
@@ -256,7 +272,7 @@ final class NativeAudioSession {
         generation += 1
         let token = generation, owner = identity
         startTask?.cancel(); lyricsTask?.cancel(); statusTask?.cancel()
-        transport?.onChange = nil; transport?.onTrack = nil
+        transport?.onChange = nil; transport?.onTrack = nil; transport?.onUnsupportedAudio = nil
         playback?.audioOwner = nil; playback?.close(); playback = nil
         transport?.stop(); transport = nil
         snapshot = value; tracks = value.queue
@@ -808,10 +824,11 @@ final class NativeAudioSession {
         waitingForEntry = nil; waitingNextIndex = nil
         generation += 1
         startTask?.cancel(); lyricsTask?.cancel(); statusTask?.cancel(); syncTask?.cancel(); syncTask = nil
-        transport?.onChange = nil; transport?.onTrack = nil
+        transport?.onChange = nil; transport?.onTrack = nil; transport?.onUnsupportedAudio = nil
         playback?.audioOwner = nil; playback?.close(); playback = nil
         transport?.stop(); transport = nil
         tracks = []; snapshot.queue = []; snapshot.currentIndex = nil; snapshot.positionSeconds = 0
+        compatibleAudioIDs.removeAll()
         snapshot.entries = []; snapshot.entryIndex = nil; snapshot.activeOutput = .init()
         lyrics = nil; lyricsError = nil; lyricsLoading = false
         setSleep(minutes: nil)

@@ -30,9 +30,15 @@ PLAYBACK_PREPARATION_DELAY_ENV = "LUMINA_NATIVE_PLAYBACK_INFO_DELAY_SECONDS"
 
 
 def proof_server_environment(test_class: str) -> dict[str, str]:
-    """Return the one broker-scoped delay used to exercise cancelled preparation."""
+    """Return class-scoped faults for disposable native journeys."""
     if test_class == PLAYBACK_PREPARATION_DELAY_TEST:
         return {PLAYBACK_PREPARATION_DELAY_ENV: "3"}
+    if test_class == "NativeLibraryEdgeTests":
+        return {"LUMINA_NATIVE_PERF_CATALOGUE_COUNT": "240"}
+    if test_class == "NativeAudioFormatRecoveryTests":
+        return {"LUMINA_NATIVE_AUDIO_FORMAT_FAILURE": "1"}
+    if test_class == "NativeAudioAlbumPlayAfterUnavailableRestoreTests":
+        return {"LUMINA_NATIVE_AUDIO_RESTORE_FAILURE": "1"}
     return {}
 
 
@@ -63,6 +69,8 @@ class FixtureBroker:
             fixture = self.state / f"{key}.json"
             environment = os.environ.copy()
             environment.pop(PLAYBACK_PREPARATION_DELAY_ENV, None)
+            environment.pop("LUMINA_NATIVE_AUDIO_RESTORE_FAILURE", None)
+            environment.pop("LUMINA_NATIVE_AUDIO_FORMAT_FAILURE", None)
             environment.update(LUMINA_NATIVE_PORT="0", LUMINA_NATIVE_FIXTURE=str(fixture))
             environment.update(proof_server_environment(key))
             # Do not retain the server's output: its errors may include the fixture path.

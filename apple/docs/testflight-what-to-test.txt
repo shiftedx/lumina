@@ -3,10 +3,13 @@ Lumina native cinema beta — iPhone, iPad, and Apple TV
 Connect to your existing Lumina household server with a member account. The server's connected-app API must be enabled. Allow local-network access for a LAN server. No library or server credentials are bundled with the app.
 
 Please test:
-• Home, Library and Requests: full-size posters, featured artwork, scrolling, media details, cast and related titles. Edit Home is in Account settings.
+• Home and Library: artwork reaching the screen edges, Lumina branding on details, clear search/Cancel placement, and smooth scrolling through large libraries. Scroll well beyond the first screen, return to earlier posters, then change accounts and check artwork refreshes.
+• Home categories: Movies, TV, Anime, Music and Books open the matching Library; Watchlist is last. Genre filtering remains in Library. Edit Home is in Account settings.
 • Apple TV: welcome artwork before connecting, clear remote focus, Back from library to Home, and return navigation from details and playback settings.
 • Video: direct and compatible playback, quality, audio tracks, subtitle selection/appearance/timing, speed, chapters, intro/credits and next episode. Subtitle timing is available only for supported packaged or attached text subtitles.
-• Music: browse tracks and artist albums while listening; switch tracks from the compact player. Pause hides the compact bar without closing an expanded player or discarding the queue; Stop clears playback. On TV, Play/Pause on the remote resumes paused music.
+• Music: artwork leads the Library and expanded player. On iPhone/iPad, swipe artwork left/right to change queued tracks and swipe up to reach track details and collapsed lyrics/options. Check the full-width timeline and Queue, Play/Pause, Repeat and Stop controls. Pause preserves the queue; Stop clears playback. On TV, Play/Pause on the remote resumes paused music.
+• Navigation: the selected destination stays gold; ordinary controls use muted system colors.
+• iPhone/iPad books: turn, cancel a page curl, zoom and restore the reading position; wide displays show consecutive two-page spreads by default.
 • iPhone/iPad: Library categories, Account settings, search, and layout changes. On Duo, check both Closed and Open layouts.
 • Empty libraries, unavailable server, invalid credentials, and recovery after a connection returns.
 • On each device: background the app and return during playback, then check audio/video state and resume position.

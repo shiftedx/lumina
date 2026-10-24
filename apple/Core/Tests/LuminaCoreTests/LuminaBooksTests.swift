@@ -31,7 +31,7 @@ final class LuminaBooksTests: XCTestCase {
         catch LuminaError.unsafeURL { }
     }
 
-    func testReadingLayoutRetainsPhysicalRightPageAcrossExpansionFoldsAndRTL() {
+    func testReadingLayoutPairsConsecutivePagesAcrossExpansionFoldsAndRTL() {
         let small = BookReaderLayout(size: CGSize(width: 400, height: 720), expanded: false)
         XCTAssertNil(small.companion)
         let artwork = BookReaderLayout(size: CGSize(width: 400, height: 720), expanded: false, artwork: true)
@@ -60,9 +60,22 @@ final class LuminaBooksTests: XCTestCase {
         let safe = BookReaderLayout(size: CGSize(width: 840, height: 720), expanded: true, occlusions: [camera])
         XCTAssertFalse(safe.primary.intersects(camera))
         XCTAssertEqual(BookSpread.companion(current: 3, count: 8, rightToLeft: false), 2)
-        XCTAssertEqual(BookSpread.companion(current: 3, count: 8, rightToLeft: true), 4)
-        XCTAssertNil(BookSpread.companion(current: 0, count: 8, rightToLeft: false))
-        XCTAssertNil(BookSpread.companion(current: 7, count: 8, rightToLeft: true))
+        XCTAssertEqual(BookSpread.companion(current: 3, count: 8, rightToLeft: true), 3)
+        for count in 1...8 {
+            for current in 0..<count {
+                for rtl in [false, true] {
+                    let left = BookSpread.companion(current: current, count: count, rightToLeft: rtl)
+                    let right = BookSpread.primary(current: current, count: count, rightToLeft: rtl)
+                    let first = current / 2 * 2
+                    XCTAssertEqual([left, right].compactMap { $0 }.sorted(), Array(first..<min(count, first + 2)))
+                    if let left, let right { XCTAssertEqual(right - left, rtl ? -1 : 1) }
+                }
+            }
+        }
+        XCTAssertEqual(BookSpread.companion(current: 4, count: 8, rightToLeft: false), 4)
+        XCTAssertEqual(BookSpread.primary(current: 4, count: 8, rightToLeft: false), 5)
+        XCTAssertEqual(BookSpread.companion(current: 5, count: 8, rightToLeft: true), 5)
+        XCTAssertEqual(BookSpread.primary(current: 5, count: 8, rightToLeft: true), 4)
     }
 
     func testPagePreparationBoundsDecodedPixelsAndRejectsNonImages() throws {

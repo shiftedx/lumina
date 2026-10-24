@@ -633,6 +633,15 @@ let tickScale = 10_000_000.0
         ])
     }
 
+    /// Warms the next visible slice without making scrolling views own fetch tasks per cell.
+    public func prefetchArtwork(after itemID: String?, in items: [MediaItem], maxWidth: Int = 400) async {
+        guard !Task.isCancelled, let itemID, let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+        let urls = items.dropFirst(index + 1).prefix(16).compactMap {
+            imageURL(for: $0, maxWidth: maxWidth)
+        }
+        await ArtworkImageCache.shared.prefetch(urls)
+    }
+
     public func artworkFraming(for source: URL) async -> HeroFraming? {
         guard let active = session, source.path.hasSuffix("/Images/Backdrop/0") else { return nil }
         if let cached = readyArtworkFramings[source] { return cached }
@@ -697,7 +706,7 @@ let tickScale = 10_000_000.0
         }
         let current = try await client.item(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, id: item.id, userID: active.userID)
         guard isCurrent(active) else { throw LuminaError.notSignedIn }
-        if current.isAudio { return try client.audioRequest(origin: active.serverURL, token: active.accessToken, item: current) }
+        if current.isAudio { return try client.audioRequest(origin: active.serverURL, token: active.accessToken, item: current, forceCompatible: forceTranscode) }
         let resolvedQuality = quality ?? playbackPreferences.quality
         let result = try await client.playbackInfo(origin: active.serverURL, token: active.accessToken,
                                                     deviceID: active.deviceID, item: current,

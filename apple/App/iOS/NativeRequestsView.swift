@@ -188,6 +188,7 @@ struct NativeRequestsView: View {
         .searchable(text: $search, isPresented: $searchVisible, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search all films, series, and anime")
         .onSubmit(of: .search) { searchVisible = false }
         .accessibilityElement(children: .contain)
+        .ignoresSafeArea(.container, edges: .horizontal)
         .accessibilityIdentifier("requestsScreen")
         .sheet(item: $selected) { RequestDetailSheet(item: $0, catalog: catalog) }
         .sheet(isPresented: $myRequestsPresented) { RequestHistorySheet(catalog: catalog) }
@@ -306,6 +307,7 @@ struct NativeRequestsView: View {
                 .padding(.horizontal, 20)
             }
             .scrollIndicators(.hidden)
+            .modifier(LuminaCarouselEdges(inset: 0))
         }
     }
 
@@ -419,11 +421,13 @@ private struct RequestDetailSheet: View {
                                         }
                                     }
                                 }.scrollIndicators(.hidden)
+                                .modifier(LuminaCarouselEdges(inset: 24))
                             }
                         }
                     }.padding(.horizontal, 24).padding(.bottom, 32)
                 }
             }
+            .scrollClipDisabled()
             .background(.black).foregroundStyle(.white)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -495,7 +499,6 @@ private struct RequestDetailSheet: View {
             .buttonStyle(LuminaMediaActionStyle(primary: true))
             .disabled(!canSubmit).accessibilityIdentifier("requestConfirmButton")
         }
-        .tint(LuminaTheme.gold)
     }
 
     private func load() async {

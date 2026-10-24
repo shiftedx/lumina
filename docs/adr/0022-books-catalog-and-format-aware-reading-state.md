@@ -119,3 +119,41 @@ The companion is the previous page for LTR and the next page for RTL; artwork is
 mirrored. System bars/sheets retain navigation, while the iOS 27.1 reserved-region API
 keeps the custom reading panes clear of fold/camera frames and their individual margins.
 On earlier iOS releases the same reader uses size classes and system safe areas.
+
+### Native artwork page curling (2026-10-24)
+
+The iOS PDF/CBZ/CBR presentation uses UIKit's interactive page-curl controller.
+Its center spine presents real left/right leaves in expanded layouts; single-page
+layouts use the appropriate outer spine for the book's reading direction. A
+completed gesture selects a page; a cancelled fold does not change the checkpoint.
+The selected page remains physically right after resizing. A terminal spread may
+retain a blank facing leaf while open; the checkpoint still names its last real
+page. The center-spine data source supplies complete pairs or refuses the turn,
+so a gesture cannot enter an incomplete or entirely blank spread. Horizontal fold layouts
+and Reduce Motion retain the direct-turn renderer. EPUB retains its native text
+selection, links and content-anchor pagination.
+
+Artwork extends through the window's safe areas while reading controls are hidden,
+including Fit mode; fitting still preserves the complete image. Reserved fold gaps
+are retained at the center spine. Magnifying artwork disables the curl recognizers
+until zoom returns to its minimum, so panning does not change reading position.
+
+Curling stages the current and adjacent leaves rather than the complete book: up to
+three single-page controllers or six spread controllers, plus UIKit's active turn
+surfaces. Curl images have a maximum decoded edge of 2,048 pixels, prepared on the
+existing reader worker. Each authenticated raster request retains the existing
+24 MiB response limit; encoded bytes are released after preparation. Adjacent curl
+leaves bypass the encoded page window. Leaving the reader or evicting a neighboring
+leaf cancels its preparation; failed leaves offer Retry. This staging limit is not
+a process RSS bound. The direct-turn renderer keeps its existing encoded window
+and 3,072-pixel maximum.
+
+### Consecutive two-page defaults (2026-10-24)
+
+Expanded reading now uses stable pairs (1–2, 3–4, 5–6) rather than anchoring every
+selected page to the physical right. LTR books place the earlier page on the left;
+RTL manga place it on the right. Opening either page of a pair restores that same
+spread. A turn advances or rewinds by one complete pair, and the final unpaired
+page has a blank facing leaf. Compact reading keeps the exact selected page.
+This supersedes the earlier physical-right selection rule; fold/camera exclusions,
+format-specific checkpoints and native curl cancellation remain unchanged.

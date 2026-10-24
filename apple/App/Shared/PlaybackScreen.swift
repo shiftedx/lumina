@@ -13,6 +13,106 @@ extension QueuePresentationRow where Item == MediaItem {
     var accessibilityID: String { "audioQueueItem-\(item.id)" + (duplicated ? "-\(id.uuidString)" : "") }
 }
 
+@MainActor
+extension View {
+    func nativeAudioPlayer(playback: Binding<PlaybackModel?>, store: LuminaStore,
+                           onDismiss: @escaping () -> Void = {}) -> some View {
+        modifier(NativeAudioPlayerPresentation(playback: playback, store: store, onDismiss: onDismiss))
+    }
+
+    #if !os(tvOS)
+    func nativePlayback(request: Binding<PlaybackRequest?>, store: LuminaStore,
+                        onDismiss: @escaping () -> Void) -> some View {
+        modifier(NativePlaybackPresentation(request: request, store: store, onDismiss: onDismiss))
+    }
+    #endif
+}
+
+private struct NativeAudioPlayerPresentation: ViewModifier {
+    @Binding var playback: PlaybackModel?
+    let store: LuminaStore
+    let onDismiss: () -> Void
+
+    private var presented: Binding<Bool> {
+        Binding(get: { playback != nil }, set: { if !$0 { playback = nil } })
+    }
+
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        content.fullScreenCover(isPresented: presented, onDismiss: onDismiss) {
+            if let playback { PlaybackScreen(playback: playback, store: store) }
+        }
+        #else
+        content.navigationDestination(isPresented: presented) {
+            if let playback { PlaybackScreen(playback: playback, store: store) }
+        }
+        .onChange(of: playback == nil) { _, dismissed in if dismissed { onDismiss() } }
+        #endif
+    }
+}
+
+#if !os(tvOS)
+private struct NativePlaybackPresentation: ViewModifier {
+    @Binding var request: PlaybackRequest?
+    let store: LuminaStore
+    let onDismiss: () -> Void
+
+    private var audioPresented: Binding<Bool> {
+        Binding(get: { request?.item.isAudio == true }, set: { if !$0, request?.item.isAudio == true { request = nil } })
+    }
+    private var videoRequest: Binding<PlaybackRequest?> {
+        Binding(get: { request?.item.isAudio == false ? request : nil }, set: { value in
+            if request?.item.isAudio != true { request = value }
+        })
+    }
+
+    func body(content: Content) -> some View {
+        content.navigationDestination(isPresented: audioPresented) {
+            if let request, request.item.isAudio { PlaybackScreen(request: request, store: store) }
+        }
+        .onChange(of: audioPresented.wrappedValue) { _, presented in if !presented { onDismiss() } }
+        .fullScreenCover(item: videoRequest, onDismiss: onDismiss) { request in
+            PlaybackScreen(request: request, store: store)
+        }
+    }
+}
+#endif
+
+#if os(iOS)
+private struct AudioArtworkSwipe: UIGestureRecognizerRepresentable {
+    let onSkip: (Int) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
+        recognizer.maximumNumberOfTouches = 1
+        recognizer.delegate = context.coordinator
+        return recognizer
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        guard recognizer.state == .ended else { return }
+        let distance = recognizer.translation(in: recognizer.view).x
+        if abs(distance) >= 40 { onSkip(distance < 0 ? 1 : -1) }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
+            let velocity = pan.velocity(in: pan.view)
+            return abs(velocity.x) > abs(velocity.y) * 1.5
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            // Horizontal artwork swipes own track navigation; vertical drags remain scrolling.
+            otherGestureRecognizer is UIPanGestureRecognizer
+        }
+    }
+}
+#endif
+
 /// AVPlayer renders video while Lumina provides transport and track controls; the listening stage shares its audio model with the app shell.
 struct PlaybackScreen: View {
     @Environment(\.dismiss) private var dismiss
@@ -62,6 +162,13 @@ struct PlaybackScreen: View {
         ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
             if requestedPlayback.request.item.isAudio {
+                MediaBackdrop(item: playback.request.item, store: store).opacity(0.3)
+                    .overlay {
+                        LinearGradient(colors: [LuminaTheme.theater.opacity(0.35), LuminaTheme.theater],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
                 if attemptedAudioAdoption, audioSession.playback == nil {
                     ContentUnavailableView {
                         Label("No playable track", systemImage: "music.note")
@@ -78,20 +185,13 @@ struct PlaybackScreen: View {
                         #endif
                 }
             } else {
-                #if os(tvOS)
-                nativeVideoPlayer.ignoresSafeArea()
-                if !videoSettingsVisible && (videoChromeVisible || displayedError != nil || playback.hasFinished) {
-                    videoScrim
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-                #endif
-                videoStage
-                    #if os(tvOS)
-                    .ignoresSafeArea()
-                    #endif
+                videoStage.ignoresSafeArea()
             }
+            #if !os(tvOS)
+            if requestedPlayback.request.item.isAudio, ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+                playbackTimeProbe
+            }
+            #endif
             #if os(tvOS)
             if displayedError != nil || playback.syncError != nil {
                 VStack(alignment: .leading, spacing: 8) {
@@ -119,42 +219,26 @@ struct PlaybackScreen: View {
             #endif
         }
         #if !os(tvOS)
-        .safeAreaInset(edge: .top, alignment: .leading, spacing: 0) {
+        .ignoresSafeArea(.container, edges: requestedPlayback.request.item.isAudio ? .top : [])
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
             if requestedPlayback.request.item.isAudio {
-                VStack(alignment: .leading, spacing: 8) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 8) {
-                            playbackActions
-                        }
-                        VStack(alignment: .leading, spacing: 8) {
-                            playbackActions
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .background(.black.opacity(0), in: .rect(cornerRadius: 12))
-                    if let error = displayedError {
-                        Text(error)
-                            .padding()
-                            .background(.black.opacity(0.8), in: .rect(cornerRadius: 12))
-                    }
-                    if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
-                        playbackTimeProbe
-                    }
-                    if let syncError = playback.syncError {
-                        Text(syncError)
-                            .font(.caption)
-                            .padding(8)
-                            .background(.black.opacity(0.8), in: .rect(cornerRadius: 8))
-                    }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button("Queue", systemImage: "list.bullet") { queuePresented = true }
+                        .labelStyle(.iconOnly)
+                        .accessibilityIdentifier("audioQueueButton")
+                    audioPlayPauseButton
+                    audioRepeatButton.labelStyle(.iconOnly)
+                    Button("Stop", systemImage: "stop.fill") { stopAudio() }
+                        .labelStyle(.iconOnly)
+                        .accessibilityIdentifier("audioStopButton")
                 }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-                .padding(.top, 8)
-                .background { LuminaTheme.theater.ignoresSafeArea(edges: .top) }
             }
         }
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarVisibility(requestedPlayback.request.item.isAudio ? .visible : .hidden, for: .navigationBar)
+        .toolbarVisibility(.hidden, for: .tabBar)
         #endif
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("playbackScreen")
@@ -264,17 +348,29 @@ struct PlaybackScreen: View {
         #endif
     }
 
+    #if os(tvOS)
     private var audioStage: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 36) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .center, spacing: 64) {
-                            audioArtwork.frame(width: min(geometry.size.width * 0.38, 460))
-                            audioControls(compact: false).frame(minWidth: 360, maxWidth: 560)
+                    #if !os(tvOS)
+                    if let error = displayedError {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .font(.callout)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if let syncError = playback.syncError { Text(syncError).font(.caption) }
+                    #endif
+                    if geometry.size.width >= 700 || geometry.size.width > geometry.size.height {
+                        HStack(alignment: .center, spacing: geometry.size.width < 700 ? 24 : 48) {
+                            audioArtwork.frame(width: min(geometry.size.width * 0.33, 420))
+                            audioControls(compact: geometry.size.width < 700,
+                                metadataMinimumHeight: geometry.size.width >= 700 ? geometry.size.height * 0.4 : 0)
+                                .frame(maxWidth: 560)
                         }
+                    } else {
                         VStack(alignment: .leading, spacing: 20) {
-                            audioArtwork.frame(width: min(320, max(160, geometry.size.height * 0.30)))
+                            audioArtwork.frame(width: min(200, max(120, geometry.size.height * 0.28)))
                                 .frame(maxWidth: .infinity)
                             audioControls(compact: true)
                         }
@@ -284,46 +380,120 @@ struct PlaybackScreen: View {
                 }
                 .frame(maxWidth: 1120)
                 .padding(.horizontal, audioHorizontalInset)
-                .padding(.vertical, 32)
+                .padding(.vertical, geometry.size.width < 700 ? 16 : 32)
                 .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
-            }
-            .background {
-                MediaBackdrop(item: playback.request.item, store: store).opacity(0.3)
-                    .overlay {
-                        LinearGradient(colors: [LuminaTheme.theater.opacity(0.35), LuminaTheme.theater],
-                                       startPoint: .top, endPoint: .bottom)
-                    }
-                    .ignoresSafeArea()
             }
         }
         .foregroundStyle(.white)
         .accessibilityIdentifier("audioPlayerStage")
     }
 
+    #else
+    private var audioStage: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 0) {
+                    ZStack(alignment: .bottom) {
+                        GeometryReader { artwork in
+                            CachedArtworkImage(url: store.imageURL(for: playback.request.item, maxWidth: 2000)) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                Color.black.overlay {
+                                    Image(systemName: "music.note").font(.largeTitle)
+                                }
+                            }
+                            .frame(width: artwork.size.width, height: artwork.size.height)
+                            .clipped()
+                            .contentShape(.rect)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Album artwork for \(playback.request.item.album ?? playback.request.item.name)")
+                            .accessibilityIdentifier("audioAlbumArtwork")
+                            .accessibilityValue(playback.request.item.name)
+                            .accessibilityAction(named: "Next track") { skipAudioTrack(offset: 1) }
+                            .accessibilityAction(named: "Previous track") { skipAudioTrack(offset: -1) }
+                            .gesture(AudioArtworkSwipe(onSkip: skipAudioTrack))
+                        }
+                        .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                        VStack(alignment: .leading, spacing: 12) {
+                            if let error = displayedError {
+                                Label(error, systemImage: "exclamationmark.triangle")
+                                    .font(.callout)
+                            }
+                            if let syncError = playback.syncError { Text(syncError).font(.caption) }
+                            audioTimeline
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.top, 64)
+                        .padding(.bottom, 20 + geometry.safeAreaInsets.bottom)
+                        .padding(.leading, -geometry.safeAreaInsets.leading)
+                        .padding(.trailing, -geometry.safeAreaInsets.trailing)
+                        .background {
+                            LinearGradient(colors: [.clear, .black.opacity(0.88)], startPoint: .top, endPoint: .bottom)
+                                .ignoresSafeArea(.container, edges: .horizontal)
+                        }
+                    }
+                    .frame(height: geometry.size.height + geometry.safeAreaInsets.bottom)
+                    VStack(alignment: .leading, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(playback.request.item.name)
+                                .font(LuminaTheme.editorial(30, relativeTo: .title))
+                                .accessibilityIdentifier("nowPlayingTitle")
+                            Text(playback.request.item.artists?.joined(separator: ", ") ?? playback.request.item.albumArtist ?? "")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                            if let album = playback.request.item.album {
+                                Text(album).foregroundStyle(.secondary)
+                            }
+                        }
+                        Text(playback.request.methodLabel).font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("audioPlaybackMethod")
+                        NativeAudioOptions(session: audioSession, playback: playback)
+                    }
+                    .frame(maxWidth: 1120, alignment: .leading)
+                    .padding(24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(LuminaTheme.theater.ignoresSafeArea(.container, edges: .horizontal))
+                }
+            }
+            .scrollClipDisabled()
+        }
+        .foregroundStyle(.white)
+        .accessibilityIdentifier("audioPlayerStage")
+    }
+
+    #endif
+
     private var videoStage: some View {
         GeometryReader { geometry in
             let division = tabletopDivision(in: geometry)
+            #if os(tvOS)
+            let showsTapSurface = !videoChromeVisible
+            #else
+            let showsTapSurface = true
+            #endif
             ZStack(alignment: .topLeading) {
-                #if !os(tvOS)
                 nativeVideoPlayer
-                    .ignoresSafeArea()
                     .frame(maxWidth: .infinity)
                     .frame(height: division?.minY ?? geometry.size.height)
                     .frame(maxHeight: .infinity, alignment: .top)
-                #endif
                 if let division {
                     videoTransport
                         .padding(.top, division.maxY)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 } else {
-                    if !videoChromeVisible, !videoSettingsVisible, displayedError == nil, !playback.hasFinished {
-                        Button { revealVideoChrome() } label: {
+                    if showsTapSurface, !videoSettingsVisible, displayedError == nil, !playback.hasFinished {
+                        Button {
+                            #if os(tvOS)
+                            revealVideoChrome()
+                            #else
+                            toggleVideoChrome()
+                            #endif
+                        } label: {
                             Color.clear.contentShape(.rect)
                         }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .contentShape(.rect)
-                            .focused($videoControlsSurfaceFocused)
-                            .accessibilityLabel("Show playback controls")
+                            .accessibilityLabel(videoChromeVisible ? "Hide playback controls" : "Show playback controls")
                             .accessibilityIdentifier("videoControlsSurface")
                             #if os(tvOS)
                             // The reveal surface owns focus after the controls dismiss. A system button
@@ -331,6 +501,7 @@ struct PlaybackScreen: View {
                             // transparent and reserve visible focus for the actual transport controls.
                             .buttonStyle(VideoControlsRevealButtonStyle())
                             .focusEffectDisabled()
+                            .focused($videoControlsSurfaceFocused)
                             #else
                             .buttonStyle(.plain)
                             #endif
@@ -371,6 +542,7 @@ struct PlaybackScreen: View {
                 }
                 #endif
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
 
@@ -394,7 +566,8 @@ struct PlaybackScreen: View {
         NativePlayerLayer(
             player: playback.player,
             videoGravity: videoGravity,
-            onTearDown: { [playback] in playback.close() }
+            onTearDown: { [playback] in playback.close() },
+            onVideoTap: toggleVideoChrome
         )
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -602,6 +775,12 @@ struct PlaybackScreen: View {
         restoreSettingsFocus = true
         videoSettingsVisible = false
         revealVideoChrome()
+    }
+
+    private func toggleVideoChrome() {
+        guard !videoSettingsVisible, !videoSettingsPresented, displayedError == nil, !playback.hasFinished else { return }
+        if videoChromeVisible { hideVideoChrome() }
+        else { revealVideoChrome() }
     }
 
     private func hideVideoChrome() {
@@ -840,9 +1019,7 @@ struct PlaybackScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(.horizontal, videoHorizontalInset)
         .padding(.vertical, videoVerticalInset)
-        #if !os(tvOS)
-        .background { videoScrim.ignoresSafeArea() }
-        #endif
+        .background { videoScrim.allowsHitTesting(false) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("videoPlaybackChrome")
         #if os(tvOS)
@@ -912,7 +1089,7 @@ struct PlaybackScreen: View {
             .aspectRatio(1, contentMode: .fit)
             .overlay {
                 if let url = store.imageURL(for: playback.request.item, maxWidth: 1000) {
-                    AsyncImage(url: url) { image in
+                    CachedArtworkImage(url: url) { image in
                         image.resizable().scaledToFit()
                     } placeholder: {
                         Image(systemName: "music.note").font(.largeTitle)
@@ -927,76 +1104,55 @@ struct PlaybackScreen: View {
             .accessibilityHidden(true)
     }
 
-    private func audioControls(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: compact ? 14 : 22) {
-            #if !os(tvOS)
-            Text("NOW PLAYING").font(.caption.weight(.semibold)).tracking(2)
-                .foregroundStyle(LuminaTheme.spotlight)
-            #endif
-            Text(playback.request.item.name)
-                #if os(tvOS)
-                .font(.system(size: compact ? 34 : 42, weight: .semibold))
-                .lineLimit(3)
-                #else
-                .font(LuminaTheme.editorial(compact ? 30 : audioTitleSize, relativeTo: .largeTitle))
-                #endif
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("nowPlayingTitle")
-            Text(playback.request.item.artists?.joined(separator: ", ") ?? playback.request.item.albumArtist ?? "")
-                #if os(tvOS)
-                .font(.system(size: 25))
-                #else
-                .font(LuminaTheme.editorial(compact ? 20 : audioTitleSize * 0.62, relativeTo: .title3))
-                #endif
-                .foregroundStyle(.white.opacity(0.9))
-                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-                .accessibilityLabel(playback.request.item.artists?.joined(separator: ", ") ?? playback.request.item.albumArtist ?? "")
-            if let album = playback.request.item.album {
-                Text(album)
-                    #if os(tvOS)
-                    .font(.system(size: 23))
-                    #else
-                    .font(LuminaTheme.editorial(compact ? 17 : audioTitleSize * 0.5, relativeTo: .body))
-                    #endif
-                    .foregroundStyle(.white.opacity(0.65))
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-                    .accessibilityLabel(album)
-            }
-            VStack(spacing: 8) {
-                #if os(tvOS)
-                ProgressView(value: min(playback.elapsedSeconds, max(1, playback.request.item.durationSeconds)), total: max(1, playback.request.item.durationSeconds))
-                    .tint(LuminaTheme.spotlight)
-                    .accessibilityLabel("Track position")
-                #else
-                Slider(value: Binding(get: { playback.elapsedSeconds }, set: { playback.seek(to: $0) }), in: 0...max(1, playback.request.item.durationSeconds))
-                    .tint(LuminaTheme.spotlight)
-                    .accessibilityLabel("Track position")
-                #endif
-                HStack {
-                    Text(Duration.seconds(playback.elapsedSeconds).formatted(.time(pattern: .minuteSecond)))
-                    Spacer()
-                    Text(Duration.seconds(playback.request.item.durationSeconds).formatted(.time(pattern: .minuteSecond)))
+    private func audioControls(compact: Bool, metadataMinimumHeight: CGFloat = 0) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 10 : 22) {
+            VStack(alignment: .leading, spacing: compact ? 10 : 22) {
+                #if !os(tvOS)
+                if !compact {
+                    Text("NOW PLAYING").font(.caption.weight(.semibold)).tracking(2)
+                        .foregroundStyle(LuminaTheme.spotlight)
                 }
-                .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.8))
+                #endif
+                Text(playback.request.item.name)
+                    #if os(tvOS)
+                    .font(.system(size: compact ? 34 : 42, weight: .semibold))
+                    .lineLimit(3)
+                    #else
+                    .font(LuminaTheme.editorial(compact ? 26 : audioTitleSize, relativeTo: .largeTitle))
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : compact ? 2 : 3)
+                    #endif
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("nowPlayingTitle")
+                Text(playback.request.item.artists?.joined(separator: ", ") ?? playback.request.item.albumArtist ?? "")
+                    #if os(tvOS)
+                    .font(.system(size: 25))
+                    #else
+                    .font(LuminaTheme.editorial(compact ? 18 : audioTitleSize * 0.62, relativeTo: .title3))
+                    #endif
+                    .foregroundStyle(.white.opacity(0.9))
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .accessibilityLabel(playback.request.item.artists?.joined(separator: ", ") ?? playback.request.item.albumArtist ?? "")
+                if let album = playback.request.item.album {
+                    Text(album)
+                        #if os(tvOS)
+                        .font(.system(size: 23))
+                        #else
+                        .font(LuminaTheme.editorial(compact ? 15 : audioTitleSize * 0.5, relativeTo: .body))
+                        #endif
+                        .foregroundStyle(.white.opacity(0.65))
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                        .accessibilityLabel(album)
+                }
             }
+            #if !os(tvOS)
+            // Keep the timeline below Duo's native navigation controls while the backdrop fills the canvas.
+            .frame(minHeight: metadataMinimumHeight, alignment: .topLeading)
+            .padding(.bottom, compact ? 24 : 0)
+            #endif
+            audioTimeline
             HStack(spacing: 28) {
                 Spacer(minLength: 0)
-                Button("Previous track", systemImage: "backward.end.fill") { Task { await playback.playQueued(offset: -1) } }
-                    .labelStyle(.iconOnly).disabled(!playback.hasPrevious || playback.isReplaying)
-                Button(playback.hasFinished ? "Replay" : playback.isPlaying ? "Pause" : "Play", systemImage: playback.hasFinished ? "arrow.counterclockwise" : playback.isPlaying ? "pause.fill" : "play.fill") {
-                    if playback.hasFinished { replay() } else { playback.togglePlayback() }
-                }
-                .labelStyle(.iconOnly)
-                .font(.title)
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.circle)
-                .tint(LuminaTheme.spotlight)
-                .foregroundStyle(LuminaTheme.theater)
-                .accessibilityIdentifier("audioPlayPauseButton")
-                .disabled(playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
-                Button("Next track", systemImage: "forward.end.fill") { Task { await playback.playQueued(offset: 1) } }
-                    .labelStyle(.iconOnly).disabled(!playback.hasNext || playback.isReplaying)
-                    .accessibilityIdentifier("audioNextButton")
+                audioTransportButtons
                 Spacer(minLength: 0)
             }
             .font(.title3)
@@ -1015,7 +1171,8 @@ struct PlaybackScreen: View {
                 Button("Forward 15 seconds", systemImage: "goforward.15") { playback.seek(to: playback.elapsedSeconds + 15) }
                     .accessibilityIdentifier("audioSeekForwardButton")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .labelStyle(.iconOnly)
+            .frame(maxWidth: .infinity, alignment: .center)
             .buttonStyle(LuminaQuietActionStyle())
             .focusSection()
             #endif
@@ -1026,9 +1183,7 @@ struct PlaybackScreen: View {
                         .accessibilityIdentifier("audioQueueButton")
                     Spacer(minLength: 8)
                     #endif
-                    Button(playback.repeatMode.label, systemImage: playback.repeatMode.symbol) { playback.cycleRepeat() }
-                        .accessibilityValue(playback.repeatMode.label)
-                        .accessibilityIdentifier("audioRepeatButton")
+                    audioRepeatButton
                 }
                 .font(.callout)
                 #if os(tvOS)
@@ -1044,7 +1199,7 @@ struct PlaybackScreen: View {
             #if os(tvOS)
             HStack(spacing: 24) {
                 Button { finish() } label: {
-                    Label("Browse", systemImage: "chevron.down").frame(maxWidth: .infinity)
+                    Label("Back", systemImage: "chevron.left").frame(maxWidth: .infinity)
                 }
                 .accessibilityIdentifier("audioDoneButton")
                 Button { stopAudio() } label: {
@@ -1056,6 +1211,65 @@ struct PlaybackScreen: View {
             .focusSection()
             #endif
         }
+    }
+
+    private var audioTimeline: some View {
+        VStack(spacing: 8) {
+            #if os(tvOS)
+            ProgressView(value: min(playback.elapsedSeconds, max(1, playback.request.item.durationSeconds)), total: max(1, playback.request.item.durationSeconds))
+                .tint(LuminaTheme.spotlight)
+                .accessibilityLabel("Track position")
+            #else
+            Slider(value: Binding(get: { playback.elapsedSeconds }, set: { playback.seek(to: $0) }), in: 0...max(1, playback.request.item.durationSeconds))
+                .tint(LuminaTheme.spotlight)
+                .accessibilityLabel("Track position")
+            #endif
+            HStack {
+                Text(Duration.seconds(playback.elapsedSeconds).formatted(.time(pattern: .minuteSecond)))
+                Spacer()
+                Text(Duration.seconds(playback.request.item.durationSeconds).formatted(.time(pattern: .minuteSecond)))
+            }
+            .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.8))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("audioTimeline")
+    }
+
+    @ViewBuilder private var audioTransportButtons: some View {
+        Button("Previous track", systemImage: "backward.end.fill") { Task { await playback.playQueued(offset: -1) } }
+            .labelStyle(.iconOnly).disabled(!playback.hasPrevious || playback.isReplaying)
+            .accessibilityIdentifier("audioPreviousButton")
+        audioPlayPauseButton
+        Button("Next track", systemImage: "forward.end.fill") { Task { await playback.playQueued(offset: 1) } }
+            .labelStyle(.iconOnly).disabled(!playback.hasNext || playback.isReplaying)
+            .accessibilityIdentifier("audioNextButton")
+    }
+
+    private var audioPlayPauseButton: some View {
+        Button(playback.errorMessage != nil ? "Retry" : playback.hasFinished ? "Replay" : playback.isPlaying ? "Pause" : "Play", systemImage: playback.errorMessage != nil ? "arrow.clockwise" : playback.hasFinished ? "arrow.counterclockwise" : playback.isPlaying ? "pause.fill" : "play.fill") {
+            if playback.hasFinished { replay() } else { playback.togglePlayback() }
+        }
+        .labelStyle(.iconOnly)
+        #if os(tvOS)
+        .font(.title)
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.circle)
+        .tint(LuminaTheme.spotlight)
+        .foregroundStyle(LuminaTheme.theater)
+        #endif
+        .accessibilityIdentifier("audioPlayPauseButton")
+        .disabled(playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
+    }
+
+    private var audioRepeatButton: some View {
+        Button(playback.repeatMode.label, systemImage: playback.repeatMode.symbol) { playback.cycleRepeat() }
+            .accessibilityValue(playback.repeatMode.label)
+            .accessibilityIdentifier("audioRepeatButton")
+    }
+
+    private func skipAudioTrack(offset: Int) {
+        guard !playback.isReplaying, offset > 0 ? playback.hasNext : playback.hasPrevious else { return }
+        Task { await playback.playQueued(offset: offset) }
     }
 
     private var audioQueue: some View {
@@ -1141,33 +1355,7 @@ struct PlaybackScreen: View {
         Task { await playback.replay() }
     }
 
-    @ViewBuilder private var playbackActions: some View {
-        if playback.request.item.isAudio {
-            Button { finish() } label: {
-                Label("Browse", systemImage: "chevron.down").frame(minHeight: 44)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("closePlayerButton")
-            Button { queuePresented = true } label: {
-                Label("Queue", systemImage: "list.bullet").frame(minHeight: 44)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("audioQueueButton")
-            Button { stopAudio() } label: {
-                Label("Stop", systemImage: "stop.fill").frame(minHeight: 44)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("audioStopButton")
-        }
-        if playback.hasFinished {
-            Button("Replay", systemImage: "arrow.counterclockwise") { replay() }
-                .buttonStyle(LuminaQuietActionStyle())
-                .tint(.white)
-                .controlSize(.large)
-                .disabled(playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
-                .accessibilityIdentifier("replayButton")
-        }
-    }
+
 }
 
 @MainActor @Observable
@@ -2206,7 +2394,7 @@ struct NativeNowPlayingBar: View {
             HStack(spacing: 16) {
                 Button { expanded = true } label: {
                     HStack(spacing: 14) {
-                        AsyncImage(url: store.imageURL(for: playback.request.item, maxWidth: 160)) { image in
+                        CachedArtworkImage(url: store.imageURL(for: playback.request.item, maxWidth: 160)) { image in
                             image.resizable().scaledToFill()
                         } placeholder: {
                             Image(systemName: "music.note").frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2266,11 +2454,15 @@ struct NativeNowPlayingBar: View {
             .background(.regularMaterial)
         }
         }
+        #if os(tvOS)
         .fullScreenCover(isPresented: $expanded) {
-            if let playback = audioSession.playback {
-                PlaybackScreen(playback: playback, store: store)
-            }
+            if let playback = audioSession.playback { PlaybackScreen(playback: playback, store: store) }
         }
+        #else
+        .navigationDestination(isPresented: $expanded) {
+            if let playback = audioSession.playback { PlaybackScreen(playback: playback, store: store) }
+        }
+        #endif
         .onChange(of: audioSession.playback == nil) { _, stopped in
             if stopped { expanded = false }
         }
@@ -2796,8 +2988,9 @@ private struct NativePlayerLayer: UIViewRepresentable {
     let player: AVPlayer
     let videoGravity: AVLayerVideoGravity
     let onTearDown: @MainActor () -> Void
+    let onVideoTap: @MainActor () -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(onTearDown: onTearDown) }
+    func makeCoordinator() -> Coordinator { Coordinator(onTearDown: onTearDown, onVideoTap: onVideoTap) }
 
     func makeUIView(context: Context) -> PlayerLayerView {
         #if LUMINA_UI_TESTING
@@ -2811,6 +3004,7 @@ private struct NativePlayerLayer: UIViewRepresentable {
     }
 
     func updateUIView(_ view: PlayerLayerView, context: Context) {
+        context.coordinator.onVideoTap = onVideoTap
         view.playerLayer.player = player
         view.playerLayer.videoGravity = videoGravity
         context.coordinator.attach(view: view, player: player)
@@ -2826,13 +3020,15 @@ private struct NativePlayerLayer: UIViewRepresentable {
         coordinator.onTearDown()
     }
 
-    @MainActor final class Coordinator {
+    @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         let onTearDown: @MainActor () -> Void
+        var onVideoTap: @MainActor () -> Void
         private weak var view: PlayerLayerView?
         private weak var player: AVPlayer?
 
         #if os(tvOS)
         private weak var displayWindow: UIWindow?
+        private var videoTapRecognizer: UITapGestureRecognizer?
         private var currentItemObservation: NSKeyValueObservation?
         private var displayCriteriaTask: Task<Void, Never>?
         private var criteriaItem: AVPlayerItem?
@@ -2841,8 +3037,10 @@ private struct NativePlayerLayer: UIViewRepresentable {
         private var displayCriteriaLeaseLost = false
         #endif
 
-        init(onTearDown: @escaping @MainActor () -> Void) {
+        init(onTearDown: @escaping @MainActor () -> Void, onVideoTap: @escaping @MainActor () -> Void) {
             self.onTearDown = onTearDown
+            self.onVideoTap = onVideoTap
+            super.init()
         }
 
         func attach(view: PlayerLayerView, player: AVPlayer) {
@@ -2878,6 +3076,8 @@ private struct NativePlayerLayer: UIViewRepresentable {
             guard self.view === view else { return }
             view.didMoveToWindowHandler = nil
             #if os(tvOS)
+            if let recognizer = videoTapRecognizer { recognizer.view?.removeGestureRecognizer(recognizer) }
+            videoTapRecognizer = nil
             displayCriteriaTask?.cancel()
             displayCriteriaTask = nil
             currentItemObservation = nil
@@ -2893,6 +3093,18 @@ private struct NativePlayerLayer: UIViewRepresentable {
         private func rendererWindowDidChange() {
             guard let view else { return }
             if displayWindow !== view.window {
+                if let recognizer = videoTapRecognizer { recognizer.view?.removeGestureRecognizer(recognizer) }
+                videoTapRecognizer = nil
+                if let window = view.window {
+                    let recognizer = UITapGestureRecognizer(target: self, action: #selector(videoTapped))
+                    // A light touchpad tap toggles chrome; a Select press still activates the focused control.
+                    recognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
+                    recognizer.allowedPressTypes = []
+                    recognizer.cancelsTouchesInView = false
+                    recognizer.delegate = self
+                    window.addGestureRecognizer(recognizer)
+                    videoTapRecognizer = recognizer
+                }
                 displayCriteriaTask?.cancel()
                 displayCriteriaTask = nil
                 releaseDisplayCriteria()
@@ -2901,6 +3113,11 @@ private struct NativePlayerLayer: UIViewRepresentable {
                 setDisplayCriteriaItem(player?.currentItem, force: true)
             }
         }
+
+        @objc private func videoTapped() { onVideoTap() }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
 
         private func setDisplayCriteriaItem(_ item: AVPlayerItem?, force: Bool = false) {
             guard force || criteriaItem !== item else { return }

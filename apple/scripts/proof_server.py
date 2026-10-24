@@ -23,6 +23,7 @@ import uuid
 import zipfile
 import struct
 import zlib
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
@@ -394,6 +395,39 @@ def install_playback_info_delay(app: Any, seconds: float) -> None:
         if request.method == "POST" and len(path) == 4 and path[1] == "Items" and path[3] == "PlaybackInfo":
             await asyncio.sleep(seconds)
         return await call_next(request)
+
+
+def install_audio_format_failure(app: Any) -> None:
+    """Make direct audio undecodable while keeping the real compatible conversion available."""
+    @app.middleware("http")
+    async def unsupported_direct_audio(request, call_next):  # noqa: ANN001, ANN202
+        path = request.url.path.lower()
+        if request.method == "GET" and path.startswith("/audio/") and path.endswith("/stream") and request.query_params.get("format") != "flac":
+            from starlette.responses import Response
+            return Response(bytes([0xA5]) * 32_768, media_type="audio/mp4")
+        return await call_next(request)
+
+
+def install_audio_restore_failure(app: Any, track_id: str) -> Callable[[], None]:
+    """Fail one saved-track lookup after verification, then allow an explicit Play retry."""
+    enabled = False
+    failed = False
+
+    def activate() -> None:
+        nonlocal enabled
+        enabled = True
+
+    @app.middleware("http")
+    async def unavailable_saved_track(request, call_next):  # noqa: ANN001, ANN202
+        nonlocal failed
+        path = request.url.path.lower()
+        if enabled and not failed and request.method == "GET" and path.startswith("/users/") and path.endswith("/items/" + track_id.lower()):
+            from starlette.responses import JSONResponse
+            failed = True
+            return JSONResponse({"detail": "Synthetic saved-track lookup unavailable"}, status_code=503)
+        return await call_next(request)
+
+    return activate
 
 
 def performance_request_log_path() -> Path | None:
@@ -1124,6 +1158,11 @@ def main() -> None:
         from app.main import app
         install_showcase_art_fixture(state_root)
         install_playback_info_delay(app, playback_info_delay)
+        if os.environ.get("LUMINA_NATIVE_AUDIO_FORMAT_FAILURE") == "1":
+            install_audio_format_failure(app)
+        activate_restore_failure = None
+        if os.environ.get("LUMINA_NATIVE_AUDIO_RESTORE_FAILURE") == "1":
+            activate_restore_failure = install_audio_restore_failure(app, provisioned["audioTrackID"])
         if performance_catalogue and (request_log_path := performance_request_log_path()) is not None:
             performance_request_log = install_performance_request_log(app, request_log_path)
         if (metrics_path := artwork_metrics_path()) is not None:
@@ -1143,6 +1182,8 @@ def main() -> None:
 
         print("Verifying authenticated catalog, artwork, and playback routes...", flush=True)
         verified = verify_api(provisioned, username, password)
+        if activate_restore_failure is not None:
+            activate_restore_failure()
         if performance_request_log is not None:
             performance_request_log.activate()
         if artwork_metrics is not None:

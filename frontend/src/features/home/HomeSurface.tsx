@@ -72,10 +72,12 @@ export type HomeSurfaceProps = {
 
 
 /** The watchlist: the shared queue store, loaded once per session the first time this shelf comes near. */
-function Watchlist({ onOpen }: { onOpen: (entry: WatchQueueEntry) => void }) {
+function Watchlist({ firstScreen, onOpen }: { firstScreen: boolean; onOpen: (entry: WatchQueueEntry) => void }) {
   const { queue, loading, message } = useWatchQueue();
   const [ref, near] = useNear<HTMLDivElement>();
-  useEffect(() => { if (near && !queue) void loadWatchQueue(); }, [near]); // eslint-disable-line react-hooks/exhaustive-deps -- once, when near
+  // This shelf can be within Home's one-viewport prefetch margin before the first frame commits.
+  // Leave its placeholder in the layout, but let the first screen paint before its background queue read.
+  useEffect(() => { if (firstScreen && near && !queue) void loadWatchQueue(); }, [firstScreen, near]); // eslint-disable-line react-hooks/exhaustive-deps -- once, when near
   const entries = (queue?.entries ?? []).filter((entry) => entry.availability === 'available').slice(0, SHELF_LIMIT);
   if (queue && !entries.length) return null;
   const failed = !queue && !loading && Boolean(message);
@@ -352,7 +354,7 @@ function HomeSurfaceView({
       case 'live':
         return <NearGate heading={HOME_CATALOGUE.live.name} sectionKey="live" shape="still">{() => <LiveShelf onOpenRemote={onOpenRemote} onSeeAll={() => onOpenRoute({ surface: 'streaming', view: 'live' })} onStatus={(status) => setStatus('live', status)} userId={user.id} />}</NearGate>;
       case 'watchlist':
-        return onOpenQueued ? <Watchlist onOpen={onOpenQueued} /> : null;
+        return onOpenQueued ? <Watchlist firstScreen={firstScreen} onOpen={onOpenQueued} /> : null;
       case 'picked_for_you':
         return pickedSignal ? picked() : null;
       case 'from_follows':

@@ -951,7 +951,7 @@ describe('Media acquisition shell integration', () => {
     mocks.getPlaybackProgress.mockImplementationOnce(() => new Promise((resolve) => { resolveProgress = resolve; }));
 
     render(<LuminaApp />);
-    await browser.click(screen.getByRole('button', { name: 'Film in the vault, Archive Channel' }));
+    await browser.click(await screen.findByRole('button', { name: 'Film in the vault, Archive Channel' }));
     await vi.waitFor(() => expect(resolveItem).toBeTypeOf('function'));
     expect(document.querySelector('video')).toBeNull();
 
@@ -972,7 +972,7 @@ describe('Media acquisition shell integration', () => {
     mocks.getPlaybackProgress.mockRejectedValueOnce(new TypeError('history offline'));
 
     render(<LuminaApp />);
-    await browser.click(screen.getByRole('button', { name: 'Film in the vault, Archive Channel' }));
+    await browser.click(await screen.findByRole('button', { name: 'Film in the vault, Archive Channel' }));
 
     await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
     expect(await screen.findByText('Playback history is unavailable. Starting from the beginning.')).not.toBeNull();

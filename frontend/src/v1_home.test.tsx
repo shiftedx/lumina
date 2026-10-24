@@ -167,7 +167,7 @@ describe('Home page', () => {
   it('offers the personalize prompt when interests exist and none are chosen', async () => {
     const onPersonalize = vi.fn();
     renderHome({ continueWatching: [entry(episodeSummary(2, 4))], interests: { categories: [{ key: 'music', label: 'Music' }], selected_keys: [] }, onPersonalize });
-    const prompt = screen.getByRole('region', { name: 'Make Home yours' });
+    const prompt = await screen.findByRole('region', { name: 'Make Home yours' });
     fireEvent.click(within(prompt).getByRole('button', { name: 'Choose interests' }));
     expect(onPersonalize).toHaveBeenCalledTimes(1);
   });
@@ -177,7 +177,7 @@ describe('Home page', () => {
     const onRestore = vi.fn(async () => undefined);
     const continuing = entry(episodeSummary(1, 3));
     renderHome({ continueWatching: [continuing], onHideContinueWatching: onHide, onRestoreContinueWatching: onRestore });
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Harbor Lights from Continue watching' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove Harbor Lights from Continue watching' }));
     expect(onHide).toHaveBeenCalledWith(continuing);
     expect(await screen.findByText('Removed from Continue watching.')).toBeTruthy();
     expect(screen.getByText('Removed from Continue watching.').closest('.g-toast-region')).not.toBeNull(); // the global toast, not a Home-local one
@@ -239,8 +239,9 @@ describe('Home page', () => {
 });
 
 describe('Home edit mode', () => {
-  it('the edit command enters edit mode; Done returns focus and announces the saved layout', () => {
+  it('the edit command enters edit mode; Done returns focus and announces the saved layout', async () => {
     renderHome({ continueWatching: [entry(episodeSummary(2, 4))] });
+    await screen.findByRole('region', { name: 'Continue watching' });
     act(() => requestHomeEdit());
     expect(screen.queryByRole('button', { name: 'Edit home' })).toBeNull();
     expect(document.querySelector('.h-hero')).toBeNull();
@@ -252,10 +253,11 @@ describe('Home edit mode', () => {
     expect(document.querySelector('.h-hero')).not.toBeNull();
   });
 
-  it('Reset saves the default and offers Undo, which puts the previous layout back', () => {
+  it('Reset saves the default and offers Undo, which puts the previous layout back', async () => {
     const onHomeShelvesChange = vi.fn();
     const layout = [{ id: 'recent_music' as const, visible: true }];
     renderHome({ continueWatching: [entry(episodeSummary(2, 4))], homeShelves: layout, onHomeShelvesChange });
+    await screen.findByRole('region', { name: 'Continue watching' });
     act(() => requestHomeEdit());
     fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }));
     expect(onHomeShelvesChange).toHaveBeenLastCalledWith(null);
@@ -266,10 +268,11 @@ describe('Home edit mode', () => {
 
   it('the greeting\'s arrows reach the hero and account menu', async () => {
     renderHome({ continueWatching: [entry(episodeSummary(2, 4))] });
+    const resume = await screen.findByRole('button', { name: 'Resume' });
     const greetingHeading = screen.getByRole('heading', { level: 1 });
     greetingHeading.focus();
     fireEvent.keyDown(greetingHeading, { key: 'ArrowDown' });
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Resume' }));
+    expect(document.activeElement).toBe(resume);
     const profile = document.createElement('button');
     profile.className = 'g-profile-trigger';
     document.body.append(profile);

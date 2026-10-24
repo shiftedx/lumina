@@ -851,7 +851,7 @@ private struct TVDetailTextActionStyle: ButtonStyle {
             .foregroundStyle(.white.opacity(isFocused || primary ? 1 : 0.82))
             .overlay(alignment: .bottom) {
                 Rectangle()
-                    .fill(.white.opacity(isFocused ? 1 : selected ? 0.5 : 0))
+                    .fill(isFocused ? .white : selected ? LuminaTheme.gold : .clear)
                     .frame(height: isFocused ? 3 : 1)
             }
             .opacity(isEnabled ? configuration.isPressed ? 0.65 : 1 : 0.4)

@@ -189,7 +189,6 @@ struct TVMusicDetailView: View {
                 .focused($focusedControl, equals: .shuffle)
             }
         }
-        .accessibilityIdentifier(currentItem.isAudio ? "musicTrackActions" : "musicAlbumActions")
         .focusSection()
     }
 

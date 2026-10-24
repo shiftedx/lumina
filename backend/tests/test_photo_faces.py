@@ -458,9 +458,7 @@ def test_changed_external_source_requeues_and_discards_in_flight_output(db_facto
         )
 
 
-def test_clustering_candidates_are_bounded_and_claim_skips_disabled_owners(db_factory, monkeypatch) -> None:  # noqa: ANN001
-    monkeypatch.setattr(photo_faces, "MAX_PERSON_PROTOTYPES", 2)
-    monkeypatch.setattr(photo_faces, "MAX_UNASSIGNED_CANDIDATES", 3)
+def test_claim_skips_disabled_owners(db_factory, monkeypatch) -> None:  # noqa: ANN001
     with db_factory() as db:
         db.add_all([make_user(OWNER.id, role="admin"), make_user(OTHER.id), photo("photo-owner"), photo("photo-other", OTHER.id)])
         db.add_all([
@@ -472,14 +470,7 @@ def test_clustering_candidates_are_bounded_and_claim_skips_disabled_owners(db_fa
                          pipeline_signature=photo_faces.PIPELINE_SIGNATURE, source_sha256="b" * 64,
                          state="queued", requested=True),
         ])
-        for index in range(6):
-            person_id = f"person-{index}" if index < 3 else None
-            if person_id:
-                db.add(PhotoPerson(id=person_id, owner_user_id=OWNER.id, pipeline_signature=photo_faces.PIPELINE_SIGNATURE))
-            db.add(face(f"face-{index}", f"candidate-photo-{index}", OWNER.id, person_id))
         db.commit()
-        prototypes, unassigned = photo_faces._candidate_faces(db, OWNER.id)  # noqa: SLF001
-        assert len(prototypes) == 2 and len(unassigned) == 3
         monkeypatch.setattr(photo_faces, "model_ready", lambda: True)
         monkeypatch.setattr(photo_faces.background_work, "closed", False)
         monkeypatch.setattr(photo_faces.background_work, "busy", lambda: False)
@@ -741,7 +732,9 @@ def test_face_child_reaps_after_idle_and_rejects_corrupt_request_frames(monkeypa
         photo_faces._read_frame(oversized, photo_faces.CHILD_REQUEST_BYTES)  # noqa: SLF001
 
 
-def test_evicted_face_preview_is_rebuilt_from_hash_bound_source(db_factory, monkeypatch) -> None:  # noqa: ANN001
+def test_missing_face_preview_is_rebuilt_from_hash_bound_source(db_factory, monkeypatch) -> None:  # noqa: ANN001
+    from app.db import session_scope
+    monkeypatch.setattr(photo_faces.photo_cache, "session_scope", lambda: session_scope(db_factory))
     source_sha256 = "a" * 64
     with db_factory() as db:
         item = photo("photo-owner")
@@ -768,3 +761,32 @@ def test_evicted_face_preview_is_rebuilt_from_hash_bound_source(db_factory, monk
         monkeypatch.setattr(photo_faces.photo_files, "build_derivatives", rebuild)
         assert photo_faces._preview(db, item.id, source_sha256) == b"preview"  # noqa: SLF001
         assert db.get(PhotoDerivative, "derivative-1200").state == "ready"
+
+
+@pytest.mark.parametrize("pressure", ["full", "busy"])
+def test_preview_storage_pressure_defers_face_work_without_consuming_attempts(db_factory, monkeypatch, pressure) -> None:  # noqa: ANN001
+    from app.services import photo_cache
+
+    with db_factory() as db:
+        db.add_all([
+            make_user(OWNER.id, role="admin"), photo("photo-owner"),
+            PhotoFacePreference(user_id=OWNER.id, enabled=True),
+            PhotoFaceJob(id="storage-job", photo_id="photo-owner", owner_user_id=OWNER.id,
+                         pipeline_signature=photo_faces.PIPELINE_SIGNATURE, source_sha256="a" * 64,
+                         state="queued", requested=True),
+        ])
+        db.commit()
+    monkeypatch.setattr(photo_faces, "model_ready", lambda: True)
+    monkeypatch.setattr(photo_faces, "session_scope", db_factory)
+    monkeypatch.setattr(photo_faces._face_process, "available", lambda _generation: True)  # noqa: SLF001
+    error = photo_cache.PhotoStorageFull("quota") if pressure == "full" else photo_cache.PhotoStorageBusy()
+
+    def blocked(*_args):  # noqa: ANN002,ANN202
+        raise error
+
+    monkeypatch.setattr(photo_faces, "_preview", blocked)
+    assert photo_faces.worker.run_once() is False
+    with db_factory() as db:
+        job = db.get(PhotoFaceJob, "storage-job")
+        assert (job.state, job.error_code, job.attempts) == ("queued", error.code, 0)
+        assert db.query(PhotoFace).count() == 0

@@ -102,6 +102,9 @@ ITEM_CHANNEL_ID_SQL = "coalesce(" + ", ".join((
 # Additive upgrade steps, applied in order to a database stamped with an older
 # version (after an automatic pre-upgrade backup). A model change ships with a
 # new step here; tests/test_schema_version.py fails if the schema snapshot drifts.
+from app.services.photo_face_index_schema import MIGRATION_SQL as PHOTO_FACE_INDEX_MIGRATION  # noqa: E402
+
+
 MIGRATIONS: dict[int, tuple[str, ...]] = {
     2: (
         "ALTER TABLE download_jobs ADD COLUMN acquisition_batch_id VARCHAR(36)",
@@ -267,6 +270,18 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     33: ("ALTER TABLE app_settings ADD COLUMN plex_import_url TEXT",),
     34: ("ALTER TABLE app_settings ADD COLUMN native_streaming_enabled BOOLEAN NOT NULL DEFAULT 0",),
     35: (),  # Standalone Photos tables come from create_all; rollback preserves managed originals on disk.
+    36: (  # Durable preview registry; seed legacy catalog promises without walking storage.
+        "INSERT OR IGNORE INTO photo_preview_assets "
+        "(source_key, content_hash, width, state, bytes, reserved_bytes, created_at, updated_at) "
+        "SELECT d.source_key, max(p.sha256), d.width, 'ready', max(d.bytes), 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+        "FROM photo_derivatives d JOIN photo_items p ON p.id = d.photo_id "
+        "WHERE d.state = 'ready' AND d.source_key IS NOT NULL AND d.bytes IS NOT NULL "
+        "GROUP BY d.source_key",
+        "INSERT OR IGNORE INTO photo_preview_storage "
+        "(id, used_bytes, reserved_bytes, updated_at) "
+        "SELECT 1, coalesce(sum(bytes), 0), 0, CURRENT_TIMESTAMP FROM photo_preview_assets WHERE state = 'ready'",
+    ),
+    37: PHOTO_FACE_INDEX_MIGRATION,  # Durable vector keys/change journal for scalable local matching.
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)
@@ -297,7 +312,9 @@ def init_storage() -> None:
 
 def init_db() -> None:
     """Create the schema on a fresh database, upgrade an older one, refuse a newer one."""
-    from app import book_models, models, photo_face_models, photo_models, photo_root_models  # noqa: F401  (registers model metadata)
+    from app import (  # noqa: F401  (registers model metadata)
+        book_models, models, photo_face_index_models, photo_face_models, photo_models, photo_preview_models, photo_root_models,
+    )
     from app.services.library_search import ensure_search_index
 
     if sqlite3.sqlite_version_info < (3, 33):  # UPDATE … FROM (CATEGORY_SQL)

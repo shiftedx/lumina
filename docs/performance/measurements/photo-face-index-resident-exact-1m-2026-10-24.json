@@ -1,0 +1,41 @@
+{
+  "benchmark": "synthetic-photo-face-index-resident-exact",
+  "config": {
+    "candidate_count": 32,
+    "chunk_size": 8192,
+    "dimensions": 128,
+    "embeddings": 1000000,
+    "noise": 0.08,
+    "query_people": 64,
+    "seed": 20261024
+  },
+  "environment": {
+    "blas_thread_environment": {
+      "MKL_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1"
+    },
+    "machine": "arm64",
+    "numpy_version": "2.2.6",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "python": "3.12.14"
+  },
+  "generated_at": "2026-10-24T19:46:11.013259+00:00",
+  "limits": [
+    "This is a pure exact float32 cosine/inner-product baseline with a resident corpus, not a SQLite, photo-ingestion, model, or grouping-accuracy measurement.",
+    "It is deliberately single-thread conditioned through BLAS environment variables recorded above; compare it only to the similarly single-threaded direct Faiss timing."
+  ],
+  "results": {
+    "peak_rss_bytes": 1244954624,
+    "resident_matrix_build_seconds": 0.496,
+    "resident_matrix_bytes": 512000000,
+    "search": {
+      "candidate_recall_at_k": 1.0,
+      "older_person_coverage": 1.0,
+      "p50_ms": 11.307,
+      "p95_ms": 17.03,
+      "vectors_scanned_per_query": 1000000
+    }
+  }
+}

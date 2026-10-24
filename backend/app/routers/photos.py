@@ -33,6 +33,8 @@ from app.services.photos import (
 
 
 def _error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (photo_cache.PhotoStorageFull, photo_cache.PhotoStorageBusy)):
+        return HTTPException(status_code=503, detail=exc.code, headers={"Retry-After": str(exc.retry_after)})
     if isinstance(exc, PhotoNotFound):
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, PhotoForbidden):
@@ -50,6 +52,7 @@ async def import_photo(
     fd, temporary = tempfile.mkstemp(prefix=".upload-", suffix=".tmp", dir=root)
     staged = Path(temporary)
     digest, size, target = hashlib.sha256(), 0, None
+    products = {}
     try:
         with os.fdopen(fd, "wb") as handle:
             try:
@@ -110,6 +113,8 @@ async def import_photo(
         return service.serialize(photo, current_user)
     finally:
         staged.unlink(missing_ok=True)
+        with anyio.CancelScope(shield=True):
+            await anyio.to_thread.run_sync(photo_cache.release_publication, {key for key, _size in products.values()})
 
 
 def list_photos(
@@ -184,9 +189,8 @@ async def photo_image(
         except OSError:
             pass
     if data is None:
-        # A killed import can leave pending rows, and an operator may clear the
-        # disposable derivative cache. Rebuild atomically under the decoder's
-        # bounded admission gate instead of making 503 permanent.
+        # Repair a missing or interrupted durable preview through bounded admission.
+        products = {}
         try:
             source_root, source_relative = photo_files.photo_location(db, photo)
             expected_sha256 = photo.sha256
@@ -209,6 +213,9 @@ async def photo_image(
                 photo_cache.touch(row.source_key)
         except (FileNotFoundError, OSError, photo_derivatives.PhotoDecodeError):
             data = None
+        finally:
+            with anyio.CancelScope(shield=True):
+                await anyio.to_thread.run_sync(photo_cache.release_publication, {key for key, _size in products.values()})
     if row is None or data is None:
         return Response(status_code=503, headers={"Retry-After": "2", "Cache-Control": "no-store"})
     etag = f'"{row.source_key}"'

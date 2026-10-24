@@ -31,6 +31,8 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   pytest
 execnet==2.1.2
     # via pytest-xdist
+faiss-cpu==1.15.1
+    # via lumina-backend (backend/pyproject.toml)
 fastapi==0.139.2
     # via lumina-backend (backend/pyproject.toml)
 greenlet==3.5.3 ; platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64'
@@ -61,11 +63,14 @@ mutagen==1.48.1
 numpy==2.2.6
     # via
     #   lumina-backend (backend/pyproject.toml)
+    #   faiss-cpu
     #   opencv-python-headless
 opencv-python-headless==4.12.0.88
     # via lumina-backend (backend/pyproject.toml)
 packaging==26.2
-    # via pytest
+    # via
+    #   faiss-cpu
+    #   pytest
 pillow==12.2.0
     # via
     #   lumina-backend (backend/pyproject.toml)

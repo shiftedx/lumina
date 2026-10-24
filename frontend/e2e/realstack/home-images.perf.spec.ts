@@ -1,6 +1,7 @@
 /**
- * Home image feedback loop on the real medium-title server. The retained evidence contains only aggregates and
- * normalized route classes: artwork capabilities, title IDs and member data never leave the browser process.
+ * Home image feedback loop on the real medium-title server. The retained evidence contains only aggregates,
+ * anonymous layout geometry and normalized route classes: artwork capabilities, title IDs and member data never
+ * leave the browser process.
  */
 import { writeFile } from 'node:fs/promises';
 import type { ElementHandle, Request } from '@playwright/test';
@@ -67,6 +68,11 @@ type PhaseEvidence = {
     transferBytes: number;
     visibleDecoded: number;
     latestVisibleRevealAtMs: number;
+    viewportHeight: number;
+    viewportWidth: number;
+    windowScrollY: number;
+    decodedSlots: Array<{ top: number; bottom: number; left: number; right: number; shelfTop: number | null; shelfBottom: number | null; rowPitch: number | null; shape: string }>;
+    shelves: Array<{ ordinal: number; top: number; bottom: number; shape: string; decoded: number }>;
   }>;
   offscreenAtAttach: { horizontal: number; vertical: number };
   queueWaitMs: { median: number; max: number };
@@ -262,10 +268,16 @@ async function exerciseScrollAndFocus(page: import('@playwright/test').Page) {
   const sharpElements = await page.locator('img.g-art-image').count();
   // The next warm phase measures the initial viewport, not the bottom reached by this exercise.
   await page.evaluate(async () => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.querySelectorAll<HTMLElement>('.h-row').forEach((row) => { row.scrollLeft = 0; });
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   });
-  await expect.poll(() => page.evaluate(() => window.scrollY), { message: 'initial viewport restored after scroll/focus coverage' }).toBe(0);
+  await expect.poll(() => page.evaluate(() => ({
+    focusedCard: Boolean(document.activeElement?.closest('.h-card')),
+    horizontal: Math.max(0, ...[...document.querySelectorAll<HTMLElement>('.h-row')].map((row) => Math.abs(row.scrollLeft))),
+    vertical: window.scrollY,
+  })), { message: 'initial viewport restored after scroll/focus coverage' }).toEqual({ focusedCard: false, horizontal: 0, vertical: 0 });
   return { bottomVisibleDecoded, focusedCardReadyAtMs: Math.round(focusedCardReadyAtMs), sharpElements };
 }
 
@@ -288,6 +300,35 @@ async function preScrollPoint(page: import('@playwright/test').Page, phase: Netw
       sharpElements: sharp.length,
       transferBytes: resources.reduce((total, entry) => total + entry.transferSize, 0),
       visibleDecoded: visible.length,
+      viewportHeight: innerHeight,
+      viewportWidth: innerWidth,
+      windowScrollY: scrollY,
+      decodedSlots: decoded.map((image) => {
+        const rect = image.getBoundingClientRect();
+        const shelf = image.closest('.h-shelf');
+        const shelfRect = shelf?.getBoundingClientRect();
+        const card = image.closest<HTMLElement>('.h-card');
+        const row = card?.closest<HTMLElement>('.h-row');
+        const gap = row ? parseFloat(getComputedStyle(row).columnGap) || 0 : 0;
+        return {
+          top: Math.round(rect.top), bottom: Math.round(rect.bottom),
+          left: Math.round(rect.left), right: Math.round(rect.right),
+          shelfTop: shelfRect ? Math.round(shelfRect.top) : null,
+          shelfBottom: shelfRect ? Math.round(shelfRect.bottom) : null,
+          rowPitch: card ? Math.round(card.getBoundingClientRect().width + gap) : null,
+          shape: shelf?.classList.contains('is-poster') ? 'poster' : shelf?.classList.contains('is-square') ? 'square' : shelf ? 'still' : 'hero',
+        };
+      }),
+      shelves: [...document.querySelectorAll<HTMLElement>('.h-shelf')].map((shelf, ordinal) => {
+        const rect = shelf.getBoundingClientRect();
+        return {
+          ordinal,
+          top: Math.round(rect.top),
+          bottom: Math.round(rect.bottom),
+          shape: shelf.classList.contains('is-poster') ? 'poster' : shelf.classList.contains('is-square') ? 'square' : 'still',
+          decoded: shelf.querySelectorAll('img.g-art-image.is-shown').length,
+        };
+      }),
     };
   });
   const probe = await page.evaluate(() => (window as ProbeWindow).__homeImageProbe!.snapshot());
@@ -462,10 +503,20 @@ test('Home visible artwork decodes within a bounded real-image pipeline, cold an
   expect(Math.min(...phases.map((phase) => phase.decodedShelf)), 'decoded shelf artwork').toBeGreaterThanOrEqual(4);
   for (const phase of phases) {
     const atThreeSeconds = phase.preScroll[2];
+    const outsideAdmissionBand = atThreeSeconds.decodedSlots.filter((slot) => {
+      if (slot.shape === 'hero') {
+        return slot.bottom < -1 || slot.top >= atThreeSeconds.viewportHeight + 1
+          || slot.right < -1 || slot.left >= atThreeSeconds.viewportWidth + 1;
+      }
+      if (slot.shelfTop === null || slot.shelfBottom === null || slot.rowPitch === null) return true;
+      return slot.shelfBottom < -1 || slot.shelfTop >= atThreeSeconds.viewportHeight * 2 + 1
+        || slot.right < -2 * slot.rowPitch - 1
+        || slot.left >= atThreeSeconds.viewportWidth + 2 * slot.rowPitch + 1;
+    });
     expect(
-      atThreeSeconds.offscreenDecoded,
-      `pre-scroll decoded images should stay within two viewportfuls: ${JSON.stringify(atThreeSeconds)}`,
-    ).toBeLessThanOrEqual(Math.max(4, atThreeSeconds.visibleDecoded * 2));
+      outsideAdmissionBand,
+      `pre-scroll decoded images should stay within the viewport plus one vertical viewport and two horizontal cards: ${JSON.stringify(atThreeSeconds)}`,
+    ).toEqual([]);
   }
 });
 

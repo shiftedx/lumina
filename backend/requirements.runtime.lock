@@ -347,6 +347,23 @@ colorama==0.4.6 ; sys_platform == 'win32' \
     --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
     --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
     # via click
+faiss-cpu==1.15.1 \
+    --hash=sha256:2d0a59d8ee9ffcac34608f591d16b617d9056e12a26a8b8cf0015b6b334e33e1 \
+    --hash=sha256:38d192695210a51ff72449d8802ff62601568fcfc6372222a64a069da0ecdb10 \
+    --hash=sha256:424f7e634f806ca9a925eebf8469e764f3288773e9b9dd2608352de8287b852f \
+    --hash=sha256:455d7cf9ecd595bba46c92f5b1c43b55afc84fc797aaa0c12d5df1cbc9174b00 \
+    --hash=sha256:4fd6623ed931d16256b268ac2984f672cdf1929702e24b3e741798d0bb08804f \
+    --hash=sha256:8a577dd6d52f685326570105c3d18feb3776799d080534e329a191740d6362b6 \
+    --hash=sha256:a26acb421037b030c1e9eea342adff5a0e1b6faab9e626be64b5f598241e5592 \
+    --hash=sha256:ad05c3f169b4d02f2805f42c1caa29370b4a2dd1e99c7ee7b66591085ed20b30 \
+    --hash=sha256:c18b569ec5d5e79f2156f0059fdb3ea79976f365d79291252ab6b45d40523c2c \
+    --hash=sha256:d4a250000112ac26ae79530e67a18fa986c8b7b0329154aefeb7692b270ed366 \
+    --hash=sha256:dc1cd974cd5477ca5d01d9f9ecba6a7fc555b6ef2eda7b16c97e20903431dc6b \
+    --hash=sha256:ea9e12d540ca8ac0347b831d034c0f6d7ff5eed20523a247db44b3543ad2aad4 \
+    --hash=sha256:f2c31b7f2f6647eb76829a5cfe3c398fb9346df9f26b1d4db35269c91eb58c33 \
+    --hash=sha256:f52e727992ce86a783f61657f0c4f3498a235883083b982ba1be49d05f924450 \
+    --hash=sha256:ffa71b14b3090bc076f8b026554178868fdbfe2f26fe644da629405836369039
+    # via lumina-backend (backend/pyproject.toml)
 fastapi==0.139.2 \
     --hash=sha256:333145a6891e9b5b3cfceb69baf817e8240cde4d4588ae5a10bf56ffacb6255e \
     --hash=sha256:b9ad015a835173d59865e2f5d8296fbc2b317bf56a2ba1a5bfbdd03de2fd4b1c
@@ -573,6 +590,7 @@ numpy==2.2.6 \
     --hash=sha256:fee4236c876c4e8369388054d02d0e9bb84821feb1a64dd59e137e6511a551f8
     # via
     #   lumina-backend (backend/pyproject.toml)
+    #   faiss-cpu
     #   opencv-python-headless
 opencv-python-headless==4.12.0.88 \
     --hash=sha256:1e58d664809b3350c1123484dd441e1667cd7bed3086db1b9ea1b6f6cb20b50e \
@@ -583,6 +601,10 @@ opencv-python-headless==4.12.0.88 \
     --hash=sha256:cfdc017ddf2e59b6c2f53bc12d74b6b0be7ded4ec59083ea70763921af2b6c09 \
     --hash=sha256:fde2cf5c51e4def5f2132d78e0c08f9c14783cd67356922182c6845b9af87dbd
     # via lumina-backend (backend/pyproject.toml)
+packaging==26.3 \
+    --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+    # via faiss-cpu
 pillow==12.2.0 \
     --hash=sha256:00a2865911330191c0b818c59103b58a5e697cae67042366970a6b6f1b20b7f9 \
     --hash=sha256:01afa7cf67f74f09523699b4e88c73fb55c13346d212a59a2db1f86b0a63e8c5 \

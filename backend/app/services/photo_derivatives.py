@@ -196,17 +196,19 @@ def _produce(
 ) -> tuple[dict[str, Any] | None, dict[int, tuple[str, int]]]:
     if not _valid_hash(content_hash) or not hmac.compare_digest(_source_hash(source), content_hash):
         raise PhotoDecodeError("Photo content changed while it was being processed.")
-    staging = photos_root() / ".staging" / os.urandom(12).hex()
-    staging.mkdir(mode=0o700, parents=True)
-    try:
-        payload = _run(mode, source, staging)
-        if not hmac.compare_digest(_source_hash(source), content_hash):
-            raise PhotoDecodeError("Photo content changed while it was being processed.")
-        facts = _validated_facts(payload, content_type) if content_type is not None else None
-        staged_products = _validated_products(payload, staging, content_hash)
-        return facts, _publish(staged_products)
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
+    from app.services import photo_cache
+    with photo_cache.reserve_set(content_hash) as reservation:
+        staging = photos_root() / ".staging" / reservation.id
+        staging.mkdir(mode=0o700, parents=True)
+        try:
+            payload = _run(mode, source, staging)
+            if not hmac.compare_digest(_source_hash(source), content_hash):
+                raise PhotoDecodeError("Photo content changed while it was being processed.")
+            facts = _validated_facts(payload, content_type) if content_type is not None else None
+            staged_products = _validated_products(payload, staging, content_hash)
+            return facts, photo_cache.publish_set(reservation, staged_products)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
 
 
 def _valid_hash(value: object) -> bool:
@@ -307,24 +309,6 @@ def _validated_products(
             raise PhotoDecodeError("Photo derivatives were incomplete.")
         validated[width] = (staged, key, info.st_size)
     return validated
-
-
-def _publish(products: dict[int, tuple[Path, str, int]]) -> dict[int, tuple[str, int]]:
-    installed: dict[int, tuple[str, int]] = {}
-    for width in WIDTHS:
-        staged, key, size = products[width]
-        target = derivative_path(key)
-        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.replace(staged, target)
-        directory = os.open(target.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-        installed[width] = (key, size)
-    from app.services import photo_cache
-    photo_cache.published(sum(size for _key, size in installed.values()))
-    return installed
 
 
 def read(key: str) -> bytes:

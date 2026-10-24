@@ -14,6 +14,7 @@ from app import db as db_module
 from app.config import settings
 from app.db import Base
 from app.models import AppSettings, StorageRoot
+from app.photo_models import PhotoDerivative, PhotoItem
 
 
 def _init(tmp_path, monkeypatch):  # noqa: ANN001, ANN202
@@ -55,6 +56,8 @@ def _columns(engine) -> dict[str, list[str]]:  # noqa: ANN001
 
 # Tables a step's create_all adds; the step's ALTER/CREATE INDEX statements cover existing tables.
 NEW_TABLES = {
+    36: ("photo_preview_assets", "photo_preview_storage"),
+    37: ("photo_face_index_snapshots", "photo_face_index_changes", "photo_face_index_vectors"),
     28: ("media_cast_tickets",),
     27: ("listening_export_connections", "listening_play_events"),
     26: ("service_connectors", "music_acquisitions"),
@@ -88,6 +91,14 @@ def _unwind_to_v1(connection) -> None:  # noqa: ANN001
                 connection.execute(text(f"DROP INDEX {match[1]}"))
             elif match := re.match(r"ALTER TABLE (\w+) ADD COLUMN (\w+)", statement):
                 connection.execute(text(f"ALTER TABLE {match[1]} DROP COLUMN {match[2]}"))
+            elif match := re.match(r"CREATE TRIGGER IF NOT EXISTS (\w+)", statement):
+                connection.execute(text(f"DROP TRIGGER IF EXISTS {match[1]}"))
+            elif statement.startswith((
+                "CREATE TABLE IF NOT EXISTS photo_face_index_",
+                "INSERT INTO photo_face_index_vectors",
+                "INSERT OR IGNORE INTO photo_preview_",
+            )):
+                continue  # New tables and their backfill are removed below.
             elif statement.startswith("UPDATE "):
                 continue  # a backfill leaves nothing to undo once its column is gone
             else:
@@ -170,6 +181,33 @@ def test_model_changes_ship_with_a_migration(tmp_path, monkeypatch) -> None:  # 
     snapshot = json.loads((Path(__file__).parent / "schema_snapshot.json").read_text())
     assert snapshot["version"] == db_module.SCHEMA_VERSION
     assert _columns(_init(tmp_path, monkeypatch)) == snapshot["columns"]
+
+
+def test_v36_accounts_for_legacy_ready_previews_without_a_filesystem_scan(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    engine = _init(tmp_path, monkeypatch)
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM photo_preview_storage"))
+        connection.execute(text("DELETE FROM photo_preview_assets"))
+        connection.execute(PhotoItem.__table__.insert().values(
+            id="legacy-photo", owner_user_id="owner", visibility="private",
+            storage_kind="managed", storage_key="originals/legacy.jpg",
+            original_filename="legacy.jpg", content_type="image/jpeg", sha256="a" * 64,
+            bytes=1234, width=16, height=12, orientation=1, metadata_json={},
+        ))
+        connection.execute(PhotoDerivative.__table__.insert().values(
+            id="legacy-preview", photo_id="legacy-photo", width=400,
+            source_key="b" * 64, state="ready", bytes=321,
+        ))
+        for statement in db_module.MIGRATIONS[36]:
+            connection.execute(text(statement))
+        asset = connection.execute(text(
+            "SELECT content_hash, width, state, bytes FROM photo_preview_assets WHERE source_key = :key",
+        ), {"key": "b" * 64}).one()
+        storage = connection.execute(text(
+            "SELECT used_bytes, reserved_bytes FROM photo_preview_storage WHERE id = 1",
+        )).one()
+    assert asset == ("a" * 64, 400, "ready", 321)
+    assert storage == (321, 0)
 
 
 def test_v4_adds_on_device_model_settings(tmp_path, monkeypatch) -> None:  # noqa: ANN001
@@ -488,3 +526,28 @@ def test_discovery_rollback_keeps_media_and_reupgrades_the_additive_index(tmp_pa
     assert "ix_media_artifacts_root_size" in _sqlite_indexes(engine, "media_artifacts")
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA user_version")) == db_module.SCHEMA_VERSION
+
+
+def test_face_index_readme_rollback_preserves_corrections_and_rebuilds_keys(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    from app.photo_face_models import PhotoFace
+
+    engine = _init(tmp_path, monkeypatch)
+    with Session(engine) as db:
+        db.add(PhotoFace(
+            id="retained-face", photo_id="retained-photo", owner_user_id="owner", person_id="corrected-person",
+            pipeline_signature="test-pipeline", detector_score=.95, x1=.1, y1=.1, x2=.8, y2=.8,
+            embedding=b"\0" * 512, assignment_source="manual",
+        ))
+        db.commit()
+    readme = (Path(__file__).resolve().parents[2] / "docker" / "README.md").read_text()
+    row = next(line for line in readme.splitlines() if line.startswith("| Before scalable face matching (schema 36) |"))
+    sql = re.search(r"`(DROP TRIGGER.*?)`", row).group(1)
+    engine.dispose()
+    with sqlite3.connect(tmp_path / "app.db") as connection:
+        connection.executescript(sql)
+        assert connection.execute("SELECT person_id,assignment_source FROM photo_faces WHERE id='retained-face'").fetchone() == ("corrected-person", "manual")
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 36
+    upgraded = _init(tmp_path, monkeypatch)
+    with upgraded.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM photo_face_index_vectors WHERE face_id='retained-face' AND active=1")) == 1
+        assert connection.scalar(text("PRAGMA user_version")) == 37

@@ -1,0 +1,265 @@
+{
+  "indexed_publication": {
+    "catalog_references": 1000000,
+    "database_files_bytes": 850165760,
+    "publish": {
+      "median_ms": 1.354,
+      "p95_ms": 1.694167,
+      "raw_ms": [
+        1.694167,
+        1.354,
+        1.483458,
+        1.293291,
+        1.189875
+      ]
+    },
+    "raw_derivative_filesystem_enumeration": [
+      {
+        "calls": 0,
+        "entries": 0
+      },
+      {
+        "calls": 0,
+        "entries": 0
+      },
+      {
+        "calls": 0,
+        "entries": 0
+      },
+      {
+        "calls": 0,
+        "entries": 0
+      },
+      {
+        "calls": 0,
+        "entries": 0
+      }
+    ],
+    "raw_reclaim_cursor_assets_advanced": [
+      256,
+      256,
+      256,
+      256,
+      256
+    ],
+    "reclaim_query_plan": [
+      "SEARCH photo_preview_assets USING COVERING INDEX ix_photo_preview_assets_reclaim_page (state=? AND reservation_id=? AND source_key>?)"
+    ],
+    "recover": {
+      "median_ms": 68.417458,
+      "p95_ms": 70.654417,
+      "raw_ms": [
+        68.417458,
+        69.359541,
+        70.654417,
+        65.885333,
+        63.109167
+      ]
+    },
+    "registry_assets": 1000000,
+    "release": {
+      "median_ms": 2.7475,
+      "p95_ms": 3.102583,
+      "raw_ms": [
+        1.54125,
+        3.102583,
+        2.7475,
+        2.974583,
+        1.291333
+      ]
+    },
+    "reserve": {
+      "median_ms": 0.911416,
+      "p95_ms": 2.16,
+      "raw_ms": [
+        2.16,
+        0.841542,
+        1.317125,
+        0.911416,
+        0.815792
+      ]
+    },
+    "restart_reserved_bytes": 0,
+    "restart_used_bytes": 107999964,
+    "seed_seconds": 17.36865,
+    "trim_referenced_page": {
+      "median_ms": 39.204375,
+      "p95_ms": 57.521833,
+      "raw_ms": [
+        56.352125,
+        57.521833,
+        39.204375,
+        33.339875,
+        32.728625
+      ]
+    }
+  },
+  "parameters": {
+    "assets": 1000000,
+    "files": 1000,
+    "trials": 5
+  },
+  "retention": {
+    "actual_catalog_references_per_trial": 500,
+    "actual_files_per_trial": 1000,
+    "durable_registry": {
+      "implementation": "working-tree app.services.photo_cache",
+      "raw_trials": [
+        {
+          "backpressure_error_code": "preview_storage_full",
+          "configured_quota_bytes": 36969000,
+          "recover_filesystem_entries_enumerated": 0,
+          "recover_filesystem_enumeration_calls": 0,
+          "recover_ms": 2.46325,
+          "referenced_missing_after_restart": 0,
+          "required_redecodes": 0,
+          "restart_reserved_bytes": 0,
+          "restart_used_bytes": 73050744,
+          "trim_filesystem_entries_enumerated": 0,
+          "trim_filesystem_enumeration_calls": 0,
+          "trim_ms": 135.319917
+        },
+        {
+          "backpressure_error_code": "preview_storage_full",
+          "configured_quota_bytes": 36969000,
+          "recover_filesystem_entries_enumerated": 0,
+          "recover_filesystem_enumeration_calls": 0,
+          "recover_ms": 2.440834,
+          "referenced_missing_after_restart": 0,
+          "required_redecodes": 0,
+          "restart_reserved_bytes": 0,
+          "restart_used_bytes": 73050744,
+          "trim_filesystem_entries_enumerated": 0,
+          "trim_filesystem_enumeration_calls": 0,
+          "trim_ms": 135.326709
+        },
+        {
+          "backpressure_error_code": "preview_storage_full",
+          "configured_quota_bytes": 36969000,
+          "recover_filesystem_entries_enumerated": 0,
+          "recover_filesystem_enumeration_calls": 0,
+          "recover_ms": 3.173292,
+          "referenced_missing_after_restart": 0,
+          "required_redecodes": 0,
+          "restart_reserved_bytes": 0,
+          "restart_used_bytes": 73050744,
+          "trim_filesystem_entries_enumerated": 0,
+          "trim_filesystem_enumeration_calls": 0,
+          "trim_ms": 122.695875
+        },
+        {
+          "backpressure_error_code": "preview_storage_full",
+          "configured_quota_bytes": 36969000,
+          "recover_filesystem_entries_enumerated": 0,
+          "recover_filesystem_enumeration_calls": 0,
+          "recover_ms": 2.381583,
+          "referenced_missing_after_restart": 0,
+          "required_redecodes": 0,
+          "restart_reserved_bytes": 0,
+          "restart_used_bytes": 73050744,
+          "trim_filesystem_entries_enumerated": 0,
+          "trim_filesystem_enumeration_calls": 0,
+          "trim_ms": 147.633708
+        },
+        {
+          "backpressure_error_code": "preview_storage_full",
+          "configured_quota_bytes": 36969000,
+          "recover_filesystem_entries_enumerated": 0,
+          "recover_filesystem_enumeration_calls": 0,
+          "recover_ms": 3.250458,
+          "referenced_missing_after_restart": 0,
+          "required_redecodes": 0,
+          "restart_reserved_bytes": 0,
+          "restart_used_bytes": 73050744,
+          "trim_filesystem_entries_enumerated": 0,
+          "trim_filesystem_enumeration_calls": 0,
+          "trim_ms": 75.062583
+        }
+      ],
+      "recover": {
+        "median_ms": 2.46325,
+        "p95_ms": 3.250458,
+        "raw_ms": [
+          2.46325,
+          2.440834,
+          3.173292,
+          2.381583,
+          3.250458
+        ]
+      },
+      "trim": {
+        "median_ms": 135.319917,
+        "p95_ms": 147.633708,
+        "raw_ms": [
+          135.319917,
+          135.326709,
+          122.695875,
+          147.633708,
+          75.062583
+        ]
+      }
+    },
+    "legacy_lru": {
+      "implementation": "archived production photo_cache.py",
+      "raw_trials": [
+        {
+          "configured_quota_bytes": 36969000,
+          "filesystem_entries_enumerated": 1001,
+          "filesystem_enumeration_calls": 2,
+          "referenced_missing": 500,
+          "required_redecodes": 500,
+          "trim_ms": 42.578208
+        },
+        {
+          "configured_quota_bytes": 36969000,
+          "filesystem_entries_enumerated": 1001,
+          "filesystem_enumeration_calls": 2,
+          "referenced_missing": 500,
+          "required_redecodes": 500,
+          "trim_ms": 36.106792
+        },
+        {
+          "configured_quota_bytes": 36969000,
+          "filesystem_entries_enumerated": 1001,
+          "filesystem_enumeration_calls": 2,
+          "referenced_missing": 500,
+          "required_redecodes": 500,
+          "trim_ms": 44.114667
+        },
+        {
+          "configured_quota_bytes": 36969000,
+          "filesystem_entries_enumerated": 1001,
+          "filesystem_enumeration_calls": 2,
+          "referenced_missing": 500,
+          "required_redecodes": 500,
+          "trim_ms": 41.194
+        },
+        {
+          "configured_quota_bytes": 36969000,
+          "filesystem_entries_enumerated": 1001,
+          "filesystem_enumeration_calls": 2,
+          "referenced_missing": 500,
+          "required_redecodes": 500,
+          "trim_ms": 42.231458
+        }
+      ],
+      "trim": {
+        "median_ms": 42.231458,
+        "p95_ms": 44.114667,
+        "raw_ms": [
+          42.578208,
+          36.106792,
+          44.114667,
+          41.194,
+          42.231458
+        ]
+      }
+    }
+  },
+  "versions": {
+    "baseline_path": "output/photo-pipeline-baseline/backend/app/services/photo_cache.py",
+    "baseline_photo_cache_sha256": "5eeca4c79d0a99a4fe2141a4a250f979d5571f0a4fe60a52b3b7daa8e419d564",
+    "git_revision": "944fdbe12cf3b324aff0afb41b6cd8e6582f6e28",
+    "production_photo_cache_sha256": "a1cf168c88e13d477117d9a27e0e98b16792dadbf476ea641e85bcc632e66b97"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "benchmark": "archived-recency-capped-face-candidates",
+  "baseline_commit": "944fdbe12cf3b324aff0afb41b6cd8e6582f6e28",
+  "uses_legacy_photo_face_indexes": true,
+  "baseline_service_sha256": "5d73d620ae2b598fa72ca4a5f80606949b0242ee40329a572daedef712d15b3f",
+  "fixture_embeddings": 1000000,
+  "prototypes": 0,
+  "unassigned": 4096,
+  "retrieval_stack_score_and_sort_ms": {
+    "raw_ms": [
+      2524.236708006356,
+      2712.642792001134,
+      2513.78766700509
+    ],
+    "median_ms": 2524.236708006356,
+    "p95_ms": 2693.802183601656
+  },
+  "old_person_candidate_coverage_64_queries": 0.0,
+  "limits": "Archived service on the synthetic all-unassigned fixture; when legacy-indexes is enabled, a private consistent SQLite backup removes the two photo-face indexes introduced by this change. Other unused scale tables remain but do not participate in its queries. Times include candidate SQL, ORM materialization, vector stacking, finite float32 einsum scoring and sorting for one query. The recency cap intentionally misses older identities; this is not equivalent matching quality. The main qualification concurrently built its single-threaded graph on the shared development host."
+}

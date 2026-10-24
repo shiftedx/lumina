@@ -157,11 +157,44 @@ describe('Home page', () => {
     api.getWatchQueue.mockRejectedValueOnce(new Error('offline'));
     renderHome({ onOpenQueued: vi.fn() });
     const watchlist = await screen.findByRole('region', { name: 'Your watchlist' });
-    expect(within(watchlist).getByText('Lumina could not load Your watchlist.')).toBeTruthy();
+    expect(await within(watchlist).findByText('Lumina could not load Your watchlist.')).toBeTruthy();
     api.getWatchQueue.mockResolvedValueOnce(queue([]));
     fireEvent.click(within(watchlist).getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(api.getWatchQueue).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(within(watchlist).queryByText('Lumina could not load Your watchlist.')).toBeNull());
+  });
+
+  it('defers a near watchlist read until Home records its first screen', async () => {
+    class Observer {
+      static observers: Observer[] = [];
+      constructor(private readonly callback: IntersectionObserverCallback) { Observer.observers.push(this); }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+      takeRecords() { return []; }
+      static near() {
+        for (const observer of Observer.observers) {
+          observer.callback([{ isIntersecting: true } as IntersectionObserverEntry], observer as unknown as IntersectionObserver);
+        }
+      }
+    }
+    vi.stubGlobal('IntersectionObserver', Observer);
+    let resolveNextUp: (items: TitleSummary[]) => void = () => {};
+    api.listNextUp.mockReturnValueOnce(new Promise<TitleSummary[]>((resolve) => { resolveNextUp = resolve; }));
+    const view = renderHome({ continueWatching: [entry(episodeSummary(2, 4))], onOpenQueued: vi.fn() });
+    try {
+      await waitFor(() => expect(Observer.observers.length).toBeGreaterThan(0));
+      act(() => Observer.near());
+      await waitFor(() => expect(api.listNextUp).toHaveBeenCalledTimes(1));
+      expect(api.getWatchQueue).not.toHaveBeenCalled();
+
+      resolveNextUp([]);
+      await waitFor(() => expect(metrics.recordMetric).toHaveBeenCalledWith('home_first_screen_ms', 'home', expect.any(Number)));
+      await waitFor(() => expect(api.getWatchQueue).toHaveBeenCalledTimes(1));
+    } finally {
+      view.unmount();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('offers the personalize prompt when interests exist and none are chosen', async () => {

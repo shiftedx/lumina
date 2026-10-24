@@ -1,9 +1,10 @@
 # Photo ingestion optimization and full-pipeline measurement
 
 This follow-up implements fused initial decoding, resident face models, and bounded
-per-file preparation within one registered source. The baseline is commit `c11a85d`
-(the original gallery implementation plus research); the optimized implementation
-is the change accompanying this report. No decoder/model dependencies or image
+per-file preparation within one registered source. The measured baseline was commit `c11a85d` (the original gallery implementation
+plus research). Its backend tree is byte-identical to rebased commit `47567cb`,
+retained in [PR 151](https://github.com/shiftedx/lumina/pull/151) history. The
+optimized implementation is the change accompanying this report. No decoder/model dependencies or image
 quality settings changed.
 
 ## What changed
@@ -87,7 +88,8 @@ From the repository root, with the locked backend environment installed:
 
 ```sh
 mkdir -p output/photo-pipeline-baseline
-git archive c11a85d backend | tar -x -C output/photo-pipeline-baseline
+git fetch origin pull/151/head
+git archive 47567cb backend | tar -x -C output/photo-pipeline-baseline
 mise exec -- backend/.venv/bin/python scripts/perf/photo_pipeline.py \
   --corpus output/photo-pipeline-benchmark/heic-corpus --generate --count 16
 mise exec -- backend/.venv/bin/python scripts/perf/photo_pipeline.py \
@@ -96,7 +98,8 @@ mise exec -- backend/.venv/bin/python scripts/perf/photo_pipeline.py \
   --output output/photo-pipeline-benchmark/paired.json
 ```
 
-Generation refuses to overwrite an existing corpus. Both variants use the same
+Fetching the PR head makes the recorded baseline available even after a squash
+merge. Generation refuses to overwrite an existing corpus. Both variants use the same
 interpreter, dependencies, files, model weights and settings. The fixture generator
 downloads only the pinned public-domain portrait and catalog-pinned face weights;
 all generated media/model/data folders stay outside version control.

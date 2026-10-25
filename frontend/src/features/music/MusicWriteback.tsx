@@ -1,4 +1,4 @@
-import { ArchiveRestore, FileCheck2, HardDriveDownload } from 'lucide-react';
+import { ArchiveRestore, FileCheck2, HardDriveDownload } from '../../luminaIcons';
 import { useEffect, useState } from 'react';
 
 import { applyMusicWriteback, listMusicFileBackups, previewMusicWriteback, restoreMusicFile } from '../../api';

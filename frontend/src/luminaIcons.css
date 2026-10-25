@@ -1,0 +1,4 @@
+/* Keeps the content-hashed sprite discoverable by the offline shell's CSS asset crawler. */
+.lumina-icon-sprite {
+  --lumina-icon-sprite-cache: url('./ui/lumina-media-sprite.svg');
+}

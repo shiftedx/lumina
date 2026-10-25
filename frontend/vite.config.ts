@@ -22,6 +22,9 @@ export default defineConfig({
           // React and lucide are shared by every chunk; without their own chunk Rollup puts them in `ui`
           // (main.tsx imports ui first) and the ui budget would measure React instead of the primitives.
           if (/\/node_modules\/(react|react-dom|scheduler|lucide-react)\//.test(id)) return 'vendor';
+          // The application-wide compatibility surface is shared by every route. Keep it distinct from
+          // primitive implementation cost, while the SVG geometry remains a separately cached asset.
+          if (id.includes('/src/luminaIcons.tsx') || id.includes('/src/ui/lumina-media-sprite.svg')) return 'icons';
           if (id.includes('/src/ui/')) return 'ui';
           return undefined;
         },

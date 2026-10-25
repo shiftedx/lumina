@@ -1,4 +1,4 @@
-import { Maximize2, Pause, Play, X } from 'lucide-react';
+import { Maximize2, Pause, Play, X } from '../../luminaIcons';
 import { useEffect, useRef, useState } from 'react';
 import { IconButton } from '../../ui';
 import { pauseMediaForUser, playMediaForUser } from '../../playIntent';

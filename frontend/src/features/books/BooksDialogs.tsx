@@ -1,4 +1,4 @@
-import { Check, FileText, Plus } from 'lucide-react';
+import { Check, FileText, Plus } from '../../luminaIcons';
 import { type FormEvent, useState } from 'react';
 import { Button, Checkbox, Dialog, Field, Input, Select, Textarea, fieldProps } from '../../ui';
 import { createBookShelf, importBook, setBookShelfEntries, updateBookMetadata, updateBookShelf } from './booksApi';

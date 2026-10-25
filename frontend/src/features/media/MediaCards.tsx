@@ -1,5 +1,5 @@
 import { type RefObject } from 'react';
-import { Film } from 'lucide-react';
+import { Film } from '../../luminaIcons';
 import { type YouTubeSearchResult } from '../../types';
 import { type CollectionLoadProblem } from '../../workspace';
 import { Button, clampServerText, TextButton } from '../../ui';

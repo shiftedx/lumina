@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Check, Square } from 'lucide-react';
+import { Check, Square } from '../../luminaIcons';
 
 import { getActivityHistory, getAdminActivity, listUsers, stopActivitySession } from '../../api';
 import type { ActivityHistoryRow, ActivityServer, ActivitySession, AdminActivity, UserProfile } from '../../types';

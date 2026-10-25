@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal } from '../../luminaIcons';
 
 import { getEpisodeSummaries, listSeasonEpisodes } from '../../api';
 import type { EpisodeSummaries, TitleSummary } from '../../types';

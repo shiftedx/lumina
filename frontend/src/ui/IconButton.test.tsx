@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { X } from 'lucide-react';
+import { X } from '../luminaIcons';
 import { describe, expect, it } from 'vitest';
 import { IconButton } from '.';
 

@@ -3,7 +3,7 @@
  * Shows and Anime are gallery walls; Music is the Music tab; YouTube and Recordings are still walls; Deleted lists the
  * files waiting out their retention window.
  */
-import { RefreshCw, RotateCcw } from 'lucide-react';
+import { RefreshCw, RotateCcw } from '../../luminaIcons';
 import { memo, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 
 import { refreshLibrary, restoreLibraryFile, scanLibraries } from '../../api';

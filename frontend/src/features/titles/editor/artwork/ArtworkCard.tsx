@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Ellipsis, Lock, LockOpen } from 'lucide-react';
+import { Ellipsis, Lock, LockOpen } from '../../../../luminaIcons';
 import { Artwork } from '../../../../Artwork';
 import type { TitleImageEntry } from '../../../../types';
 import { IconButton, Menu, ProgressBar, type MenuEntry } from '../../../../ui';

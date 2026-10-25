@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Copy } from 'lucide-react';
+import { Copy } from '../../luminaIcons';
 
 import { createAgentToken, createAppPassword, listConnectedApps, revokeConnectedApp, signOutAllApps } from '../../api';
 import type { AppPasswordCreated, ConnectedApp, ConnectedAppCreated, ConnectedAppScope, UserProfile } from '../../types';

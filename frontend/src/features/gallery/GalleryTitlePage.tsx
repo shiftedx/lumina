@@ -4,7 +4,7 @@
  * Opening from a wall paints the clicked summary at once; the detail fills in the rest.
  */
 import { type CSSProperties, Fragment, type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal } from '../../luminaIcons';
 
 import { ApiRequestError, listSimilarTitles } from '../../api';
 import { Artwork, resolveArtworkUrl } from '../../Artwork';

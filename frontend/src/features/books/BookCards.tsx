@@ -1,4 +1,4 @@
-import { BookOpen, Check, Ellipsis, Heart } from 'lucide-react';
+import { BookOpen, Check, Ellipsis, Heart } from '../../luminaIcons';
 import { useEffect, useRef, useState } from 'react';
 import { IconButton, Menu, type MenuEntry } from '../../ui';
 import { bookCoverUrl } from './booksApi';

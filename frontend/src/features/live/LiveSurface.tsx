@@ -5,7 +5,7 @@
  * in place: the focused card never moves, and one that left shows ENDED until focus leaves its rail.
  */
 import { useCanDownload } from '../access/access';
-import { CircleAlert, LoaderCircle } from 'lucide-react';
+import { CircleAlert, LoaderCircle } from '../../luminaIcons';
 import { type FocusEvent, type KeyboardEvent, memo, type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 
 import { createLiveRecording, getLiveWall, listLiveRecordings } from '../../api';

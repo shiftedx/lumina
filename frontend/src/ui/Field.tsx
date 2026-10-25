@@ -1,4 +1,4 @@
-import { CircleAlert, Eye } from 'lucide-react';
+import { CircleAlert, Eye } from './icons';
 import { type InputHTMLAttributes, type ReactElement, type ReactNode, type Ref, type TextareaHTMLAttributes, useEffect, useId, useRef, useState } from 'react';
 import { cx } from './cx';
 import { IconButton } from './IconButton';

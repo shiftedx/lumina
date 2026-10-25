@@ -1,6 +1,6 @@
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, PlugZap, RefreshCw, Stethoscope } from 'lucide-react';
+import { Copy, PlugZap, RefreshCw, Stethoscope } from '../../../luminaIcons';
 
 import { getMediaServerSettings, listUnmatchedTitles, refreshAllMetadata, runTranscodeDiagnostics, testTmdbKey, updateMediaServerSettings } from '../../../api';
 import type { HwaccelMode, MediaServerSettings, MediaServerSettingsUpdate, TitleSummary, TranscodeDiagnostics } from '../../../types';

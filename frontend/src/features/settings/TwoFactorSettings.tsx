@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react';
-import { Copy, Download } from 'lucide-react';
+import { Copy, Download } from '../../luminaIcons';
 
 import { disableTwoFactor, enableTwoFactor, getTwoFactor, regenerateRecoveryCodes, setupTwoFactor } from '../../api';
 import type { TwoFactorSetup, TwoFactorStatus } from '../../types';

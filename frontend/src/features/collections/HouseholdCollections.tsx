@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Eye, EyeOff, FolderHeart, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, FolderHeart, Plus, Sparkles, Trash2 } from '../../luminaIcons';
 
 import {
   ApiRequestError,

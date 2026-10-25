@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { DatabaseBackup } from 'lucide-react';
+import { DatabaseBackup } from '../../luminaIcons';
 
 import { type BackupManifest, type BackupSchedule, createBackup, deleteBackup, downloadBackup, listBackups, updateBackupSchedule, verifyBackup } from '../../api';
 import { Button, ConfirmDialog, Field, fieldProps, Input, PasswordInput, StatusText } from '../../ui';

@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, ListMusic, Play, Plus, Radio, RefreshCw, Save, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, ListMusic, Play, Plus, Radio, RefreshCw, Save, Trash2, X } from '../../luminaIcons';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import * as api from '../../api';

@@ -1,5 +1,5 @@
 /** A catalog title: backdrop hero with the trailer playing inline, seasons, cast, anime facts, relations and more like it. */
-import { ArrowLeft, Clapperboard, Library, Plus } from 'lucide-react';
+import { ArrowLeft, Clapperboard, Library, Plus } from '../../luminaIcons';
 import { useEffect, useState } from 'react';
 
 import { Button, Skeleton } from '../../ui';

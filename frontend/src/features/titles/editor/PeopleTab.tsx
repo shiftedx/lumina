@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, GripVertical, Lock, LockOpen, Trash2, UserPen } from 'lucide-react';
+import { ArrowDown, ArrowUp, GripVertical, Lock, LockOpen, Trash2, UserPen } from '../../../luminaIcons';
 import { useEffect, useRef, useState } from 'react';
 
 import { searchMetadataPeople } from '../../../api';

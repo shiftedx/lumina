@@ -3,7 +3,7 @@
  * byline with Follow, actions, the full description (6-line clamp, every timestamp a seek, URLs as text), chapters and
  * the remaining tools. WatchSurface computes every value; this only lays them out.
  */
-import { Check, Plus } from 'lucide-react';
+import { Check, Plus } from '../../luminaIcons';
 import { type ReactNode, useId, useState } from 'react';
 
 import { ChapterList, type DescriptionTimestamp, DescriptionWithTimestamps, type TimelineChapter } from '../../chapters';

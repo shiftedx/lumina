@@ -1,7 +1,7 @@
 /**
  * Gallery pure helpers, and stubs marked "contract stub", which are replaced test-first without changing their signatures.
  */
-import { Disc3, Film, type LucideIcon, Mic2, Sparkles, Tv } from 'lucide-react';
+import { Disc3, Film, type LucideIcon, Mic2, Sparkles, Tv } from '../../luminaIcons';
 
 import type { TitleFacetsQuery, TitleListQuery } from '../../api';
 import type { SearchScope, TitleArt, TitleResolution, TitleSort, TitleSummary } from '../../types';

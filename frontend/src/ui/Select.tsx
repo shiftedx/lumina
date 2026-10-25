@@ -1,4 +1,4 @@
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown } from './icons';
 import { type ChangeEvent, type KeyboardEvent, type Ref, type SelectHTMLAttributes, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { cx } from './cx';
 import { place } from './placement';

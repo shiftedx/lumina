@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Download, ListMusic, Pause, Play, SkipBack, SkipForward, Trash2, Volume2, WifiOff } from 'lucide-react';
+import { ArrowLeft, Download, ListMusic, Pause, Play, SkipBack, SkipForward, Trash2, Volume2, WifiOff } from '../../luminaIcons';
 
 import '../../styles/app.css';
 import { MAX_DECODED_AUDIO_BYTES, MusicEngine, type MusicEngineState } from './musicEngine';

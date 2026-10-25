@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { Info } from 'lucide-react';
+import { Info } from '../../luminaIcons';
 
 /** Closes whichever explanation is open, so only one shows at a time. */
 let closeOpen: (() => void) | null = null;

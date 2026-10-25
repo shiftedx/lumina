@@ -6,7 +6,7 @@
  * (PosterCard, AlbumCard, StillFrame, RemoteStillCard) renders it beside its button, never inside it.
  */
 import { useCanDownload } from '../access/access';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal } from '../../luminaIcons';
 import { createContext, type ReactNode, useContext, useState } from 'react';
 
 import { setFavorite, setTitleWatched } from '../../api';

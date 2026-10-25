@@ -1,4 +1,4 @@
-import { Mail } from 'lucide-react';
+import { Mail } from '../../../luminaIcons';
 import { useState } from 'react';
 
 import { Button, Field, fieldProps, Input, PasswordInput, SegmentedControl, StatusText } from '../../../ui';

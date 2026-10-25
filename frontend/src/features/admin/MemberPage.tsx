@@ -1,4 +1,4 @@
-import { ChevronLeft, Plus, X } from 'lucide-react';
+import { ChevronLeft, Plus, X } from '../../luminaIcons';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 
 import { createPasswordResetLink, listUsers, resetMemberTwoFactor, unlockUserSignIn, updateUser } from '../../api';

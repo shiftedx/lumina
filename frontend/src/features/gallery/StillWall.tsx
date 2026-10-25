@@ -4,7 +4,7 @@
  * /api/library as a sentinel one viewport ahead comes into view. It deletes with the existing toast and Undo and
  * reports every changed item.
  */
-import { Disc3, MonitorPlay, Radio } from 'lucide-react';
+import { Disc3, MonitorPlay, Radio } from '../../luminaIcons';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 import { deleteLibraryFile, type LibraryPageQuery, listLibrary, restoreLibraryFile } from '../../api';

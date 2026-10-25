@@ -4,7 +4,7 @@
  * artist.
  */
 import { type KeyboardEvent, type Ref, useState } from 'react';
-import { ChevronLeft, Play, Shuffle, Pencil } from 'lucide-react';
+import { ChevronLeft, Play, Shuffle, Pencil } from '../../luminaIcons';
 
 import type { TitleDetail, TitleSummary } from '../../types';
 import { AlbumCard } from './AlbumCard';

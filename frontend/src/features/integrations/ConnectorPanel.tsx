@@ -1,4 +1,4 @@
-import { ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { ExternalLink, Plus, RefreshCw, Trash2 } from '../../luminaIcons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { errorMessage, formatDateTime } from '../../utils';

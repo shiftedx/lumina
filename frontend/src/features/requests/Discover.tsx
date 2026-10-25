@@ -1,5 +1,5 @@
 /** Discover: the cinematic hero, then "This season in anime" and the other rails, in the server's order. */
-import { Clapperboard, Plus } from 'lucide-react';
+import { Clapperboard, Plus } from '../../luminaIcons';
 import { useState } from 'react';
 
 import { parseRoute } from '../../app/routes';

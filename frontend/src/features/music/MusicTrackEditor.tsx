@@ -1,4 +1,4 @@
-import { Check, RotateCcw } from 'lucide-react';
+import { Check, RotateCcw } from '../../luminaIcons';
 import { useEffect, useMemo, useState } from 'react';
 
 import { ApiRequestError, createMusicRelease, editMusicTracks, getMusicQueue, getMusicTrackMetadata, listTitles, undoMusicEdit } from '../../api';

@@ -117,6 +117,7 @@ test('built shell recursively caches hashed dependencies and remains usable with
   expect(resources).toContain('/apple-touch-icon.png?v=lumina-5');
   expect(resources.some((url) => /^\/assets\/[^/]+-[A-Za-z0-9_-]+\.js$/.test(url))).toBe(true);
   expect(resources.some((url) => /^\/assets\/[^/]+-[A-Za-z0-9_-]+\.css$/.test(url))).toBe(true);
+  expect(resources.some((url) => /^\/assets\/lumina-media-sprite-[A-Za-z0-9_-]+\.svg$/.test(url))).toBe(true);
   expect(resources).toContain('/fonts/Newsreader-variable.woff2');
   expect(resources).toContain('/fonts/Newsreader-Italic-variable.woff2');
   expect(resources.some((url) => url.startsWith('/api/') || url.startsWith('/src/') || /(?:token|sig|cookie)=/i.test(url))).toBe(false);

@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react';
-import { Film } from 'lucide-react';
+import { Film } from '../../luminaIcons';
 
 import { ApiRequestError, identifyTitle, refreshTitleMetadata, searchTitleMatches, unmatchTitle } from '../../api';
 import type { IdentifyCandidate, TitleSummary } from '../../types';

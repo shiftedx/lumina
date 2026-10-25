@@ -3,7 +3,7 @@
  * whole series), or a movie's collection in collection order with the playing film marked. Nothing for anything else.
  * Rows reuse the watch queue's row styles.
  */
-import { Check } from 'lucide-react';
+import { Check } from '../../luminaIcons';
 
 import { Artwork } from '../../Artwork';
 import type { LibraryUpNext, TitleSummary } from '../../types';

@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw } from '../../luminaIcons';
 
 import { type AdminTask, type AdminTaskPage, type TaskFilter, type TaskKind, cancelAdminTask, listAdminTasks, retryAdminTask } from '../../api';
 import { errorMessage as errorText, formatDateTime as when } from '../../utils';

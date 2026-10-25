@@ -2,7 +2,7 @@
  * Requests: discover films, series and anime, watch trailers inline, and ask the
  * household's Sonarr/Radarr for them. Pages: Discover, Films, Series, Anime, search, a title, My requests and Manage (admins).
  */
-import { Search } from 'lucide-react';
+import { Search } from '../../luminaIcons';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { type AppRoute, parseRoute, type RequestsRoute } from '../../app/routes';

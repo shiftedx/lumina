@@ -1,4 +1,4 @@
-import { Lock, LockOpen } from 'lucide-react';
+import { Lock, LockOpen } from '../../../luminaIcons';
 import { useState } from 'react';
 
 import { getTitle, listMetadataEpisodes } from '../../../api';

@@ -180,11 +180,8 @@ class UserService:
             user.bio = payload.bio.strip() or None
         if payload.role is not None and payload.role != user.role:
             user.role = payload.role
-            self._revoke_pending_pairings(user.id)
-            # A role change signs the member out of every browser and revokes casts: a promoted
-            # member's remembered device-ring session must never become a vault owner's bearer.
-            self.db.query(AppSession).filter(AppSession.user_id == user.id).delete(synchronize_session=False)
-            music_cast_capabilities.revoke_for_user(self.db, user.id)
+            # Existing browser and app credentials must never inherit a promoted member's owner access.
+            self.revoke_sessions(user.id)
         active_changed = payload.is_active is not None and payload.is_active != user.is_active
         if payload.is_active is not None:
             user.is_active = payload.is_active

@@ -15,7 +15,7 @@ from app.schemas import UserUpdateRequest
 from app.security import CSRF_HEADER, SESSION_TOUCH_INTERVAL_SECONDS, hash_password, session_digest, utcnow
 from app.services.redaction import redact
 from app.services.users import UserService
-from support import make_user
+from support import make_user, seed_app_settings
 
 PASSWORD = "Test-only-passphrase-1"
 
@@ -127,6 +127,39 @@ def test_password_change_reset_and_deactivation_revoke_every_connected_app(clien
         UserService(db).manage_user(db.get(User, "owner"), "member", UserUpdateRequest(is_active=False))
         assert db.query(DeviceToken).filter(DeviceToken.user_id == "member").count() == 0
         assert db.query(DeviceToken).filter(DeviceToken.user_id == "owner").count() == 1
+
+
+@pytest.mark.parametrize("initial_role,next_role", [("viewer", "admin"), ("admin", "viewer"), ("viewer", "viewer")])
+def test_role_changes_revoke_existing_sign_ins_but_noop_updates_preserve_them(factory, api_client, initial_role, next_role) -> None:
+    with factory.begin() as db:
+        db.get(User, "member").role = initial_role
+        seed_app_settings(db, jellyfin_enabled=True)
+    member = api_client(base_url="http://localhost")
+    headers = browser_login(member, "member")
+    created = member.post("/api/connected-apps", json={"name": "Script", "scope": "write"}, headers=headers)
+    assert created.status_code == 201, created.text
+    token = created.json()["token"]
+    created_password = member.post("/api/connected-apps/app-passwords", json={"name": "Player"}, headers=headers)
+    assert created_password.status_code == 201, created_password.text
+    password = created_password.json()["password"]
+    _, jellyfin_token = add_token(factory, "member", kind="jellyfin")
+    app = api_client(base_url="http://localhost")
+    assert app.get("/api/admin/users", headers=bearer(token)).status_code == (200 if initial_role == "admin" else 403)
+    assert app.get("/api/session/me", auth=("member", password)).status_code == 200
+    assert app.get("/system/info", headers={"X-Emby-Token": jellyfin_token}).status_code == 200
+
+    owner = api_client(base_url="http://localhost")
+    owner_headers = browser_login(owner, "owner")
+    changed = owner.put("/api/admin/users/member", json={"role": next_role, "display_name": "Updated member"}, headers=owner_headers)
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["display_name"] == "Updated member"
+    expected = 401 if initial_role != next_role else 200
+    assert app.get("/api/session/me", headers=bearer(token)).status_code == expected
+    assert app.get("/api/admin/users", headers=bearer(token)).status_code == (401 if expected == 401 else 403)
+    assert app.get("/api/session/me", auth=("member", password)).status_code == expected
+    assert app.get("/system/info", headers={"X-Emby-Token": jellyfin_token}).status_code == expected
+    assert member.get("/api/session/me").status_code == expected
+    assert owner.get("/api/admin/users").status_code == 200
 
 
 def test_idle_tokens_are_deleted_and_last_seen_touch_is_throttled(client, factory) -> None:

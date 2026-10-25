@@ -274,6 +274,9 @@ def install_showcase_art_fixture(state_root: Path) -> None:
     local_pictures = dict(enumerate(fixture_pictures.values()))
     local_urls = {source: f"{ORIGIN}/proof/requests-art/{index}"
                   for index, source in enumerate(fixture_pictures)}
+    # The public welcome showcase proxies these same catalog URLs through its
+    # signed image route; resolve both addresses to the identical local bytes.
+    fixture_pictures.update({url: local_pictures[index] for index, url in enumerate(local_urls.values())})
 
     @app.get("/proof/requests-art/{index}")
     def request_fixture_art(index: int):
@@ -1003,6 +1006,14 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
     request_anime = request_json("/Lumina/Requests/catalog/title/anime/154587", token=token)
     if request_anime.get("key") != REQUEST_ANIME_KEY or request_anime.get("tvdb_id") != 424536:
         raise RuntimeError("The native Requests title route did not preserve anime request metadata.")
+
+    showcase = request_json("/api/public/showcase")
+    slides = showcase.get("slides", [])
+    if not slides or not slides[0].get("backdrop_url", "").startswith("/api/public/showcase/art/"):
+        raise RuntimeError("The public welcome fixture did not expose local artwork.")
+    with urlopen(ORIGIN + slides[0]["backdrop_url"], timeout=60) as response:
+        if not response.headers.get("Content-Type", "").startswith("image/") or not response.read():
+            raise RuntimeError("The public welcome fixture artwork did not load.")
 
     items = request_json("/Items?IncludeItemTypes=Movie,Episode,Video&Recursive=true&Fields=Overview,UserData,ImageTags&SortBy=SortName&StartIndex=0&Limit=50", token=token)
     by_name = {item.get("Name"): item for item in items.get("Items", [])}

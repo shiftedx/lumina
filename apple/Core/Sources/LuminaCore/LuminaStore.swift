@@ -68,6 +68,7 @@ let tickScale = 10_000_000.0
     private var audioGeneration = 0
     private var homeGeneration = 0
     private var homeTask: Task<Void, Never>?
+    private var libraryTask: Task<Void, Never>?
     private var libraryAlphabetTask: Task<Void, Never>?
     private var nextIndex = 0
     private var libraryGeneration = 0
@@ -149,6 +150,8 @@ let tickScale = 10_000_000.0
     private func clearSession() {
         homeTask?.cancel()
         homeTask = nil
+        libraryTask?.cancel()
+        libraryTask = nil
         libraryAlphabetTask?.cancel()
         libraryAlphabetTask = nil
         if let session { offline.clear(session: session) }
@@ -204,14 +207,27 @@ let tickScale = 10_000_000.0
     }
 
     private func loadLibrary(search: String, kind: VideoBrowseKind, sort: VideoSort, filters: VideoFilters, clearsError: Bool) async {
-        guard let active = session else { return }
+        guard !Task.isCancelled, session != nil else { return }
+        libraryTask?.cancel()
         libraryAlphabetTask?.cancel()
         libraryAlphabetTask = nil
         libraryGeneration += 1
         let generation = libraryGeneration
         isBusy = true
         if clearsError { errorMessage = nil }
-        defer { if generation == libraryGeneration { isBusy = false } }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performLibraryLoad(search: search, kind: kind, sort: sort, filters: filters, generation: generation)
+        }
+        libraryTask = task
+        defer {
+            if generation == libraryGeneration { isBusy = false; libraryTask = nil }
+        }
+        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+    }
+
+    private func performLibraryLoad(search: String, kind: VideoBrowseKind, sort: VideoSort, filters: VideoFilters, generation: Int) async {
+        guard !Task.isCancelled, generation == libraryGeneration, let active = session else { return }
         do {
             currentSearch = search
             videoKind = kind
@@ -866,7 +882,7 @@ let tickScale = 10_000_000.0
     }
 
     private func isCurrent(_ candidate: LuminaSession) -> Bool {
-        session?.serverURL == candidate.serverURL && session?.accessToken == candidate.accessToken
+        session?.serverURL == candidate.serverURL && session?.accessToken == candidate.accessToken && session?.userID == candidate.userID
     }
 }
 

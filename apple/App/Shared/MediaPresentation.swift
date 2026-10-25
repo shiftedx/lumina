@@ -55,6 +55,7 @@ private struct BillboardArtwork: View {
             .modifier(HomeArtworkMotion(direction: motionDirection))
             .clipped()
         }
+        .onDisappear { source = nil; loadedURL = nil }
         .task(id: url) {
             source = nil
             framing = nil

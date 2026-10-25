@@ -32,7 +32,7 @@ struct MobileRootView: View {
         .onChange(of: store.session?.accessToken) { _, token in
             if token == nil { audioSession.stop() }
         }
-        .task(id: store.session?.accessToken) {
+        .task(id: MobileHomeSessionScope(store.session)) {
             userSettings.configure(session: store.session)
             if store.session != nil {
                 await userSettings.load()
@@ -352,7 +352,7 @@ private struct LibraryShellView: View {
                 destinationStack {
                     if let session = store.session {
                         NativeRequestsView(session: session, isActive: destination == .requests)
-                            .id(session.accessToken)
+                            .id([session.serverURL.absoluteString, session.userID, session.accessToken])
                     }
                 }
             }
@@ -385,7 +385,7 @@ private struct LibraryShellView: View {
                 AudioLibraryView(store: store)
             case .books:
                 if let session = store.session {
-                    NativeBooksView(session: session).id(session.accessToken)
+                    NativeBooksView(session: session).id([session.serverURL.absoluteString, session.userID, session.accessToken])
                 }
             }
         } else {
@@ -764,7 +764,7 @@ struct NativeHomePreferencesView: View {
                 ProgressView("Loading Home layout…")
             }
         }
-        .task(id: store.session?.accessToken) {
+        .task(id: MobileHomeSessionScope(store.session)) {
             guard let session = store.session else { return }
             let loaded = LuminaHomeLayout(session: session)
             layout = loaded
@@ -979,6 +979,7 @@ private struct VideoLibraryView: View {
     @State private var pullIntent: PullIntent = .none
     @State private var alphabetRailVisible = false
     @State private var selectedAlphabetAnchor: LibraryAlphabetAnchor?
+    @State private var queryTask: Task<Void, Never>?
     @State private var alphabetJumpTask: Task<Void, Never>?
     @State private var alphabetRailDismissTask: Task<Void, Never>?
     @State private var alphabetJumpID = UUID()
@@ -1122,6 +1123,8 @@ private struct VideoLibraryView: View {
             .onChange(of: sort) { resetAlphabetNavigation(); search() }
             .onChange(of: filters) { resetAlphabetNavigation(); search() }
             .onDisappear {
+                queryTask?.cancel()
+                queryTask = nil
                 alphabetJumpTask?.cancel()
                 alphabetRailDismissTask?.cancel()
             }
@@ -1294,24 +1297,20 @@ private struct VideoLibraryView: View {
     }
 
     private func search() {
+        queryTask?.cancel()
         store.clearError()
         let scopeKey = alphabetScopeKey
-        Task {
-            await store.loadLibrary(search: searchText.trimmingCharacters(in: .whitespacesAndNewlines), kind: kind, sort: sort, filters: filters)
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = kind, sort = sort, filters = filters
+        queryTask = Task {
+            guard !Task.isCancelled else { return }
+            await store.loadLibrary(search: query, kind: kind, sort: sort, filters: filters)
             guard !Task.isCancelled, scopeKey == alphabetScopeKey else { return }
             alphabetAnchorsScopeKey = scopeKey
         }
     }
 
-    private func refresh() {
-        store.clearError()
-        let scopeKey = alphabetScopeKey
-        Task {
-            await store.loadLibrary(search: searchText.trimmingCharacters(in: .whitespacesAndNewlines), kind: kind, sort: sort, filters: filters)
-            guard !Task.isCancelled, scopeKey == alphabetScopeKey else { return }
-            alphabetAnchorsScopeKey = scopeKey
-        }
-    }
+    private func refresh() { search() }
 }
 
 @MainActor

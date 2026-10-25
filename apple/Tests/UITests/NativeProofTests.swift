@@ -3105,7 +3105,7 @@ class NativeProofJourney: XCTestCase {
                              "Home footer controls must remain below its actions, not over title artwork.")
         try activate(homeTitle)
         #else
-        let details = element("featuredDetailsButton")
+        let details = element("featuredTitleButton")
         try revealInLibraryViewport([details, footer])
         XCTAssertGreaterThan(footer.frame.minY, details.frame.maxY,
                              "Home footer controls must remain below Details, not over title artwork.")
@@ -3180,7 +3180,7 @@ class NativeProofJourney: XCTestCase {
         guard waitUntil(timeout: 5, condition: { self.featuredTitleElement.label == fixture.directItemTitle }) else {
             throw ProofFailure.ui("The selected Home feature did not update before opening Details.")
         }
-        let details = element("featuredDetailsButton")
+        let details = element("featuredTitleButton")
         try revealInLibraryViewport([details])
         let controls = element("featuredControls")
         XCTAssertGreaterThan(controls.frame.minY, details.frame.maxY,
@@ -3272,6 +3272,12 @@ class NativeProofJourney: XCTestCase {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
         let fixture = try loadFixture()
+        if let selection = ProcessInfo.processInfo.environment["LUMINA_PERF_PHASES"], !selection.isEmpty {
+            let phases = selection.split(separator: ",").map(String.init)
+            guard phases.allSatisfy(Self.performanceTourPhases.contains) else {
+                throw ProofFailure.ui("LUMINA_PERF_PHASES contains an unknown phase.")
+            }
+        }
         let startAt = try performanceTourStartPhase()
 
         try await performancePhase("login_form") {
@@ -3301,7 +3307,7 @@ class NativeProofJourney: XCTestCase {
 
         if shouldRunPerformancePhase("home_feature_detail", startingAt: startAt) {
             try await performancePhase("home_feature_detail") {
-            let details = element("featuredDetailsButton")
+            let details = element("featuredTitleButton")
             let readyDetails = try waitForPerformanceControl(details, timeout: 20, named: "Home feature details")
             try activate(readyDetails)
             try waitForPerformanceContainer(element("detailScreen"), timeout: 20, named: "Home feature detail")
@@ -3565,6 +3571,9 @@ class NativeProofJourney: XCTestCase {
             let movieTitle = try XCTUnwrap(fixture.requestMovieTitle, "Generate the Requests movie fixture.")
             try selectDestination("Requests", screen: "requestsScreen")
             try await performanceQuietPhase("requests_idle")
+            #if os(iOS)
+            try waitForExistence(application!.buttons["Watch trailer on YouTube"], timeout: 15, named: "featured trailer")
+            #endif
             #if os(tvOS)
             let search = element("requestsSearchField")
             let readySearch = try waitForPerformanceControl(search, timeout: 20, named: "Requests search")
@@ -3620,6 +3629,7 @@ class NativeProofJourney: XCTestCase {
             let closeSearch = application!.navigationBars.buttons["Close"]
             try waitForHittable(closeSearch, timeout: 10, named: "Requests search close")
             try activate(closeSearch)
+            try waitForExistence(application!.buttons["Watch trailer on YouTube"], timeout: 15, named: "featured trailer after search cancellation")
             try waitForHittable(destinationControl("Account"), timeout: 10, named: "Account after Requests search")
             #endif
             }
@@ -3656,7 +3666,8 @@ class NativeProofJourney: XCTestCase {
             let book = element("book-\(bookID)")
             try revealBookItem(book)
             try await performanceQuietPhase("books_catalog_idle")
-            try activate(book)
+            // Tap the visible artwork rather than the cell center under Duo’s side rail.
+            book.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.2)).tap()
             try waitForExistence(element("bookControlsButton"), timeout: 25, named: "book reader controls")
             try await performanceQuietPhase("books_reader_idle")
             try activate(element("bookControlsButton"))
@@ -3731,6 +3742,9 @@ class NativeProofJourney: XCTestCase {
     }
 
     private func shouldRunPerformancePhase(_ phase: String, startingAt startAt: String?) -> Bool {
+        if let selection = ProcessInfo.processInfo.environment["LUMINA_PERF_PHASES"], !selection.isEmpty {
+            return selection.split(separator: ",").map(String.init).contains(phase)
+        }
         guard let startAt,
               let selectedIndex = Self.performanceTourPhases.firstIndex(of: startAt),
               let phaseIndex = Self.performanceTourPhases.firstIndex(of: phase) else {

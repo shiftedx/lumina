@@ -26,6 +26,7 @@ struct CachedArtworkImage<Content: View, Placeholder: View>: View {
                 placeholder()
             }
         }
+        .onDisappear { source = nil; loadedURL = nil }
         .task(id: url) {
             guard let url else {
                 source = nil
@@ -77,6 +78,7 @@ struct SubjectAwareArtwork: View {
             }
         }
         .clipped()
+        .onDisappear { source = nil; loadedURL = nil }
         .task(id: url) {
             source = nil
             loadedURL = nil

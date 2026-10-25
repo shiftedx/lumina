@@ -39,6 +39,7 @@ struct NativeRequestsView: View {
     @State private var loadingResults = false
     @State private var resultGeneration = UUID()
     @State private var featuredTrailer: URL?
+    @State private var trailerItemID: String?
     @Environment(\.horizontalSizeClass) private var widthClass
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.openURL) private var openURL
@@ -208,11 +209,14 @@ struct NativeRequestsView: View {
         }
         .onChange(of: kind) { _, _ in section = "trending"; genre = nil }
         .task(id: "\(featured?.id ?? "")|\(isActive)") {
-            featuredTrailer = nil
-            guard isActive, let item = featured, let id = item.catalogID else { return }
-            let detail = try? await catalog.detail(kind: item.kind, id: id)
-            guard !Task.isCancelled else { return }
-            featuredTrailer = detail?.trailers.compactMap(\.youtubeURL).first
+            if trailerItemID != featured?.id {
+                featuredTrailer = nil
+                trailerItemID = nil
+            }
+            guard isActive, let item = featured, let id = item.catalogID, trailerItemID != item.id else { return }
+            guard let detail = try? await catalog.detail(kind: item.kind, id: id), !Task.isCancelled else { return }
+            featuredTrailer = detail.trailers.compactMap(\.youtubeURL).first
+            trailerItemID = item.id
         }
     }
 
@@ -414,7 +418,7 @@ private struct RequestDetailSheet: View {
                                 VStack(alignment: .leading, spacing: 14) {
                                     Text("More like this").font(.title2.weight(.bold))
                                     ScrollView(.horizontal) {
-                                        HStack(spacing: 12) {
+                                        LazyHStack(spacing: 12) {
                                             ForEach(recommendations.prefix(12)) { entry in
                                                 Button { recommendation = entry } label: {
                                                     RequestArtwork(url: entry.posterURL, catalog: catalog)

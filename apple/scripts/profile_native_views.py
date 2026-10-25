@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -119,6 +120,66 @@ def consume_test_output(output, log_path: Path, markers: list[dict], markers_loc
         error_event.set()
 
 
+class MachTimebase(ctypes.Structure):
+    _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
+
+
+def cpu_nanoseconds(usage: Usage, timebase: MachTimebase) -> int:
+    return (usage.user + usage.system) * timebase.numer // timebase.denom
+
+
+def process_ids(lib) -> list[int]:
+    # proc_listallpids reports PID entries, unlike proc_listpids' byte count.
+    capacity = max(4096, lib.proc_listallpids(None, 0) + 256)
+    pids = (ctypes.c_int * capacity)()
+    count = max(0, min(lib.proc_listallpids(pids, ctypes.sizeof(pids)), capacity))
+    return [pid for pid in pids[:count] if pid > 0]
+
+
+def find_simulator_system_crashes(report_directory: Path, simulator: str,
+                                  started_at: float, ended_at: float) -> list[dict]:
+    """Return compact evidence for system UI crashes in this simulator and interval."""
+    try:
+        report_paths = list(report_directory.glob("*.ips"))
+    except OSError:
+        return []
+
+    crashes = []
+    coalition_name = f"com.apple.CoreSimulator.SimDevice.{simulator}"
+    for report_path in report_paths:
+        try:
+            with report_path.open(encoding="utf-8", errors="replace") as report:
+                report.readline()  # Apple diagnostic metadata is separate from the report body.
+                body = json.load(report)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(body, dict) or body.get("coalitionName") != coalition_name:
+            continue
+        process = body.get("procName")
+        if process not in {"PosterBoard", "SpringBoard"}:
+            continue
+        incident_time = body.get("captureTime")
+        if not isinstance(incident_time, str):
+            continue
+        try:
+            incident_timestamp = datetime.strptime(
+                incident_time, "%Y-%m-%d %H:%M:%S.%f %z",
+            ).timestamp()
+        except ValueError:
+            continue
+        if not started_at <= incident_timestamp <= ended_at:
+            continue
+        exception = body.get("exception")
+        exception = exception if isinstance(exception, dict) else {}
+        crashes.append({
+            "process": process,
+            "incident_time": incident_time,
+            "exception": exception.get("type") if isinstance(exception.get("type"), str) else None,
+            "signal": exception.get("signal") if isinstance(exception.get("signal"), str) else None,
+        })
+    return sorted(crashes, key=lambda crash: (crash["incident_time"], crash["process"]))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--simulator", required=True)
@@ -137,16 +198,12 @@ def main() -> int:
     lib.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
     lib.proc_pid_rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
     lib.proc_listallpids.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    timebase = MachTimebase(1, 1)
+    ctypes.CDLL("/usr/lib/libSystem.B.dylib").mach_timebase_info(ctypes.byref(timebase))
 
     def app_pid() -> int | None:
-        # proc_listallpids returns a byte count. Allocate generously because the
-        # process list can grow between its sizing and filling calls.
-        size = max(4096, lib.proc_listallpids(None, 0) + 256)
-        pids = (ctypes.c_int * size)()
-        byte_count = lib.proc_listallpids(pids, ctypes.sizeof(pids))
-        count = max(0, min(byte_count // ctypes.sizeof(ctypes.c_int), size))
         candidates: list[tuple[int, int]] = []
-        for pid in pids[:count]:
+        for pid in process_ids(lib):
             path = ctypes.create_string_buffer(4096)
             if lib.proc_pidpath(pid, path, len(path)) <= 0:
                 continue
@@ -158,6 +215,7 @@ def main() -> int:
                 candidates.append((usage.start, pid))
         return max(candidates, default=(0, None))[1]
 
+    recording_started = time.time()
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True, bufsize=1, start_new_session=True)
     markers: list[dict] = []
@@ -230,7 +288,7 @@ def main() -> int:
                         ], stdout=trace_log, stderr=subprocess.STDOUT, start_new_session=True)
                     usage = Usage()
                     if lib.proc_pid_rusage(current_pid, 2, ctypes.byref(usage)) == 0:
-                        row = dict(timestamp=time.time(), pid=current_pid, cpu_ns=usage.user + usage.system,
+                        row = dict(timestamp=time.time(), pid=current_pid, cpu_ns=cpu_nanoseconds(usage, timebase),
                                    wakeups=usage.idle_wakeups + usage.interrupt_wakeups,
                                    footprint=usage.footprint, resident=usage.resident, load1=os.getloadavg()[0])
                         samples.append(row)
@@ -260,6 +318,23 @@ def main() -> int:
         if trace_log is not None:
             trace_log.close()
 
+        recording_ended = time.time()
+        system_crashes = find_simulator_system_crashes(
+            Path.home() / "Library" / "Logs" / "DiagnosticReports",
+            args.simulator,
+            recording_started,
+            recording_ended,
+        )
+        for crash in system_crashes:
+            details = ", ".join(
+                value for value in (crash["exception"], crash["signal"]) if value is not None
+            )
+            suffix = f" ({details})" if details else ""
+            failures.append(
+                f"simulator system crash during capture: {crash['process']} "
+                f"at {crash['incident_time']}{suffix}"
+            )
+
         with markers_lock:
             captured_markers = list(markers)
         login_form_settled = login_form_is_settled()
@@ -270,14 +345,24 @@ def main() -> int:
         pid_mismatch = bool(captured_pid is not None and any(pid != captured_pid for pid in observed_pids))
         if pid_mismatch and not any(message.startswith("app PID changed") for message in failures):
             failures.append(f"sampled app PID differed from initial PID {captured_pid}")
+        captured_windows = summarize(samples, captured_markers)
+        captured_workloads = summarize(samples, captured_markers, settled=False)
+        valid_windows = sum(window.get("sample_count", 0) >= 3 and "seconds" in window
+                            for window in captured_windows)
+        failed_capture = bool(failures or reader_incomplete or pid_mismatch or timed_out or interrupted)
+        capture_valid = process.returncode == 0 and valid_windows > 0 and not failed_capture
         result = dict(
             exit_code=process.returncode,
             simulator=args.simulator,
             sample_count=len(samples),
+            cpu_timebase=dict(numer=timebase.numer, denom=timebase.denom, units="nanoseconds"),
             markers=captured_markers,
-            windows=summarize(samples, captured_markers),
-            workloads=summarize(samples, captured_markers, settled=False),
+            windows=captured_windows,
+            workloads=captured_workloads,
             capture=dict(
+                valid=capture_valid,
+                started_at=recording_started,
+                ended_at=recording_ended,
                 login_form_settled=login_form_settled,
                 captured_pid=captured_pid,
                 observed_pids=sorted(observed_pids),
@@ -287,6 +372,7 @@ def main() -> int:
                 incomplete_reader=reader_incomplete,
                 reader_error=reader_error_event.is_set(),
                 reader_errors=captured_reader_errors,
+                system_crashes=system_crashes,
                 failures=failures,
             ),
         )
@@ -302,12 +388,9 @@ def main() -> int:
         else:
             print(f"Report: {args.output / 'report.json'}", flush=True)
 
-    valid_windows = sum(window.get("sample_count", 0) >= 3 and "seconds" in window
-                        for window in result["windows"])
-    failed_capture = bool(failures or reader_incomplete or pid_mismatch or timed_out or interrupted)
     if interrupted:
         return 130
-    return process.returncode or (0 if valid_windows and not failed_capture else 1)
+    return process.returncode or (0 if capture_valid and not failures else 1)
 
 
 if __name__ == "__main__":

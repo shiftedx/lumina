@@ -9,6 +9,43 @@ final class LuminaRequestsTests: XCTestCase {
         RequestsProtocol.handler = nil
     }
 
+    func testReadyFramingIsReusedButPendingFramingAndMemberChangesRemainFresh() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RequestsProtocol.self]
+        let first = LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "member-one",
+            userID: "one", username: "One", serverName: "Lumina", deviceID: "fixture")
+        let catalog = LuminaRequests(session: first, client: LuminaClient(configuration: configuration))
+        let reads = RequestsRequestRecorder()
+        RequestsProtocol.handler = { @Sendable request in
+            reads.record(request)
+            let source = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "src" }?.value ?? ""
+            let payload: [String: Any]
+            if source.contains("pending") { payload = ["state": "pending"] }
+            else { payload = ["state": "ready", "width": 1920, "height": 1080, "regions": []] }
+            return requestsResponse(request, json: payload)
+        }
+        let ready = URL(string: "https://image.tmdb.org/t/p/w1280/ready.jpg")!
+        for _ in 0..<5 { _ = await catalog.artworkFraming(for: ready) }
+        let readyReads = reads.count(path: "/Lumina/Requests/catalog/framing")
+        print("LUMINA_FRAMING_BENCH repeated_reads=5 requests=\(readyReads)")
+        XCTAssertEqual(readyReads, 1, "Hero/detail remounts should reuse ready framing")
+        let pending = URL(string: "https://image.tmdb.org/t/p/w1280/pending.jpg")!
+        _ = await catalog.artworkFraming(for: pending)
+        _ = await catalog.artworkFraming(for: pending)
+        XCTAssertEqual(reads.count(path: "/Lumina/Requests/catalog/framing"), readyReads + 2,
+                       "Pending analysis must remain eligible to become ready")
+        catalog.configure(session: LuminaSession(serverURL: first.serverURL, accessToken: "member-two", userID: "two",
+            username: "Two", serverName: "Lumina", deviceID: "fixture"))
+        _ = await catalog.artworkFraming(for: ready)
+        XCTAssertEqual(reads.count(path: "/Lumina/Requests/catalog/framing"), readyReads + 3)
+        XCTAssertTrue(reads.request(path: "/Lumina/Requests/catalog/framing")?.value(forHTTPHeaderField: "Authorization")?.contains("member-two") == true)
+        catalog.configure(session: LuminaSession(serverURL: first.serverURL, accessToken: "member-two", userID: "three",
+            username: "Three", serverName: "Lumina", deviceID: "fixture"))
+        _ = await catalog.artworkFraming(for: ready)
+        XCTAssertEqual(reads.count(path: "/Lumina/Requests/catalog/framing"), readyReads + 4,
+                       "A member identity change invalidates ready framing even if the credential is reused")
+    }
+
     func testCatalogQuotaAndRequestUseConnectedAppAuthentication() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RequestsProtocol.self]
@@ -186,6 +223,8 @@ private final class RequestsRequestRecorder: @unchecked Sendable {
     func record(_ request: URLRequest) {
         lock.withLock { requests.append(request) }
     }
+
+    func count(path: String) -> Int { lock.withLock { requests.filter { $0.url?.path == path }.count } }
 
     func request(path: String) -> URLRequest? {
         lock.withLock { requests.last(where: { $0.url?.path == path }) }

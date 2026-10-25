@@ -468,6 +468,68 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(store.errorMessage, "The server returned HTTP 404 (not found). Check the server address and that Apps like Infuse is enabled in Lumina Settings.")
     }
 
+    func testNewLibraryQueryCancelsTheObsoleteTransportAndPublishesOnlyTheLatestPage() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token",
+            userID: "user-1", username: "Member", serverName: "Lumina", deviceID: "fixture")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        HomeDelayedURLProtocol.handler = { @Sendable request in
+            if request.url?.path == "/Users/Me" { return response(request, json: ["Id": "user-1", "Name": "Member"]) }
+            if request.url?.path == "/Items" {
+                let search = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "SearchTerm" }?.value ?? "initial"
+                return response(request, json: page(items: [["Id": search, "Name": search, "Type": "Movie"]]))
+            }
+            return response(request, json: page(items: []))
+        }
+        await store.restore()
+        let started = expectation(description: "Obsolete search reached transport")
+        HomeDelayedURLProtocol.delay = { @Sendable request in
+            request.url?.query?.contains("SearchTerm=obsolete") == true ? 0.3 : 0
+        }
+        HomeDelayedURLProtocol.onStart = { @Sendable request in
+            if request.url?.query?.contains("SearchTerm=obsolete") == true { started.fulfill() }
+        }
+        let before = HomeDelayedURLProtocol.cancelledRequests
+        let obsolete = Task { await store.loadLibrary(search: "obsolete") }
+        await fulfillment(of: [started], timeout: 2)
+        await store.loadLibrary(search: "current")
+        await obsolete.value
+        let cancellations = HomeDelayedURLProtocol.cancelledRequests - before
+        print("LUMINA_LIBRARY_BENCH obsolete_transport_cancellations=\(cancellations)")
+        XCTAssertGreaterThanOrEqual(cancellations, 1, "A superseded search must stop its network/decoding work")
+        XCTAssertEqual(store.items.map(\.id), ["current"])
+        XCTAssertFalse(store.isBusy)
+        XCTAssertNil(store.errorMessage)
+    }
+
+    func testLibraryResponseCannotPublishAfterMemberIdentityChangesWithSameCredential() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "test-token",
+            userID: "one", username: "One", serverName: "Lumina", deviceID: "fixture")
+        let credentials = TestCredentials(session: saved)
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: credentials)
+        HomeDelayedURLProtocol.handler = { @Sendable request in
+            if request.url?.path == "/Users/Me" { return response(request, json: ["Id": "one", "Name": "One"]) }
+            return response(request, json: page(items: []))
+        }
+        await store.restore()
+        let started = expectation(description: "First member search reached transport")
+        HomeDelayedURLProtocol.handler = { @Sendable request in
+            response(request, json: page(items: [["Id": "private-one", "Name": "Private", "Type": "Movie"]]))
+        }
+        HomeDelayedURLProtocol.delay = { @Sendable request in request.url?.path == "/Items" ? 0.3 : 0 }
+        HomeDelayedURLProtocol.onStart = { @Sendable request in
+            if request.url?.path == "/Items" { started.fulfill() }
+        }
+        let loading = Task { await store.loadLibrary(search: "first-member") }
+        await fulfillment(of: [started], timeout: 2)
+        credentials.stored = LuminaSession(serverURL: saved.serverURL, accessToken: saved.accessToken,
+            userID: "two", username: "Two", serverName: "Lumina", deviceID: "fixture")
+        HomeDelayedURLProtocol.handler = { @Sendable request in response(request, status: 503, json: [:]) }
+        await store.restore()
+        await loading.value
+        XCTAssertEqual(store.session?.userID, "two")
+        XCTAssertTrue(store.items.isEmpty, "A prior member's in-flight page must not publish under the new member")
+    }
+
     func testNewHomeLoadCancelsTheObsoleteShelfRequests() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))

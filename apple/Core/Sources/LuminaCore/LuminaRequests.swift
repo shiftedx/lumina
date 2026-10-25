@@ -406,6 +406,8 @@ public enum RequestAPIError: LocalizedError, Sendable, Equatable {
     private var session: LuminaSession?
     private let client: LuminaClient
     private var generation = 0
+    private var readyFramings = [URL: HeroFraming]()
+    private var readyFramingOrder = [URL]()
 
     public init(session: LuminaSession? = nil) {
         self.session = session
@@ -418,10 +420,12 @@ public enum RequestAPIError: LocalizedError, Sendable, Equatable {
     }
 
     public func configure(session: LuminaSession?) {
-        guard self.session?.accessToken != session?.accessToken || self.session?.serverURL != session?.serverURL else { return }
+        guard self.session?.accessToken != session?.accessToken || self.session?.serverURL != session?.serverURL || self.session?.userID != session?.userID else { return }
         generation += 1
         self.session = session
         home = nil
+        readyFramings.removeAll()
+        readyFramingOrder.removeAll()
         quotas = []
         myRequests = nil
         isLoading = false
@@ -429,8 +433,9 @@ public enum RequestAPIError: LocalizedError, Sendable, Equatable {
     }
 
     public func artworkFraming(for source: URL) async -> HeroFraming? {
-        guard let session, source.scheme == "https", source.host == "image.tmdb.org",
+        guard !Task.isCancelled, let session, source.scheme == "https", source.host == "image.tmdb.org",
               source.path.hasPrefix("/t/p/w1280/") else { return nil }
+        if let cached = readyFramings[source] { return cached }
         let current = generation
         var lookup = client.request(origin: session.serverURL, path: "/Lumina/Requests/catalog/framing",
                                     query: [URLQueryItem(name: "src", value: source.absoluteString)],
@@ -438,8 +443,14 @@ public enum RequestAPIError: LocalizedError, Sendable, Equatable {
         lookup.timeoutInterval = 0.15
         do {
             let (data, response) = try await client.response(lookup)
-            guard current == generation, response.statusCode == 200 else { return nil }
-            return try JSONDecoder().decode(HeroFraming.self, from: data)
+            guard !Task.isCancelled, current == generation, response.statusCode == 200 else { return nil }
+            let framing = try JSONDecoder().decode(HeroFraming.self, from: data)
+            if framing.state == "ready" {
+                if readyFramings[source] == nil { readyFramingOrder.append(source) }
+                readyFramings[source] = framing
+                if readyFramingOrder.count > 80 { readyFramings.removeValue(forKey: readyFramingOrder.removeFirst()) }
+            }
+            return framing
         } catch { return nil }
     }
 

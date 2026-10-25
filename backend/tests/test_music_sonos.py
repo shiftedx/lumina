@@ -260,6 +260,22 @@ def test_xml_doctype_entities_and_oversized_payloads_are_rejected() -> None:
         music_sonos._bounded_xml(b"<root>" + (b"x" * (music_sonos.MAX_DEVICE_XML_BYTES + 1)), limit=music_sonos.MAX_DEVICE_XML_BYTES, context="test")
 
 
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16", "utf-16-le", "utf-16-be"])
+@pytest.mark.parametrize("declaration", ["", '<!DOCTYPE root [<!ENTITY unused "literal">]>'])
+def test_device_xml_declarations_rejected_across_encodings(encoding: str, declaration: str) -> None:
+    xml_encoding = "utf-16" if encoding.startswith("utf-16") else encoding
+    document = (
+        f'<?xml version="1.0" encoding="{xml_encoding}"?>{declaration}'
+        '<root><device><UDN>uuid:RINCON_MEMBER</UDN><friendlyName>Kitchen</friendlyName></device></root>'
+    ).encode(encoding)
+    service = SonosService()
+    if declaration:
+        with pytest.raises(SonosError, match="doctype/entity declarations"):
+            service._parse_device_description(document, address=MEMBER_IP, fallback_id=MEMBER_ID)
+    else:
+        assert service._parse_device_description(document, address=MEMBER_IP, fallback_id=MEMBER_ID).name == "Kitchen"
+
+
 def test_didl_metadata_escapes_track_fields_and_uri() -> None:
     track = SonosTrack(
         url="https://media.example.test/song.mp3?sig=a&part=1",

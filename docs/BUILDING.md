@@ -1,6 +1,6 @@
 # Building and verifying Lumina
 
-The repository declares Python 3.12.14 and Node.js 22.17.1 in `.tool-versions`. Use those versions, not whatever is installed globally.
+The repository's supported Python and Node.js versions are declared in `.tool-versions`. Use those exact versions, not whatever is installed globally.
 
 ## Host prerequisites
 

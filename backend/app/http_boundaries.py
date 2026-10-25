@@ -16,6 +16,7 @@ from app.services import public_address
 
 MAX_REQUEST_BODY_BYTES = 2_097_152
 REQUEST_TOO_LARGE_MESSAGE = "Request body is too large. The maximum request size is 2 MiB."
+REQUEST_BODY_TIMEOUT_MESSAGE = "Request body timed out."
 # The one route shape with a bigger cap: an artwork upload. ASGI ``path`` is already percent-decoded
 # and carries no query; fullmatch refuses any extra segment or trailing slash. PUT only.
 UPLOAD_ROUTE = re.compile(r"/api/titles/[0-9a-f-]{36}/images/(?:Primary|Backdrop|Logo)/[0-4]|/api/metadata/people/[0-9a-f-]{36}/photo|/api/music/artwork/bulk")
@@ -27,7 +28,9 @@ MAX_PHOTO_UPLOAD_BODY_BYTES = 128 * 1024 * 1024
 PHOTO_UPLOAD_TOO_LARGE_MESSAGE = "Photo upload is too large. The maximum upload size is 128 MiB."
 MAX_UPLOAD_BODY_BYTES = 15 * 1024 * 1024
 UPLOAD_TOO_LARGE_MESSAGE = "Request body is too large. The maximum upload size is 15 MiB."
-# An upload body that stops arriving (or trickles) is cut so it cannot hold a connection and a worker.
+# A request body that stops arriving (or trickles) is cut so it cannot hold a connection and a worker.
+# Uploads are counted after route authentication; ordinary bodies are buffered here before routing, so both paths use
+# the same idle and absolute deadlines while retaining their different authorization and size-limit behavior.
 UPLOAD_IDLE_TIMEOUT_SECONDS = 15
 UPLOAD_BODY_DEADLINE_SECONDS = 300
 
@@ -159,8 +162,16 @@ class RequestBodyLimitMiddleware:
 
         body = bytearray()
         more_body = True
+        deadline = time.monotonic() + UPLOAD_BODY_DEADLINE_SECONDS
         while more_body:
-            message = await receive()
+            try:
+                message = await asyncio.wait_for(
+                    receive(), min(UPLOAD_IDLE_TIMEOUT_SECONDS, max(0.0, deadline - time.monotonic())),
+                )
+            except TimeoutError:
+                scope.setdefault("state", {})["body_timeout"] = True
+                await JSONResponse(status_code=408, content={"detail": REQUEST_BODY_TIMEOUT_MESSAGE})(scope, receive, send)
+                return
             if message["type"] == "http.disconnect":
                 return
             chunk = message.get("body", b"")

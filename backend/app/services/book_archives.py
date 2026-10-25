@@ -21,6 +21,7 @@ from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
 from app.services.raster_images import is_book_image as _is_image
+from app.services.xml_guard import declares_dtd
 
 
 MAX_MEMBERS = 10_000
@@ -147,8 +148,7 @@ def _resolve_member(base: str, href: str) -> str | None:
 
 
 def _xml(data: bytes, label: str) -> ET.Element:
-    # ElementTree does not fetch external entities, but rejecting DTD/entity declarations also prevents expansion work.
-    if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
+    if declares_dtd(data):
         raise BookArchiveError(f"Book {label} contains unsupported XML entities")
     try:
         return ET.fromstring(data)

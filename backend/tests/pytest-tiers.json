@@ -103,6 +103,38 @@
         {
           "nodeid": "tests/test_v1_transcode.py::test_hdr10_tone_maps_in_software",
           "reason": "needs libx265 and zscale (jellyfin-ffmpeg has both)"
+        },
+        {
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_actual_launch_denies_unrelated_files_source_writes_and_all_sockets",
+          "reason": "Linux sandbox; macOS retains portable limits only"
+        },
+        {
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_deadline_and_interrupted_supervision_reap_child",
+          "reason": "Linux sandbox; macOS retains portable limits only"
+        },
+        {
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_metadata_signals_and_process_creation_are_denied_but_threads_work",
+          "reason": "Linux sandbox; macOS retains portable limits only"
+        },
+        {
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_native_book_deadline_and_both_output_limits_reap_child",
+          "reason": "Linux sandbox; macOS retains portable limits only"
+        },
+        {
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_staging_writes_and_installed_native_codecs",
+          "reason": "Linux sandbox; macOS retains portable limits only"
+        },
+        {
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_unavailable_landlock_fails_before_worker_without_fallback",
+          "reason": "Linux sandbox; macOS retains portable limits only"
+        },
+        {
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_x32_abi_is_rejected_by_libseccomp",
+          "reason": "Linux sandbox; macOS retains portable limits only"
+        },
+        {
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_x32_abi_is_rejected_by_libseccomp",
+          "reason": "x32 applies to amd64 only"
         }
       ]
     }

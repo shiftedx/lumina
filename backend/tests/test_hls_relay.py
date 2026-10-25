@@ -496,3 +496,27 @@ def _first_resource_id(manifest: str) -> str:
     ids = _resource_ids(manifest)
     assert ids, "expected at least one rewritten resource"
     return ids[0]
+
+
+def test_relay_scopes_source_credentials_for_cross_origin_playlists_segments_maps_and_keys(monkeypatch) -> None:
+    responses = {url.replace('cdn.example', 'other.example'): value for url, value in default_responses().items() if url != MASTER_URL}
+    responses[MASTER_URL] = (200, {}, MASTER.replace('360p/index.m3u8', 'https://other.example/vod/360p/index.m3u8').encode())
+    service, fetcher = build_service(responses=responses, policy=public_policy({'other.example': ['93.184.216.34']}))
+    seen = []
+    real_fetch = fetcher.fetch
+
+    def recording_fetch(url, **kwargs):  # noqa: ANN001
+        seen.append((url, {name.lower() for name in kwargs.get('headers', {})}))
+        return real_fetch(url, **kwargs)
+
+    monkeypatch.setattr(fetcher, 'fetch', recording_fetch)
+    info = register_info()
+    info['http_headers'] = {'Authorization': 'synthetic', 'Cookie': 'synthetic=1', 'X-Custom-Token': 'synthetic', 'User-Agent': 'fixture-player'}
+    service.register(owner_user_id='user-1', source_url='https://www.twitch.tv/videos/1', info=info)
+    master = drain(service.serve_master('user-1', 'stream-A', 1)).decode()
+    media = drain(service.serve_resource('user-1', 'stream-A', 1, _first_resource_id(master))).decode()
+    for resource_id in _resource_ids(media):
+        assert drain(service.serve_resource('user-1', 'stream-A', 1, resource_id))
+    assert seen[0][0] == MASTER_URL and 'authorization' in seen[0][1]
+    assert len(seen) == 6  # master, media playlist, map, key and two segments
+    assert all(names == {'user-agent'} for _url, names in seen[1:])

@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse, PlainTextResponse
 from app.config import settings
 from app.http_boundaries import (
     MAX_REQUEST_BODY_BYTES,
+    REQUEST_BODY_TIMEOUT_MESSAGE,
     REQUEST_TOO_LARGE_MESSAGE,
     SECURITY_HEADERS,
     RequestBodyLimitMiddleware,
@@ -224,6 +225,78 @@ def test_global_request_limit_rejects_declared_and_chunked_oversized_bodies() ->
     assert chunked[0]["status"] == 413
     assert REQUEST_TOO_LARGE_MESSAGE.encode() in declared[1]["body"]
     assert downstream_called is False
+
+
+def test_a_stalled_ordinary_body_is_rejected_before_routing(monkeypatch) -> None:  # noqa: ANN001
+    from app import http_boundaries
+
+    monkeypatch.setattr(http_boundaries, "UPLOAD_IDLE_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(http_boundaries, "UPLOAD_BODY_DEADLINE_SECONDS", 1)
+    downstream_called = False
+    calls = 0
+    sent: list[dict] = []
+    scope = _scope("POST", "/api/session/login", [(b"content-length", b"20")])
+
+    async def receive():  # noqa: ANN202
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"type": "http.request", "body": b"{", "more_body": True}
+        await asyncio.sleep(1)
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def downstream(scope, receive, send):  # noqa: ANN001
+        nonlocal downstream_called
+        downstream_called = True
+
+    async def send(message):  # noqa: ANN001
+        sent.append(message)
+
+    asyncio.run(asyncio.wait_for(RequestBodyLimitMiddleware(downstream)(scope, receive, send), timeout=2))
+
+    assert downstream_called is False
+    assert scope["state"]["body_timeout"] is True
+    assert sent[0]["status"] == 408
+    assert REQUEST_BODY_TIMEOUT_MESSAGE.encode() in sent[1]["body"]
+
+
+def test_a_trickled_ordinary_body_is_rejected_at_the_absolute_deadline(monkeypatch) -> None:  # noqa: ANN001
+    from app import http_boundaries
+
+    class FakeTime:
+        def __init__(self) -> None:
+            self.values = iter([0.0, 0.0, 0.006, 0.012, 0.018, 0.024])
+
+        def monotonic(self) -> float:
+            return next(self.values)
+
+    monkeypatch.setattr(http_boundaries, "time", FakeTime())
+    monkeypatch.setattr(http_boundaries, "UPLOAD_IDLE_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(http_boundaries, "UPLOAD_BODY_DEADLINE_SECONDS", 0.02)
+    downstream_called = False
+    delivered = 0
+    sent: list[dict] = []
+    scope = _scope("POST", "/api/session/login", [(b"transfer-encoding", b"chunked")])
+
+    async def receive():  # noqa: ANN202
+        nonlocal delivered
+        delivered += 1
+        return {"type": "http.request", "body": b"x", "more_body": True}
+
+    async def downstream(scope, receive, send):  # noqa: ANN001
+        nonlocal downstream_called
+        downstream_called = True
+
+    async def send(message):  # noqa: ANN001
+        sent.append(message)
+
+    asyncio.run(RequestBodyLimitMiddleware(downstream)(scope, receive, send))
+
+    assert delivered == 4
+    assert downstream_called is False
+    assert scope["state"]["body_timeout"] is True
+    assert sent[0]["status"] == 408
+    assert REQUEST_BODY_TIMEOUT_MESSAGE.encode() in sent[1]["body"]
 
 
 # ---- 2.1.0: the upload route shape gets 15 MiB, read through a counter (never buffered before auth) ----

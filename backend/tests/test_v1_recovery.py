@@ -3,18 +3,36 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import fcntl
+from hashlib import sha256
 import json
 import sqlite3
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from app import db as db_module
 from app.config import settings
-from app.db import init_db
+from app.db import get_db, init_db
 from app.main import app
-from app.models import ArrServer, LibraryItem, LibraryNote, ListeningExportConnection, MediaArtifact, ServiceConnector, StorageRoot, User
+from app.models import (
+    ArrServer,
+    DeviceToken,
+    LibraryItem,
+    LibraryNote,
+    ListeningExportConnection,
+    MediaArtifact,
+    MediaCastTicket,
+    MobilePairing,
+    MusicCastTicket,
+    ServiceConnector,
+    StorageRoot,
+    User,
+)
 from app.restore import restore
+from app.routers import chromecast, mobile_connect, music
 from app.security import CSRF_HEADER, hash_password, session_digest
 from app.services import backups
 from app.services.yt_dlp_service import YtDlpService
@@ -125,18 +143,91 @@ def test_backup_incomplete_safe(admin) -> None:  # noqa: ANN001
         restore(path, settings.data_dir.parent / "elsewhere")
 
 
-def test_restored_sessions_invites_revoked(admin, tmp_path) -> None:  # noqa: ANN001
+def test_restored_sessions_invites_and_cast_capabilities_are_revoked(admin, tmp_path) -> None:  # noqa: ANN001
     client, headers = admin
     invite = client.post("/api/admin/invitations", json={"role": "viewer"}, headers=headers).json()
     token = invite["invitation_url"].split("#invite=", 1)[1]
+    music_token, media_token = "captured-sonos-bearer", "captured-chromecast-bearer"
+    with db_module.SessionLocal.begin() as db:
+        db.add(MusicCastTicket(
+            id="music-cast-1", user_id="u1", speaker_id="speaker-1", token_hash=sha256(music_token.encode()).hexdigest(),
+            item_ids=["item-1"], expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=24),
+        ))
+        db.add(MediaCastTicket(
+            id="media-cast-1", user_id="u1", item_id="item-1", token_hash=sha256(media_token.encode()).hexdigest(),
+            expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=15),
+        ))
+    with db_module.SessionLocal.begin() as db:
+        YtDlpService(db).ensure_app_settings()
+    assert client.post("/api/mobile-connect/enable", headers=headers).status_code == 200
+    pairings = []
+    for _ in range(3):
+        created = client.post("/api/mobile-connect", json={"server_url": "https://lumina.example.com"}, headers=headers)
+        assert created.status_code == 201, created.text
+        pairings.append(created.json())
+    pairing_tokens = [json.loads(pair["qr_payload"])["token"] for pair in pairings]
     name = backups.create_backup()["name"]
+    backup = backups.backup_root() / f"{name}.db"
+    # After the snapshot, one handoff stays pending, one is consumed and one is revoked.
+    assert client.post("/api/mobile-connect/claim", json={"token": pairing_tokens[1], "name": "Synthetic phone"}, headers=headers).status_code == 200
+    assert client.delete(f"/api/mobile-connect/{pairings[2]['id']}", headers=headers).status_code == 204
+    assert [client.get(f"/api/mobile-connect/{pair['id']}").json()["status"] for pair in pairings] == ["pending", "used", "revoked"]
+    captured = sqlite3.connect(backup)
+    assert captured.execute("SELECT count(*) FROM music_cast_tickets").fetchone() == (1,)
+    assert captured.execute("SELECT count(*) FROM media_cast_tickets").fetchone() == (1,)
+    assert captured.execute("SELECT count(*) FROM mobile_pairings WHERE used_at IS NULL AND revoked_at IS NULL").fetchone() == (3,)
+    captured.close()
     target = tmp_path / "restored"
-    restore(backups.backup_root() / f"{name}.db", target)
+    restore(backup, target)
     copy = sqlite3.connect(target / settings.database_filename)
     assert copy.execute("SELECT count(*) FROM app_sessions").fetchone() == (0,)
+    assert copy.execute("SELECT count(*) FROM music_cast_tickets").fetchone() == (0,)
+    assert copy.execute("SELECT count(*) FROM media_cast_tickets").fetchone() == (0,)
     revoked = copy.execute("SELECT revoked_at FROM account_tokens WHERE token_digest = ?", (session_digest(token),)).fetchone()
     assert revoked is not None and revoked[0] is not None
     copy.close()
+
+    restored_engine = create_engine(f"sqlite:///{target / settings.database_filename}")
+    restored_app = FastAPI()
+    restored_app.add_api_route("/api/music/cast/{ticket_id}/{item_id}/audio", music.cast_audio, methods=["GET"])
+    restored_app.add_api_route("/api/chromecast/{ticket_id}/media", chromecast.media, methods=["GET"])
+    restored_app.add_api_route("/api/mobile-connect/claim", mobile_connect.claim, methods=["POST"])
+
+    def restored_db():  # noqa: ANN202
+        with Session(restored_engine) as db:
+            yield db
+
+    restored_app.dependency_overrides[get_db] = restored_db
+    with TestClient(restored_app) as restored_client:
+        assert restored_client.get(f"/api/music/cast/music-cast-1/item-1/audio?token={music_token}").status_code == 401
+        assert restored_client.get(f"/api/chromecast/media-cast-1/media?token={media_token}").status_code == 401
+        claims = [restored_client.post("/api/mobile-connect/claim", json={"token": pairing_token, "name": "Restored phone"}).status_code for pairing_token in pairing_tokens]
+        assert claims == [401, 401, 401]
+        with Session(restored_engine) as db:
+            assert db.query(MobilePairing).count() == 0
+            assert db.query(DeviceToken).count() == 0
+    restored_engine.dispose()
+
+
+def test_restore_accepts_a_backup_from_before_cast_ticket_tables(admin, tmp_path) -> None:  # noqa: ANN001
+    name = backups.create_backup()["name"]
+    backup = backups.backup_root() / f"{name}.db"
+    with sqlite3.connect(backup) as old:
+        old.execute("DROP TABLE media_cast_tickets")
+        old.execute("DROP TABLE music_cast_tickets")
+        old.execute("DROP TABLE mobile_pairings")
+        old.execute("PRAGMA user_version = 17")
+    manifest_path = backup.with_suffix(".json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(schema_version=17, size=backup.stat().st_size, sha256=sha256(backup.read_bytes()).hexdigest())
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    target = tmp_path / "restored-old"
+    restore(backup, target)
+    with sqlite3.connect(target / settings.database_filename) as copy:
+        assert copy.execute("SELECT count(*) FROM users").fetchone() == (2,)
+        tables = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "music_cast_tickets" not in tables and "media_cast_tickets" not in tables and "mobile_pairings" not in tables
 
 
 def test_restore_refuses_while_server_holds_data_dir(admin, tmp_path) -> None:  # noqa: ANN001

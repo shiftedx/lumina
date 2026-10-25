@@ -247,3 +247,33 @@ def test_native_import_private_reader_and_checkpoint(api_client, db_factory, fil
     with api_client(user=stranger, base_url="http://localhost") as client:
         for suffix in ['', '/reader', '/cover', '/pages/0']:
             assert client.get(f'/api/books/{book_id}{suffix}').status_code == 404
+
+
+@pytest.mark.parametrize('parser', ['photo', 'book'])
+def test_parser_children_do_not_inherit_application_or_proxy_environment(tmp_path: Path, monkeypatch, parser: str) -> None:
+    import subprocess
+    import sys
+    from app.services import book_native, photo_derivatives
+
+    # Probe the actual launch boundary with synthetic values, without invoking a codec.
+    forbidden = ('LUMINA_PARSER_TEST', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+                 'http_proxy', 'https_proxy', 'all_proxy', 'PYTHONPATH',
+                 'PYTHONSTARTUP', 'LD_PRELOAD', 'DYLD_INSERT_LIBRARIES', 'HOME', 'TMPDIR')
+    for name in forbidden:
+        monkeypatch.setenv(name, '' if name in {'LD_PRELOAD', 'DYLD_INSERT_LIBRARIES'} else 'synthetic-boundary-marker')
+    monkeypatch.setenv('no_proxy', 'synthetic-boundary-marker')
+    probe = (
+        'import json,os,urllib.request; '
+        f'print(json.dumps({{"ok": True, "inherited": [k for k in {forbidden!r} if k in os.environ], '
+        '"proxies": urllib.request.getproxies()}))'
+    )
+    real_popen = subprocess.Popen
+
+    def probing_popen(_argv, **kwargs):
+        return real_popen([sys.executable, '-c', probe], **kwargs)
+
+    monkeypatch.setattr(subprocess, 'Popen', probing_popen)
+    source = tmp_path / 'synthetic.jpg'
+    source.write_bytes(b'synthetic input')
+    result = photo_derivatives._run('inspect', source) if parser == 'photo' else book_native.native_book(source, 'pdf')
+    assert result == {'ok': True, 'inherited': [], 'proxies': {'no': '*'}}

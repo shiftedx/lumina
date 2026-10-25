@@ -168,7 +168,7 @@ class LiveHlsRelayService(HlsRelayService):
         # Fetch the live edge fresh every time (network happens outside the lock);
         # the rewrite that mutates the rolling resource map is serialized so a
         # concurrent segment lookup never observes a half-updated map.
-        text = self._fetch_document(record, resource.url, state.request_headers, self._max_manifest_bytes)
+        text = self._fetch_document(record, resource.url, state.request_headers, self._max_manifest_bytes, credential_url=state.master_url)
         with record.refresh_lock:
             if record.generations.get(generation) is not state:
                 raise StreamNotFoundError("Relay generation not found.")

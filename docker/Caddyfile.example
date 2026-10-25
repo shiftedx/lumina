@@ -4,6 +4,9 @@
 	reverse_proxy lumina:8765 {
 		# Let the edge choose zstd/gzip after the backend sends identity.
 		header_up Accept-Encoding identity
+		# A direct client must not choose the address used for pre-auth throttles.
+		header_up -CF-Connecting-IP
+		header_up -Forwarded
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto https
 	}

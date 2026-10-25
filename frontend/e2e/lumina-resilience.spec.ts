@@ -142,6 +142,7 @@ const automation = {
 };
 
 async function installApi(page: Page, options: { onboarding?: 'pending'; discoveryHome?: 'failing'; channelSuggestions?: 'degraded' } = {}) {
+  let musicSessionRevision = 0;
   const interestCategories = [{ key: 'music', label: 'Music' }, { key: 'cooking', label: 'Cooking' }];
   const interestLabel = (key: string) => interestCategories.find((category) => category.key === key)?.label || key;
   const channelCandidate = (displayName: string, sourceUrl: string, following = false) => ({
@@ -178,6 +179,11 @@ async function installApi(page: Page, options: { onboarding?: 'pending'; discove
     const url = new URL(request.url());
     const path = url.pathname;
     const json = (body: unknown) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (path === '/api/me/music-session' && ['GET', 'PUT'].includes(request.method())) {
+      if (request.method() === 'PUT') musicSessionRevision += 1;
+      return json({ revision: musicSessionRevision, queue: [], current_index: null, position_seconds: 0,
+        repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+    }
     if (path === '/api/books/overview') return json({ totals: { ebooks: 0, manga_series: 0, volumes: 0 }, continue_reading: [], recently_added: [], shelves: [], discover: [] });
     if (path === '/api/books/shelves') return json([]);
     if (path === '/api/library/activity') return json({ scanning_roots: 0, discovering_roots: 0, indexing_roots: 0, preparing_roots: 0, waiting_files: 0, discovered_files: 0, completed_files: 0, total_files: null, progress: null, inspected_files: 0, directories_listed: 0, directories_total: null });
@@ -393,6 +399,14 @@ async function coverEverySurface(page: Page) {
   await expectNoHorizontalOverflow(page);
   await expectEffectiveTargets(page);
 }
+
+test('cold Library Watch checks a canonical shared music output before opening playback', async ({ page }) => {
+  await installApi(page);
+  const sharedOutput = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/me/music-session' && response.request().method() === 'GET');
+  await page.goto('/watch/library/library-1');
+  expect(await (await sharedOutput).json()).toMatchObject({ active_output: { kind: 'browser' } });
+  await expect(page.getByRole('heading', { level: 1, name: LONG_TITLE })).toBeVisible();
+});
 
 test('all primary surfaces reflow at the 320 CSS-pixel narrow standard', async ({ page }) => {
   await openApp(page, 320, 760);

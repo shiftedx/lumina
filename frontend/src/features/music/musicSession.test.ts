@@ -7,6 +7,7 @@ import type { MusicTrack } from './musicTypes';
 
 const mocks = vi.hoisted(() => ({
   forgetCast: vi.fn(),
+  restoreCast: vi.fn(),
   queues: [] as MusicTrack[][],
   getQueue: vi.fn(),
   progress: vi.fn().mockResolvedValue(undefined),
@@ -15,6 +16,9 @@ const mocks = vi.hoisted(() => ({
   streams: [] as FakeController[],
   getShared: vi.fn(),
   putShared: vi.fn(),
+  castControl: vi.fn(),
+  castStatus: vi.fn(),
+  offline: vi.fn(),
 }));
 
 class FakeApiRequestError extends Error {
@@ -63,9 +67,11 @@ vi.mock('../../api', () => ({
   ApiRequestError: FakeApiRequestError,
   getMusicQueue: mocks.getQueue,
   updatePlaybackProgress: mocks.progress,
+  controlMusicCast: mocks.castControl,
+  getMusicCastStatus: mocks.castStatus,
 }));
-vi.mock('./musicOffline', () => ({ offlineTrack: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('./musicCastSession', () => ({ stopMusicCast: mocks.stopCast, forgetMusicCast: mocks.forgetCast, restoreSharedMusicCast: vi.fn() }));
+vi.mock('./musicOffline', () => ({ offlineTrack: mocks.offline }));
+vi.mock('./musicCastSession', () => ({ stopMusicCast: mocks.stopCast, forgetMusicCast: mocks.forgetCast, restoreSharedMusicCast: mocks.restoreCast }));
 vi.mock('./musicSharedSession', () => ({ getMusicSharedSession: mocks.getShared, putMusicSharedSession: mocks.putShared }));
 vi.mock('./musicEngine', () => ({ MusicEngine: FakeEngine, MAX_AUDIO_BYTES: 8, MAX_DECODED_AUDIO_BYTES: 128 * 1024 * 1024 }));
 vi.mock('./musicStream', () => ({ MusicStream: FakeStream }));
@@ -103,6 +109,10 @@ beforeEach(() => {
   mocks.progress.mockReset().mockResolvedValue(undefined);
   mocks.stopCast.mockReset().mockResolvedValue(undefined);
   mocks.forgetCast.mockReset();
+  mocks.restoreCast.mockReset();
+  mocks.castControl.mockReset().mockResolvedValue({});
+  mocks.castStatus.mockReset();
+  mocks.offline.mockReset().mockResolvedValue(undefined);
   mocks.engines.length = 0;
   mocks.streams.length = 0;
   mocks.getShared.mockResolvedValue({ revision: 0, queue: [], current_index: null, position_seconds: 0, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
@@ -137,6 +147,18 @@ describe('musicSession', () => {
     expect(mocks.putShared).not.toHaveBeenCalled();
     session.pauseMusic();
     await vi.waitFor(() => expect(mocks.progress).toHaveBeenCalledWith('server', expect.objectContaining({ position_seconds: 4, playing: false }), { keepalive: true }));
+  });
+
+  it('restores Sonos only from the authenticated shared session and keeps its ticket out of queue storage', async () => {
+    mocks.getShared.mockResolvedValue({ revision: 3, queue: [track('server')], current_index: 0, position_seconds: 4, repeat: 'off', shuffle: false,
+      active_output: { kind: 'sonos', ticket_id: 'server_ticket', speaker_id: 'speaker', queue_indices: [0] }, updated_at: null, removed_count: 0 });
+    const session = await loadSession();
+    session.setMusicOwner('member');
+    await vi.waitFor(() => expect(mocks.restoreCast).toHaveBeenCalledWith(expect.objectContaining({ owner: 'member', ticket: 'server_ticket', playing: false, queueIndices: [0] })));
+    expect(mocks.getShared).toHaveBeenCalled();
+    expect(localStorage.getItem('lumina:music:queue:member')).not.toContain('server_ticket');
+    session.setMusicOwner(null);
+    expect(mocks.forgetCast).toHaveBeenCalledWith('member');
   });
 
   it('preserves a local rewind when its session revision still matches', async () => {
@@ -437,3 +459,32 @@ describe('musicSession', () => {
     mocks.engines.at(-1)?.emit({ index: 1, position: 0, playing: true });
     expect(session.musicSession().sharedEntryIndex).toBe(1);
   });
+
+
+it('resumes and replays established browser music offline using cached audio with the real cast lifecycle', async () => {
+  const cast = await vi.importActual<typeof import('./musicCastSession')>('./musicCastSession');
+  mocks.stopCast.mockImplementation(cast.stopMusicCast);
+  mocks.forgetCast.mockImplementation(cast.forgetMusicCast);
+  mocks.restoreCast.mockImplementation(cast.restoreSharedMusicCast);
+  const session = await loadSession();
+  session.setMusicOwner('offline-member');
+  await session.restoreMusicSharedSession('offline-member');
+  const queue = [track('cached')];
+  mocks.putShared.mockResolvedValue({ revision: 1, queue, current_index: 0, position_seconds: 0, repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+  await session.playMusicQueue(queue);
+  const engine = mocks.engines[0];
+  const cached = new ArrayBuffer(4);
+  mocks.offline.mockResolvedValue({ audio: cached });
+  mocks.getShared.mockRejectedValue(new TypeError('Offline'));
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+  engine.pause.mockImplementationOnce(() => engine.emit({ playing: false }));
+  session.pauseMusic();
+  await session.toggleMusic();
+  expect(engine.resume).toHaveBeenCalledOnce();
+  expect(session.musicSession().playback.playing).toBe(true);
+  await session.playMusicQueue(queue);
+  expect(engine.play).toHaveBeenCalledTimes(2);
+  expect(await engine.options.getAudio!(engine.queue[0], new AbortController().signal)).toBe(cached);
+  expect(mocks.castControl).not.toHaveBeenCalled();
+  expect(localStorage.getItem('lumina:music:cast:offline-member')).toBeNull();
+});

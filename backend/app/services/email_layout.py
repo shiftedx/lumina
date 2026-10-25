@@ -60,7 +60,7 @@ def compose(
     *, subject: str, preheader: str, eyebrow: str, heading: str, why: str,
     paragraphs: tuple[str, ...] = (), meta: str | None = None, poster: str | None = None,
     listing: tuple[str, list[str]] | None = None, note: tuple[str, str] | None = None,
-    button: tuple[str, str] | None = None, fineprint: tuple[str, ...] = (), unsubscribe: str | None = None,
+    button: tuple[str, str] | None = None, fineprint: tuple[str, ...] = (), unsubscribe: str | None = None, image_cid: str | None = None,
     facts: tuple[tuple[str, str], ...] = (), status: str | None = None, progress: int | None = None,
 ) -> tuple[str, str]:
     """(text, html). Every caller value is plain text, escaped here; no caller supplies markup."""
@@ -68,7 +68,7 @@ def compose(
     footer = f"Sent by {SERVER_NAME} at {urlparse(base).netloc or base}."
     text = _text(heading, meta, paragraphs, facts, listing, note, button, fineprint, [why, unsubscribe, footer])
     html = _html(subject, preheader, eyebrow, heading, why, paragraphs, meta, https_url(poster), listing, note, button,
-                 fineprint, unsubscribe, footer, base, facts, status, progress)
+                 fineprint, unsubscribe, footer, base, facts, status, progress, image_cid)
     return text, html
 
 
@@ -101,7 +101,7 @@ def _progress(step: int) -> str:
 
 
 def _html(subject, preheader, eyebrow, heading, why, paragraphs, meta, poster, listing, note, button, fineprint,  # noqa: ANN001, PLR0913
-          unsubscribe, footer, base, facts, status, progress) -> str:
+          unsubscribe, footer, base, facts, status, progress, image_cid) -> str:
     e = escape
     label = f"font-family:{SANS};font-size:11px;line-height:1.4;font-weight:600;letter-spacing:.12em;text-transform:uppercase"
     body = f"font-family:{SANS};font-size:15px;line-height:1.65;color:{INK_2}"
@@ -128,6 +128,8 @@ def _html(subject, preheader, eyebrow, heading, why, paragraphs, meta, poster, l
 
     rows = [f'<tr><td style="padding-bottom:22px">{title_block}</td></tr>']
     rows += [f'<tr><td class="lm-ink2" style="padding-bottom:18px;{body}">{e(text)}</td></tr>' for text in paragraphs]
+    if image_cid:
+        rows.append(f'<tr><td align="center" style="padding:0 0 24px"><img src="cid:{e(image_cid, quote=True)}" width="240" height="240" alt="Mobile connection QR code" style="display:block;width:240px;height:240px;border:0"></td></tr>')
     if facts:
         cells = []
         for i, (name, value) in enumerate(facts):

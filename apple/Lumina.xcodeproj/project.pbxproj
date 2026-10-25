@@ -68,6 +68,7 @@
 		F599CD444E8B163A5431E3A9 /* TVMediaDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025107FD778D5100813EEE31 /* TVMediaDetailView.swift */; };
 		F5B0240E517BA8922A99B55F /* NativeBookText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0EBAA5842AC90340C8E0E5 /* NativeBookText.swift */; };
 		F8A8360A940EA872E7A225DF /* NativeMusicLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */; };
+		FF52EACBD79D7B2000EEF1B2 /* MobilePairScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34453117E4BDD0C2E7FDB62C /* MobilePairScanner.swift */; };
 		FFE152FE4201A2D038064057 /* NativeRequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C2BCCD8AD7583AD47A8A64 /* NativeRequestsView.swift */; };
 /* End PBXBuildFile section */
 
@@ -96,6 +97,7 @@
 		22591C6BC23A526CD10749CA /* LuminaIconControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaIconControls.swift; sourceTree = "<group>"; };
 		2B8A23EF15E413E17B6142A1 /* NativeBooksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBooksView.swift; sourceTree = "<group>"; };
 		2E804B5D3304229A2484E08D /* SubjectAwareArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubjectAwareArtwork.swift; sourceTree = "<group>"; };
+		34453117E4BDD0C2E7FDB62C /* MobilePairScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairScanner.swift; sourceTree = "<group>"; };
 		472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		498D77C6C2E6F8875A165336 /* Lumina-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Lumina-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		4C28F4FC69F8D5727468CEFE /* Newsreader-Latin-variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Newsreader-Latin-variable.ttf"; sourceTree = "<group>"; };
@@ -261,6 +263,7 @@
 		CC169E5289CF31A0E56000A5 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
+				34453117E4BDD0C2E7FDB62C /* MobilePairScanner.swift */,
 				579E2238336BCFC991DB98C2 /* MobileRootView.swift */,
 				EBDC1F7C8ABA920BF6757F1C /* NativeAccountSettingsView.swift */,
 				892B855BCAA4EAABD1E4FC4B /* NativeBookReader.swift */,
@@ -538,6 +541,7 @@
 				612AF373518D002E141520EE /* LuminaProofApp.swift in Sources */,
 				3D9A96C5CA2959005785C51A /* LuminaTheme.swift in Sources */,
 				292EEFC353A11406224E2843 /* MediaPresentation.swift in Sources */,
+				FF52EACBD79D7B2000EEF1B2 /* MobilePairScanner.swift in Sources */,
 				4EF0451490EA651843F91037 /* MobileRootView.swift in Sources */,
 				1B021205E272789120A7F7E0 /* NativeAccountSettingsView.swift in Sources */,
 				B84363C8E8679421FC58F162 /* NativeAudioOptions.swift in Sources */,

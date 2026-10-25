@@ -3197,6 +3197,7 @@ class NativeProofJourney: XCTestCase {
     func journeyMobileWelcome() async throws {
         let fixture = try loadFixture()
         try launchAndResetSession()
+        try revealManualConnection()
         try waitForHittable(element("serverURLField"), timeout: 20, named: "Server address")
         XCTAssertFalse(element("connectButton").isEnabled, "Empty credentials must not submit.")
         XCTAssertFalse(element("connectionHelpSheet").exists)
@@ -4981,24 +4982,49 @@ class NativeProofJourney: XCTestCase {
         app.launch()
 
         let loginField = element("serverURLField")
+        #if os(iOS)
+        let qrOption = element("advancedConnectionButton")
+        #endif
         #if os(tvOS)
         let destinations = ["homeScreen", "libraryScreen", "audioScreen", "deviceSettingsScreen"]
         #else
         let destinations = ["homeScreen", "libraryScreen", "audioScreen", "accountScreen"]
         #endif
-        guard appears(loginField, timeout: 10) || waitUntil(timeout: 30, condition: {
-            destinations.contains { self.hasVisibleFrame(self.element($0)) }
+        guard waitUntil(timeout: 30, condition: {
+            #if os(iOS)
+            if self.hasVisibleFrame(qrOption) { return true }
+            #endif
+            return self.hasVisibleFrame(loginField) || destinations.contains { self.hasVisibleFrame(self.element($0)) }
         }) else {
             throw ProofFailure.ui("The app did not reach the connection form or a visible destination after launch.")
         }
 
+        #if os(iOS)
+        if hasVisibleFrame(qrOption) { return }
+        #endif
         if !hasVisibleFrame(loginField) {
             try signOutThroughAccount()
+            #if os(iOS)
+            try revealManualConnection()
+            #endif
             try waitForExistence(loginField, timeout: 20, named: "connection form after sign out")
         }
     }
 
+    #if os(iOS)
+    private func revealManualConnection() throws {
+        guard !hasVisibleFrame(element("serverURLField")) else { return }
+        let advanced = element("advancedConnectionButton")
+        try waitForHittable(advanced, timeout: 20, named: "Advanced manual connection")
+        XCTAssertFalse(element("passwordField").exists, "Manual credentials stay hidden while scanning.")
+        try activate(advanced)
+    }
+    #endif
+
     private func signIn(using fixture: ProofFixture) throws {
+        #if os(iOS)
+        try revealManualConnection()
+        #endif
         let serverField = element("serverURLField")
         let usernameField = element("usernameField")
         let passwordField = element("passwordField")

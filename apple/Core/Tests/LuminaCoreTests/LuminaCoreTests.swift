@@ -32,6 +32,77 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertNil(withoutProbe.mediaStreams)
     }
 
+    func testMobilePairingPayloadRejectsUnsupportedAndUnsafeCodes() throws {
+        let accepted = try MobilePairingPayload(scannedCode: """
+        {"type":"lumina-pair","version":1,"server_url":"https://lumina.example:8443","token":"one-time"}
+        """)
+        XCTAssertEqual(accepted.serverURL.absoluteString, "https://lumina.example:8443")
+        var link = URLComponents()
+        link.scheme = "lumina"
+        link.host = "pair"
+        link.fragment = "{\"type\":\"lumina-pair\",\"version\":1,\"server_url\":\"https://lumina.example:8443\",\"token\":\"one-time\"}"
+        XCTAssertEqual(try MobilePairingPayload(deepLink: XCTUnwrap(link.url)).serverURL, accepted.serverURL)
+        XCTAssertThrowsError(try MobilePairingPayload(deepLink: URL(string: "lumina://other#code")!))
+        XCTAssertThrowsError(try MobilePairingPayload(deepLink: URL(string: "lumina://pair?code=value#code")!))
+        XCTAssertThrowsError(try MobilePairingPayload(scannedCode: "{\"type\":\"other\",\"version\":1,\"server_url\":\"https://lumina.example\",\"token\":\"one-time\"}"))
+        XCTAssertThrowsError(try MobilePairingPayload(scannedCode: "{\"type\":\"lumina-pair\",\"version\":2,\"server_url\":\"https://lumina.example\",\"token\":\"one-time\"}"))
+        XCTAssertThrowsError(try MobilePairingPayload(scannedCode: "{\"type\":\"lumina-pair\",\"version\":1,\"server_url\":\"https://lumina.example/path\",\"token\":\"one-time\"}"))
+        XCTAssertThrowsError(try MobilePairingPayload(scannedCode: "{\"type\":\"lumina-pair\",\"version\":1,\"server_url\":\"https://lumina.example:\",\"token\":\"one-time\"}"))
+    }
+
+    func testMobilePairingClaimsOnlyScannedOriginAndStoresSession() async throws {
+        let credentials = TestCredentials()
+        let client = LuminaClient(configuration: mockConfiguration())
+        let store = LuminaStore(client: client, credentials: credentials)
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/api/mobile-connect/claim":
+                return response(request, json: ["username": "member", "password": "app-password", "server_url": "http://127.0.0.1:8765"])
+            case "/System/Info/Public": return response(request, json: ["ServerName": "Lumina"])
+            case "/Users/AuthenticateByName": return response(request, json: ["AccessToken": "paired-token", "User": ["Id": "user-1", "Name": "member", "ServerName": "Lumina"]])
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.connect(pairingCode: "{\"type\":\"lumina-pair\",\"version\":1,\"server_url\":\"http://127.0.0.1:8765\",\"token\":\"one-time\"}", appName: "Lumina for iPhone")
+
+        let claim = try XCTUnwrap(requests.all.first { $0.url?.path == "/api/mobile-connect/claim" })
+        XCTAssertEqual(try body(claim)["token"] as? String, "one-time")
+        XCTAssertEqual(try body(claim)["name"] as? String, "Lumina for iPhone")
+        XCTAssertEqual(store.session?.accessToken, "paired-token")
+        XCTAssertEqual(credentials.stored?.serverURL.absoluteString, "http://127.0.0.1:8765")
+        XCTAssertNil(store.errorMessage)
+    }
+
+    func testMobilePairingDoesNotForwardClaimedPasswordToAnotherOrigin() async throws {
+        let client = LuminaClient(configuration: mockConfiguration())
+        let store = LuminaStore(client: client, credentials: TestCredentials())
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            return response(request, json: ["username": "member", "password": "app-password", "server_url": "https://elsewhere.example"])
+        }
+
+        await store.connect(pairingCode: "{\"type\":\"lumina-pair\",\"version\":1,\"server_url\":\"http://127.0.0.1:8765\",\"token\":\"one-time\"}", appName: "Lumina for iPhone")
+
+        XCTAssertEqual(requests.all.map { $0.url?.path }, ["/api/mobile-connect/claim"])
+        XCTAssertNil(store.session)
+        XCTAssertEqual(store.errorMessage, "This code belongs to a different server.")
+    }
+
+    func testMobilePairingExplainsAnUnreachableServer() async throws {
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials())
+        MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
+
+        await store.connect(pairingCode: "{\"type\":\"lumina-pair\",\"version\":1,\"server_url\":\"http://127.0.0.1:8765\",\"token\":\"one-time\"}", appName: "Lumina for iPhone")
+
+        XCTAssertEqual(store.errorMessage, "Cannot reach this server. Check Wi-Fi or VPN.")
+    }
+
     func testConnectLoadsLibraryAndSendsMediaBrowserCredentials() async throws {
         let credentials = TestCredentials()
         let client = LuminaClient(configuration: mockConfiguration())

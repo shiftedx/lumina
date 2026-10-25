@@ -62,13 +62,16 @@ class Smtp:
         return cls(record.smtp_host, port, security, record.smtp_username or None, record.smtp_password or None, record.smtp_from)
 
 
-def send(smtp: Smtp, to: str, subject: str, body: str, html: str | None = None) -> None:
+def send(smtp: Smtp, to: str, subject: str, body: str, html: str | None = None, attachment: tuple[str, bytes, str, str] | None = None) -> None:
     """Send one message now (raises smtplib/OS errors). Callers off the event loop only."""
     message = EmailMessage()
     message["From"], message["To"], message["Subject"] = smtp.sender, to, subject
     message.set_content(body)
     if html:
         message.add_alternative(html, subtype="html")
+        if attachment:
+            filename, data, maintype, subtype = attachment
+            message.get_payload()[-1].add_related(data, maintype=maintype, subtype=subtype, cid="<mobile-pair-qr>", filename=filename)
     context = ssl.create_default_context()
     if smtp.security == "ssl":
         client: smtplib.SMTP = smtplib.SMTP_SSL(smtp.host, smtp.port, timeout=TIMEOUT_SECONDS, context=context)

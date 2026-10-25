@@ -5,7 +5,8 @@ import LuminaCore
 @MainActor
 struct LuminaProofApp: App {
     @State private var store = makeStore()
-    @State private var didRestore = false
+    @State private var restorationStarted = false
+    @State private var isRestoring = true
 
     private static func makeStore() -> LuminaStore {
         #if LUMINA_UI_TESTING
@@ -23,14 +24,15 @@ struct LuminaProofApp: App {
                 #if os(tvOS)
                 TVRootView(store: store)
                 #else
-                MobileRootView(store: store)
+                MobileRootView(store: store, isRestoring: isRestoring)
                 #endif
             }
             .defaultAppStorage(LuminaPreferences.defaults)
             .task {
-                guard !didRestore else { return }
-                didRestore = true
+                guard !restorationStarted else { return }
+                restorationStarted = true
                 await store.restore()
+                isRestoring = false
             }
         }
     }

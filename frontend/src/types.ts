@@ -1579,6 +1579,25 @@ export interface AppPasswordCreated {
   local_server_address?: string | null;
 }
 
+export interface MobileConnectStatus {
+  enabled: boolean;
+  email_configured: boolean;
+}
+
+export interface MobileConnectCode {
+  id: string;
+  server_url: string;
+  expires_at: string;
+  qr_payload: string;
+  qr_size: number;
+  qr_path: string;
+  email_sent: boolean | null;
+}
+
+export interface MobileConnectCodeStatus {
+  status: 'pending' | 'used' | 'expired' | 'revoked';
+}
+
 export interface TwoFactorChallenge {
   two_factor_required: true;
   challenge: string;

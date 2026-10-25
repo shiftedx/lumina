@@ -1,9 +1,10 @@
 import { flushSync } from 'react-dom';
 import { Menu as MenuIcon, Plus, Search } from '../luminaIcons';
-import { type CSSProperties, type RefObject } from 'react';
+import { type CSSProperties, type RefObject, useState } from 'react';
 import { providerBlocked, useAccess } from '../features/access/access';
 import { openMemberPicker, requestHomeEdit } from './commands';
 import { useDeviceRingSize } from '../features/auth/memberPicker';
+import { MobileConnectDialog } from '../features/mobileConnect/MobileConnectDialog';
 import type { ThemePreference } from '../theme';
 import type { LibraryActivity, UserProfile } from '../types';
 import { Avatar, BrandMark, Button, IconButton, Kbd, Menu, modKeyLabel, Popover, StatusText } from '../ui';
@@ -102,6 +103,7 @@ export function TopBar(props: TopBarProps) {
   const indeterminate = artworkActive || (scanning && indexingProgress === null);
   const ringProgress = indexingProgress === null ? (active ? 360 : 0) : Math.round(indexingProgress * 3.6);
   const shortcut = modKeyLabel();
+  const [mobileConnectOpen, setMobileConnectOpen] = useState(false);
   const activityButton = (triggerProps: Record<string, unknown> = {}) => (
     <button {...triggerProps} aria-label={label} className="g-activity" type="button">
       <span aria-hidden="true" className={`g-activity-ring${indeterminate ? ' is-indeterminate' : ''}`} style={{ '--progress': `${ringProgress}deg` } as CSSProperties} />
@@ -167,6 +169,7 @@ export function TopBar(props: TopBarProps) {
             { kind: 'group', label: `${name} · ${user.role === 'admin' ? 'Vault owner' : 'Household member'}` },
             { kind: 'item', label: ringSize === 0 ? 'Sign in as someone else…' : 'Switch member…', onSelect: openMemberPicker },
             { kind: 'item', label: 'Edit home', onSelect: () => { flushSync(props.onHome); requestAnimationFrame(() => requestHomeEdit()); } },
+            { kind: 'item', label: 'Mobile connect', onSelect: () => setMobileConnectOpen(true) },
             { kind: 'item', label: 'My Settings', onSelect: props.onSettings },
             ...(props.onManageServer ? [{ kind: 'item' as const, label: 'Manage Server', onSelect: props.onManageServer }] : []),
             { kind: 'group', label: 'Theme' },
@@ -181,6 +184,7 @@ export function TopBar(props: TopBarProps) {
             <button {...triggerProps} aria-label={`${name}, account menu`} className="g-profile-trigger" type="button"><Avatar decorative name={name} size={34} /></button>
           )}
         />
+        {mobileConnectOpen ? <MobileConnectDialog onClose={() => setMobileConnectOpen(false)} open user={user} /> : null}
       </div>
     </header>
   );

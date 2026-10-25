@@ -45,6 +45,10 @@ final class LuminaClient: @unchecked Sendable {
         return try await json(request(origin: origin, path: "/Users/AuthenticateByName", method: "POST", deviceID: deviceID, body: body))
     }
 
+    func claimMobileConnect(origin: URL, token: String, name: String) async throws -> MobileConnectClaim {
+        try await json(request(origin: origin, path: "/api/mobile-connect/claim", method: "POST", body: ["token": token, "name": name]))
+    }
+
     func me(origin: URL, token: String, deviceID: String) async throws -> UserInfo {
         try await json(request(origin: origin, path: "/Users/Me", token: token, deviceID: deviceID))
     }
@@ -528,7 +532,7 @@ private let platformName: String = {
     #endif
 }()
 
-private func sameOrigin(_ left: URL, _ right: URL) -> Bool {
+func sameOrigin(_ left: URL, _ right: URL) -> Bool {
     let a = URLComponents(url: left, resolvingAgainstBaseURL: false)
     let b = URLComponents(url: right, resolvingAgainstBaseURL: false)
     return a?.scheme?.lowercased() == b?.scheme?.lowercased()

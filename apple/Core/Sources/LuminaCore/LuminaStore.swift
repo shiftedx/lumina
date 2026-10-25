@@ -115,6 +115,42 @@ let tickScale = 10_000_000.0
         }
     }
 
+    public func connect(pairingCode: String, appName: String) async {
+        guard canStartPairing() else { return }
+        do {
+            try await connect(pairing: MobilePairingPayload(scannedCode: pairingCode), appName: appName)
+        } catch {
+            errorMessage = Self.pairingMessage(for: error)
+        }
+    }
+
+    public func connect(pairingLink: URL, appName: String) async {
+        guard canStartPairing() else { return }
+        do {
+            try await connect(pairing: MobilePairingPayload(deepLink: pairingLink), appName: appName)
+        } catch {
+            errorMessage = Self.pairingMessage(for: error)
+        }
+    }
+
+    private func connect(pairing payload: MobilePairingPayload, appName: String) async throws {
+        isBusy = true
+        errorMessage = nil
+        defer { isBusy = false }
+        let claimed = try await client.claimMobileConnect(origin: payload.serverURL, token: payload.token, name: appName)
+        let returnedOrigin = try ServerOrigin(claimed.serverURL).url
+        guard sameOrigin(payload.serverURL, returnedOrigin) else { throw LuminaError.unsafeURL }
+        _ = try await client.publicInfo(origin: returnedOrigin)
+        let deviceID = try credentials.deviceID()
+        let signedIn = try await client.authenticate(origin: returnedOrigin, username: claimed.username, password: claimed.password, deviceID: deviceID)
+        let checked = try await client.me(origin: returnedOrigin, token: signedIn.token, deviceID: deviceID)
+        let saved = LuminaSession(serverURL: returnedOrigin, accessToken: signedIn.token, userID: checked.id,
+                                  username: checked.name, serverName: signedIn.serverName, deviceID: deviceID)
+        try credentials.save(session: saved)
+        session = saved
+        await refresh()
+    }
+
     /// Starts the platform monitor once. `restore()` also calls this so a cold offline
     /// launch obtains a durable local library without relying on a view lifetime.
     public func startConnectivityMonitoring() {
@@ -1074,6 +1110,26 @@ let tickScale = 10_000_000.0
         return "Could not reach the Lumina server."
     }
 
+    private static func pairingMessage(for error: Error) -> String {
+        if let error = error as? LuminaError, case .unsafeURL = error {
+            return "This code belongs to a different server."
+        }
+        if error is URLError { return "Cannot reach this server. Check Wi-Fi or VPN." }
+        return "That code is unavailable. Scan a new one."
+    }
+
+    private func canStartPairing() -> Bool {
+        guard session == nil else {
+            errorMessage = "Sign out before connecting another server."
+            return false
+        }
+        guard !isBusy else {
+            errorMessage = "Connection already in progress."
+            return false
+        }
+        return true
+    }
+
     private func isCurrent(_ candidate: LuminaSession) -> Bool {
         session?.serverURL == candidate.serverURL && session?.accessToken == candidate.accessToken && session?.userID == candidate.userID
     }
@@ -1086,8 +1142,14 @@ public enum LuminaError: Error, Equatable {
 struct ServerOrigin {
     let url: URL
     init(_ value: String) throws {
-        guard var parts = URLComponents(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let authority = value.range(of: "://").map { range in
+            value[range.upperBound...].prefix { $0 != "/" && $0 != "?" && $0 != "#" }
+        }
+        guard authority?.last != ":",
+              var parts = URLComponents(string: value),
               let scheme = parts.scheme?.lowercased(), ["http", "https"].contains(scheme), parts.host != nil,
+              parts.port.map({ (1...65_535).contains($0) }) != false,
               parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
               parts.path.isEmpty || parts.path == "/" else { throw LuminaError.invalidOrigin }
         parts.scheme = scheme

@@ -1,5 +1,7 @@
 import SwiftUI
 import UIKit
+import AVFoundation
+import VisionKit
 import LuminaCore
 
 private extension EnvironmentValues {
@@ -9,17 +11,24 @@ private extension EnvironmentValues {
 @MainActor
 struct MobileRootView: View {
     @Bindable var store: LuminaStore
+    let isRestoring: Bool
     @State private var audioSession = NativeAudioSession()
     @State private var userSettings = LuminaUserSettings()
     @State private var hasShownOnlineShell = false
     @AppStorage("lumina.appearance") private var appearance = "dark"
     @AppStorage("native.appearance") private var deviceAppearance = "account"
     @Environment(\.scenePhase) private var scenePhase
+    @State private var incomingPairingLink: URL?
+    @State private var pairingLinkMessage: String?
 
     var body: some View {
         Group {
-            if store.session == nil {
-                ConnectionView(store: store)
+            if isRestoring && store.session == nil {
+                ProgressView()
+            } else if store.session == nil {
+                ConnectionView(store: store, incomingPairingLink: incomingPairingLink) {
+                    incomingPairingLink = nil
+                }
             } else {
                 ZStack {
                     if !store.isOffline || hasShownOnlineShell {
@@ -69,6 +78,26 @@ struct MobileRootView: View {
             } else if phase == .background {
                 Task { await audioSession.flushCheckpoint() }
             }
+        }
+        .onOpenURL { link in
+            guard store.session == nil else {
+                pairingLinkMessage = "Sign out before connecting another server."
+                return
+            }
+            incomingPairingLink = link
+        }
+        .onChange(of: isRestoring) { _, restoring in
+            guard !restoring, incomingPairingLink != nil, store.session != nil else { return }
+            incomingPairingLink = nil
+            pairingLinkMessage = "Sign out before connecting another server."
+        }
+        .alert("Mobile connect", isPresented: Binding(
+            get: { pairingLinkMessage != nil },
+            set: { if !$0 { pairingLinkMessage = nil } }
+        )) {
+            Button("OK") { pairingLinkMessage = nil }
+        } message: {
+            Text(pairingLinkMessage ?? "")
         }
     }
 
@@ -234,10 +263,17 @@ struct NativeOfflineLibraryView: View {
 @MainActor
 private struct ConnectionView: View {
     @Bindable var store: LuminaStore
+    let incomingPairingLink: URL?
+    let onPairingLinkHandled: () -> Void
 
     @State private var server = ""
     @State private var username = ""
     @State private var password = ""
+    @State private var scannerAvailable = false
+    @State private var showScanner = false
+    @State private var showManual = false
+    @State private var manualRequested = false
+    @State private var claimingPair = false
     @FocusState private var focusedField: Field?
 
     private enum Field { case server, username, password }
@@ -303,6 +339,33 @@ private struct ConnectionView: View {
                 }
             } catch { }
         }
+        .task {
+            if let incomingPairingLink {
+                onPairingLinkHandled()
+                claim(link: incomingPairingLink)
+            } else {
+                await prepareScanner()
+            }
+        }
+        .onChange(of: incomingPairingLink) { _, link in
+            guard let link else { return }
+            onPairingLinkHandled()
+            claim(link: link)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                showScanner = false
+            } else if !manualRequested, !claimingPair {
+                Task { await prepareScanner() }
+            }
+        }
+        .onChange(of: helpPresented) { _, presented in
+            if presented {
+                showScanner = false
+            } else if !manualRequested, !claimingPair {
+                Task { await prepareScanner() }
+            }
+        }
         .sheet(isPresented: $helpPresented) {
             NavigationStack {
                 ScrollView {
@@ -338,48 +401,97 @@ private struct ConnectionView: View {
                     .font(LuminaTheme.editorial(28, relativeTo: .title2))
                     .tracking(2.4)
             }
-            Text("Sign in").font(.title2.weight(.semibold))
+            Text(showManual ? "Sign in" : "Connect your device")
+                .font(.title2.weight(.semibold))
 
-            VStack(spacing: 8) {
-                ConnectionField(active: focusedField == .server) {
-                    TextField("Server address", text: $server, prompt: Text("Server address").foregroundStyle(.white.opacity(0.7)))
-                        .keyboardType(.URL)
-                        .textContentType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($focusedField, equals: .server)
-                        .submitLabel(.next)
-                        .onSubmit { focusedField = .username }
-                        .accessibilityLabel("Server URL")
-                        .accessibilityIdentifier("serverURLField")
-                }
-                ConnectionField(active: focusedField == .username) {
-                    TextField("Lumina username", text: $username, prompt: Text("Lumina username").foregroundStyle(.white.opacity(0.7)))
-                        .textContentType(.username)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($focusedField, equals: .username)
-                        .submitLabel(.next)
-                        .onSubmit { focusedField = .password }
-                        .accessibilityLabel("Username")
-                        .accessibilityIdentifier("usernameField")
-                }
-                ConnectionField(active: focusedField == .password) {
-                    SecureField("Password or app password", text: $password, prompt: Text("Password or app password").foregroundStyle(.white.opacity(0.7)))
-                        .textContentType(.password)
-                        .focused($focusedField, equals: .password)
-                        .submitLabel(.go)
-                        .onSubmit { connect() }
-                        .accessibilityLabel("Password")
-                        .accessibilityIdentifier("passwordField")
-                }
-            }
+            connectionMethod
             if let message = store.errorMessage, !message.isEmpty {
                 Label(message, glyph: .warning)
                     .font(.callout)
                     .accessibilityElement(children: .combine)
                     .accessibilityAddTraits(.isStaticText)
                     .accessibilityIdentifier("connectionError")
+            }
+            Button("Connection help") { focusedField = nil; helpPresented = true }
+                .buttonStyle(LuminaQuietActionStyle())
+                .accessibilityIdentifier("connectionHelpButton")
+        }
+    }
+
+    @ViewBuilder private var connectionMethod: some View {
+        if claimingPair {
+            ProgressView("Connecting…")
+                .frame(maxWidth: .infinity, minHeight: 280)
+        } else if showScanner {
+            VStack(spacing: 14) {
+                MobilePairScanner(onCode: claim(code:), onUnavailable: scannerUnavailable)
+                    .frame(height: 280)
+                    .clipShape(.rect(cornerRadius: 16))
+                    .accessibilityLabel("QR code scanner")
+                Text("Scan the code from Lumina.")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.74))
+                Button("Advanced") {
+                    showScanner = false
+                    showManual = true
+                    manualRequested = true
+                }
+                .buttonStyle(LuminaQuietActionStyle())
+                .accessibilityIdentifier("advancedConnectionButton")
+            }
+        } else if showManual {
+            manualConnection
+        } else if scannerAvailable {
+            VStack(spacing: 14) {
+                Button("Scan new code") { showScanner = true }
+                    .buttonStyle(LuminaQuietActionStyle(primary: true))
+                    .accessibilityIdentifier("scanPairingCodeButton")
+                Button("Advanced") {
+                    showManual = true
+                    manualRequested = true
+                }
+                .buttonStyle(LuminaQuietActionStyle())
+                .accessibilityIdentifier("advancedConnectionButton")
+            }
+        } else {
+            ProgressView()
+                .frame(maxWidth: .infinity, minHeight: 160)
+        }
+    }
+
+    private var manualConnection: some View {
+        VStack(spacing: 8) {
+            ConnectionField(active: focusedField == .server) {
+                TextField("Server address", text: $server, prompt: Text("Server address").foregroundStyle(.white.opacity(0.7)))
+                    .keyboardType(.URL)
+                    .textContentType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .server)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .username }
+                    .accessibilityLabel("Server URL")
+                    .accessibilityIdentifier("serverURLField")
+            }
+            ConnectionField(active: focusedField == .username) {
+                TextField("Lumina username", text: $username, prompt: Text("Lumina username").foregroundStyle(.white.opacity(0.7)))
+                    .textContentType(.username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .username)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .password }
+                    .accessibilityLabel("Username")
+                    .accessibilityIdentifier("usernameField")
+            }
+            ConnectionField(active: focusedField == .password) {
+                SecureField("Password or app password", text: $password, prompt: Text("Password or app password").foregroundStyle(.white.opacity(0.7)))
+                    .textContentType(.password)
+                    .focused($focusedField, equals: .password)
+                    .submitLabel(.go)
+                    .onSubmit { connect() }
+                    .accessibilityLabel("Password")
+                    .accessibilityIdentifier("passwordField")
             }
             Button(action: connect) {
                 HStack(spacing: 10) {
@@ -392,9 +504,15 @@ private struct ConnectionView: View {
             .disabled(!canConnect || store.isBusy)
             .accessibilityIdentifier("connectButton")
 
-            Button("Connection help") { focusedField = nil; helpPresented = true }
+            if scannerAvailable {
+                Button("Scan code") {
+                    manualRequested = false
+                    showManual = false
+                    showScanner = true
+                }
                 .buttonStyle(LuminaQuietActionStyle())
-                .accessibilityIdentifier("connectionHelpButton")
+                .accessibilityIdentifier("scanPairingCodeButton")
+            }
         }
     }
 
@@ -409,6 +527,65 @@ private struct ConnectionView: View {
             await store.connect(server: server, username: username, password: password)
             password = ""
         }
+    }
+
+    private func prepareScanner() async {
+        guard !manualRequested, !claimingPair, !helpPresented, scenePhase == .active else { return }
+        guard DataScannerViewController.isSupported else {
+            showManual = true
+            return
+        }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            break
+        case .notDetermined:
+            guard await AVCaptureDevice.requestAccess(for: .video) else {
+                showManual = true
+                return
+            }
+        default:
+            showManual = true
+            return
+        }
+        guard !manualRequested, !claimingPair, !helpPresented, scenePhase == .active else { return }
+        guard DataScannerViewController.isAvailable else {
+            showManual = true
+            return
+        }
+        scannerAvailable = true
+        showManual = false
+        showScanner = true
+    }
+
+    private func scannerUnavailable() {
+        scannerAvailable = false
+        showScanner = false
+        showManual = true
+    }
+
+    private func claim(code: String) {
+        guard !claimingPair else { return }
+        claimingPair = true
+        showScanner = false
+        Task {
+            await store.connect(pairingCode: code, appName: pairingAppName)
+            claimingPair = false
+        }
+    }
+
+    private func claim(link: URL) {
+        guard !claimingPair else { return }
+        claimingPair = true
+        showScanner = false
+        Task {
+            await store.connect(pairingLink: link, appName: pairingAppName)
+            claimingPair = false
+            if store.session == nil, !manualRequested { await prepareScanner() }
+        }
+    }
+
+    private var pairingAppName: String {
+        "Lumina for \(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone")"
     }
 }
 

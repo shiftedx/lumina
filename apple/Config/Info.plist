@@ -23,6 +23,15 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your household Lumina server to browse and play your library.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Scan a Lumina mobile connection code.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array><string>lumina</string></array>
+		</dict>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

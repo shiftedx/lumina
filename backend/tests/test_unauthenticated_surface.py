@@ -27,6 +27,8 @@ ANONYMOUS = {
     ("POST", "/api/session/two-factor"),  # a password-verified, client-bound challenge plus its code
     ("POST", "/api/session/switch"),
     ("POST", "/api/session/forget"),
+    # A high-entropy, one-use 5/15-minute bearer code is the deliberate public handoff to a native client; rate limited.
+    ("POST", "/api/mobile-connect/claim"),
     ("POST", "/api/password-reset/redeem"),
     ("POST", "/api/invitations/redeem"),
     ("GET", "/api/art/{sig}/{title_id}/{image_type}/{file}"),  # HMAC-signed image URLs
@@ -60,6 +62,7 @@ def test_in_handler_auth_routes_refuse_a_valid_body_without_a_session() -> None:
         assert client.post("/api/preview", json={"source_url": "https://example.com/v"}).status_code == 401
         assert client.post("/api/youtube-search", json={"query": "x"}).status_code == 401
         assert client.post("/api/source-search", json={"query": "x"}).status_code == 401
+    assert client.post("/api/mobile-connect/claim", json={"token": "x" * 32, "name": "Phone"}).status_code == 401
 
 
 def test_api_docs_are_off_by_default() -> None:

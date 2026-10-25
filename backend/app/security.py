@@ -120,10 +120,22 @@ def validate_state_changing_request(request: Request) -> str | None:
     if request.method.upper() not in UNSAFE_HTTP_METHODS:
         return None
 
+    # Apple posts across origins. Only its configured callback bypasses the Origin
+    # gate; the handler requires single-use state AND an HttpOnly browser binding.
+    if request.method == "POST":
+        from app.services.oauth import provider_for
+        match = re.fullmatch(r"/api/session/oauth/([a-z][a-z0-9-]{0,39})/callback", request.url.path)
+        if match and (provider := provider_for(match[1])) and provider.apple:
+            return None
+
     # An untrusted Origin/Referer is rejected even when an Authorization header
     # is present: a browser that has cached HTTP Basic credentials attaches them
     # to cross-site requests just like a cookie, so header auth must not bypass
     # the origin allowlist (issue #114).
+    # A present opaque/malformed Origin is untrusted, not a headerless native
+    # client. Never let it fall back to an allowed Referer or cached Basic auth.
+    if "origin" in request.headers and normalize_origin(request.headers["origin"]) is None:
+        return "Untrusted request origin"
     request_origin = resolve_request_origin(request)
     if request_origin:
         if request_origin in settings.allowed_origins_list or request_origin in {public_address.origin(), public_address.local_origin()}:

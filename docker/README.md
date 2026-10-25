@@ -896,3 +896,63 @@ Members may opt in under **My Settings → Privacy & apps → YouTube** by impor
 Session cookies are password-equivalent credentials. Lumina stores only encrypted, member-bound YouTube cookies, never a plaintext export, and never returns the saved cookies through the API or profile export. Database backups therefore contain encrypted sessions. Keep `app-data/totp-key` in a separate protected backup; it seals both two-step secrets and personal YouTube sessions with separate member bindings. Losing the key requires reconnecting YouTube. A vault owner with access to both the database and key can decrypt saved sessions; encryption does not protect against a compromised server.
 
 Connecting replaces the previous session and invalidates playback that used it. **Disconnect YouTube** deletes Lumina's saved session and retires its private streams. It does not sign out or revoke that browser session at Google. For provider-side revocation, use the Google account's security controls. Expired sessions show **Needs reconnecting**; a saved session is not a guarantee that every video can play. Follow the linked yt-dlp export guidance, treat cookie exports like passwords, and understand that authenticated use may result in provider account restrictions.
+
+## External login with OAuth / OpenID Connect (optional)
+
+External login is **off by default**. Leave `LUMINA_OAUTH_PROVIDERS` unset (or `[]`) to keep password login with no provider requests. No production setup is required to run a build containing this feature.
+
+Create a confidential web client at your provider, enable the authorization-code grant, and register this **exact** redirect URI, replacing `home` with your configured provider ID:
+
+```text
+https://lumina.example.com/api/session/oauth/home/callback
+```
+
+Use the normal Remote HTTPS deployment above. Loopback HTTP works for providers that allow it; Apple requires a verified HTTPS domain and its Services ID web configuration. Configure S256 PKCE at providers that expose that option; Apple uses its own web flow without PKCE. Only query callbacks are accepted for ordinary providers; Apple uses `form_post`.
+
+Pass a JSON array as `LUMINA_OAUTH_PROVIDERS` in the container environment. A Compose override can read it from the operator's `.env` without editing the shipped Compose file:
+
+```yaml
+services:
+  lumina:
+    environment:
+      LUMINA_OAUTH_PROVIDERS: ${LUMINA_OAUTH_PROVIDERS:-[]}
+```
+
+The following is a shape example, not working credentials; replace the uppercase placeholders locally and keep the resulting file private and outside Git:
+
+```json
+[
+  {
+    "id": "home",
+    "name": "Household SSO",
+    "issuer": "https://identity.example.com",
+    "client_id": "CLIENT_ID",
+    "client_secret": "CLIENT_SECRET",
+    "subjects": {"PROVIDER_SUBJECT": "LUMINA_MEMBER_ID"}
+  }
+]
+```
+
+`subjects` is an explicit allowlist mapping the provider's stable `sub` claim to a Lumina member's immutable `id`. Create the member through normal household invitations first. Find IDs using the authenticated `GET /api/admin/users` API; get subjects from the provider's administration tools (for hosted providers, use their documented identity-token tooling). GitHub uses the numeric `id` returned by its authenticated `/user` endpoint, represented as a JSON string. Do not use email addresses, usernames or display names as substitutes. Lumina never automatically creates accounts, links by email, or imports administrator/group privileges.
+
+Multiple entries may be configured and multiple subjects may point to the same member. IDs must be unique lowercase slugs; names are the public button labels. Issuers must exactly match discovery's `issuer`, including any trailing slash. `discovery_url` optionally overrides where discovery is fetched, while issuer validation remains exact. `token_endpoint_auth_method` accepts `client_secret_basic` (default) or `client_secret_post`; select the method registered at the provider. All identity endpoints require trusted HTTPS certificates, including private household providers.
+
+| Provider | Issuer / registration notes |
+| --- | --- |
+| Authentik | Usually `https://identity.example.com/application/o/lumina/`; use its OAuth2/OpenID provider with a signing key. Global issuer mode needs an explicit application `discovery_url`. [Provider guide](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/). |
+| Authelia | `https://identity.example.com`; confidential client, authorization code, scopes `openid profile email`, PKCE S256. [OIDC guide](https://www.authelia.com/integration/openid-connect/introduction/). |
+| Keycloak | `https://identity.example.com/realms/household`; enable client authentication and Standard flow, configure PKCE S256. [Endpoints](https://www.keycloak.org/securing-apps/oidc-layers). |
+| Pocket ID | Use the issuer from the discovery URL shown when creating its OIDC client. [Client setup](https://pocket-id.org/docs/setup/connect-an-app). |
+| GitLab.com / self-managed | `https://gitlab.com` or your instance origin; confidential OAuth application with `openid profile email` scopes. [OIDC setup](https://docs.gitlab.com/integration/openid_connect_provider/). |
+| Google | `https://accounts.google.com`; Web application OAuth client, consent screen and authorized redirect URI; use `client_secret_post`. Add test users while the consent application is in testing. [OIDC setup](https://developers.google.com/identity/openid-connect/openid-connect). |
+| Apple | `https://appleid.apple.com`; Services ID as `client_id`, associated with a Sign in with Apple enabled primary App ID; verified web domain and registered return URL. See below. [Web authorization](https://developer.apple.com/documentation/signinwithapplerestapi/request-an-authorization-to-the-sign-in-with-apple-server.). |
+| GitHub.com | `https://github.com`; create an OAuth App with the exact authorization callback URL. Lumina requests only `read:user` and binds the numeric user ID. [Authorization flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps). |
+| Other OIDC providers | Exact issuer and discovery URL; authorization code, S256, `openid profile email`, and RS256 or ES256 ID tokens. Tenant-specific Microsoft Entra issuers work under this contract; shared `common`/`organizations` issuers with tenant placeholders are not accepted. |
+
+For Apple, either put an unexpired ES256-signed client-secret JWT in `client_secret` and rotate it before expiration, or configure **all three** of `apple_team_id`, `apple_key_id`, and `apple_private_key` (the `.p8` PEM text, with JSON `\n` escapes). With a signing key, set `client_secret` to an empty string: Lumina generates a fresh five-minute client-secret JWT during each flow. Store the key only in protected deployment configuration. Apple automatically uses `client_secret_post` and a cross-site Secure, HttpOnly binding cookie; users must start and finish on the configured canonical HTTPS origin. Apple relay email addresses and one-time name payloads do not affect account binding.
+
+Provider login preserves local two-step verification, account deactivation, member roles, session expiration/revocation and the optional “Who's watching” preference. Local passwords and app passwords continue to work. Browser login does not add OAuth to native or Jellyfin clients; those keep their existing credential/device-token flows. Logout ends the Lumina session only; a later provider login may reuse the provider's SSO session. Removing a mapping/provider blocks future logins; revoke existing member sessions locally when immediate removal is needed.
+
+If an identity provider is down, use your local password. Interrupted sign-ins expire after five minutes; a server restart discards pending attempts. Callbacks with an unknown or unmapped identity produce a generic sign-in error, without revealing which household accounts exist. Keep reverse-proxy access logs disabled or strip callback query strings; they contain one-time authorization codes. Never log token exchange bodies or provider secrets.
+
+Authentication hardening in this change: password changes and invitation resends require a verified browser session, including the existing CSRF/origin checks. Agent tokens, app passwords and account HTTP Basic credentials cannot perform those credential-management operations. Explicit opaque or malformed browser origins are rejected. See the [authentication review](../docs/security/oauth-authentication-review.md) for review scope, verification results and validation limits.

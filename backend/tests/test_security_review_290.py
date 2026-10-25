@@ -60,6 +60,37 @@ def test_an_app_password_or_agent_token_cannot_take_over_the_owner(client: TestC
     assert "two_factor_required" in _fresh().post("/api/session/login", json={"username": "local", "password": PASSWORD}).json()
 
 
+
+def test_write_token_and_bogus_cookie_cannot_turn_a_password_into_a_two_step_session(client: TestClient, owner_app) -> None:  # noqa: F811
+    from app.config import settings
+    attacker = _fresh()
+    attacker.cookies.set(settings.session_cookie_name, "invalid-test-session")
+    response = attacker.post("/api/me/password", json={"current_password": PASSWORD, "new_password": "A-new-Pa55word-xyz!"},
+                             headers={**owner_app["bearer"], "Origin": ORIGIN})
+    assert response.status_code == 403
+    assert "set-cookie" not in response.headers
+    attacker.cookies.clear()
+    assert attacker.get("/api/session/me").status_code == 401
+    # The refused request changed neither the password nor the two-step requirement.
+    assert "two_factor_required" in attacker.post("/api/session/login", json={"username": "local", "password": PASSWORD}).json()
+
+
+
+def test_invitation_resend_cannot_issue_credentials_to_agent_or_basic_callers(client: TestClient, owner_app) -> None:  # noqa: F811
+    for role in ("viewer", "admin"):
+        issued = client.post("/api/admin/invitations", json={"role": role}, headers=_headers(owner_app["csrf"]))
+        assert issued.status_code == 201, issued.text
+        invite_id = issued.json()["id"]
+        for credentials in ({"headers": owner_app["bearer"]}, {"auth": owner_app["basic"]}, {"auth": ("local", PASSWORD)}):
+            refused = _fresh().post(f"/api/admin/invites/{invite_id}/resend", **credentials)
+            assert refused.status_code in {401, 403}
+            assert "invitation_url" not in refused.text
+        # The legitimate browser can still rotate either kind of invitation.
+        resent = client.post(f"/api/admin/invites/{invite_id}/resend", headers=_headers(owner_app["csrf"]))
+        assert resent.status_code == 200, resent.text
+        assert resent.json()["invitation_url"] != issued.json()["invitation_url"]
+
+
 def test_the_owner_turns_their_own_two_step_off_with_a_code_not_the_member_reset(client: TestClient, owner_app) -> None:  # noqa: F811
     csrf = owner_app["csrf"]
     assert client.delete("/api/admin/users/u1/two-factor", headers=_headers(csrf)).status_code == 409

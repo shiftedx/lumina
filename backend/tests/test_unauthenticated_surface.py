@@ -13,6 +13,11 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 ANONYMOUS = {
+    ("GET", "/api/session/oauth/providers"),  # labels only; no credentials or member bindings
+    ("POST", "/api/session/oauth/{provider_id}/start"),  # origin checked, rate limited
+    ("GET", "/api/session/oauth/{provider_id}/callback"),  # browser-bound state, code, nonce
+    ("POST", "/api/session/oauth/{provider_id}/callback"),  # Apple's form_post only
+
     ("GET", "/api/health"),  # {"status": "ok"} only
     ("GET", "/api/bootstrap/status"),  # needs_setup only
     ("POST", "/api/bootstrap/admin"),  # first-run only, rate limited

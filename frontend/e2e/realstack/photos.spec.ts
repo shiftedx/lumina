@@ -52,7 +52,7 @@ test('Photos imports real pixels, preserves originals, and persists favorites an
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(page.getByRole('button', { name: `View ${label}`, exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
   await page.screenshot({ path: testInfo.outputPath('real-photos-phone.png') });
 
   await page.getByRole('button', { name: 'Import', exact: true }).click();

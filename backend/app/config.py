@@ -133,6 +133,9 @@ class EnvSettings(BaseSettings):
     trusted_proxy_ips: str = ""
     # LUMINA_LAN_HTTP=1: serve plain http on a private LAN IP public URL without a proxy (ADR 0001 amendment).
     lan_http: bool = False
+    # JSON array; empty means no external identity providers or network requests.
+    oauth_providers: list[dict] = Field(default_factory=list, repr=False)
+
     session_cookie_name: str = "archive_session"
     session_cookie_secure: bool = False
     session_cookie_samesite: str = "lax"
@@ -236,6 +239,13 @@ class EnvSettings(BaseSettings):
         return networks
 
     def validate_runtime_security(self) -> None:
+        if self.oauth_providers:
+            from app.services.oauth import Provider
+            providers = [Provider.model_validate(value) for value in self.oauth_providers]
+            if len({provider.id for provider in providers}) != len(providers):
+                raise ValueError("OIDC provider IDs must be unique")
+            if any(provider.apple for provider in providers) and not self.remote_https_enabled:
+                raise ValueError("Sign in with Apple requires an HTTPS public URL")
         public_url = urlparse(self.resolved_app_public_url)
         hostname = (public_url.hostname or "").casefold()
         if (

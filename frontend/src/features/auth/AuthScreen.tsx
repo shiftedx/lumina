@@ -1,4 +1,5 @@
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
+import { getOAuthProviders, startOAuth, type OAuthProvider } from '../../api';
 import type { CollectionLoadProblem } from '../../workspace';
 import { cx } from '../../ui/cx';
 import { BrandMark, Button, ErrorState, Field, fieldProps, Input, Masthead, PasswordInput, Skeleton } from '../../ui';
@@ -11,10 +12,28 @@ import './auth.css';
 
 export type AccountLink = { kind: 'invite' | 'reset'; token: string };
 
+export type OAuthCallback = { kind: 'error' } | { kind: 'two-factor'; challenge: string };
+export const OAUTH_ERROR_MESSAGE = "We couldn't complete sign-in with that provider. Try again or use your Lumina account.";
+
 /** One-time links carry their secret in the URL fragment, which never reaches the server or Referer. */
 export function readAccountLink(): AccountLink | null {
   const match = /^#(invite|reset)=([\w-]+)$/.exec(typeof window === 'undefined' ? '' : window.location.hash);
   return match ? { kind: match[1] as AccountLink['kind'], token: match[2] } : null;
+}
+
+/** OAuth callbacks keep the two-factor challenge in memory only; errors never carry provider details. */
+export function readOAuthCallback(): OAuthCallback | null {
+  if (typeof window === 'undefined') return null;
+  const hash = window.location.hash;
+  if (hash === '#oauth-error') return { kind: 'error' };
+  const prefix = '#oauth-two-factor=';
+  if (!hash.startsWith(prefix)) return null;
+  try {
+    const challenge = decodeURIComponent(hash.slice(prefix.length));
+    return challenge ? { kind: 'two-factor', challenge } : { kind: 'error' };
+  } catch {
+    return { kind: 'error' };
+  }
 }
 
 export interface AuthScreenProps {
@@ -48,6 +67,9 @@ export function AuthScreen({ stage: requestedStage, busy, error, onLogin, onSetu
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [signingIn, setSigningIn] = useState(false); // "Someone else" chosen over the picker
+  const [oauthProviders, setOAuthProviders] = useState<OAuthProvider[]>([]);
+  const [oauthBusyProvider, setOAuthBusyProvider] = useState<string | null>(null);
+  const [oauthError, setOAuthError] = useState<string | null>(null);
   // Only a browser that already holds a ring cookie gets members back; nothing lists them otherwise.
   const ring = useDeviceRing(requestedStage === 'login');
   const invitation = requestedStage === 'invite';
@@ -59,12 +81,50 @@ export function AuthScreen({ stage: requestedStage, busy, error, onLogin, onSetu
   const reset = stage === 'reset';
   const copy = COPY[stage];
 
+  useEffect(() => {
+    if (requestedStage !== 'login') {
+      setOAuthProviders([]);
+      setOAuthError(null);
+      setOAuthBusyProvider(null);
+      return undefined;
+    }
+    let active = true;
+    void getOAuthProviders().then((providers) => {
+      if (!active) return;
+      setOAuthProviders((Array.isArray(providers) ? providers : []).filter((provider): provider is OAuthProvider => Boolean(provider) && typeof provider.id === 'string' && Boolean(provider.id.trim()) && typeof provider.name === 'string' && Boolean(provider.name.trim())));
+    }).catch(() => {
+      // OAuth is optional: a provider outage never removes or disables the local form.
+      if (active) setOAuthProviders([]);
+    });
+    return () => { active = false; };
+  }, [requestedStage]);
+
+  function handlePasswordSubmit(nextUsername: string, nextPassword: string, rememberOnDevice: boolean) {
+    setOAuthError(null);
+    onLogin(nextUsername, nextPassword, rememberOnDevice);
+  }
+
+  async function handleOAuth(providerId: string, rememberOnDevice: boolean) {
+    if (oauthBusyProvider) return;
+    setOAuthBusyProvider(providerId);
+    setOAuthError(null);
+    try {
+      const result = await startOAuth(providerId, rememberOnDevice);
+      if (!result.authorization_url) throw new Error('Missing authorization URL');
+      window.location.assign(result.authorization_url);
+    } catch {
+      setOAuthError("We couldn't start sign-in with that provider. Try again or use your Lumina account.");
+    } finally {
+      setOAuthBusyProvider(null);
+    }
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!busy) onSetup(username, displayName, password);
   }
 
-  const picker = pickerAvailable && !signingIn && ring.members ? (
+  const picker = pickerAvailable && !signingIn && !twoFactor && !error && ring.members ? (
     <WhoIsWatching members={ring.members} onRefresh={() => { resetDeviceRing(); }} onSomeoneElse={() => setSigningIn(true)} onSwitched={onSwitched} variant="page" />
   ) : null;
 
@@ -73,7 +133,7 @@ export function AuthScreen({ stage: requestedStage, busy, error, onLogin, onSetu
   ) : stage === 'login' && twoFactor ? (
     <TwoFactorStep {...twoFactor} />
   ) : stage === 'login' ? (
-    <SignInPanel busy={busy} error={error} onChoosePicker={pickerAvailable ? () => setSigningIn(false) : undefined} onSubmit={onLogin} />
+    <SignInPanel busy={busy} error={error} oauthBusyProvider={oauthBusyProvider} oauthError={oauthError} oauthProviders={oauthProviders} onChoosePicker={pickerAvailable ? () => setSigningIn(false) : undefined} onOAuth={(providerId, rememberOnDevice) => { void handleOAuth(providerId, rememberOnDevice); }} onSubmit={handlePasswordSubmit} />
   ) : (
     <form className="g-auth-form" noValidate onSubmit={submit}>
       {reset ? null : <Field label="Username">{(ids) => <Input {...fieldProps(ids)} autoComplete="username" onChange={(event) => setUsername(event.target.value)} value={username} />}</Field>}

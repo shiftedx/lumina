@@ -52,7 +52,8 @@ struct TVMusicDetailView: View {
             .padding(.top, 54)
             .padding(.bottom, 120)
         }
-        .background(LuminaTheme.theater.ignoresSafeArea())
+        .modifier(AlbumArtworkBackground(url: store.imageURL(for: artworkItem, maxWidth: 760),
+                                         enabled: currentItem.type != "MusicArtist"))
         .foregroundStyle(LuminaTheme.ink)
         .accessibilityIdentifier(currentItem.isAudio ? "detailScreen" : "musicCollectionScreen")
         .task(id: item.id) { await load() }

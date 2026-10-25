@@ -724,6 +724,11 @@ private struct TVLibraryView: View {
             homeFeed.configure(session: store.session)
             homeSessionScope = TVHomeSessionScope(store.session)
         }
+        .onChange(of: store.availableLibraryCategories) { _, available in
+            if destination == .library, !available.contains(libraryCategory.rawValue) {
+                selectHomeDestination(.all)
+            }
+        }
         .onExitCommand(perform: backAction)
     }
 
@@ -791,17 +796,20 @@ private struct TVLibraryView: View {
 
     private var header: some View {
         HStack(spacing: 0) {
-            HStack(alignment: .lastTextBaseline, spacing: 10) {
-                LuminaBrandMark().frame(width: 42, height: 26)
-                    .alignmentGuide(.lastTextBaseline) { $0[.bottom] }
-                Text("LUMINA")
-                    .font(.system(size: 26, weight: .heavy))
-                    .tracking(3)
-                    .foregroundStyle(LuminaTheme.ink)
+            Button { selectHomeDestination(.all) } label: {
+                HStack(alignment: .lastTextBaseline, spacing: 10) {
+                    LuminaBrandMark().frame(width: 42, height: 26)
+                        .alignmentGuide(.lastTextBaseline) { $0[.bottom] }
+                    Text("LUMINA")
+                        .font(.system(size: 26, weight: .heavy))
+                        .tracking(3)
+                        .foregroundStyle(LuminaTheme.ink)
+                }
+                .frame(width: 260, alignment: .leading)
             }
-            .frame(width: 260, alignment: .leading)
-            .accessibilityElement(children: .combine)
+            .buttonStyle(LuminaUnderlineTabStyle(selected: false, alignsWithMasthead: true))
             .accessibilityLabel("Lumina")
+            .accessibilityHint("Return to Home")
             .accessibilityIdentifier("homeMasthead")
 
             HStack(spacing: 20) {
@@ -851,12 +859,14 @@ private struct TVLibraryView: View {
     }
 
     private var primaryCategories: [HomeBrowsingDestination] {
-        [.all, .movies, .tv, .anime, .music, .watchlist]
+        [.movies, .tv, .anime, .music, .watchlist].filter {
+            $0.homeCategory != nil || store.availableLibraryCategories.contains($0.rawValue)
+        }
     }
 
     private var selectedPrimaryCategory: HomeBrowsingDestination? {
         switch destination {
-        case .home: homeCategory == .watchlist ? .watchlist : .all
+        case .home: homeCategory == .watchlist ? .watchlist : nil
         case .library:
             switch libraryCategory {
             case .movies: .movies
@@ -1040,7 +1050,7 @@ private struct TVHomeView: View {
                         )
                             .focusSection()
                     } else if category != .all {
-                        Text("No watchlist titles are available. Choose All or add something to your watchlist.")
+                        Text("No watchlist titles are available. Choose Home or add something to your watchlist.")
                             .foregroundStyle(LuminaTheme.muted)
                             .padding(.horizontal, 80)
                             .padding(.top, 112)
@@ -1089,12 +1099,13 @@ private struct TVHomeView: View {
                 async let library: Void = store.loadHome()
                 _ = await (library, savedLayout, rows)
             } else {
-                _ = await (savedLayout, rows)
+                async let navigation: Void = store.refreshNavigationCategories()
+                _ = await (savedLayout, rows, navigation)
             }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                Task { await layout.load(); await feed.load() }
+                Task { await layout.load(); await feed.load(); await store.refreshNavigationCategories() }
             }
         }
         .onChange(of: store.resumeItems) { _, _ in
@@ -1644,8 +1655,7 @@ private struct TVFeaturedView: View {
             return Duration.seconds(item.durationSeconds - item.resumeSeconds)
                 .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)) + " remaining"
         }
-        guard item.type == "Episode" else { return nil }
-        return item.displaySubtitle.isEmpty ? "Episode" : item.displaySubtitle
+        return nil
     }
 }
 

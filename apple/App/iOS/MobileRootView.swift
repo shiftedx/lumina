@@ -3,6 +3,10 @@ import UIKit
 import AVKit
 import LuminaCore
 
+private extension EnvironmentValues {
+    @Entry var returnToLuminaHome: () -> Void = {}
+}
+
 @MainActor
 struct MobileRootView: View {
     @Bindable var store: LuminaStore
@@ -74,104 +78,154 @@ private struct ConnectionView: View {
             !password.isEmpty
     }
 
+    @State private var helpPresented = false
+    @State private var artworkIndex = 0
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+
+    private let artwork = ["WelcomeCoast", "WelcomeOrbit", "WelcomeDunes"]
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 12) {
-                        LuminaBrandMark()
-                            .frame(width: 46, height: 28)
-                        Text("LUMINA")
-                            .font(.title2.weight(.black))
-                            .tracking(3)
-                    }
-                    Text("Your household library, ready for the room you are in.")
-                        .font(LuminaTheme.editorial(23, relativeTo: .title3, italic: true))
-                        .foregroundStyle(LuminaTheme.muted)
-                }
-
-                VStack(alignment: .leading, spacing: 16) {
-                    ConnectionField(title: "Server URL") {
-                        TextField("https://lumina.example", text: $server)
-                            .keyboardType(.URL)
-                            .textContentType(.URL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .focused($focusedField, equals: .server)
-                            .submitLabel(.next)
-                            .onSubmit { focusedField = .username }
-                            .accessibilityLabel("Server URL")
-                            .accessibilityIdentifier("serverURLField")
-                    }
-
-                    ConnectionField(title: "Username") {
-                        TextField("Household account", text: $username)
-                            .textContentType(.username)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .focused($focusedField, equals: .username)
-                            .submitLabel(.next)
-                            .onSubmit { focusedField = .password }
-                            .accessibilityLabel("Username")
-                            .accessibilityIdentifier("usernameField")
-                    }
-
-                    ConnectionField(title: "Password") {
-                        SecureField("Password or app password", text: $password)
-                            .textContentType(.password)
-                            .focused($focusedField, equals: .password)
-                            .submitLabel(.go)
-                            .onSubmit { connect() }
-                            .accessibilityLabel("Password")
-                            .accessibilityIdentifier("passwordField")
-                    }
-                }
-                .padding(18)
-                .background(LuminaTheme.ink.opacity(0.07), in: .rect(cornerRadius: 16))
-
-                Button {
-                    connect()
-                } label: {
-                    HStack(spacing: 10) {
-                        if store.isBusy {
-                            ProgressView()
+        GeometryReader { geometry in
+            ScrollView {
+                connectionForm
+                    .frame(maxWidth: 420)
+                    .padding(.horizontal, geometry.size.width > 700 ? 64 : 28)
+                    .padding(.vertical, 32)
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height,
+                           alignment: geometry.size.width > 700 ? .leading : .bottom)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .background {
+                GeometryReader { artworkGeometry in
+                    ZStack {
+                        ForEach(artwork, id: \.self) { name in
+                            Image(name)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: artworkGeometry.size.width, height: artworkGeometry.size.height, alignment: .trailing)
+                                .clipped()
+                                .opacity(artwork[artworkIndex] == name ? 1 : 0)
                         }
-                        Text(store.isBusy ? "Connecting…" : "Connect")
+                        LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.65), .black.opacity(0.96)],
+                                       startPoint: .top, endPoint: .bottom)
+                        if geometry.size.width > 700 {
+                            LinearGradient(colors: [.black.opacity(0.88), .clear],
+                                           startPoint: .leading, endPoint: .trailing)
+                        }
                     }
-                    .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(LuminaMediaActionStyle(primary: true))
-                .controlSize(.large)
-                .disabled(!canConnect || store.isBusy)
-                .accessibilityIdentifier("connectButton")
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Server setup")
-                        .font(.headline)
-                    Text("An administrator must enable Lumina’s opt-in Jellyfin-compatible API in Manage Server → Connections → Metadata → Apps like Infuse before this app can connect. It is off by default.")
-                        .font(.footnote)
-                        .foregroundStyle(LuminaTheme.muted)
-                    Text("If this account uses two-factor authentication, enter an app password in the password field. Lumina uses it only for this sign-in attempt.")
-                        .font(.footnote)
-                        .foregroundStyle(LuminaTheme.muted)
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+            }
+        }
+        .background(.black)
+        .foregroundStyle(.white)
+        .preferredColorScheme(.dark)
+        .tint(.white)
+        .task(id: scenePhase == .active && !reduceMotion && !voiceOver && focusedField == nil) {
+            guard scenePhase == .active, !reduceMotion, !voiceOver, focusedField == nil else { return }
+            do {
+                while !Task.isCancelled {
+                    try await Task.sleep(for: .seconds(9))
+                    withAnimation(.easeInOut(duration: 1.5)) { artworkIndex = (artworkIndex + 1) % artwork.count }
                 }
+            } catch { }
+        }
+        .sheet(isPresented: $helpPresented) {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        Text("Server access").font(.headline)
+                        Text("Ask your administrator for your server address and household account. The server’s Jellyfin-compatible API must be enabled in Manage Server → Connections → Metadata → Apps like Infuse.")
+                        Text("Two-factor authentication").font(.headline)
+                        Text("Use an app password if your account has two-factor authentication. It is used only for this sign-in attempt.")
+                    }
+                    .padding(28)
+                }
+                .navigationTitle("Connection help")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done", systemImage: "xmark") { helpPresented = false }
+                            .labelStyle(.iconOnly)
+                            .accessibilityIdentifier("connectionHelpDoneButton")
+                    }
+                }
+                .accessibilityIdentifier("connectionHelpSheet")
+            }
+            .tint(.white)
+            .preferredColorScheme(.dark)
+        }
+    }
 
-                if let message = store.errorMessage, !message.isEmpty {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
-                        .foregroundStyle(LuminaTheme.accentInk)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityAddTraits(.isStaticText)
-                        .accessibilityIdentifier("connectionError")
+    private var connectionForm: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(spacing: 12) {
+                LuminaBrandMark().frame(width: 40, height: 25)
+                Text("LUMINA")
+                    .font(LuminaTheme.editorial(28, relativeTo: .title2))
+                    .tracking(2.4)
+            }
+            Text("Sign in").font(.title2.weight(.semibold))
+
+            VStack(spacing: 8) {
+                ConnectionField(active: focusedField == .server) {
+                    TextField("Server address", text: $server, prompt: Text("Server address").foregroundStyle(.white.opacity(0.7)))
+                        .keyboardType(.URL)
+                        .textContentType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($focusedField, equals: .server)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .username }
+                        .accessibilityLabel("Server URL")
+                        .accessibilityIdentifier("serverURLField")
+                }
+                ConnectionField(active: focusedField == .username) {
+                    TextField("Lumina username", text: $username, prompt: Text("Lumina username").foregroundStyle(.white.opacity(0.7)))
+                        .textContentType(.username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($focusedField, equals: .username)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .password }
+                        .accessibilityLabel("Username")
+                        .accessibilityIdentifier("usernameField")
+                }
+                ConnectionField(active: focusedField == .password) {
+                    SecureField("Password or app password", text: $password, prompt: Text("Password or app password").foregroundStyle(.white.opacity(0.7)))
+                        .textContentType(.password)
+                        .focused($focusedField, equals: .password)
+                        .submitLabel(.go)
+                        .onSubmit { connect() }
+                        .accessibilityLabel("Password")
+                        .accessibilityIdentifier("passwordField")
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 44)
-            .frame(maxWidth: 480)
-            .frame(maxWidth: .infinity)
+            if let message = store.errorMessage, !message.isEmpty {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isStaticText)
+                    .accessibilityIdentifier("connectionError")
+            }
+            Button(action: connect) {
+                HStack(spacing: 10) {
+                    if store.isBusy { ProgressView() }
+                    Text(store.isBusy ? "Connecting…" : "Connect")
+                }
+                .frame(maxWidth: .infinity, minHeight: 8)
+            }
+            .buttonStyle(LuminaQuietActionStyle(primary: true))
+            .disabled(!canConnect || store.isBusy)
+            .accessibilityIdentifier("connectButton")
+
+            Button("Connection help") { focusedField = nil; helpPresented = true }
+                .buttonStyle(LuminaQuietActionStyle())
+                .accessibilityIdentifier("connectionHelpButton")
         }
-        .background(LuminaTheme.paper)
-        .scrollDismissesKeyboard(.interactively)
     }
 
     private func connect() {
@@ -190,18 +244,18 @@ private struct ConnectionView: View {
 
 @MainActor
 private struct ConnectionField<Content: View>: View {
-    let title: String
+    var active = false
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-            content
-                .padding(.horizontal, 14)
-                .frame(minHeight: 50)
-                .background(LuminaTheme.ink.opacity(0.08), in: .rect(cornerRadius: 12))
-        }
+        content
+            .font(.body)
+            .padding(.vertical, 12)
+            .frame(minHeight: 50)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(active ? LuminaTheme.brand : .white.opacity(0.35))
+                    .frame(height: active ? 2 : 1)
+            }
     }
 }
 
@@ -235,6 +289,7 @@ private enum LibraryCategory: String, CaseIterable {
 private struct LibraryShellView: View {
     @Bindable var store: LuminaStore
     @State private var destination: LibraryDestination = .home
+    @State private var homeNavigationID = UUID()
     @State private var category: LibraryCategory = .movies
     @State private var homeLayout = LuminaHomeLayout()
     @State private var homeFeed = LuminaHomeFeed(includesExternalSources: true)
@@ -255,7 +310,10 @@ private struct LibraryShellView: View {
     }
 
     private func destinations(categoryBarWidth: CGFloat) -> some View {
-        TabView(selection: $destination) {
+        TabView(selection: Binding(get: { destination }, set: { selected in
+            if selected == .home { homeNavigationID = UUID() }
+            destination = selected
+        })) {
             Tab("Home", image: "LuminaNavHome", value: .home) {
                 destinationStack {
                     if homeSessionScope == MobileHomeSessionScope(store.session) {
@@ -267,6 +325,7 @@ private struct LibraryShellView: View {
                         ProgressView("Loading Home…")
                     }
                 }
+                .id(homeNavigationID)
             }
             Tab("Library", image: "LuminaNavLibrary", value: .library) {
                 destinationStack {
@@ -301,26 +360,42 @@ private struct LibraryShellView: View {
                 destinationStack { NativeAccountSettingsView(store: store) }
             }
         }
-        .tint(LuminaTheme.accentInk)
+        .environment(\.returnToLuminaHome, {
+            homeNavigationID = UUID() // Pop Home details, clear its refinement, and return to the top.
+            destination = .home
+        })
+        .onChange(of: store.availableLibraryCategories, initial: true) { _, available in
+            guard !available.contains(category.rawValue) else { return }
+            if let first = LibraryCategory.allCases.first(where: { available.contains($0.rawValue) }) {
+                category = first
+            } else if destination == .library {
+                destination = .home
+            }
+        }
+        .tint(LuminaTheme.ink)
     }
 
     @ViewBuilder private var libraryContent: some View {
-        switch category {
-        case .movies, .tv, .anime:
-            VideoLibraryView(store: store, kind: .constant(category.videoKind))
-                .id(category)
-        case .music:
-            AudioLibraryView(store: store)
-        case .books:
-            if let session = store.session {
-                NativeBooksView(session: session).id(session.accessToken)
+        if store.availableLibraryCategories.contains(category.rawValue) {
+            switch category {
+            case .movies, .tv, .anime:
+                VideoLibraryView(store: store, kind: .constant(category.videoKind))
+                    .id(category)
+            case .music:
+                AudioLibraryView(store: store)
+            case .books:
+                if let session = store.session {
+                    NativeBooksView(session: session).id(session.accessToken)
+                }
             }
+        } else {
+            ContentUnavailableView("No libraries available", systemImage: "books.vertical")
         }
     }
 
     private var libraryCategories: some View {
         LuminaCategoryBar(selection: category.rawValue) {
-            ForEach(LibraryCategory.allCases, id: \.self) { value in
+            ForEach(LibraryCategory.allCases.filter { store.availableLibraryCategories.contains($0.rawValue) }, id: \.self) { value in
                 Button {
                     category = value
                 } label: {
@@ -421,7 +496,7 @@ private struct HomeLibraryView: View {
                 if category != .all, snapshot.items.isEmpty,
                    !snapshot.rows.contains(where: \.hasItems), feed.hasLoaded {
                     ContentUnavailableView("No matches on Home", systemImage: "line.3.horizontal.decrease",
-                        description: Text("Choose All or add something to your watchlist."))
+                        description: Text("Choose Home or add something to your watchlist."))
                 }
                 if store.isHomeBusy || store.isBusy {
                     ProgressView("Loading your library…")
@@ -458,7 +533,9 @@ private struct HomeLibraryView: View {
         .toolbarColorScheme(snapshot.items.isEmpty ? nil : .dark, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                HomeBrowsingRow(category: category, onSelect: selectCategory)
+                HomeBrowsingRow(category: category, destinations: HomeBrowsingDestination.allCases.filter {
+                    $0 != .all && ($0.homeCategory != nil || store.availableLibraryCategories.contains($0.rawValue))
+                }, onSelect: selectCategory)
                     .frame(width: categoryBarWidth)
             }
             if #available(iOS 26.0, *) {
@@ -527,7 +604,8 @@ private struct HomeLibraryView: View {
         Task {
             async let layout: Void = homeLayout.load()
             async let rows: Void = feed.load()
-            _ = await (layout, rows)
+            async let navigation: Void = store.refreshNavigationCategories()
+            _ = await (layout, rows, navigation)
         }
     }
 
@@ -707,43 +785,47 @@ private struct NativeHomeLayoutEditor: View {
     private var rows: [HomeShelfPreference] { draft }
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            HStack {
+                Button("Cancel") { dismiss() }.disabled(layout.isSaving)
+                    .accessibilityIdentifier("homeLayoutCancelButton")
+                Spacer()
+                Text("Edit Home").font(LuminaTheme.editorial(22, relativeTo: .title3))
+                Spacer()
+                Button("Done") {
+                    Task { if await layout.save(reset ? nil : draft) { dismiss() } }
+                }.disabled(!layout.hasLoaded || layout.isSaving)
+                    .accessibilityIdentifier("homeLayoutSaveButton")
+            }
+            .buttonStyle(.plain)
+            .frame(minHeight: 44)
+            .padding(.horizontal, 24).padding(.vertical, 8)
             List {
                 Section {
                     ForEach(rows) { shelf in
-                        HStack(spacing: 16) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(shelf.id.title)
-                                if feed?.hasLoaded == true && isEmpty(shelf.id) {
-                                    Text("Nothing to show right now").font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                            .accessibilityHidden(true)
-                            Spacer(minLength: 8)
-                            Toggle(shelf.id.title, isOn: Binding(get: {
+                        VStack(alignment: .leading, spacing: 0) {
+                            LuminaSettingsSwitch(shelf.id.title, isOn: Binding(get: {
                                 draft.first { $0.id == shelf.id }?.visible ?? true
                             }, set: { visible in
                                 if let index = draft.firstIndex(where: { $0.id == shelf.id }) {
                                     draft[index] = HomeShelfPreference(id: shelf.id, visible: visible)
                                     changed = true; reset = false
                                 }
-                            }))
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .tint(LuminaTheme.brand)
-                            .accessibilityLabel(shelf.id.title)
-                            .accessibilityIdentifier("homeShelfVisibility-\(shelf.id.rawValue)")
+                            }), identifier: "homeShelfVisibility-\(shelf.id.rawValue)")
                             .accessibilityAction(named: "Move up") { move(shelf.id, offset: -1) }
                             .accessibilityAction(named: "Move down") { move(shelf.id, offset: 1) }
+                            if feed?.hasLoaded == true && isEmpty(shelf.id) {
+                                Text("Empty").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
                     .onMove { source, target in
                         var reordered = rows
                         reordered.move(fromOffsets: source, toOffset: target)
                         applyOrder(reordered)
                     }
-                } footer: {
-                    Text("Drag the handles to reorder your Home rows. Turn off a row to hide it. Your changes also apply on the website.")
                 }
                 .disabled(!layout.hasLoaded || layout.isSaving)
                 Section {
@@ -752,6 +834,8 @@ private struct NativeHomeLayoutEditor: View {
                         changed = true; reset = true
                     }.accessibilityIdentifier("homeLayoutResetButton")
                         .disabled(!layout.hasLoaded || layout.isSaving)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 }
                 if layout.isLoading { ProgressView("Loading Home layout…") }
                 if let error = layout.errorMessage {
@@ -761,21 +845,11 @@ private struct NativeHomeLayoutEditor: View {
                     }
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(LuminaTheme.paper)
+            .foregroundStyle(LuminaTheme.ink)
             .environment(\.editMode, .constant(.active))
-            .navigationTitle("Edit Home").navigationBarTitleDisplayMode(.inline)
-            .toolbarVisibility(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.disabled(layout.isSaving)
-                        .accessibilityIdentifier("homeLayoutCancelButton")
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        Task { if await layout.save(reset ? nil : draft) { dismiss() } }
-                    }.disabled(!layout.hasLoaded || layout.isSaving)
-                        .accessibilityIdentifier("homeLayoutSaveButton")
-                }
-            }
             .interactiveDismissDisabled(layout.isSaving)
             .onAppear {
                 draft = layout.shelves
@@ -787,7 +861,8 @@ private struct NativeHomeLayoutEditor: View {
             }
             .accessibilityIdentifier("homeLayoutEditor")
         }
-        .preferredColorScheme(.dark)
+        .background(LuminaTheme.paper)
+        .foregroundStyle(LuminaTheme.ink)
     }
 
     private func applyOrder(_ reordered: [HomeShelfPreference]) {
@@ -860,9 +935,10 @@ private struct VideoDetailChrome: ViewModifier {
 @MainActor
 private struct HomeHeroChrome: View {
     var compact = false
+    @Environment(\.returnToLuminaHome) private var returnHome
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        Button(action: returnHome) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 LuminaBrandMark()
                     .frame(width: 24, height: 24 * 34 / 56)
@@ -878,10 +954,13 @@ private struct HomeHeroChrome: View {
                 }
             }
             .foregroundStyle(LuminaTheme.ink)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Lumina")
-            .accessibilityIdentifier("homeMasthead")
         }
+        .buttonStyle(.plain)
+        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+        .contentShape(.rect)
+        .accessibilityLabel("Lumina")
+        .accessibilityHint("Return to Home")
+        .accessibilityIdentifier("homeMasthead")
     }
 
 }
@@ -1656,6 +1735,7 @@ private struct AudioLibraryView: View {
     let store: LuminaStore
     @State private var kind: MusicBrowseKind = .albums
     @State private var searchText = ""
+    @State private var searchVisible = false
 
     private var featuredAlbum: MediaItem? {
         guard kind == .albums, searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -1741,8 +1821,12 @@ private struct AudioLibraryView: View {
                 } label: { Label("Music options", systemImage: "ellipsis.circle") }
                 .accessibilityIdentifier("musicOptionsMenu")
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Search music", systemImage: "magnifyingglass") { searchVisible = true }
+                    .accessibilityIdentifier("musicSearchButton")
+            }
         }
-        .searchable(text: $searchText, prompt: "Search music")
+        .modifier(NativeSearchPresentation(text: $searchText, isPresented: $searchVisible, prompt: "Search music"))
         .onSubmit(of: .search) { Task { await load() } }
         .onChange(of: searchText) { if searchText.isEmpty { Task { await load() } } }
         .task(id: kind) { await load() }
@@ -1794,7 +1878,9 @@ private struct MusicCollectionView: View {
             .frame(maxWidth: .infinity)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { layoutWidth = $0 }
         }
-        .background(LuminaTheme.paper)
+        .modifier(AlbumArtworkBackground(url: store.imageURL(for: item, maxWidth: 760), enabled: item.type == "MusicAlbum"))
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(item.type == "MusicAlbum" ? .dark : nil, for: .navigationBar)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("musicCollectionScreen")
@@ -1965,6 +2051,28 @@ private struct MusicGrid: View {
     }
 }
 
+/// An inactive native search drawer still occupies space on Duo. Install it only
+/// after the member chooses Search, and remove it completely when dismissed.
+struct NativeSearchPresentation: ViewModifier {
+    @Binding var text: String
+    @Binding var isPresented: Bool
+    let prompt: String
+
+    func body(content: Content) -> some View {
+        Group {
+            if isPresented {
+                content.searchable(text: $text, isPresented: $isPresented,
+                    placement: .navigationBarDrawer(displayMode: .always), prompt: Text(prompt))
+            } else {
+                content
+            }
+        }
+        .onChange(of: isPresented) { _, presented in
+            if !presented { text = "" }
+        }
+    }
+}
+
 private struct LibrarySearchBar: UIViewRepresentable {
     @Binding var text: String
     let onSubmit: () -> Void
@@ -2090,8 +2198,7 @@ private struct LibraryFeaturedView: View {
             return Duration.seconds(item.durationSeconds - item.resumeSeconds)
                 .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)) + " remaining"
         }
-        guard item.type == "Episode" else { return nil }
-        return item.displaySubtitle.isEmpty ? "Episode" : item.displaySubtitle
+        return nil
     }
 }
 

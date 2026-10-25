@@ -13,6 +13,7 @@ struct NativeBooksView: View {
     @State private var seriesItems = [BookSeries]()
     @State private var seriesCursor: String?
     @State private var search = ""
+    @State private var searchVisible = false
     @State private var kindFilter = NativeBookKindFilter.all
     @State private var readingFilter = NativeBookReadingFilter.all
     @State private var sort = NativeBookSort.added
@@ -174,8 +175,12 @@ struct NativeBooksView: View {
                 }
                 .accessibilityIdentifier("booksOptionsMenu")
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Search books", systemImage: "magnifyingglass") { searchVisible = true }
+                    .accessibilityIdentifier("booksSearchButton")
+            }
         }
-        .searchable(text: $search, prompt: "Title or author")
+        .modifier(NativeSearchPresentation(text: $search, isPresented: $searchVisible, prompt: "Title or author"))
         .task(id: catalogQuery) {
             do { try await Task.sleep(for: .milliseconds(250)); await load() } catch { }
         }

@@ -264,6 +264,24 @@ def install_showcase_art_fixture(state_root: Path) -> None:
     artwork._public_source_policy = _ProofCatalogPolicy()
     artwork._remote_fetcher = GeneratedArtFetcher()
 
+    # Native Requests loads public catalog art directly. Serve the same generated
+    # bytes locally so its UI proofs never depend on public fixture URLs.
+    from app.main import app
+    from app.services.requests import catalog
+    from fastapi.responses import Response
+
+    original_image = catalog._image
+    local_pictures = dict(enumerate(fixture_pictures.values()))
+    local_urls = {source: f"{ORIGIN}/proof/requests-art/{index}"
+                  for index, source in enumerate(fixture_pictures)}
+
+    @app.get("/proof/requests-art/{index}")
+    def request_fixture_art(index: int):
+        content, mime = local_pictures[index]
+        return Response(content=content, media_type=mime)
+
+    catalog._image = lambda path, size: local_urls.get(original_image(path, size))
+
 
 def make_books(state_root: Path, db, owner) -> dict[str, str]:
     """Original synthetic prose and raster books, imported through the production archive boundary."""
@@ -799,6 +817,8 @@ def make_show(media_root: Path) -> None:
     movie = media_root / "Movies" / f"{DIRECT_TITLE} (2026)"
     poster = movie / "poster.png" if (movie / "poster.png").is_file() else movie / "poster.jpg"
     shutil.copyfile(poster, show / poster.name)
+    ffmpeg("-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=1:duration=1", "-frames:v", "1", show / "fanart.jpg")
+    make_title_logo(show / "logo.png")
     episodes = [
         (1, 1, EPISODE_TITLE),
         (1, 2, SECOND_EPISODE_TITLE),

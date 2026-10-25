@@ -303,8 +303,8 @@ public struct BookReaderLayout: Equatable, Sendable {
     public let companion: CGRect?
     public init(size: CGSize, expanded: Bool, divisions: [CGRect] = [], occlusions: [CGRect] = [], artwork: Bool = false) {
         var area = CGRect(origin: .zero, size: size).insetBy(dx: artwork ? 0 : 16, dy: artwork ? 0 : 12)
-        // A camera occlusion is rare and small; reserve its complete top/bottom strip rather than cover text.
-        for camera in occlusions where area.intersects(camera) {
+        // Keep prose clear of the camera; artwork continues to the display edge.
+        for camera in occlusions where !artwork && area.intersects(camera) {
             if camera.midY < area.midY {
                 let bottom = area.maxY; area.origin.y = camera.maxY + 12; area.size.height = bottom - area.minY
             } else { area.size.height = camera.minY - 12 - area.minY }

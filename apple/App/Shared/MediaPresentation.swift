@@ -9,6 +9,7 @@ private struct BillboardArtwork: View {
     let store: LuminaStore
     var showsPoster = false
     var home = false
+    var motionDirection: Int? = nil
     @State private var framing: HeroFraming?
     @State private var loadedURL: URL?
     @State private var source: UIImage?
@@ -51,6 +52,7 @@ private struct BillboardArtwork: View {
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
+            .modifier(HomeArtworkMotion(direction: motionDirection))
             .clipped()
         }
         .task(id: url) {
@@ -72,6 +74,26 @@ private struct BillboardArtwork: View {
     }
 }
 
+/// Overscan keeps the canvas covered as Home artwork drifts toward alternating corners.
+private struct HomeArtworkMotion: ViewModifier {
+    let direction: Int?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+
+    func body(content: Content) -> some View {
+        Group {
+            if let direction, !reduceMotion, scenePhase == .active {
+                let anchors: [UnitPoint] = [.topLeading, .bottomTrailing, .topTrailing, .bottomLeading]
+                content.phaseAnimator([false, true]) { artwork, zoomed in
+                    artwork.scaleEffect(zoomed ? 1.10 : 1.02, anchor: anchors[direction % anchors.count])
+                } animation: { _ in .easeInOut(duration: 18) }
+            } else {
+                content
+            }
+        }
+    }
+}
+
 struct MediaBackdrop: View {
     let item: MediaItem
     let store: LuminaStore
@@ -87,6 +109,7 @@ struct MediaBillboard<Actions: View>: View {
     var showsMetadata = true
     var showsProgress = true
     var featured = false
+    var artworkMotionDirection: Int? = nil
     var compactMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat?
     var topContentClearance: CGFloat = 0
@@ -114,10 +137,10 @@ struct MediaBillboard<Actions: View>: View {
                     .frame(maxWidth: .infinity, minHeight: compactMinimumHeight ?? (featured ? 336 : 380), alignment: .bottomLeading)
                     .padding(.horizontal, 20)
                     .padding(.top, topInset)
-                    .padding(.bottom, featured ? 68 : 26)
+                    .padding(.bottom, featured ? 68 : 24)
                     .background {
                         ZStack {
-                            BillboardArtwork(item: item, store: store, showsPoster: true, home: featured)
+                            BillboardArtwork(item: item, store: store, showsPoster: true, home: featured, motionDirection: artworkMotionDirection)
                             LinearGradient(stops: [
                                 .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.92 : 0.16), location: 0),
                                 .init(color: LuminaTheme.theater.opacity(0.16), location: 0.40),
@@ -135,11 +158,11 @@ struct MediaBillboard<Actions: View>: View {
                     .frame(maxWidth: copyWidth, alignment: .leading)
                     .padding(.horizontal, contentInset)
                     .padding(.top, topInset)
-                    .padding(.bottom, featured ? 68 : 44)
+                    .padding(.bottom, 24)
                     .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .bottomLeading)
                     .background {
                         ZStack {
-                            BillboardArtwork(item: item, store: store, showsPoster: true, home: featured)
+                            BillboardArtwork(item: item, store: store, showsPoster: true, home: featured, motionDirection: artworkMotionDirection)
                             LinearGradient(stops: [
                                 .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.96 : 0.72), location: 0),
                                 .init(color: LuminaTheme.theater.opacity(0.30), location: 0.48),
@@ -173,6 +196,11 @@ struct MediaBillboard<Actions: View>: View {
                     .foregroundStyle(.white.opacity(0.85))
             }
             title
+            if featured, let subtitle = item.homeHeroSubtitle {
+                Text(subtitle).font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.85)).lineLimit(2)
+                    .accessibilityIdentifier("featuredEpisodeSubtitle")
+            }
             if showsMetadata {
                 MediaMetadata(item: item, onArtwork: true)
             }
@@ -218,7 +246,7 @@ struct MediaBillboard<Actions: View>: View {
                 #else
                 .buttonStyle(.plain)
                 #endif
-                .accessibilityLabel(item.name)
+                .accessibilityLabel(featured ? item.homeHeroTitle : item.name)
                 .accessibilityHint(featured && onBrowse != nil
                     ? "Open details. Swipe left or right to browse featured titles."
                     : "Open details")
@@ -239,15 +267,15 @@ struct MediaBillboard<Actions: View>: View {
     }
 
     private var titleArtwork: some View {
-        MediaTitleArtwork(name: item.name, url: store.logoURL(for: item),
-                          maximumWidth: compact ? 280 : 440,
-                          maximumHeight: compact ? 88 : 140) {
+        MediaTitleArtwork(name: featured ? item.homeHeroTitle : item.name, url: store.logoURL(for: item),
+                          maximumWidth: (compact ? 280 : 440) * 0.8,
+                          maximumHeight: (compact ? 88 : 140) * 0.8) {
             titleText
         }
     }
 
     private var titleText: some View {
-        Text(item.name)
+        Text(featured ? item.homeHeroTitle : item.name)
             .font(titleFont)
             .tracking(-0.6)
             .lineLimit(nil)
@@ -257,9 +285,9 @@ struct MediaBillboard<Actions: View>: View {
     }
     private var titleFont: Font {
         #if os(tvOS)
-        LuminaTheme.editorial(featured ? 54 : 64, relativeTo: .largeTitle, italic: true).weight(.bold)
+        LuminaTheme.editorial((featured ? 54 : 64) * 0.8, relativeTo: .largeTitle, italic: true).weight(.bold)
         #else
-        LuminaTheme.editorial((compact ? 34 : 58) * (featured ? 0.75 : 1), relativeTo: .largeTitle, italic: true).weight(.bold)
+        LuminaTheme.editorial((compact ? 34 : 58) * (featured ? 0.75 : 1) * 0.8, relativeTo: .largeTitle, italic: true).weight(.bold)
         #endif
     }
     private var topInset: CGFloat {
@@ -435,6 +463,7 @@ struct FeaturedShelf<Actions: View>: View {
                     showsMetadata: showsMetadata,
                     showsProgress: showsProgress,
                     featured: true,
+                    artworkMotionDirection: isInteracting ? nil : index,
                     compactMinimumHeight: compactMinimumHeight,
                     wideMinimumHeight: wideMinimumHeight,
                     topContentClearance: topContentClearance,
@@ -867,7 +896,7 @@ enum HomeBrowsingDestination: String, CaseIterable, Hashable {
 
     var title: String {
         switch self {
-        case .all: "All"
+        case .all: "Home"
         case .movies: "Movies"
         case .tv: "TV"
         case .anime: "Anime"
@@ -886,11 +915,11 @@ enum HomeBrowsingDestination: String, CaseIterable, Hashable {
     }
 }
 
-/// All and Watchlist refine Home in place. Library destinations remain neutral
+/// Watchlist refines Home in place. Library destinations remain neutral
 /// commands so returning to Home preserves the member's current Home selection.
 struct HomeBrowsingRow: View {
     let category: HomeBrowseCategory
-    var destinations = HomeBrowsingDestination.allCases
+    var destinations = HomeBrowsingDestination.allCases.filter { $0 != .all }
     let onSelect: (HomeBrowsingDestination) -> Void
 
     var body: some View {
@@ -906,5 +935,34 @@ struct HomeBrowsingRow: View {
             }
         }
         .accessibilityIdentifier("homeBrowsingRow")
+    }
+}
+
+/// The cover supplies the album page's atmosphere without another artwork request or disk cache.
+struct AlbumArtworkBackground: ViewModifier {
+    let url: URL?
+    var enabled = true
+    @State private var palette: AlbumArtworkColor?
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.colorScheme, enabled ? .dark : colorScheme)
+            .background {
+                Group {
+                    if enabled, let palette {
+                        Color(red: palette.red, green: palette.green, blue: palette.blue)
+                    } else {
+                        LuminaTheme.paper
+                    }
+                }
+                .ignoresSafeArea()
+            }
+            .task(id: enabled ? url : nil) {
+                palette = nil
+                guard enabled, let url, let image = await ArtworkImageCache.shared.image(for: url),
+                      !Task.isCancelled else { return }
+                palette = AlbumArtworkColor(image: image)
+            }
     }
 }

@@ -131,6 +131,23 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(store.imageURL(for: posterEpisode)?.path, "/Items/movie-1/Images/Primary")
         XCTAssertEqual(store.posterURL(for: posterEpisode)?.path, "/Items/series-1/Images/Primary")
 
+        var savedEpisode = episodeWithStill
+        savedEpisode["Name"] = "Pilot"
+        savedEpisode["SeriesName"] = "The Observatory"
+        savedEpisode["IndexNumber"] = 1
+        savedEpisode["ParentIndexNumber"] = 2
+        savedEpisode["ParentPrimaryImageItemId"] = "series-1"
+        savedEpisode["ParentPrimaryImageTag"] = "series-poster-tag"
+        savedEpisode["ParentLogoItemId"] = "series-1"
+        savedEpisode["ParentLogoImageTag"] = "series-logo-tag"
+        let queuedEpisode = try JSONDecoder().decode(MediaItem.self, from: json(savedEpisode))
+        XCTAssertEqual(queuedEpisode.homeHeroTitle, "The Observatory")
+        XCTAssertEqual(queuedEpisode.homeHeroSubtitle, "S2 · E1 · Pilot")
+        XCTAssertEqual(queuedEpisode.id, posterEpisode.id, "Presentation must preserve the saved playable version.")
+        XCTAssertEqual(store.imageURL(for: queuedEpisode)?.path, "/Items/series-1/Images/Primary")
+        XCTAssertEqual(store.logoURL(for: queuedEpisode)?.path, "/Items/series-1/Images/Logo")
+        XCTAssertEqual(store.backdropURL(for: queuedEpisode)?.path, "/Items/series-1/Images/Backdrop/0")
+
         let seriesPoster = try XCTUnwrap(store.imageURL(for: episode, maxWidth: 0))
         XCTAssertEqual(seriesPoster.scheme, backdrop.scheme)
         XCTAssertEqual(seriesPoster.host, backdrop.host)
@@ -308,6 +325,39 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertTrue(store.libraryAlphabet.isEmpty)
         try await Task.sleep(nanoseconds: 200_000_000)
         XCTAssertEqual(store.libraryAlphabet, [LibraryAlphabetAnchor(letter: "M", index: 0)])
+    }
+
+    func testNavigationCategoriesRefreshAndStayScopedToTheConnectedServer() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let credentials = TestCredentials(session: saved)
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: credentials)
+        func serve(_ categories: [String], status: Int = 200) {
+            HomeDelayedURLProtocol.handler = { request in
+                switch request.url!.path {
+                case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+                case "/Lumina/Settings/navigation": return response(request, status: status, json: ["categories": categories])
+                default: return response(request, json: page(items: []))
+                }
+            }
+        }
+        serve(["movies", "anime", "books"])
+        await store.restore()
+        XCTAssertEqual(store.availableLibraryCategories, ["movies", "anime", "books"])
+        serve(["tv"])
+        await store.refreshNavigationCategories()
+        XCTAssertEqual(store.availableLibraryCategories, ["tv"])
+        serve([], status: 503)
+        await store.loadHome()
+        XCTAssertEqual(store.availableLibraryCategories, ["tv"], "Transient errors retain this server's last successful menu.")
+        await store.signOut()
+        XCTAssertTrue(store.availableLibraryCategories.isEmpty)
+        credentials.stored = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8766")!, accessToken: "other-token", userID: "user-1", username: "member", serverName: "Other", deviceID: "test-device")
+        serve(["music"])
+        await store.restore()
+        XCTAssertEqual(store.availableLibraryCategories, ["music"], "A new server must never inherit another server's libraries.")
+        serve([])
+        await store.loadHome()
+        XCTAssertTrue(store.availableLibraryCategories.isEmpty, "Removing the final library must clear its category.")
     }
 
     func testHomeLoadsShelvesConcurrentlyWithTheSameFirstShelfTime() async throws {

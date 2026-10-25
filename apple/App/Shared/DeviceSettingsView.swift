@@ -8,14 +8,18 @@ struct DeviceSettingsView: View {
     let store: LuminaStore
     var onSignOut: (() -> Void)?
     var onClose: (() -> Void)?
+    private let embedded: Bool
+    private let query: String
     @AppStorage("native.appearance") private var appearance = "account"
     @AppStorage("native.video.subtitleAppearance") private var subtitleStyleData = ""
     @Bindable private var preferences: NativePlaybackPreferences
     @State private var licensesPresented = false
     @FocusState private var qualityFocused: Bool
 
-    init(store: LuminaStore, onSignOut: (() -> Void)? = nil, onClose: (() -> Void)? = nil) {
+    init(store: LuminaStore, onSignOut: (() -> Void)? = nil, onClose: (() -> Void)? = nil, embedded: Bool = false, query: String = "") {
         self.store = store
+        self.embedded = embedded
+        self.query = query
         self.onSignOut = onSignOut
         self.onClose = onClose
         _preferences = Bindable(store.playbackPreferences)
@@ -37,93 +41,92 @@ struct DeviceSettingsView: View {
 
     #if !os(tvOS)
     private var mobileSettings: some View {
-        Form {
-            Section("Playback") {
-                Picker("Video quality", selection: $preferences.quality) {
-                    ForEach(PlaybackQuality.allCases, id: \.self) { quality in
-                        Text(quality == .automatic ? "Original (best available)" : quality.label).tag(quality)
+        Group {
+            if embedded { mobilePreferences }
+            else {
+                ScrollView {
+                    mobilePreferences.padding(24).frame(maxWidth: 920).frame(maxWidth: .infinity)
+                }
+                .background(LuminaTheme.paper)
+                .navigationTitle("Device settings")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("deviceSettingsScreen")
+        .sheet(isPresented: $licensesPresented) {
+            PlaybackLicensesView().accessibilityIdentifier("deviceLicensesSheet")
+        }
+    }
+
+    private var mobilePreferences: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if matches("appearance theme dark light oled system") || matches("playback video quality resolution data saver") || matches("audio language english japanese spanish") {
+                LuminaSettingsSection("This device") {
+                    if matches("appearance theme dark light oled system") {
+                        LuminaSettingsPicker("Appearance", selection: $appearance,
+                            options: ["account", "system", "light", "dark", "oled"],
+                            identifier: "deviceAppearancePicker") {
+                                $0 == "account" ? "Default" : $0 == "oled" ? "OLED" : $0.capitalized
+                            }
+                    }
+                    if matches("playback video quality resolution data saver") {
+                        LuminaSettingsPicker("Video quality", selection: $preferences.quality,
+                            options: PlaybackQuality.allCases, identifier: "devicePlaybackQualityPicker") {
+                                $0 == .automatic ? "Original" : $0.label
+                            }
+                    }
+                    if matches("audio language english japanese spanish") {
+                        DeviceLanguagePicker(title: "Audio language", languages: $preferences.preferredAudioLanguages,
+                                             identifier: "devicePreferredAudioLanguagePicker")
                     }
                 }
-                .accessibilityIdentifier("devicePlaybackQualityPicker")
-                .focused($qualityFocused)
-
-                Text("Original requests the highest compatible stream. The server can still select a lower compatible format.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
-
-            Section("Audio & subtitles") {
-                DeviceLanguagePicker(
-                    title: "Audio language",
-                    languages: $preferences.preferredAudioLanguages,
-                    identifier: "devicePreferredAudioLanguagePicker"
-                )
-                DeviceLanguagePicker(
-                    title: "Subtitle language",
-                    languages: $preferences.preferredSubtitleLanguages,
-                    identifier: "devicePreferredSubtitleLanguagePicker"
-                )
-                Picker("Subtitles", selection: $preferences.subtitleMode) {
-                    ForEach(NativeSubtitleMode.allCases, id: \.self) { mode in
-                        Text(mode.label).tag(mode)
+            if matches("subtitles captions language appearance") {
+                LuminaSettingsSection("Subtitles") {
+                    DeviceLanguagePicker(title: "Language", languages: $preferences.preferredSubtitleLanguages,
+                                         identifier: "devicePreferredSubtitleLanguagePicker")
+                    LuminaSettingsPicker("Show subtitles", selection: $preferences.subtitleMode,
+                        options: NativeSubtitleMode.allCases, identifier: "deviceSubtitleModePicker") { $0.label }
+                    NavigationLink {
+                        DeviceSubtitleAppearanceView(style: subtitleStyle)
+                    } label: {
+                        LuminaSettingsActionLabel("Caption appearance", symbol: "captions.bubble")
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("deviceSubtitleAppearanceButton")
                 }
-                .accessibilityIdentifier("deviceSubtitleModePicker")
-                NavigationLink {
-                    DeviceSubtitleAppearanceView(style: subtitleStyle)
-                } label: {
-                    Label("Caption appearance", systemImage: "captions.bubble")
-                }
-                .accessibilityIdentifier("deviceSubtitleAppearanceButton")
             }
-
-            Section {
-                Picker("Appearance", selection: $appearance) {
-                    Text("Use account theme").tag("account")
-                    Text("System").tag("system")
-                    Text("Light").tag("light")
-                    Text("Dark").tag("dark")
-                    Text("OLED").tag("oled")
+            if matches("downloads storage offline music") {
+                LuminaSettingsSection("Storage") {
+                    NavigationLink {
+                        NativeMusicLibraryView(store: store, section: .downloads)
+                    } label: {
+                        LuminaSettingsActionLabel("Downloads", symbol: "arrow.down.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("deviceDownloadsButton")
                 }
-                .accessibilityIdentifier("deviceAppearancePicker")
-            } header: {
-                Text("Appearance")
-            } footer: {
-                Text("This override affects only this device. Use account theme follows your Lumina account preference.")
             }
-
-            Section("Storage") {
-                NavigationLink {
-                    NativeMusicLibraryView(store: store, section: .downloads)
-                } label: {
-                    Label("Downloads", systemImage: "arrow.down.circle")
-                }
-                .accessibilityIdentifier("deviceDownloadsButton")
-            }
-
-            Section("About") {
-                Button("Open-source licenses", systemImage: "doc.text") { licensesPresented = true }
+            if !embedded {
+                LuminaSettingsSection("About") {
+                    Button { licensesPresented = true } label: {
+                        LuminaSettingsActionLabel("Open-source licenses", symbol: "doc.text")
+                    }
+                    .buttonStyle(.plain)
                     .accessibilityIdentifier("deviceLicensesButton")
-                Text("Playback includes PrismCore, MPVKit, and FFmpeg. Complete notices are included in the app bundle.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let onSignOut {
-                Section("Account") {
-                    Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
-                        onSignOut()
-                    }
-                    .accessibilityIdentifier("deviceSignOutButton")
+                }
+                if let onSignOut {
+                    Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive, action: onSignOut)
+                        .buttonStyle(.plain).frame(minHeight: 44)
+                        .accessibilityIdentifier("deviceSignOutButton")
                 }
             }
         }
-        .navigationTitle("Device settings")
-        .accessibilityIdentifier("deviceSettingsScreen")
-        .defaultFocus($qualityFocused, true)
-        .sheet(isPresented: $licensesPresented) {
-            PlaybackLicensesView()
-                .accessibilityIdentifier("deviceLicensesSheet")
+    }
+
+    private func matches(_ keywords: String) -> Bool {
+        query.split(whereSeparator: \.isWhitespace).allSatisfy {
+            keywords.localizedCaseInsensitiveContains(String($0))
         }
     }
     #endif
@@ -141,6 +144,131 @@ struct DeviceSettingsView: View {
         )
     }
 }
+
+#if os(iOS)
+struct LuminaSettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(LuminaTheme.editorial(22, relativeTo: .title3))
+                .accessibilityAddTraits(.isHeader)
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(title)
+    }
+}
+
+struct LuminaSettingsActionLabel: View {
+    let title: String
+    let symbol: String
+    var chevron: String? = "chevron.right"
+
+    init(_ title: String, symbol: String, chevron: String? = "chevron.right") {
+        self.title = title; self.symbol = symbol; self.chevron = chevron
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol).frame(width: 22).accessibilityHidden(true)
+            Text(title)
+            Spacer(minLength: 12)
+            if let chevron {
+                Image(systemName: chevron).font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
+            }
+        }
+        .frame(minHeight: 44)
+        .contentShape(.rect)
+        .foregroundStyle(LuminaTheme.ink)
+    }
+}
+
+struct LuminaSettingsPicker<Value: Hashable>: View {
+    let title: String
+    @Binding var selection: Value
+    let options: [Value]
+    let identifier: String
+    let label: (Value) -> String
+    @State private var expanded = false
+
+    init(_ title: String, selection: Binding<Value>, options: [Value], identifier: String,
+         label: @escaping (Value) -> String) {
+        self.title = title; _selection = selection; self.options = options
+        self.identifier = identifier; self.label = label
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button { expanded.toggle() } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    Text(title).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(label(selection)).fontWeight(.medium)
+                        .padding(.bottom, 5)
+                        .overlay(alignment: .bottom) { Rectangle().fill(LuminaTheme.brand).frame(height: 2) }
+                        .multilineTextAlignment(.trailing)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(minHeight: 44).contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
+            .accessibilityValue(label(selection))
+            .accessibilityIdentifier(identifier)
+            if expanded {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), alignment: .leading)], alignment: .leading, spacing: 8) {
+                    ForEach(options, id: \.self) { option in
+                        Button { selection = option; expanded = false } label: {
+                            Text(label(option)).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .buttonStyle(LuminaUnderlineTabStyle(selected: selection == option))
+                        .accessibilityAddTraits(selection == option ? .isSelected : [])
+                        .accessibilityIdentifier("\(identifier)-option-\(options.firstIndex(of: option) ?? 0)")
+                    }
+                }
+                .padding(.bottom, 8)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("\(identifier)-choices")
+            }
+        }
+        .foregroundStyle(LuminaTheme.ink)
+    }
+}
+
+struct LuminaSettingsSwitch: View {
+    let title: String
+    @Binding var isOn: Bool
+    let identifier: String
+
+    init(_ title: String, isOn: Binding<Bool>, identifier: String) {
+        self.title = title; _isOn = isOn; self.identifier = identifier
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text(title).frame(maxWidth: .infinity, alignment: .leading)
+            ForEach([false, true], id: \.self) { option in
+                Button(option ? "On" : "Off") { isOn = option }
+                    .buttonStyle(LuminaUnderlineTabStyle(selected: isOn == option))
+                    .accessibilityAddTraits(isOn == option ? .isSelected : [])
+                    .accessibilityIdentifier("\(identifier)-\(option ? "on" : "off")")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(title)
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityIdentifier(identifier)
+    }
+}
+#endif
 
 private enum DeviceLanguages {
     static let options: [(tag: String, title: String)] = [
@@ -169,12 +297,15 @@ private struct DeviceLanguagePicker: View {
     let identifier: String
 
     var body: some View {
+        #if os(iOS)
+        LuminaSettingsPicker(title, selection: primaryLanguage,
+            options: DeviceLanguages.options.map(\.tag), identifier: identifier) { DeviceLanguages.title(for: $0) }
+        #else
         Picker(title, selection: primaryLanguage) {
-            ForEach(DeviceLanguages.options, id: \.tag) { option in
-                Text(option.title).tag(option.tag)
-            }
+            ForEach(DeviceLanguages.options, id: \.tag) { option in Text(option.title).tag(option.tag) }
         }
         .accessibilityIdentifier(identifier)
+        #endif
     }
 
     private var primaryLanguage: Binding<String> {
@@ -196,36 +327,31 @@ private struct DeviceSubtitleAppearanceView: View {
         // This fallback is retained only for callers outside that route.
         TVDeviceSubtitleAppearanceView(style: $style, openRoute: { _ in })
         #else
-        Form {
-            Section {
-                Toggle("Customize subtitles", isOn: $style.isCustom)
-                    .tint(LuminaTheme.brand)
-                    .accessibilityIdentifier("deviceCustomizeSubtitlesToggle")
-            } footer: {
-                Text("When off, Lumina leaves caption presentation to system preferences and authored subtitle styling.")
-            }
-
-            if style.isCustom {
-                Section("Text") {
-                    subtitlePicker("Font", value: $style.font, options: VideoSubtitleStyle.FontFamily.allCases)
-                    subtitlePicker("Size", value: $style.size, options: VideoSubtitleStyle.Size.allCases)
-                    subtitlePicker("Color", value: $style.color, options: VideoSubtitleStyle.Color.allCases)
-                    subtitlePicker("Weight", value: $style.weight, options: VideoSubtitleStyle.Weight.allCases)
-                }
-                Section("Background & position") {
-                    subtitlePicker("Outline", value: $style.edgeStyle, options: VideoSubtitleStyle.EdgeStyle.allCases)
-                    subtitlePicker("Background", value: $style.background, options: VideoSubtitleStyle.Background.allCases)
-                    subtitlePicker("Opacity", value: $style.opacity, options: VideoSubtitleStyle.Opacity.allCases)
-                    subtitlePicker("Vertical alignment", value: $style.verticalAlignment, options: VideoSubtitleStyle.VerticalAlignment.allCases)
-                }
-                Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                LuminaSettingsSwitch("Customize subtitles", isOn: $style.isCustom,
+                                     identifier: "deviceCustomizeSubtitlesToggle")
+                if style.isCustom {
+                    LuminaSettingsSection("Text") {
+                        subtitlePicker("Font", value: $style.font, options: VideoSubtitleStyle.FontFamily.allCases)
+                        subtitlePicker("Size", value: $style.size, options: VideoSubtitleStyle.Size.allCases)
+                        subtitlePicker("Color", value: $style.color, options: VideoSubtitleStyle.Color.allCases)
+                        subtitlePicker("Weight", value: $style.weight, options: VideoSubtitleStyle.Weight.allCases)
+                    }
+                    LuminaSettingsSection("Background & position") {
+                        subtitlePicker("Outline", value: $style.edgeStyle, options: VideoSubtitleStyle.EdgeStyle.allCases)
+                        subtitlePicker("Background", value: $style.background, options: VideoSubtitleStyle.Background.allCases)
+                        subtitlePicker("Opacity", value: $style.opacity, options: VideoSubtitleStyle.Opacity.allCases)
+                        subtitlePicker("Vertical alignment", value: $style.verticalAlignment, options: VideoSubtitleStyle.VerticalAlignment.allCases)
+                    }
                     Button("Reset appearance") { style.restoreDefaults() }
+                        .buttonStyle(.plain).frame(minHeight: 44)
                         .accessibilityIdentifier("deviceResetSubtitleAppearanceButton")
-                } footer: {
-                    Text("Custom styling applies to supported WebVTT captions. Authored subtitle styling can take precedence.")
                 }
             }
+            .padding(24).frame(maxWidth: 920).frame(maxWidth: .infinity, alignment: .top)
         }
+        .background(LuminaTheme.paper)
         .navigationTitle("Caption appearance")
         .accessibilityIdentifier("deviceSubtitleAppearanceScreen")
         #endif
@@ -236,12 +362,14 @@ private struct DeviceSubtitleAppearanceView: View {
         value: Binding<Value>,
         options: [Value]
     ) -> some View where Value: CaseIterable & Identifiable & Hashable, Value.ID == Value, Value: Sendable {
+        #if os(iOS)
+        LuminaSettingsPicker(title, selection: value, options: options,
+            identifier: "deviceSubtitleStyle\(title.replacingOccurrences(of: " ", with: ""))Picker") { subtitleLabel($0) }
+        #else
         Picker(title, selection: value) {
-            ForEach(options, id: \.self) { option in
-                Text(subtitleLabel(option)).tag(option)
-            }
+            ForEach(options, id: \.self) { option in Text(subtitleLabel(option)).tag(option) }
         }
-        .accessibilityIdentifier("deviceSubtitleStyle\(title.replacingOccurrences(of: " ", with: ""))Picker")
+        #endif
     }
 
     fileprivate func subtitleLabel(_ value: some Any) -> String {

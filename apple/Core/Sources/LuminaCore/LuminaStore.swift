@@ -11,6 +11,7 @@ let tickScale = 10_000_000.0
                 ArtworkImageCache.shared.removeAll()
                 readyArtworkFramings.removeAll()
                 readyArtworkFramingOrder.removeAll()
+                availableLibraryCategories = []
             }
             music.configure(session: session)
             offline.configure(session: session)
@@ -32,6 +33,7 @@ let tickScale = 10_000_000.0
     public private(set) var errorMessage: String?
     public private(set) var hasMore = false
     public private(set) var libraryAlphabet = [LibraryAlphabetAnchor]()
+    public private(set) var availableLibraryCategories = Set<String>()
 
     /// Alphabet seeking is available only where a server index can describe the
     /// current complete video wall. Search, recency/year ordering, episodes and
@@ -367,7 +369,23 @@ let tickScale = 10_000_000.0
         async let recent: Void = loadHomeRecent(active, generation: generation)
         async let resume: Void = loadHomeResume(active, generation: generation)
         async let nextUp: Void = loadHomeNextUp(active, generation: generation)
-        _ = await (recent, resume, nextUp)
+        async let navigation: Void = loadNavigationCategories(active, generation: generation)
+        _ = await (recent, resume, nextUp, navigation)
+    }
+
+    private func loadNavigationCategories(_ active: LuminaSession, generation: Int) async {
+        do {
+            let categories = try await client.navigationCategories(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
+            guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
+            availableLibraryCategories = categories
+        } catch {
+            // Retain this server's last successful menu through a transient failure.
+        }
+    }
+
+    public func refreshNavigationCategories() async {
+        guard let active = session else { return }
+        await loadNavigationCategories(active, generation: homeGeneration)
     }
 
     private func loadHomeRecent(_ active: LuminaSession, generation: Int) async {
@@ -619,6 +637,9 @@ let tickScale = 10_000_000.0
         if item.isAudio, let albumID = item.albumID, let albumTag = item.albumPrimaryImageTag {
             imageID = albumID
             tag = albumTag
+        } else if let parentID = item.parentPrimaryImageItemID, let parentTag = item.parentPrimaryImageTag {
+            imageID = parentID
+            tag = parentTag
         } else if let ownTag = item.imageTags?["Primary"] {
             imageID = item.id
             tag = ownTag
@@ -669,8 +690,15 @@ let tickScale = 10_000_000.0
     }
 
     public func logoURL(for item: MediaItem, maxWidth: Int = 600) -> URL? {
-        guard let active = session, let tag = item.imageTags?["Logo"] else { return nil }
-        return client.url(origin: active.serverURL, path: "/Items/\(item.id)/Images/Logo", query: [
+        guard let active = session else { return nil }
+        let imageID: String
+        let tag: String
+        if let ownTag = item.imageTags?["Logo"] {
+            imageID = item.id; tag = ownTag
+        } else if let parentID = item.parentLogoItemID, let parentTag = item.parentLogoImageTag {
+            imageID = parentID; tag = parentTag
+        } else { return nil }
+        return client.url(origin: active.serverURL, path: "/Items/\(imageID)/Images/Logo", query: [
             URLQueryItem(name: "maxWidth", value: String(max(1, maxWidth))),
             URLQueryItem(name: "tag", value: tag),
             URLQueryItem(name: "ApiKey", value: active.accessToken),

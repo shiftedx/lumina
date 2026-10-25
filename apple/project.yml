@@ -28,6 +28,7 @@ targets:
         excludes: [LuminaApp.swift]
       - path: Config/PrivacyInfo.xcprivacy
         buildPhase: resources
+      - path: Assets/Welcome.xcassets
       - path: Assets/iOS.xcassets
       - path: Notices
         buildPhase: resources
@@ -51,6 +52,7 @@ targets:
       - path: App/tvOS
       - path: Config/PrivacyInfo.xcprivacy
         buildPhase: resources
+      - path: Assets/Welcome.xcassets
       - path: Assets/tvOS.xcassets
       - path: Notices
         buildPhase: resources

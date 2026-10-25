@@ -171,6 +171,11 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
     public let backdropImageTags: [String]?
     public let parentBackdropItemID: String?
     public let parentBackdropImageTags: [String]?
+    /// Native Home can retain a saved file's identity while borrowing its catalog artwork.
+    public private(set) var parentPrimaryImageItemID: String? = nil
+    public private(set) var parentPrimaryImageTag: String? = nil
+    public private(set) var parentLogoItemID: String? = nil
+    public private(set) var parentLogoImageTag: String? = nil
     public let album: String?
     public let albumID: String?
     public let albumPrimaryImageTag: String?
@@ -233,12 +238,22 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
         case runTimeTicks = "RunTimeTicks", userData = "UserData", imageTags = "ImageTags"
         case backdropImageTags = "BackdropImageTags"
         case parentBackdropItemID = "ParentBackdropItemId", parentBackdropImageTags = "ParentBackdropImageTags"
+        case parentPrimaryImageItemID = "ParentPrimaryImageItemId", parentPrimaryImageTag = "ParentPrimaryImageTag"
+        case parentLogoItemID = "ParentLogoItemId", parentLogoImageTag = "ParentLogoImageTag"
         case albumID = "AlbumId", albumPrimaryImageTag = "AlbumPrimaryImageTag"
         case album = "Album", artists = "Artists", albumArtist = "AlbumArtist", childCount = "ChildCount", container = "Container"
         case chapterMarkers = "Chapters"
     }
 
     public var resumeSeconds: Double { Double(userData?.playbackPositionTicks ?? 0) / 10_000_000 }
+    public var homeHeroTitle: String {
+        type == "Episode" ? seriesName.flatMap { $0.isEmpty ? nil : $0 } ?? name : name
+    }
+    public var homeHeroSubtitle: String? {
+        guard type == "Episode" else { return nil }
+        let number = parentIndexNumber.flatMap { season in indexNumber.map { "S\(season) · E\($0)" } }
+        return [number, name].compactMap { $0 }.joined(separator: " · ")
+    }
     public var durationSeconds: Double { Double(runTimeTicks ?? 0) / 10_000_000 }
     /// Ordered chapter targets from the item-detail response. Invalid, duplicate, and out-of-range
     /// values are ignored so a malformed server response cannot offer an unsafe seek.

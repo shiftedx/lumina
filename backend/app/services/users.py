@@ -9,7 +9,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app import config
-from app.models import AccountToken, AppSession, AppSettings, DeviceToken, DownloadJob, User
+from app.models import AccountToken, AppSession, AppSettings, DeviceToken, DownloadJob, MobilePairing, User
 from app.schemas import (
     AppSettingsResponse,
     AppSettingsUpdateRequest,
@@ -161,8 +161,17 @@ class UserService:
         """Sign the member out everywhere and revoke their active playback capabilities."""
         self.db.query(AppSession).filter(AppSession.user_id == user_id).delete(synchronize_session=False)
         self.db.query(DeviceToken).filter(DeviceToken.user_id == user_id).delete(synchronize_session=False)
+        self._revoke_pending_pairings(user_id)
         music_cast_capabilities.revoke_for_user(self.db, user_id)
         sessions.stop_where(user_id=user_id)  # every stream of the member ends with its sign-ins
+
+    def _revoke_pending_pairings(self, user_id: str) -> None:
+        """A credential or role lifecycle transition never revives a handed-off code."""
+        self.db.query(MobilePairing).filter(
+            MobilePairing.revoked_at.is_(None),
+            MobilePairing.used_at.is_(None),
+            (MobilePairing.user_id == user_id) | (MobilePairing.issued_by == user_id),
+        ).update({MobilePairing.revoked_at: utcnow()}, synchronize_session=False)
 
     def _apply_user_update(self, user: User, payload: UserUpdateRequest) -> User:
         if payload.display_name is not None:
@@ -171,6 +180,7 @@ class UserService:
             user.bio = payload.bio.strip() or None
         if payload.role is not None and payload.role != user.role:
             user.role = payload.role
+            self._revoke_pending_pairings(user.id)
             # A role change signs the member out of every browser and revokes casts: a promoted
             # member's remembered device-ring session must never become a vault owner's bearer.
             self.db.query(AppSession).filter(AppSession.user_id == user.id).delete(synchronize_session=False)

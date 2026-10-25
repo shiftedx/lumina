@@ -41,6 +41,8 @@ RATE_LIMIT_RULES: dict[str, RateLimitRule] = {
     "showcase": RateLimitRule(max_requests=60, window_seconds=60),
     "showcase_art": RateLimitRule(max_requests=120, window_seconds=60),
     "account_token_redeem": RateLimitRule(max_requests=10, window_seconds=300),
+    "mobile_pair_claim": RateLimitRule(max_requests=10, window_seconds=300),
+    "mobile_pair_create": RateLimitRule(max_requests=20, window_seconds=300),
     "preview": RateLimitRule(max_requests=20, window_seconds=60),
     # Intent prefetch: a card hovered 300 ms; the prefetcher also dedupes and caps running extractions.
     "remote_prefetch": RateLimitRule(max_requests=30, window_seconds=60),

@@ -4,6 +4,10 @@ all eight masks scored by the standard penalty rules.
 """
 from __future__ import annotations
 
+from io import BytesIO
+
+from PIL import Image
+
 # Level M, indexed by version (index 0 unused).
 _ECC_PER_BLOCK = (-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28, 28, 28, 28,
                   28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28)
@@ -248,3 +252,18 @@ def svg_path(text: str, border: int = 4) -> tuple[int, str]:
     modules = encode(text)
     parts = [f"M{x + border} {y + border}h1v1h-1z" for y, row in enumerate(modules) for x, dark in enumerate(row) if dark]
     return len(modules) + 2 * border, "".join(parts)
+
+
+def png(text: str, border: int = 4, scale: int = 8) -> bytes:
+    """A local QR PNG for mail clients; no pairing secret reaches an image service."""
+    modules = encode(text)
+    side = len(modules) + 2 * border
+    image = Image.new("L", (side, side), 255)
+    pixels = image.load()
+    for y in range(-border, len(modules) + border):
+        for x in range(-border, len(modules) + border):
+            if 0 <= y < len(modules) and 0 <= x < len(modules) and modules[y][x]:
+                pixels[x + border, y + border] = 0
+    output = BytesIO()
+    image.resize((side * scale, side * scale), Image.Resampling.NEAREST).save(output, "PNG")
+    return output.getvalue()

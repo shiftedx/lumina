@@ -664,6 +664,20 @@
    "title",
    "user_id"
   ],
+  "mobile_pairings": [
+   "created_at",
+   "expires_at",
+   "id",
+   "issued_by",
+   "issuer_credential_digest",
+   "revoked_at",
+   "server_url",
+   "shared",
+   "token_digest",
+   "used_at",
+   "user_credential_digest",
+   "user_id"
+  ],
   "music_acquisitions": [
    "album_id",
    "album_name",
@@ -1321,5 +1335,5 @@
    "user_id"
   ]
  },
- "version": 37
+ "version": 38
 }

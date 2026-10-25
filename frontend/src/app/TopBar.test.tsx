@@ -168,6 +168,7 @@ describe('TopBar', () => {
     render(<TopBar {...p} />);
     await userEvent.click(screen.getByRole('button', { name: 'Dana Lee, account menu' }));
     expect(screen.getByRole('group', { name: 'Dana Lee · Vault owner', hidden: true })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Mobile connect', hidden: true })).toBeTruthy();
     expect(screen.getByRole('menuitemradio', { name: /Dark/, hidden: true }).getAttribute('aria-checked')).toBe('true');
     await userEvent.click(screen.getByRole('menuitem', { name: 'Switch member…', hidden: true }));
     expect(picker).toHaveBeenCalledOnce();

@@ -1000,6 +1000,25 @@ class AccountToken(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class MobilePairing(Base):
+    """A short-lived, one-use handoff from a signed-in browser to a native client."""
+
+    __tablename__ = "mobile_pairings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    token_digest: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    issued_by: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    server_url: Mapped[str] = mapped_column(Text, nullable=False)
+    user_credential_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer_credential_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    shared: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class ImportRun(Base):
     """One resumable scan of an external root; its id is the scan generation."""
 

@@ -78,7 +78,7 @@ def create_agent_token(db: Session, user: User, name: str, scope: ConnectedAppSc
     return record, token
 
 
-def create_app_password(db: Session, user: User, name: str) -> tuple[DeviceToken, str]:
+def new_app_password(user: User, name: str) -> tuple[DeviceToken, str]:
     """An app password (2.9.0): what a Jellyfin app or HTTP Basic client types instead of the account password, so a
     two-step account can still use apps that cannot ask for a code. Shown once; only its digest is stored."""
     label = name.strip()
@@ -94,6 +94,12 @@ def create_app_password(db: Session, user: User, name: str) -> tuple[DeviceToken
         device_id=f"apppw:{uuid.uuid4()}",  # its own namespace: a client DeviceId can never collide with it
         device_name=label[:255],
     )
+    return record, password
+
+
+def create_app_password(db: Session, user: User, name: str) -> tuple[DeviceToken, str]:
+    """Persist a password; callers that need an atomic larger operation use ``new_app_password``."""
+    record, password = new_app_password(user, name)
     with write_transaction(db, name="app_password_create"):
         db.add(record)
         db.flush()

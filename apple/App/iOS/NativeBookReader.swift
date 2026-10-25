@@ -244,18 +244,18 @@ struct NativeBookReader: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close reader", systemImage: "xmark") { Task { await model.flush(); if model.saveError == nil { dismiss() } else { exitWithoutSaving = true } } }.accessibilityIdentifier("bookCloseButton")
+                    Button("Close reader", glyph: .close) { Task { await model.flush(); if model.saveError == nil { dismiss() } else { exitWithoutSaving = true } } }.accessibilityIdentifier("bookCloseButton")
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button("Read full screen", systemImage: "arrow.up.left.and.arrow.down.right") { controlsVisible = false }.accessibilityIdentifier("bookImmersiveButton")
-                    Button("Contents", systemImage: "list.bullet") { pageDraft = model.unit + 1; contents = true }.accessibilityIdentifier("bookContentsButton")
+                    Button("Read full screen", glyph: .fullscreen) { controlsVisible = false }.accessibilityIdentifier("bookImmersiveButton")
+                    Button("Contents", glyph: .list) { pageDraft = model.unit + 1; contents = true }.accessibilityIdentifier("bookContentsButton")
                     Button("Reading appearance", systemImage: "textformat.size") { appearance = true }.accessibilityIdentifier("bookAppearanceButton")
                 }
                 ToolbarItemGroup(placement: .bottomBar) {
                     if controlsVisible {
-                        Button("Previous page", systemImage: model.manifest?.readingDirection == "rtl" ? "chevron.right" : "chevron.left") { model.turn(false, expanded: spread) }.disabled(model.busy || !model.ready).accessibilityIdentifier("bookPreviousButton")
+                        Button("Previous page", glyph: model.manifest?.readingDirection == "rtl" ? .forward : .back) { model.turn(false, expanded: spread) }.disabled(model.busy || !model.ready).accessibilityIdentifier("bookPreviousButton")
                         Text(position).font(.caption).accessibilityIdentifier("bookPosition")
-                        Button("Next page", systemImage: model.manifest?.readingDirection == "rtl" ? "chevron.left" : "chevron.right") { model.turn(true, expanded: spread) }.disabled(model.busy || !model.ready).accessibilityIdentifier("bookNextButton")
+                        Button("Next page", glyph: model.manifest?.readingDirection == "rtl" ? .back : .forward) { model.turn(true, expanded: spread) }.disabled(model.busy || !model.ready).accessibilityIdentifier("bookNextButton")
                     } else if isProse { showControlsButton }
                 }
             }
@@ -288,7 +288,7 @@ struct NativeBookReader: View {
     }
     private var showControlsButton: some View {
         Button { controlsVisible = true } label: {
-            Label("Show reading controls", systemImage: "ellipsis").labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44)
+            Label("Show reading controls", glyph: .moreHorizontal).labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44)
         }
             .accessibilityIdentifier("bookControlsButton")
     }
@@ -348,7 +348,7 @@ struct NativeBookReader: View {
                 if let manifest = model.manifest {
                     if manifest.book.format == "epub" {
                         ForEach(manifest.chapters) { chapter in
-                            Button { model.jump(chapter.id); contents = false } label: { HStack { Text(chapter.label); if model.unit == chapter.id { Image(systemName: "checkmark") } } }
+                            Button { model.jump(chapter.id); contents = false } label: { HStack { Text(chapter.label); if model.unit == chapter.id { LuminaIcon(glyph: .check, size: 20) } } }
                         }
                     } else {
                         TextField("Page number", value: $pageDraft, format: .number).keyboardType(.numberPad)
@@ -368,11 +368,11 @@ struct NativeBookReader: View {
                             }
                         }
                     }
-                    Button("Mark as read", systemImage: "checkmark") { model.checkpoint(completed: true); contents = false }
+                    Button("Mark as read", glyph: .check) { model.checkpoint(completed: true); contents = false }
                 }
             }
             .navigationTitle("Contents")
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { contents = false } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", glyph: .check) { contents = false } } }
         }
     }
     private var appearanceSheet: some View {
@@ -392,7 +392,7 @@ struct NativeBookReader: View {
                 Text("Two-page spreads show consecutive pages together, such as 5–6. Manga keeps its original reading order.").foregroundStyle(.secondary)
             }
             .navigationTitle("Reading appearance")
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { appearance = false }.accessibilityIdentifier("bookAppearanceDoneButton") } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", glyph: .check) { appearance = false }.accessibilityIdentifier("bookAppearanceDoneButton") } }
         }
     }
     private struct RenderKey: Equatable {

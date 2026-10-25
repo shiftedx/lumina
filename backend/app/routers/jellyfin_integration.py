@@ -271,7 +271,8 @@ def search_items(db: Session, user: User, query: jf.ItemsQuery) -> dict:
 
     def render() -> dict:
         refs = search_refs(db, user, query.searchterm or "", item_types(",".join(query.csv("includeitemtypes"))), SEARCH_LIMIT)
-        if query.parentid or query.genres or query.genreids or query.years or query.filters or query.isplayed is not None or query.isfavorite is not None:
+        if (query.parentid or query.genres or query.genreids or query.years or query.filters or query.isplayed is not None
+                or query.isfavorite is not None or jf.technical_filters_requested(query)):
             parent = jf.resolve(db, user, query.parentid) if query.parentid else None
             invalid_parent = query.parentid and (parent is None or parent.item is not None or parent.channel is not None or parent.view == "channels")
             stmt = None if invalid_parent else mapper.title_filter(parent, query.model_copy(update={"searchterm": None}))

@@ -77,6 +77,36 @@ final class LuminaOfflineLibraryTests: XCTestCase {
         XCTAssertTrue(restored.downloadedItems.isEmpty, "Explicit sign-out cleanup removes only the requested owner's files")
     }
 
+    func testDirectVideoDownloadPersistsAndRejectsPlaylistResponses() async throws {
+        let movie = try videoItem("movie")
+        let library = library()
+        library.configure(session: session())
+        OfflineURLProtocol.stub.handler = { $0.respond(bytes: 64, mime: "video/x-matroska") }
+        await library.downloadVideo(item: movie, request: videoRequest("movie"))
+        let local = try XCTUnwrap(library.localURL(for: movie.id))
+        XCTAssertEqual(local.pathExtension, "mkv")
+        XCTAssertEqual(library.downloadStates[movie.id], .downloaded)
+        XCTAssertEqual(library.downloadedItems, [movie])
+        XCTAssertEqual(library.resumeSeconds(for: movie.id), 42, "The download retains the server resume position until local playback advances")
+        library.recordPlaybackPosition(id: movie.id, seconds: 91.25)
+        XCTAssertEqual(library.resumeSeconds(for: movie.id), 91.25)
+
+        let restored = self.library()
+        restored.configure(session: session())
+        XCTAssertEqual(restored.localURL(for: movie.id), local, "A completed direct video remains available without a connection")
+        XCTAssertEqual(restored.resumeSeconds(for: movie.id), 91.25, "Offline resume survives relaunch")
+
+        let episode = try videoItem("episode", type: "Episode")
+        OfflineURLProtocol.stub.handler = { $0.respond(bytes: 16, mime: "application/vnd.apple.mpegurl") }
+        await restored.downloadVideo(item: episode, request: videoRequest("episode"))
+        XCTAssertNil(restored.localURL(for: episode.id))
+        guard case .failed(let message) = restored.downloadStates[episode.id] else {
+            return XCTFail("A playlist response was accepted as an offline file")
+        }
+        XCTAssertTrue(message.contains("supported media file"))
+        XCTAssertEqual(restored.localURL(for: movie.id), local, "A rejected stream cannot disturb another durable download")
+    }
+
     func testChangedOfflineFilesAreRejectedBeforePlayback() async throws {
         OfflineURLProtocol.stub.handler = { $0.respond(bytes: 32) }
         let library = library()
@@ -247,8 +277,21 @@ final class LuminaOfflineLibraryTests: XCTestCase {
         ]))
     }
 
+    private func videoItem(_ id: String, type: String = "Movie") throws -> MediaItem {
+        try JSONDecoder().decode(MediaItem.self, from: JSONSerialization.data(withJSONObject: [
+            "Id": id, "Name": "Synthetic video \(id)", "Type": type, "Container": "mkv",
+            "UserData": ["PlaybackPositionTicks": 420_000_000, "Played": false, "IsFavorite": false],
+        ]))
+    }
+
     private func request(_ id: String) -> URLRequest {
         var request = URLRequest(url: URL(string: "https://offline.example/Audio/\(id)/stream?ApiKey=discard-token")!)
+        request.setValue("discard-token", forHTTPHeaderField: "X-Emby-Token")
+        return request
+    }
+
+    private func videoRequest(_ id: String) -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://offline.example/Items/\(id)/Download?ApiKey=discard-token")!)
         request.setValue("discard-token", forHTTPHeaderField: "X-Emby-Token")
         return request
     }

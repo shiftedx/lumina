@@ -157,7 +157,7 @@ struct TVRequestsView: View {
                     }
                 }
             } label: {
-                Label(browseTitle, systemImage: "line.3.horizontal.decrease.circle")
+                Label(browseTitle, glyph: .filter, size: 24)
                     .frame(minWidth: 240, alignment: .leading)
             }
             .buttonStyle(LuminaUnderlineTabStyle())
@@ -167,7 +167,7 @@ struct TVRequestsView: View {
             Button {
                 historyPresented = true
             } label: {
-                Label("My requests", systemImage: "clock.arrow.circlepath")
+                Label("My requests", glyph: .history, size: 24)
                     .frame(minWidth: 240, alignment: .leading)
             }
             .buttonStyle(LuminaUnderlineTabStyle())
@@ -426,7 +426,12 @@ private struct TVRequestHero: View {
                             .frame(maxWidth: 760, alignment: .leading)
                     }
 
-                    Label(actionLabel(for: item), systemImage: item.status.canCreateRequest && item.canRequest ? "plus" : "info.circle")
+                    Label(
+                        actionLabel(for: item),
+                        glyph: item.status.canCreateRequest && item.canRequest ? .add : .info,
+                        variant: .solid,
+                        size: 24
+                    )
                         .font(.headline)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 12)
@@ -615,7 +620,7 @@ private struct TVRequestDetailView: View {
                         trailerUnavailable = !accepted
                     }
                 } label: {
-                    Label("Watch trailer on YouTube", systemImage: "arrow.up.right")
+                    Label("Watch trailer on YouTube", glyph: .externalLink, size: 24)
                 }
                 .buttonStyle(LuminaQuietActionStyle())
                 .controlSize(.large)
@@ -628,7 +633,7 @@ private struct TVRequestDetailView: View {
             }
 
             if let created {
-                Label(created.status.label, systemImage: "checkmark.circle.fill")
+                Label(created.status.label, glyph: .check, variant: .solid, size: 24)
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestSubmittedStatus")
@@ -640,12 +645,12 @@ private struct TVRequestDetailView: View {
             } else if current.canRequest && current.status.canCreateRequest {
                 requestChoices
             } else {
-                Label(current.unrequestableReason ?? "This title cannot be requested yet.", systemImage: "info.circle")
+                Label(current.unrequestableReason ?? "This title cannot be requested yet.", glyph: .info, size: 24)
                     .foregroundStyle(LuminaTheme.muted)
             }
 
             if let problem {
-                Label(problem, systemImage: "exclamationmark.triangle.fill")
+                Label(problem, glyph: .warning, variant: .solid, size: 24)
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("requestSubmissionError")
             }
@@ -703,7 +708,7 @@ private struct TVRequestDetailView: View {
             } label: {
                 HStack(spacing: 12) {
                     if submitting { ProgressView() }
-                    Label("Request \(current.title)", systemImage: "plus")
+                    Label("Request \(current.title)", glyph: .add, variant: .solid, size: 24)
                 }
             }
             .buttonStyle(LuminaQuietActionStyle(primary: true))
@@ -725,7 +730,7 @@ private struct TVRequestDetailView: View {
             .accessibilityIdentifier("requestQuotaLoading")
         case .failed(let message):
             VStack(alignment: .leading, spacing: 12) {
-                Label("Could not check your request allowance", systemImage: "exclamationmark.triangle.fill")
+                Label("Could not check your request allowance", glyph: .warning, variant: .solid, size: 24)
                     .foregroundStyle(LuminaTheme.accentInk)
                 Text(message)
                     .font(.body)
@@ -743,7 +748,7 @@ private struct TVRequestDetailView: View {
                     .foregroundStyle(LuminaTheme.muted)
             } else {
                 VStack(alignment: .leading, spacing: 12) {
-                    Label("Your request allowance is unavailable", systemImage: "exclamationmark.triangle.fill")
+                    Label("Your request allowance is unavailable", glyph: .warning, variant: .solid, size: 24)
                         .foregroundStyle(LuminaTheme.accentInk)
                     Button("Try again") {
                         Task { await refreshQuota() }
@@ -872,7 +877,11 @@ private struct TVRequestHistory: View {
                 } else if catalog.isLoading {
                     ProgressView("Loading requests…")
                 } else {
-                    ContentUnavailableView("No requests yet", systemImage: "sparkles.tv", description: Text("Titles you request will appear here with their progress."))
+                    ContentUnavailableView {
+                        Label("No requests yet", glyph: .discover, size: 24)
+                    } description: {
+                        Text("Titles you request will appear here with their progress.")
+                    }
                 }
             }
             .navigationTitle("My requests")

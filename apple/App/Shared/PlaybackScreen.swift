@@ -127,6 +127,10 @@ struct PlaybackScreen: View {
     @State private var audioOptionsFocusRequest = 0
     @State private var isMuted = false
     @State private var videoChromeVisible = true
+    @State private var pictureInPicturePossible = false
+    @State private var pictureInPictureActive = false
+    @State private var pictureInPictureContinuing = false
+    @State private var pictureInPictureStartRequest = 0
     @State private var videoSettingsVisible = false
     @State private var restoreSettingsFocus = false
     @State private var videoSettingsTab: VideoSettingsTab = .info
@@ -152,6 +156,13 @@ struct PlaybackScreen: View {
     @State private var videoIsScrubbing = false
     #if os(iOS)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @State private var videoGestures = VideoGesturePresentation()
+    @State private var videoGestureCancellationID = UUID()
+    @State private var videoGestureContainerSize = CGSize.zero
+    @State private var videoGestureItemID: ObjectIdentifier?
+    @State private var videoSettingsDetent: PresentationDetent = .medium
     @State private var audioTimelineVisible = true
     @State private var audioIsScrubbing = false
     @State private var audioTimelineHideTask: Task<Void, Never>?
@@ -189,7 +200,7 @@ struct PlaybackScreen: View {
                     .allowsHitTesting(false)
                 if attemptedAudioAdoption, audioSession.playback == nil {
                     ContentUnavailableView {
-                        Label("No playable track", systemImage: "music.note")
+                        Label("No playable track", glyph: .music, variant: .solid)
                     } description: {
                         Text(audioSession.message ?? "Your shared queue is paused. Browse Audio to manage requested albums.")
                     } actions: {
@@ -210,6 +221,20 @@ struct PlaybackScreen: View {
             #if !os(tvOS)
             if requestedPlayback.request.item.isAudio, ProcessInfo.processInfo.arguments.contains("--ui-testing") {
                 playbackTimeProbe
+            }
+            #endif
+            #if LUMINA_UI_TESTING && os(iOS)
+            if !requestedPlayback.request.item.isAudio {
+                Color.clear.frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityLabel("Gesture diagnostics")
+                    .accessibilityIdentifier("videoGestureDiagnostics")
+                    .accessibilityValue("phase=\(String(describing: scenePhase)) size=\(videoGestureContainerSize) modal=\(videoSettingsPresented) pip=\(pictureInPictureActive) playing=\(playback.isPlaying) requested=\(playback.videoPlaybackRequested) status=\(playback.player.timeControlStatus.rawValue) policy=\(playback.videoBackgroundPlaybackPolicyRawValue) rateReason=\(playback.lastVideoRateChangeReason) pauseReason=\(playback.lastVideoNativePauseReason) systemPauseInjections=\(playback.videoSystemPauseInjectionCount) actions=\(videoGestures.actionCount) last=\(videoGestures.lastAction)")
+                Color.clear.frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityLabel("System Picture in Picture")
+                    .accessibilityIdentifier("pictureInPictureState")
+                    .accessibilityValue(!AVPictureInPictureController.isPictureInPictureSupported() ? "Unsupported" : pictureInPictureActive ? "Active" : pictureInPicturePossible ? "Ready" : "Unavailable")
             }
             #endif
             #if os(tvOS)
@@ -245,12 +270,12 @@ struct PlaybackScreen: View {
         .toolbar {
             if requestedPlayback.request.item.isAudio {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button("Queue", systemImage: "list.bullet") { queuePresented = true }
+                    Button("Queue", glyph: .queue) { queuePresented = true }
                         .labelStyle(.iconOnly)
                         .accessibilityIdentifier("audioQueueButton")
                     audioPlayPauseButton
                     audioRepeatButton.labelStyle(.iconOnly)
-                    Button("Stop", systemImage: "stop.fill") { stopAudio() }
+                    Button("Stop", glyph: .stop, variant: .solid) { stopAudio() }
                         .labelStyle(.iconOnly)
                         .accessibilityIdentifier("audioStopButton")
                 }
@@ -277,18 +302,22 @@ struct PlaybackScreen: View {
                 selectAudio: selectAudio,
                 selectAudioAutomatically: selectAudioAutomatically,
                 selectSubtitle: selectSubtitle,
+                gestures: videoGestures,
                 onDone: { videoSettingsPresented = false }
             )
             .background(LuminaTheme.theater)
+            // The portrait half-sheet sits below Duo's status rail. Its trailing
+            // safe-area column is empty here; retain it for full-height/landscape settings.
+            .ignoresSafeArea(.container, edges: verticalSizeClass != .compact && videoSettingsDetent == .medium ? .trailing : [])
             .preferredColorScheme(.dark)
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.medium, .large], selection: $videoSettingsDetent)
         }
         #endif
         .task {
             guard !startedPresentation else { return }
             startedPresentation = true
             let initial = requestedPlayback
-            initial.setActive(scenePhase == .active)
+            initial.setActive(scenePhase == .active || pictureInPictureContinuing)
             if initial.request.item.isAudio {
                 do { try await audioSession.adoptForPlayback(initial) }
                 catch { presentationError = error.localizedDescription }
@@ -302,7 +331,13 @@ struct PlaybackScreen: View {
             await playback.refreshVideoActions()
         }
         .onChange(of: scenePhase) { _, phase in
-            playback.setActive(phase == .active)
+            playback.setActive(phase == .active || pictureInPictureContinuing)
+            #if os(iOS)
+            if phase == .active, !playback.request.item.isAudio {
+                playback.recoverSystemBackgroundPauseIfNeeded()
+            }
+            if phase != .active { cancelVideoGestures(releaseBrightness: true) }
+            #endif
         }
         .onChange(of: playback.isPlaying) { _, isPlaying in
             guard !playback.request.item.isAudio else { return }
@@ -310,6 +345,9 @@ struct PlaybackScreen: View {
             else {
                 videoChromeHideTask?.cancel()
                 videoChromeVisible = true
+                #if os(iOS)
+                if videoGestures.hasTemporarySpeedHold { cancelVideoGestures(releaseBrightness: false) }
+                #endif
             }
         }
         .onChange(of: focusedVideoControl) { _, control in
@@ -317,11 +355,21 @@ struct PlaybackScreen: View {
         }
         .onChange(of: playback.hasFinished) { _, finished in
             guard !playback.request.item.isAudio, finished else { return }
+            #if os(iOS)
+            cancelVideoGestures(releaseBrightness: false)
+            #endif
             videoChromeHideTask?.cancel()
             videoChromeVisible = true
         }
         .onReceive(playback.player.publisher(for: \.currentItem, options: [.initial, .new])) { item in
             guard !playback.request.item.isAudio else { return }
+            #if os(iOS)
+            let identity = item.map(ObjectIdentifier.init)
+            if videoGestureItemID != identity {
+                videoGestureItemID = identity
+                cancelVideoGestures(releaseBrightness: false)
+            }
+            #endif
             item?.textStyleRules = VideoSubtitleStyle(encodedString: subtitleStyleData).makeTextStyleRules()
             videoTracksLoadTask?.cancel()
             videoTracksLoadTask = Task { await loadVideoTracks(for: item) }
@@ -336,15 +384,78 @@ struct PlaybackScreen: View {
             playback.player.currentItem?.textStyleRules = VideoSubtitleStyle(encodedString: data).makeTextStyleRules()
         }
         .onChange(of: videoSettingsPresented) { _, isPresented in
+            #if os(iOS)
+            if isPresented { cancelVideoGestures(releaseBrightness: false) }
+            #endif
             if !isPresented { revealVideoChrome() }
         }
         .onDisappear {
             videoChromeHideTask?.cancel()
             videoTracksLoadTask?.cancel()
+            #if os(iOS)
+            cancelVideoGestures(releaseBrightness: true)
+            #endif
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-            playback.setActive(false)
+            #if os(iOS)
+            cancelVideoGestures(releaseBrightness: true)
+            #endif
+            playback.setActive(pictureInPictureContinuing)
         }
+        #if os(iOS) && LUMINA_UI_TESTING
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            playback.injectSystemBackgroundPauseForUITesting()
+        }
+        #endif
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            guard scenePhase == .active, !playback.request.item.isAudio else { return }
+            playback.setActive(true)
+            playback.recoverSystemBackgroundPauseIfNeeded()
+        }
+        #endif
+        #if os(iOS)
+        .onChange(of: voiceOverEnabled) { _, enabled in
+            cancelVideoGestures(releaseBrightness: false)
+            if enabled { revealVideoChrome() }
+        }
+        .onChange(of: videoGestureSettingsFingerprint) { _, _ in
+            cancelVideoGestures(releaseBrightness: !store.playbackPreferences.videoGesturesEnabled || !store.playbackPreferences.brightnessSwipeEnabled)
+        }
+        .onChange(of: videoGestures.externalBrightnessRevision) { _, _ in
+            cancelVideoGestures(releaseBrightness: false)
+        }
+        .onChange(of: videoGestures.interacting) { _, active in
+            if active { videoChromeHideTask?.cancel() }
+            else if videoChromeVisible { revealVideoChrome() }
+        }
+        .onChange(of: pictureInPictureActive) { _, active in
+            if active { cancelVideoGestures(releaseBrightness: true) }
+        }
+        .onChange(of: pictureInPictureContinuing) { _, active in
+            if active { cancelVideoGestures(releaseBrightness: true) }
+        }
+        .onChange(of: displayedError) { _, error in
+            if error != nil { cancelVideoGestures(releaseBrightness: false) }
+        }
+        .onChange(of: playback.isSwitchingVideoStream) { _, changing in
+            if changing { cancelVideoGestures(releaseBrightness: false) }
+        }
+        .onChange(of: playback.preferredVideoRate) { _, _ in cancelVideoGestures(releaseBrightness: false) }
+        .onChange(of: playback.videoPlaybackRequested) { _, requested in
+            if !requested { cancelVideoGestures(releaseBrightness: false) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { _ in
+            cancelVideoGestures(releaseBrightness: false)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
+            guard !requestedPlayback.request.item.isAudio else { return }
+            cancelVideoGestures(releaseBrightness: true)
+            if (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue {
+                playback.pause()
+            }
+        }
+        #endif
         #if os(tvOS)
         .onPlayPauseCommand {
             guard !playback.request.item.isAudio else { playback.togglePlayback(); return }
@@ -381,7 +492,7 @@ struct PlaybackScreen: View {
                                 image.resizable().scaledToFill()
                             } placeholder: {
                                 Color.black.overlay {
-                                    Image(systemName: "music.note").font(.largeTitle)
+                                    LuminaIcon(glyph: .music, variant: .solid, size: 40)
                                 }
                             }
                             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -484,7 +595,7 @@ struct PlaybackScreen: View {
                                 image.resizable().scaledToFill()
                             } placeholder: {
                                 Color.black.overlay {
-                                    Image(systemName: "music.note").font(.largeTitle)
+                                    LuminaIcon(glyph: .music, variant: .solid, size: 40)
                                 }
                             }
                             .frame(width: artwork.size.width, height: artwork.size.height)
@@ -503,7 +614,7 @@ struct PlaybackScreen: View {
                         .ignoresSafeArea(.container, edges: [.top, .horizontal])
                         VStack(alignment: .leading, spacing: 12) {
                             if let error = displayedError {
-                                Label(error, systemImage: "exclamationmark.triangle")
+                                Label(error, glyph: .warning)
                                     .font(.callout)
                             }
                             if let syncError = playback.syncError { Text(syncError).font(.caption) }
@@ -569,6 +680,55 @@ struct PlaybackScreen: View {
 
     #endif
 
+    #if os(iOS)
+    private var videoGestureSettingsFingerprint: [Int] {
+        let preferences = store.playbackPreferences
+        return [preferences.videoGesturesEnabled, preferences.volumeSwipeEnabled,
+                preferences.brightnessSwipeEnabled, preferences.horizontalSeekEnabled,
+                preferences.doubleTapSkipEnabled, preferences.twoFingerTapEnabled,
+                preferences.holdSpeedEnabled, preferences.gestureHapticsEnabled].map { $0 ? 1 : 0 }
+            + [preferences.skipForwardSeconds, preferences.skipBackwardSeconds]
+    }
+
+    private func cancelVideoGestures(releaseBrightness: Bool) {
+        guard !requestedPlayback.request.item.isAudio else { return }
+        videoGestureCancellationID = UUID()
+        videoGestures.cancel(playback: playback, releaseBrightness: releaseBrightness)
+        playback.cancelVideoGestureOverrides()
+    }
+
+    private func videoTouchSurface(safeArea: EdgeInsets) -> some View {
+        let preferences = store.playbackPreferences
+        return VideoGestureSurface(
+            configuration: .init(gestures: .init(
+                advancedEnabled: preferences.videoGesturesEnabled,
+                volumeEnabled: preferences.volumeSwipeEnabled,
+                brightnessEnabled: preferences.brightnessSwipeEnabled,
+                horizontalSeekEnabled: preferences.horizontalSeekEnabled,
+                doubleTapEnabled: preferences.doubleTapSkipEnabled,
+                twoFingerEnabled: preferences.twoFingerTapEnabled,
+                holdEnabled: preferences.holdSpeedEnabled),
+                safeArea: UIEdgeInsets(top: safeArea.top, left: safeArea.leading, bottom: safeArea.bottom, right: safeArea.trailing)),
+            isInteractionEnabled: scenePhase == .active && !pictureInPictureActive && !pictureInPictureContinuing && !videoSettingsPresented && !videoSettingsVisible && displayedError == nil && !playback.hasFinished && !playback.isSwitchingVideoStream,
+            isVoiceOverRunning: voiceOverEnabled,
+            cancellationID: videoGestureCancellationID,
+            onWindow: { window in videoGestures.attach(window: window) },
+            action: { action in
+                videoGestures.handle(action, playback: playback, preferences: preferences, toggleControls: toggleVideoChrome)
+                isMuted = playback.player.isMuted
+            }
+        )
+    }
+
+    private var videoTimeline: some View {
+        VideoGestureTimeline(playback: playback, presentation: videoGestures, preferences: store.playbackPreferences,
+                             cancellationID: videoGestureCancellationID, containerHeight: videoGestureContainerSize.height) { editing in
+            videoIsScrubbing = editing
+            revealVideoChrome()
+        }
+    }
+    #endif
+
     private func videoStage(safeArea: EdgeInsets) -> some View {
         GeometryReader { geometry in
             let division = tabletopDivision(in: geometry)
@@ -582,11 +742,17 @@ struct PlaybackScreen: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: division?.minY ?? geometry.size.height)
                     .frame(maxHeight: .infinity, alignment: .top)
+                #if os(iOS)
+                videoTouchSurface(safeArea: safeArea)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: division?.minY ?? geometry.size.height)
+                #endif
                 if let division {
                     videoTransport
                         .padding(.top, division.maxY)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 } else {
+                    #if os(tvOS)
                     if showsTapSurface, !videoSettingsVisible, displayedError == nil, !playback.hasFinished {
                         Button {
                             #if os(tvOS)
@@ -612,18 +778,18 @@ struct PlaybackScreen: View {
                             .buttonStyle(.plain)
                             #endif
                     }
+                    #endif
                     if !videoSettingsVisible && (videoChromeVisible || displayedError != nil || playback.hasFinished) {
-                        videoOverlay
+                        videoOverlay(safeArea: safeArea)
                             #if os(iOS)
                             .padding(.top, safeArea.top)
                             .padding(.bottom, safeArea.bottom)
-                            .padding(.horizontal, max(safeArea.leading, safeArea.trailing))
                             #endif
                             .background { videoScrim.allowsHitTesting(false) }
                             .transition(.opacity)
                     }
                     if !videoSettingsVisible, !videoSettingsPresented, displayedError == nil {
-                        videoContextActions(showNext: playback.activeCredits != nil || playback.hasFinished)
+                        videoContextActions(showNext: showsContextualNextEpisode)
                             .padding(.horizontal, videoHorizontalInset)
                             #if os(tvOS)
                             .padding(.bottom, 260)
@@ -653,8 +819,29 @@ struct PlaybackScreen: View {
                     playbackTimeProbe
                 }
                 #endif
+                #if os(iOS)
+                if let feedback = videoGestures.feedback {
+                    HStack {
+                        if feedback.side != .leading { Spacer(minLength: 0) }
+                        VideoGestureFeedbackView(feedback: feedback)
+                        if feedback.side != .trailing { Spacer(minLength: 0) }
+                    }
+                    .padding(.horizontal, max(24, max(safeArea.leading, safeArea.trailing)))
+                    .padding(.top, safeArea.top + 84)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
+                #endif
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
+            #if os(iOS)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: videoGestures.feedback == nil)
+            .onChange(of: geometry.size, initial: true) { _, size in
+                if videoGestureContainerSize != .zero { cancelVideoGestures(releaseBrightness: false) }
+                videoGestureContainerSize = size
+            }
+            #endif
         }
     }
 
@@ -679,11 +866,57 @@ struct PlaybackScreen: View {
             player: playback.player,
             videoGravity: videoGravity,
             onTearDown: { [playback] in playback.close() },
-            onVideoTap: toggleVideoChrome
+            onVideoTap: toggleVideoChrome,
+            pictureInPictureStartRequest: pictureInPictureStartRequest,
+            onPictureInPicturePossibleChange: { pictureInPicturePossible = $0 },
+            onPictureInPictureActiveChange: { pictureInPictureActive = $0 },
+            onPictureInPictureContinuationChange: {
+                pictureInPictureContinuing = $0
+                playback.setActive(scenePhase == .active || $0)
+            },
+            onPictureInPictureRestoreUI: { revealVideoChrome() }
         )
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .accessibilityIdentifier("nativeVideoPlayer")
+    }
+
+    @ViewBuilder private var videoPictureInPictureButton: some View {
+        #if os(iOS)
+        if AVPictureInPictureController.isPictureInPictureSupported() {
+            Button("Picture in Picture", glyph: .pictureInPicture, variant: .solid, size: 24) {
+                pictureInPictureStartRequest += 1
+            }
+            .labelStyle(.iconOnly)
+            .disabled(!pictureInPicturePossible || pictureInPictureContinuing || playback.hasFinished)
+            .accessibilityIdentifier("videoPictureInPictureButton")
+        }
+        #endif
+    }
+
+    private var videoSkipForwardSeconds: Int {
+        #if os(iOS)
+        store.playbackPreferences.skipForwardSeconds
+        #else
+        10
+        #endif
+    }
+
+    private var videoSkipBackwardSeconds: Int {
+        #if os(iOS)
+        store.playbackPreferences.skipBackwardSeconds
+        #else
+        10
+        #endif
+    }
+
+    private func skipVideo(forward: Bool) {
+        let delta = Double(forward ? videoSkipForwardSeconds : -videoSkipBackwardSeconds)
+        #if os(iOS)
+        playback.requestRelativeVideoSeek(delta)
+        #else
+        playback.seek(to: playback.elapsedSeconds + delta)
+        #endif
     }
 
     private var videoTransport: some View {
@@ -694,18 +927,19 @@ struct PlaybackScreen: View {
                     .frame(width: 38, height: 5)
                     .accessibilityHidden(true)
                 HStack(spacing: 12) {
-                    Button("Close player", systemImage: "xmark") { finish() }
+                    Button("Close player", glyph: .close) { finish() }
                         .labelStyle(.iconOnly)
                         .accessibilityIdentifier("closePlayerButton")
                     Spacer(minLength: 0)
                     #if os(iOS)
+                    videoPictureInPictureButton
                     VideoRoutePicker()
                         .frame(width: 44, height: 44)
                     #endif
-                    Button("Playback settings", systemImage: "captions.bubble") { presentVideoSettings() }
+                    Button("Playback settings", glyph: .subtitles) { presentVideoSettings() }
                         .labelStyle(.iconOnly)
                         .accessibilityIdentifier("videoSettingsButton")
-                    Button(isMuted ? "Unmute" : "Mute", systemImage: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
+                    Button(isMuted ? "Unmute" : "Mute", glyph: isMuted ? .volumeHigh : .volumeOff, variant: .solid) {
                         isMuted.toggle()
                         playback.player.isMuted = isMuted
                     }
@@ -731,10 +965,7 @@ struct PlaybackScreen: View {
                         .tint(.white)
                         .accessibilityLabel("Video position")
                     #else
-                    Slider(value: Binding(get: { playback.elapsedSeconds }, set: { playback.seek(to: $0) }),
-                           in: 0...max(1, playback.request.item.durationSeconds))
-                        .tint(.white)
-                        .accessibilityLabel("Video position")
+                    videoTimeline
                     #endif
                     HStack {
                         Text(Duration.seconds(playback.elapsedSeconds).formatted(.time(pattern: .minuteSecond)))
@@ -745,15 +976,22 @@ struct PlaybackScreen: View {
                     .foregroundStyle(.white.opacity(0.72))
                 }
                 HStack(spacing: 28) {
-                    Button("Back 10 seconds", systemImage: "gobackward.10") {
-                        playback.seek(to: playback.elapsedSeconds - 10)
+                    Button("Back \(videoSkipBackwardSeconds) seconds", glyph: videoSkipBackwardSeconds == 10 ? .seekBack10 : .rewind, size: 28) {
+                        skipVideo(forward: false)
                     }
                     .labelStyle(.iconOnly)
                     .accessibilityIdentifier("videoSeekBackwardButton")
 
-                    Button(playback.hasFinished ? "Replay" : playback.isPlaying ? "Pause" : "Play",
-                           systemImage: playback.hasFinished ? "arrow.counterclockwise" : playback.isPlaying ? "pause.fill" : "play.fill") {
+                    Button {
                         if playback.hasFinished { replay() } else { playback.togglePlayback() }
+                    } label: {
+                        if playback.hasFinished {
+                            Label("Replay", systemImage: "arrow.counterclockwise")
+                        } else {
+                            Label(playback.videoPlaybackRequested ? "Pause" : "Play",
+                                  glyph: playback.videoPlaybackRequested ? .pause : .play,
+                                  variant: .solid, size: 28)
+                        }
                     }
                     .labelStyle(.iconOnly)
                     .font(.title2)
@@ -764,8 +1002,8 @@ struct PlaybackScreen: View {
                     .accessibilityIdentifier(playback.hasFinished ? "replayButton" : "videoPlayPauseButton")
                     .disabled(playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
 
-                    Button("Forward 10 seconds", systemImage: "goforward.10") {
-                        playback.seek(to: playback.elapsedSeconds + 10)
+                    Button("Forward \(videoSkipForwardSeconds) seconds", glyph: videoSkipForwardSeconds == 10 ? .seekForward10 : .fastForward, size: 28) {
+                        skipVideo(forward: true)
                     }
                     .labelStyle(.iconOnly)
                     .accessibilityIdentifier("videoSeekForwardButton")
@@ -774,7 +1012,7 @@ struct PlaybackScreen: View {
                 .buttonStyle(LuminaQuietActionStyle())
                 .frame(maxWidth: .infinity)
                 .overlay(alignment: .trailing) { nextEpisodeTransport }
-                videoContextActions(showNext: playback.activeCredits != nil || playback.hasFinished)
+                videoContextActions(showNext: false)
                 if let syncError = playback.syncError {
                     Text(syncError)
                         .font(.caption)
@@ -797,7 +1035,7 @@ struct PlaybackScreen: View {
 
     @ViewBuilder private var nextEpisodeTransport: some View {
         if let episode = playback.nextEpisode {
-            Button("Next episode", systemImage: "forward.end.fill") {
+            Button("Next episode", glyph: .next, variant: .solid, size: 24) {
                 Task { await playback.playNextEpisode(); revealVideoChrome() }
             }
             .labelStyle(.iconOnly)
@@ -806,6 +1044,15 @@ struct PlaybackScreen: View {
             .focused($focusedVideoControl, equals: "nextEpisodeTransportButton")
             .disabled(!playback.canUseVideoActions)
         }
+    }
+
+    private var showsContextualNextEpisode: Bool {
+        #if os(tvOS)
+        playback.activeCredits != nil || playback.hasFinished
+        #else
+        // Visible chrome already provides Next in the transport row.
+        playback.activeCredits != nil && !videoChromeVisible && !playback.hasFinished
+        #endif
     }
 
     private func videoContextActions(showNext: Bool) -> some View {
@@ -823,7 +1070,7 @@ struct PlaybackScreen: View {
                     .disabled(!playback.canUseVideoActions)
             }
             if showNext, let episode = playback.nextEpisode {
-                Button("Next episode", systemImage: "forward.end.fill") {
+                Button("Next episode", glyph: .next, variant: .solid, size: 24) {
                     Task { await playback.playNextEpisode(); revealVideoChrome() }
                 }
                 .accessibilityHint(episode.name)
@@ -880,6 +1127,7 @@ struct PlaybackScreen: View {
         videoSettingsVisible = true
         revealVideoChrome()
         #else
+        videoSettingsDetent = .medium
         videoSettingsPresented = true
         #endif
     }
@@ -901,6 +1149,9 @@ struct PlaybackScreen: View {
     }
 
     private func hideVideoChrome() {
+        #if os(iOS)
+        guard !voiceOverEnabled else { return }
+        #endif
         videoChromeHideTask?.cancel()
         focusedVideoControl = nil
         videoChromeVisible = false
@@ -918,6 +1169,9 @@ struct PlaybackScreen: View {
         #endif
         guard playback.isPlaying, !playback.hasFinished, !videoSettingsVisible, !videoSettingsPresented,
               !videoIsScrubbing, displayedError == nil else { return }
+        #if os(iOS)
+        guard !voiceOverEnabled, !videoGestures.interacting else { return }
+        #endif
         videoChromeHideTask = Task {
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
@@ -1027,22 +1281,23 @@ struct PlaybackScreen: View {
         }
     }
 
-    @ViewBuilder private var videoOverlay: some View {
+    @ViewBuilder private func videoOverlay(safeArea: EdgeInsets) -> some View {
         VStack(spacing: 24) {
             HStack(spacing: 12) {
-                Button("Close player", systemImage: "xmark") { finish() }
+                Button("Close player", glyph: .close) { finish() }
                     .labelStyle(.iconOnly)
                     .accessibilityIdentifier("closePlayerButton")
                     .focused($focusedVideoControl, equals: "closePlayerButton")
                 Spacer(minLength: 0)
                 #if os(iOS)
+                videoPictureInPictureButton
                 VideoRoutePicker().frame(width: 44, height: 44)
                 #endif
-                Button("Playback settings", systemImage: "captions.bubble") { presentVideoSettings() }
+                Button("Playback settings", glyph: .subtitles) { presentVideoSettings() }
                     .labelStyle(.iconOnly)
                     .accessibilityIdentifier("videoSettingsButton")
                     .focused($focusedVideoControl, equals: "videoSettingsButton")
-                Button(isMuted ? "Unmute" : "Mute", systemImage: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
+                Button(isMuted ? "Unmute" : "Mute", glyph: isMuted ? .volumeHigh : .volumeOff, variant: .solid) {
                     isMuted.toggle()
                     playback.player.isMuted = isMuted
                 }
@@ -1052,6 +1307,10 @@ struct PlaybackScreen: View {
             }
             .buttonStyle(LuminaQuietActionStyle())
             .controlSize(.large)
+            #if os(iOS)
+            .padding(.leading, safeArea.leading)
+            .padding(.trailing, safeArea.trailing)
+            #endif
             #if os(tvOS)
             .focusSection()
             .onMoveCommand { direction in
@@ -1070,12 +1329,7 @@ struct PlaybackScreen: View {
                 ProgressView(value: min(playback.elapsedSeconds, max(1, playback.request.item.durationSeconds)), total: max(1, playback.request.item.durationSeconds))
                     .tint(.white)
                 #else
-                Slider(value: Binding(get: { playback.elapsedSeconds }, set: { playback.seek(to: $0) }), in: 0...max(1, playback.request.item.durationSeconds), onEditingChanged: { editing in
-                    videoIsScrubbing = editing
-                    revealVideoChrome()
-                })
-                    .tint(.white)
-                    .accessibilityLabel("Video position")
+                videoTimeline
                 #endif
                 HStack {
                     Text(Duration.seconds(playback.elapsedSeconds).formatted(.time(pattern: .minuteSecond)))
@@ -1084,14 +1338,30 @@ struct PlaybackScreen: View {
                 }
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.white.opacity(0.72))
-                HStack(spacing: 28) {
-                    Button("Back 10 seconds", systemImage: "gobackward.10") { playback.seek(to: playback.elapsedSeconds - 10); revealVideoChrome() }
+                HStack(spacing: videoTransportSpacing) {
+                    #if os(iOS)
+                    Color.clear
+                        .frame(width: videoTransportSideReserve, height: 44)
+                        .accessibilityHidden(true)
+                    #endif
+                    Button("Back \(videoSkipBackwardSeconds) seconds", glyph: videoSkipBackwardSeconds == 10 ? .seekBack10 : .rewind, size: 28) { skipVideo(forward: false); revealVideoChrome() }
                         .labelStyle(.iconOnly)
                         .accessibilityIdentifier("videoSeekBackwardButton")
                     .focused($focusedVideoControl, equals: "videoSeekBackwardButton")
-                    Button(playback.hasFinished ? "Replay" : playback.isPlaying ? "Pause" : "Play", systemImage: playback.hasFinished ? "arrow.counterclockwise" : playback.isPlaying ? "pause.fill" : "play.fill") {
+                    #if os(iOS)
+                    .frame(maxWidth: .infinity)
+                    #endif
+                    Button {
                         if playback.hasFinished { replay() } else { playback.togglePlayback() }
                         revealVideoChrome()
+                    } label: {
+                        if playback.hasFinished {
+                            Label("Replay", systemImage: "arrow.counterclockwise")
+                        } else {
+                            Label(playback.videoPlaybackRequested ? "Pause" : "Play",
+                                  glyph: playback.videoPlaybackRequested ? .pause : .play,
+                                  variant: .solid, size: 28)
+                        }
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderedProminent)
@@ -1101,10 +1371,21 @@ struct PlaybackScreen: View {
                     .accessibilityIdentifier(playback.hasFinished ? "replayButton" : "videoPlayPauseButton")
                     .focused($focusedVideoControl, equals: "videoPlayPauseButton")
                     .disabled(playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
-                    Button("Forward 10 seconds", systemImage: "goforward.10") { playback.seek(to: playback.elapsedSeconds + 10); revealVideoChrome() }
+                    #if os(iOS)
+                    .frame(maxWidth: .infinity)
+                    #endif
+                    Button("Forward \(videoSkipForwardSeconds) seconds", glyph: videoSkipForwardSeconds == 10 ? .seekForward10 : .fastForward, size: 28) { skipVideo(forward: true); revealVideoChrome() }
                         .labelStyle(.iconOnly)
                         .accessibilityIdentifier("videoSeekForwardButton")
                     .focused($focusedVideoControl, equals: "videoSeekForwardButton")
+                    #if os(iOS)
+                    .frame(maxWidth: .infinity)
+                    #endif
+                    #if os(iOS)
+                    Color.clear
+                        .frame(width: videoTransportSideReserve, height: 44)
+                        .accessibilityHidden(true)
+                    #endif
                 }
                 .buttonStyle(LuminaQuietActionStyle())
                 .controlSize(.large)
@@ -1163,13 +1444,35 @@ struct PlaybackScreen: View {
     }
 
     private var playbackTimeProbe: some View {
-        Color.clear
-            .frame(width: 1, height: 1)
-            .accessibilityElement()
-            .accessibilityLabel("Playback seconds")
-            .accessibilityIdentifier("playbackTime")
-            .accessibilityValue(String(Int(playback.elapsedSeconds)))
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityLabel("Playback seconds")
+                .accessibilityIdentifier("playbackTime")
+                .accessibilityValue(String(Int(playback.elapsedSeconds)))
+            #if LUMINA_UI_TESTING
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityLabel("System Now Playing artwork")
+                .accessibilityIdentifier("nowPlayingArtwork")
+                .accessibilityValue(systemArtworkProbeValue)
+            #endif
+        }
     }
+
+    #if LUMINA_UI_TESTING
+    private var systemArtworkProbeValue: String {
+        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        guard let mediaType = info?[MPNowPlayingInfoPropertyMediaType] as? NSNumber,
+              mediaType.uintValue == MPNowPlayingInfoMediaType.audio.rawValue,
+              let artwork = info?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork,
+              let image = artwork.image(at: CGSize(width: 32, height: 32)),
+              image.size.width > 0, image.size.height > 0, image.cgImage != nil else { return "Missing" }
+        return info?[MPMediaItemPropertyTitle] as? String ?? "Missing title"
+    }
+    #endif
 
     private var audioHorizontalInset: CGFloat {
         #if os(tvOS)
@@ -1192,10 +1495,20 @@ struct PlaybackScreen: View {
         16
         #endif
     }
+    private var videoTransportSpacing: CGFloat {
+        #if os(tvOS)
+        28
+        #else
+        0
+        #endif
+    }
+    private var videoTransportSideReserve: CGFloat {
+        playback.nextEpisode == nil ? 0 : 64
+    }
     #if os(tvOS)
     private var tvAudioControlBand: some View {
         VStack(spacing: 18) {
-            Button("Queue", systemImage: "list.bullet") { queuePresented = true }
+            Button("Queue", glyph: .queue) { queuePresented = true }
                 .labelStyle(.iconOnly)
                 .accessibilityValue(playback.queue.isEmpty ? "Empty" : "\(playback.queueIndex + 1) of \(playback.queue.count)")
                 .accessibilityIdentifier("audioQueueButton")
@@ -1209,7 +1522,7 @@ struct PlaybackScreen: View {
             audioRepeatButton
                 .labelStyle(.iconOnly)
                 .focused($focusedAudioControl, equals: .repeatMode)
-            Button("Stop", systemImage: "stop.fill") { stopAudio() }
+            Button("Stop", glyph: .stop, variant: .solid) { stopAudio() }
                 .labelStyle(.iconOnly)
                 .accessibilityIdentifier("audioStopButton")
                 .focused($focusedAudioControl, equals: .stop)
@@ -1284,8 +1597,17 @@ struct PlaybackScreen: View {
     }
 
     private var audioPlayPauseButton: some View {
-        Button(playback.errorMessage != nil ? "Retry" : playback.hasFinished ? "Replay" : playback.isPlaying ? "Pause" : "Play", systemImage: playback.errorMessage != nil ? "arrow.clockwise" : playback.hasFinished ? "arrow.counterclockwise" : playback.isPlaying ? "pause.fill" : "play.fill") {
+        Button {
             if playback.hasFinished { replay() } else { playback.togglePlayback() }
+        } label: {
+            if playback.errorMessage != nil {
+                Label("Retry", glyph: .sync)
+            } else if playback.hasFinished {
+                Label("Replay", systemImage: "arrow.counterclockwise")
+            } else {
+                Label(playback.isPlaying ? "Pause" : "Play",
+                      glyph: playback.isPlaying ? .pause : .play, variant: .solid)
+            }
         }
         .labelStyle(.iconOnly)
         .accessibilityIdentifier("audioPlayPauseButton")
@@ -1293,7 +1615,8 @@ struct PlaybackScreen: View {
     }
 
     private var audioRepeatButton: some View {
-        Button(playback.repeatMode.label, systemImage: playback.repeatMode.symbol) { playback.cycleRepeat() }
+        Button(playback.repeatMode.label,
+               glyph: playback.repeatMode == .one ? .repeatOne : .repeat) { playback.cycleRepeat() }
             .accessibilityValue(playback.repeatMode.label)
             .accessibilityIdentifier("audioRepeatButton")
     }
@@ -1350,20 +1673,23 @@ struct PlaybackScreen: View {
                     Task { await playback.playOccurrence(row.id) }
                 } label: {
                     HStack(spacing: 16) {
-                        Image(systemName: index == playback.queueIndex ? "speaker.wave.2.fill" : "music.note")
+                        LuminaIcon(glyph: index == playback.queueIndex ? .volumeHigh : .music,
+                                   variant: .solid, size: 20)
                         Text(item.name).frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .disabled(playback.isReplaying || audioSession.isSonos)
                 .accessibilityIdentifier(row.accessibilityID)
                 if index > playback.queueIndex {
-                    Menu("Track actions", systemImage: "ellipsis") {
+                    Menu {
                         Button("Play next") { playback.moveOccurrence(row.id) }
                         Button("Move up") { playback.moveOccurrence(row.id, offset: -1) }
                             .disabled(index == playback.queueIndex + 1)
                         Button("Move down") { playback.moveOccurrence(row.id, offset: 1) }
                             .disabled(index == playback.queue.count - 1)
                         Button("Remove from queue", role: .destructive) { playback.removeOccurrence(row.id) }
+                    } label: {
+                        Label("Track actions", glyph: .moreHorizontal)
                     }
                     .labelStyle(.iconOnly)
                     .disabled(audioSession.isSonos)
@@ -1441,6 +1767,20 @@ final class PlaybackModel {
     private var timeObserver: Any?
     private var controlObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
+    #if os(iOS)
+    // NotificationCenter permits unregistering its token during nonisolated deinit.
+    nonisolated(unsafe) private var videoRateChangeObserver: NSObjectProtocol?
+    @ObservationIgnored private weak var pendingSystemBackgroundPauseItem: AVPlayerItem?
+    #endif
+    #if os(iOS) && LUMINA_UI_TESTING
+    private(set) var lastVideoRateChangeReason = "none"
+    private(set) var lastVideoNativePauseReason = "none"
+    private(set) var videoSystemPauseInjectionCount = 0
+
+    var videoBackgroundPlaybackPolicyRawValue: Int {
+        request.item.isAudio ? -1 : player.audiovisualBackgroundPlaybackPolicy.rawValue
+    }
+    #endif
     private var videoSource = NativeVideoSource()
     private(set) var isSwitchingVideoStream = false
     private(set) var videoStreamError: String?
@@ -1449,6 +1789,9 @@ final class PlaybackModel {
     private(set) var videoQuality: PlaybackQuality = .automatic
     private(set) var subtitleDelaySeconds: Double = 0
     private(set) var videoSpeed: Float = 1
+    private var videoSeekAuthority = VideoSeekAuthority()
+    private var videoSeekTask: Task<Void, Never>?
+    private var videoRateLease = VideoTemporaryRateLease()
     private(set) var isSeekingChapter = false
     private(set) var playbackMarkers: [PlaybackMarker] = []
     private(set) var nextEpisode: MediaItem?
@@ -1472,6 +1815,24 @@ final class PlaybackModel {
     private var didReportCompletion = false
     private var lastReport: Double = -1
     private var remoteTargets: [(command: MPRemoteCommand, target: Any)] = []
+    #if os(iOS)
+    private var nowPlayingArtwork: MPMediaItemArtwork?
+    private var nowPlayingArtworkItemID: String?
+    private var nowPlayingArtworkURL: URL?
+    private var nowPlayingArtworkGeneration = 0
+    private var nowPlayingArtworkTask: Task<Void, Never>?
+    #endif
+
+    /// The most recently requested video position while AVFoundation catches up.
+    /// Audio keeps its independent transport authority.
+    var gestureSeekTime: Double { videoSeekAuthority.optimisticTarget ?? elapsedSeconds }
+
+    /// Valid spans for gesture projection, including live-window gaps when present.
+    var gestureSeekRanges: [VideoSeekRange] { currentVideoSeekRanges() }
+
+    /// The user's durable speed choice; a temporary hold never changes this value.
+    var preferredVideoRate: Double { videoRateLease.preferredRate }
+    var videoPlaybackRequested: Bool { autoplayWhenReady && !closed && !hasFinished }
 
     init(request: PlaybackRequest, store: LuminaStore, queue: [MediaItem], queueIndex: Int? = nil, initiallyPaused: Bool = false) {
         self.request = request
@@ -1483,6 +1844,7 @@ final class PlaybackModel {
         self.queueRows = Self.makeQueueRows(items: resolvedQueue, occurrenceIDs: resolvedOccurrences)
         self.queueIndex = min(max(0, queueIndex ?? resolvedQueue.firstIndex(where: { $0.id == request.item.id }) ?? 0), max(0, resolvedQueue.count - 1))
         self.initiallyPaused = initiallyPaused
+        autoplayWhenReady = !initiallyPaused
         videoQuality = request.resolvedQuality
         subtitlesExplicitlyOff = request.subtitleStreamIndex == -1
         let initialSubtitle = request.mediaStreams.first {
@@ -1496,17 +1858,129 @@ final class PlaybackModel {
             configureDeviceAudioLanguage(player, preferences: store.playbackPreferences)
         }
         player.preventsDisplaySleepDuringVideoPlayback = true
-        if !request.item.isAudio { player.audiovisualBackgroundPlaybackPolicy = .pauses }
+        if !request.item.isAudio {
+            #if os(iOS)
+            #if LUMINA_UI_TESTING
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-force-video-system-pause") {
+                player.audiovisualBackgroundPlaybackPolicy = .pauses
+            } else {
+                player.audiovisualBackgroundPlaybackPolicy = .automatic
+            }
+            #else
+            player.audiovisualBackgroundPlaybackPolicy = .automatic
+            #endif
+            #else
+            player.audiovisualBackgroundPlaybackPolicy = .pauses
+            #endif
+        }
         #if LUMINA_UI_TESTING
         print("LUMINA_LIFECYCLE playback-model init \(lifecycleToken)")
         #endif
     }
 
     deinit {
+        #if os(iOS)
+        if let videoRateChangeObserver {
+            NotificationCenter.default.removeObserver(videoRateChangeObserver)
+        }
+        #endif
         #if LUMINA_UI_TESTING
         print("LUMINA_LIFECYCLE playback-model deinit \(lifecycleToken)")
         #endif
     }
+
+    private func installVideoRateChangeObserver() {
+        #if os(iOS)
+        guard !request.item.isAudio, videoRateChangeObserver == nil else { return }
+        videoRateChangeObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayer.rateDidChangeNotification,
+            object: player,
+            queue: .main
+        ) { [weak self] notification in
+            let reason = (notification.userInfo?[AVPlayer.rateDidChangeReasonKey] as? AVPlayer.RateDidChangeReason)
+                ?? (notification.userInfo?[AVPlayer.rateDidChangeReasonKey] as? String).map(AVPlayer.RateDidChangeReason.init(rawValue:))
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.handleVideoRateChange(reason)
+            }
+        }
+        #endif
+    }
+
+    private func removeVideoRateChangeObserver() {
+        #if os(iOS)
+        if let videoRateChangeObserver {
+            NotificationCenter.default.removeObserver(videoRateChangeObserver)
+            self.videoRateChangeObserver = nil
+        }
+        #endif
+    }
+
+    private func handleVideoRateChange(_ reason: AVPlayer.RateDidChangeReason?) {
+        #if os(iOS)
+        #if LUMINA_UI_TESTING
+        let reasonValue = reason?.rawValue ?? "unknown"
+        lastVideoRateChangeReason = reasonValue
+        if player.rate == 0 { lastVideoNativePauseReason = reasonValue }
+        #endif
+        guard player.rate == 0 else {
+            pendingSystemBackgroundPauseItem = nil
+            return
+        }
+        guard reason == .appBackgrounded,
+              videoPlaybackRequested,
+              let item = player.currentItem else {
+            pendingSystemBackgroundPauseItem = nil
+            return
+        }
+        pendingSystemBackgroundPauseItem = item
+        recoverSystemBackgroundPauseIfNeeded()
+        #endif
+    }
+
+    func recoverSystemBackgroundPauseIfNeeded() {
+        #if os(iOS)
+        guard !request.item.isAudio,
+              let pausedItem = pendingSystemBackgroundPauseItem,
+              UIApplication.shared.applicationState == .active,
+              isActive,
+              videoPlaybackRequested,
+              !closed,
+              !hasFinished,
+              didSeek,
+              !isSwitchingVideoStream,
+              !isCommittingVideoStream,
+              !isReplaying,
+              !isSeekingChapter,
+              videoSeekAuthority.optimisticTarget == nil,
+              pendingVideoPlayer == nil,
+              player.currentItem === pausedItem,
+              player.timeControlStatus == .paused,
+              pausedItem.status == .readyToPlay else { return }
+        pendingSystemBackgroundPauseItem = nil
+        player.play()
+        #endif
+    }
+
+    #if os(iOS) && LUMINA_UI_TESTING
+    func injectSystemBackgroundPauseForUITesting() {
+        guard ProcessInfo.processInfo.arguments.contains("--ui-testing-force-video-system-pause"),
+              !request.item.isAudio,
+              videoPlaybackRequested else { return }
+        player.pause()
+        isPlaying = false
+        videoSystemPauseInjectionCount += 1
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, self.player.rate == 0 else { return }
+            NotificationCenter.default.post(
+                name: AVPlayer.rateDidChangeNotification,
+                object: self.player,
+                userInfo: [AVPlayer.rateDidChangeReasonKey: AVPlayer.RateDidChangeReason.appBackgrounded]
+            )
+        }
+    }
+    #endif
 
     func start() async {
         guard !started, !closed else { return }
@@ -1519,6 +1993,9 @@ final class PlaybackModel {
         }
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: request.item.isAudio ? .default : .moviePlayback)
+            #if os(iOS)
+            try AVAudioSession.sharedInstance().setActive(true)
+            #endif
         } catch {
             errorMessage = "Audio playback could not be configured."
             return
@@ -1535,7 +2012,7 @@ final class PlaybackModel {
                 player.replaceCurrentItem(with: item)
             } catch {
                 videoSource.stop()
-                errorMessage = "This video could not be played. Try Convert to compatible video."
+                errorMessage = "This video could not be played in its current format."
                 return
             }
         }
@@ -1547,7 +2024,7 @@ final class PlaybackModel {
             return
         } catch {
             errorMessage = item.status == .failed
-                ? (request.item.isAudio ? "This track could not be played. Check its format and try again." : "This video could not be played. Try Convert to compatible video.")
+                ? (request.item.isAudio ? "This track could not be played. Check its format and try again." : "This video could not be played in its current format.")
                 : "The media did not become ready. Check the server connection."
             return
         }
@@ -1559,7 +2036,7 @@ final class PlaybackModel {
         guard !closed, !Task.isCancelled else { return }
         if !request.item.isAudio {
             item.audioTimePitchAlgorithm = .spectral
-            if videoSpeed < 1, !item.canPlaySlowForward { videoSpeed = 1 }
+            if videoSpeed < 1, !item.canPlaySlowForward { setStoredPreferredVideoRate(1) }
             player.defaultRate = videoSpeed
         }
         didSeek = true
@@ -1570,6 +2047,7 @@ final class PlaybackModel {
             Task { @MainActor [weak self] in
                 guard let self, !self.closed, !self.hasFinished, !self.isCommittingVideoStream else { return }
                 self.isPlaying = self.player.timeControlStatus == .playing
+                self.applyEffectiveVideoRateIfPermitted()
                 self.updatePosition()
                 let shouldReport = abs(self.elapsedSeconds - self.lastReport) >= NativeVideoSource.progressObservationInterval.seconds
                 if shouldReport {
@@ -1584,10 +2062,12 @@ final class PlaybackModel {
             Task { @MainActor [weak self] in
                 guard let self, !self.closed, !self.hasFinished, !self.isCommittingVideoStream else { return }
                 self.isPlaying = self.player.timeControlStatus == .playing
+                self.applyEffectiveVideoRateIfPermitted()
                 self.updatePosition()
                 self.enqueue(.progress, paused: self.player.timeControlStatus != .playing)
             }
         }
+        installVideoRateChangeObserver()
         installEndObserver()
         if autoplayWhenReady { player.play() }
     }
@@ -1598,6 +2078,10 @@ final class PlaybackModel {
         if nextEpisodeAutoplay != nil { nextEpisodeAutoplay = false }
         // Leaving during asset loading must also suppress the later autoplay.
         autoplayWhenReady = false
+        videoRateLease.cancel()
+        #if os(iOS)
+        pendingSystemBackgroundPauseItem = nil
+        #endif
         player.pause()
         isPlaying = false
         guard !hasFinished, !isCommittingVideoStream else { return }
@@ -1612,25 +2096,47 @@ final class PlaybackModel {
             if nextEpisodeAutoplay { pause() } else { self.nextEpisodeAutoplay = true }
             return
         }
-        guard didSeek, !closed, !hasFinished else { return }
+        guard !closed, !hasFinished else { return }
         if isCommittingVideoStream { autoplayWhenReady.toggle(); return }
-        if player.timeControlStatus == .playing { pause() }
+        if !didSeek {
+            guard !request.item.isAudio else { return }
+            // Loading/resume seeking still belongs to start(). Only change the
+            // requested intent here; do not start an unprepared item at zero.
+            if autoplayWhenReady { pause() } else { autoplayWhenReady = true }
+            return
+        }
+        let shouldPause = request.item.isAudio ? player.timeControlStatus == .playing : autoplayWhenReady
+        if shouldPause { pause() }
         else { autoplayWhenReady = true; player.play(); isPlaying = true }
     }
 
     func setActive(_ active: Bool) {
         guard isActive != active else { return }
         isActive = active
-        // Video remains paused when returning; AVKit must wait for a new Play action.
+        #if os(tvOS)
+        // TV video remains paused when returning until the user presses Play.
         if !request.item.isAudio { pause() }
+        #endif
+        // On iOS, AVFoundation handles background pausing and PiP continuation.
+        // Pausing during willResignActive would prevent automatic PiP from starting.
     }
 
     func seek(to seconds: Double) {
         if let audioOwner { Task { await audioOwner.seek(seconds) }; return }
-        guard didSeek, !closed, !hasFinished, !isCommittingVideoStream else { return }
-        elapsedSeconds = min(max(0, seconds), request.item.durationSeconds)
-        player.seek(to: CMTime(seconds: elapsedSeconds, preferredTimescale: 600),
-                    toleranceBefore: .zero, toleranceAfter: .zero)
+        if request.item.isAudio {
+            guard seconds.isFinite, didSeek, !closed, !hasFinished, !isCommittingVideoStream else { return }
+            elapsedSeconds = min(max(0, seconds), request.item.durationSeconds)
+            player.seek(to: CMTime(seconds: elapsedSeconds, preferredTimescale: 600),
+                        toleranceBefore: .zero, toleranceAfter: .zero)
+            return
+        }
+        let direction: VideoSeekDirection = seconds >= gestureSeekTime ? .forward : .backward
+        requestVideoSeek(to: seconds, direction: direction)
+    }
+
+    func requestRelativeVideoSeek(_ delta: Double) {
+        guard delta.isFinite else { return }
+        requestVideoSeek(to: gestureSeekTime + delta, direction: delta >= 0 ? .forward : .backward)
     }
 
     func supportsVideoSpeed(_ rate: Float) -> Bool {
@@ -1640,11 +2146,137 @@ final class PlaybackModel {
     }
 
     func selectVideoSpeed(_ rate: Float) {
-        guard !closed, !hasFinished, !isSwitchingVideoStream, supportsVideoSpeed(rate) else { return }
-        videoSpeed = rate
-        player.defaultRate = rate
-        // Changing speed while paused must not resume playback.
-        if autoplayWhenReady, isActive, player.timeControlStatus != .paused { player.play() }
+        setPreferredVideoRate(Double(rate))
+    }
+
+    func setPreferredVideoRate(_ rate: Double) {
+        guard rate.isFinite, rate > 0 else { return }
+        let nativeRate = Float(rate)
+        guard !closed, !hasFinished, !isSwitchingVideoStream, supportsVideoSpeed(nativeRate) else { return }
+        setStoredPreferredVideoRate(Double(nativeRate))
+        applyEffectiveVideoRateIfPermitted()
+    }
+
+    func beginTemporaryVideoRate() -> UUID? {
+        guard canUseVideoActions, permitsVideoRateApplication,
+              player.currentItem?.status == .readyToPlay,
+              !player.isExternalPlaybackActive,
+              !AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { $0.portType == .airPlay }) else { return nil }
+        let token = videoRateLease.begin(isEligible: true)
+        applyEffectiveVideoRateIfPermitted()
+        return token
+    }
+
+    func endTemporaryVideoRate(_ token: UUID) {
+        guard videoRateLease.end(token) else { return }
+        restorePreferredVideoRateIfRunning()
+    }
+
+    func cancelVideoGestureOverrides() {
+        let wasOverridden = videoRateLease.token != nil
+        videoRateLease.cancel()
+        if wasOverridden { restorePreferredVideoRateIfRunning() }
+    }
+
+    private func currentVideoSeekRanges() -> [VideoSeekRange] {
+        guard !request.item.isAudio, let item = player.currentItem else { return [] }
+        let seekable = item.seekableTimeRanges.compactMap { value -> VideoSeekRange? in
+            let range = value.timeRangeValue
+            let start = range.start.seconds
+            let duration = range.duration.seconds
+            guard start.isFinite, duration.isFinite, duration > 0 else { return nil }
+            // CMTimeRange's end is exclusive. Keep the target playable after
+            // conversion to the seek command's 600-tick timebase as well.
+            let tick = max(1.0 / 600, 1.0 / Double(max(1, range.duration.timescale)))
+            return VideoSeekRange(start, max(start, start + duration - tick))
+        }
+        if !seekable.isEmpty { return VideoSeekAuthority.normalizedRanges(seekable) }
+
+        let itemDuration = item.duration.seconds
+        guard itemDuration.isFinite, itemDuration > 0,
+              let range = VideoSeekRange(0, max(0, itemDuration - 1.0 / 600)) else { return [] }
+        return [range]
+    }
+
+    private func requestVideoSeek(to candidate: Double, direction: VideoSeekDirection) {
+        guard candidate.isFinite, canUseVideoActions, !hasFinished else { return }
+        guard let submission = videoSeekAuthority.request(
+            target: candidate, ranges: currentVideoSeekRanges(), direction: direction
+        ) else { return }
+        submitVideoSeek(submission)
+    }
+
+    private func submitVideoSeek(_ submission: VideoSeekSubmission) {
+        guard let item = player.currentItem else {
+            _ = videoSeekAuthority.complete(submission, actualTime: nil)
+            return
+        }
+        videoSeekTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let playhead = self.player.currentTime().seconds
+            let direction: VideoSeekDirection = playhead.isFinite && submission.target < playhead ? .backward : .forward
+            guard let revalidated = self.videoSeekAuthority.revalidatedSubmission(
+                submission, ranges: self.currentVideoSeekRanges(), direction: direction
+            ) else { return }
+            let didSeek = await self.player.seek(
+                to: CMTime(seconds: revalidated.target, preferredTimescale: 600),
+                toleranceBefore: .zero, toleranceAfter: .zero
+            )
+            guard !Task.isCancelled else { return }
+            self.completeVideoSeek(revalidated, item: item, didSeek: didSeek)
+        }
+    }
+
+    private func completeVideoSeek(_ submission: VideoSeekSubmission, item: AVPlayerItem, didSeek: Bool) {
+        guard !closed, player.currentItem === item else { return }
+        let actual = player.currentTime().seconds
+        switch videoSeekAuthority.complete(submission, actualTime: actual) {
+        case .ignored:
+            return
+        case .submit(let next):
+            submitVideoSeek(next)
+        case .settled(let position):
+            if let position { elapsedSeconds = position }
+            else { updatePosition() }
+            if didSeek {
+                isPlaying = player.timeControlStatus == .playing
+                enqueue(.progress, paused: !isPlaying)
+            }
+            recoverSystemBackgroundPauseIfNeeded()
+        }
+    }
+
+    private func invalidateVideoSeekWork() {
+        videoSeekTask?.cancel()
+        videoSeekTask = nil
+        videoSeekAuthority.invalidate()
+    }
+
+    private func setStoredPreferredVideoRate(_ rate: Double) {
+        videoRateLease.setPreferredRate(rate)
+        videoSpeed = Float(videoRateLease.preferredRate)
+        player.defaultRate = videoSpeed
+    }
+
+    private var permitsVideoRateApplication: Bool {
+        autoplayWhenReady && isActive && !closed && !hasFinished
+            && !isSwitchingVideoStream && !isCommittingVideoStream
+            && player.timeControlStatus == .playing
+    }
+
+    private func applyEffectiveVideoRateIfPermitted() {
+        guard !request.item.isAudio,
+              let rate = videoRateLease.rateToApply(isPlaybackAllowed: permitsVideoRateApplication) else { return }
+        player.rate = Float(rate)
+    }
+
+    private func restorePreferredVideoRateIfRunning() {
+        // PiP may continue after scene deactivation. Also replace a buffering
+        // engine's pending 2× rate; a paused engine never receives a nonzero rate.
+        guard !request.item.isAudio, autoplayWhenReady, !closed, !hasFinished,
+              !isSwitchingVideoStream, !isCommittingVideoStream,
+              player.timeControlStatus != .paused else { return }
+        player.rate = Float(videoRateLease.preferredRate)
     }
 
     func refreshVideoActions() async {
@@ -1689,6 +2321,7 @@ final class PlaybackModel {
         guard !closed, !hasFinished, !isSwitchingVideoStream, !isSeekingChapter, !isReplaying, didSeek,
               playbackMarkers.contains(marker), marker == activeIntro || marker == activeCredits,
               let item = player.currentItem else { return }
+        invalidateVideoSeekWork()
         isSeekingChapter = true
         videoStreamError = nil
         defer { isSeekingChapter = false }
@@ -1719,6 +2352,8 @@ final class PlaybackModel {
 
     private func advanceToNextEpisode() async {
         guard canUseVideoActions, !request.item.isAudio, let episode = nextEpisode else { return }
+        invalidateVideoSeekWork()
+        cancelVideoGestureOverrides()
         isSwitchingVideoStream = true
         nextEpisodeAutoplay = true
         videoStreamError = nil
@@ -1783,7 +2418,7 @@ final class PlaybackModel {
             didReportCompletion = false
             errorMessage = nil
             lastReport = -1
-            if videoSpeed < 1, !item.canPlaySlowForward { videoSpeed = 1 }
+            if videoSpeed < 1, !item.canPlaySlowForward { setStoredPreferredVideoRate(1) }
             player.defaultRate = videoSpeed
             installEndObserver()
             isCommittingVideoStream = false
@@ -1824,6 +2459,7 @@ final class PlaybackModel {
             return
         }
         guard didSeek, let item = player.currentItem, item.status == .readyToPlay else { return }
+        invalidateVideoSeekWork()
         isSeekingChapter = true
         videoStreamError = nil
         defer { isSeekingChapter = false }
@@ -1902,6 +2538,8 @@ final class PlaybackModel {
                                     subtitleDelay: Double? = nil, quality: PlaybackQuality? = nil) async {
         guard !request.item.isAudio, didSeek, !closed, !hasFinished, !isSwitchingVideoStream, !isSeekingChapter,
               let previousItem = player.currentItem else { return }
+        invalidateVideoSeekWork()
+        cancelVideoGestureOverrides()
         isSwitchingVideoStream = true
         videoStreamError = nil
         defer { isSwitchingVideoStream = false; isCommittingVideoStream = false }
@@ -1989,7 +2627,7 @@ final class PlaybackModel {
             enqueue(.stop, paused: true)
             request = next
             videoSource = candidateSource
-            if videoSpeed < 1, !nextItem.canPlaySlowForward { videoSpeed = 1 }
+            if videoSpeed < 1, !nextItem.canPlaySlowForward { setStoredPreferredVideoRate(1) }
             player.defaultRate = videoSpeed
             if changesAudio { sourceAudioIsAutomatic = audioIndex == nil }
             attachedVideoSubtitle = externalSubtitle
@@ -2107,6 +2745,8 @@ final class PlaybackModel {
         let nextIndex = queueIndex + offset
         if let audioOwner { await audioOwner.step(offset); return }
         guard queue.indices.contains(nextIndex), !closed, !isReplaying else { return }
+        invalidateVideoSeekWork()
+        cancelVideoGestureOverrides()
         isReplaying = true
         defer { isReplaying = false }
         do {
@@ -2139,6 +2779,8 @@ final class PlaybackModel {
     func replay(startPositionSeconds: Double = 0, initiallyPaused: Bool = false) async {
         if let audioOwner { await audioOwner.select(queueIndex); return }
         guard hasFinished, !closed, !isReplaying, !isSwitchingVideoStream else { return }
+        invalidateVideoSeekWork()
+        cancelVideoGestureOverrides()
         isReplaying = true
         defer { isReplaying = false }
         autoplayWhenReady = !initiallyPaused && isActive
@@ -2177,7 +2819,7 @@ final class PlaybackModel {
             guard !closed, !Task.isCancelled else { videoSource.stop(); return }
             player.replaceCurrentItem(with: item)
         } catch {
-            failReplay("Replay could not start. Try Convert to compatible video.")
+            failReplay("Replay could not start. Reopen the video and try again.")
             return
         }
         installEndObserver()
@@ -2216,7 +2858,7 @@ final class PlaybackModel {
                 return
             }
         }
-        if videoSpeed < 1, player.currentItem?.canPlaySlowForward != true { videoSpeed = 1 }
+        if videoSpeed < 1, player.currentItem?.canPlaySlowForward != true { setStoredPreferredVideoRate(1) }
         player.defaultRate = videoSpeed
         guard await player.seek(to: CMTime(seconds: newRequest.startPositionSeconds, preferredTimescale: 600),
                                 toleranceBefore: .zero, toleranceAfter: .zero) else {
@@ -2232,6 +2874,8 @@ final class PlaybackModel {
 
     func close() {
         guard !closed else { return }
+        invalidateVideoSeekWork()
+        cancelVideoGestureOverrides()
         closed = true
         episodeTask?.cancel()
         episodeTask = nil
@@ -2243,16 +2887,28 @@ final class PlaybackModel {
         if !isCommittingVideoStream { updatePosition() }
         audioTransport?.stop()
         audioTransport = nil
+        #if os(iOS)
+        pendingSystemBackgroundPauseItem = nil
+        #endif
         player.pause()
         isPlaying = false
         if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
         controlObservation = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
+        removeVideoRateChangeObserver()
         if !didReportCompletion && (!request.item.isAudio || reportedAudioStart) {
             enqueue(.stop, paused: true)
         }
         player.replaceCurrentItem(with: nil)
+        #if os(iOS)
+        if !request.item.isAudio {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+        #endif
         if request.item.isAudio {
+            #if os(iOS)
+            resetNowPlayingArtwork()
+            #endif
             for entry in remoteTargets { entry.command.removeTarget(entry.target) }
             remoteTargets.removeAll()
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -2261,6 +2917,8 @@ final class PlaybackModel {
 
     private func finishPlayback() {
         guard !closed, !hasFinished else { return }
+        invalidateVideoSeekWork()
+        cancelVideoGestureOverrides()
         updatePosition()
         hasFinished = true
         videoSource.stop()
@@ -2281,6 +2939,8 @@ final class PlaybackModel {
     }
 
     private func failReplay(_ message: String) {
+        invalidateVideoSeekWork()
+        cancelVideoGestureOverrides()
         videoSource.stop()
         errorMessage = message
         player.replaceCurrentItem(with: nil)
@@ -2318,18 +2978,73 @@ final class PlaybackModel {
 
     private func updateNowPlaying() {
         guard request.item.isAudio, !closed else { return }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+        #if os(iOS)
+        loadNowPlayingArtworkIfNeeded()
+        #endif
+        var info: [String: Any] = [
             MPMediaItemPropertyTitle: request.item.name,
             MPMediaItemPropertyArtist: request.item.artists?.joined(separator: ", ") ?? request.item.albumArtist ?? "",
             MPMediaItemPropertyAlbumTitle: request.item.album ?? "",
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
             MPMediaItemPropertyPlaybackDuration: request.item.durationSeconds,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsedSeconds,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
         ]
+        #if os(iOS)
+        if let nowPlayingArtwork { info[MPMediaItemPropertyArtwork] = nowPlayingArtwork }
+        #endif
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         let commands = MPRemoteCommandCenter.shared()
         commands.nextTrackCommand.isEnabled = hasNext
         commands.previousTrackCommand.isEnabled = hasPrevious
     }
+
+    #if os(iOS)
+    private func loadNowPlayingArtworkIfNeeded() {
+        let itemID = request.item.id
+        let url = store.imageURL(for: request.item, maxWidth: 760)
+        guard itemID != nowPlayingArtworkItemID || url != nowPlayingArtworkURL else { return }
+
+        nowPlayingArtworkGeneration &+= 1
+        let generation = nowPlayingArtworkGeneration
+        nowPlayingArtworkTask?.cancel()
+        nowPlayingArtworkTask = nil
+        nowPlayingArtwork = nil
+        nowPlayingArtworkItemID = itemID
+        nowPlayingArtworkURL = url
+        guard let url else { return }
+
+        nowPlayingArtworkTask = Task { [weak self] in
+            var image = await ArtworkImageCache.shared.image(for: url)
+            if image == nil, !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(2)) }
+                catch { return }
+                guard !Task.isCancelled else { return }
+                image = await ArtworkImageCache.shared.image(for: url)
+            }
+            guard let self, generation == nowPlayingArtworkGeneration else { return }
+            nowPlayingArtworkTask = nil
+            guard !Task.isCancelled, !closed, request.item.id == itemID,
+                  nowPlayingArtworkURL == url, let image else { return }
+            let source = UIImage(cgImage: image)
+            nowPlayingArtwork = Self.makeNowPlayingArtwork(from: source)
+            updateNowPlaying()
+        }
+    }
+
+    nonisolated private static func makeNowPlayingArtwork(from source: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: source.size) { _ in source }
+    }
+
+    private func resetNowPlayingArtwork() {
+        nowPlayingArtworkGeneration &+= 1
+        nowPlayingArtworkTask?.cancel()
+        nowPlayingArtworkTask = nil
+        nowPlayingArtwork = nil
+        nowPlayingArtworkItemID = nil
+        nowPlayingArtworkURL = nil
+    }
+    #endif
 
     private func installRemoteControls() {
         guard remoteTargets.isEmpty else { return }
@@ -2413,6 +3128,61 @@ final class PlaybackModel {
 
 }
 
+#if os(iOS)
+struct NativeNowPlayingToolbar: ToolbarContent {
+    let store: LuminaStore
+    @Environment(NativeAudioSession.self) private var audioSession
+
+    @ToolbarContentBuilder
+    var body: some ToolbarContent {
+        if let playback = audioSession.playback, !playback.hasFinished {
+            if #available(iOS 27.1, *) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    artworkLink(for: playback)
+                    playPauseButton(for: playback)
+                }
+                .axisBehavior(.verticalPreferred)
+            } else {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    artworkLink(for: playback)
+                    playPauseButton(for: playback)
+                }
+            }
+        }
+    }
+
+    private func artworkLink(for playback: PlaybackModel) -> some View {
+        NavigationLink {
+            PlaybackScreen(playback: playback, store: store)
+        } label: {
+            CachedArtworkImage(url: store.imageURL(for: playback.request.item, maxWidth: 160)) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                LuminaIcon(glyph: .music, variant: .solid, size: 24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(width: 34, height: 34)
+            .clipShape(.rect(cornerRadius: 8))
+            .frame(width: 44, height: 44)
+            .contentShape(.rect)
+        }
+        .accessibilityLabel("Now playing: \(playback.request.item.name)")
+        .accessibilityHint("Open full player")
+        .accessibilityIdentifier("nowPlayingBar")
+    }
+
+    private func playPauseButton(for playback: PlaybackModel) -> some View {
+        Button(playback.isPlaying ? "Pause" : "Play",
+               glyph: playback.isPlaying ? .pause : .play, variant: .solid) {
+            playback.togglePlayback()
+        }
+        .labelStyle(.iconOnly)
+        .frame(minWidth: 44, minHeight: 44)
+        .accessibilityIdentifier("nowPlayingPauseButton")
+    }
+}
+#endif
+
 struct NativeNowPlayingBar: View {
     let store: LuminaStore
     @Environment(NativeAudioSession.self) private var audioSession
@@ -2438,7 +3208,8 @@ struct NativeNowPlayingBar: View {
                         CachedArtworkImage(url: store.imageURL(for: playback.request.item, maxWidth: 160)) { image in
                             image.resizable().scaledToFill()
                         } placeholder: {
-                            Image(systemName: "music.note").frame(maxWidth: .infinity, maxHeight: .infinity)
+                            LuminaIcon(glyph: .music, variant: .solid, size: artworkSize)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                         .frame(width: artworkSize, height: artworkSize)
                         .clipShape(.rect(cornerRadius: 8))
@@ -2457,23 +3228,31 @@ struct NativeNowPlayingBar: View {
                 .accessibilityIdentifier("nowPlayingBar")
 
                 #if os(tvOS)
-                Button("Previous track", systemImage: "backward.end.fill") {
+                Button("Previous track", glyph: .previous, variant: .solid, size: 24) {
                     Task { await audioSession.step(-1) }
                 }
                 .labelStyle(.iconOnly)
                 .disabled((!playback.hasPrevious && !audioSession.isSonos) || audioSession.busy)
                 .accessibilityIdentifier("nowPlayingPreviousButton")
                 #endif
-                Button(playback.hasFinished ? "Replay" : playback.isPlaying ? "Pause" : "Play", systemImage: playback.hasFinished ? "arrow.counterclockwise" : playback.isPlaying ? "pause.fill" : "play.fill") {
+                Button {
                     if playback.hasFinished { Task { await playback.replay() } }
                     else { playback.togglePlayback() }
+                } label: {
+                    if playback.hasFinished {
+                        Label("Replay", systemImage: "arrow.counterclockwise")
+                    } else {
+                        Label(playback.isPlaying ? "Pause" : "Play",
+                              glyph: playback.isPlaying ? .pause : .play,
+                              variant: .solid, size: 24)
+                    }
                 }
                 .labelStyle(.iconOnly)
                 .frame(minWidth: 44, minHeight: 44)
                 .disabled(playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
                 .accessibilityIdentifier("nowPlayingPauseButton")
                 #if os(tvOS)
-                Button("Next track", systemImage: "forward.end.fill") {
+                Button("Next track", glyph: .next, variant: .solid, size: 24) {
                     Task { await audioSession.step(1) }
                 }
                 .labelStyle(.iconOnly)
@@ -2619,6 +3398,9 @@ private struct VideoPlaybackSettings: View {
     let selectAudio: (Int) -> Void
     let selectAudioAutomatically: () -> Void
     let selectSubtitle: (VideoSubtitleSelection) -> Void
+    #if os(iOS)
+    var gestures: VideoGesturePresentation? = nil
+    #endif
     let onDone: (() -> Void)?
 
     var body: some View {
@@ -2662,24 +3444,39 @@ private struct VideoPlaybackSettings: View {
                         .accessibilityIdentifier("videoSettingsDoneButton")
                 }
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(VideoSettingsTab.allCases) { candidate in
-                        let isSelected = candidate == tab
-                        Button(candidate.title) { tab = candidate }
-                            .focused($focusedTab, equals: candidate)
-                            .buttonStyle(LuminaUnderlineTabStyle(selected: isSelected))
-                            .accessibilityAddTraits(isSelected ? .isSelected : [])
-                            .accessibilityValue(isSelected ? "Selected" : "Not selected")
-                            .accessibilityIdentifier("videoSettingsTab-\(candidate.rawValue)")
-                    }
+            Group {
+                #if os(iOS)
+                ViewThatFits(in: .horizontal) {
+                    categoryTabs(spread: true)
+                    ScrollView(.horizontal, showsIndicators: false) { categoryTabs(spread: false) }
                 }
+                #else
+                ScrollView(.horizontal, showsIndicators: false) { categoryTabs(spread: false) }
+                #endif
             }
             .controlSize(.large)
             .fixedSize(horizontal: false, vertical: true)
             #if os(tvOS)
             .focusSection()
             #endif
+        }
+    }
+
+    private func categoryTabs(spread: Bool) -> some View {
+        HStack(spacing: spread ? 0 : 12) {
+            ForEach(VideoSettingsTab.allCases) { candidate in
+                let isSelected = candidate == tab
+                Button(candidate.title) { tab = candidate }
+                    .focused($focusedTab, equals: candidate)
+                    .buttonStyle(LuminaUnderlineTabStyle(selected: isSelected))
+                    .fixedSize(horizontal: true, vertical: true)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    .accessibilityValue(isSelected ? "Selected" : "Not selected")
+                    .accessibilityIdentifier("videoSettingsTab-\(candidate.rawValue)")
+                if spread, candidate != VideoSettingsTab.allCases.last {
+                    Spacer(minLength: 12)
+                }
+            }
         }
     }
 
@@ -2746,7 +3543,28 @@ private struct VideoPlaybackSettings: View {
                 .accessibilityValue(VideoPlaybackSpeed(rawValue: playback.videoSpeed)?.label ?? "1×")
                 .disabled(playback.isSwitchingVideoStream || playback.hasFinished || playback.isReplaying)
             }
+            #if os(iOS)
+            VideoGestureSettingsView(preferences: playback.store.playbackPreferences)
+            if let gestures, let screen = gestures.screen {
+                Text("Brightness").font(.headline)
+                Slider(value: Binding(get: { Double(screen.brightness) }, set: { gestures.setBrightness($0) }), in: 0...1)
+                    .accessibilityLabel("Brightness")
+            }
+            #endif
         case .audio:
+            #if os(iOS)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Player volume").font(.headline)
+                Slider(value: Binding(get: { Double(playback.player.volume) }, set: { level in
+                    playback.player.volume = Float(level)
+                    if level > 0 { playback.player.isMuted = false }
+                }), in: 0...1)
+                .accessibilityLabel("Player volume")
+                .disabled(playback.player.isExternalPlaybackActive)
+                Text("System volume").font(.headline)
+                VideoSystemVolumeView().frame(minHeight: 44)
+            }
+            #endif
                 audioButtons
         case .subtitles:
             subtitleButtons
@@ -2785,7 +3603,7 @@ private struct VideoPlaybackSettings: View {
                             Text(stream.label)
                             Spacer(minLength: 12)
                             if !playback.sourceAudioIsAutomatic, stream.index == playback.request.audioStreamIndex {
-                                Image(systemName: "checkmark")
+                                LuminaIcon(glyph: .check, size: 20)
                             }
                         }
                     }
@@ -2824,7 +3642,7 @@ private struct VideoPlaybackSettings: View {
                         Spacer(minLength: 8)
                         Text(Duration.seconds(chapter.startPositionSeconds).formatted(.time(pattern: .hourMinuteSecond)))
                             .font(.caption.monospacedDigit())
-                        if selected { Image(systemName: "checkmark") }
+                        if selected { LuminaIcon(glyph: .check, size: 20) }
                     }
                 }
                 .buttonStyle(LuminaQuietActionStyle(selected: selected))
@@ -2913,7 +3731,8 @@ private struct VideoPlaybackSettings: View {
                 .tint(LuminaTheme.brand)
                 .accessibilityIdentifier("videoSubtitleCustomizeToggle")
             if subtitleStyle.isCustom {
-                Button("Caption appearance", systemImage: subtitleAppearanceExpanded ? "chevron.up" : "chevron.down") {
+                Button("Caption appearance",
+                       glyph: subtitleAppearanceExpanded ? .chevronUp : .chevronDown) {
                     subtitleAppearanceExpanded.toggle()
                 }
                 .buttonStyle(LuminaQuietActionStyle())
@@ -3032,8 +3851,38 @@ private struct NativePlayerLayer: UIViewRepresentable {
     let videoGravity: AVLayerVideoGravity
     let onTearDown: @MainActor () -> Void
     let onVideoTap: @MainActor () -> Void
+    let pictureInPictureStartRequest: Int
+    let onPictureInPicturePossibleChange: @MainActor (Bool) -> Void
+    let onPictureInPictureActiveChange: @MainActor (Bool) -> Void
+    let onPictureInPictureContinuationChange: @MainActor (Bool) -> Void
+    let onPictureInPictureRestoreUI: @MainActor () -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(onTearDown: onTearDown, onVideoTap: onVideoTap) }
+    init(player: AVPlayer, videoGravity: AVLayerVideoGravity,
+         onTearDown: @escaping @MainActor () -> Void,
+         onVideoTap: @escaping @MainActor () -> Void,
+         pictureInPictureStartRequest: Int = 0,
+         onPictureInPicturePossibleChange: @escaping @MainActor (Bool) -> Void = { _ in },
+         onPictureInPictureActiveChange: @escaping @MainActor (Bool) -> Void = { _ in },
+         onPictureInPictureContinuationChange: @escaping @MainActor (Bool) -> Void = { _ in },
+         onPictureInPictureRestoreUI: @escaping @MainActor () -> Void = {}) {
+        self.player = player
+        self.videoGravity = videoGravity
+        self.onTearDown = onTearDown
+        self.onVideoTap = onVideoTap
+        self.pictureInPictureStartRequest = pictureInPictureStartRequest
+        self.onPictureInPicturePossibleChange = onPictureInPicturePossibleChange
+        self.onPictureInPictureActiveChange = onPictureInPictureActiveChange
+        self.onPictureInPictureContinuationChange = onPictureInPictureContinuationChange
+        self.onPictureInPictureRestoreUI = onPictureInPictureRestoreUI
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onTearDown: onTearDown, onVideoTap: onVideoTap,
+                    onPictureInPicturePossibleChange: onPictureInPicturePossibleChange,
+                    onPictureInPictureActiveChange: onPictureInPictureActiveChange,
+                    onPictureInPictureContinuationChange: onPictureInPictureContinuationChange,
+                    onPictureInPictureRestoreUI: onPictureInPictureRestoreUI)
+    }
 
     func makeUIView(context: Context) -> PlayerLayerView {
         #if LUMINA_UI_TESTING
@@ -3043,14 +3892,22 @@ private struct NativePlayerLayer: UIViewRepresentable {
         view.playerLayer.player = player
         view.playerLayer.videoGravity = videoGravity
         context.coordinator.attach(view: view, player: player)
+        context.coordinator.handlePictureInPictureStartRequest(pictureInPictureStartRequest)
         return view
     }
 
     func updateUIView(_ view: PlayerLayerView, context: Context) {
         context.coordinator.onVideoTap = onVideoTap
+        context.coordinator.updatePictureInPictureCallbacks(
+            possible: onPictureInPicturePossibleChange,
+            active: onPictureInPictureActiveChange,
+            continuation: onPictureInPictureContinuationChange,
+            restoreUI: onPictureInPictureRestoreUI
+        )
         view.playerLayer.player = player
         view.playerLayer.videoGravity = videoGravity
         context.coordinator.attach(view: view, player: player)
+        context.coordinator.handlePictureInPictureStartRequest(pictureInPictureStartRequest)
     }
 
     static func dismantleUIView(_ view: PlayerLayerView, coordinator: Coordinator) {
@@ -3069,6 +3926,21 @@ private struct NativePlayerLayer: UIViewRepresentable {
         private weak var view: PlayerLayerView?
         private weak var player: AVPlayer?
 
+        #if os(iOS)
+        private var onPictureInPicturePossibleChange: @MainActor (Bool) -> Void
+        private var onPictureInPictureActiveChange: @MainActor (Bool) -> Void
+        private var onPictureInPictureContinuationChange: @MainActor (Bool) -> Void
+        private var onPictureInPictureRestoreUI: @MainActor () -> Void
+        private var pictureInPictureController: AVPictureInPictureController?
+        private weak var pictureInPictureLayer: AVPlayerLayer?
+        private var pictureInPicturePossibleObservation: NSKeyValueObservation?
+        private var pendingPictureInPictureStartRequest = 0
+        private var handledPictureInPictureStartRequest = 0
+        private var reportedPictureInPicturePossible: Bool?
+        private var reportedPictureInPictureActive: Bool?
+        private var reportedPictureInPictureContinuation: Bool?
+        #endif
+
         #if os(tvOS)
         private weak var displayWindow: UIWindow?
         private var videoTapRecognizer: UITapGestureRecognizer?
@@ -3080,9 +3952,20 @@ private struct NativePlayerLayer: UIViewRepresentable {
         private var displayCriteriaLeaseLost = false
         #endif
 
-        init(onTearDown: @escaping @MainActor () -> Void, onVideoTap: @escaping @MainActor () -> Void) {
+        init(onTearDown: @escaping @MainActor () -> Void,
+             onVideoTap: @escaping @MainActor () -> Void,
+             onPictureInPicturePossibleChange: @escaping @MainActor (Bool) -> Void,
+             onPictureInPictureActiveChange: @escaping @MainActor (Bool) -> Void,
+             onPictureInPictureContinuationChange: @escaping @MainActor (Bool) -> Void,
+             onPictureInPictureRestoreUI: @escaping @MainActor () -> Void) {
             self.onTearDown = onTearDown
             self.onVideoTap = onVideoTap
+            #if os(iOS)
+            self.onPictureInPicturePossibleChange = onPictureInPicturePossibleChange
+            self.onPictureInPictureActiveChange = onPictureInPictureActiveChange
+            self.onPictureInPictureContinuationChange = onPictureInPictureContinuationChange
+            self.onPictureInPictureRestoreUI = onPictureInPictureRestoreUI
+            #endif
             super.init()
         }
 
@@ -3092,6 +3975,9 @@ private struct NativePlayerLayer: UIViewRepresentable {
             #endif
             self.view = view
             self.player = player
+            #if os(iOS)
+            configurePictureInPicture(for: view.playerLayer)
+            #endif
             #if os(tvOS)
             view.didMoveToWindowHandler = { [weak self] in
                 Task { @MainActor [weak self] in
@@ -3118,6 +4004,9 @@ private struct NativePlayerLayer: UIViewRepresentable {
         func detach(from view: PlayerLayerView) {
             guard self.view === view else { return }
             view.didMoveToWindowHandler = nil
+            #if os(iOS)
+            releasePictureInPicture()
+            #endif
             #if os(tvOS)
             if let recognizer = videoTapRecognizer { recognizer.view?.removeGestureRecognizer(recognizer) }
             videoTapRecognizer = nil
@@ -3131,6 +4020,186 @@ private struct NativePlayerLayer: UIViewRepresentable {
             self.view = nil
             player = nil
         }
+
+        #if os(iOS)
+        func updatePictureInPictureCallbacks(
+            possible: @escaping @MainActor (Bool) -> Void,
+            active: @escaping @MainActor (Bool) -> Void,
+            continuation: @escaping @MainActor (Bool) -> Void,
+            restoreUI: @escaping @MainActor () -> Void
+        ) {
+            onPictureInPicturePossibleChange = possible
+            onPictureInPictureActiveChange = active
+            onPictureInPictureContinuationChange = continuation
+            onPictureInPictureRestoreUI = restoreUI
+        }
+
+        func handlePictureInPictureStartRequest(_ request: Int) {
+            guard request != 0, request != handledPictureInPictureStartRequest else { return }
+            pendingPictureInPictureStartRequest = request
+            startPictureInPictureIfPossible()
+        }
+
+        private func configurePictureInPicture(for layer: AVPlayerLayer) {
+            guard pictureInPictureLayer !== layer else { return }
+            releasePictureInPicture()
+            guard AVPictureInPictureController.isPictureInPictureSupported() else {
+                reportPictureInPicturePossible(false)
+                reportPictureInPictureActive(false)
+                return
+            }
+            guard let controller = AVPictureInPictureController(playerLayer: layer) else {
+                reportPictureInPicturePossible(false)
+                reportPictureInPictureActive(false)
+                return
+            }
+            controller.delegate = self
+            controller.canStartPictureInPictureAutomaticallyFromInline = true
+            pictureInPictureLayer = layer
+            pictureInPictureController = controller
+            let controllerID = ObjectIdentifier(controller)
+            pictureInPicturePossibleObservation = controller.observe(
+                \.isPictureInPicturePossible, options: [.initial, .new]
+            ) { [weak self] _, change in
+                let possible = change.newValue
+                Task { @MainActor [weak self] in
+                    guard let self, let current = self.pictureInPictureController,
+                          ObjectIdentifier(current) == controllerID else { return }
+                    self.reportPictureInPicturePossible(possible ?? current.isPictureInPicturePossible)
+                    self.startPictureInPictureIfPossible()
+                }
+            }
+            reportPictureInPictureActive(controller.isPictureInPictureActive)
+        }
+
+        private func startPictureInPictureIfPossible() {
+            guard pendingPictureInPictureStartRequest != 0,
+                  pendingPictureInPictureStartRequest != handledPictureInPictureStartRequest,
+                  let controller = pictureInPictureController,
+                  controller.isPictureInPicturePossible else { return }
+            handledPictureInPictureStartRequest = pendingPictureInPictureStartRequest
+            controller.startPictureInPicture()
+        }
+
+        private func releasePictureInPicture() {
+            pictureInPicturePossibleObservation = nil
+            if pictureInPictureController?.isPictureInPictureActive == true {
+                pictureInPictureController?.stopPictureInPicture()
+            }
+            pictureInPictureController?.delegate = nil
+            pictureInPictureController = nil
+            pictureInPictureLayer = nil
+            pendingPictureInPictureStartRequest = 0
+            reportPictureInPicturePossible(false)
+            reportPictureInPictureActive(false)
+            reportPictureInPictureContinuation(false)
+        }
+
+        private func reportPictureInPicturePossible(_ possible: Bool) {
+            guard reportedPictureInPicturePossible != possible else { return }
+            reportedPictureInPicturePossible = possible
+            Task { @MainActor [weak self] in
+                guard let self, self.reportedPictureInPicturePossible == possible else { return }
+                self.onPictureInPicturePossibleChange(possible)
+            }
+        }
+
+        private func reportPictureInPictureActive(_ active: Bool) {
+            guard reportedPictureInPictureActive != active else { return }
+            reportedPictureInPictureActive = active
+            Task { @MainActor [weak self] in
+                guard let self, self.reportedPictureInPictureActive == active else { return }
+                self.onPictureInPictureActiveChange(active)
+            }
+        }
+
+        private func reportPictureInPictureContinuation(_ continuing: Bool, notifyImmediately: Bool = false) {
+            guard reportedPictureInPictureContinuation != continuing else { return }
+            reportedPictureInPictureContinuation = continuing
+            if notifyImmediately {
+                onPictureInPictureContinuationChange(continuing)
+                return
+            }
+            Task { @MainActor [weak self] in
+                guard let self, self.reportedPictureInPictureContinuation == continuing else { return }
+                self.onPictureInPictureContinuationChange(continuing)
+            }
+        }
+
+        nonisolated func pictureInPictureControllerWillStartPictureInPicture(
+            _ pictureInPictureController: AVPictureInPictureController
+        ) {
+            let controllerID = ObjectIdentifier(pictureInPictureController)
+            Task { @MainActor [weak self] in
+                guard let self, let current = self.pictureInPictureController,
+                      ObjectIdentifier(current) == controllerID else { return }
+                self.reportPictureInPictureContinuation(true, notifyImmediately: true)
+            }
+        }
+
+        nonisolated func pictureInPictureController(
+            _ pictureInPictureController: AVPictureInPictureController,
+            failedToStartPictureInPictureWithError error: any Error
+        ) {
+            let controllerID = ObjectIdentifier(pictureInPictureController)
+            Task { @MainActor [weak self] in
+                guard let self, let current = self.pictureInPictureController,
+                      ObjectIdentifier(current) == controllerID else { return }
+                self.reportPictureInPictureActive(false)
+                self.reportPictureInPictureContinuation(false, notifyImmediately: true)
+            }
+        }
+
+        nonisolated func pictureInPictureControllerDidStartPictureInPicture(
+            _ pictureInPictureController: AVPictureInPictureController
+        ) {
+            let controllerID = ObjectIdentifier(pictureInPictureController)
+            Task { @MainActor [weak self] in
+                guard let self, let current = self.pictureInPictureController,
+                      ObjectIdentifier(current) == controllerID else { return }
+                self.reportPictureInPictureContinuation(true, notifyImmediately: true)
+                self.reportPictureInPictureActive(true)
+            }
+        }
+
+        nonisolated func pictureInPictureControllerDidStopPictureInPicture(
+            _ pictureInPictureController: AVPictureInPictureController
+        ) {
+            let controllerID = ObjectIdentifier(pictureInPictureController)
+            Task { @MainActor [weak self] in
+                guard let self, let current = self.pictureInPictureController,
+                      ObjectIdentifier(current) == controllerID else { return }
+                self.reportPictureInPictureActive(false)
+                self.reportPictureInPictureContinuation(false, notifyImmediately: true)
+            }
+        }
+
+        nonisolated func pictureInPictureController(
+            _ pictureInPictureController: AVPictureInPictureController,
+            restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+        ) {
+            let controllerID = ObjectIdentifier(pictureInPictureController)
+            let completion = PictureInPictureRestoreCompletion(completionHandler)
+            Task { @MainActor [weak self] in
+                guard let self, let current = self.pictureInPictureController,
+                      ObjectIdentifier(current) == controllerID else {
+                    completion(false)
+                    return
+                }
+                self.onPictureInPictureRestoreUI()
+                completion(self.view != nil)
+            }
+        }
+        #else
+        func updatePictureInPictureCallbacks(
+            possible: @escaping @MainActor (Bool) -> Void,
+            active: @escaping @MainActor (Bool) -> Void,
+            continuation: @escaping @MainActor (Bool) -> Void,
+            restoreUI: @escaping @MainActor () -> Void
+        ) { }
+
+        func handlePictureInPictureStartRequest(_ request: Int) { }
+        #endif
 
         #if os(tvOS)
         private func rendererWindowDidChange() {
@@ -3235,6 +4304,22 @@ private struct NativePlayerLayer: UIViewRepresentable {
         #endif
     }
 }
+
+#if os(iOS)
+private final class PictureInPictureRestoreCompletion: @unchecked Sendable {
+    private let completion: (Bool) -> Void
+
+    init(_ completion: @escaping (Bool) -> Void) {
+        self.completion = completion
+    }
+
+    func callAsFunction(_ restored: Bool) {
+        completion(restored)
+    }
+}
+
+extension NativePlayerLayer.Coordinator: AVPictureInPictureControllerDelegate { }
+#endif
 
 private final class PlayerLayerView: UIView {
     override class var layerClass: AnyClass { AVPlayerLayer.self }

@@ -80,6 +80,10 @@ final class NativeAudioSession {
         guard !transferring else { throw URLError(.cancelled) }
         guard let owner = model.store.music.sessionIdentity else { throw LuminaError.notSignedIn }
         let token = generation
+        if model.store.isOffline {
+            pendingSpeakerStop = nil
+            snapshot.activeOutput = .init()
+        }
         if let ticket = pendingSpeakerStop ?? snapshot.activeOutput.ticketID {
             guard owner == identity, !busy, !transferring else { throw URLError(.cancelled) }
             busy = true; transferring = true
@@ -132,7 +136,7 @@ final class NativeAudioSession {
         }
         let request = try await store.preparePlayback(for: selected.mediaItem)
         guard token == generation, owner == store.music.sessionIdentity, !Task.isCancelled else { throw CancellationError() }
-        let revision = (try? await store.music.loadSession())?.revision ?? snapshot.revision
+        let revision = store.isOffline ? snapshot.revision : (try? await store.music.loadSession())?.revision ?? snapshot.revision
         guard token == generation, owner == store.music.sessionIdentity, !Task.isCancelled else { throw CancellationError() }
         let ownerChanged = identity != owner
         self.store = store; identity = owner
@@ -156,7 +160,10 @@ final class NativeAudioSession {
             try AVAudioSession.sharedInstance().setActive(true)
             let resolved: [LuminaCore.MusicTrack]
             if let preparedTracks { resolved = preparedTracks; self.preparedTracks = nil }
-            else { resolved = try await store.music.resolve(items: model.queue) }
+            else if store.isOffline {
+                resolved = model.queue.filter { store.offline.localURL(for: $0.id) != nil }
+                    .map { store.music.cachedTrack(for: $0.id) ?? MusicTrack(downloadedItem: $0) }
+            } else { resolved = try await store.music.resolve(items: model.queue) }
             guard token == generation, owner == store.music.sessionIdentity, playback === model else { return }
             guard !resolved.isEmpty, resolved.indices.contains(model.queueIndex) else { throw URLError(.resourceUnavailable) }
             tracks = resolved
@@ -251,6 +258,11 @@ final class NativeAudioSession {
         dirty = LuminaPreferences.defaults.bool(forKey: "lumina.music.dirty.\(owner)")
         let cached = store.music.cachedSession
         if let cached { snapshot = cached }
+        guard !store.isOffline else {
+            snapshot.activeOutput = .init()
+            restoreSleepDeadline(owner: owner)
+            return
+        }
         do {
             let server = try await store.music.loadSession()
             guard token == generation, owner == store.music.sessionIdentity else { return }
@@ -302,7 +314,7 @@ final class NativeAudioSession {
     }
 
     func refreshSharedQueue() async {
-        guard !refreshingShared, !transferring, let store, let owner = identity,
+        guard !refreshingShared, !transferring, let store, !store.isOffline, let owner = identity,
               owner == store.music.sessionIdentity else { return }
         refreshingShared = true
         defer { refreshingShared = false }
@@ -373,7 +385,7 @@ final class NativeAudioSession {
 
     func syncNow() async {
         if syncing { syncAgain = true; return }
-        guard !transferring, !isSonos, conflict == nil, dirty, let store, let owner = identity else { return }
+        guard !transferring, !isSonos, conflict == nil, dirty, let store, !store.isOffline, let owner = identity else { return }
         syncing = true
         defer {
             syncing = false
@@ -428,7 +440,7 @@ final class NativeAudioSession {
     }
     private func changed() {
         dirty = true; persist()
-        guard syncTask == nil else { return }
+        guard store?.isOffline != true, syncTask == nil else { return }
         syncTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled, let self else { return }
@@ -547,12 +559,14 @@ final class NativeAudioSession {
         guard let store, let playback else { return }
         let item = playback.request.item, owner = identity
         lyrics = store.music.cachedLyrics(for: item.id)
-        lyricsError = nil; lyricsLoading = true
+        lyricsError = nil; lyricsLoading = !store.isOffline
+        guard !store.isOffline else { return }
         lyricsTask = Task { [weak self] in
             guard let self else { return }
             defer { if identity == owner, self.playback?.request.item.id == item.id { lyricsLoading = false } }
             do {
                 for poll in 0..<13 {
+                    guard !store.isOffline else { return }
                     let value = try await store.music.lyrics(for: item, retry: retry && poll == 0)
                     guard !Task.isCancelled, owner == store.music.sessionIdentity, self.playback?.request.item.id == item.id else { return }
                     lyrics = value
@@ -616,6 +630,17 @@ final class NativeAudioSession {
         setSleep(minutes: nil)
         message = "Sleep timer paused playback."
     }
+    func connectivityDidChange() {
+        if store?.isOffline == true {
+            lyricsTask?.cancel()
+            statusTask?.cancel()
+            syncTask?.cancel(); syncTask = nil
+            lyricsLoading = false
+        } else {
+            Task { await refreshSharedQueue() }
+        }
+    }
+
     func resumeAfterActivation() {
         enforceSleepDeadline()
         if isSonos { Task { await pollStatus() } }
@@ -719,7 +744,7 @@ final class NativeAudioSession {
         statusTask?.cancel()
         statusTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self, self.isSonos else { return }
+                guard let self, self.isSonos, self.store?.isOffline != true else { return }
                 await pollStatus()
                 try? await Task.sleep(for: .seconds(5))
             }

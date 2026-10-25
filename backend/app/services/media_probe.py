@@ -28,7 +28,7 @@ from app.services.yt_dlp_service import YtDlpService
 PROBE_TIMEOUT_SECONDS = 20
 PROBE_OUTPUT_LIMIT = 1_000_000
 PROBE_TERMINATE_GRACE_SECONDS = 0.25
-PROBE_CACHE_VERSION = 3
+PROBE_CACHE_VERSION = 4
 _PROBE_CACHE_VERSION_KEY = "_probe_cache_version"
 _probe_slots = threading.BoundedSemaphore(2)
 _artifact_locks: dict[str, threading.Lock] = {}
@@ -182,6 +182,15 @@ def _attached_picture(stream: dict[str, Any]) -> bool:
     return isinstance(disposition, dict) and bool(disposition.get("attached_pic"))
 
 
+def _hdr_side_data(stream: dict[str, Any]) -> dict[str, bool]:
+    """Only retain HDR labels ffprobe states explicitly; an absent label stays unknown."""
+    names = [str(entry.get("side_data_type") or "").casefold() for entry in stream.get("side_data_list") or [] if isinstance(entry, dict)]
+    return {
+        "hdr10": any("mastering display metadata" in name or "content light level metadata" in name for name in names),
+        "hdr10plus": any("smpte2094-40" in name or "hdr10+" in name or "hdr dynamic metadata" in name for name in names),
+    }
+
+
 def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
     """ffprobe JSON for one file; bounded time and output, no shell."""
     result = _run_bounded_process(
@@ -195,9 +204,9 @@ def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
         raise ProbeError("probe_failed") from exc
     if not isinstance(raw, dict):
         raise ProbeError("probe_failed")
-    # Some Matroska HEVC files carry HDR transfer and primaries only on decoded
-    # frames. The stream header still exposes its BT.2020 matrix, which keeps
-    # this extra bounded probe to the files where that distinction matters.
+    # Some Matroska HEVC files carry HDR transfer, primaries, or HDR side data
+    # only on decoded frames. Restrict the extra bounded probe to plausible HDR
+    # streams, including a PQ stream whose static/dynamic metadata is frame-only.
     streams = raw.get("streams")
     if not isinstance(streams, list):
         return raw
@@ -208,11 +217,11 @@ def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
         and not _attached_picture(stream)
     ), None)
     transfer = first_video.get("color_transfer") if first_video else None
-    if (
-        first_video is None
-        or first_video.get("color_space") not in {"bt2020nc", "bt2020c"}
-        or (isinstance(transfer, str) and transfer.strip())
-    ):
+    needs_hdr_facts = first_video is not None and (
+        (first_video.get("color_space") in {"bt2020nc", "bt2020c"} and not (isinstance(transfer, str) and transfer.strip()))
+        or transfer == "smpte2084"
+    )
+    if not needs_hdr_facts:
         return raw
     hdr_stream = first_video
     stream_index = hdr_stream.get("index")
@@ -245,10 +254,16 @@ def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
     if first is None:
         raise ProbeError("probe_failed")
     if not isinstance(first.get("color_transfer"), str) or not first["color_transfer"].strip():
-        raise ProbeError("probe_failed")
+        if not (isinstance(transfer, str) and transfer.strip()):
+            raise ProbeError("probe_failed")
     for key in ("color_space", "color_transfer", "color_primaries"):
         if first.get(key):
             hdr_stream[key] = first[key]
+    if isinstance(first.get("side_data_list"), list):
+        existing = hdr_stream.get("side_data_list")
+        known = existing if isinstance(existing, list) else []
+        # Preserve stream-header side data and append only distinct frame facts.
+        hdr_stream["side_data_list"] = known + [entry for entry in first["side_data_list"] if isinstance(entry, dict) and entry not in known]
     return raw
 
 
@@ -315,6 +330,7 @@ def _stream(raw: dict[str, Any]) -> dict[str, Any]:
         "frame_rate": _rate(raw.get("avg_frame_rate") or raw.get("r_frame_rate")),
         "dv_profile": _int(dovi.get("dv_profile")),
         "dv_compat": _int(dovi.get("dv_bl_signal_compatibility_id")),
+        **_hdr_side_data(raw),
     }
 
 

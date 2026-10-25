@@ -493,16 +493,90 @@ public enum VideoSort: String, CaseIterable, Sendable {
     var field: String { switch self { case .name: "SortName"; case .recentlyAdded: "DateCreated"; case .year: "ProductionYear" } }
 }
 
+/// A server-indexed movie resolution. The raw value is the stable Lumina API alias,
+/// while `label` is intended for the native filter control.
+public enum VideoResolution: String, CaseIterable, Hashable, Sendable {
+    case ultraHD = "4k"
+    case fullHD = "1080p"
+    case hd = "720p"
+    case standardDefinition = "sd"
+
+    public var label: String {
+        switch self {
+        case .ultraHD: "4K"
+        case .fullHD: "1080p"
+        case .hd: "720p"
+        case .standardDefinition: "SD"
+        }
+    }
+}
+
+/// A server-indexed HDR transfer format. Unknown source metadata never matches a
+/// selected format so the filter remains an explicit technical promise.
+public enum VideoHDR: String, CaseIterable, Hashable, Sendable {
+    case sdr
+    case hdr10
+    case hdr10Plus = "hdr10plus"
+    case dolbyVision = "dolbyvision"
+    case hlg
+
+    public var label: String {
+        switch self {
+        case .sdr: "SDR"
+        case .hdr10: "HDR10"
+        case .hdr10Plus: "HDR10+"
+        case .dolbyVision: "Dolby Vision"
+        case .hlg: "HLG"
+        }
+    }
+}
+
+/// A server-indexed premium audio format. The raw values deliberately describe
+/// formats rather than device output capabilities.
+public enum VideoAudioFormat: String, CaseIterable, Hashable, Sendable {
+    case atmos
+    case trueHD = "truehd"
+    case dtsHD = "dtshd"
+    case dts
+    case dolbyDigitalPlus = "ddplus"
+    case dolbyDigital = "dd"
+    case aac
+
+    public var label: String {
+        switch self {
+        case .atmos: "Dolby Atmos"
+        case .trueHD: "Dolby TrueHD"
+        case .dtsHD: "DTS-HD"
+        case .dts: "DTS"
+        case .dolbyDigitalPlus: "Dolby Digital+"
+        case .dolbyDigital: "Dolby Digital"
+        case .aac: "AAC"
+        }
+    }
+}
+
 public struct VideoFilters: Equatable, Sendable {
     public var genre: String
     public var year: Int?
     public var unwatchedOnly: Bool
     public var favoritesOnly: Bool
+    public var resolution: VideoResolution?
+    public var hdr: VideoHDR?
+    public var audio: VideoAudioFormat?
+    /// Matches an IMAX release marker in the source filename or edition metadata.
+    /// Server matching deliberately does not infer IMAX from aspect ratio.
+    public var imaxOnly: Bool
 
-    public init(genre: String = "", year: Int? = nil, unwatchedOnly: Bool = false, favoritesOnly: Bool = false) {
+    public init(genre: String = "", year: Int? = nil, unwatchedOnly: Bool = false, favoritesOnly: Bool = false,
+                resolution: VideoResolution? = nil, hdr: VideoHDR? = nil, audio: VideoAudioFormat? = nil,
+                imaxOnly: Bool = false) {
         self.genre = genre
         self.year = year
         self.unwatchedOnly = unwatchedOnly
         self.favoritesOnly = favoritesOnly
+        self.resolution = resolution
+        self.hdr = hdr
+        self.audio = audio
+        self.imaxOnly = imaxOnly
     }
 }

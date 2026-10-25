@@ -13,7 +13,19 @@ import Observation
     }
 
     public nonisolated static let maximumTrackBytes: Int64 = 128 * 1_024 * 1_024
+    /// Direct-playable films and episodes only. HLS and converted streams are intentionally never persisted.
+    public nonisolated static let maximumVideoBytes: Int64 = 32 * 1_024 * 1_024 * 1_024
     public nonisolated static let maximumArtworkBytes: Int64 = 2 * 1_024 * 1_024
+
+    /// Downloading is limited to audio and concrete playable video files. Collections, playlists and HLS manifests
+    /// cannot become durable single-file playback entries.
+    public nonisolated static func supportsDownload(_ item: MediaItem) -> Bool {
+        item.isAudio || supportsVideoDownload(item)
+    }
+
+    public nonisolated static func supportsVideoDownload(_ item: MediaItem) -> Bool {
+        item.isPlayable && !item.isAudio
+    }
     public let limitBytes: Int64
     public private(set) var usedBytes: Int64 = 0
     public private(set) var downloadStates = [String: DownloadState]()
@@ -27,6 +39,8 @@ import Observation
         let filename: String
         let bytes: Int64
         var artworkFilename: String? = nil
+        /// Stored separately so older manifests remain decodable and no credentials or server state are retained.
+        var resumeSeconds: Double? = nil
     }
     private struct Job {
         let key: UUID
@@ -52,7 +66,7 @@ import Observation
     @ObservationIgnored private var transfer: OfflineTransfer?
     @ObservationIgnored private var cancelled = Set<UUID>()
 
-    public init(root: URL? = nil, limitBytes: Int64 = 1_024 * 1_024 * 1_024,
+    public init(root: URL? = nil, limitBytes: Int64 = 64 * 1_024 * 1_024 * 1_024,
                 configuration: URLSessionConfiguration = .ephemeral) {
         #if os(tvOS)
         let directory: FileManager.SearchPathDirectory = .cachesDirectory
@@ -115,6 +129,14 @@ import Observation
         await enqueue(item: item, request: request, artwork: false)
     }
 
+    public func downloadVideo(item: MediaItem, request: URLRequest) async {
+        guard Self.supportsVideoDownload(item) else {
+            downloadStates[item.id] = .failed("Only playable movies and episodes can be downloaded to this device.")
+            return
+        }
+        await enqueue(item: item, request: request, artwork: false)
+    }
+
     public func downloadArtwork(item: MediaItem, request: URLRequest) async {
         guard localURL(for: item.id) != nil, artworkURL(for: item.id) == nil else { return }
         await enqueue(item: item, request: request, artwork: true)
@@ -126,10 +148,10 @@ import Observation
     }
 
     private func enqueue(item: MediaItem, request: URLRequest, artwork: Bool) async {
-        guard item.isAudio, let owner, let origin,
+        guard Self.supportsDownload(item), let owner, let origin,
               let url = request.url, offlineSameOrigin(origin, url), url.user == nil, url.password == nil,
               hasCurrentCredentials(request), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-            if !artwork { downloadStates[item.id] = .failed("Sign in to the same server before downloading this audio.") }
+            if !artwork { downloadStates[item.id] = .failed("Sign in to the same server before downloading this media.") }
             return
         }
         if !artwork, !knownItems.contains(where: { $0.id == item.id }) { knownItems.append(item) }
@@ -201,6 +223,21 @@ import Observation
         return url
     }
 
+    public func resumeSeconds(for id: String) -> Double {
+        guard let entry = entries.first(where: { $0.item.id == id }) else { return 0 }
+        let seconds = entry.resumeSeconds ?? entry.item.resumeSeconds
+        guard seconds.isFinite, seconds >= 0 else { return 0 }
+        return seconds
+    }
+
+    /// Offline positions are durable locally and may be reconciled with the server when connectivity returns.
+    public func recordPlaybackPosition(id: String, seconds: Double) {
+        guard seconds.isFinite, seconds >= 0,
+              let index = entries.firstIndex(where: { $0.item.id == id }) else { return }
+        entries[index].resumeSeconds = seconds
+        saveOrReport()
+    }
+
     /// tvOS may purge caches at any time; callers can reconcile when opening the download list.
     public func refresh() {
         let missingEntries = entries.filter { existingURL($0) == nil }
@@ -256,8 +293,11 @@ import Observation
     }
 
     private func existingURL(_ entry: Entry) -> URL? {
-        guard entry.item.isAudio, entry.bytes > 0, entry.bytes <= Self.maximumTrackBytes,
-              let url = safeURL(entry.filename), OfflineTransfer.audioTypes.values.contains(url.pathExtension),
+        let types = entry.item.isAudio ? OfflineTransfer.audioTypes : OfflineTransfer.videoTypes
+        let maximumBytes = entry.item.isAudio ? Self.maximumTrackBytes : Self.maximumVideoBytes
+        guard Self.supportsDownload(entry.item),
+              entry.bytes > 0, entry.bytes <= maximumBytes,
+              let url = safeURL(entry.filename), types.values.contains(url.pathExtension),
               let facts = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
               facts.isRegularFile == true, facts.isSymbolicLink != true,
               Int64(facts.fileSize ?? 0) == entry.bytes else { return nil }
@@ -349,9 +389,11 @@ import Observation
         do { try prepare(directory) }
         catch { finish(key: job.key, result: .failure(OfflineFailure.storage)); return }
         if !job.artwork { downloadStates[job.item.id] = .downloading(receivedBytes: 0, totalBytes: nil) }
+        let mediaMaximum = job.item.isAudio ? Self.maximumTrackBytes : Self.maximumVideoBytes
+        let types = job.artwork ? OfflineTransfer.artworkTypes : (job.item.isAudio ? OfflineTransfer.audioTypes : OfflineTransfer.videoTypes)
         let next = OfflineTransfer(origin: job.origin, destination: directory.appendingPathComponent(".partial-\(job.key)"),
-                                   maximumBytes: min(job.artwork ? Self.maximumArtworkBytes : Self.maximumTrackBytes, available),
-                                   configuration: configuration, types: job.artwork ? OfflineTransfer.artworkTypes : OfflineTransfer.audioTypes) { [weak self] received, total in
+                                   maximumBytes: min(job.artwork ? Self.maximumArtworkBytes : mediaMaximum, available),
+                                   configuration: configuration, types: types) { [weak self] received, total in
             Task { @MainActor in
                 guard let self, self.active?.key == job.key, self.owner == job.owner,
                       self.generation == job.generation, !job.artwork, !self.cancelled.contains(job.key) else { return }
@@ -419,10 +461,10 @@ private enum OfflineFailure: Error {
     case budget, response, storage, redirect
     var message: String {
         switch self {
-        case .budget: "This download exceeds the available offline budget or per-file limit (128 MiB audio, 2 MiB artwork). Remove a download and retry."
-        case .response: "The server did not return a complete supported audio file."
+        case .budget: "This download exceeds the available offline budget or per-file limit (128 MiB audio, 32 GiB video, 2 MiB artwork). Remove a download and retry."
+        case .response: "The server did not return a complete supported media file."
         case .storage: "The device could not save this download. Check available storage."
-        case .redirect: "The audio download redirected to another server and was blocked."
+        case .redirect: "The media download redirected to another server and was blocked."
         }
     }
 }
@@ -439,8 +481,11 @@ private final class OfflineTransfer: NSObject, URLSessionDownloadDelegate, @unch
     static let audioTypes = ["audio/mp4": "m4a", "audio/mpeg": "mp3", "audio/flac": "flac", "audio/x-flac": "flac",
                              "audio/aac": "aac", "audio/wav": "wav", "audio/x-wav": "wav", "audio/aiff": "aiff",
                              "audio/ogg": "ogg", "audio/opus": "opus"]
+    /// These are complete, direct-playable file responses. Playlist/HLS and generic binary responses are rejected.
+    static let videoTypes = ["video/mp4": "mp4", "application/mp4": "mp4", "video/quicktime": "mov", "video/x-m4v": "m4v",
+                             "video/x-matroska": "mkv", "application/x-matroska": "mkv"]
     static let artworkTypes = ["image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic"]
-    static let extensions = Set(Array(audioTypes.values) + Array(artworkTypes.values))
+    static let extensions = Set(Array(audioTypes.values) + Array(videoTypes.values) + Array(artworkTypes.values))
     private let origin: URL
     private let destination: URL
     private let maximumBytes: Int64
@@ -454,6 +499,7 @@ private final class OfflineTransfer: NSObject, URLSessionDownloadDelegate, @unch
     private var failure: Error?
     private var file: File?
     private var completed = false
+    private var lastProgressNanoseconds: UInt64 = 0
 
     init(origin: URL, destination: URL, maximumBytes: Int64, configuration: URLSessionConfiguration,
          types: [String: String], progress: @escaping @Sendable (Int64, Int64?) -> Void,
@@ -487,7 +533,18 @@ private final class OfflineTransfer: NSObject, URLSessionDownloadDelegate, @unch
         if totalBytesWritten > maximumBytes || totalBytesExpectedToWrite > maximumBytes {
             lock.withLock { failure = OfflineFailure.budget }
             downloadTask.cancel()
-        } else { progress(totalBytesWritten, totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil) }
+        } else {
+            // Large video transfers write in very small chunks. Keep the observable UI responsive without
+            // scheduling a main-actor state change for every network callback.
+            let shouldReport = lock.withLock { () -> Bool in
+                let now = DispatchTime.now().uptimeNanoseconds
+                let complete = totalBytesExpectedToWrite > 0 && totalBytesWritten >= totalBytesExpectedToWrite
+                guard complete || now &- lastProgressNanoseconds >= 125_000_000 else { return false }
+                lastProgressNanoseconds = now
+                return true
+            }
+            if shouldReport { progress(totalBytesWritten, totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil) }
+        }
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {

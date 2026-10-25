@@ -89,7 +89,7 @@ struct TVMusicDetailView: View {
                 actionRow
                 pivotActions
                 if let errorMessage = displayedError {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    Label(errorMessage, glyph: .warning, variant: .solid, size: 24)
                         .font(.system(size: 23))
                         .foregroundStyle(LuminaTheme.accentInk)
                         .fixedSize(horizontal: false, vertical: true)
@@ -121,7 +121,7 @@ struct TVMusicDetailView: View {
                         .foregroundStyle(LuminaTheme.muted)
                 }
                 if let errorMessage = displayedError {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    Label(errorMessage, glyph: .warning, variant: .solid, size: 24)
                         .font(.system(size: 23))
                         .foregroundStyle(LuminaTheme.accentInk)
                         .fixedSize(horizontal: false, vertical: true)
@@ -165,7 +165,12 @@ struct TVMusicDetailView: View {
             Button {
                 playSelectedTrack()
             } label: {
-                Label(preparing ? "Preparing…" : primaryButtonLabel, systemImage: primaryButtonSymbol)
+                Label(
+                    preparing ? "Preparing…" : primaryButtonLabel,
+                    glyph: primaryButtonGlyph,
+                    variant: .solid,
+                    size: 28
+                )
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -180,7 +185,7 @@ struct TVMusicDetailView: View {
                 Button {
                     play(at: 0, shuffle: true)
                 } label: {
-                    Label("Shuffle", systemImage: "shuffle")
+                    Label("Shuffle", glyph: .shuffle, size: 24)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -198,7 +203,7 @@ struct TVMusicDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if let album, currentItem.isAudio {
                     Button { onOpen(album) } label: {
-                        Label("Album", systemImage: "square.stack").frame(maxWidth: .infinity, alignment: .leading)
+                        Label("Album", glyph: .album, size: 24).frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(LuminaQuietActionStyle())
                     .accessibilityIdentifier("musicAlbumButton")
@@ -206,7 +211,7 @@ struct TVMusicDetailView: View {
                 }
                 if let artist {
                     Button { onOpen(artist) } label: {
-                        Label("Artist", systemImage: "person").frame(maxWidth: .infinity, alignment: .leading)
+                        Label("Artist", glyph: .artist, size: 24).frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(LuminaQuietActionStyle())
                     .accessibilityIdentifier("musicArtistButton")
@@ -272,16 +277,16 @@ struct TVMusicDetailView: View {
         guard controlsCurrentAlbum else { return playLabel }
         return audioSession.playback?.isPlaying == true ? "Pause" : "Resume"
     }
-    private var primaryButtonSymbol: String {
-        guard !preparing else { return "play.fill" }
-        return controlsCurrentAlbum && audioSession.playback?.isPlaying == true ? "pause.fill" : "play.fill"
+    private var primaryButtonGlyph: LuminaGlyph {
+        guard !preparing else { return .play }
+        return controlsCurrentAlbum && audioSession.playback?.isPlaying == true ? .pause : .play
     }
 
     private func emptyMusicContent(title: String, message: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title).font(.system(size: 26, weight: .semibold))
             Text(message).font(.system(size: 23)).foregroundStyle(LuminaTheme.muted)
-            Button("Try again", systemImage: "arrow.clockwise") { Task { await load() } }
+            Button("Try again", glyph: .sync, action: { Task { await load() } })
                 .buttonStyle(LuminaQuietActionStyle())
         }
         .frame(maxWidth: .infinity, minHeight: 240, alignment: .leading)
@@ -453,7 +458,7 @@ private struct TVMusicTrackRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if isCurrent {
-                Image(systemName: "speaker.wave.2.fill")
+                LuminaIcon(glyph: .volumeHigh, variant: .solid, size: 24)
                     .foregroundStyle(isFocused ? Color.black : LuminaTheme.accentInk)
                     .accessibilityHidden(true)
             }

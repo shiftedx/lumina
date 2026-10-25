@@ -90,18 +90,23 @@ struct DeviceSettingsView: View {
                     NavigationLink {
                         DeviceSubtitleAppearanceView(style: subtitleStyle)
                     } label: {
-                        LuminaSettingsActionLabel("Caption appearance", symbol: "captions.bubble")
+                        LuminaSettingsActionLabel("Caption appearance", glyph: .subtitles)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("deviceSubtitleAppearanceButton")
                 }
             }
-            if matches("downloads storage offline music") {
+            if matches("gestures swipe seek skip tap hold haptics playback video") {
+                LuminaSettingsSection("Playback gestures") {
+                    VideoGestureSettingsView(preferences: preferences)
+                }
+            }
+            if matches("downloads storage offline music movies episodes video") {
                 LuminaSettingsSection("Storage") {
                     NavigationLink {
-                        NativeMusicLibraryView(store: store, section: .downloads)
+                        NativeOfflineLibraryView(store: store)
                     } label: {
-                        LuminaSettingsActionLabel("Downloads", symbol: "arrow.down.circle")
+                        LuminaSettingsActionLabel("Downloads", glyph: .download)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("deviceDownloadsButton")
@@ -116,7 +121,7 @@ struct DeviceSettingsView: View {
                     .accessibilityIdentifier("deviceLicensesButton")
                 }
                 if let onSignOut {
-                    Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive, action: onSignOut)
+                    Button("Sign out", glyph: .logout, role: .destructive, action: onSignOut)
                         .buttonStyle(.plain).frame(minHeight: 44)
                         .accessibilityIdentifier("deviceSignOutButton")
                 }
@@ -169,20 +174,29 @@ struct LuminaSettingsSection<Content: View>: View {
 
 struct LuminaSettingsActionLabel: View {
     let title: String
-    let symbol: String
-    var chevron: String? = "chevron.right"
+    let glyph: LuminaGlyph?
+    let symbol: String?
+    let trailingGlyph: LuminaGlyph?
 
-    init(_ title: String, symbol: String, chevron: String? = "chevron.right") {
-        self.title = title; self.symbol = symbol; self.chevron = chevron
+    init(_ title: String, glyph: LuminaGlyph, trailingGlyph: LuminaGlyph? = .forward) {
+        self.title = title; self.glyph = glyph; symbol = nil; self.trailingGlyph = trailingGlyph
+    }
+
+    init(_ title: String, symbol: String, trailingGlyph: LuminaGlyph? = .forward) {
+        self.title = title; glyph = nil; self.symbol = symbol; self.trailingGlyph = trailingGlyph
     }
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: symbol).frame(width: 22).accessibilityHidden(true)
+            if let glyph {
+                LuminaIcon(glyph: glyph, size: 20).frame(width: 22)
+            } else if let symbol {
+                Image(systemName: symbol).frame(width: 22).accessibilityHidden(true)
+            }
             Text(title)
             Spacer(minLength: 12)
-            if let chevron {
-                Image(systemName: chevron).font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
+            if let trailingGlyph {
+                LuminaIcon(glyph: trailingGlyph, size: 16).foregroundStyle(.secondary)
             }
         }
         .frame(minHeight: 44)
@@ -214,8 +228,8 @@ struct LuminaSettingsPicker<Value: Hashable>: View {
                         .padding(.bottom, 5)
                         .overlay(alignment: .bottom) { Rectangle().fill(LuminaTheme.brand).frame(height: 2) }
                         .multilineTextAlignment(.trailing)
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.caption).foregroundStyle(.secondary)
+                    LuminaIcon(glyph: expanded ? .chevronUp : .chevronDown, size: 16)
+                        .foregroundStyle(.secondary)
                 }
                 .frame(minHeight: 44).contentShape(.rect)
             }
@@ -750,8 +764,7 @@ private struct TVDeviceSettingsRow: View {
                     .lineLimit(1)
             }
             if showsDisclosure {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 18, weight: .semibold))
+                LuminaIcon(glyph: .forward, size: 18)
                     .foregroundStyle(LuminaTheme.muted)
             }
         }
@@ -805,8 +818,7 @@ private struct TVDeviceChoiceScreen<Value: Hashable>: View {
                             Text(label(choice))
                             Spacer()
                             if selection == choice {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 22, weight: .semibold))
+                                LuminaIcon(glyph: .check, size: 22)
                                     .foregroundStyle(LuminaTheme.accentInk)
                             }
                         }

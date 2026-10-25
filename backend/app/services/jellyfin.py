@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Integer, and_, bindparam, case, cast, false, func, literal, literal_column, or_, select, true
@@ -38,7 +38,7 @@ from app.services.playback import PlaybackProgressService
 from app.services.subtitle_tracks import sidecars
 from app.services.title_metadata import _credits, people_for_titles
 from app.services.titles import (
-    ADDED, FOLDER_TYPES, HDR_TRANSFERS, LEAF_TYPES, SORT_NAME, UNNUMBERED, WALL_TYPES, TitleBatch, TitleService,
+    ADDED, FOLDER_TYPES, HDR_TRANSFERS, LEAF_TYPES, SORT_NAME, UNNUMBERED, WALL_TYPES, TitleBatch, TitleService, resolution_bucket,
     image_key, latest_progress, title_image_bytes, title_image_source, user_data_from, version_label,
 )
 
@@ -65,6 +65,9 @@ STREAM_TYPES = {"video": "Video", "audio": "Audio", "subtitle": "Subtitle"}
 SUBTITLE_CODECS = {"srt": "subrip", "ass": "ass", "ssa": "ssa", "vtt": "webvtt"}
 TEXT_SUBTITLE_CODECS = {"subrip", "ass", "ssa", "webvtt", "mov_text", "text"}
 MAX_PAGE = 1000  # the largest page any list returns, whatever Limit a client sends
+TECHNICAL_SDR_TRANSFERS = ("bt709", "bt470bg", "bt470m", "smpte170m", "smpte240m", "iec61966-2-1")
+# The final path component only: `CLIMAX` and an `IMAX/` parent folder are not editions.
+IMAX_RELEASE_MARKER = r"(?i)(?:^|/)[^/]*(?<![A-Z0-9])imax(?![A-Z0-9])[^/]*$"
 
 
 @lru_cache(maxsize=4096)  # pure UUID conversion; never stores authorization or DTOs
@@ -443,6 +446,12 @@ class ItemsQuery(BaseModel):
     persontypes: list[str] = []
     years: list[str] = []
     namestartswith: str | None = Field(None, max_length=200)
+    # Lumina's native movie drawer. Each option is deliberately singular: all
+    # active dimensions must be present on one visible, playable source file.
+    luminaresolution: Literal["4k", "1080p", "720p", "sd"] | None = None
+    luminahdr: Literal["sdr", "hdr10", "hdr10plus", "dolbyvision", "hlg"] | None = None
+    luminaaudio: Literal["atmos", "truehd", "dtshd", "dts", "ddplus", "dd", "aac"] | None = None
+    luminaimax: bool = False
 
     def pipes(self, name: str) -> list[str]:
         return [part.strip() for value in getattr(self, name) for part in value.split("|") if part.strip()]
@@ -455,6 +464,10 @@ class ItemsQuery(BaseModel):
 
     def page_limit(self, default: int = MAX_PAGE) -> int:
         return min(default if self.limit is None else self.limit, MAX_PAGE)
+
+
+def technical_filters_requested(query: ItemsQuery) -> bool:
+    return bool(query.luminaresolution or query.luminahdr or query.luminaaudio or query.luminaimax)
 
 
 # kind -> (Items name filter, Items id filter, BaseItemDto Type)
@@ -760,6 +773,80 @@ class JellyfinMapper:
         total = rows[0][1] if rows else self.db.scalar(select(func.count()).select_from(stmt.subquery()))
         return query_result(self.title_dtos([row[0] for row in rows]), total, start)
 
+    def _technical_source_exists(self, q: ItemsQuery):  # noqa: ANN201
+        """One visible, playable source must satisfy every native technical filter.
+
+        Probe facts are cached on MediaArtifact. The correlated EXISTS therefore
+        neither touches storage nor lets a movie combine 4K from one source with
+        Atmos from another.
+        """
+        source = (
+            select(LibraryItem.id)
+            .join(LibraryItemArtifact, LibraryItemArtifact.library_item_id == LibraryItem.id)
+            .join(MediaArtifact, MediaArtifact.id == LibraryItemArtifact.artifact_id)
+            .where(
+                LibraryItem.title_id == MediaTitle.id,
+                LibraryItem.extra_type.is_(None),
+                LibraryItem.status != "missing",
+                LibraryService.visible_predicate(self.user),
+            )
+        )
+        if q.luminaresolution:
+            source = source.where(resolution_bucket() == q.luminaresolution)
+
+        streams = func.json_each(MediaArtifact.probe, "$.streams").table_valued("value")
+
+        def stream_exists(kind: str, *conditions):  # noqa: ANN202
+            return select(literal(1)).select_from(streams).where(
+                func.json_extract(streams.c.value, "$.type") == kind, *conditions
+            ).correlate(MediaArtifact).exists()
+
+        if q.luminahdr:
+            transfer = func.json_extract(streams.c.value, "$.color_transfer")
+            dovi = func.json_extract(streams.c.value, "$.dv_profile")
+            hdr10plus = func.coalesce(func.json_extract(streams.c.value, "$.hdr10plus"), 0) == 1
+            hdr10 = func.coalesce(func.json_extract(streams.c.value, "$.hdr10"), 0) == 1
+            video_conditions = {
+                "dolbyvision": (dovi.is_not(None),),
+                "hdr10plus": (hdr10plus,),
+                # A PQ transfer alone can be HDR10+; only explicit static side
+                # data identifies HDR10, and Dolby Vision remains its own type.
+                "hdr10": (transfer == "smpte2084", hdr10, ~hdr10plus, dovi.is_(None)),
+                "hlg": (transfer == "arib-std-b67", dovi.is_(None)),
+                # Missing or unfamiliar transfer data is deliberately unknown,
+                # never silently categorized as SDR.
+                "sdr": (transfer.in_(TECHNICAL_SDR_TRANSFERS), dovi.is_(None), ~hdr10, ~hdr10plus),
+            }
+            source = source.where(stream_exists("video", *video_conditions[q.luminahdr]))
+
+        if q.luminaaudio:
+            codec = func.lower(func.coalesce(func.json_extract(streams.c.value, "$.codec"), ""))
+            profile = func.lower(func.coalesce(func.json_extract(streams.c.value, "$.profile"), ""))
+            title = func.lower(func.coalesce(func.json_extract(streams.c.value, "$.title"), ""))
+            immersive_audio = r"(?i)(?<![A-Z0-9])(?:atmos|joc)(?![A-Z0-9])"
+            audio_conditions = {
+                "atmos": (codec.in_(("truehd", "eac3", "ac4")), or_(profile.regexp_match(immersive_audio), title.regexp_match(immersive_audio))),
+                "truehd": (codec == "truehd",),
+                "dtshd": (codec == "dts", or_(profile.like("%dts-hd%"), profile.like("%dts hd%"))),
+                "dts": (codec == "dts", ~profile.like("%dts-hd%"), ~profile.like("%dts hd%")),
+                "ddplus": (codec == "eac3",),
+                "dd": (codec == "ac3",),
+                "aac": (codec == "aac",),
+            }
+            source = source.where(stream_exists("audio", *audio_conditions[q.luminaaudio]))
+
+        if q.luminaimax:
+            edition = func.coalesce(
+                func.json_extract(LibraryItem.metadata_json, "$.edition"),
+                func.json_extract(LibraryItem.metadata_json, "$.release_name"),
+                "",
+            )
+            source = source.where(or_(
+                MediaArtifact.relative_path.regexp_match(IMAX_RELEASE_MARKER),
+                edition.regexp_match(r"(?i)(?<![A-Z0-9])imax(?![A-Z0-9])"),
+            ))
+        return source.exists()
+
     def alphabet(self, q: ItemsQuery) -> dict:
         """Compact A–Z anchors for one visible, name-sorted title listing.
 
@@ -857,6 +944,10 @@ class JellyfinMapper:
         if not wanted:
             return None
         stmt = stmt.where(MediaTitle.type.in_(sorted(wanted)))
+        if technical_filters_requested(q):
+            # A technical filter describes a playable file, not a series folder.
+            # Keep every selected property on the same file/version.
+            stmt = stmt.where(MediaTitle.type.in_(LEAF_TYPES), self._technical_source_exists(q))
         if parent is None and q.luminacategory:
             category = q.luminacategory.casefold()
             if category not in {"movies", "anime"}:
@@ -952,6 +1043,9 @@ class JellyfinMapper:
 
     def query_filters(self, q: ItemsQuery, *, legacy: bool) -> dict:
         """/Items/Filters (names) and /Items/Filters2 (genres as name/id pairs): what the visible titles offer to filter by."""
+        if not legacy and "luminatechnicalfilters" in {field.casefold() for field in q.csv("fields")}:
+            # Capability handshake for native clients: no library-wide facet scan.
+            return {"LuminaTechnicalFilters": True}
         stmt = self._facet_stmt(q)
         genres: dict[str, str] = {}
         tags, ratings, years = set(), set(), set()

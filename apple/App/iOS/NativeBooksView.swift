@@ -66,7 +66,7 @@ struct NativeBooksView: View {
                 if let error {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(error).foregroundStyle(.secondary)
-                        Button("Retry", systemImage: "arrow.clockwise") { Task { await load() } }
+                        Button("Retry", glyph: .sync) { Task { await load() } }
                     }
                 }
                 if let covers {
@@ -145,7 +145,11 @@ struct NativeBooksView: View {
                     if search.isEmpty && !hasCatalogFilters {
                         ContentUnavailableView("No books", systemImage: "books.vertical", description: Text("Import EPUB, PDF, CBZ or CBR books in Lumina’s browser library."))
                     } else {
-                        ContentUnavailableView("No matching books", systemImage: "line.3.horizontal.decrease.circle", description: Text("Change a filter or search to see more of your library."))
+                        ContentUnavailableView {
+                            Label("No matching books", glyph: .filter)
+                        } description: {
+                            Text("Change a filter or search to see more of your library.")
+                        }
                     }
                 }
             }
@@ -171,12 +175,12 @@ struct NativeBooksView: View {
                         ForEach(NativeBookSort.allCases) { option in Text(option.title).tag(option) }
                     }
                 } label: {
-                    Label("Book options", systemImage: "ellipsis.circle")
+                    Label("Book options", glyph: .moreHorizontal)
                 }
                 .accessibilityIdentifier("booksOptionsMenu")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Search books", systemImage: "magnifyingglass") { searchVisible = true }
+                Button("Search books", glyph: .search) { searchVisible = true }
                     .accessibilityIdentifier("booksSearchButton")
             }
         }
@@ -199,7 +203,7 @@ struct NativeBooksView: View {
     private func catalogLink(covers: BookCoverCache) -> some View {
         NavigationLink {
             NativeBooksView(session: session, catalogOnly: true, covers: covers)
-        } label: { Label("Browse all", systemImage: "square.grid.2x2") }
+        } label: { Label("Browse all", glyph: .grid) }
         .accessibilityIdentifier("bookCatalogButton")
     }
     private func bookCard(_ book: BookItem, covers: BookCoverCache) -> some View {

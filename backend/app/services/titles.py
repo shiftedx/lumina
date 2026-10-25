@@ -223,7 +223,7 @@ def resolution_bucket():  # noqa: ANN201
         (or_(height >= 2000, width >= 3200), "4k"),
         (or_(height >= 1000, width >= 1800), "1080p"),
         (height >= 700, "720p"),
-        (height.is_not(None), "sd"),
+        (height > 0, "sd"),
         else_=None,
     )
 

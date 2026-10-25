@@ -2,6 +2,10 @@ import SwiftUI
 import LuminaCore
 import UIKit
 
+extension EnvironmentValues {
+    @Entry var luminaArtworkMotionEnabled = true
+}
+
 /// Landscape primary images are usable billboards too. Portrait sources remain
 /// intact over a diffuse field, so neither shape is stretched to fill the screen.
 private struct BillboardArtwork: View {
@@ -18,9 +22,7 @@ private struct BillboardArtwork: View {
     private var backdropURL: URL? { store.backdropURL(for: item) }
     private var url: URL? { backdropURL ?? store.imageURL(for: item, maxWidth: 1920) }
     private var displayedSource: UIImage? {
-        if loadedURL == url, let source { return source }
-        guard let url, let image = ArtworkImageCache.shared.cachedImage(for: url) else { return nil }
-        return UIImage(cgImage: image)
+        loadedURL == url ? source : nil
     }
 
     private var isWide: Bool {
@@ -32,27 +34,30 @@ private struct BillboardArtwork: View {
             ZStack {
                 LuminaTheme.theater
                 if let source = displayedSource {
-                    let crop = HeroFraming.crop(isWide ? framing : nil, source: source.size, viewport: geometry.size, home: home)
-                    Image(uiImage: source)
-                        .resizable()
-                        .frame(width: geometry.size.width / crop.width, height: geometry.size.height / crop.height)
-                        .offset(x: -crop.minX * geometry.size.width / crop.width, y: -crop.minY * geometry.size.height / crop.height)
-                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-                        .blur(radius: isWide ? 0 : reduceTransparency ? 0 : 36)
-                        .opacity(isWide ? 1 : reduceTransparency ? 0 : 0.45)
-                    if showsPoster && !isWide {
-                        Image(uiImage: source)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: geometry.size.width * (geometry.size.width > 700 ? 0.28 : 0.42), height: geometry.size.height * 0.78)
-                            .shadow(color: .black.opacity(0.4), radius: 20, y: 10)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: geometry.size.width > 700 ? .trailing : .center)
-                            .padding(.trailing, geometry.size.width > 700 ? geometry.size.width * 0.08 : 0)
+                    ZStack {
+                        CroppedBillboardArtwork(
+                            source: source,
+                            framing: isWide ? framing : nil,
+                            viewport: geometry.size,
+                            home: home,
+                            motionDirection: motionDirection
+                        )
+                            .blur(radius: isWide ? 0 : reduceTransparency ? 0 : 36)
+                            .opacity(isWide ? 1 : reduceTransparency ? 0 : 0.45)
+                        if showsPoster && !isWide {
+                            Image(uiImage: source)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: geometry.size.width * (geometry.size.width > 700 ? 0.28 : 0.42), height: geometry.size.height * 0.78)
+                                .shadow(color: .black.opacity(0.4), radius: 20, y: 10)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: geometry.size.width > 700 ? .trailing : .center)
+                                .padding(.trailing, geometry.size.width > 700 ? geometry.size.width * 0.08 : 0)
+                        }
                     }
+                    .transition(.identity)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .modifier(HomeArtworkMotion(direction: motionDirection))
             .clipped()
         }
         .onDisappear { source = nil; loadedURL = nil }
@@ -75,23 +80,86 @@ private struct BillboardArtwork: View {
     }
 }
 
-/// Overscan keeps the canvas covered as Home artwork drifts toward alternating corners.
-private struct HomeArtworkMotion: ViewModifier {
-    let direction: Int?
+/// Changes the normalized source crop so Home motion remains subject-safe instead of
+/// scaling an already-cropped viewport. Portrait poster treatments remain stationary.
+private struct CroppedBillboardArtwork: View {
+    let source: UIImage
+    let framing: HeroFraming?
+    let viewport: CGSize
+    let home: Bool
+    let motionDirection: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.luminaArtworkMotionEnabled) private var motionEnabled
 
-    func body(content: Content) -> some View {
+    var body: some View {
         Group {
-            if let direction, !reduceMotion, scenePhase == .active {
-                let anchors: [UnitPoint] = [.topLeading, .bottomTrailing, .topTrailing, .bottomLeading]
-                content.phaseAnimator([false, true]) { artwork, zoomed in
-                    artwork.scaleEffect(zoomed ? 1.10 : 1.02, anchor: anchors[direction % anchors.count])
-                } animation: { _ in .easeInOut(duration: 18) }
+            if let motionDirection, motionEnabled, !reduceMotion, scenePhase == .active,
+               HeroFraming.motionCrop(framing, source: source.size, viewport: viewport, home: home,
+                                      progress: 1, direction: motionDirection)
+                != HeroFraming.crop(framing, source: source.size, viewport: viewport, home: home) {
+                Image(uiImage: source)
+                    .resizable()
+                    .phaseAnimator([0.0, 1.0]) { artwork, progress in
+                        artwork.modifier(NormalizedArtworkCrop(
+                            framing: framing,
+                            source: source.size,
+                            viewport: viewport,
+                            home: home,
+                            progress: progress,
+                            direction: motionDirection
+                        ))
+                    } animation: { _ in
+                        .easeInOut(duration: 18)
+                    }
+                    .transition(.identity)
             } else {
-                content
+                Image(uiImage: source)
+                    .resizable()
+                    .modifier(NormalizedArtworkCrop(
+                        framing: framing,
+                        source: source.size,
+                        viewport: viewport,
+                        home: home,
+                        progress: 0,
+                        direction: nil
+                    ))
+                    .transition(.identity)
             }
         }
+    }
+}
+
+private nonisolated struct NormalizedArtworkCrop: ViewModifier, Animatable {
+    let framing: HeroFraming?
+    let source: CGSize
+    let viewport: CGSize
+    let home: Bool
+    var progress: Double
+    let direction: Int?
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let crop = if let direction {
+            HeroFraming.motionCrop(
+                framing,
+                source: source,
+                viewport: viewport,
+                home: home,
+                progress: progress,
+                direction: direction
+            )
+        } else {
+            HeroFraming.crop(framing, source: source, viewport: viewport, home: home)
+        }
+        content
+            .frame(width: viewport.width / crop.width, height: viewport.height / crop.height)
+            .offset(x: -crop.minX * viewport.width / crop.width, y: -crop.minY * viewport.height / crop.height)
+            .frame(width: viewport.width, height: viewport.height, alignment: .topLeading)
     }
 }
 
@@ -423,6 +491,7 @@ struct FeaturedShelf<Actions: View>: View {
     @FocusedValue(\.featuredBillboard) private var billboardHasFocus
     #endif
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.luminaArtworkMotionEnabled) private var motionEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     #if !os(tvOS)
@@ -433,7 +502,7 @@ struct FeaturedShelf<Actions: View>: View {
     private var selected: MediaItem? { items.first { $0.id == selectedIdentifier } ?? items.first }
     private var index: Int { items.firstIndex { $0.id == selected?.id } ?? 0 }
     private var canAdvance: Bool {
-        items.count > 1 && !reduceMotion && !voiceOver && scenePhase == .active
+        items.count > 1 && motionEnabled && !reduceMotion && !voiceOver && scenePhase == .active
             && !isInteracting && !containsFocus && !hovered && !dragging
     }
     private var containsFocus: Bool {
@@ -475,9 +544,9 @@ struct FeaturedShelf<Actions: View>: View {
                 }
                 #if !os(tvOS)
                 .id(selected.id)
-                .transition(reduceMotion ? .opacity : .asymmetric(
-                    insertion: .move(edge: movingForward ? .trailing : .leading).combined(with: .opacity),
-                    removal: .move(edge: movingForward ? .leading : .trailing).combined(with: .opacity)
+                .transition(reduceMotion ? .identity : .asymmetric(
+                    insertion: .move(edge: movingForward ? .trailing : .leading),
+                    removal: .move(edge: movingForward ? .leading : .trailing)
                 ))
                 #endif
             }
@@ -544,7 +613,7 @@ struct FeaturedShelf<Actions: View>: View {
 
     private var controls: some View {
         HStack(spacing: 2) {
-            if !compact { stepButton("Previous featured title", symbol: "chevron.backward", direction: -1) }
+            if !compact { stepButton("Previous featured title", glyph: .back, direction: -1) }
             #if os(tvOS)
             // Home supplies at most eight titles. Keeping their controls in one
             // row lets the remote leave the last title for Next.
@@ -559,7 +628,7 @@ struct FeaturedShelf<Actions: View>: View {
             .frame(width: CGFloat(min(items.count, compact ? 5 : 6)) * (controlSize + 2))
             .fixedSize(horizontal: false, vertical: true)
             #endif
-            if !compact { stepButton("Next featured title", symbol: "chevron.forward", direction: 1) }
+            if !compact { stepButton("Next featured title", glyph: .forward, direction: 1) }
 
         }
         .foregroundStyle(.white)
@@ -612,11 +681,10 @@ struct FeaturedShelf<Actions: View>: View {
     private func focusRing(_ id: String) -> some View {
         RoundedRectangle(cornerRadius: 8).stroke(focusedID == id ? .white : .clear, lineWidth: 2)
     }
-    private func stepButton(_ label: String, symbol: String, direction: Int) -> some View {
+    private func stepButton(_ label: String, glyph: LuminaGlyph, direction: Int) -> some View {
         let id = direction < 0 ? "previous" : "next"
         return Button { step(direction) } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 16, weight: .semibold))
+            LuminaIcon(glyph: glyph, size: 16)
                 .frame(width: controlSize, height: controlSize)
                 .background(focusFill(id), in: .rect(cornerRadius: 8))
                 .overlay(focusRing(id))
@@ -698,7 +766,7 @@ struct MusicCollectionSpotlight: View {
                     .foregroundStyle(.white.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Label("Open album", systemImage: "arrow.right")
+            Label("Open album", glyph: .forward)
                 .font(.callout.weight(.semibold))
                 .padding(.top, 8)
         }
@@ -714,7 +782,7 @@ struct MusicCollectionSpotlight: View {
                     image.resizable().scaledToFill()
                 } placeholder: {
                     LuminaTheme.theater.overlay {
-                        Image(systemName: "music.note").font(.largeTitle).foregroundStyle(.white.opacity(0.5))
+                        LuminaIcon(glyph: .music, variant: .solid, size: 40).foregroundStyle(.white.opacity(0.5))
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
@@ -855,6 +923,7 @@ struct LuminaCarouselEdges: ViewModifier {
 /// Keeps short category menus centered and long menus reachable by scrolling.
 struct LuminaCategoryBar<Content: View>: View {
     var selection: String? = nil
+    var centersContent = true
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -870,7 +939,8 @@ struct LuminaCategoryBar<Content: View>: View {
                 #endif
             }
             #if os(iOS)
-            .defaultScrollAnchor(.center, for: .alignment)
+            .defaultScrollAnchor(.leading, for: .initialOffset)
+            .defaultScrollAnchor(centersContent ? .center : .leading, for: .alignment)
             .fixedSize(horizontal: false, vertical: true)
             #else
             .scrollClipDisabled()
@@ -920,11 +990,13 @@ enum HomeBrowsingDestination: String, CaseIterable, Hashable {
 /// commands so returning to Home preserves the member's current Home selection.
 struct HomeBrowsingRow: View {
     let category: HomeBrowseCategory
+    var centersContent = true
     var destinations = HomeBrowsingDestination.allCases.filter { $0 != .all }
     let onSelect: (HomeBrowsingDestination) -> Void
 
     var body: some View {
-        LuminaCategoryBar(selection: destinations.first { $0.homeCategory == category }?.rawValue) {
+        LuminaCategoryBar(selection: destinations.first { $0.homeCategory == category }?.rawValue,
+                          centersContent: centersContent) {
             ForEach(destinations, id: \.self) { option in
                 let selected = option.homeCategory == category
                 Button { onSelect(option) } label: { Text(option.title) }

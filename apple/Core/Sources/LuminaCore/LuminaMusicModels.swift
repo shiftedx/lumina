@@ -45,6 +45,30 @@ public struct MusicTrack: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+extension MusicTrack {
+    /// Local playback metadata for an audio file retained in the member's downloads.
+    public init(downloadedItem item: MediaItem) {
+        id = item.id
+        title = item.name
+        artist = item.artists?.joined(separator: ", ") ?? item.albumArtist ?? ""
+        albumArtist = item.albumArtist ?? artist
+        album = item.album ?? ""
+        albumID = item.albumID
+        artistID = nil
+        number = item.indexNumber
+        disc = item.parentIndexNumber
+        duration = item.durationSeconds
+        artworkURL = nil
+        audioURL = ""
+        codec = item.container
+        sampleRate = nil; bitDepth = nil; channels = nil
+        gainDB = nil; peak = nil; albumGainDB = nil; albumPeak = nil
+        gainIsManual = false
+        genres = item.genres ?? []
+    }
+
+}
+
 public struct MusicPlaylistRules: Codable, Hashable, Sendable {
     public var genres: [String] = []
     public var artistID: String?

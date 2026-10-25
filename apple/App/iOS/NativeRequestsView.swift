@@ -75,7 +75,7 @@ struct NativeRequestsView: View {
                     ProgressView("Finding your next watch…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if items.isEmpty && !browsingResults {
                     ContentUnavailableView {
-                        Label(search.isEmpty ? "Discover something new" : "No matching titles", systemImage: "sparkles.tv")
+                        Label(search.isEmpty ? "Discover something new" : "No matching titles", glyph: .discover)
                     } description: {
                         Text(searchError ?? catalog.error?.localizedDescription ?? "Titles will appear here when your household’s Requests catalog is available.")
                     } actions: {
@@ -95,7 +95,11 @@ struct NativeRequestsView: View {
                                 if loadingResults && resultPage == 0 { ProgressView("Searching the catalog…").padding(24) }
                                 if items.isEmpty && !loadingResults {
                                     if query.isEmpty {
-                                        ContentUnavailableView("No titles in this collection", systemImage: "film", description: Text("Try another genre or collection in Requests options."))
+                                        ContentUnavailableView {
+                                            Label("No titles in this collection", glyph: .movies)
+                                        } description: {
+                                            Text("Try another genre or collection in Requests options.")
+                                        }
                                     } else { ContentUnavailableView.search(text: query) }
                                 }
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: compact ? 130 : 180), spacing: 14)], alignment: .leading, spacing: 20) {
@@ -149,7 +153,7 @@ struct NativeRequestsView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("Search requests", systemImage: "magnifyingglass") {
+                Button("Search requests", glyph: .search) {
                     searchVisible.toggle()
                 }.labelStyle(.titleAndIcon).accessibilityIdentifier("requestsSearchButton")
             }
@@ -175,14 +179,14 @@ struct NativeRequestsView: View {
                         }
                     }
                     if kind != nil || genre != nil {
-                        Button("Clear filters", systemImage: "line.3.horizontal.decrease.circle") {
+                        Button("Clear filters", glyph: .filter) {
                             kind = nil; genre = nil; section = "trending"
                         }
                     }
                     Divider()
-                    Button("My requests", systemImage: "clock.arrow.circlepath") { myRequestsPresented = true }
+                    Button("My requests", glyph: .history) { myRequestsPresented = true }
                         .accessibilityIdentifier("requestsMyListButton")
-                } label: { Label("Requests options", systemImage: "ellipsis.circle") }
+                } label: { Label("Requests options", glyph: .moreHorizontal) }
                 .accessibilityIdentifier("requestsOptionsMenu")
             }
         }
@@ -265,13 +269,14 @@ struct NativeRequestsView: View {
                 }
                 HStack(spacing: 16) {
                     Button { searchVisible = false; selected = item } label: {
-                        Label((item.canRequest && item.status.canCreateRequest) ? "Request" : (item.status.label.isEmpty ? "Details" : item.status.label), systemImage: (item.canRequest && item.status.canCreateRequest) ? "plus" : "info.circle")
+                        Label((item.canRequest && item.status.canCreateRequest) ? "Request" : (item.status.label.isEmpty ? "Details" : item.status.label),
+                              glyph: (item.canRequest && item.status.canCreateRequest) ? .add : .info)
                             .font(.headline).padding(.horizontal, 20).padding(.vertical, 14)
                             .foregroundStyle(.black).background(.white, in: .capsule)
                     }.buttonStyle(.plain).accessibilityIdentifier("requestPrimary-\(item.id)")
                     if let featuredTrailer {
                         Button { openURL(featuredTrailer) } label: {
-                            Label("Trailer", systemImage: "arrow.up.right").font(.headline).padding(.vertical, 14)
+                            Label("Trailer", glyph: .externalLink).font(.headline).padding(.vertical, 14)
                         }.buttonStyle(.plain).accessibilityLabel("Watch trailer on YouTube")
                     }
                 }
@@ -378,7 +383,9 @@ private struct RequestDetailSheet: View {
                             HStack(spacing: 12) {
                                 if let year = current.year { Text(String(year)) }
                                 if let runtime = detail?.runtime { Text("\(runtime) min") }
-                                if let rating = current.rating { Label(rating.formatted(.number.precision(.fractionLength(1))), systemImage: "star.fill") }
+                                if let rating = current.rating {
+                                    Label(rating.formatted(.number.precision(.fractionLength(1))), glyph: .ratingStar, variant: .solid)
+                                }
                             }.font(.subheadline).foregroundStyle(.secondary)
                             if let tagline = detail?.tagline, !tagline.isEmpty { Text(tagline).font(.headline) }
                             if let overview = current.overview { Text(overview).font(.body) }
@@ -387,14 +394,14 @@ private struct RequestDetailSheet: View {
                             }
                             if let trailerURL = detail?.trailers.compactMap(\.youtubeURL).first {
                                 Button { openURL(trailerURL) } label: {
-                                    Label("Watch trailer on YouTube", systemImage: "arrow.up.right")
+                                    Label("Watch trailer on YouTube", glyph: .externalLink)
                                 }
                                 .buttonStyle(.plain).font(.headline)
                                 .accessibilityIdentifier("requestYouTubeTrailerButton")
                             }
                             if loading { ProgressView("Loading title details…") }
                             else if let created {
-                                Label(created.status.label, systemImage: "checkmark.circle.fill")
+                                Label(created.status.label, glyph: .check)
                                     .font(.title3.weight(.semibold)).foregroundStyle(LuminaTheme.accentInk)
                                     .accessibilityIdentifier("requestSubmittedStatus")
                                 Text(created.status == .pending ? "Your household’s administrator will review this request." : "Your request is saved. Follow its progress in My requests.")
@@ -402,7 +409,7 @@ private struct RequestDetailSheet: View {
                             } else if current.canRequest && current.status.canCreateRequest {
                                 requestChoices
                             } else {
-                                Label(current.status.state == .none ? "Not available to request yet" : current.status.label, systemImage: "info.circle")
+                                Label(current.status.state == .none ? "Not available to request yet" : current.status.label, glyph: .info)
                                     .foregroundStyle(.secondary)
                             }
                             if let problem {
@@ -445,7 +452,7 @@ private struct RequestDetailSheet: View {
                 .toolbarColorScheme(.dark, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Done", systemImage: "xmark") { dismiss() }
+                        Button("Done", glyph: .close) { dismiss() }
                             .labelStyle(.iconOnly).accessibilityIdentifier("requestDetailsCloseButton")
                     }
                 }
@@ -504,7 +511,7 @@ private struct RequestDetailSheet: View {
             } label: {
                 HStack {
                     if submitting { ProgressView() }
-                    Label("Request \(current.title)", systemImage: "plus")
+                    Label("Request \(current.title)", glyph: .add)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -577,7 +584,13 @@ private struct RequestHistorySheet: View {
                         }.listRowBackground(Color.clear)
                     }
                 } else if catalog.isLoading { ProgressView("Loading requests…") }
-                else { ContentUnavailableView("Your next watch starts here", systemImage: "sparkles.tv", description: Text("Titles you request will appear here with their progress.")) }
+                else {
+                    ContentUnavailableView {
+                        Label("Your next watch starts here", glyph: .discover)
+                    } description: {
+                        Text("Titles you request will appear here with their progress.")
+                    }
+                }
             }
             .scrollContentBackground(.hidden).background(.black)
             .navigationTitle("My requests").navigationBarTitleDisplayMode(.inline)
@@ -590,7 +603,7 @@ private struct RequestHistorySheet: View {
                                 Text(value.label).tag(Optional(value))
                             }
                         }
-                    } label: { Label("Filter requests", systemImage: "line.3.horizontal.decrease") }
+                    } label: { Label("Filter requests", glyph: .filter) }
                 }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }

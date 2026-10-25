@@ -45,6 +45,10 @@ final class LuminaClient: @unchecked Sendable {
         return try await json(request(origin: origin, path: "/Users/AuthenticateByName", method: "POST", deviceID: deviceID, body: body))
     }
 
+    func claimMobileConnect(origin: URL, token: String, name: String) async throws -> MobileConnectClaim {
+        try await json(request(origin: origin, path: "/api/mobile-connect/claim", method: "POST", body: ["token": token, "name": name]))
+    }
+
     func me(origin: URL, token: String, deviceID: String) async throws -> UserInfo {
         try await json(request(origin: origin, path: "/Users/Me", token: token, deviceID: deviceID))
     }
@@ -65,6 +69,27 @@ final class LuminaClient: @unchecked Sendable {
         return try await json(request(origin: origin, path: "/Lumina/Library/alphabet", query: query, token: token, deviceID: deviceID))
     }
 
+    func supportsTechnicalVideoFilters(origin: URL, token: String, deviceID: String) async throws -> Bool {
+        let capability: TechnicalVideoFiltersCapability = try await json(request(
+            origin: origin, path: "/Items/Filters2",
+            query: [
+                URLQueryItem(name: "IncludeItemTypes", value: "Movie"),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "Fields", value: "LuminaTechnicalFilters"),
+            ],
+            token: token, deviceID: deviceID
+        ))
+        return capability.luminaTechnicalFilters == true
+    }
+
+    private struct TechnicalVideoFiltersCapability: Decodable {
+        let luminaTechnicalFilters: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case luminaTechnicalFilters = "LuminaTechnicalFilters"
+        }
+    }
+
     private func libraryQuery(search: String, start: Int, types: String, sort: VideoSort, parentID: String?, sourceProvider: String?, luminaCategory: String?, filters: VideoFilters) -> [URLQueryItem] {
         var query = [
             URLQueryItem(name: "IncludeItemTypes", value: types),
@@ -80,6 +105,10 @@ final class LuminaClient: @unchecked Sendable {
         if let year = filters.year { query.append(URLQueryItem(name: "Years", value: String(year))) }
         if filters.unwatchedOnly { query.append(URLQueryItem(name: "IsPlayed", value: "false")) }
         if filters.favoritesOnly { query.append(URLQueryItem(name: "IsFavorite", value: "true")) }
+        if let resolution = filters.resolution { query.append(URLQueryItem(name: "LuminaResolution", value: resolution.rawValue)) }
+        if let hdr = filters.hdr { query.append(URLQueryItem(name: "LuminaHDR", value: hdr.rawValue)) }
+        if let audio = filters.audio { query.append(URLQueryItem(name: "LuminaAudio", value: audio.rawValue)) }
+        if filters.imaxOnly { query.append(URLQueryItem(name: "LuminaIMAX", value: "true")) }
         if let parentID { query.append(URLQueryItem(name: "ParentId", value: parentID)) }
         if let sourceProvider { query.append(URLQueryItem(name: "SourceProvider", value: sourceProvider)) }
         if let luminaCategory { query.append(URLQueryItem(name: "LuminaCategory", value: luminaCategory)) }
@@ -503,7 +532,7 @@ private let platformName: String = {
     #endif
 }()
 
-private func sameOrigin(_ left: URL, _ right: URL) -> Bool {
+func sameOrigin(_ left: URL, _ right: URL) -> Bool {
     let a = URLComponents(url: left, resolvingAgainstBaseURL: false)
     let b = URLComponents(url: right, resolvingAgainstBaseURL: false)
     return a?.scheme?.lowercased() == b?.scheme?.lowercased()

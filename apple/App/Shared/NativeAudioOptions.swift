@@ -56,8 +56,8 @@ struct NativeAudioOptions: View {
                         Button("1 hour") { session.setSleep(minutes: 60) }
                     } label: {
                         if let until = session.sleepUntil {
-                            Label("Sleep timer: \(until, style: .relative)", systemImage: "moon.zzz")
-                        } else { Label("Sleep timer: Off", systemImage: "moon.zzz") }
+                            Label("Sleep timer: \(until, style: .relative)", glyph: .sleepTimer)
+                        } else { Label("Sleep timer: Off", glyph: .sleepTimer) }
                     }
                     .disabled(session.isSonos)
                     .accessibilityIdentifier("audioSleepTimerButton")
@@ -103,7 +103,7 @@ struct NativeAudioOptions: View {
                     }
                 }
             }
-            Button("Refresh shared queue", systemImage: "arrow.clockwise") { Task { await session.refreshSharedQueue() } }
+            Button("Refresh shared queue", glyph: .sync) { Task { await session.refreshSharedQueue() } }
                 .font(.callout)
                 .padding(.vertical, 14)
                 .accessibilityIdentifier("audioRefreshSharedQueueButton")
@@ -250,7 +250,7 @@ private struct NativeAudioDisclosure<Content: View>: View {
                 HStack {
                     Text(title).font(.body.weight(.medium))
                     Spacer()
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption)
+                    LuminaIcon(glyph: expanded ? .chevronUp : .chevronDown, size: 16)
                 }
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(.rect)

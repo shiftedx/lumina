@@ -67,6 +67,9 @@ import type {
   WatchQueue,
   WatchQueueRef,
   AppPasswordCreated,
+  MobileConnectCode,
+  MobileConnectCodeStatus,
+  MobileConnectStatus,
   ConnectedApp,
   ConnectedAppCreateRequest,
   ConnectedAppCreated,
@@ -953,6 +956,11 @@ export const createAgentToken = (payload: ConnectedAppCreateRequest): Promise<Co
 export const revokeConnectedApp = (id: string): Promise<void> => del(`/api/connected-apps/${enc(id)}`);
 export const createAppPassword = (name: string): Promise<AppPasswordCreated> => post('/api/connected-apps/app-passwords', { name });
 export const signOutAllApps = (): Promise<{ revoked: number }> => post('/api/connected-apps/sign-out-all');
+export const getMobileConnect = (): Promise<MobileConnectStatus> => requestJson('/api/mobile-connect');
+export const createMobileConnect = (payload: { server_url: string; user_id?: string; share?: boolean; email?: string; replace_id?: string }): Promise<MobileConnectCode> => post('/api/mobile-connect', payload);
+export const getMobileConnectCode = (id: string): Promise<MobileConnectCodeStatus> => requestJson(`/api/mobile-connect/${enc(id)}`);
+export const revokeMobileConnect = (id: string): Promise<void> => del(`/api/mobile-connect/${enc(id)}`);
+export const enableMobileConnect = (): Promise<MobileConnectStatus> => post('/api/mobile-connect/enable');
 export const getTwoFactor = (): Promise<TwoFactorStatus> => requestJson('/api/me/two-factor');
 export const setupTwoFactor = (password: string): Promise<TwoFactorSetup> => post('/api/me/two-factor/setup', { password });
 export const enableTwoFactor = (code: string): Promise<{ recovery_codes: string[] }> => post('/api/me/two-factor/enable', { code });

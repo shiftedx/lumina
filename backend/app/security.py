@@ -186,7 +186,7 @@ def authenticate_user(db: Session, username: str, password: str, *, app_password
     """The member a username and password name. ``app_passwords`` (HTTP Basic, Jellyfin apps only, never the web form) also
     accepts an app password, and refuses the account password of a two-step account with AppPasswordRequired."""
     user = db.query(User).filter(User.username == username.strip().lower()).first()
-    if user is None or not user.is_active or not has_local_password(user.password_hash):
+    if user is None or not user.is_active:
         verify_password(password, _DUMMY_PASSWORD_HASH)
         return None
     if app_passwords and (record := _app_password(db, user, password)) is not None:
@@ -201,6 +201,9 @@ def authenticate_user(db: Session, username: str, password: str, *, app_password
             except OperationalError:
                 pass
         return user
+    if not has_local_password(user.password_hash):
+        verify_password(password, _DUMMY_PASSWORD_HASH)
+        return None
     if not verify_password(password, user.password_hash):
         return None
     if _stale_hash(user.password_hash):

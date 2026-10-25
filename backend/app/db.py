@@ -282,6 +282,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "SELECT 1, coalesce(sum(bytes), 0), 0, CURRENT_TIMESTAMP FROM photo_preview_assets WHERE state = 'ready'",
     ),
     37: PHOTO_FACE_INDEX_MIGRATION,  # Durable vector keys/change journal for scalable local matching.
+    38: (),  # Mobile pairing handoffs are a new table; rollback drops mobile_pairings.
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

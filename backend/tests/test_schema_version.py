@@ -58,6 +58,7 @@ def _columns(engine) -> dict[str, list[str]]:  # noqa: ANN001
 NEW_TABLES = {
     36: ("photo_preview_assets", "photo_preview_storage"),
     37: ("photo_face_index_snapshots", "photo_face_index_changes", "photo_face_index_vectors"),
+    38: ("mobile_pairings",),
     28: ("media_cast_tickets",),
     27: ("listening_export_connections", "listening_play_events"),
     26: ("service_connectors", "music_acquisitions"),
@@ -550,4 +551,4 @@ def test_face_index_readme_rollback_preserves_corrections_and_rebuilds_keys(tmp_
     upgraded = _init(tmp_path, monkeypatch)
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM photo_face_index_vectors WHERE face_id='retained-face' AND active=1")) == 1
-        assert connection.scalar(text("PRAGMA user_version")) == 37
+        assert connection.scalar(text("PRAGMA user_version")) == db_module.SCHEMA_VERSION

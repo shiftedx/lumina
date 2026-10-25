@@ -237,6 +237,9 @@ final class NativeHomeEmptyWatchlistLayoutTests: NativeProofJourney {
 #if os(iOS)
 @MainActor
 final class NativeHomeBrowseFiltersSearchAndHeroWatchlistTests: NativeProofJourney {
+    func testStandardPhoneUsesBottomNavigationAndCompactBrowseMenu() async throws {
+        try await journeyStandardPhoneNavigation()
+    }
     func testClosedDisplayFitsThreeCategoriesBesideWordmark() async throws {
         try await journeyClosedDisplayCategoryWidth()
     }
@@ -2794,6 +2797,30 @@ class NativeProofJourney: XCTestCase {
             let current = self.element(identifier)
             return current.exists && self.accessibilityText(current).localizedCaseInsensitiveContains(expected)
         }, "\(identifier) did not retain \(expected).")
+    }
+
+    func journeyStandardPhoneNavigation() async throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        guard application!.windows.firstMatch.frame.width < 450 else {
+            throw XCTSkip("This workflow targets a standard portrait iPhone.")
+        }
+        try waitForHittable(element("homeSearchButton"), timeout: 20, named: "Home Search")
+        XCTAssertFalse(element("homeBrowsingRow").exists)
+        XCTAssertFalse(element("homeBrowse-movies").exists)
+        let menu = element("compactBrowseMenu")
+        try waitForHittable(menu, timeout: 15, named: "Compact Browse menu")
+        XCTAssertGreaterThanOrEqual(menu.frame.minX, element("homeMasthead").frame.maxX + 8)
+        try attachFrame(named: "Standard iPhone Home with bottom navigation")
+        try activate(menu)
+        try activate(element("compactCategory-music"))
+        try waitForExistence(element("audioScreen"), timeout: 20, named: "Music from Browse")
+        XCTAssertFalse(element("libraryCategories").exists)
+        try selectDestination("Account", screen: "accountScreen")
+        try selectDestination("Home", screen: "homeScreen")
+        try waitForHittable(element("homeSearchButton"), timeout: 15, named: "Search after returning Home")
+        XCTAssertFalse(element("homeBrowsingRow").exists)
     }
 
     func journeyClosedDisplayCategoryWidth() async throws {

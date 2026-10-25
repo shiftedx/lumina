@@ -648,7 +648,12 @@ private struct LibraryShellView: View {
         // iPad uses one unified category row instead of its large top tab pill;
         // iPhone and Duo retain the system-managed tab placement.
         GeometryReader { geometry in
-            destinations(categoryBarWidth: min(560, max(100, geometry.size.width - 180)))
+            let displayWidth = geometry.size.width + geometry.safeAreaInsets.leading + geometry.safeAreaInsets.trailing
+            let displayHeight = geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
+            // Standard phones use their bottom tabs; Duo's larger display keeps its category header.
+            let showsCategoryHeader = usesIPadHeaderNavigation || min(displayWidth, displayHeight) >= 450
+            destinations(categoryBarWidth: min(560, max(100, geometry.size.width - 180)),
+                         showsCategoryHeader: showsCategoryHeader)
         }
         .task(id: MobileHomeSessionScope(store.session)) {
             let scope = MobileHomeSessionScope(store.session)
@@ -658,7 +663,7 @@ private struct LibraryShellView: View {
         }
     }
 
-    private func destinations(categoryBarWidth: CGFloat) -> some View {
+    private func destinations(categoryBarWidth: CGFloat, showsCategoryHeader: Bool) -> some View {
         TabView(selection: Binding(get: { destination }, set: { selected in
             if selected == .home {
                 homeCategory = .all
@@ -667,11 +672,11 @@ private struct LibraryShellView: View {
             destination = selected
         })) {
             Tab("Home", image: LuminaGlyph.home.assetName(for: destination == .home ? .solid : .outline), value: .home) {
-                destinationStack(categoryBarWidth: categoryBarWidth) {
+                destinationStack(categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
                     if homeSessionScope == MobileHomeSessionScope(store.session) {
                         HomeLibraryView(store: store, homeLayout: homeLayout, feed: homeFeed,
                                         category: $homeCategory, categoryBarWidth: categoryBarWidth,
-                                        showsBrowsingRow: !usesIPadHeaderNavigation) { selected in
+                                        showsBrowsingRow: showsCategoryHeader && !usesIPadHeaderNavigation) { selected in
                             category = selected
                             destination = .library
                         }
@@ -682,11 +687,11 @@ private struct LibraryShellView: View {
                 .id(homeNavigationID)
             }
             Tab("Library", image: LuminaGlyph.library.assetName(for: destination == .library ? .solid : .outline), value: .library) {
-                destinationStack(categoryBarWidth: categoryBarWidth) {
+                destinationStack(categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
                     libraryContent
                         .toolbarBackground(.hidden, for: .navigationBar)
                         .toolbar {
-                            if !usesIPadHeaderNavigation {
+                            if showsCategoryHeader && !usesIPadHeaderNavigation {
                                 ToolbarItem(placement: .principal) {
                                     libraryCategories.frame(width: categoryBarWidth)
                                 }
@@ -705,7 +710,7 @@ private struct LibraryShellView: View {
                 }
             }
             Tab("Requests", image: LuminaGlyph.requests.assetName(for: destination == .requests ? .solid : .outline), value: .requests) {
-                destinationStack(categoryBarWidth: categoryBarWidth) {
+                destinationStack(categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
                     if let session = store.session {
                         NativeRequestsView(session: session, isActive: destination == .requests)
                             .id([session.serverURL.absoluteString, session.userID, session.accessToken])
@@ -713,7 +718,7 @@ private struct LibraryShellView: View {
                 }
             }
             Tab("Account", image: LuminaGlyph.userSettings.assetName(for: destination == .account ? .solid : .outline), value: .account) {
-                destinationStack(categoryBarWidth: categoryBarWidth) {
+                destinationStack(categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
                     NativeAccountSettingsView(store: store, onOpenRequests: usesIPadHeaderNavigation ? {
                         destination = .requests
                     } : nil)
@@ -820,7 +825,7 @@ private struct LibraryShellView: View {
             .id(id)
     }
 
-    private func destinationStack<Content: View>(categoryBarWidth: CGFloat,
+    private func destinationStack<Content: View>(categoryBarWidth: CGFloat, showsCategoryHeader: Bool,
                                                   @ViewBuilder content: () -> Content) -> some View {
         NavigationStack {
             content()
@@ -830,9 +835,38 @@ private struct LibraryShellView: View {
                             unifiedCategories.frame(width: categoryBarWidth)
                         }
                     }
+                    if !showsCategoryHeader, (destination == .home || destination == .library) {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Menu {
+                                ForEach(LibraryCategory.allCases.filter { store.availableLibraryCategories.contains($0.rawValue) }, id: \.self) { value in
+                                    Button(value.title) {
+                                        category = value
+                                        destination = .library
+                                    }
+                                    .accessibilityIdentifier("compactCategory-\(value.rawValue)")
+                                }
+                                Button("Watchlist") {
+                                    homeCategory = .watchlist
+                                    homeNavigationID = UUID()
+                                    destination = .home
+                                }
+                                .accessibilityIdentifier("compactCategory-watchlist")
+                                if destination == .home, !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
+                                    NavigationLink {
+                                        NativeOfflineLibraryView(store: store)
+                                    } label: { Label("Downloads", glyph: .download) }
+                                    .accessibilityIdentifier("homeDownloadsButton")
+                                }
+                            } label: {
+                                Label(destination == .library ? "Libraries" : "Browse",
+                                      glyph: destination == .library ? .library : .moreHorizontal)
+                            }
+                            .accessibilityIdentifier("compactBrowseMenu")
+                        }
+                    }
                     if destination == .home {
                         ToolbarItemGroup(placement: .topBarTrailing) {
-                            if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
+                            if showsCategoryHeader, !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
                                 NavigationLink {
                                     NativeOfflineLibraryView(store: store)
                                 } label: { Label("Downloads", glyph: .download) }

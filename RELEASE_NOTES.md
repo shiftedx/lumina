@@ -7,6 +7,8 @@
 - Run one-operation photo and native book parsers behind a Linux filesystem/libseccomp boundary; preserve codec threads, deadlines and cancellation cleanup.
 - Refresh bundled runtimes and locked dependencies, including maintained libarchive with RAR5 support and OpenCV model-output compatibility.
 - Keep receiver playback capabilities in memory and prevent database restore from reviving revoked receiver links or mobile pairing codes.
+- Revoke existing browser and connected-app credentials when a member's role changes; apply the household's required two-factor policy to native admin actions.
+- Bound remote artwork socket I/O across redirects and slow response bodies, releasing fetch capacity on timeout while preserving cached-artwork fallback.
 - Preserve the current OAuth, single-use mobile QR pairing, durable photo previews and face-indexing features.
 
 **Operator requirement:** photo processing and native PDF/CBR reads require seccomp and either Landlock ABI 3 or the optional Bubblewrap namespace configuration. The namespace option supports hosts without Landlock while retaining filesystem isolation. Both modes fail closed on missing support. Retain the running image with `scripts/preserve-rollback.sh` before replacing it; see the [operator guide](docker/README.md#retaining-a-rollback-image).

@@ -116,6 +116,8 @@ def _live_admin(db: Session, caller: JellyfinCaller, *, write: bool = False) -> 
         raise HTTPException(status_code=401, detail="Invalid or revoked token")
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
+    if two_factor.setup_required(db, user):
+        raise HTTPException(status_code=403, detail="two_factor_setup_required")
     if write and token.scope != "write":
         raise HTTPException(status_code=403, detail="This connected app has read-only access.")
     return user

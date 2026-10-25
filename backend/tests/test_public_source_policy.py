@@ -604,3 +604,72 @@ def test_streaming_readlines_cannot_bulk_accumulate_many_short_lines_past_the_ca
     with pytest.raises(OSError, match='safe byte limit'):
         response.readlines()
     assert body.closed
+
+
+def test_deadline_shutdown_survives_tcp_descriptor_replacement_and_joins_watchdog() -> None:
+    """HTTPS wraps/detaches the original socket; the owned duplicate must still wake reads."""
+    from concurrent.futures import ThreadPoolExecutor
+    from app.services.network_policy import AbsoluteRequestDeadline
+
+    original, peer = socket.socketpair()
+    deadline = AbsoluteRequestDeadline(0.05)
+    duplicate = deadline.watch(original)
+    replacement = socket.socket(fileno=original.detach())
+    try:
+        with ThreadPoolExecutor(max_workers=1) as workers:
+            future = workers.submit(replacement.recv, 1)
+            try:
+                assert future.result(timeout=1) == b""
+            finally:
+                if not future.done():
+                    peer.close()
+                    replacement.close()
+        with pytest.raises(TimeoutError, match="deadline expired"):
+            deadline.check()
+    finally:
+        deadline.close()
+        replacement.close()
+        peer.close()
+    assert duplicate.fileno() == -1
+    assert not deadline._timer.is_alive() and not deadline._sockets
+
+
+def test_connection_deadline_rechecks_remaining_budget_for_each_verified_address(monkeypatch) -> None:
+    from app.services import network_policy
+
+    now = [1000.0]
+    monkeypatch.setattr(network_policy, "monotonic", lambda: now[0])
+    deadline = network_policy.AbsoluteRequestDeadline(20)
+    policy = PublicSourcePolicy(resolver=resolver_for({"public.example": ["93.184.216.34", "93.184.216.35"]}))
+    calls = []
+
+    def connect(answer, timeout, source_address, *, request_deadline):  # noqa: ANN001
+        assert request_deadline is deadline and source_address is None
+        calls.append((answer, timeout))
+        now[0] += 11
+        raise OSError("synthetic connection failure")
+
+    try:
+        with pytest.raises(TimeoutError):
+            create_public_connection(policy, ("public.example", 443), 30,
+                                     _create_socket_func=connect, request_deadline=deadline)
+    finally:
+        deadline.close()
+    assert [timeout for _, timeout in calls] == [20, 9]
+    assert not deadline._timer.is_alive()
+
+
+def test_expired_header_processing_closes_the_unread_response_before_returning_error() -> None:
+    from app.services.network_policy import AbsoluteRequestDeadline
+
+    body = _TrackingBody(b"unread")
+    deadline = AbsoluteRequestDeadline(20)
+    policy = PublicSourcePolicy(resolver=resolver_for({"public.example": ["93.184.216.34"]}))
+    handler = SafeHTTPHandler(policy, response_limit=lambda: 32, request_deadline=deadline)
+    try:
+        deadline._expire()
+        with pytest.raises(TimeoutError):
+            handler.http_response(urllib.request.Request("https://public.example/art"), _urllib_response(body))
+    finally:
+        deadline.close()
+    assert body.closed and body.read_sizes == []

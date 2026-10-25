@@ -1,0 +1,67 @@
+{
+  "status": "partial_clean_ios_view_comparison",
+  "baseline_commit": "9e22118",
+  "optimized_commit": "9cf8b60",
+  "scope": "iOS app process, synthetic loopback fixture, Release simulator; one workflow capture per view. Navigation and catalogs have clean before/after captures; playback and cycles have clean baseline-only captures.",
+  "fixture": { "catalog_items": 120, "video_size": "1920x1080" },
+  "measurement_method": {
+    "cpu_units": "percent of one host core; Mach ticks calibrated with mach_timebase_info (125/3 nanoseconds per tick)",
+    "footprint_units": "MiB charged physical footprint at the end of the settled window",
+    "settled_window": "two-second settle followed by eight seconds of sampling; final cycle settles for 45 seconds",
+    "limitations": [
+      "Host load varies and each view has one capture.",
+      "Simulator captures omit physical-device thermal, GPU/decoder-service, HDR, and display-pacing behavior.",
+      "This partial comparison supports no app-wide CPU, memory, FPS, hitch, or zero-leak claim."
+    ]
+  },
+  "clean_environment": {
+    "no_app_control_seconds": 319.373,
+    "no_app_control_system_crashes": [],
+    "final_diagnostics_system_crashes_since_clean_boot": [],
+    "completed_clean_reports": 6,
+    "accepted_capture_contract": "Every accepted report had capture.valid=true, no PosterBoard or SpringBoard incidents, and Instruments exit code 0."
+  },
+  "excluded_campaign": "All original ios-baseline and ios-optimized per-view captures are excluded because they overlapped PosterBoard crashes.",
+  "cohorts": {
+    "navigation": { "before": "captured", "after": "captured" },
+    "catalogs": { "before": "captured", "after": "captured" },
+    "playback": { "before": "captured", "after": "not captured; owner ended profiling to prioritize dogfood fixes" },
+    "cycles": { "before": "captured", "after": "not captured; owner ended profiling to prioritize dogfood fixes" }
+  },
+  "windows": {
+    "navigation_before": [["login form",0,0.495,29.7],["home",0,4.077,53.0],["home feature detail",0,0.040,54.6],["library",0,0.031,66.6],["movie detail",0,0.036,70.4],["show detail",0,0.047,72.3],["show season",0,0.041,73.2]],
+    "navigation_after": [["login form",0,0.604,29.8],["home",0,4.972,52.1],["home feature detail",0,0.050,53.6],["library",0,0.038,65.6],["movie detail",0,0.030,72.2],["show detail",0,0.033,71.6],["show season",0,0.035,72.1]],
+    "catalogs_before": [["login form",0,0.600,29.8],["home",0,4.592,52.8],["requests",0,0.057,57.2],["requests detail",0,0.071,59.6],["requests history",0,0.041,62.6],["requests search",0,0.021,63.5],["account",0,0.024,66.5],["account home editor",0,0.018,68.8],["books catalog",0,0.038,83.2],["books reader",0,0.099,87.5],["books comic catalog",0,0.019,85.3],["books comic reader",0,0.022,85.8]],
+    "catalogs_after": [["login form",0,0.681,29.7],["home",0,4.940,52.3],["requests",0,0.091,56.5],["requests detail",0,0.059,59.0],["requests history",0,0.046,62.2],["requests search",0,0.022,62.8],["account",0,0.019,66.7],["account home editor",0,0.025,69.2],["books catalog",0,0.037,83.3],["books reader",0,0.100,87.5],["books comic catalog",0,0.020,85.2],["books comic reader",0,0.165,85.8]],
+    "playback_before": [["video playing",0,12.760,113.0],["video paused",0,0.556,113.0],["video settings video",0,0.458,117.8],["video settings audio",0,0.434,116.9],["video settings subtitles",0,0.430,117.1],["mkv client demux playing",0,12.084,142.7],["mkv client demux settings",0,0.481,162.5],["mkv client demux post close",0,0.443,78.3],["audio catalog",0,1.809,76.2],["audio album",0,0.475,77.2],["audio track detail",0,0.471,77.2],["audio playing",0,2.842,80.0],["audio queue",0,2.982,80.9],["audio playlists",0,0.475,80.4],["audio playlist detail",0,0.480,81.2],["audio downloads",0,0.471,80.7]],
+    "cycles_before": [["library cycle",1,0.522,77.9],["library cycle",2,0.540,77.9],["library cycle",3,0.548,77.7],["library cycle",4,0.470,77.7],["library cycle",5,0.441,77.7]]
+  },
+  "window_tuple": ["phase", "cycle", "cpu_one_core_percent", "settled_end_footprint_mib"],
+  "standalone_cancellation_stress": {
+    "status": "accepted only for this deterministic fresh-host-process fixture; not an app-wide view-performance claim",
+    "pairs": 3,
+    "median_before": { "network_requests_started": 31, "images_decoded": 31, "process_cpu_ms": 48.777, "survivor_completion_wall_ms": 167.020 },
+    "median_after": { "network_requests_started": 6, "images_decoded": 2, "process_cpu_ms": 9.545, "survivor_completion_wall_ms": 190.584 },
+    "preserved_contract": "Both retained images were 400x600 and the shared URL made one request."
+  },
+  "service_boundary_checks": {
+    "status": "accepted deterministic code-path checks; not simulator view-performance claims",
+    "metadata_history": "640 resolved tracks retains 512 lookup-history entries while the resolved queue remains 640",
+    "requests_ready_framing": "five reads make one ready-framing request",
+    "obsolete_library_query": "cancellation count changes from 0 to 1"
+  },
+  "validation": {
+    "focused_native_contracts": 85,
+    "sampler_checks": 9,
+    "optimized_artwork_check": true,
+    "ios_release_build": true,
+    "clean_ui_cohorts_completed": 6,
+    "full_repository_gate": "skipped by owner dogfood instruction",
+    "release_created": false
+  },
+  "remaining_measurement_limits": [
+    "Optimized playback and cycles were not captured because the owner ended profiling to prioritize dogfood fixes.",
+    "The clean five-cycle baseline is flat from 77.9 to 77.7 MiB; it does not demonstrate a leak fix.",
+    "Slow-server rapid-track-change playback-report backlog and foreground-independent Sonos polling remain separate measurement targets."
+  ]
+}

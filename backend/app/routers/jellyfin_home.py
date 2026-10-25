@@ -261,7 +261,7 @@ def _external_row(shelf_id: str, title: str, entries: list, caller: JellyfinCall
     return {"id": shelf_id, "shelf_id": shelf_id, "title": title, "shape": "still", "items": [], "external_items": items} if items else None
 
 
-def _attach_home_metadata(rows: list[dict], caller: JellyfinCaller, db: Session) -> None:
+def _attach_home_metadata(rows: list[dict], mapper: jf.JellyfinMapper, db: Session) -> None:
     """Add local category and title facts only to this native Home response.
 
     The ordinary Jellyfin DTO remains compatible. Home may contain direct
@@ -301,6 +301,7 @@ def _attach_home_metadata(rows: list[dict], caller: JellyfinCaller, db: Session)
         if title.category in {"movies", "shows", "anime"}:
             dto["LuminaCategory"] = title.category
         series = None
+        season = None
         if title.type == "episode":
             season = titles.get(title.parent_id or "")
             series = titles.get(season.parent_id or "") if season and season.type == "season" else None
@@ -308,6 +309,27 @@ def _attach_home_metadata(rows: list[dict], caller: JellyfinCaller, db: Session)
                 dto["SeriesId"] = jf.jid(series.id)
         elif title.type == "season":
             series = titles.get(title.parent_id or "")
+        if entity_id in library_titles and not dto.get("ExtraType") and title.type in {"movie", "episode"}:
+            dto["Name"] = title.name
+            if title.type == "movie":
+                dto["Type"] = "Movie"
+            elif season is not None and series is not None:
+                dto.update(Type="Episode", SeriesName=series.name, SeasonId=jf.jid(season.id),
+                           IndexNumber=title.index_number, ParentIndexNumber=season.index_number)
+            # The queue's id remains the exact saved version. Artwork URLs must
+            # point at the catalog title/series, never the version's missing thumbnail.
+            for kind, id_key, tag_key in (
+                ("Primary", "ParentPrimaryImageItemId", "ParentPrimaryImageTag"),
+                ("Backdrop", "ParentBackdropItemId", "ParentBackdropImageTags"),
+            ):
+                artwork_title = title if jf.title_tag(mapper.key, title, kind, mapper.scope) else series
+                if tag := jf.title_tag(mapper.key, artwork_title, kind, mapper.scope):
+                    dto[id_key] = jf.jid(artwork_title.id)
+                    dto[tag_key] = [tag] if kind == "Backdrop" else tag
+        logo_title = title if jf.title_tag(mapper.key, title, "Logo", mapper.scope) else series
+        if tag := jf.title_tag(mapper.key, logo_title, "Logo", mapper.scope):
+            dto["ParentLogoItemId"] = jf.jid(logo_title.id)
+            dto["ParentLogoImageTag"] = tag
         genres = [genre for genre in (title.metadata_json or {}).get("genres", []) if isinstance(genre, str) and genre]
         if not genres and series is not None:
             genres = [genre for genre in (series.metadata_json or {}).get("genres", []) if isinstance(genre, str) and genre]
@@ -388,5 +410,5 @@ def get_rows(request: Request, caller: Caller, db: Db, include_external: bool = 
             else:
                 built.append(remote)
         rows.extend(built)
-    _attach_home_metadata(rows, caller, db)
+    _attach_home_metadata(rows, mapper, db)
     return {"rows": rows}

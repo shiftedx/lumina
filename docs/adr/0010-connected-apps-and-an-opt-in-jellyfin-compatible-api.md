@@ -139,3 +139,16 @@ Plex reads use server-side watched and in-progress filters and deduplicate overl
 ### Native external-streaming settings opt-in
 
 External-provider controls in the native app require the persisted admin-owned `AppSettings.native_streaming_enabled` setting, default false. `/Lumina/Settings/capabilities` returns member-effective `streaming_enabled` and `youtube_session_enabled` booleans; unrestricted members and admins do not bypass the server opt-in. This setting changes Connected-app settings visibility, not the browser Streaming surface or local-media playback. Native YouTube-session operations reject disabled or YouTube-blocked callers before reading credential status or consuming a reauthentication proof. Native clients hide these controls for absent, failed, or malformed capability responses, including older servers.
+
+## Amendment (2026-10-24): native admin quick actions
+
+The opt-in Jellyfin-authenticated Settings surface exposes only these narrow household-admin quick actions:
+
+- `GET /Lumina/Settings/admin/library` returns the existing safe library-automation snapshot, and `POST /Lumina/Settings/admin/library/scan` accepts the existing optional `root_id` request and returns the existing scan result with `202`.
+- `GET /Lumina/Settings/admin/invites` returns the existing modern email-invite list. `POST /Lumina/Settings/admin/invites` accepts the existing `InviteCreate` contract, keeps the service's viewer-only invitation role, and returns the existing creation result with `201`. `DELETE /Lumina/Settings/admin/invites/{invite_id}` reuses the existing invitation revoke service and returns `204`.
+
+Every route reloads the member and Connected-app rows from the live database and requires an active `admin` role; the transient Jellyfin caller role snapshot is not authoritative. Library scans and invite mutations require a write-scoped Jellyfin Connected app and invite mutations additionally require a fresh, one-use, token-bound `X-Lumina-Reauth` proof. The existing Jellyfin opt-in and token revocation checks remain in force. These adapters do not accept native credentials on browser `/api` routes, mint agent tokens, proxy arbitrary browser endpoints, or add schema. All successful native admin responses use `Cache-Control: no-store`, including creation responses containing the one-time invitation URL.
+
+### Server-driven native navigation
+
+`GET /Lumina/Settings/navigation` returns ordered `categories` identifiers for the member's available Movies, TV, Anime, Music, and Books libraries. It uses the complete catalog and the existing title, track, and book visibility rules, excluding missing tracks and unavailable/deleted books. It returns identifiers only with `Cache-Control: no-store`; Home and Watchlist remain local destinations. Clients refresh this list with Home and clear it on session changes, rather than inferring capabilities from a paginated Home shelf or carrying categories between servers.

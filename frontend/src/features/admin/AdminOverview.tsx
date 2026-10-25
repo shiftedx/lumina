@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw } from '../../luminaIcons';
 
 import { getAdminOverview } from '../../api';
 import { formatBytes, formatDateTime as time, parseServerTime } from '../../utils';

@@ -1,6 +1,6 @@
 import { type ComponentProps, type KeyboardEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAccess, useCanDownload, watchGate } from '../access/access';
-import { ArrowDownToLine, Check, ChevronDown, ChevronLeft, Download, ExternalLink, LoaderCircle, Plus, RotateCcw, Share2 } from 'lucide-react';
+import { ArrowDownToLine, Check, ChevronDown, ChevronLeft, Download, ExternalLink, LoaderCircle, Plus, RotateCcw, Share2 } from '../../luminaIcons';
 import { clearRemotePlaybackProgress, getLibraryUpNext, getMediaSegments, getMuteRanges, getRecap, getRemotePlaybackProgress, getTitle, getUpNext, type Summary, updateRemotePlaybackProgress } from '../../api';
 import { type AlbumTrack, type DownloadJob, type LibraryItem, type LibraryNote, type LocalPlaybackOptions, type MediaSegment, type MuteRange, type PlaybackProgress, type PlaybackSessionRequest, type SubtitleTrack, type TitleSummary, type PreviewResponse, type RemotePlaybackProgress, type SourceAutomation, type WatchQueueEntry, type YouTubeSearchResult } from '../../types';
 import { EXTERNAL_LIBRARY, isAudioItem, jobProgress, libraryThumbnail, readNumber, readString, remoteItemIsSaved, youtubeVideoId } from '../../luminaModel';

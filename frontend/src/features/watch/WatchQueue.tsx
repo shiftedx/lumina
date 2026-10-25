@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { ChevronDown, ChevronUp, FolderHeart, ListVideo, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, FolderHeart, ListVideo, X } from '../../luminaIcons';
 import { addHouseholdCollectionItem, addHouseholdCollectionRemoteItem, addToWatchQueue, ApiRequestError, clearWatchQueue, createHouseholdCollection, getWatchQueue, moveWatchQueueEntry, removeWatchQueueEntry } from '../../api';
 import { type WatchQueue, type WatchQueueEntry, type WatchQueueRef, type YouTubeSearchResult } from '../../types';
 import { Artwork } from '../../Artwork';

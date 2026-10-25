@@ -1,0 +1,1532 @@
+{
+  "name": "Lumina Media Icons",
+  "version": "1.0.0",
+  "designCount": 104,
+  "solidCount": 40,
+  "viewBox": "0 0 24 24",
+  "strokeWidth": 1.75,
+  "categories": [
+    "Navigation",
+    "Playback",
+    "Viewing",
+    "Media",
+    "Collections",
+    "Transfers",
+    "Account",
+    "Photos"
+  ],
+  "icons": [
+    {
+      "id": "home",
+      "label": "Home",
+      "category": "Navigation",
+      "meaning": "Home",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/home.svg",
+          "native": "LuminaHome"
+        },
+        "solid": {
+          "svg": "svg/selected/home.svg",
+          "native": "LuminaHomeSelected"
+        }
+      }
+    },
+    {
+      "id": "library",
+      "label": "Library",
+      "category": "Navigation",
+      "meaning": "Library",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/library.svg",
+          "native": "LuminaLibrary"
+        },
+        "solid": {
+          "svg": "svg/selected/library.svg",
+          "native": "LuminaLibrarySelected"
+        }
+      }
+    },
+    {
+      "id": "requests",
+      "label": "Requests",
+      "category": "Navigation",
+      "meaning": "Requests",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/requests.svg",
+          "native": "LuminaRequests"
+        },
+        "solid": {
+          "svg": "svg/selected/requests.svg",
+          "native": "LuminaRequestsSelected"
+        }
+      }
+    },
+    {
+      "id": "user-settings",
+      "label": "User settings",
+      "category": "Navigation",
+      "meaning": "User settings",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/user-settings.svg",
+          "native": "LuminaUserSettings"
+        },
+        "solid": {
+          "svg": "svg/selected/user-settings.svg",
+          "native": "LuminaUserSettingsSelected"
+        }
+      }
+    },
+    {
+      "id": "search",
+      "label": "Search",
+      "category": "Navigation",
+      "meaning": "Search",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/search.svg",
+          "native": "LuminaSearch"
+        }
+      }
+    },
+    {
+      "id": "discover",
+      "label": "Discover",
+      "category": "Navigation",
+      "meaning": "Explore recommendations and discoveries",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/discover.svg",
+          "native": "LuminaDiscover"
+        }
+      }
+    },
+    {
+      "id": "back",
+      "label": "Back",
+      "category": "Navigation",
+      "meaning": "Go back in navigation history; not previous media or timed seeking",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/back.svg",
+          "native": "LuminaBack"
+        }
+      }
+    },
+    {
+      "id": "forward",
+      "label": "Forward",
+      "category": "Navigation",
+      "meaning": "Go forward in navigation history",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/forward.svg",
+          "native": "LuminaForward"
+        }
+      }
+    },
+    {
+      "id": "chevron-up",
+      "label": "Chevron up",
+      "category": "Navigation",
+      "meaning": "Chevron up",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/chevron-up.svg",
+          "native": "LuminaChevronUp"
+        }
+      }
+    },
+    {
+      "id": "chevron-down",
+      "label": "Chevron down",
+      "category": "Navigation",
+      "meaning": "Chevron down",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/chevron-down.svg",
+          "native": "LuminaChevronDown"
+        }
+      }
+    },
+    {
+      "id": "menu",
+      "label": "Menu",
+      "category": "Navigation",
+      "meaning": "Menu",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/menu.svg",
+          "native": "LuminaMenu"
+        }
+      }
+    },
+    {
+      "id": "close",
+      "label": "Close",
+      "category": "Navigation",
+      "meaning": "Close",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/close.svg",
+          "native": "LuminaClose"
+        }
+      }
+    },
+    {
+      "id": "play",
+      "label": "Play",
+      "category": "Playback",
+      "meaning": "Start or resume playback",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/play.svg",
+          "native": "LuminaPlay"
+        },
+        "solid": {
+          "svg": "svg/solid/play.svg",
+          "native": "LuminaPlaySolid"
+        }
+      }
+    },
+    {
+      "id": "pause",
+      "label": "Pause",
+      "category": "Playback",
+      "meaning": "Pause playback",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/pause.svg",
+          "native": "LuminaPause"
+        },
+        "solid": {
+          "svg": "svg/solid/pause.svg",
+          "native": "LuminaPauseSolid"
+        }
+      }
+    },
+    {
+      "id": "stop",
+      "label": "Stop",
+      "category": "Playback",
+      "meaning": "Stop playback",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/stop.svg",
+          "native": "LuminaStop"
+        },
+        "solid": {
+          "svg": "svg/solid/stop.svg",
+          "native": "LuminaStopSolid"
+        }
+      }
+    },
+    {
+      "id": "previous",
+      "label": "Previous",
+      "category": "Playback",
+      "meaning": "Previous media item, track, chapter or episode",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/previous.svg",
+          "native": "LuminaPrevious"
+        },
+        "solid": {
+          "svg": "svg/solid/previous.svg",
+          "native": "LuminaPreviousSolid"
+        }
+      }
+    },
+    {
+      "id": "next",
+      "label": "Next",
+      "category": "Playback",
+      "meaning": "Next media item, track, chapter or episode",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/next.svg",
+          "native": "LuminaNext"
+        },
+        "solid": {
+          "svg": "svg/solid/next.svg",
+          "native": "LuminaNextSolid"
+        }
+      }
+    },
+    {
+      "id": "rewind",
+      "label": "Rewind",
+      "category": "Playback",
+      "meaning": "Scan backward within the current media item",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/rewind.svg",
+          "native": "LuminaRewind"
+        },
+        "solid": {
+          "svg": "svg/solid/rewind.svg",
+          "native": "LuminaRewindSolid"
+        }
+      }
+    },
+    {
+      "id": "fast-forward",
+      "label": "Fast forward",
+      "category": "Playback",
+      "meaning": "Scan forward within the current media item",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/fast-forward.svg",
+          "native": "LuminaFastForward"
+        },
+        "solid": {
+          "svg": "svg/solid/fast-forward.svg",
+          "native": "LuminaFastForwardSolid"
+        }
+      }
+    },
+    {
+      "id": "seek-back-10",
+      "label": "Back 10 seconds",
+      "category": "Playback",
+      "meaning": "Jump backward ten seconds in the current media item",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/seek-back-10.svg",
+          "native": "LuminaSeekBack10"
+        }
+      }
+    },
+    {
+      "id": "seek-forward-10",
+      "label": "Forward 10 seconds",
+      "category": "Playback",
+      "meaning": "Jump forward ten seconds in the current media item",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/seek-forward-10.svg",
+          "native": "LuminaSeekForward10"
+        }
+      }
+    },
+    {
+      "id": "shuffle",
+      "label": "Shuffle",
+      "category": "Playback",
+      "meaning": "Toggle shuffled playback; active state belongs to the control",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/shuffle.svg",
+          "native": "LuminaShuffle"
+        }
+      }
+    },
+    {
+      "id": "repeat",
+      "label": "Repeat",
+      "category": "Playback",
+      "meaning": "Repeat the queue or collection; state belongs to the control",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/repeat.svg",
+          "native": "LuminaRepeat"
+        }
+      }
+    },
+    {
+      "id": "repeat-one",
+      "label": "Repeat one",
+      "category": "Playback",
+      "meaning": "Repeat the current media item",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/repeat-one.svg",
+          "native": "LuminaRepeatOne"
+        }
+      }
+    },
+    {
+      "id": "volume-high",
+      "label": "Volume high",
+      "category": "Playback",
+      "meaning": "Volume high",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/volume-high.svg",
+          "native": "LuminaVolumeHigh"
+        },
+        "solid": {
+          "svg": "svg/solid/volume-high.svg",
+          "native": "LuminaVolumeHighSolid"
+        }
+      }
+    },
+    {
+      "id": "volume-low",
+      "label": "Volume low",
+      "category": "Playback",
+      "meaning": "Volume low",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/volume-low.svg",
+          "native": "LuminaVolumeLow"
+        },
+        "solid": {
+          "svg": "svg/solid/volume-low.svg",
+          "native": "LuminaVolumeLowSolid"
+        }
+      }
+    },
+    {
+      "id": "volume-off",
+      "label": "Muted",
+      "category": "Playback",
+      "meaning": "Mute or muted audio; use the host to label the available action",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/volume-off.svg",
+          "native": "LuminaVolumeOff"
+        },
+        "solid": {
+          "svg": "svg/solid/volume-off.svg",
+          "native": "LuminaVolumeOffSolid"
+        }
+      }
+    },
+    {
+      "id": "subtitles",
+      "label": "Subtitles",
+      "category": "Playback",
+      "meaning": "Subtitle or caption options; solid is an artwork style, not a captions-enabled flag",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/subtitles.svg",
+          "native": "LuminaSubtitles"
+        },
+        "solid": {
+          "svg": "svg/solid/subtitles.svg",
+          "native": "LuminaSubtitlesSolid"
+        }
+      }
+    },
+    {
+      "id": "audio-tracks",
+      "label": "Audio tracks",
+      "category": "Playback",
+      "meaning": "Choose language, commentary or alternate audio track",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/audio-tracks.svg",
+          "native": "LuminaAudioTracks"
+        }
+      }
+    },
+    {
+      "id": "playback-speed",
+      "label": "Playback speed",
+      "category": "Playback",
+      "meaning": "Change playback rate",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/playback-speed.svg",
+          "native": "LuminaPlaybackSpeed"
+        }
+      }
+    },
+    {
+      "id": "queue",
+      "label": "Queue",
+      "category": "Playback",
+      "meaning": "Up next queue",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/queue.svg",
+          "native": "LuminaQueue"
+        }
+      }
+    },
+    {
+      "id": "sleep-timer",
+      "label": "Sleep timer",
+      "category": "Playback",
+      "meaning": "Stop playback after a chosen time",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/sleep-timer.svg",
+          "native": "LuminaSleepTimer"
+        },
+        "solid": {
+          "svg": "svg/solid/sleep-timer.svg",
+          "native": "LuminaSleepTimerSolid"
+        }
+      }
+    },
+    {
+      "id": "fullscreen",
+      "label": "Fullscreen",
+      "category": "Viewing",
+      "meaning": "Fullscreen",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/fullscreen.svg",
+          "native": "LuminaFullscreen"
+        }
+      }
+    },
+    {
+      "id": "fullscreen-exit",
+      "label": "Exit fullscreen",
+      "category": "Viewing",
+      "meaning": "Exit fullscreen",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/fullscreen-exit.svg",
+          "native": "LuminaFullscreenExit"
+        }
+      }
+    },
+    {
+      "id": "picture-in-picture",
+      "label": "Picture in picture",
+      "category": "Viewing",
+      "meaning": "Open a floating playback window",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/picture-in-picture.svg",
+          "native": "LuminaPictureInPicture"
+        },
+        "solid": {
+          "svg": "svg/solid/picture-in-picture.svg",
+          "native": "LuminaPictureInPictureSolid"
+        }
+      }
+    },
+    {
+      "id": "cast",
+      "label": "Cast",
+      "category": "Viewing",
+      "meaning": "Open the app's supported casting-device chooser",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/cast.svg",
+          "native": "LuminaCast"
+        }
+      }
+    },
+    {
+      "id": "airplay",
+      "label": "AirPlay",
+      "category": "Viewing",
+      "meaning": "AirPlay artwork; use the system route control where the platform requires it",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/airplay.svg",
+          "native": "LuminaAirplay"
+        }
+      }
+    },
+    {
+      "id": "television",
+      "label": "Television",
+      "category": "Viewing",
+      "meaning": "TV device or viewing destination",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/television.svg",
+          "native": "LuminaTelevision"
+        },
+        "solid": {
+          "svg": "svg/solid/television.svg",
+          "native": "LuminaTelevisionSolid"
+        }
+      }
+    },
+    {
+      "id": "phone",
+      "label": "Phone",
+      "category": "Viewing",
+      "meaning": "Phone",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/phone.svg",
+          "native": "LuminaPhone"
+        },
+        "solid": {
+          "svg": "svg/solid/phone.svg",
+          "native": "LuminaPhoneSolid"
+        }
+      }
+    },
+    {
+      "id": "headphones",
+      "label": "Headphones",
+      "category": "Viewing",
+      "meaning": "Headphones",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/headphones.svg",
+          "native": "LuminaHeadphones"
+        },
+        "solid": {
+          "svg": "svg/solid/headphones.svg",
+          "native": "LuminaHeadphonesSolid"
+        }
+      }
+    },
+    {
+      "id": "screen-fit",
+      "label": "Fit to screen",
+      "category": "Viewing",
+      "meaning": "Fit the complete picture inside the viewing frame",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/screen-fit.svg",
+          "native": "LuminaScreenFit"
+        }
+      }
+    },
+    {
+      "id": "screen-fill",
+      "label": "Fill screen",
+      "category": "Viewing",
+      "meaning": "Fill the viewing frame, possibly cropping the image",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/screen-fill.svg",
+          "native": "LuminaScreenFill"
+        }
+      }
+    },
+    {
+      "id": "movies",
+      "label": "Movies",
+      "category": "Media",
+      "meaning": "Films and movie library.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/movies.svg",
+          "native": "LuminaMovies"
+        },
+        "solid": {
+          "svg": "svg/solid/movies.svg",
+          "native": "LuminaMoviesSolid"
+        }
+      }
+    },
+    {
+      "id": "series",
+      "label": "Series",
+      "category": "Media",
+      "meaning": "Shows, seasons, and episodic series.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/series.svg",
+          "native": "LuminaSeries"
+        },
+        "solid": {
+          "svg": "svg/solid/series.svg",
+          "native": "LuminaSeriesSolid"
+        }
+      }
+    },
+    {
+      "id": "music",
+      "label": "Music",
+      "category": "Media",
+      "meaning": "Music library and audio tracks.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/music.svg",
+          "native": "LuminaMusic"
+        },
+        "solid": {
+          "svg": "svg/solid/music.svg",
+          "native": "LuminaMusicSolid"
+        }
+      }
+    },
+    {
+      "id": "album",
+      "label": "Album",
+      "category": "Media",
+      "meaning": "Music album or recorded release.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/album.svg",
+          "native": "LuminaAlbum"
+        },
+        "solid": {
+          "svg": "svg/solid/album.svg",
+          "native": "LuminaAlbumSolid"
+        }
+      }
+    },
+    {
+      "id": "artist",
+      "label": "Artist",
+      "category": "Media",
+      "meaning": "Artist or performer. Handheld microphone.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/artist.svg",
+          "native": "LuminaArtist"
+        },
+        "solid": {
+          "svg": "svg/solid/artist.svg",
+          "native": "LuminaArtistSolid"
+        }
+      }
+    },
+    {
+      "id": "playlist",
+      "label": "Playlist",
+      "category": "Media",
+      "meaning": "Ordered music or mixed media playlist.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/playlist.svg",
+          "native": "LuminaPlaylist"
+        },
+        "solid": {
+          "svg": "svg/solid/playlist.svg",
+          "native": "LuminaPlaylistSolid"
+        }
+      }
+    },
+    {
+      "id": "photos",
+      "label": "Photos",
+      "category": "Media",
+      "meaning": "Photo library or still image.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/photos.svg",
+          "native": "LuminaPhotos"
+        },
+        "solid": {
+          "svg": "svg/solid/photos.svg",
+          "native": "LuminaPhotosSolid"
+        }
+      }
+    },
+    {
+      "id": "live-photo",
+      "label": "Live Photo",
+      "category": "Media",
+      "meaning": "Photo containing a motion companion; not a generic loading indicator.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/live-photo.svg",
+          "native": "LuminaLivePhoto"
+        },
+        "solid": {
+          "svg": "svg/solid/live-photo.svg",
+          "native": "LuminaLivePhotoSolid"
+        }
+      }
+    },
+    {
+      "id": "video",
+      "label": "Video",
+      "category": "Media",
+      "meaning": "An individual video file or clip.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/video.svg",
+          "native": "LuminaVideo"
+        },
+        "solid": {
+          "svg": "svg/solid/video.svg",
+          "native": "LuminaVideoSolid"
+        }
+      }
+    },
+    {
+      "id": "podcasts",
+      "label": "Podcasts",
+      "category": "Media",
+      "meaning": "Podcast shows, episodes, or spoken audio series.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/podcasts.svg",
+          "native": "LuminaPodcasts"
+        },
+        "solid": {
+          "svg": "svg/solid/podcasts.svg",
+          "native": "LuminaPodcastsSolid"
+        }
+      }
+    },
+    {
+      "id": "favorite",
+      "label": "Favorite",
+      "category": "Collections",
+      "meaning": "Favorite or unfavorite a media item",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/favorite.svg",
+          "native": "LuminaFavorite"
+        },
+        "solid": {
+          "svg": "svg/solid/favorite.svg",
+          "native": "LuminaFavoriteSolid"
+        }
+      }
+    },
+    {
+      "id": "bookmark",
+      "label": "Bookmark",
+      "category": "Collections",
+      "meaning": "Save to a watchlist or bookmark",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/bookmark.svg",
+          "native": "LuminaBookmark"
+        },
+        "solid": {
+          "svg": "svg/solid/bookmark.svg",
+          "native": "LuminaBookmarkSolid"
+        }
+      }
+    },
+    {
+      "id": "rating-star",
+      "label": "Rating star",
+      "category": "Collections",
+      "meaning": "Rating or rated state; host provides the numerical value",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/rating-star.svg",
+          "native": "LuminaRatingStar"
+        },
+        "solid": {
+          "svg": "svg/solid/rating-star.svg",
+          "native": "LuminaRatingStarSolid"
+        }
+      }
+    },
+    {
+      "id": "add",
+      "label": "Add",
+      "category": "Collections",
+      "meaning": "Add",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/add.svg",
+          "native": "LuminaAdd"
+        }
+      }
+    },
+    {
+      "id": "remove",
+      "label": "Remove",
+      "category": "Collections",
+      "meaning": "Remove",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/remove.svg",
+          "native": "LuminaRemove"
+        }
+      }
+    },
+    {
+      "id": "check",
+      "label": "Check",
+      "category": "Collections",
+      "meaning": "Check",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/check.svg",
+          "native": "LuminaCheck"
+        }
+      }
+    },
+    {
+      "id": "more-horizontal",
+      "label": "More horizontal",
+      "category": "Collections",
+      "meaning": "Open additional contextual actions",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/more-horizontal.svg",
+          "native": "LuminaMoreHorizontal"
+        }
+      }
+    },
+    {
+      "id": "more-vertical",
+      "label": "More vertical",
+      "category": "Collections",
+      "meaning": "Open additional contextual actions",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/more-vertical.svg",
+          "native": "LuminaMoreVertical"
+        }
+      }
+    },
+    {
+      "id": "edit",
+      "label": "Edit",
+      "category": "Collections",
+      "meaning": "Edit",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/edit.svg",
+          "native": "LuminaEdit"
+        }
+      }
+    },
+    {
+      "id": "share",
+      "label": "Share",
+      "category": "Collections",
+      "meaning": "Share",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/share.svg",
+          "native": "LuminaShare"
+        }
+      }
+    },
+    {
+      "id": "link",
+      "label": "Link",
+      "category": "Collections",
+      "meaning": "Link",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/link.svg",
+          "native": "LuminaLink"
+        }
+      }
+    },
+    {
+      "id": "folder",
+      "label": "Folder",
+      "category": "Collections",
+      "meaning": "Folder",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/folder.svg",
+          "native": "LuminaFolder"
+        },
+        "solid": {
+          "svg": "svg/solid/folder.svg",
+          "native": "LuminaFolderSolid"
+        }
+      }
+    },
+    {
+      "id": "folder-add",
+      "label": "New folder",
+      "category": "Collections",
+      "meaning": "New folder",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/folder-add.svg",
+          "native": "LuminaFolderAdd"
+        },
+        "solid": {
+          "svg": "svg/solid/folder-add.svg",
+          "native": "LuminaFolderAddSolid"
+        }
+      }
+    },
+    {
+      "id": "filter",
+      "label": "Filter",
+      "category": "Collections",
+      "meaning": "Filter",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/filter.svg",
+          "native": "LuminaFilter"
+        }
+      }
+    },
+    {
+      "id": "sort",
+      "label": "Sort",
+      "category": "Collections",
+      "meaning": "Change sort field or sort direction",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/sort.svg",
+          "native": "LuminaSort"
+        }
+      }
+    },
+    {
+      "id": "history",
+      "label": "History",
+      "category": "Collections",
+      "meaning": "Recently played or viewing history",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/history.svg",
+          "native": "LuminaHistory"
+        }
+      }
+    },
+    {
+      "id": "download",
+      "label": "Download",
+      "category": "Transfers",
+      "meaning": "Save a local copy or download a media file.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/download.svg",
+          "native": "LuminaDownload"
+        }
+      }
+    },
+    {
+      "id": "download-done",
+      "label": "Download complete",
+      "category": "Transfers",
+      "meaning": "A verified completed download; not merely queued.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/download-done.svg",
+          "native": "LuminaDownloadDone"
+        }
+      }
+    },
+    {
+      "id": "upload",
+      "label": "Upload",
+      "category": "Transfers",
+      "meaning": "Send a file to the configured destination.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/upload.svg",
+          "native": "LuminaUpload"
+        }
+      }
+    },
+    {
+      "id": "sync",
+      "label": "Sync",
+      "category": "Transfers",
+      "meaning": "Synchronize or refresh; use host motion only while work is actually running.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/sync.svg",
+          "native": "LuminaSync"
+        }
+      }
+    },
+    {
+      "id": "cloud",
+      "label": "Cloud",
+      "category": "Transfers",
+      "meaning": "Remote cloud storage or a cloud destination.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/cloud.svg",
+          "native": "LuminaCloud"
+        }
+      }
+    },
+    {
+      "id": "cloud-off",
+      "label": "Cloud unavailable",
+      "category": "Transfers",
+      "meaning": "A cloud connection is disabled or unavailable; surface the actual state in a label.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/cloud-off.svg",
+          "native": "LuminaCloudOff"
+        }
+      }
+    },
+    {
+      "id": "server",
+      "label": "Server",
+      "category": "Transfers",
+      "meaning": "Configured Lumina media server or its connection settings.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/server.svg",
+          "native": "LuminaServer"
+        }
+      }
+    },
+    {
+      "id": "wifi",
+      "label": "Wi-Fi",
+      "category": "Transfers",
+      "meaning": "Wi-Fi connectivity or a Wi-Fi transfer preference.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/wifi.svg",
+          "native": "LuminaWifi"
+        }
+      }
+    },
+    {
+      "id": "wifi-off",
+      "label": "Wi-Fi unavailable",
+      "category": "Transfers",
+      "meaning": "Wi-Fi disabled or unavailable; does not necessarily mean the server is unreachable.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/wifi-off.svg",
+          "native": "LuminaWifiOff"
+        }
+      }
+    },
+    {
+      "id": "trash",
+      "label": "Trash",
+      "category": "Transfers",
+      "meaning": "Move to trash or view trashed items; host confirms destructive consequences where appropriate.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/trash.svg",
+          "native": "LuminaTrash"
+        }
+      }
+    },
+    {
+      "id": "restore",
+      "label": "Restore",
+      "category": "Transfers",
+      "meaning": "Recover a trashed item; do not use for generic refresh.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/restore.svg",
+          "native": "LuminaRestore"
+        }
+      }
+    },
+    {
+      "id": "backup",
+      "label": "Backup",
+      "category": "Transfers",
+      "meaning": "Back up originals to the configured destination; completion must be established by the application.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/backup.svg",
+          "native": "LuminaBackup"
+        }
+      }
+    },
+    {
+      "id": "profile",
+      "label": "Profile",
+      "category": "Account",
+      "meaning": "User profile or account identity.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/profile.svg",
+          "native": "LuminaProfile"
+        },
+        "solid": {
+          "svg": "svg/solid/profile.svg",
+          "native": "LuminaProfileSolid"
+        }
+      }
+    },
+    {
+      "id": "users",
+      "label": "Users",
+      "category": "Account",
+      "meaning": "Members, profiles, or multiple users.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/users.svg",
+          "native": "LuminaUsers"
+        }
+      }
+    },
+    {
+      "id": "settings",
+      "label": "Settings",
+      "category": "Account",
+      "meaning": "General application settings; profile-specific settings use user-settings.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/settings.svg",
+          "native": "LuminaSettings"
+        }
+      }
+    },
+    {
+      "id": "notifications",
+      "label": "Notifications",
+      "category": "Account",
+      "meaning": "Notifications or alerts; unread count belongs in the host badge.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/notifications.svg",
+          "native": "LuminaNotifications"
+        },
+        "solid": {
+          "svg": "svg/solid/notifications.svg",
+          "native": "LuminaNotificationsSolid"
+        }
+      }
+    },
+    {
+      "id": "notifications-off",
+      "label": "Notifications off",
+      "category": "Account",
+      "meaning": "Muted or disabled notifications; not a generic error state.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/notifications-off.svg",
+          "native": "LuminaNotificationsOff"
+        },
+        "solid": {
+          "svg": "svg/solid/notifications-off.svg",
+          "native": "LuminaNotificationsOffSolid"
+        }
+      }
+    },
+    {
+      "id": "lock",
+      "label": "Lock",
+      "category": "Account",
+      "meaning": "Locked, private, or authentication required, as described by the host.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/lock.svg",
+          "native": "LuminaLock"
+        }
+      }
+    },
+    {
+      "id": "unlock",
+      "label": "Unlock",
+      "category": "Account",
+      "meaning": "Unlocked state or an unlock action, as described by the host.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/unlock.svg",
+          "native": "LuminaUnlock"
+        }
+      }
+    },
+    {
+      "id": "info",
+      "label": "Information",
+      "category": "Account",
+      "meaning": "Information or media details.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/info.svg",
+          "native": "LuminaInfo"
+        }
+      }
+    },
+    {
+      "id": "help",
+      "label": "Help",
+      "category": "Account",
+      "meaning": "Help, guidance, or support.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/help.svg",
+          "native": "LuminaHelp"
+        }
+      }
+    },
+    {
+      "id": "warning",
+      "label": "Warning",
+      "category": "Account",
+      "meaning": "Warning or attention needed; text communicates the specific problem.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/warning.svg",
+          "native": "LuminaWarning"
+        }
+      }
+    },
+    {
+      "id": "calendar",
+      "label": "Calendar",
+      "category": "Account",
+      "meaning": "Calendar dates or scheduled activity.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/calendar.svg",
+          "native": "LuminaCalendar"
+        }
+      }
+    },
+    {
+      "id": "logout",
+      "label": "Log out",
+      "category": "Account",
+      "meaning": "End the current member session.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/logout.svg",
+          "native": "LuminaLogout"
+        }
+      }
+    },
+    {
+      "id": "scan-qr",
+      "label": "Scan QR code",
+      "category": "Account",
+      "meaning": "Scan a QR code, for example for pairing or server configuration; the artwork itself is not a functional QR code.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/scan-qr.svg",
+          "native": "LuminaScanQr"
+        }
+      }
+    },
+    {
+      "id": "grid",
+      "label": "Grid view",
+      "category": "Account",
+      "meaning": "Switch to a grid or tile view.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/grid.svg",
+          "native": "LuminaGrid"
+        }
+      }
+    },
+    {
+      "id": "list",
+      "label": "List view",
+      "category": "Account",
+      "meaning": "Switch to a list view.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/list.svg",
+          "native": "LuminaList"
+        }
+      }
+    },
+    {
+      "id": "external-link",
+      "label": "Open externally",
+      "category": "Account",
+      "meaning": "Open a destination outside the current app context.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/external-link.svg",
+          "native": "LuminaExternalLink"
+        }
+      }
+    },
+    {
+      "id": "camera",
+      "label": "Camera",
+      "category": "Photos",
+      "meaning": "Capture a new photo or open the camera.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/camera.svg",
+          "native": "LuminaCamera"
+        },
+        "solid": {
+          "svg": "svg/solid/camera.svg",
+          "native": "LuminaCameraSolid"
+        }
+      }
+    },
+    {
+      "id": "crop",
+      "label": "Crop",
+      "category": "Photos",
+      "meaning": "Crop a photo or video frame.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/crop.svg",
+          "native": "LuminaCrop"
+        }
+      }
+    },
+    {
+      "id": "rotate-left",
+      "label": "Rotate left",
+      "category": "Photos",
+      "meaning": "Rotate the current photo counterclockwise.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/rotate-left.svg",
+          "native": "LuminaRotateLeft"
+        }
+      }
+    },
+    {
+      "id": "rotate-right",
+      "label": "Rotate right",
+      "category": "Photos",
+      "meaning": "Rotate the current photo clockwise.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/rotate-right.svg",
+          "native": "LuminaRotateRight"
+        }
+      }
+    },
+    {
+      "id": "zoom-in",
+      "label": "Zoom in",
+      "category": "Photos",
+      "meaning": "Increase zoom of an image or viewer.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/zoom-in.svg",
+          "native": "LuminaZoomIn"
+        }
+      }
+    },
+    {
+      "id": "zoom-out",
+      "label": "Zoom out",
+      "category": "Photos",
+      "meaning": "Decrease zoom of an image or viewer.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/zoom-out.svg",
+          "native": "LuminaZoomOut"
+        }
+      }
+    },
+    {
+      "id": "slideshow",
+      "label": "Slideshow",
+      "category": "Photos",
+      "meaning": "Present photos as a slideshow.",
+      "hasSolid": false,
+      "variants": {
+        "outline": {
+          "svg": "svg/slideshow.svg",
+          "native": "LuminaSlideshow"
+        }
+      }
+    },
+    {
+      "id": "photo-stack",
+      "label": "Photo collection",
+      "category": "Photos",
+      "meaning": "A photo collection or photo album; distinct from music album.",
+      "hasSolid": true,
+      "variants": {
+        "outline": {
+          "svg": "svg/photo-stack.svg",
+          "native": "LuminaPhotoStack"
+        },
+        "solid": {
+          "svg": "svg/solid/photo-stack.svg",
+          "native": "LuminaPhotoStackSolid"
+        }
+      }
+    }
+  ]
+}

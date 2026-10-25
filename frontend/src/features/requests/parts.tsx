@@ -1,5 +1,5 @@
 /** The Requests tab's building blocks: artwork, the status ribbon, the card, a rail, the infinite grid and the calm problem states. */
-import { Check, ChevronLeft, ChevronRight, Clapperboard, Plus } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Clapperboard, Plus } from '../../luminaIcons';
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { prefersReducedMotion } from '../gallery/galleryModel';

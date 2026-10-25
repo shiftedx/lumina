@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
-import { AudioLines, ChevronDown, ChevronUp, LoaderCircle, LocateFixed, RotateCcw, Search } from 'lucide-react';
+import { AudioLines, ChevronDown, ChevronUp, LoaderCircle, LocateFixed, RotateCcw, Search } from '../../luminaIcons';
 import {
   ApiRequestError, type AsrJob, type EnrichmentCapabilities, getEnrichmentCapabilities, getLatestAsrJob, listTranscriptCues, listTranscripts,
   requestAsrTranscript, searchTranscript, type Transcript, type TranscriptCue,

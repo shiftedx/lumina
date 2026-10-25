@@ -5,7 +5,7 @@
  * its props kept.
  */
 import { useCanDownload } from '../access/access';
-import { CircleAlert, RotateCcw } from 'lucide-react';
+import { CircleAlert, RotateCcw } from '../../luminaIcons';
 import { type FormEvent, type KeyboardEvent, memo, type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { getLiveDiscovery } from '../../api';

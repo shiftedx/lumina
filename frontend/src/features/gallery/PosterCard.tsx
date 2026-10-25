@@ -2,7 +2,7 @@
  * A wall-style poster button: art, state marker and caption. The title page
  * uses it for More like this and In this collection.
  */
-import { Check } from 'lucide-react';
+import { Check } from '../../luminaIcons';
 import { type ButtonHTMLAttributes, type MouseEvent, useEffect, useRef } from 'react';
 
 import { resolveArtworkUrl } from '../../Artwork';

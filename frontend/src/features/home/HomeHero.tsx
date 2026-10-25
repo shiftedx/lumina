@@ -10,7 +10,7 @@
  * second, the first slide's playback decision is warmed once; 400 ms of hover or focus on the primary action may start
  * the conversion early.
  */
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from '../../luminaIcons';
 import { type CSSProperties, type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { resolveArtworkUrl } from '../../Artwork';

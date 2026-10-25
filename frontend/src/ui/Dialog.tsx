@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { X } from './icons';
 import { type ReactNode, type RefObject, useId, useLayoutEffect, useRef } from 'react';
 import { Button } from './Button';
 import { cx } from './cx';

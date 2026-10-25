@@ -1,4 +1,4 @@
-import { ExternalLink, RefreshCw } from 'lucide-react';
+import { ExternalLink, RefreshCw } from '../../luminaIcons';
 import { useEffect, useRef, useState } from 'react';
 
 import { getMusicEditions, identifyMusic } from '../../api';

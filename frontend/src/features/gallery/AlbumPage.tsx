@@ -4,7 +4,7 @@
  * summary cache, focus and Back.
  */
 import { type CSSProperties, type KeyboardEvent, type MouseEvent, type Ref, useState } from 'react';
-import { Check, ChevronLeft, Heart, Pencil, Play, Shuffle, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronLeft, Heart, Pencil, Play, Shuffle, SlidersHorizontal } from '../../luminaIcons';
 
 import { setFavorite } from '../../api';
 import type { AlbumTrack, TitleDetail, TitleSummary } from '../../types';

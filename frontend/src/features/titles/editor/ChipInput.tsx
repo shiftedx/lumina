@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { X } from '../../../luminaIcons';
 import { type KeyboardEvent, useState } from 'react';
 
 import { AutocompleteInput, IconButton } from '../../../ui';

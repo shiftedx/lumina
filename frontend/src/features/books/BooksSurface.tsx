@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bookmark, BookOpen, Check, Ellipsis, Heart, Library, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bookmark, BookOpen, Check, Ellipsis, Heart, Library, Plus, Search, SlidersHorizontal } from '../../luminaIcons';
 import { type ReactNode, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { UserProfile } from '../../types';
 import { BlockedSurface, useAccess, useCanDownload } from '../access/access';

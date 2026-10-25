@@ -3,7 +3,7 @@
  * crops to cover the tile; with neither, a bare colour field. The caption names the title, so the art never repeats it.
  * The walls' featured rows and the All landing's spotlight share it.
  */
-import { Check } from 'lucide-react';
+import { Check } from '../../luminaIcons';
 import { type CSSProperties, type MouseEvent, useState } from 'react';
 
 import type { TitleSummary } from '../../types';

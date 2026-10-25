@@ -1,4 +1,4 @@
-import { Check, CircleAlert, Minus, OctagonX } from 'lucide-react';
+import { Check, CircleAlert, Minus, OctagonX } from './icons';
 import { type ReactNode } from 'react';
 
 export type StatusTone = 'ok' | 'attention' | 'danger' | 'muted';

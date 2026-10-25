@@ -1,4 +1,4 @@
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw } from '../../luminaIcons';
 import { useEffect, useRef, useState } from 'react';
 
 import { getTitle, listTitles } from '../../api';

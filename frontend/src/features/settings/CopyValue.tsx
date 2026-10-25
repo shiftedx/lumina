@@ -1,4 +1,4 @@
-import { Copy } from 'lucide-react';
+import { Copy } from '../../luminaIcons';
 import { useState } from 'react';
 
 import { Button, Field, fieldProps, Input } from '../../ui';

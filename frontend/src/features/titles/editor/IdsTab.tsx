@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 import type { TitleType } from '../../../types';
-import { Trash2 } from 'lucide-react';
+import { Trash2 } from '../../../luminaIcons';
 import { Button, Field, IconButton, Input } from '../../../ui';
 import type { TabProps } from './editorModel';
 import './people.css';

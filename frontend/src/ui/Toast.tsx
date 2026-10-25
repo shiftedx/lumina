@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { X } from './icons';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { TextButton } from './Button';
 import { IconButton } from './IconButton';

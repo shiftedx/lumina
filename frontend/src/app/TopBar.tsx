@@ -1,5 +1,5 @@
 import { flushSync } from 'react-dom';
-import { Menu as MenuIcon, Plus, Search } from 'lucide-react';
+import { Menu as MenuIcon, Plus, Search } from '../luminaIcons';
 import { type CSSProperties, type RefObject } from 'react';
 import { providerBlocked, useAccess } from '../features/access/access';
 import { openMemberPicker, requestHomeEdit } from './commands';

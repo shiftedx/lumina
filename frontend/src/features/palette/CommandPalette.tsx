@@ -1,4 +1,4 @@
-import { Link2, Search, X } from 'lucide-react';
+import { Link2, Search, X } from '../../luminaIcons';
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { providerBlocked, useAccess } from '../access/access';
 import { getLibraryAutomation, scanLibraries, searchLibrary, youtubeSearch } from '../../api';

@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { AudioLines, Play, SkipForward } from 'lucide-react';
+import { AudioLines, Play, SkipForward } from '../../luminaIcons';
 
 import { captionStyle, DEFAULT_CAPTIONS } from '../watch/captionPrefs';
 import { useSettingsHost } from './settingsHost';

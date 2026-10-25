@@ -5,7 +5,7 @@
  * cache (stale-while-revalidate), and one card per kind of entry (Home builds no card of its own:
  * StillFrame, PosterCard, AlbumCard). Props and DOM are fixed.
  */
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X } from '../../luminaIcons';
 import { type FocusEvent, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { AppRoute } from '../../app/routes';

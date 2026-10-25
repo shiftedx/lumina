@@ -1,4 +1,4 @@
-import { Download, Heart, Info, Save, Trash2, X } from 'lucide-react';
+import { Download, Heart, Info, Save, Trash2, X } from '../../luminaIcons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Lightbox from 'yet-another-react-lightbox';
 import Captions from 'yet-another-react-lightbox/plugins/captions';

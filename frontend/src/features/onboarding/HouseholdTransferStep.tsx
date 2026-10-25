@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, CircleAlert, Server, Users } from 'lucide-react';
+import { ArrowLeft, Check, CircleAlert, Server, Users } from '../../luminaIcons';
 
 import { discoverHouseholdTransfer, getMediaServerSettings, listImports, listStorageRoots, updateMediaServerSettings } from '../../api';
 import type { ImportRun, StorageRootRecord } from '../../api';

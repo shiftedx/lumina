@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ClipboardCopy, RefreshCw } from 'lucide-react';
+import { ClipboardCopy, RefreshCw } from '../../luminaIcons';
 
 import { getAdminDiagnostics } from '../../api';
 import type { RecoDiagnostics, RecoSurface } from '../../types';

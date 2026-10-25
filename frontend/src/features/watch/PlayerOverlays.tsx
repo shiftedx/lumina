@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { SkipForward, X } from 'lucide-react';
+import { SkipForward, X } from '../../luminaIcons';
 
 import { Artwork } from '../../Artwork';
 import { Button, IconButton, TextButton } from '../../ui';

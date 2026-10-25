@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { LoaderCircle, MessagesSquare, RotateCcw, Search } from 'lucide-react';
+import { LoaderCircle, MessagesSquare, RotateCcw, Search } from './luminaIcons';
 
 import { getChatReplay, loadChatReplay } from './api';
 import {

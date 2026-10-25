@@ -5,7 +5,7 @@
  * "channels" is the Subscriptions screen LuminaApp builds. A provider the member turned off never appears: its results
  * are filtered out here and the switch does not offer it.
  */
-import { Search } from 'lucide-react';
+import { Search } from '../../luminaIcons';
 import { cloneElement, type ComponentProps, type FormEvent, isValidElement, type ReactElement, type ReactNode, useEffect, useMemo, useState } from 'react';
 
 import { SOURCE_LABELS } from '../../luminaModel';

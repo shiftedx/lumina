@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, LoaderCircle, RefreshCw, RotateCcw, X } from 'lucide-react';
+import { Check, LoaderCircle, RefreshCw, RotateCcw, X } from '../../luminaIcons';
 
 import { createAcquisitionBatch, listAcquisitionBatches, retryAcquisitionEntry } from '../../api';
 import type { AcquisitionBatch, AcquisitionBatchCreateRequest, FormatSelection, OutputProfile, PreviewEntry, PreviewResponse, YouTubeSearchResult } from '../../types';

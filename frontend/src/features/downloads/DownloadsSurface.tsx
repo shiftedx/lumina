@@ -1,5 +1,5 @@
 import { memo, type ReactNode, useEffect, useRef, useState } from 'react';
-import { Download, Library, Radio, RotateCcw, X } from 'lucide-react';
+import { Download, Library, Radio, RotateCcw, X } from '../../luminaIcons';
 import { listLiveRecordings } from '../../api';
 import { openPalette } from '../../app/commands';
 import { usePolledSnapshot } from '../../app/usePolledSnapshot';

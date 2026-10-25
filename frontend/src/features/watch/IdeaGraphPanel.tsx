@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { LoaderCircle, RotateCcw, Sparkles } from 'lucide-react';
+import { LoaderCircle, RotateCcw, Sparkles } from '../../luminaIcons';
 import { ApiRequestError, getIdeaGraph, getLatestIdeaGraph, type IdeaGraph, requestIdeaGraph, type Summary } from '../../api';
 import { cueTime } from './TranscriptPanel';
 import { usePollJob } from './usePollJob';

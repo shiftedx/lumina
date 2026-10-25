@@ -1,4 +1,4 @@
-import { ArrowLeft, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, List, Maximize, Minus, Plus, Settings2, X } from 'lucide-react';
+import { ArrowLeft, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, List, Maximize, Minus, Plus, Settings2, X } from '../../luminaIcons';
 import { createElement, type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 import { getSessionUserId } from '../../api';

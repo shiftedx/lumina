@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Download, RotateCcw } from 'lucide-react';
+import { Download, RotateCcw } from '../../luminaIcons';
 import { type AutoSkipPref, type MemberInterests, type ProfanityPref, type RemotePlaybackCachePreferences, type SearchHistoryEntry, type Suppression, type SuppressionList, type UserProfile } from '../../types';
 import { type AcquisitionFormat } from '../../mediaAcquisition';
 import { useStreamingProviders } from '../streaming/providers';

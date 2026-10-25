@@ -18,7 +18,7 @@ const KB = 1024;
 export const CSS_BUDGET = 75.5 * KB;
 export const CORE_BUDGET = 7 * KB; // tokens.css + ui.css (spec 1.8)
 // Branded select and editable suggestion controls replace browser-native popups: UI now measures 10.0 KB gzip.
-export const CHUNK_BUDGETS = { ui: 10.5 * KB, palette: 12 * KB, BooksSurface: 15 * KB };
+export const CHUNK_BUDGETS = { ui: 10.5 * KB, icons: 3 * KB, palette: 12 * KB, BooksSurface: 15 * KB };
 const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b/gi;
 const FUNC = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\((?!\s*var\()/gi; // `color-mix(` is not `color(`; the retired galleryColours lint's superset
 const NAMED = /\b(white|black|red|green|blue|gray|grey|silver|orange|yellow|purple|pink|maroon|navy|teal|olive|lime|aqua|fuchsia|gold)\b/i;

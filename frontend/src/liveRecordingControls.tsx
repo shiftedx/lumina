@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarClock, CircleStop, Clock, History, LoaderCircle, Radio, Video, X } from 'lucide-react';
+import { CalendarClock, CircleStop, Clock, History, LoaderCircle, Radio, Video, X } from './luminaIcons';
 
 import { cancelLiveRecording, createLiveRecording, getLiveRecording, keepLiveRecording, listLiveRecordings, stopLiveRecording } from './api';
 import {

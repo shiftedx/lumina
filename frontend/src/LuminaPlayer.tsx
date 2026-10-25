@@ -13,7 +13,7 @@ import {
 } from 'react';
 import { LiveBadge } from './features/gallery/LiveBadge';
 import { exitFullscreen, FullscreenHostContext, fullscreenElement, inPictureInPicture, onFullscreenChange, placeMedia, releaseMediaElement, requestFullscreenOn, takeMediaElement } from './fullscreenHost';
-import { Captions, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { Captions, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, Volume2, VolumeX } from './luminaIcons';
 import { type AudioGraph, audioGraphFor } from './features/watch/audioGraph';
 import type { MuteRange } from './types';
 import { captionStyle, DEFAULT_CAPTIONS, type CaptionPrefs } from './features/watch/captionPrefs';

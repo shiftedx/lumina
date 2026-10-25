@@ -57,7 +57,7 @@ import { resetPlaybackIntent } from './features/gallery/usePlaybackIntent';
 import { holdBackground } from './backgroundGate';
 import { markNavigation, notePlayIntent, takePlayIntent } from './perfMetrics';
 import { cancelSpeculativeStart, claimSpeculativeStart, forgetPlaybackWarmup, prefetchPlaybackOptions } from './playbackPrefetch';
-import { AuthScreen, readAccountLink } from './features/auth/AuthScreen';
+import { AuthScreen, OAUTH_ERROR_MESSAGE, readAccountLink, readOAuthCallback } from './features/auth/AuthScreen';
 import { resetDeviceRing, ringCall } from './features/auth/deviceRing';
 import { MemberPickerHost } from './features/auth/memberPicker';
 import { completeAdminMediaSetup } from './api';
@@ -230,8 +230,9 @@ type ExploreResults = { items: YouTubeSearchResult[]; errors: SearchSourceError[
 const NO_EXPLORE_RESULTS: ExploreResults = { items: [], errors: [], library: [], titles: [], limit: EXPLORE_PAGE };
 
 export default function LuminaApp() {
+  const [oauthCallback] = useState(readOAuthCallback);
   const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => oauthCallback?.kind === 'error' ? OAUTH_ERROR_MESSAGE : null);
   const workspace = useAuthenticatedWorkspace({ onError: setError });
   const { state } = workspace;
   const accessValue = useMyAccess(state.currentUser?.id, setMessage);
@@ -239,7 +240,9 @@ export default function LuminaApp() {
   const openSearchBlocked = providerBlocked(access, 'open_search');
   const [authBusy, setAuthBusy] = useState(false);
   const [accountLink, setAccountLink] = useState(readAccountLink);
-  useEffect(() => { if (readAccountLink()) window.history.replaceState(null, '', window.location.pathname + window.location.search); }, []);
+  useEffect(() => {
+    if (readAccountLink() || oauthCallback) window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, [oauthCallback]);
   const signedInRole = state.currentUser?.role;
   useEffect(() => {
     if (!signedInRole) return undefined;
@@ -334,7 +337,7 @@ export default function LuminaApp() {
   const appMainRef = useRef<HTMLElement>(null);
   const navigationTriggerRef = useRef<HTMLButtonElement>(null);
   const authFocusRequestedRef = useRef(false);
-  const [twoFactorChallenge, setTwoFactorChallenge] = useState<string | null>(null);
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<string | null>(() => oauthCallback?.kind === 'two-factor' ? oauthCallback.challenge : null);
   const subscriptionRetryFocusRequestedRef = useRef(false);
 
   const closeNavigation = useCallback(() => {
@@ -1517,7 +1520,7 @@ export default function LuminaApp() {
     </div>
   ), [moreName, moreSwitch, moreAddLink, moreSignOut, openSearchBlocked]);
   if (accountLink) return <>{collectionAnnouncer}<AuthScreen busy={authBusy} error={error} onCancel={() => { setAccountLink(null); setError(null); }} onLogin={handleLogin} onRetrySession={handleRetrySession} onSetup={handleAccountLink} onSwitched={() => void handleSwitched()} sessionProblem={null} stage={accountLink.kind} /></>;
-  if (state.authStage !== 'ready' || !state.currentUser) return <>{collectionAnnouncer}<AuthScreen busy={authBusy} error={error} onLogin={handleLogin} onRetrySession={handleRetrySession} onSetup={handleSetup} onSwitched={() => void handleSwitched()} sessionProblem={state.sessionProblem} stage={state.authStage === 'ready' ? 'loading' : state.authStage} twoFactor={twoFactor} /></>;
+  if (twoFactor || state.authStage !== 'ready' || !state.currentUser) return <>{collectionAnnouncer}<AuthScreen busy={authBusy} error={error} onLogin={handleLogin} onRetrySession={handleRetrySession} onSetup={handleSetup} onSwitched={() => void handleSwitched()} sessionProblem={state.sessionProblem} stage={twoFactor ? 'login' : state.authStage === 'ready' ? 'loading' : state.authStage} twoFactor={twoFactor} /></>;
 
   if (state.currentUser.role === 'admin' && state.currentUser.vault_setup_pending) return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><FirstOwnerSetup error={onboardingError} key={state.currentUser.id} onContinue={handleAdminMediaComplete} /></Suspense></>;
   if (onboarding?.phase === 'welcome') return <>{collectionAnnouncer}<Suspense fallback={surfaceLoading}><WelcomeSurface displayName={state.currentUser.display_name || state.currentUser.username} error={onboardingError} onBegin={() => { window.scrollTo({ top: 0, behavior: 'instant' }); setOnboarding({ phase: 'setup', keys: onboarding.keys }); }} onSkip={handleOnboardingSkip} reducedMotion={prefersReducedMotion} /></Suspense></>;

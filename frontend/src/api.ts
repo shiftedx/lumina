@@ -267,6 +267,11 @@ export const createInitialAdmin = (payload: { username: string; password: string
 /** A password sign-in answers a session, or a two-step challenge (no cookie yet) for an account with two-step verification. */
 export const loginSession = (payload: { username: string; password: string; remember_on_device?: boolean }): Promise<SessionState | TwoFactorChallenge> =>
   post<SessionState | TwoFactorChallenge>('/api/session/login', payload).then((result) => ('two_factor_required' in result ? result : rememberCsrf(result)));
+export interface OAuthProvider { id: string; name: string }
+export interface OAuthStartResponse { authorization_url: string }
+export const getOAuthProviders = (): Promise<OAuthProvider[]> => requestJson<OAuthProvider[]>('/api/session/oauth/providers');
+export const startOAuth = (providerId: string, rememberOnDevice: boolean): Promise<OAuthStartResponse> =>
+  post<OAuthStartResponse>(`/api/session/oauth/${enc(providerId)}/start`, { remember_on_device: rememberOnDevice });
 export const verifyTwoFactor = (payload: { challenge: string; code?: string; recovery_code?: string; trust_device?: boolean }): Promise<SessionState> => post<SessionState>('/api/session/two-factor', payload).then(rememberCsrf);
 export const logoutSession = (): Promise<void> => post<void>('/api/session/logout').finally(() => { csrfToken = null; sessionUserId = null; });
 export function getSession(options?: RequestJsonOptions): Promise<SessionState> {

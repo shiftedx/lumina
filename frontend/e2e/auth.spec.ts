@@ -70,3 +70,23 @@ test('at phone width the release art sits behind a full-width form with no sidew
   const form = await page.locator('.g-auth-main').boundingBox();
   expect(form?.width).toBe(390);
 });
+
+test('optional provider login carries the remember preference and navigates to the identity provider', async ({ page }) => {
+  await mockApi(page, {});
+  await page.route('**/api/session/oauth/providers', (route) => route.fulfill({ json: [{ id: 'google', name: 'Google' }] }));
+  let started: unknown;
+  await page.route('**/api/session/oauth/google/start', (route) => {
+    started = route.request().postDataJSON();
+    return route.fulfill({ json: { authorization_url: 'https://identity.example.com/authorize?state=synthetic-state' } });
+  });
+  await page.route('https://identity.example.com/**', (route) => route.fulfill({
+    contentType: 'text/html', body: '<h1>Synthetic identity provider</h1>',
+  }));
+  await page.goto('/');
+  await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: "Show me in Who's watching on this device" }).check();
+  await page.getByRole('button', { name: 'Continue with Google' }).click();
+  await expect(page.getByRole('heading', { name: 'Synthetic identity provider' })).toBeVisible();
+  expect(started).toEqual({ remember_on_device: true });
+  expect(new URL(page.url()).origin).toBe('https://identity.example.com');
+});

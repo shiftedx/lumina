@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from app.config import APP_VERSION, settings
 from app.routers import books, admin_invites, admin_ai, admin_backups, admin_activity, admin_updates, member_access as member_access_routes, admin_diagnostics, admin_library_automation, admin_models, admin_imports, admin_overview, admin_recording_retention, admin_storage, admin_tasks, discovery, idea_graph, local_playback, media_tools, profile_export, provenance, search_history, summaries, watch_queue
 from app.routers import enrichment as enrichment_routes
-from app.routers import admin_media_server, connected_apps, jellyfin_auth
+from app.routers import admin_media_server, connected_apps, jellyfin_auth, oauth as oauth_routes
 from app.routers import two_factor as two_factor_routes
 from app.routers import household_transfer, jellyfin_history, plex_history
 from app.services import title_metadata  # TMDB metadata worker
@@ -214,6 +214,7 @@ from app.security import (
     csrf_token_for,
     get_admin_user,
     get_owner_session_user,
+    require_browser_session,
     get_current_user,
     peek_session_user,
     revoke_session,
@@ -1097,6 +1098,7 @@ two_factor_routes.register(app)
 jellyfin_history.register(app)
 plex_history.register(app)
 household_transfer.register(app)
+oauth_routes.register(app)
 jellyfin_auth.register(app)  # before jellyfin.register(app, artwork) and its catch-all
 admin_media_server.register(app)
 library_sections.register(app)  # before main.py's /api/library/{item_id} routes below
@@ -1696,6 +1698,7 @@ def change_my_password(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db, scope="function"),
 ) -> SessionResponse:
+    require_browser_session(request)  # Header tokens must never upgrade themselves into a two-step browser session.
     enforce_rate_limit("session_login", request, user_id=current_user.id)
     service = UserService(db)
     try:
@@ -1705,7 +1708,7 @@ def change_my_password(
     except PasswordPolicyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     csrf_token = None
-    if request.cookies.get(settings.session_cookie_name):
+    if getattr(request.state, "via_session", False):
         # Every session was revoked; the browser that proved the password gets a fresh one.
         session, token = create_app_session(db, current_user, request)
         apply_session_cookie(response, session, token)

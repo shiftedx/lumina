@@ -50,7 +50,7 @@ def register(app: FastAPI) -> None:
         return [invites.serialize(db, row) for row in rows]
 
     @app.post("/api/admin/invites/{invite_id}/resend")
-    def resend_invite(invite_id: str, admin: User = Depends(get_admin_user), db: Session = Depends(get_db, scope="function")) -> dict:
+    def resend_invite(invite_id: str, admin: User = Depends(get_owner_session_user), db: Session = Depends(get_db, scope="function")) -> dict:
         try:
             result = invites.resend(db, admin, invite_id)
         except LookupError as exc:

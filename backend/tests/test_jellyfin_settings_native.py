@@ -188,6 +188,25 @@ def test_native_admin_quick_actions_use_live_admin_and_safe_library_contract(nat
     assert set(snapshot.json()) == {"server_timezone", "night_hour", "poller", "roots"}
     assert '"path"' not in snapshot.text
 
+    with db_module.SessionLocal.begin() as db:
+        db.get(AppSettings, 1).require_owner_two_factor = True
+    assert call(native, "GET", "/admin/library").status_code == 403
+    assert call(native, "POST", "/admin/library/scan", json={}).status_code == 403
+    assert call(native, "GET", "/admin/invites").status_code == 403
+    assert call(native, "POST", "/admin/invites", json={"email": "synthetic@example.invalid"}).status_code == 403
+    assert call(native, "GET", "/profile").status_code == 200
+    assert native.get("/system/info", headers=mediabrowser(ALICE_TOKEN)).status_code == 200
+    setup = native.post(BASE + "/two-factor/setup", headers=sensitive_headers(ALICE_TOKEN, reauth(native)))
+    assert setup.status_code == 200, setup.text
+    secret = setup.json()["secret"]
+    raw_secret = base64.b32decode(secret + "=" * (-len(secret) % 8))
+    enabled = native.post(
+        BASE + "/two-factor/enable", headers=sensitive_headers(ALICE_TOKEN, reauth(native)),
+        json={"code": two_factor.totp(raw_secret, int(time.time()) // two_factor.STEP_SECONDS)},
+    )
+    assert enabled.status_code == 200, enabled.text
+    assert call(native, "GET", "/admin/library").status_code == 200
+
     scan = call(native, "POST", "/admin/library/scan", json={})
     assert scan.status_code == 202, scan.text
     assert scan.headers["cache-control"] == "no-store"

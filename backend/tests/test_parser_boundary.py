@@ -76,7 +76,7 @@ class ParserBoundaryTests(unittest.TestCase):
         with socket.socket() as inherited:
             os.set_inheritable(inherited.fileno(), True)
             program = f'''
-import json,os,socket
+import errno,json,os,socket
 from pathlib import Path
 result = {{'ok': True, 'input': Path({str(self.source)!r}).read_bytes().decode()}}
 for name, action in [
@@ -90,7 +90,8 @@ for name, action in [
     try:
         action()
         result[name] = False
-    except (PermissionError, FileNotFoundError):
+    except OSError as error:
+        assert error.errno in (errno.EPERM, errno.EACCES, errno.ENOENT, errno.EROFS), (name, error.errno)
         result[name] = True
 try:
     result['inherited_socket'] = os.fstat({inherited.fileno()}).st_ino == {os.fstat(inherited.fileno()).st_ino}
@@ -391,7 +392,9 @@ print(json.dumps(result))
         program = 'import ctypes; ctypes.CDLL(None).syscall(0x40000029, 2, 1, 0); print("x32 bypass")'
         with parser_boundary.parser_command([sys.executable, '-c', program], self.source) as command:
             result = subprocess.run(command, env=parser_boundary.parser_environment(), capture_output=True, timeout=5)
-        self.assertEqual(result.returncode, -31)  # SIGSYS
+        # Bubblewrap propagates a signaled codec as 128 + signal; setpriv execs it directly.
+        expected = 159 if parser_boundary.settings.parser_sandbox == 'namespace' else -31  # SIGSYS
+        self.assertEqual(result.returncode, expected)
         self.assertEqual(result.stdout, b'')
 
 

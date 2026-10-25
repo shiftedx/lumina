@@ -1,6 +1,6 @@
 # Lumina native dogfood handoff
 
-The accumulated native dogfood work is being integrated into main for a fresh agent to begin larger Books and Music updates. Start from current main in a clean worktree; the original checkout contains unrelated uncommitted work and must not be reset or cleaned. No Books/Music redesign requirements have been supplied yet. Package another native release only after an explicit owner request.
+This handoff covers the accumulated native dogfood integration so a fresh agent can begin larger Books and Music updates from main. Start from current main in a clean worktree; the original checkout contains unrelated uncommitted work and must not be reset or cleaned. No Books/Music redesign requirements have been supplied yet. Package another native release only after an explicit owner request.
 
 ## Start here
 
@@ -84,3 +84,9 @@ The focused closed-Duo workflow passed: three complete categories clear the word
 Standard iPhones hide Home and Library's top category rows and retain system bottom tabs for primary navigation. Home keeps Search and one Browse overflow; available library types and Watchlist remain reachable there. On Library the same category chooser uses the library glyph, distinct from its existing media-options overflow. Downloads move inside Home's Browse menu on standard phones to avoid another toolbar button during music playback. The size gate uses both full display dimensions so rotating an ordinary phone does not enable the category header. Duo keeps its category row; iPad keeps its unified header.
 
 Focused standard-phone workflow verifies the hidden rows, clean header, Music access through Browse, and Account/Home navigation via bottom tabs. Its Home screenshot was inspected at 402×874 points. Final standard-phone result: `/tmp/lumina-standard-phone-nav-final-20261025.xcresult`. The closed-Duo three-category workflow also passed after adding the responsive gate (`/tmp/lumina-phone-duo-nav-20261025.xcresult`). No full suite, native release, or build staging was performed.
+
+## Integration cleanup and next-agent starting point — 2026-10-25
+
+Integrated main through `6ee1bb2` (including the newer security/parser fixes) with the accumulated native work. The single probe conflict preserves both bounded subprocess termination and HDR cache version 4. Focused merge qualification passed: 52 Core checks covering pairing, Keychain migration/failure, gestures, framing and offline behavior; 24 probe/security checks; four technical-filter API workflows; canonical/native icon consistency; and the normal iOS Release simulator build. Independent integration review found no blocking native issue. Full repository checks were intentionally not rerun under the owner's focused-check instruction.
+
+Start the next Books/Music work from current main in a clean worktree. Preserve unrelated changes in the original checkout and other agents' worktrees. Useful entry points are `App/iOS/NativeBooksView.swift`, `App/iOS/NativeBookReader.swift`, Core's book/offline models, `App/Shared/NativeMusicLibraryView.swift`, `App/Shared/NativeAudioSession.swift`, and the audio portion of `App/Shared/PlaybackScreen.swift`. The owner has not yet supplied the larger update requirements; do not infer a redesign or start a new release. Build 19 remains the recorded pre-integration package, with the physical-device checks above outstanding.

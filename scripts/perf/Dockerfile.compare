@@ -1,17 +1,39 @@
 # Controlled benchmark runtime: the pinned Lumina backend/frontend and production
 # jellyfin-ffmpeg, without the unused llama.cpp and speech-model payloads.  Build
 # from a detached source worktree at the recorded commit.
-FROM node:22.17.1-bookworm-slim@sha256:2fa754a9ba4d7adbd2a51d182eaabbe355c82b673624035a38c0d42b08724854 AS frontend-build
+FROM node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS frontend-build
 WORKDIR /build/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM scratch AS media-debs
-ADD --checksum=sha256:f3af50c1fdd76197867b9cd812fe8a3a1c671829a3f626a0ddc58a8e48654740 https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v8.1.2-5/jellyfin-ffmpeg8_8.1.2-5-trixie_arm64.deb /debs/
+# Upstream security fixes with RAR5 retained; built against the runtime's trixie ABI.
+FROM python:3.12.15-slim-trixie@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704 AS archive-build
+ADD --checksum=sha256:56cad765459d5ee25a3b761f90c47d99379d28297fbfb72d908880d6b875fb96 https://github.com/libarchive/libarchive/releases/download/v3.8.10/libarchive-3.8.10.tar.xz /tmp/libarchive.tar.xz
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential cmake libssl-dev zlib1g-dev libbz2-dev liblzma-dev libzstd-dev liblz4-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir /src \
+    && tar -xJf /tmp/libarchive.tar.xz -C /src --strip-components=1 \
+    && cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release \
+         -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF -DENABLE_UNZIP=OFF \
+         -DENABLE_LIBXML2=OFF -DENABLE_EXPAT=OFF -DENABLE_BSDXML=OFF \
+    && cmake --build /build -j"$(nproc)" --target archive libarchive_test \
+    && timeout 60 /build/bin/libarchive_test -r /src/libarchive/test \
+         test_read_format_rar5_stored test_read_format_rar5_compressed \
+         test_read_format_rar5_multiple_files test_read_format_rar5_multiple_files_solid \
+         test_read_format_rar5_truncated_huff \
+    && mkdir -p /out/lib /out/share/doc/libarchive \
+    && cp -a /build/libarchive/libarchive.so* /out/lib/ \
+    && cp /src/COPYING /out/share/doc/libarchive/ \
+    && printf '%s\n' 'libarchive 3.8.10 source sha256:56cad765459d5ee25a3b761f90c47d99379d28297fbfb72d908880d6b875fb96' > /out/share/doc/libarchive/source.txt
 
-FROM python:3.12.14-slim-trixie@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
+
+FROM scratch AS media-debs
+ADD --checksum=sha256:4af743bd776eda082d40c851a4201e51a77a258145dd6ebe164dade39b35b2d0 https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v8.1.3-1/jellyfin-ffmpeg8_8.1.3-1-trixie_arm64.deb /debs/
+
+FROM python:3.12.15-slim-trixie@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704
 ARG LUMINA_SOURCE_REVISION
 LABEL org.opencontainers.image.title="Lumina comparison runtime" \
       org.opencontainers.image.revision="$LUMINA_SOURCE_REVISION" \
@@ -25,12 +47,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 RUN --mount=type=bind,from=media-debs,source=/debs,target=/tmp/media-debs \
     apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libgomp1 /tmp/media-debs/*.deb \
+    && apt-get install -y --no-install-recommends ca-certificates libseccomp2 libgomp1 libbz2-1.0 liblzma5 libzstd1 liblz4-1 /tmp/media-debs/*.deb \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg \
     && ln -s /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe
+COPY --from=archive-build /out/ /usr/local/
+RUN ldconfig
+
 COPY backend/requirements.runtime.lock /tmp/requirements.runtime.lock
-RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.runtime.lock
+RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.runtime.lock \
+    && python -m pip uninstall --yes pip
 COPY backend/ /app/backend/
 COPY --from=frontend-build /build/frontend/dist /app/frontend/dist
 EXPOSE 8765

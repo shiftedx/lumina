@@ -1,7 +1,7 @@
 """Offline database restore: ``python -m app.restore <backup.db> [--data-dir DIR]``.
 
 Refuses while a Lumina server holds the data directory, verifies the backup against its manifest,
-revokes every session, Connected app and unused invitation/reset link in the restored copy (the AI
+revokes every session, Connected app, casting capability, mobile pairing code and unused invitation/reset link in the restored copy (the AI
 API key and TMDB key were never in it and must be re-entered), keeps the previous
 database beside it as ``app.db.pre-restore-<timestamp>``, then swaps the copy in atomically.
 Media files are not part of a backup; the same storage roots must be mounted at the same paths.
@@ -42,6 +42,12 @@ def restore(backup: Path, data_dir: Path) -> Path | None:
             copy.execute("DELETE FROM app_sessions")
             if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='device_tokens'").fetchone():
                 copy.execute("DELETE FROM device_tokens")  # a v2 backup predates Connected apps and has no such table
+            if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='music_cast_tickets'").fetchone():
+                copy.execute("DELETE FROM music_cast_tickets")
+            if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='media_cast_tickets'").fetchone():
+                copy.execute("DELETE FROM media_cast_tickets")
+            if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='mobile_pairings'").fetchone():
+                copy.execute("DELETE FROM mobile_pairings")
             copy.execute("UPDATE account_tokens SET revoked_at = ? WHERE used_at IS NULL AND revoked_at IS NULL", (now.replace(tzinfo=None).isoformat(" "),))
             copy.commit()
         finally:
@@ -67,7 +73,7 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=settings.data_dir)
     args = parser.parse_args()
     kept = restore(args.backup, args.data_dir)
-    print(f"Restored {args.backup.name}. All sessions, Connected apps and unused invitation/reset links were revoked; re-enter the AI and TMDB API keys (backups never hold them).")
+    print(f"Restored {args.backup.name}. All sessions, Connected apps, casting capabilities, mobile pairing codes and unused invitation/reset links were revoked; re-enter the AI and TMDB API keys (backups never hold them).")
     if kept:
         print(f"The previous database was kept as {kept}.")
 

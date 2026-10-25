@@ -412,3 +412,98 @@ def test_guarded_hls_acquisition_fails_closed_on_an_expired_signed_segment(tmp_p
         with pytest.raises((PublicSourcePolicyError, yt_dlp.utils.DownloadError, RequestError)):
             _acquire(tmp_path, policy, _vod_info(port))
     assert not (tmp_path / "vod-1.mp4").exists()
+
+
+@pytest.mark.parametrize("redirect_master", [False, True])
+def test_cross_origin_hls_children_drop_credentials_including_merged_defaults_and_cookies(tmp_path, redirect_master: bool) -> None:
+    from yt_dlp.dependencies import Cryptodome
+
+    key = b'0' * 16
+    padding = 16 - len(SEG0) % 16
+    encrypted = Cryptodome.AES.new(key, Cryptodome.AES.MODE_CBC, b'\0' * 16).encrypt(SEG0 + bytes([padding]) * padding)
+    with hls_fixture({'/init.mp4': b'INIT', '/seg0.ts': encrypted, '/key.bin': key}) as (child_port, child):
+        child_base = f'http://127.0.0.1:{child_port}'
+        playlist = _media_playlist(f'{child_base}/seg0.ts', key_uri=f'{child_base}/key.bin', map_uri=f'{child_base}/init.mp4')
+        playlist = playlist.replace(b'#EXT-X-KEY:METHOD=AES-128,', b'#EXT-X-KEY:METHOD=AES-128,IV=0x00000000000000000000000000000000,')
+        if redirect_master:
+            child.routes['/redirected.m3u8'] = playlist
+        routes = {} if redirect_master else {'/media.m3u8': playlist}
+        redirects = {'/media.m3u8': f'{child_base}/redirected.m3u8'} if redirect_master else {}
+        with hls_fixture(routes, redirects=redirects) as (port, source):
+            params = _download_params(tmp_path)
+            params['http_headers'] = {'X-Global-Api-Key': 'synthetic'}
+            params['concurrent_fragment_downloads'] = 2
+            headers = {'Authorization': 'synthetic', 'Cookie': 'synthetic=1', 'Proxy-Authorization': 'synthetic',
+                       'X-API-Key': 'synthetic', 'X_AUTH_TOKEN': 'synthetic', 'X-Custom-Credential': 'synthetic',
+                       'Referer': 'https://www.twitch.tv/', 'User-Agent': 'fixture-player'}
+            with PolicyYoutubeDL(params, policy=LoopbackHlsPolicy()) as ydl:
+                ydl.process_ie_result(_vod_info(port, headers=headers), download=True)
+    assert (tmp_path / 'vod-1.mp4').read_bytes() == b'INIT' + SEG0
+    assert any(name.lower() == 'authorization' for _path, received in source.seen for name in received)
+    assert {path for path, _received in child.seen} == {'/init.mp4', '/seg0.ts', '/key.bin'} | ({'/redirected.m3u8'} if redirect_master else set())
+    forbidden = {'authorization', 'cookie', 'proxy-authorization', 'x-api-key', 'x_auth_token', 'x-custom-credential', 'x-global-api-key', 'referer'}
+    assert all(not forbidden.intersection(name.lower() for name in received) for _path, received in child.seen)
+    assert all(received.get('User-Agent') == 'fixture-player' for _path, received in child.seen)
+
+
+@pytest.mark.parametrize('resource', ['manifest', 'key'])
+def test_native_hls_bulk_control_reads_are_bounded_before_allocation(tmp_path, monkeypatch, resource: str) -> None:
+    import http.client
+    from app.services import network_policy
+
+    limit = 256
+    original_init = network_policy.SafeHTTPHandler.__init__
+    original_read = http.client.HTTPResponse.read
+    read_sizes = []
+    capped_responses = []
+
+    def bounded_handler(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+        kwargs['error_response_limit'] = limit
+        original_init(self, *args, **kwargs)
+
+    def recording_read(self, amt=None):  # noqa: ANN001
+        read_sizes.append(amt)
+        if self.getheader('Content-Length') == str(limit + 1):
+            capped_responses.append(self)
+        return original_read(self, amt)
+
+    monkeypatch.setattr(network_policy.SafeHTTPHandler, '__init__', bounded_handler)
+    monkeypatch.setattr(http.client.HTTPResponse, 'read', recording_read)
+    if resource == 'manifest':
+        playlist = _media_playlist('seg0.ts')
+        playlist += b'#' + b'x' * (limit - len(playlist))
+        routes = {'/media.m3u8': playlist, '/seg0.ts': SEG0}
+    else:
+        routes = {'/media.m3u8': _media_playlist('seg0.ts', key_uri='key.bin'), '/seg0.ts': SEG0, '/key.bin': b'k' * (limit + 1)}
+    with hls_fixture(routes) as (port, handler):
+        with pytest.raises((yt_dlp.utils.DownloadError, RequestError, OSError), match='safe byte limit'):
+            _acquire(tmp_path, LoopbackHlsPolicy(), _vod_info(port))
+    assert limit + 1 in read_sizes
+    assert all(size is not None and 0 <= size <= limit + 1 for size in read_sizes)
+    assert capped_responses and all(response.closed for response in capped_responses)
+    assert not (tmp_path / 'vod-1.mp4').exists()
+    if resource == 'manifest':
+        assert {path for path, _headers in handler.seen} == {'/media.m3u8'}
+
+
+def test_native_hls_identity_segment_larger_than_eight_mib_streams_in_bounded_blocks(tmp_path, monkeypatch) -> None:
+    import http.client
+    from app.services.network_policy import MAX_YTDLP_METADATA_RESPONSE_BYTES
+
+    limit = MAX_YTDLP_METADATA_RESPONSE_BYTES
+    segment = b'm' * (limit + 1)
+    original_read = http.client.HTTPResponse.read
+    segment_reads = []
+
+    def recording_read(self, amt=None):  # noqa: ANN001
+        if self.getheader('Content-Length') == str(len(segment)):
+            segment_reads.append(amt)
+        return original_read(self, amt)
+
+    monkeypatch.setattr(http.client.HTTPResponse, 'read', recording_read)
+    with hls_fixture({'/media.m3u8': _media_playlist('large.ts'), '/large.ts': segment}) as (port, _handler):
+        _acquire(tmp_path, LoopbackHlsPolicy(), _vod_info(port))
+    assert (tmp_path / 'vod-1.mp4').read_bytes() == segment
+    assert len(segment_reads) > 1
+    assert segment_reads[0] == 1024  # HttpFD's ordinary initial buffer
+    assert all(size is not None and 0 < size <= 4 * 1024 * 1024 < limit for size in segment_reads)

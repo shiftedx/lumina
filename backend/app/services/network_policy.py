@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import contextvars
 import functools
 import http.client
+import io
 import ipaddress
 import socket
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import yt_dlp
@@ -26,6 +28,9 @@ from app.services.hls_relay_support import (
 )
 
 _CRYPTODOME_AES_AVAILABLE = bool(getattr(Cryptodome, "AES", None))
+MAX_YTDLP_METADATA_RESPONSE_BYTES = 8 * 1024 * 1024
+YTDLP_METADATA_RESPONSE_LIMIT_MESSAGE = "The source metadata response exceeded the safe byte limit."
+YTDLP_UNSAFE_ENCODING_MESSAGE = "The source sent a compressed response that cannot be safely decoded."
 
 # Downloaders whose every fetch flows through ``YoutubeDL.urlopen`` (the guarded
 # transport). HLS is handled separately by ``GuardedHlsFD``.
@@ -49,6 +54,7 @@ class PublicSourcePolicyError(ValueError):
 
 
 Resolver = Callable[..., list[tuple[Any, ...]]]
+ResponseLimit = Callable[[], int | None]
 # A member-supplied source must not make Lumina a client for SSH, SMTP, Redis or a port scanner.
 WEB_PORTS = frozenset({80, 443})
 # Never admissible, even as an admin's extra source port: remote shells, mail, file sharing, databases, Docker, VNC.
@@ -190,9 +196,18 @@ def _create_http_connection(
 
 
 class SafeHTTPHandler(ytdlp_urllib.HTTPHandler):
-    def __init__(self, policy: PublicSourcePolicy, **kwargs):
+    def __init__(
+        self,
+        policy: PublicSourcePolicy,
+        *,
+        response_limit: ResponseLimit,
+        error_response_limit: int = MAX_YTDLP_METADATA_RESPONSE_BYTES,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.policy = policy
+        self._response_limit = response_limit
+        self._error_response_limit = error_response_limit
 
     def http_open(self, request):
         return self.do_open(
@@ -207,6 +222,204 @@ class SafeHTTPHandler(ytdlp_urllib.HTTPHandler):
             context=self._context,
         )
 
+    def http_response(self, request, response):  # noqa: ANN001
+        # Every guarded request asks for identity below. If an upstream ignores
+        # that request, reject its compressed body before yt-dlp's handler calls
+        # ``read()`` and hands the complete payload to a bulk gzip/deflate/Brotli
+        # decoder. ``get_all`` matters: duplicate Content-Encoding fields must
+        # not let an unsafe alternate hide behind an innocuous first value.
+        encoding_values = response.headers.get_all("Content-Encoding", [])
+        encodings = [
+            item.strip().lower()
+            for value in encoding_values
+            for item in value.split(",")
+            if item.strip()
+        ]
+        if any(encoding != "identity" for encoding in encodings):
+            response.close()
+            raise OSError(YTDLP_UNSAFE_ENCODING_MESSAGE)
+
+        # With compression excluded, the inherited handler only retains its URL
+        # normalization behavior; it cannot enter any whole-body decoder.
+        response = super().http_response(request, response)
+        limit = self._response_limit()
+        status = getattr(response, "status", None)
+        if limit is None and (status is None or not 200 <= status < 300):
+            # Redirect and error bodies are metadata-sized control responses,
+            # including during a media download. Only successful identity media
+            # is allowed to stream without this in-memory response ceiling.
+            limit = self._error_response_limit
+        cumulative = limit is not None
+        if limit is None:
+            # Native HLS manifests and AES keys use unsized read() even during
+            # media download. Only positive incremental reads may stream past
+            # the byte ceiling; every individual read still has a fixed bound.
+            limit = self._error_response_limit
+
+        content_length = response.headers.get("Content-Length")
+        try:
+            declared_length = int(content_length) if content_length is not None else None
+        except (TypeError, ValueError):
+            declared_length = None
+        if cumulative and declared_length is not None and declared_length > limit:
+            response.close()
+            raise OSError(YTDLP_METADATA_RESPONSE_LIMIT_MESSAGE)
+
+        bounded = urllib.request.addinfourl(
+            _BoundedResponseReader(response, limit, cumulative=cumulative),
+            response.headers,
+            response.url,
+            response.code,
+        )
+        bounded.msg = getattr(response, "msg", None)
+        return bounded
+
+    https_response = http_response
+
+
+class _BoundedResponseReader(io.RawIOBase):
+    """Cap metadata cumulatively and media bulk reads without limiting streaming."""
+
+    def __init__(self, response, limit: int, *, cumulative: bool = True):  # noqa: ANN001
+        super().__init__()
+        self._response = response
+        self._remaining = limit
+        self._cumulative = cumulative
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int | None = -1) -> bytes:
+        return self._read(self._response.read, size)
+
+    def readline(self, size: int | None = -1) -> bytes:
+        return self._read(self._response.readline, size)
+
+    def _read(self, reader: Callable[[int], bytes], size: int | None) -> bytes:
+        if self.closed:
+            return b""
+        bulk = size is None or size < 0
+        if bulk:
+            requested = self._remaining + 1
+        else:
+            # Raw reads may return short: clamp large positive requests so a
+            # streaming caller can loop without allocating a bulk body here.
+            requested = min(size, self._remaining + int(self._cumulative))
+        data = reader(requested)
+        if (self._cumulative or bulk) and len(data) > self._remaining:
+            self.close()
+            raise OSError(YTDLP_METADATA_RESPONSE_LIMIT_MESSAGE)
+        if self._cumulative:
+            self._remaining -= len(data)
+        return data
+
+    def readlines(self, hint: int = -1) -> list[bytes]:
+        lines: list[bytes] = []
+        limit = remaining = self._remaining
+        while True:
+            line = self.readline(remaining + 1)
+            if len(line) > remaining:
+                self.close()
+                raise OSError(YTDLP_METADATA_RESPONSE_LIMIT_MESSAGE)
+            if not line:
+                return lines
+            lines.append(line)
+            remaining -= len(line)
+            if hint > 0 and limit - remaining >= hint:
+                return lines
+
+    def readinto(self, buffer) -> int:  # noqa: ANN001
+        data = self.read(len(buffer))
+        buffer[: len(data)] = data
+        return len(data)
+
+    def close(self) -> None:
+        if not self.closed:
+            self._response.close()
+        super().close()
+
+
+# Only public transport preferences may accompany a change of origin. A secret
+# header denylist cannot cover arbitrary extractor/provider-specific names.
+_CROSS_ORIGIN_HEADERS = frozenset({"accept", "accept-language", "accept-encoding", "user-agent", "range",
+                                   "if-range", "if-match", "if-none-match", "if-modified-since", "if-unmodified-since"})
+Origin = tuple[str, str, int]
+_credential_origin: contextvars.ContextVar[Origin | None] = contextvars.ContextVar("credential_origin", default=None)
+
+
+def effective_origin(url: str) -> Origin:
+    try:
+        if not isinstance(url, str) or any(ord(char) <= 32 or ord(char) == 127 for char in url):
+            raise ValueError("url")
+        parsed = urllib.parse.urlsplit(url)
+        scheme = parsed.scheme.lower()
+        host = parsed.hostname
+        if (scheme not in {"http", "https"} or not host or parsed.username is not None
+                or parsed.password is not None or "%" in host or "\\" in parsed.netloc or parsed.netloc.endswith(":")):
+            raise ValueError("origin")
+        port = parsed.port if parsed.port is not None else 443 if scheme == "https" else 80
+        if not 1 <= port <= 65535:
+            raise ValueError("port")
+        try:
+            host = ipaddress.ip_address(host).compressed
+        except ValueError:
+            if "[" in parsed.netloc or "]" in parsed.netloc:
+                raise ValueError("host")
+            host = host.encode("idna").decode("ascii").lower()
+            labels = host.removesuffix(".").split(".")
+            if any(not label or len(label) > 63 or label.startswith("-") or label.endswith("-")
+                   or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789-" for char in label) for label in labels):
+                raise ValueError("host")
+        return scheme, host, port
+    except (UnicodeError, TypeError, ValueError) as exc:
+        raise PublicSourcePolicyError() from exc
+
+
+def _restrict_cross_origin_headers(headers) -> None:  # noqa: ANN001
+    for name in list(headers):
+        if name.lower() not in _CROSS_ORIGIN_HEADERS:
+            del headers[name]
+
+
+def headers_for_origin(headers: Mapping[str, str], credential_url: str, target_url: str) -> dict[str, str]:
+    """Retain full headers only within the original credential origin."""
+    scoped = dict(headers)
+    if effective_origin(credential_url) != effective_origin(target_url):
+        _restrict_cross_origin_headers(scoped)
+    return scoped
+
+
+class _ScopedCookieProcessor(ytdlp_urllib.HTTPCookieProcessor):
+    def http_request(self, request):  # noqa: ANN001
+        request = super().http_request(request)
+        origin = _credential_origin.get()
+        if origin is not None and origin != effective_origin(request.full_url):
+            # Cookie jars are scoped by domain/path, not origin (notably ports).
+            # Filter after the jar runs, including its alternate header store.
+            _restrict_cross_origin_headers(request.headers)
+            _restrict_cross_origin_headers(request.unredirected_hdrs)
+        return request
+
+    https_request = http_request
+
+
+class _OriginBoundYoutubeDL:
+    """Carry one HLS credential origin through fragment worker threads and keys."""
+
+    def __init__(self, ydl, origin: Origin):  # noqa: ANN001
+        self._ydl = ydl
+        self._origin = origin
+
+    def __getattr__(self, name):  # noqa: ANN001
+        return getattr(self._ydl, name)
+
+    def urlopen(self, request):  # noqa: ANN001
+        token = _credential_origin.set(self._origin)
+        try:
+            return self._ydl.urlopen(request)
+        finally:
+            _credential_origin.reset(token)
+
 
 class SafeRedirectHandler(ytdlp_urllib.RedirectHandler):
     def __init__(self, policy: PublicSourcePolicy):
@@ -216,14 +429,27 @@ class SafeRedirectHandler(ytdlp_urllib.RedirectHandler):
     def redirect_request(self, request, fp, code, message, headers, new_url):
         absolute_url = urllib.parse.urljoin(request.full_url, new_url)
         self.policy.validate_url(absolute_url)
-        return super().redirect_request(request, fp, code, message, headers, absolute_url)
+        origin = getattr(request, "_lumina_credential_origin", None) or _credential_origin.get() or effective_origin(request.full_url)
+        redirected = super().redirect_request(request, fp, code, message, headers, absolute_url)
+        redirected._lumina_credential_origin = origin
+        if origin != effective_origin(absolute_url):
+            _restrict_cross_origin_headers(redirected.headers)
+            _restrict_cross_origin_headers(redirected.unredirected_hdrs)
+        else:
+            # yt-dlp drops an explicit Cookie on every redirect; it remains
+            # scoped correctly when the effective origin has not changed.
+            for name, value in request.headers.items():
+                if name.lower() == "cookie":
+                    redirected.add_header(name, value)
+        return redirected
 
 
 class SafeUrllibRH(ytdlp_urllib.UrllibRH):
     _SUPPORTED_URL_SCHEMES = ("http", "https", "data")
 
-    def __init__(self, *, policy: PublicSourcePolicy, **kwargs):
+    def __init__(self, *, policy: PublicSourcePolicy, response_limit: ResponseLimit, **kwargs):
         self.policy = policy
+        self._response_limit = response_limit
         super().__init__(**kwargs)
 
     def _create_instance(self, proxies, cookiejar, legacy_ssl_support=None):
@@ -234,11 +460,12 @@ class SafeUrllibRH(ytdlp_urllib.UrllibRH):
             ytdlp_urllib.ProxyHandler({}),
             SafeHTTPHandler(
                 self.policy,
+                response_limit=self._response_limit,
                 debuglevel=int(bool(self.verbose)),
                 context=self._make_sslcontext(legacy_ssl_support=legacy_ssl_support),
                 source_address=self.source_address,
             ),
-            ytdlp_urllib.HTTPCookieProcessor(cookiejar),
+            _ScopedCookieProcessor(cookiejar),
             ytdlp_urllib.DataHandler(),
             ytdlp_urllib.UnknownHandler(),
             ytdlp_urllib.HTTPDefaultErrorHandler(),
@@ -249,6 +476,21 @@ class SafeUrllibRH(ytdlp_urllib.UrllibRH):
             opener.add_handler(handler)
         opener.addheaders = []
         return opener
+
+    def _send(self, request):  # noqa: ANN001
+        if request.url.startswith("data:"):
+            return super()._send(request)
+        token = _credential_origin.set(_credential_origin.get() or effective_origin(request.url))
+        try:
+            return super()._send(request)
+        finally:
+            _credential_origin.reset(token)
+
+    def _prepare_headers(self, request, headers):  # noqa: ANN001
+        origin = _credential_origin.get()
+        if origin is not None and origin != effective_origin(request.url):
+            _restrict_cross_origin_headers(headers)
+        headers["Accept-Encoding"] = "identity"
 
 
 class GuardedHlsFD(HlsFD):
@@ -272,6 +514,14 @@ class GuardedHlsFD(HlsFD):
     """
 
     def real_download(self, filename, info_dict):  # noqa: ANN001
+        original_ydl = self.ydl
+        self.ydl = _OriginBoundYoutubeDL(original_ydl, effective_origin(info_dict["url"]))
+        try:
+            return self._download_scoped(filename, info_dict)
+        finally:
+            self.ydl = original_ydl
+
+    def _download_scoped(self, filename, info_dict):  # noqa: ANN001
         man_url = info_dict["url"]
         response = self.ydl.urlopen(self._prepare_url(info_dict, man_url))
         manifest = response.read().decode("utf-8", "ignore")
@@ -316,22 +566,41 @@ class PolicyYoutubeDL(yt_dlp.YoutubeDL):
 
     def __init__(self, params=None, *, policy: PublicSourcePolicy | None = None, **kwargs):
         self.public_source_policy = policy or PublicSourcePolicy()
+        self._metadata_extraction_depth = 0
+        self._media_download_depth = 0
         super().__init__(params, **kwargs)
+
+    def extract_info(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        self._metadata_extraction_depth += 1
+        try:
+            return super().extract_info(*args, **kwargs)
+        finally:
+            self._metadata_extraction_depth -= 1
+
+    def _metadata_response_limit(self) -> int | None:
+        if self._metadata_extraction_depth and not self._media_download_depth:
+            return MAX_YTDLP_METADATA_RESPONSE_BYTES
+        return None
 
     def build_request_director(self, handlers, preferences=None):
         del handlers
         policy = self.public_source_policy
+        self_outer = self
 
         class BoundSafeUrllibRH(SafeUrllibRH):
             def __init__(self, **kwargs):
-                super().__init__(policy=policy, **kwargs)
+                super().__init__(policy=policy, response_limit=self_outer._metadata_response_limit, **kwargs)
 
         return super().build_request_director([BoundSafeUrllibRH], preferences)
 
     def process_info(self, info_dict):
         if not self.params.get("skip_download"):
             self.validate_download_transport(info_dict)
-        return super().process_info(info_dict)
+        self._media_download_depth += 1
+        try:
+            return super().process_info(info_dict)
+        finally:
+            self._media_download_depth -= 1
 
     def dl(self, name, info, subtitle=False, test=False):
         """The single chokepoint for every yt-dlp network download.

@@ -39,6 +39,11 @@ CBR retains the existing member, path, image, and 512 MiB uncompressed limits an
 PDF is limited to 2,500 pages and renders at most 2,400 pixels on the longest edge. Encrypted files
 are rejected. This is additive format support and does not alter database schema or existing checkpoints.
 
+Native parser children receive a literal minimal environment rather than the server's application,
+proxy, Python-path or dynamic-loader settings; stdin is closed and stdout retains its existing bound.
+Environment minimization alone did not restrict same-user file or socket access. The Linux policy
+added below supersedes that limitation for supported kernels; macOS remains a separate design.
+
 ### Bounded reader work reuse (2026-10-18)
 
 Encoded raster resources share an in-process LRU bounded by 64 MiB and 128 entries.
@@ -157,3 +162,19 @@ spread. A turn advances or rewinds by one complete pair, and the final unpaired
 page has a blank facing leaf. Compact reading keeps the exact selected page.
 This supersedes the earlier physical-right selection rule; fold/camera exclusions,
 format-specific checkpoints and native curl cancellation remain unchanged.
+
+### Linux native-reader and XML hardening (2026-10-25)
+
+Native PDF/CBR children share the Linux Landlock/libseccomp policy described in
+[ADR 0032](0032-owned-photo-catalog-and-local-person-index.md#linux-decoder-boundary-2026-10-25).
+The input remains read-only, codecs/runtime remain available, and unrelated data,
+sockets, metadata changes, interprocess signals and new processes are denied.
+Unsupported kernels fail closed. ARM64 execution is qualified; native AMD64
+qualification is still required because emulation lacks Landlock support.
+
+The image builds a SHA-pinned maintained libarchive source release with RAR5
+support, compression filters and its license, excluding optional XML backends.
+Books metadata/chapter XML and Sonos responses preflight DTD/entity declarations
+with Expat callbacks before ElementTree parsing, so UTF-16 receives the same
+rejection as UTF-8. This application guard does not replace maintenance of either
+Python's embedded Expat or the independent OS XML libraries.

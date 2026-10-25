@@ -8,9 +8,11 @@ from __future__ import annotations
 import json
 import math
 import os
+import selectors
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,7 @@ from app.services.yt_dlp_service import YtDlpService
 
 PROBE_TIMEOUT_SECONDS = 20
 PROBE_OUTPUT_LIMIT = 1_000_000
+PROBE_TERMINATE_GRACE_SECONDS = 0.25
 PROBE_CACHE_VERSION = 3
 _PROBE_CACHE_VERSION_KEY = "_probe_cache_version"
 _probe_slots = threading.BoundedSemaphore(2)
@@ -56,6 +59,112 @@ class ProbeError(RuntimeError):
     pass
 
 
+def _terminate_and_reap(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is None:
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=PROBE_TERMINATE_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            process.wait()
+    else:
+        process.wait()
+
+
+def _read_pipe(file_descriptor: int, size: int) -> bytes:
+    return os.read(file_descriptor, size)
+
+
+def _append_output(buffer: bytearray, chunk: bytes) -> bool:
+    remaining = PROBE_OUTPUT_LIMIT - len(buffer)
+    buffer.extend(chunk[:remaining])
+    return len(chunk) > remaining
+
+
+def _run_bounded_process(command: list[str]) -> subprocess.CompletedProcess[bytes]:
+    """Run one probe while retaining at most ``PROBE_OUTPUT_LIMIT`` bytes per output pipe."""
+    try:
+        process = subprocess.Popen(
+            command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise ProbeError("probe_failed") from exc
+    selector: selectors.BaseSelector | None = None
+    pipes: tuple[Any, ...] = ()
+    try:
+        assert process.stdout is not None and process.stderr is not None
+        pipes = (process.stdout, process.stderr)
+        output = {process.stdout: bytearray(), process.stderr: bytearray()}
+        try:
+            selector = selectors.DefaultSelector()
+        except OSError as exc:
+            raise ProbeError("probe_failed") from exc
+        deadline = time.monotonic() + PROBE_TIMEOUT_SECONDS
+        failure: str | None = None
+        cause: OSError | None = None
+        for pipe in output:
+            selector.register(pipe, selectors.EVENT_READ)
+        while selector.get_map():
+            remaining_time = deadline - time.monotonic()
+            if remaining_time <= 0:
+                failure = "probe_timeout"
+                break
+            events = selector.select(remaining_time)
+            if not events:
+                failure = "probe_timeout"
+                break
+            for key, _mask in events:
+                pipe = key.fileobj
+                buffered = output[pipe]
+                remaining_output = PROBE_OUTPUT_LIMIT - len(buffered)
+                try:
+                    chunk = _read_pipe(key.fd, min(64 * 1024, remaining_output + 1))
+                except OSError as exc:
+                    failure, cause = "probe_failed", exc
+                    break
+                if not chunk:
+                    selector.unregister(pipe)
+                    pipe.close()
+                    continue
+                if _append_output(buffered, chunk):
+                    failure = "probe_failed"
+                    break
+            if failure:
+                break
+        if failure:
+            _terminate_and_reap(process)
+            error = ProbeError(failure)
+            if cause is not None:
+                raise error from cause
+            raise error
+        try:
+            process.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired as exc:
+            _terminate_and_reap(process)
+            raise ProbeError("probe_timeout") from exc
+        return subprocess.CompletedProcess(
+            command, process.returncode, bytes(output[process.stdout]), bytes(output[process.stderr]),
+        )
+    finally:
+        if selector is not None:
+            try:
+                selector.close()
+            except Exception:
+                pass
+        for pipe in pipes:
+            try:
+                pipe.close()
+            except Exception:
+                pass
+        _terminate_and_reap(process)
+
+
 def media_tool(db: Session, name: str) -> str | None:
     """ffmpeg/ffprobe next to the configured ffmpeg, else on PATH."""
     record = db.get(AppSettings, 1)
@@ -75,15 +184,10 @@ def _attached_picture(stream: dict[str, Any]) -> bool:
 
 def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
     """ffprobe JSON for one file; bounded time and output, no shell."""
-    try:
-        result = subprocess.run(
-            [ffprobe, "-v", "error", *LOCAL_INPUT_ARGS, "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "--", str(path)],
-            capture_output=True, timeout=PROBE_TIMEOUT_SECONDS, check=False, stdin=subprocess.DEVNULL,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ProbeError("probe_timeout") from exc
-    # Output is buffered then capped; stream-read with a hard cut if ffprobe output ever grows huge.
-    if result.returncode != 0 or len(result.stdout) > PROBE_OUTPUT_LIMIT:
+    result = _run_bounded_process(
+        [ffprobe, "-v", "error", *LOCAL_INPUT_ARGS, "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", "--", str(path)],
+    )
+    if result.returncode != 0:
         raise ProbeError("probe_failed")
     try:
         raw = json.loads(result.stdout)
@@ -114,17 +218,13 @@ def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
     stream_index = hdr_stream.get("index")
     if not isinstance(stream_index, int) or isinstance(stream_index, bool):
         raise ProbeError("probe_failed")
-    try:
-        frame = subprocess.run(
-            [
-                ffprobe, "-v", "error", *LOCAL_INPUT_ARGS, "-select_streams", str(stream_index),
-                "-read_intervals", "%+#1", "-print_format", "json", "-show_frames", "--", str(path),
-            ],
-            capture_output=True, timeout=PROBE_TIMEOUT_SECONDS, check=False, stdin=subprocess.DEVNULL,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ProbeError("probe_timeout") from exc
-    if frame.returncode != 0 or len(frame.stdout) > PROBE_OUTPUT_LIMIT:
+    frame = _run_bounded_process(
+        [
+            ffprobe, "-v", "error", *LOCAL_INPUT_ARGS, "-select_streams", str(stream_index),
+            "-read_intervals", "%+#1", "-print_format", "json", "-show_frames", "--", str(path),
+        ],
+    )
+    if frame.returncode != 0:
         raise ProbeError("probe_failed")
     try:
         frame_raw = json.loads(frame.stdout)

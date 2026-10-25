@@ -79,6 +79,8 @@ const mocks = vi.hoisted(() => ({
   createAutomation: vi.fn(),
   getTitleMetadata: vi.fn(),
   playMusic: vi.fn(),
+  getMusicSharedSession: vi.fn(),
+  putMusicSharedSession: vi.fn(),
 }));
 
 const paletteChunk = vi.hoisted(() => ({ gate: null as Promise<void> | null }));
@@ -107,6 +109,12 @@ vi.mock('./workspace', async (importOriginal) => ({
 vi.mock('./features/music/musicSession', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./features/music/musicSession')>()),
   playMusic: mocks.playMusic,
+}));
+
+vi.mock('./features/music/musicSharedSession', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./features/music/musicSharedSession')>()),
+  getMusicSharedSession: mocks.getMusicSharedSession,
+  putMusicSharedSession: mocks.putMusicSharedSession,
 }));
 
 vi.mock('./api', async (importOriginal) => ({
@@ -260,6 +268,11 @@ beforeEach(() => {
   mocks.previewUrl.mockResolvedValue({ kind: 'playlist', title: 'Channel', entries: [], raw: {} });
   mocks.createJob.mockResolvedValue({ id: 'job-acquisition', source_url: 'https://example.test/video-acquisition', status: 'queued' });
   mocks.playMusic.mockResolvedValue(undefined);
+  // Video handoff checks the authenticated shared output even after a cold reload.
+  const musicSnapshot = { revision: 0, queue: [], current_index: null, position_seconds: 0,
+    repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 };
+  mocks.getMusicSharedSession.mockResolvedValue(musicSnapshot);
+  mocks.putMusicSharedSession.mockImplementation(async (payload: { base_revision: number }) => ({ ...musicSnapshot, revision: payload.base_revision + 1 }));
   mocks.getLibraryItem.mockImplementation(async (id: string) => ({ ...libraryItem, id }));
   mocks.getPlaybackProgress.mockResolvedValue(null);
   mocks.listUsers.mockResolvedValue([]);
@@ -400,6 +413,16 @@ describe('pending-member interest loading', () => {
 });
 
 describe('browser routes', () => {
+  it('keeps a Library watch route closed when its authenticated speaker output cannot be checked', async () => {
+    mocks.getMusicSharedSession.mockRejectedValue(new Error('Speaker output unavailable'));
+    window.history.replaceState(null, '', '/watch/library/library-1');
+    render(<LuminaApp />);
+
+    expect(await screen.findByText('Speaker output unavailable')).toBeTruthy();
+    expect(mocks.getMusicSharedSession).toHaveBeenCalled();
+    expect(document.querySelector('video')).toBeNull();
+  });
+
   it('reopens a Library watch deep link, and back/forward walk the route stack', async () => {
     const browser = userEvent.setup();
     window.history.replaceState(null, '', '/watch/library/library-1');
@@ -1683,7 +1706,10 @@ describe('recommendation wiring', () => {
     mocks.sendRecoEvents.mockImplementation(async () => { order.push('reco'); });
     mocks.switchMember.mockImplementation(async () => { order.push('switch'); return { user: two }; });
     let answerPut = (): void => undefined;
-    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { answerPut = () => { order.push('put answered'); resolve(new Response('{}', { status: 200 })); }; })));
+    vi.stubGlobal('fetch', vi.fn((url, init) => {
+      if (url !== '/api/playback/remote/remote-1' || init?.method !== 'PUT') return new Promise<Response>(() => undefined);
+      return new Promise<Response>((resolve) => { answerPut = () => { order.push('put answered'); resolve(new Response('{}', { status: 200 })); }; });
+    }));
     render(<LuminaApp />);
     await waitFor(() => expect(mocks.getDeviceMembers).toHaveBeenCalled());
     const workspace = mocks.useAuthenticatedWorkspace.mock.results[0].value;

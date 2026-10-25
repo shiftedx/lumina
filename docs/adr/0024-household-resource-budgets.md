@@ -14,6 +14,12 @@ Python contract: `resource_policy.household(db) -> HouseholdResources`, `resourc
 
 Upgrade leaves upload protection unconfigured and existing playback compatibility intact until `upload_bps` is supplied. Proposed playback and bandwidth defaults take effect together on enablement. Work queue defaults take effect immediately, preserving configured household `concurrency`, `ai_max_concurrency` and `max_playback_sessions`. The old download `max_active_jobs_per_user` cap remains a queued-plus-running compatibility ceiling; the new queued allowance counts waiting work only. Lower limits retain work and existing stream allocations; additional admission/dispatch waits or refuses until capacity exists.
 
+## Managed import staging
+
+Direct Books and Photos imports share two transient staging lanes, with at most one active import per authenticated member. Admission is fail-fast before a staging file is created: an occupied member or full household gate returns `429 upload_busy` with a retry hint. The supported single-process server owns this in-memory gate; a future multi-process deployment would need a shared admission authority.
+
+The gate also protects a 512 MiB free-space reserve on managed storage. A valid request length reserves its declared bytes; an unframed, invalidly framed, or transfer-encoded request reserves its route's complete existing size allowance. Unavailable or insufficient free-space information returns `507 storage_full` before staging or parser work. The reservation spans streaming, parsing and publication and is released after temporary-file cleanup on success, rejection, disconnect or cancellation. This is not a durable library quota, does not delete originals, and remains separate from the `upload_bps` delivery setting.
+
 ## Playback and delivery
 
 Reserve stable allocations before selecting quality, with aggregate member and household accounting across devices. Reuse logical sessions on seeks/retries; replace/release on supersession, stop, startup failure, cancellation and ten minutes without activity. Restart drops ephemeral sessions and reservations together. Paused streams expire on the same idle deadline. Budget the whole media stream including audio and mux overhead, leaving delivery headroom. Unknown bitrate under a cap forces bounded conversion or a clear unsupported outcome. Quality/audio/subtitle choices re-enter policy. A conversion failure never returns an unrestricted original.

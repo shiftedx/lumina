@@ -18,13 +18,14 @@ from app.book_schemas import (
     BooksPage, SeriesPage, ShelfCreate, ShelfEntries, ShelfPatch,
 )
 from app.db import get_db
-from app.http_boundaries import BOOK_UPLOAD_TOO_LARGE_MESSAGE
+from app.http_boundaries import BOOK_UPLOAD_TOO_LARGE_MESSAGE, MAX_BOOK_UPLOAD_BODY_BYTES
 from app.models import User
 from app.persistence import write_transaction
 from app.security import get_current_user
 from app.services import member_access
 from app.services.book_covers import BookCoverPreparing
 from app.services.books import BookError, BookForbidden, BookNotFound, BookService, book_root
+from app.services.upload_admission import UploadBusy, UploadStorageFull, upload_admission
 
 URL = "/api/books"
 
@@ -52,10 +53,23 @@ async def import_book(filename: str, request: Request, current_user: User = Depe
     if access is not None and not access.can_download:
         raise HTTPException(status_code=403, detail="downloads_not_allowed")
     root = book_root(); root.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=".upload-", suffix=".tmp", dir=root)
-    staged = Path(temporary)
+    try:
+        lease = upload_admission.acquire(
+            current_user.id, root,
+            content_length=None if request.headers.get("transfer-encoding") else request.headers.get("content-length"),
+            maximum_bytes=MAX_BOOK_UPLOAD_BODY_BYTES,
+        )
+    except UploadBusy as exc:
+        raise HTTPException(
+            status_code=429, detail="upload_busy", headers={"Retry-After": "2", "Cache-Control": "no-store"},
+        ) from exc
+    except UploadStorageFull as exc:
+        raise HTTPException(status_code=507, detail="storage_full", headers={"Cache-Control": "no-store"}) from exc
+    staged: Path | None = None
     new_target: Path | None = None
     try:
+        fd, temporary = tempfile.mkstemp(prefix=".upload-", suffix=".tmp", dir=root)
+        staged = Path(temporary)
         with os.fdopen(fd, "wb") as handle:
             try:
                 async for block in request.stream():
@@ -86,7 +100,11 @@ async def import_book(filename: str, request: Request, current_user: User = Depe
             raise
         return payload
     finally:
-        staged.unlink(missing_ok=True)
+        try:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
+        finally:
+            lease.release()
 
 
 def overview(current_user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> dict:

@@ -17,7 +17,7 @@ from starlette.requests import ClientDisconnect
 from starlette.responses import StreamingResponse
 
 from app.db import get_db
-from app.http_boundaries import PHOTO_UPLOAD_TOO_LARGE_MESSAGE
+from app.http_boundaries import MAX_PHOTO_UPLOAD_BODY_BYTES, PHOTO_UPLOAD_TOO_LARGE_MESSAGE
 from app.models import User
 from app.persistence import write_transaction
 from app.photo_schemas import (
@@ -30,6 +30,7 @@ from app.services import photo_cache, photo_derivatives, photo_files, photo_impo
 from app.services.photos import (
     PhotoError, PhotoForbidden, PhotoNotFound, PhotoService, can_download, photos_section_allowed, source_path,
 )
+from app.services.upload_admission import UploadBusy, UploadStorageFull, upload_admission
 
 
 def _error(exc: Exception) -> HTTPException:
@@ -49,11 +50,24 @@ async def import_photo(
     if not photos_section_allowed(db, current_user):
         raise HTTPException(status_code=404, detail="Photos not found")
     root = photo_derivatives.photos_root(); root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=".upload-", suffix=".tmp", dir=root)
-    staged = Path(temporary)
+    try:
+        lease = upload_admission.acquire(
+            current_user.id, root,
+            content_length=None if request.headers.get("transfer-encoding") else request.headers.get("content-length"),
+            maximum_bytes=MAX_PHOTO_UPLOAD_BODY_BYTES,
+        )
+    except UploadBusy as exc:
+        raise HTTPException(
+            status_code=429, detail="upload_busy", headers={"Retry-After": "2", "Cache-Control": "no-store"},
+        ) from exc
+    except UploadStorageFull as exc:
+        raise HTTPException(status_code=507, detail="storage_full", headers={"Cache-Control": "no-store"}) from exc
+    staged: Path | None = None
     digest, size, target = hashlib.sha256(), 0, None
     products = {}
     try:
+        fd, temporary = tempfile.mkstemp(prefix=".upload-", suffix=".tmp", dir=root)
+        staged = Path(temporary)
         with os.fdopen(fd, "wb") as handle:
             try:
                 async for block in request.stream():
@@ -112,9 +126,15 @@ async def import_photo(
                 pass
         return service.serialize(photo, current_user)
     finally:
-        staged.unlink(missing_ok=True)
-        with anyio.CancelScope(shield=True):
-            await anyio.to_thread.run_sync(photo_cache.release_publication, {key for key, _size in products.values()})
+        try:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
+        finally:
+            try:
+                with anyio.CancelScope(shield=True):
+                    await anyio.to_thread.run_sync(photo_cache.release_publication, {key for key, _size in products.values()})
+            finally:
+                lease.release()
 
 
 def list_photos(

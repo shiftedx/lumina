@@ -62,6 +62,27 @@ def _epub(path: Path, chapter: bytes | None = None, description: bytes = b" A su
     })
 
 
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16", "utf-16-le", "utf-16-be"])
+@pytest.mark.parametrize("declaration", ["", '<!DOCTYPE package [<!ENTITY unused "literal">]>'])
+def test_epub_xml_declarations_rejected_across_encodings(tmp_path: Path, encoding: str, declaration: str) -> None:
+    xml_encoding = "utf-16" if encoding.startswith("utf-16") else encoding
+    document = (
+        f'<?xml version="1.0" encoding="{xml_encoding}"?>{declaration}'
+        '<package><metadata><title>Harbor</title></metadata>'
+        '<manifest><item id="one" href="one.xhtml"/></manifest><spine><itemref idref="one"/></spine></package>'
+    ).encode(encoding)
+    book = _zip(tmp_path / "encoded.epub", {
+        "META-INF/container.xml": b'<container><rootfile full-path="book.opf"/></container>',
+        "book.opf": document,
+        "one.xhtml": b"<html><body><p>Harbor</p></body></html>",
+    })
+    if declaration:
+        with pytest.raises(BookArchiveError, match="unsupported XML entities"):
+            inspect_book(book, "epub")
+    else:
+        assert inspect_book(book, "epub")["title"] == "Harbor"
+
+
 def test_epub_metadata_spine_resources_and_safe_chapter_tree(tmp_path: Path) -> None:
     book = _epub(tmp_path / "book.epub")
     manifest = inspect_book(book, "epub")

@@ -410,3 +410,32 @@ def test_registering_a_live_stream_prepares_its_master_and_variant_connection_be
     master = _text(service, "owner", service.serve_master("owner", d.stream_id, gen(d)))
     assert fetcher.calls == [MASTER_URL]  # served from the prepared render
     assert media_playlist_id(master, d.stream_id, gen(d))
+
+
+def test_live_playlist_and_segments_keep_the_generation_master_credential_origin(monkeypatch) -> None:
+    media_url = MEDIA_URL.replace('cdn.example', 'cdn.example:80')
+    master_body = LIVE_MASTER.replace('360p/index.m3u8', media_url)
+    fetcher = SequencedFetcher({
+        MASTER_URL: [(200, {}, master_body.encode())],
+        media_url: [(200, {}, live_media(100, [100]).encode())],
+        'https://cdn.example:80/live/360p/seg100.m4s': [(200, {}, b'media')],
+    })
+    service = build_service(fetcher)
+    seen = []
+    real_fetch = fetcher.fetch
+
+    def recording_fetch(url, **kwargs):  # noqa: ANN001
+        seen.append((url, {name.lower() for name in kwargs.get('headers', {})}))
+        return real_fetch(url, **kwargs)
+
+    monkeypatch.setattr(fetcher, 'fetch', recording_fetch)
+    info = live_register_info()
+    info['http_headers'] = {'Authorization': 'synthetic', 'X-Token': 'synthetic', 'User-Agent': 'fixture-player'}
+    descriptor = service.register(owner_user_id='owner', source_url='https://youtube.com/watch?v=live1', info=info)
+    generation = gen(descriptor)
+    master = _text(service, 'owner', service.serve_master('owner', descriptor.stream_id, generation))
+    media = _text(service, 'owner', service.serve_resource('owner', descriptor.stream_id, generation, media_playlist_id(master, descriptor.stream_id, generation)))
+    for resource_id in segment_ids(media, descriptor.stream_id, generation):
+        assert _text(service, 'owner', service.serve_resource('owner', descriptor.stream_id, generation, resource_id)) == 'media'
+    assert seen[0][0] == MASTER_URL and 'authorization' in seen[0][1]
+    assert len(seen) == 3 and all(names == {'user-agent'} for _url, names in seen[1:])

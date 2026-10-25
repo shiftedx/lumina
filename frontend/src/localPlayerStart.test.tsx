@@ -77,7 +77,9 @@ describe('playback start', () => {
   it('labels a start clamped to the beginning as a direct Play, not a resume', async () => {
     api.getLocalPlaybackOptions.mockResolvedValue(direct);
     perf.notePlayIntent();
-    render(<LocalLibraryPlayer itemId="d-6" kind="video" poster={null} startAt={1319.5} title="Film" />);
+    await act(async () => {
+      render(<LocalLibraryPlayer itemId="d-6" kind="video" poster={null} startAt={1319.5} title="Film" />);
+    });
     await waitFor(() => expect(video().getAttribute('src')).toBe('/api/library/d-6/media'));
     fireEvent.playing(video());
     expect(metrics.recordMetric.mock.calls[0]?.slice(0, 2)).toEqual(['ttff_ms', 'direct']);

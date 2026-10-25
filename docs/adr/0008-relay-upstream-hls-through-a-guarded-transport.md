@@ -15,10 +15,13 @@ The relay parses the upstream master and each media playlist, resolves every ref
 
 The AES content key for an encrypted playlist is, by necessity of client-side decryption, relayed to the authenticated member's browser through a Lumina-owned address; the upstream key URL, cookies, and headers are not.
 
+Upstream credentials are scoped to the effective origin where they were selected. The effective origin is the normalized HTTP(S) scheme, hostname, and effective port. When a redirect, child playlist, segment, initialization resource, or key changes origin, Lumina retains only public transport preferences such as content negotiation, user agent, range, and validators; it removes cookies, authorization, referer, origin, proxy authorization, source host overrides, and arbitrary provider-specific headers. Filtering is case-insensitive and default-deny, and runs after downloader defaults and cookie-jar processing as well as at the relay boundary. A provider that requires a secret or referer to cross origins must receive a separately reviewed target-specific policy; Lumina does not infer trust from a shared DNS suffix.
+
 ## Consequences
 
 - A Household member can play a supported Twitch VOD in Watch through Lumina without any upstream address or credential reaching the browser.
 - The public-source policy remains the single SSRF authority and is enforced on every relayed master, playlist, segment, initialization resource, key, and redirect at fetch time.
+- Cross-origin resources do not inherit the source origin's credentials by default. This can reject a provider whose playback contract requires secret headers or a referer on another origin; support for that provider requires an explicit, tested origin relationship rather than wholesale header forwarding.
 - The relay is scoped to the tracer case; broadening it to other providers or to live media is a deliberate, separately reviewed change.
 - The relay itself is playback only. Acquisition of the same Twitch VOD tracer was subsequently added in issue #95 as a scoped exception: the download-transport gate admits yt-dlp's native (guarded) HLS downloader for exactly this tracer, keyed off the same predicate as playback, so every acquisition fetch flows through this transport. The generic `SAFE_NATIVE_PROTOCOLS` allowlist (and the #91 capability lockstep it governs) is unchanged, and acquisition of any other segmented source remains out of scope. Broadening the acquire path beyond the tracer is a deliberate, separately reviewed change.
 - Client-side rendition selection is performed by the browser's HLS player from the rewritten master; the relay does not expose a server-side rendition ladder for this transport.

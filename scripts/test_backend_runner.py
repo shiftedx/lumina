@@ -47,6 +47,34 @@ class BackendRunnerTests(unittest.TestCase):
         # allowed without being required for a passing host.
         runner.validate_cases(selected, [passing, {**skipped, "outcome": "passed", "reason": ""}], known_skip)
 
+    def test_xunit1_results_preserve_class_and_parameterized_identities(self) -> None:
+        selected = [
+            "tests/test_example.py::test_free[host.example]",
+            "tests/test_example.py::FirstTests::test_shared[one.two]",
+            "tests/test_example.py::SecondTests::test_shared[one.two]",
+            "tests/test_example.py::Outer::Inner::test_nested",
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "junit.xml"
+            report.write_text(
+                '<testsuite>'
+                '<testcase classname="tests.test_example" file="tests/test_example.py" '
+                'name="test_free[host.example]"/>'
+                '<testcase classname="tests.test_example.FirstTests" file="tests/test_example.py" '
+                'name="test_shared[one.two]"/>'
+                '<testcase classname="tests.test_example.SecondTests" file="tests/test_example.py" '
+                'name="test_shared[one.two]"><skipped message="needs tool"/></testcase>'
+                '<testcase classname="tests.test_example.Outer.Inner" file="tests/test_example.py" '
+                'name="test_nested"/>'
+                '</testsuite>'
+            )
+            cases = runner.junit_cases(report)
+        self.assertEqual([case["nodeid"] for case in cases], selected)
+        expected = [{"nodeid": selected[2], "reason": "needs tool"}]
+        self.assertEqual(runner.validate_cases(selected, cases, expected), ([], expected))
+        with self.assertRaisesRegex(runner.RunError, "unexpected skips"):
+            runner.validate_cases(selected, cases, [{**expected[0], "reason": "wrong reason"}])
+
     def test_timeout_stops_only_its_own_detached_process(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -21,6 +21,8 @@ from urllib.parse import urlsplit
 from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
 
+from app.services.xml_guard import declares_dtd
+
 
 SONOS_PORT = 1400
 SSDP_PORT = 1900
@@ -56,7 +58,6 @@ _SSDP_SEARCH = (
     "\r\n"
 ).encode("ascii")
 
-_XML_FORBIDDEN = re.compile(br"<!\s*(?:doctype|entity)\b", re.IGNORECASE)
 _SONOS_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
 ET.register_namespace("", DIDL_NS)
@@ -113,7 +114,7 @@ def _bounded_xml(payload: bytes | bytearray | str, *, limit: int, context: str) 
         data = bytes(payload)
     if len(data) > limit:
         raise SonosError(f"{context} XML response exceeded the size limit")
-    if _XML_FORBIDDEN.search(data):
+    if declares_dtd(data):
         raise SonosError(f"{context} XML doctype/entity declarations are rejected")
     try:
         return ET.fromstring(data)

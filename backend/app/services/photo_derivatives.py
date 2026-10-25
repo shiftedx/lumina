@@ -27,6 +27,7 @@ from typing import Any
 
 from app.config import settings
 from app.persistence import read_regular_file
+from app.services.parser_boundary import parser_command, parser_environment
 
 WIDTHS = (400, 1200, 2400)
 PIPELINE_VERSION = 1
@@ -129,10 +130,10 @@ def _run(mode: str, source: Path, target: Path | None = None) -> dict[str, Any]:
     if target is not None:
         argv.append(str(target.absolute()))
     try:
-        with _ADMISSION:
+        with _ADMISSION, parser_command(argv, source, target) as command:
             process = subprocess.Popen(
-                argv, cwd=package_root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                command, cwd=package_root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, env=parser_environment(), close_fds=True,
             )
             assert process.stdout is not None
             output: list[bytes] = []
@@ -145,17 +146,23 @@ def _run(mode: str, source: Path, target: Path | None = None) -> dict[str, Any]:
                     ready.set()
 
             threading.Thread(target=drain, daemon=True, name="photo-derivative-output").start()
-            deadline = time.monotonic() + TIMEOUT_SECONDS
-            while process.poll() is None:
-                if ready.wait(0.05) and output and len(output[0]) > CHILD_MESSAGE_BYTES:
+            try:
+                deadline = time.monotonic() + TIMEOUT_SECONDS
+                while process.poll() is None:
+                    if ready.wait(0.05) and output and len(output[0]) > CHILD_MESSAGE_BYTES:
+                        process.kill()
+                        break
+                    if time.monotonic() >= deadline:
+                        process.kill()
+                        break
+                process.wait(timeout=5)
+                if not ready.wait(1):
+                    raise PhotoDecodeError("The image could not be decoded safely.")
+            finally:
+                if process.poll() is None:
                     process.kill()
-                    break
-                if time.monotonic() >= deadline:
-                    process.kill()
-                    break
-            process.wait(timeout=5)
-            if not ready.wait(1):
-                raise PhotoDecodeError("The image could not be decoded safely.")
+                process.wait(timeout=5)
+                process.stdout.close()
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
         raise PhotoDecodeError("Photo processing timed out or could not start.") from exc
     raw = output[0] if output else b""

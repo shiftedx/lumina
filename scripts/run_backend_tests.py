@@ -96,6 +96,9 @@ def junit_cases(path: Path) -> list[dict[str, object]]:
         file, name = testcase.get("file"), testcase.get("name")
         if not file or not name:
             raise RunError("JUnit xunit1 testcase lacks file or name")
+        module = file.removesuffix(".py").replace("/", ".")
+        classname = testcase.get("classname", "")
+        classes = classname[len(module) + 1:].split(".") if classname.startswith(f"{module}.") else []
         skipped = testcase.find("skipped")
         if skipped is not None:
             outcome = "skipped"
@@ -108,7 +111,7 @@ def junit_cases(path: Path) -> list[dict[str, object]]:
             outcome, reason = "passed", ""
         cases.append(
             {
-                "nodeid": f"{file}::{name}",
+                "nodeid": "::".join([file, *classes, name]),
                 "outcome": outcome,
                 "reason": reason,
                 "seconds": float(testcase.get("time", "0")),

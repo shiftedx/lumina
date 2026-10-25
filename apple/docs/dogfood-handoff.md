@@ -1,10 +1,10 @@
 # Lumina native dogfood handoff
 
-Help the owner fix small iOS and tvOS issues reported during device testing. Apply and verify each requested fix, accumulate the changes, and stage another release only after the owner explicitly asks. No new dogfood defects have been supplied at this handoff.
+The accumulated native dogfood work is being integrated into main for a fresh agent to begin larger Books and Music updates. Start from current main in a clean worktree; the original checkout contains unrelated uncommitted work and must not be reset or cleaned. No Books/Music redesign requirements have been supplied yet. Package another native release only after an explicit owner request.
 
 ## Start here
 
-1. Read the applicable `AGENTS.md`, inspect the branch and working tree, and preserve existing work. The last packaged source is `dbdf1a58a29e25b831752f2a8af73d8724d3bcb3` on `main`, merged through PR #154. Check for newer commits before choosing a base.
+1. Read the applicable `AGENTS.md`, inspect the branch and working tree, and preserve existing work. The latest packaged source is `70fe8bfa75e8d1c1563a601157d4b29f41fef723` (iOS build 19). The integration also incorporates newer main security/parser fixes; check current main before choosing a base. Build 19 remains the immutable pre-integration package, not evidence that later integration edits shipped.
 2. Before changing appearance, read the [shared brand contract](brand-assets.md). It is the authority for colors and control roles; use its existing tokens and styles.
 3. Take the owner's next report as the work queue. For each issue, identify platform, screen, trigger, and expected result from the report or screenshot. Ask only for information that blocks reproduction or a correct fix. Completion means the reported case works and adjacent navigation, focus, and playback behavior still work.
 
@@ -12,7 +12,7 @@ Help the owner fix small iOS and tvOS issues reported during device testing. App
 
 - Artwork leads and reaches the bezel. Detail headers show Lumina branding; search Cancel stays clear of navigation.
 - Ordinary controls are muted neutrals. Selected accents, progress, and enabled switches use the shared brand roles. The canonical warm accent is `#DBB688`; accessible text and focus follow the brand contract.
-- tvOS has one centered category menu, quiet utility icons, and no Books. iOS retains Books. Home categories match the libraries, with Watchlist last; genre filtering belongs in Library.
+- tvOS has one centered category menu, quiet utility icons, and no Books. iOS retains Books. Standard iPhones use bottom primary tabs with compact Search/Browse utilities; Duo retains its category row and iPad its unified header. Categories match configured libraries; genre/technical filtering belongs in Library.
 - Music opens with large artwork and a bottom timeline. Queue is the top transport action, followed by Play/Pause, Repeat, and Stop. iOS artwork swipes change tracks; tvOS Left/Right changes tracks while artwork owns focus. Lyrics/options start collapsed. Preserve timeline seeking and remote focus/Back behavior.
 - Keep the bounded, session-scoped artwork cache and prefetch behavior intact. Confirm account changes cannot retain another member's artwork.
 
@@ -36,18 +36,20 @@ The packaged source passed the full repository gate: 5,365 backend tests with 11
 
 ## Current distribution state
 
-Last verified on 2026-10-24: **iOS and tvOS 0.1.0 (16)** are distribution-signed, locally validated, and staged in Xcode Organizer. This work uploaded neither build; the owner may distribute them manually afterward. Apple server validation was not performed.
+Last verified on 2026-10-25: **iOS 0.1.0 (19)** is distribution-signed, locally validated, and registered as **Signed for Organizer** in Xcode. This task performed a local export and staging only. Xcode subsequently displayed externally initiated upload preparation; completion, processing and tester assignment were not verified. No tvOS build was packaged for this release.
 
-The ignored package is `apple/Distribution/0.1.0-16/`. Its `ReleaseManifest.json`, `NativeSourceInputs.json`, `SHA256SUMS`, `README.txt`, and `What-to-Test.txt` are the release evidence. Both signed IPAs passed local validation, and the signed Organizer copies preserve matching executable/debug-symbol UUIDs. Select the entries labeled **Signed for Organizer**; retain the unsigned source archives for symbols.
+The ignored packages for builds 17, 18 and 19 were preserved in the original checkout's `apple/Distribution/` before worktree cleanup. Build 19 includes `ReleaseManifest.json`, `NativeSourceInputs.json`, `NativeSourceSnapshot.tar.gz`, `SHA256SUMS`, `Validation.txt`, `README.txt`, and `What-to-Test.txt`. Keep the signed Organizer archive and original unsigned source archive/debug symbols. Build 19 app/dSYM UUID is `88A1F703-601A-3769-9783-0621F7E05400` (arm64). The export retains build 19 and TestFlight Internal Only; it passed identity, privacy, fixture exclusion, signing and UUID checks, and excludes UI test hooks.
+
+Focused implementation checks passed for gestures, QR pairing, system-pause recovery, orientation, standard-phone navigation, and the closed-Duo category layout. The full suite was skipped at the owner's explicit request. Physical QR camera and OS-generated Duo posture/orientation continuity still need device confirmation. No additional build, release tag, or production deployment is authorized by this cleanup request.
 
 ## When the owner asks for the next build
 
-Until that instruction arrives, finish fixes and verification without archiving, exporting, staging, or uploading another release. Prior authorization for build 16 does not authorize a later package.
+Until that instruction arrives, finish fixes and verification without archiving, exporting, staging, or uploading another release. Prior authorization for build 19 does not authorize a later package.
 
 After an explicit staging request:
 
 1. Finish the agreed fixes and required checks. Resolve the intended clean source revision and record its provenance. Use the current [TestFlight procedure](testflight.md) and [release script](../scripts/testflight.sh).
-2. Choose a fresh build number from current local and App Store Connect evidence. Build 17 is only a candidate after build 16; recheck before using it. Preserve existing packages and successful uploads.
+2. Choose a fresh build number from current local and App Store Connect evidence. Build 20 is only a candidate after build 19; recheck local and App Store Connect evidence before using it. Preserve existing packages and successful uploads.
 3. Archive each requested platform, sign/export with the established internal-only configuration unless the owner requests another audience, and validate the IPAs, Organizer copies, privacy/artwork/fixture exclusions, and symbol UUIDs. Record source-input and package hashes.
 4. Stage the signed Organizer copies and visibly verify platform, version, build, and signing team in Xcode. Completion means both requested signed entries are available for the owner to distribute, with truthful package records and test notes.
 

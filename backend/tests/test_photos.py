@@ -1,24 +1,30 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import os
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from PIL import Image
 from pillow_heif import register_heif_opener
+from starlette.requests import ClientDisconnect
 
 from app import photo_face_models, photo_models, photo_root_models  # noqa: F401 - register metadata before db_factory creates the schema
 from app.db import session_scope
 from app.models import MemberAccess, StorageRoot, User
 from app.photo_face_models import PhotoFace, PhotoPerson
 from app.photo_models import PhotoItem
-from app.services import photo_derivatives, photo_imports
+from app.routers import photos as photo_routes
+from app.services import photo_derivatives, photo_imports, upload_admission as upload_admission_module
 from app.services.background_work import background_work
 from app.services.photos import PhotoService
 from app.services.storage_roots import StorageRootService
+from app.services.upload_admission import MIN_FREE_SPACE_BYTES, UploadAdmission, UploadBusy
 
 
 @pytest.fixture
@@ -200,14 +206,84 @@ def test_keyset_trash_restore_and_album_visibility(api_client, db_factory, monke
         assert client.delete(f"/api/photo-albums/{album['id']}").status_code == 404
 
 
-def test_malformed_image_is_rejected_without_catalog_or_staging_residue(api_client, db_factory) -> None:
+def test_malformed_image_releases_admission_without_catalog_or_staging_residue(api_client, db_factory, monkeypatch) -> None:
     owner = _user(db_factory, "malformed-owner")
     with api_client(user=owner, base_url="http://localhost") as client:
         response = client.put("/api/photos/import?filename=broken.jpg", content=b"\xff\xd8\xffnot-a-jpeg")
-    assert response.status_code == 422
+        assert response.status_code == 422
+        with db_factory() as db:
+            assert db.query(PhotoItem).count() == 0
+        assert list(photo_derivatives.photos_root().glob(".upload-*")) == []
+        _stub_pipeline(monkeypatch)
+        assert client.put("/api/photos/import?filename=after.jpg", content=_jpeg()).status_code == 201
     with db_factory() as db:
-        assert db.query(PhotoItem).count() == 0
+        assert db.query(PhotoItem).count() == 1
     assert list(photo_derivatives.photos_root().glob(".upload-*")) == []
+
+
+def test_upload_admission_keeps_a_lane_available_to_another_member(tmp_path) -> None:
+    admission = UploadAdmission(max_active=2, max_per_member=1, min_free_bytes=0)
+    with admission.acquire("member-a", tmp_path, content_length="10", maximum_bytes=100):
+        with pytest.raises(UploadBusy):
+            admission.acquire("member-a", tmp_path, content_length="10", maximum_bytes=100)
+        with admission.acquire("member-b", tmp_path, content_length="10", maximum_bytes=100):
+            with pytest.raises(UploadBusy):
+                admission.acquire("member-c", tmp_path, content_length="10", maximum_bytes=100)
+
+    with admission.acquire("member-a", tmp_path, content_length="10", maximum_bytes=100):
+        pass
+
+
+def test_photo_upload_refuses_low_space_before_staging_or_decode(api_client, db_factory, monkeypatch) -> None:
+    owner = _user(db_factory, "low-space-photo-owner")
+    payload = _jpeg()
+    root = photo_derivatives.photos_root()
+    decoded = False
+
+    def unexpected_decode(*_args):  # noqa: ANN202
+        nonlocal decoded
+        decoded = True
+        raise AssertionError("low-space upload reached the decoder")
+
+    monkeypatch.setattr(
+        upload_admission_module.shutil, "disk_usage",
+        lambda _root: SimpleNamespace(free=MIN_FREE_SPACE_BYTES + len(payload) - 1),
+    )
+    monkeypatch.setattr(photo_derivatives, "prepare", unexpected_decode)
+    with api_client(user=owner, base_url="http://localhost") as client:
+        response = client.put("/api/photos/import?filename=full.jpg", content=payload)
+
+    assert (response.status_code, response.json()) == (507, {"detail": "storage_full"})
+    assert response.headers["Cache-Control"] == "no-store"
+    assert decoded is False
+    assert list(root.glob(".upload-*")) == []
+
+
+@pytest.mark.parametrize("failure", [asyncio.CancelledError, ClientDisconnect], ids=["cancelled", "disconnected"])
+def test_interrupted_photo_upload_releases_its_lane_and_removes_staging(tmp_path, monkeypatch, failure) -> None:  # noqa: ANN001
+    class InterruptedRequest:
+        headers = {"content-length": "2"}
+        scope: dict = {}
+
+        async def stream(self):  # noqa: ANN202
+            yield b"x"
+            raise failure()
+
+    monkeypatch.setattr(photo_routes, "photos_section_allowed", lambda *_args: True)
+    monkeypatch.setattr(photo_routes.photo_derivatives, "photos_root", lambda: tmp_path)
+    user = SimpleNamespace(id="cancelled-photo-owner")
+
+    expected = asyncio.CancelledError if failure is asyncio.CancelledError else HTTPException
+    with pytest.raises(expected) as raised:
+        asyncio.run(photo_routes.import_photo("interrupted.jpg", InterruptedRequest(), current_user=user, db=object()))
+    if failure is ClientDisconnect:
+        assert raised.value.status_code == 400
+
+    assert list(tmp_path.glob(".upload-*")) == []
+    with upload_admission_module.upload_admission.acquire(
+        user.id, tmp_path, content_length="2", maximum_bytes=2,
+    ):
+        pass
 
 
 def test_catalog_failure_after_original_publication_removes_only_losing_target(db_factory, monkeypatch) -> None:
@@ -706,8 +782,17 @@ def test_automatic_preparation_rechecks_gate_after_global_admission(monkeypatch)
 
 
 def test_external_scan_skips_one_bad_file_without_starving_later_photos(
-    api_client, db_factory, monkeypatch, tmp_path,
+    api_client, db_factory, monkeypatch, tmp_path, request,
 ) -> None:
+    from app.db import init_db
+    from support import file_backed_session_factory
+
+    init_db()  # TestClient startup also uses this file; retain its schema stamp.
+    # Preparation threads need independent connections; StaticPool shares one
+    # connection whose reader rollback can discard another session's writes.
+    original_bind = db_factory.kw["bind"]
+    db_factory.configure(bind=file_backed_session_factory().kw["bind"])
+    request.addfinalizer(lambda: db_factory.configure(bind=original_bind))
     _stub_pipeline(monkeypatch)
     monkeypatch.setattr(StorageRootService, "is_online", lambda _service, _root: True)
     monkeypatch.setattr(background_work, "busy", lambda: False)

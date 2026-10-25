@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -84,7 +85,7 @@ def test_probe_corrupt_timeout_safe(household: None, monkeypatch: pytest.MonkeyP
 
     # A hanging prober is killed at the timeout and reported, not waited on forever.
     hang = tmp_path / "ffprobe"
-    hang.write_text("#!/bin/sh\nsleep 30\n")
+    hang.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(30)\n")
     hang.chmod(0o755)
     real_tool = media_probe.media_tool
     monkeypatch.setattr(media_probe, "media_tool", lambda db, name: str(hang))

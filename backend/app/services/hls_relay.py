@@ -30,7 +30,7 @@ from app.services.hls_manifest import (
     rewrite_media,
 )
 from app.services.hls_relay_support import extract_master_url, extract_request_headers
-from app.services.network_policy import PublicSourcePolicy, PublicSourcePolicyError
+from app.services.network_policy import PublicSourcePolicy, PublicSourcePolicyError, headers_for_origin
 from app.services.remote_streaming import (
     ByteRange,
     PlaybackDescriptor,
@@ -350,7 +350,7 @@ class HlsRelayService:
         state: _RelayGeneration,
         resource: _RelayResource,
     ) -> StreamResponseSpec:
-        text = self._fetch_document(record, resource.url, state.request_headers, self._max_manifest_bytes)
+        text = self._fetch_document(record, resource.url, state.request_headers, self._max_manifest_bytes, credential_url=state.master_url)
         try:
             if classify(text) != "media":
                 raise MalformedManifestError("A variant address did not resolve to a media playlist.")
@@ -370,7 +370,7 @@ class HlsRelayService:
         self._validate_relay_url(resource.url)
         budget = self._max_key_bytes if resource.kind == "key" else self._max_bytes_per_response
         byte_range = parse_range_header(range_header, None) if range_header else None
-        upstream = self._safe_fetch(resource.url, dict(state.request_headers), byte_range)
+        upstream = self._safe_fetch(resource.url, headers_for_origin(state.request_headers, state.master_url, resource.url), byte_range)
         if upstream.status_code in _AUTH_EXPIRY_STATUSES:
             upstream.close()
             # Recovery is driven by a single client-issued refresh so one expiry
@@ -403,7 +403,7 @@ class HlsRelayService:
     # -- upstream helpers --------------------------------------------------
 
     def _render_master(self, record: _RelayRecord, generation: int, state: _RelayGeneration) -> bytes:
-        text = self._fetch_document(record, state.master_url, state.request_headers, self._max_manifest_bytes)
+        text = self._fetch_document(record, state.master_url, state.request_headers, self._max_manifest_bytes, credential_url=state.master_url)
         try:
             if classify(text) != "master":
                 raise MalformedManifestError("The upstream master address did not resolve to a master playlist.")
@@ -414,12 +414,12 @@ class HlsRelayService:
             raise UnsupportedPlaybackError("The rewritten HLS master exceeds the manifest byte budget.")
         return rendered
 
-    def _fetch_document(self, record: _RelayRecord, url: str, headers: dict[str, str], byte_limit: int) -> str:
+    def _fetch_document(self, record: _RelayRecord, url: str, headers: dict[str, str], byte_limit: int, *, credential_url: str) -> str:
         self._validate_relay_url(url)
         slots = self._acquire_read_slots(record.owner_user_id)
         response: UpstreamMediaResponse | None = None
         try:
-            response = self._safe_fetch(url, dict(headers), None)
+            response = self._safe_fetch(url, headers_for_origin(headers, credential_url, url), None)
             if response.status_code in _AUTH_EXPIRY_STATUSES:
                 raise UpstreamRelayExpiredError("An upstream HLS playlist expired during playback.")
             if response.status_code != 200:

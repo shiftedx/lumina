@@ -70,10 +70,12 @@ def analyze(data: bytes) -> dict:
     subject_input = (subject_input - np.array([103.53, 116.28, 123.675], dtype=np.float32)) / np.array([57.375, 57.12, 58.395], dtype=np.float32)
     network = cv2.dnn.readNetFromONNX(str(root / "nanodet.onnx"))
     network.setInput(cv2.dnn.blobFromImage(subject_input))
-    outputs = network.forward(network.getUnconnectedOutLayersNames())
+    # The checksum-pinned model exports class/box pairs at strides 8, 16 and 32.
+    # OpenCV versions enumerate these outputs differently; request their semantic order.
+    outputs = network.forward(("792", "795", "814", "817", "836", "839"))
     classifications, regressions = outputs[::2], outputs[1::2]
     boxes, confidences = [], []
-    for stride, classification, regression in zip((8, 16, 32, 64), classifications, regressions):
+    for stride, classification, regression in zip((8, 16, 32), classifications, regressions):
         classification, regression = classification.squeeze(0), regression.squeeze(0)
         axis_x, axis_y = np.meshgrid(np.arange(SUBJECT_SIDE // stride), np.arange(SUBJECT_SIDE // stride))
         anchors = np.column_stack((axis_x.ravel() * stride + .5 * (stride - 1), axis_y.ravel() * stride + .5 * (stride - 1)))

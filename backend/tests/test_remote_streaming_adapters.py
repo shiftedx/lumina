@@ -824,3 +824,42 @@ def test_first_playlist_arrives_before_a_throttled_long_source_finishes_download
         print(f"first playlist {first_playlist:.2f}s at {first_fraction:.0%} downloaded; complete {finished:.2f}s, {segments} segments")
     finally:
         server.shutdown()
+
+
+def test_relay_redirect_chain_scopes_credentials_and_preserves_range_and_validators(monkeypatch) -> None:
+    from app.services.remote_streaming import UpstreamMediaResponse
+
+    class Policy:
+        def validate_url(self, url):  # noqa: ANN001
+            return url
+
+    fetcher = adapters.PublicRelayFetcher(policy=Policy())
+    seen = []
+    locations = iter(['https://public.example:443/one', 'https://other.example/two', 'https://other.example/three', 'https://public.example/four', None])
+
+    class Response:
+        def __init__(self):
+            self.location = next(locations)
+            self.status = 302 if self.location else 200
+
+        def getheader(self, name):  # noqa: ANN001
+            return self.location if name == 'Location' else None
+
+        def read(self):
+            return b''
+
+    def request(origin, target, headers, timeout):  # noqa: ANN001
+        seen.append({name.lower() for name in headers})
+        return object(), Response()
+
+    monkeypatch.setattr(fetcher, '_request', request)
+    monkeypatch.setattr(fetcher, '_finish', lambda *args: None)
+    monkeypatch.setattr(fetcher, '_wrap', lambda *args: UpstreamMediaResponse(200, {}, [b'bytes']))
+    response = fetcher.fetch('https://public.example/start', headers={
+        'aUtHoRiZaTiOn': 'synthetic', 'Cookie': 'synthetic=1', 'X-API-Token': 'synthetic',
+        'If-Range': 'fixture-etag', 'If-None-Match': 'fixture-etag',
+    }, byte_range=ByteRange(0, 2))
+    assert b''.join(response.body) == b'bytes'
+    assert all({'authorization', 'cookie', 'x-api-token'} <= names for names in seen[:2])
+    assert all(not {'authorization', 'cookie', 'x-api-token'}.intersection(names) for names in seen[2:])
+    assert all({'range', 'if-range', 'if-none-match', 'accept-encoding'} <= names for names in seen)

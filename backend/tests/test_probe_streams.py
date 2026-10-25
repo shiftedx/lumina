@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
+from app.services import media_probe
 from app.services.media_probe import PROBE_CACHE_VERSION, is_stale, normalize, run_ffprobe
 
 RAW = {
@@ -75,13 +78,203 @@ def test_frame_colors_follow_playable_video_when_cover_art_comes_first(monkeypat
         commands.append(command)
         return subprocess.CompletedProcess(command, 0, json.dumps(next(responses)).encode(), b"")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(media_probe, "_run_bounded_process", fake_run)
     facts = normalize(run_ffprobe("ffprobe", Path("/media/movie.mkv")), "movie.mkv")
 
     assert len(commands) == 2
     assert commands[1][commands[1].index("-select_streams") + 1] == "2"
     assert facts["video_codec"] == "hevc"
     assert facts["streams"][1]["color_transfer"] == "smpte2084"
+
+
+def _fake_probe(tmp_path: Path, body: str) -> Path:
+    probe = tmp_path / "ffprobe"
+    probe.write_text(f"#!{sys.executable}\n{body}")
+    probe.chmod(0o755)
+    return probe
+
+
+def _assert_reaped(pid_file: Path) -> None:
+    pid = int(pid_file.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+    with pytest.raises(ChildProcessError):
+        os.waitpid(pid, os.WNOHANG)
+
+
+class _FakePipe:
+    def __init__(self, *, close_error: bool = False) -> None:
+        self.close_error = close_error
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+        if self.close_error:
+            raise OSError("close failed")
+
+
+class _FakeProcess:
+    def __init__(self, *, ignore_terminate: bool = False, pipe_close_error: bool = False) -> None:
+        self.stdout = _FakePipe(close_error=pipe_close_error)
+        self.stderr = _FakePipe()
+        self.returncode = 0
+        self.running = True
+        self.ignore_terminate = ignore_terminate
+        self.calls: list[object] = []
+
+    def poll(self) -> int | None:
+        self.calls.append("poll")
+        return None if self.running else self.returncode
+
+    def terminate(self) -> None:
+        self.calls.append("terminate")
+        if not self.ignore_terminate:
+            self.running = False
+
+    def kill(self) -> None:
+        self.calls.append("kill")
+        self.running = False
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.calls.append(("wait", timeout))
+        if self.running:
+            raise subprocess.TimeoutExpired("ffprobe", timeout)
+        return self.returncode
+
+
+def test_selector_construction_failure_still_kills_and_reaps_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    process = _FakeProcess(ignore_terminate=True)
+    monkeypatch.setattr(media_probe.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        media_probe.selectors, "DefaultSelector",
+        lambda: (_ for _ in ()).throw(OSError("selector unavailable")),
+    )
+
+    with pytest.raises(media_probe.ProbeError, match="probe_failed"):
+        media_probe._run_bounded_process(["ffprobe"])
+
+    assert process.calls == [
+        "poll", "terminate", ("wait", media_probe.PROBE_TERMINATE_GRACE_SECONDS), "kill", ("wait", None),
+    ]
+    assert process.stdout.close_calls == 1
+    assert process.stderr.close_calls == 1
+
+
+def test_cleanup_failures_cannot_skip_probe_reap(monkeypatch: pytest.MonkeyPatch) -> None:
+    process = _FakeProcess(pipe_close_error=True)
+    process.running = False
+
+    class EmptySelector:
+        def __init__(self) -> None:
+            self.close_calls = 0
+
+        def register(self, *_args: object) -> None:
+            pass
+
+        def get_map(self) -> dict[object, object]:
+            return {}
+
+        def close(self) -> None:
+            self.close_calls += 1
+            raise OSError("selector close failed")
+
+    selector = EmptySelector()
+    monkeypatch.setattr(media_probe.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(media_probe.selectors, "DefaultSelector", lambda: selector)
+
+    result = media_probe._run_bounded_process(["ffprobe"])
+
+    assert result.returncode == 0
+    assert selector.close_calls == 1
+    assert process.stdout.close_calls == 1
+    assert process.stderr.close_calls == 1
+    wait_call = process.calls[0]
+    assert isinstance(wait_call, tuple)
+    assert wait_call[0] == "wait"
+    assert 0 < wait_call[1] <= media_probe.PROBE_TIMEOUT_SECONDS
+    assert process.calls[1:] == ["poll", ("wait", None)]
+
+
+@pytest.mark.parametrize("fd", [1, 2], ids=["stdout", "stderr"])
+def test_probe_caps_each_output_pipe_and_reaps_the_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fd: int,
+) -> None:
+    limit = 64
+    pid_file = tmp_path / "pid"
+    term_file = tmp_path / "terminated"
+    probe = _fake_probe(tmp_path, """import os, signal, time
+pid_file = os.environ["FAKE_PROBE_PID"]
+term_file = os.environ["FAKE_PROBE_TERM"]
+def terminated(_signum, _frame):
+    open(term_file, "w").write("yes")
+signal.signal(signal.SIGTERM, terminated)
+open(pid_file, "w").write(str(os.getpid()))
+os.write(int(os.environ["FAKE_PROBE_FD"]), b"x" * (int(os.environ["FAKE_PROBE_LIMIT"]) + 1))
+while True:
+    time.sleep(1)
+""")
+    monkeypatch.setattr(media_probe, "PROBE_OUTPUT_LIMIT", limit)
+    monkeypatch.setattr(media_probe, "PROBE_TERMINATE_GRACE_SECONDS", 0.2)
+    monkeypatch.setenv("FAKE_PROBE_PID", str(pid_file))
+    monkeypatch.setenv("FAKE_PROBE_TERM", str(term_file))
+    monkeypatch.setenv("FAKE_PROBE_FD", str(fd))
+    monkeypatch.setenv("FAKE_PROBE_LIMIT", str(limit))
+    read_sizes: list[int] = []
+    retained_sizes: list[int] = []
+    real_read = media_probe._read_pipe
+    real_append = media_probe._append_output
+
+    def tracked_read(file_descriptor: int, size: int) -> bytes:
+        read_sizes.append(size)
+        return real_read(file_descriptor, size)
+
+    def tracked_append(buffer: bytearray, chunk: bytes) -> bool:
+        exceeded = real_append(buffer, chunk)
+        retained_sizes.append(len(buffer))
+        return exceeded
+
+    monkeypatch.setattr(media_probe, "_read_pipe", tracked_read)
+    monkeypatch.setattr(media_probe, "_append_output", tracked_append)
+    monkeypatch.setattr(media_probe, "media_tool", lambda *_args: str(probe))
+
+    service = media_probe.MediaProbeService(None)  # type: ignore[arg-type]
+    assert service._probe(tmp_path / "movie.mkv") == {"error": "probe_failed"}
+
+    assert limit + 1 in read_sizes and max(read_sizes) <= limit + 1
+    assert retained_sizes and max(retained_sizes) == limit
+    assert term_file.read_text() == "yes"
+    _assert_reaped(pid_file)
+
+
+def test_probe_timeout_terminates_and_reaps_the_child(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pid_file = tmp_path / "pid"
+    term_file = tmp_path / "terminated"
+    probe = _fake_probe(tmp_path, """import os, signal, time
+def terminated(_signum, _frame):
+    open(os.environ["FAKE_PROBE_TERM"], "w").write("yes")
+signal.signal(signal.SIGTERM, terminated)
+open(os.environ["FAKE_PROBE_PID"], "w").write(str(os.getpid()))
+while True:
+    time.sleep(1)
+""")
+    monkeypatch.setattr(media_probe, "PROBE_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(media_probe, "PROBE_TERMINATE_GRACE_SECONDS", 0.2)
+    monkeypatch.setenv("FAKE_PROBE_PID", str(pid_file))
+    monkeypatch.setenv("FAKE_PROBE_TERM", str(term_file))
+    monkeypatch.setattr(media_probe, "media_tool", lambda *_args: str(probe))
+
+    service = media_probe.MediaProbeService(None)  # type: ignore[arg-type]
+    assert service._probe(tmp_path / "movie.mkv") == {"error": "probe_timeout"}
+
+    assert term_file.read_text() == "yes"
+    _assert_reaped(pid_file)
+
+
+def test_bounded_probe_preserves_normal_json(tmp_path: Path) -> None:
+    raw = {"format": {"format_name": "matroska,webm"}, "streams": [{"index": 0, "codec_type": "audio", "codec_name": "flac"}]}
+    probe = _fake_probe(tmp_path, f"import os\nos.write(2, b'diagnostic')\nos.write(1, {json.dumps(raw).encode()!r})\n")
+
+    assert run_ffprobe(str(probe), tmp_path / "movie.mkv") == raw
 
 
 def test_zero_rates_and_junk_values_become_none() -> None:

@@ -23,7 +23,7 @@ from yt_dlp.networking.exceptions import HTTPError
 from yt_dlp.utils.networking import std_headers
 
 from app.db import SessionLocal
-from app.services.network_policy import PolicyYoutubeDL, PublicSourcePolicy, create_public_connection
+from app.services.network_policy import PolicyYoutubeDL, PublicSourcePolicy, create_public_connection, effective_origin, headers_for_origin
 from app.services.playback_log import log_playback
 from app.services.remote_streaming import (
     ByteRange,
@@ -319,8 +319,10 @@ class PublicRelayFetcher:
                 request_headers["Range"] = f"bytes=-{byte_range.end}"
             else:
                 request_headers["Range"] = f"bytes={byte_range.start}-{'' if byte_range.end is None else byte_range.end}"
+        credential_url = url
         for _redirect in range(self.max_redirects + 1):
             self._policy.validate_url(url)
+            request_headers = headers_for_origin(request_headers, credential_url, url)
             origin, target = self._origin(url)
             connection, response = self._request(origin, target, request_headers, timeout)
             location = response.getheader("Location")
@@ -351,8 +353,7 @@ class PublicRelayFetcher:
     @staticmethod
     def _origin(url: str) -> tuple[tuple[str, str, int], str]:
         parts = urlsplit(url)
-        scheme = parts.scheme.lower()
-        origin = (scheme, parts.hostname or "", parts.port or (443 if scheme == "https" else 80))
+        origin = effective_origin(url)
         return origin, (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
 
     def _request(self, origin, target, headers, timeout):  # noqa: ANN001, ANN202

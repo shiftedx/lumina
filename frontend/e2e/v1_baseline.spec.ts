@@ -71,6 +71,7 @@ test('browser boots: local login, one synthetic playback, review surfaces render
   });
 
   let loggedIn = false;
+  let musicSessionRevision = 0;
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -82,6 +83,11 @@ test('browser boots: local login, one synthetic playback, review surfaces render
       return loggedIn ? json({ user }) : json({ detail: 'invalid credentials' }, 401);
     }
     if (path === '/api/session/logout') { loggedIn = false; return json({ ok: true }); }
+    if (path === '/api/me/music-session' && ['GET', 'PUT'].includes(request.method())) {
+      if (request.method() === 'PUT') musicSessionRevision += 1;
+      return json({ revision: musicSessionRevision, queue: [], current_index: null, position_seconds: 0,
+        repeat: 'off', shuffle: false, active_output: { kind: 'browser' }, updated_at: null, removed_count: 0 });
+    }
     if (path === '/api/bootstrap/status') return json({ needs_setup: false });
     if (path === '/api/health' || path === '/api/runtime-health') return json({ status: 'ok', desktop_dir: null, data_dir: '/tmp/lumina-test' });
     if (path === '/api/library') return json({ items: [fixtureItem], next_cursor: null });

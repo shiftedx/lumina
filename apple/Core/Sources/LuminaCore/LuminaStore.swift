@@ -1168,7 +1168,17 @@ protocol CredentialStore: AnyObject {
     func deleteSession()
 }
 
-private final class KeychainCredentials: CredentialStore {
+final class KeychainCredentials: CredentialStore {
+    // Keep Security calls injectable so credential migration can be checked without a signed app's Keychain.
+    struct Operations {
+        var copyMatching: (CFDictionary, UnsafeMutablePointer<CFTypeRef?>?) -> OSStatus = SecItemCopyMatching
+        var add: (CFDictionary, UnsafeMutablePointer<CFTypeRef?>?) -> OSStatus = SecItemAdd
+        var update: (CFDictionary, CFDictionary) -> OSStatus = SecItemUpdate
+        var delete: (CFDictionary) -> OSStatus = SecItemDelete
+    }
+    private let operations: Operations
+    init(operations: Operations = Operations()) { self.operations = operations }
+
     private let service: String = {
         #if DEBUG || LUMINA_UI_TESTING
         if let namespace = ProcessInfo.processInfo.environment["LUMINA_UI_TEST_NAMESPACE"],
@@ -1180,28 +1190,46 @@ private final class KeychainCredentials: CredentialStore {
     private let sessionKey = "session"
 
     func deviceID() throws -> String {
-        if let data = read(deviceKey), let id = String(data: data, encoding: .utf8) { return id }
+        if let data = try read(deviceKey) {
+            guard let id = String(data: data, encoding: .utf8), !id.isEmpty else { throw LuminaError.keychain(errSecDecode) }
+            return id
+        }
         let id = UUID().uuidString.lowercased()
         try write(Data(id.utf8), key: deviceKey)
         return id
     }
     func save(session: LuminaSession) throws { try write(JSONEncoder().encode(session), key: sessionKey) }
-    func load() throws -> LuminaSession? { guard let data = read(sessionKey) else { return nil }; return try JSONDecoder().decode(LuminaSession.self, from: data) }
+    func load() throws -> LuminaSession? { guard let data = try read(sessionKey) else { return nil }; return try JSONDecoder().decode(LuminaSession.self, from: data) }
     func deleteSession() { delete(sessionKey) }
 
     private func query(_ key: String) -> [CFString: Any] { [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: key] }
-    private func read(_ key: String) -> Data? {
-        var values = query(key); values[kSecReturnData] = true; values[kSecMatchLimit] = kSecMatchLimitOne
+    private func read(_ key: String) throws -> Data? {
+        var values = query(key)
+        values[kSecReturnData] = true; values[kSecReturnAttributes] = true; values[kSecMatchLimit] = kSecMatchLimitOne
         var result: CFTypeRef?
-        return SecItemCopyMatching(values as CFDictionary, &result) == errSecSuccess ? result as? Data : nil
+        let status = operations.copyMatching(values as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw LuminaError.keychain(status) }
+        guard let item = result as? [String: Any], let data = item[kSecValueData as String] as? Data else {
+            throw LuminaError.keychain(errSecDecode)
+        }
+        if item[kSecAttrAccessible as String] as? String != kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String {
+            // Preserve background access, but stop credentials migrating to a different device via backup.
+            let status = operations.update(query(key) as CFDictionary, [kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly] as CFDictionary)
+            guard status == errSecSuccess else { throw LuminaError.keychain(status) }
+        }
+        return data
     }
     private func write(_ data: Data, key: String) throws {
-        delete(key)
-        var values = query(key); values[kSecValueData] = data; values[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
-        let status = SecItemAdd(values as CFDictionary, nil)
+        let attributes: [CFString: Any] = [kSecValueData: data, kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+        // Updating in place preserves the previous session/device identity if Keychain is unavailable.
+        var status = operations.update(query(key) as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            status = operations.add(query(key).merging(attributes) { _, new in new } as CFDictionary, nil)
+        }
         guard status == errSecSuccess else { throw LuminaError.keychain(status) }
     }
-    private func delete(_ key: String) { SecItemDelete(query(key) as CFDictionary) }
+    private func delete(_ key: String) { _ = operations.delete(query(key) as CFDictionary) }
 }
 
 extension LuminaError: LocalizedError {

@@ -1,5 +1,6 @@
 """The Docker packaging stays browser-only, credential-free and pinned to one toolchain source."""
 from pathlib import Path
+import hashlib
 import json
 import os
 import re
@@ -26,8 +27,44 @@ def _step(steps: list[dict], name: str) -> dict:
 
 def test_docker_base_images_match_the_single_toolchain_pin() -> None:
     pins = _pins()
-    bases = re.findall(r"^FROM (\w+):([\d.]+)-", (ROOT / "Dockerfile").read_text(), re.MULTILINE)
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    bases = re.findall(r"^FROM (\w+):([\d.]+)-", dockerfile, re.MULTILINE)
     assert dict(bases) == {"node": pins["nodejs"], "python": pins["python"]}
+    for line in dockerfile.splitlines():
+        if line.startswith(("FROM node:", "FROM python:")):
+            assert re.fullmatch(r"FROM [\w:.-]+@sha256:[a-f0-9]{64}(?: AS [\w-]+)?", line)
+
+
+def test_shipped_caddy_replaces_untrusted_client_forwarding_headers() -> None:
+    caddyfile = (ROOT / "docker" / "Caddyfile.example").read_text()
+    assert "header_up X-Forwarded-For {remote_host}" in caddyfile
+    assert "header_up -CF-Connecting-IP" in caddyfile
+    assert "header_up -Forwarded" in caddyfile
+
+
+def test_namespace_overlay_retains_docker_baseline_and_bounds_bootstrap_permissions() -> None:
+    profile = json.loads((ROOT / "docker/parser-namespace-seccomp.json").read_text())
+    added = profile["syscalls"][-3:]
+    baseline = {**profile, "syscalls": profile["syscalls"][:-3]}
+    canonical = json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode()
+    # Pinned complete Moby policy; changes must not drop unrelated default rules.
+    assert hashlib.sha256(canonical).hexdigest() == "a894b5730caa168d88da7fffe8ace974ad05fb84547e1766fa879d75d3ac6ba2"
+    assert [{key: value for key, value in rule.items() if key != "comment"} for rule in added] == [
+        {"names": ["clone"], "action": "SCMP_ACT_ALLOW",
+         "args": [{"index": 0, "value": 0x7c020011, "op": "SCMP_CMP_EQ"}]},
+        {"names": ["unshare"], "action": "SCMP_ACT_ALLOW",
+         "args": [{"index": 0, "value": 0x10000000, "op": "SCMP_CMP_EQ"}]},
+        {"names": ["mount", "umount2", "pivot_root"], "action": "SCMP_ACT_ALLOW"},
+    ]
+    base = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]["lumina"]
+    overlay = yaml.safe_load((ROOT / "docker-compose.parser-namespace.yml").read_text())["services"]["lumina"]
+    assert base["security_opt"] == ["no-new-privileges:true"]
+    assert overlay == {
+        "environment": {"LUMINA_PARSER_SANDBOX": "namespace"},
+        "security_opt": ["seccomp=./docker/parser-namespace-seccomp.json"],
+    }
+    for filename in ("Dockerfile", "scripts/perf/Dockerfile.compare"):
+        assert "bubblewrap=0.12.0-1~deb13u1" in (ROOT / filename).read_text()
 
 
 def test_python_pin_reaches_pyproject_and_both_locks() -> None:
@@ -45,6 +82,9 @@ def test_packaging_carries_no_credential_or_legacy_state() -> None:
         for legacy in ("SECRET_KEY", "storage.key", "lumina-secrets", "/shared", "cookies", "cryptography", "gosu"):
             assert legacy not in text
     assert "curl-cffi" not in (ROOT / "backend" / "requirements.runtime.lock").read_text()
+    install = dockerfile.index("pip install --require-hashes -r /app/backend/requirements.runtime.lock")
+    remove_installer = dockerfile.index("python -m pip uninstall --yes pip", install)
+    assert "pip install" not in dockerfile[remove_installer:]
     # Non-root runtime, healthcheck in the image, and init can forward SIGTERM across the UID drop.
     assert 'exec setpriv --reuid="$runtime_uid" --regid="$runtime_gid" "$groups"' in entrypoint
     assert "HEALTHCHECK" in dockerfile and "/api/health" in dockerfile
@@ -61,11 +101,31 @@ def test_media_toolchain_is_jellyfin_ffmpeg_pinned_per_arch() -> None:
         adds = re.findall(r"^ADD (.+)$", body, re.M)
         assert adds and all(re.fullmatch(r"--checksum=sha256:[0-9a-f]{64} https://github\.com/\S+\.deb /debs/", add) for add in adds)
         assert any("jellyfin-ffmpeg8_" in add and f"-trixie_{arch}.deb" in add for add in adds)
+    media_adds = {arch: next(line for line in body.splitlines() if "jellyfin-ffmpeg8_" in line) for arch, body in stages.items()}
+    versions = {re.search(r"jellyfin-ffmpeg8_([^/]+)-trixie_", line)[1] for line in media_adds.values()}
+    assert versions == {"8.1.3-1"}
+    assert media_adds["arm64"] in (ROOT / "scripts" / "perf" / "Dockerfile.compare").read_text().splitlines()
     assert "intel-opencl-icd_" in stages["amd64"] and "intel" not in stages["arm64"]
     assert "FROM media-debs-${TARGETARCH} AS media-debs" in dockerfile
     for tool in ("ffmpeg", "ffprobe"):
         assert f"ln -s /usr/lib/jellyfin-ffmpeg/{tool} /usr/local/bin/{tool}" in dockerfile
     assert "static-ffmpeg" not in dockerfile
+
+
+
+def test_archive_runtime_uses_the_same_fixed_source_and_loader_in_both_images() -> None:
+    production = (ROOT / "Dockerfile").read_text()
+    comparison = (ROOT / "scripts/perf/Dockerfile.compare").read_text()
+    def archive_stage(text: str) -> str:
+        return re.search(r"^FROM python:[^\n]+ AS archive-build\n(.*?)(?=^FROM )", text, re.M | re.S)[1].split("\n\n", 1)[0].strip()
+    assert archive_stage(production) == archive_stage(comparison)
+    assert "--checksum=sha256:56cad765459d5ee25a3b761f90c47d99379d28297fbfb72d908880d6b875fb96" in archive_stage(production)
+    assert "libarchive-3.8.10.tar.xz" in archive_stage(production)
+    for text in (production, comparison):
+        assert "COPY --from=archive-build /out/ /usr/local/\nRUN ldconfig" in text
+        assert "libarchive13t64" not in text
+        assert "libseccomp2" in text
+    assert "test_read_format_rar5_multiple_files_solid" in archive_stage(production)
 
 
 def test_qsv_override_passes_the_render_device_and_group() -> None:

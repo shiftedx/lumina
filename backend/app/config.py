@@ -4,6 +4,7 @@ import logging
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from pathlib import Path
 import re
+from typing import Literal
 from urllib.parse import ParseResult, urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +26,7 @@ class EnvSettings(BaseSettings):
     library_dirname: str = "library"
     temp_dirname: str = "temp"
     playback_temp_dir: Path | None = None
+    parser_sandbox: Literal["landlock", "namespace"] = "landlock"
     background_backfill_start_hour: int | None = Field(default=None, ge=0, le=23)
     background_backfill_end_hour: int | None = Field(default=None, ge=0, le=23)
 

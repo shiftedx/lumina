@@ -1947,6 +1947,74 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(retry.methodLabel, "Compatible audio")
     }
 
+    func testKeychainNewItemsStayDeviceOnlyAndKeepDeviceIdentityAcrossAccounts() throws {
+        let keychain = SyntheticKeychain()
+        let credentials = KeychainCredentials(operations: keychain.operations)
+        let deviceID = try credentials.deviceID()
+        let saved = syntheticKeychainSession(deviceID: deviceID)
+        try credentials.save(session: saved)
+        for item in keychain.items.values {
+            XCTAssertEqual(item[kSecAttrAccessible as String] as? String, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String, "New items must already be device-only before a later read can migrate them.")
+        }
+        XCTAssertEqual(try credentials.load()?.accessToken, saved.accessToken)
+        let other = LuminaSession(serverURL: saved.serverURL, accessToken: "other-test-token", userID: "user-2", username: "other", serverName: saved.serverName, deviceID: deviceID)
+        try credentials.save(session: other)
+        XCTAssertEqual(try credentials.load()?.accessToken, other.accessToken)
+        XCTAssertEqual(try credentials.load()?.userID, other.userID)
+        XCTAssertEqual(try credentials.deviceID(), deviceID)
+        XCTAssertEqual(keychain.items.count, 2)
+        for item in keychain.items.values {
+            XCTAssertEqual(item[kSecAttrAccessible as String] as? String, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
+        }
+        XCTAssertEqual(keychain.deletions, 0, "Credential replacement must update in place.")
+    }
+
+    func testKeychainLegacyReadsMigrateBothItemsWithoutChangingTheirValues() throws {
+        let saved = syntheticKeychainSession()
+        let keychain = try SyntheticKeychain(legacySession: saved)
+        let before = keychain.items.mapValues { $0[kSecValueData as String] as? Data }
+        let credentials = KeychainCredentials(operations: keychain.operations)
+        XCTAssertEqual(try credentials.load()?.accessToken, saved.accessToken)
+        XCTAssertEqual(try credentials.deviceID(), saved.deviceID)
+        XCTAssertEqual(keychain.items.mapValues { $0[kSecValueData as String] as? Data }, before)
+        XCTAssertEqual(keychain.updates, 2)
+        XCTAssertEqual(try credentials.load()?.accessToken, saved.accessToken)
+        XCTAssertEqual(try credentials.deviceID(), saved.deviceID)
+        XCTAssertEqual(keychain.updates, 2, "Already protected reads need no migration write.")
+        for item in keychain.items.values {
+            XCTAssertEqual(item[kSecAttrAccessible as String] as? String, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
+        }
+        XCTAssertEqual(keychain.deletions, 0)
+    }
+
+    func testKeychainMigrationAndReadFailuresRetainCredentialsWithoutMintingAnIdentity() async throws {
+        let saved = syntheticKeychainSession()
+        let keychain = try SyntheticKeychain(legacySession: saved)
+        let before = keychain.items.mapValues { $0[kSecValueData as String] as? Data }
+        let credentials = KeychainCredentials(operations: keychain.operations)
+        keychain.updateFailure = errSecInteractionNotAllowed
+        XCTAssertThrowsError(try credentials.load()) { XCTAssertEqual($0 as? LuminaError, .keychain(errSecInteractionNotAllowed)) }
+        XCTAssertThrowsError(try credentials.deviceID())
+        XCTAssertThrowsError(try credentials.save(session: syntheticKeychainSession(deviceID: "replacement-device")))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in requests.append(request); return response(request) }
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials)
+        await store.restore()
+        XCTAssertNil(store.session, "A failed migration must not return an unprotected session.")
+        XCTAssertTrue(requests.all.isEmpty)
+        keychain.updateFailure = nil
+        keychain.readFailure = errSecInteractionNotAllowed
+        XCTAssertThrowsError(try credentials.deviceID())
+        XCTAssertEqual(keychain.items.mapValues { $0[kSecValueData as String] as? Data }, before)
+        XCTAssertEqual(keychain.additions, 0)
+        XCTAssertEqual(keychain.deletions, 0)
+        keychain.readFailure = nil
+        try credentials.save(session: saved)
+        XCTAssertEqual(keychain.items["session"]?[kSecAttrAccessible as String] as? String, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String, "Saving a legacy session upgrades it in place.")
+        XCTAssertEqual(try credentials.deviceID(), saved.deviceID, "Retry must recover the same identity.")
+        XCTAssertEqual(try credentials.load()?.accessToken, saved.accessToken)
+    }
+
     func testUnauthorizedRestoreClearsStoredSessionAndExplainsAppPassword() async throws {
         let credentials = TestCredentials(session: LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "expired-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device"))
         let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials)
@@ -1961,14 +2029,16 @@ final class LuminaCoreTests: XCTestCase {
 
     func testOfflineRestoreKeepsStoredSessionForRetry() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "saved-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
-        let credentials = TestCredentials(session: saved)
+        let keychain = try SyntheticKeychain(legacySession: saved)
+        let credentials = KeychainCredentials(operations: keychain.operations)
         let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials)
         MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
 
         await store.restore()
 
         XCTAssertEqual(store.session?.accessToken, "saved-token")
-        XCTAssertEqual(credentials.stored?.accessToken, "saved-token")
+        XCTAssertEqual(try credentials.load()?.accessToken, "saved-token")
+        XCTAssertEqual(try credentials.deviceID(), saved.deviceID)
         XCTAssertEqual(store.errorMessage, "Could not reach the Lumina server.")
     }
 
@@ -1987,7 +2057,8 @@ final class LuminaCoreTests: XCTestCase {
     }
 
     func testSignOutClearsLocalSessionBeforeDelayedFailedRevocation() async throws {
-        let credentials = TestCredentials(session: LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device"))
+        let keychain = try SyntheticKeychain(legacySession: syntheticKeychainSession())
+        let credentials = KeychainCredentials(operations: keychain.operations)
         let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: credentials)
         MockURLProtocol.handler = { request in
             switch request.url!.path {
@@ -2020,7 +2091,8 @@ final class LuminaCoreTests: XCTestCase {
         await fulfillment(of: [logoutStarted], timeout: 1)
 
         XCTAssertNil(store.session)
-        XCTAssertNil(credentials.stored)
+        XCTAssertNil(try credentials.load())
+        XCTAssertEqual(try credentials.deviceID(), "test-device")
         XCTAssertNil(store.errorMessage)
         releaseLogout.signal()
         await signOut.value
@@ -2029,6 +2101,8 @@ final class LuminaCoreTests: XCTestCase {
         await store.connect(server: "http://127.0.0.1:8765", username: "member", password: "test-password")
 
         XCTAssertEqual(store.session?.accessToken, "new-token")
+        XCTAssertEqual(store.session?.deviceID, "test-device")
+        XCTAssertEqual(try credentials.load()?.deviceID, "test-device")
         XCTAssertNil(store.errorMessage)
         // The optional library index started during restore may race the later
         // cancellation, but it must not displace the actual revocation before
@@ -2123,6 +2197,63 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertTrue(playback.usesClientDemux)
         XCTAssertEqual(playback.startPositionSeconds, 0)
         XCTAssertNotNil(store.offline.artworkURL(for: item.id))
+    }
+}
+
+private func syntheticKeychainSession(deviceID: String = "test-device") -> LuminaSession {
+    LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: deviceID)
+}
+
+/// A synthetic Security API boundary: no process, simulator or signed app Keychain is touched.
+private final class SyntheticKeychain {
+    var items = [String: [String: Any]]()
+    var readFailure: OSStatus?
+    var updateFailure: OSStatus?
+    var updates = 0
+    var additions = 0
+    var deletions = 0
+
+    init() {}
+    convenience init(legacySession: LuminaSession) throws {
+        self.init()
+        for (key, data) in [("session", try JSONEncoder().encode(legacySession)), ("device-id", Data(legacySession.deviceID.utf8))] {
+            items[key] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
+        }
+    }
+
+    var operations: KeychainCredentials.Operations {
+        var operations = KeychainCredentials.Operations()
+        operations.copyMatching = { [self] query, result in
+            if let readFailure { return readFailure }
+            let query = query as! [String: Any]
+            guard let item = items[query[kSecAttrAccount as String] as! String] else { return errSecItemNotFound }
+            XCTAssertEqual(query[kSecReturnData as String] as? Bool, true)
+            XCTAssertEqual(query[kSecReturnAttributes as String] as? Bool, true)
+            result?.pointee = item as CFDictionary
+            return errSecSuccess
+        }
+        operations.update = { [self] query, attributes in
+            updates += 1
+            if let updateFailure { return updateFailure }
+            let key = (query as! [String: Any])[kSecAttrAccount as String] as! String
+            guard let old = items[key] else { return errSecItemNotFound }
+            items[key] = old.merging(attributes as! [String: Any]) { _, new in new }
+            return errSecSuccess
+        }
+        operations.add = { [self] query, _ in
+            additions += 1
+            let item = query as! [String: Any]
+            let key = item[kSecAttrAccount as String] as! String
+            guard items[key] == nil else { return errSecDuplicateItem }
+            items[key] = item
+            return errSecSuccess
+        }
+        operations.delete = { [self] query in
+            deletions += 1
+            let key = (query as! [String: Any])[kSecAttrAccount as String] as! String
+            return items.removeValue(forKey: key) == nil ? errSecItemNotFound : errSecSuccess
+        }
+        return operations
     }
 }
 

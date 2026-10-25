@@ -1,5 +1,16 @@
 # Release notes
 
+## Unreleased — security maintenance
+
+- Bound request deadlines, remote metadata reads, and media-probe output; retain guarded streaming and provider credential isolation.
+- Enforce shared book/photo upload admission and encoding-independent XML declaration rejection.
+- Run one-operation photo and native book parsers behind a Linux filesystem/libseccomp boundary; preserve codec threads, deadlines and cancellation cleanup.
+- Refresh bundled runtimes and locked dependencies, including maintained libarchive with RAR5 support and OpenCV model-output compatibility.
+- Keep receiver playback capabilities in memory and prevent database restore from reviving revoked receiver links or mobile pairing codes.
+- Preserve the current OAuth, single-use mobile QR pairing, durable photo previews and face-indexing features.
+
+**Operator requirement:** photo processing and native PDF/CBR reads require seccomp and either Landlock ABI 3 or the optional Bubblewrap namespace configuration. The namespace option supports hosts without Landlock while retaining filesystem isolation. Both modes fail closed on missing support. Retain the running image with `scripts/preserve-rollback.sh` before replacing it; see the [operator guide](docker/README.md#retaining-a-rollback-image).
+
 ## Lumina 0.4.0
 
 - YouTube: opt-in personal sessions; encrypted per-user credentials; disconnect revocation; restricted-video fallback.

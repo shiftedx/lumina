@@ -10,6 +10,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from app.services.book_archives import BookArchiveError, MAX_IMAGE_BYTES
+from app.services.parser_boundary import parser_command, parser_environment
 
 _WORKERS = threading.BoundedSemaphore(2)
 _VALIDATED_FILES = 128
@@ -46,14 +47,18 @@ def _mark_validated(identity: tuple[str, int, int, int, int, int] | None) -> Non
 
 
 def native_book(path: Path, format_: str, member: str | None = None) -> dict | bytes:
+    path = path.absolute()
     identity = _identity(path, format_)
     validated = member is not None and _is_validated(identity)
     with _WORKERS, tempfile.TemporaryFile() as output:
         try:
-            subprocess.run(
-                [sys.executable, "-m", "app.services.book_native_worker", str(path), format_, member or "", "1" if validated else "0"],
-                cwd=Path(__file__).resolve().parents[2], stdout=output, stderr=subprocess.DEVNULL, check=True, timeout=30,
-            )
+            argv = [sys.executable, "-m", "app.services.book_native_worker", str(path), format_, member or "", "1" if validated else "0"]
+            with parser_command(argv, path) as command:
+                subprocess.run(
+                    command,
+                    cwd=Path(__file__).resolve().parents[2], stdout=output, stderr=subprocess.DEVNULL, check=True, timeout=30,
+                    stdin=subprocess.DEVNULL, env=parser_environment(), close_fds=True,
+                )
             output.seek(0)
             data = output.read(MAX_IMAGE_BYTES + 1)
             if len(data) > MAX_IMAGE_BYTES:

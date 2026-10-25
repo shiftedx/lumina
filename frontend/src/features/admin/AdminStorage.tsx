@@ -1,5 +1,5 @@
 import { createContext, type FormEvent, useContext, useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, HardDrive, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, HardDrive, Plus, Trash2 } from '../../luminaIcons';
 
 import {
   ApiRequestError, createStorageRoot, deleteStorageRoot, getStorageRules, listStorageRoots, probeStorageRoot, resolveStorage, saveStorageRules, startImport, updateStorageRoot,

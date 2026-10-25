@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from './icons';
 import { type KeyboardEventHandler, type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react';
 
 import { IconButton } from './IconButton';

@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react';
-import { Settings2 } from 'lucide-react';
+import { Settings2 } from '../../luminaIcons';
 
 import { apiBaseUrl, ApiRequestError, type EnrichmentCapabilities, getEnrichmentJob, listSubtitleTracks, requestSubtitleJob, type SubtitleJobRequest } from '../../api';
 import type { LuminaPlayerTrack } from '../../LuminaPlayer';

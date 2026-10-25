@@ -5,7 +5,7 @@
  * polite live region, except "Home layout saved." and the Reset message, which HomeSurface says.
  *
  */
-import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
+import { ChevronDown, ChevronUp, GripVertical } from '../../luminaIcons';
 import { type KeyboardEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import {

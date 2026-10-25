@@ -4,7 +4,7 @@
  * refetches.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Clapperboard, Heart, ListPlus, Pencil, Play, Wrench } from 'lucide-react';
+import { Check, Clapperboard, Heart, ListPlus, Pencil, Play, Wrench } from '../../luminaIcons';
 
 import { setFavorite, setTitleWatched } from '../../api';
 import { cancelSpeculativeStart, prefetchPlaybackOptions, speculativeStart } from '../../playbackPrefetch';

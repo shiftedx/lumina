@@ -63,6 +63,10 @@ final class NativeBookCurlTests: NativeProofJourney {
 final class NativeAudioAlbumTrackPlaybackReportsProgressTests: NativeProofJourney {
     func testAudioAlbumTrackPlaybackReportsProgress() async throws { try await journeyAudioAlbumTrackPlaybackReportsProgress() }
     func testAlbumPlayStartsFromIdle() async throws { try await journeyAlbumPlayStartsFromIdle() }
+    #if os(iOS)
+    func testLockScreenMusicArtworkPersists() async throws { try await journeyLockScreenMusicArtworkPersists() }
+    func testCompactMusicToolbarReopensAndResumes() async throws { try await journeyCompactMusicToolbarReopensAndResumes() }
+    #endif
 }
 
 @MainActor
@@ -77,6 +81,32 @@ final class NativeAudioFormatRecoveryTests: NativeProofJourney {
 final class NativeAudioAlbumPlayAfterUnavailableRestoreTests: NativeProofJourney {
     func testAlbumPlayAfterUnavailableRestore() async throws {
         try await journeyAlbumPlayStartsFromIdle(restoredQueueUnavailable: true)
+    }
+}
+#endif
+
+#if os(iOS)
+@MainActor
+final class NativeVideoGestureTests: NativeProofJourney {
+    func testSurfaceGesturesSeekAndKeepPausedPlaybackPaused() async throws {
+        try await journeyVideoSurfaceGestures()
+    }
+}
+
+@MainActor
+final class NativeVideoSettingsLayoutTests: NativeProofJourney {
+    func testPortraitSettingsUseTheAvailableSheetWidth() async throws {
+        try await journeyPortraitSettingsUseTheAvailableSheetWidth()
+    }
+}
+
+@MainActor
+final class NativeDownloadedVideoTests: NativeProofJourney {
+    func testMovieDownloadSurvivesOfflineRelaunchAndPlaysLocally() async throws {
+        try await journeyDownloadedVideoPlaysOffline(mkv: false)
+    }
+    func testMKVDownloadPlaysLocally() async throws {
+        try await journeyDownloadedVideoPlaysOffline(mkv: true)
     }
 }
 #endif
@@ -203,6 +233,9 @@ final class NativeEpisodeSkipActionsAndNextEpisodeTests: NativeProofJourney { fu
 @MainActor
 final class NativeVideoOverlayTests: NativeProofJourney {
     func testVideoOverlayCentersAndDismisses() async throws { try await journeyVideoOverlayCentersAndDismisses() }
+    #if os(iOS)
+    func testVideoPictureInPictureContinuesInBackground() async throws { try await journeyVideoPictureInPictureContinuesInBackground() }
+    #endif
 }
 @MainActor
 final class NativeVideoSettingsTests: NativeProofJourney { func testNativeVideoDoesNotKeepDuplicateControlsOverPlayback() async throws { try await journeyNativeVideoDoesNotKeepDuplicateControlsOverPlayback() } }
@@ -662,6 +695,106 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
 
+    #if os(iOS)
+    func journeyLockScreenMusicArtworkPersists() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectTourAudioRoot()
+        try activate(revealMusicAlbum(fixture, named: "synthetic album"))
+        try waitForExistence(element("musicCollectionScreen"), timeout: 25, named: "album tracks")
+        try startMusicCollectionPlayback()
+        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "music player")
+        let artwork = element("nowPlayingArtwork")
+        try waitForExistence(artwork, timeout: 10, named: "system artwork metadata")
+        guard waitUntil(timeout: 15, condition: { artwork.value as? String == fixture.audioTrackTitle }) else {
+            throw ProofFailure.ui("System Now Playing did not receive renderable album artwork for the current track.")
+        }
+        let time = element("playbackTime")
+        let initial = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        _ = try waitForPlaybackValue(time, timeout: 10) { $0 >= initial + 3 }
+        XCTAssertEqual(artwork.value as? String, fixture.audioTrackTitle, "Progress updates must retain lock-screen artwork.")
+        let beforeBackground = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        try backgroundApplication()
+        try await Task.sleep(for: .seconds(3))
+        application!.activate()
+        let afterBackground = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        XCTAssertGreaterThanOrEqual(afterBackground, beforeBackground + 2, "Music must continue while other apps are in the foreground.")
+        XCTAssertEqual(artwork.value as? String, fixture.audioTrackTitle, "Background playback must retain audio metadata and artwork for system surfaces.")
+        try activate(element("audioPlayPauseButton"))
+        XCTAssertEqual(artwork.value as? String, fixture.audioTrackTitle, "Pausing must retain lock-screen artwork.")
+        let albumArt = element("audioAlbumArtwork")
+        albumArt.swipeLeft()
+        guard waitUntil(timeout: 20, condition: { artwork.value as? String == fixture.audioSecondTrackTitle }) else {
+            throw ProofFailure.ui("The next track did not publish its lock-screen artwork and title.")
+        }
+        try attachFrame(named: "System artwork follows the current audio track")
+        try activate(element("audioStopButton"))
+        XCTAssertTrue(disappears(element("playbackScreen"), timeout: 15))
+        completed = true
+    }
+
+    func journeyCompactMusicToolbarReopensAndResumes() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectTourAudioRoot()
+        try activate(revealMusicAlbum(fixture, named: "synthetic album"))
+        let albumScreen = element("musicCollectionScreen")
+        try waitForExistence(albumScreen, timeout: 25, named: "album tracks")
+        let track = element("musicItem-\(fixture.audioTrackID)")
+        for _ in 0..<4 where !track.exists { albumScreen.swipeUp() }
+        try revealInLibraryViewport([track], in: albumScreen)
+        try activate(track)
+        try waitForExistence(element("detailScreen"), timeout: 20, named: "track detail")
+        let time = try startPlayback(using: "playButton")
+        let beforeBrowse = try waitForPlaybackValue(time, timeout: 15) { $0 >= 2 }
+        try closePlayer()
+        try selectDestination("Home", screen: "homeScreen")
+        let artwork = element("nowPlayingBar")
+        let toggle = element("nowPlayingPauseButton")
+        let search = element("homeSearchButton")
+        try waitForExistence(artwork, timeout: 15, named: "compact music artwork")
+        try waitForExistence(toggle, timeout: 15, named: "compact music play/pause")
+        XCTAssertEqual(application!.buttons.matching(identifier: "nowPlayingBar").count, 1,
+                       "Browsing must expose one current-track destination.")
+        XCTAssertEqual(application!.buttons.matching(identifier: "nowPlayingPauseButton").count, 1,
+                       "Browsing must expose one compact playback toggle.")
+        XCTAssertTrue(artwork.label.contains(fixture.audioTrackTitle))
+        XCTAssertLessThanOrEqual(artwork.frame.width, 70, "Music controls must not form a full-width footer.")
+        XCTAssertLessThanOrEqual(artwork.frame.height, 70)
+        if search.frame.minY > 100 {
+            // Duo rail layouts stack controls; ordinary top bars remain horizontal.
+            XCTAssertGreaterThanOrEqual(artwork.frame.minY, search.frame.maxY - 1, "Artwork belongs below Search on the Duo rail.")
+            XCTAssertGreaterThanOrEqual(toggle.frame.minY, artwork.frame.maxY - 1, "Play/pause belongs below the artwork.")
+            XCTAssertEqual(artwork.frame.midX, search.frame.midX, accuracy: 4)
+            XCTAssertEqual(toggle.frame.midX, artwork.frame.midX, accuracy: 4)
+        }
+        try attachFrame(named: "Compact music controls beneath Search")
+        try activate(toggle)
+        XCTAssertTrue(waitUntil(timeout: 10) { toggle.label == "Play" })
+        XCTAssertTrue(hasVisibleFrame(artwork), "Paused music must remain accessible.")
+        try activate(toggle)
+        XCTAssertTrue(waitUntil(timeout: 10) { toggle.label == "Pause" })
+        try activate(toggle)
+        try activate(artwork)
+        try waitForExistence(element("audioPlayerStage"), timeout: 20, named: "reopened full music player")
+        XCTAssertEqual(currentAudioTitle(), fixture.audioTrackTitle)
+        XCTAssertGreaterThanOrEqual(try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }, beforeBrowse)
+        XCTAssertEqual(element("audioPlayPauseButton").label, "Play")
+        XCTAssertFalse(hasVisibleFrame(element("nowPlayingBar")), "Compact browsing controls must not crowd the full player.")
+        try attachFrame(named: "Artwork reopens the paused full music player")
+        try activate(element("audioStopButton"))
+        XCTAssertTrue(disappears(element("playbackScreen"), timeout: 15))
+        XCTAssertFalse(hasVisibleFrame(element("nowPlayingBar")))
+        completed = true
+    }
+    #endif
+
     func journeyAudioAlbumTrackPlaybackReportsProgress() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
@@ -756,9 +889,8 @@ class NativeProofJourney: XCTestCase {
         XCTAssertGreaterThanOrEqual(reopened, beforeBrowse + 2, "Browsing destinations restarted or paused the audio session.")
         try attachFrame(named: "Persistent audio reopened after browsing Video and Audio")
         #if os(iOS)
-        // The compact bar belongs to active playback only. Pausing from the
-        // expanded player must keep that player available while removing the
-        // background compact control.
+        // The expanded player owns its controls; browsing controls must not
+        // appear over it, including when playback is paused.
         try revealInLibraryViewport([element("audioPlayPauseButton")], in: element("audioPlayerStage"))
         try activate(element("audioPlayPauseButton"))
         guard waitUntil(timeout: 15, condition: {
@@ -889,6 +1021,153 @@ class NativeProofJourney: XCTestCase {
         }
         try await performanceQuietPhase("tv_music_post_stop_idle")
         completed = true
+    }
+    #endif
+
+    #if os(iOS)
+    func journeyPortraitSettingsUseTheAvailableSheetWidth() async throws {
+        XCUIDevice.shared.orientation = .portrait
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        let viewport = try applicationViewport()
+        guard viewport.width < 700, viewport.height > viewport.width else {
+            throw XCTSkip("This layout contract targets portrait iPhone and closed Duo.")
+        }
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.directItemID)
+        _ = try startPlayback(using: "playButton")
+        try activate(element("videoPlayPauseButton"))
+        try activate(element("videoSettingsButton"))
+        let panel = element("videoSettingsPanel")
+        try waitForExistence(panel, timeout: 10, named: "portrait playback settings")
+        try activate(element("videoSettingsTab-video"))
+        let done = element("videoSettingsDoneButton")
+        let fit = element("videoFitPicker")
+        let quality = element("videoQualityPicker")
+        try waitForExistence(quality, timeout: 10, named: "video quality row")
+        XCTAssertGreaterThanOrEqual(panel.frame.maxX, viewport.maxX - 16,
+                                    "The half-sheet must reclaim Duo's unused trailing rail column.")
+        XCTAssertGreaterThanOrEqual(done.frame.maxX, viewport.maxX - 36)
+        XCTAssertGreaterThanOrEqual(element("videoSettingsTab-chapters").frame.maxX, viewport.maxX - 36)
+        XCTAssertGreaterThanOrEqual(fit.frame.maxX, viewport.maxX - 44)
+        XCTAssertGreaterThanOrEqual(quality.frame.maxX, viewport.maxX - 44)
+        try attachFrame(named: "Portrait playback settings fill the available width")
+        try activate(done)
+        try closePlayer()
+    }
+
+    func journeyVideoSurfaceGestures() async throws {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 0)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.directItemID)
+        let time = try startPlayback(using: "playButton")
+        _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= 2 }
+        let surface = element("videoControlsSurface")
+        print("GESTURE_DIAGNOSTICS \(element("videoGestureDiagnostics").value ?? "absent")")
+        if surface.exists {
+            print("GESTURE_SURFACE frame=\(surface.frame) enabled=\(surface.isEnabled) hit=\(surface.isHittable) value=\(surface.value ?? "nil") window=\(application!.windows.firstMatch.frame)")
+        }
+        try waitForHittable(surface, timeout: 10, named: "video gesture surface")
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        let pause = element("videoPlayPauseButton")
+        try waitForHittable(pause, timeout: 10, named: "video pause")
+        pause.tap()
+        print("GESTURE_AFTER_PAUSE \(element("videoGestureDiagnostics").value ?? "absent") label=\(pause.label)")
+        XCTAssertTrue(waitUntil(timeout: 10) { pause.label == "Play" })
+        try activate(surface)
+        XCTAssertTrue(disappears(pause, timeout: 10), "A single tap hides controls without resuming playback.")
+        try activate(surface)
+        try waitForHittable(pause, timeout: 10, named: "revealed paused controls")
+        let initial = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        let right = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.4))
+        right.doubleTap()
+        _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= initial + 9 }
+        XCTAssertEqual(pause.label, "Play", "Skipping must retain the current pause intent.")
+        let afterSkip = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        right.press(forDuration: 0.7)
+        XCTAssertEqual(pause.label, "Play", "Holding and releasing while paused must not start playback.")
+        XCTAssertEqual(try waitForPlaybackValue(time, timeout: 5) { _ in true }, afterSkip, accuracy: 1)
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.4))
+            .press(forDuration: 0.05, thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.4)))
+        let afterForwardScrub = try waitForPlaybackValue(time, timeout: 15) { $0 >= afterSkip + 2 }
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.4))
+            .press(forDuration: 0.05, thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.4)))
+        _ = try waitForPlaybackValue(time, timeout: 15) { $0 <= afterForwardScrub - 2 }
+        XCTAssertEqual(pause.label, "Play", "Surface scrubbing must retain pause intent.")
+        let timeline = element("videoTimeline")
+        try waitForHittable(timeline, timeout: 10, named: "app-owned video timeline")
+        timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.5)))
+        let timelineClock = try XCTUnwrap(timeline.value as? String)
+        let timelineTarget = timelineClock.split(separator: ":").compactMap { Double($0) }.reduce(0) { $0 * 60 + $1 }
+        _ = try waitForPlaybackValue(time, timeout: 15) { abs($0 - timelineTarget) <= 1 }
+        XCTAssertEqual(pause.label, "Play", "Timeline dragging must retain pause intent.")
+        let portraitFrame = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        portraitFrame.name = "Video gesture controls and app-owned timeline"
+        portraitFrame.lifetime = .keepAlways
+        add(portraitFrame)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(waitUntil(timeout: 15) { surface.frame.width > surface.frame.height })
+        let landscapeTime = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.4)).doubleTap()
+        _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= landscapeTime + 9 }
+        XCTAssertEqual(pause.label, "Play", "Landscape gesture seeking must retain pause intent.")
+        let landscapeFrame = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        landscapeFrame.name = "Landscape surface gesture seeking"
+        landscapeFrame.lifetime = .keepAlways
+        add(landscapeFrame)
+        try closePlayer()
+    }
+
+    func journeyDownloadedVideoPlaysOffline(mkv: Bool) async throws {
+        let fixture = try loadFixture()
+        let itemID = mkv ? fixture.convertedItemID : fixture.directItemID
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: itemID)
+        let actions = element("titleActionsMenu")
+        try revealDetailControl(actions, named: "title actions menu")
+        try activate(actions)
+        XCTAssertFalse(element("convertButton").exists)
+        try activate(menuAction("Download to Device"))
+        try waitForExistence(element("videoDownloadedStatus"), timeout: 60, named: "completed video download")
+
+        try selectDestination("Account", screen: "accountScreen")
+        let downloads = element("deviceDownloadsButton")
+        XCTAssertFalse(hasVisibleFrame(element("homeSearchButton")), "Account owns settings search, not global media search.")
+        XCTAssertFalse(hasVisibleFrame(element("homeDownloadsButton")), "Account already exposes Downloads under Storage.")
+        try revealInLibraryViewport([downloads], in: element("accountScreen"))
+        try activate(downloads)
+        try waitForExistence(element("offlineLibraryScreen"), timeout: 15, named: "all device downloads from Account")
+        try waitForExistence(element("offlineItem-\(itemID)"), timeout: 10, named: "video in Account downloads")
+        XCTAssertEqual(application!.buttons.matching(identifier: "offlineSearchButton").count, 1)
+
+        let app = application!
+        app.terminate()
+        app.launchArguments.append("--ui-testing-offline")
+        app.launch()
+        try waitForExistence(element("offlineLibraryScreen"), timeout: 15, named: "offline library after cold launch")
+        XCTAssertFalse(element("homeScreen").exists, "Remote Home must be hidden while disconnected.")
+        let saved = element("offlineItem-\(itemID)")
+        try waitForExistence(saved, timeout: 10, named: "persisted downloaded video")
+        try activate(saved)
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "offline video player")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 25) { $0 >= 2 }
+        try attachPlaybackFrame(named: mkv ? "Downloaded MKV playing offline" : "Downloaded movie playing offline")
+        try closePlayer()
+        app.terminate()
+        app.launch()
+        try waitForExistence(element("offlineItem-\(itemID)"), timeout: 15, named: "download retained after second offline launch")
+        try attachFrame(named: "Only device downloads shown offline")
     }
     #endif
 
@@ -2381,7 +2660,8 @@ class NativeProofJourney: XCTestCase {
         try activate(element("videoSearchButton"))
         let cancel = element("videoSearchCancelButton")
         try waitForHittable(cancel, timeout: 15, named: "Search Cancel clear of navigation")
-        let railControl = element("videoSearchButton")
+        XCTAssertFalse(hasVisibleFrame(element("videoSearchButton")), "Active search must not repeat its launch control.")
+        let railControl = element("videoOptionsMenu")
         if railControl.frame.midX > window.maxX - 100 && railControl.frame.minY > cancel.frame.minY {
             XCTAssertLessThanOrEqual(cancel.frame.maxX + 8, railControl.frame.minX,
                                      "Search Cancel must leave space before the vertical navigation rail.")
@@ -2605,7 +2885,9 @@ class NativeProofJourney: XCTestCase {
         let play = element("featuredPlayButton")
         try waitForHittable(play, timeout: 20, named: "Home hero")
         // Choosing a feature gives the artwork time to move without advancing the carousel.
-        let choice = element("featuredChoice-\(fixture.convertedItemID)")
+        let choice = application!.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "featuredChoice-")
+        ).firstMatch
         try activate(choice)
         try await Task.sleep(for: .seconds(2))
         let controls = play.frame
@@ -3947,7 +4229,12 @@ class NativeProofJourney: XCTestCase {
         }, "The paused seek controls must enter the authoritative credits range; actual=\(time.value ?? "unavailable").")
         let credits = element("skipCreditsButton")
         try waitForHittable(credits, timeout: 15, named: "authoritative credits skip action")
+        #if os(iOS)
+        let next = element("nextEpisodeTransportButton")
+        XCTAssertFalse(hasVisibleFrame(element("nextEpisodeButton")), "Visible transport controls already provide Next episode.")
+        #else
         let next = element("nextEpisodeButton")
+        #endif
         try waitForHittable(next, timeout: 15, named: "next episode action")
         try attachPlaybackFrame(named: "Episode intro, credits, and next actions")
         try activate(credits)
@@ -3963,6 +4250,52 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
 
+    #if os(iOS)
+    func journeyVideoPictureInPictureContinuesInBackground() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.directItemID)
+        let time = try startPlayback(using: "playButton")
+        let state = element("pictureInPictureState")
+        try waitForExistence(state, timeout: 15, named: "native PiP state")
+        if state.value as? String == "Unsupported" {
+            application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            XCTAssertFalse(element("videoPictureInPictureButton").exists, "Unsupported devices must not offer PiP.")
+            try closePlayer()
+            completed = true
+            throw XCTSkip("AVKit reports Picture in Picture unsupported on this device/runtime.")
+        }
+        guard waitUntil(timeout: 25, condition: { state.value as? String == "Ready" }) else {
+            throw ProofFailure.ui("The native video layer never became eligible for Picture in Picture.")
+        }
+        // Pause to hold chrome still while the test selects PiP; ordinary playback
+        // auto-hides controls after inactivity.
+        _ = disappears(element("videoPlaybackChrome"), timeout: 8)
+        application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let transport = application!.buttons["videoPlayPauseButton"]
+        transport.tap()
+        application!.buttons["videoPictureInPictureButton"].tap()
+        guard waitUntil(timeout: 15, condition: { state.value as? String == "Active" }) else {
+            throw ProofFailure.ui("The native Picture in Picture controller did not start.")
+        }
+        transport.tap()
+        let before = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        try backgroundApplication()
+        try await Task.sleep(for: .seconds(3))
+        application!.activate()
+        try waitForExistence(element("playbackScreen"), timeout: 15, named: "video after returning from PiP")
+        let after = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        XCTAssertGreaterThanOrEqual(after, before + 2, "PiP must continue video while Lumina is backgrounded.")
+        try attachPlaybackFrame(named: "Native Picture in Picture after background playback")
+        try closePlayer()
+        XCTAssertTrue(disappears(element("playbackScreen"), timeout: 15))
+        completed = true
+    }
+    #endif
+
     func journeyVideoOverlayCentersAndDismisses() async throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
@@ -3974,8 +4307,13 @@ class NativeProofJourney: XCTestCase {
         try activate(element("libraryCategory-tv"))
         try activate(element("libraryItem-\(fixture.showID)"))
         try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "show seasons")
-        try activate(element("videoSeason-\(fixture.seasonID)"))
-        try activate(element("videoEpisode-\(fixture.episodeID)"))
+        let collection = element("videoCollectionScreen")
+        let season = element("videoSeason-\(fixture.seasonID)")
+        try revealDetailElement(season, in: collection, named: "season", requiresHittable: true)
+        try activate(season)
+        let episode = element("videoEpisode-\(fixture.episodeID)")
+        try revealDetailElement(episode, in: collection, named: "episode", requiresHittable: true)
+        try activate(episode)
         try waitForExistence(element("detailScreen"), timeout: 20, named: "episode details")
         #else
         try openLibraryItem(id: fixture.directItemID)
@@ -4020,8 +4358,22 @@ class NativeProofJourney: XCTestCase {
         let close = element("closePlayerButton").frame
         let mute = element("videoMuteButton").frame
         let settings = element("videoSettingsButton").frame
-        XCTAssertEqual(close.minX - viewport.minX, viewport.maxX - mute.maxX, accuracy: 3,
-                       "The top controls must have balanced margins around system UI.")
+        if viewport.width < 600, viewport.height > viewport.width {
+            let timeline = application!.sliders["Video position"].frame
+            XCTAssertLessThanOrEqual(timeline.minX - viewport.minX, 24,
+                                     "Portrait playback must not mirror the system rail's inset on the left.")
+            XCTAssertLessThanOrEqual(viewport.maxX - timeline.maxX, 24,
+                                     "The timeline must use the portrait screen's full width below the system rail.")
+            let backward = element("videoSeekBackwardButton").frame
+            let forward = element("videoSeekForwardButton").frame
+            XCTAssertLessThan(backward.midX, viewport.minX + viewport.width * 0.35)
+            XCTAssertGreaterThan(forward.midX, viewport.minX + viewport.width * 0.65)
+            XCTAssertLessThanOrEqual(forward.maxX, element("nextEpisodeTransportButton").frame.minX,
+                                     "Spreading transport controls must keep Forward clear of Next Episode.")
+            XCTAssertLessThanOrEqual(close.minX - viewport.minX, 24,
+                                     "The toolbar's left edge must use its own safe-area inset.")
+        }
+        XCTAssertLessThanOrEqual(settings.maxX, mute.minX + 2)
         XCTAssertEqual(close.midY, settings.midY, accuracy: 2)
         XCTAssertEqual(settings.midY, mute.midY, accuracy: 2)
         #endif
@@ -4554,7 +4906,7 @@ class NativeProofJourney: XCTestCase {
     }
 
     private func applicationWindow() throws -> XCUIElement {
-        let window = application!.windows.firstMatch
+        let window = visibleApplicationWindow ?? application!.windows.firstMatch
         try waitForExistence(window, timeout: 10, named: "main application window")
         guard !window.frame.isEmpty else {
             throw ProofFailure.ui("The main application window had an empty viewport frame.")
@@ -4917,6 +5269,19 @@ class NativeProofJourney: XCTestCase {
     }
 
     private func selectTourLibraryCategory(_ category: String, screen: String) throws {
+        if element("iPadUnifiedCategories").exists {
+            let control = element("iPadCategory-\(category)")
+            try waitForExistence(control, timeout: 15, named: "unified iPad \(category) category")
+            try activate(control)
+            for _ in 0..<4 {
+                if hasVisibleFrame(element(screen)) { return }
+                let back = application!.buttons.matching(identifier: "BackButton").firstMatch
+                guard back.exists else { break }
+                try activate(back)
+            }
+            try waitForExistence(element(screen), timeout: 25, named: "unified iPad \(category) content")
+            return
+        }
         try unwindTourLibraryNavigationStack()
         let categories = element("libraryCategories")
         try waitForExistence(categories, timeout: 15, named: "Library categories")
@@ -5095,6 +5460,11 @@ class NativeProofJourney: XCTestCase {
     }
 
     private func pauseAndResumeNativePlayer(after directAdvanced: Double) async throws {
+        // Explicitly paused video must stay paused; playing video may enter PiP.
+        let play = element("videoPlayPauseButton")
+        if !play.isHittable { try activate(element("videoControlsSurface")) }
+        try waitForHittable(play, timeout: 10, named: "video pause before backgrounding")
+        if play.label == "Pause" { try activate(play) }
         let beforeHome = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { $0 >= directAdvanced }
         try backgroundApplication()
         try await Task.sleep(for: .seconds(3))
@@ -5120,6 +5490,28 @@ class NativeProofJourney: XCTestCase {
     #endif
 
     private func startPlayback(using buttonIdentifier: String) throws -> XCUIElement {
+        #if os(iOS)
+        if buttonIdentifier == "convertButton" {
+            // Compatibility playback remains covered through playback quality; the title
+            // overflow now saves a local copy instead of exposing server conversion.
+            let time = try startPlayback(using: "playButton")
+            let transport = element("videoPlayPauseButton")
+            try waitForHittable(transport, timeout: 15, named: "video transport")
+            try activate(transport)
+            try activate(element("videoSettingsButton"))
+            try activate(element("videoSettingsTab-video"))
+            let quality = element("videoQualityPicker")
+            try activate(quality)
+            try activate(menuAction("Up to 720p"))
+            XCTAssertTrue(waitUntil(timeout: 45) {
+                (quality.value as? String)?.contains("720p") == true && !self.element("videoStreamChanging").exists
+            })
+            XCTAssertFalse(element("videoStreamError").exists)
+            try activate(element("videoSettingsDoneButton"))
+            try activate(element("videoPlayPauseButton"))
+            return time
+        }
+        #endif
         if buttonIdentifier == "convertButton" {
             let actions = element("titleActionsMenu")
             try waitForExistence(actions, timeout: 20, named: "title actions menu")
@@ -5330,17 +5722,24 @@ class NativeProofJourney: XCTestCase {
     }
 
     private func hasVisibleFrame(_ control: XCUIElement) -> Bool {
-        guard control.exists, let application else { return false }
-        let window = application.windows.firstMatch
-        guard window.exists else { return false }
+        guard control.exists, application != nil else { return false }
         let frame = control.frame
-        let viewport = window.frame
-        guard !frame.isEmpty, !viewport.isEmpty,
-              [frame.minX, frame.minY, frame.width, frame.height,
-               viewport.minX, viewport.minY, viewport.width, viewport.height].allSatisfy({ $0.isFinite }) else {
+        guard !frame.isEmpty,
+              [frame.minX, frame.minY, frame.width, frame.height].allSatisfy({ $0.isFinite }) else {
             return false
         }
+        // Full-screen playback can expose an inactive zero-sized first window.
+        // UIKit's hit-test is authoritative when no usable viewport is exposed.
+        guard let window = visibleApplicationWindow else { return control.isHittable }
+        let viewport = window.frame
         return !frame.intersection(viewport).isEmpty
+    }
+
+    private var visibleApplicationWindow: XCUIElement? {
+        application?.windows.allElementsBoundByIndex.filter { window in
+            let frame = window.frame
+            return !frame.isEmpty && [frame.minX, frame.minY, frame.width, frame.height].allSatisfy { $0.isFinite }
+        }.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
     }
 
     @discardableResult

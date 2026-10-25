@@ -1,0 +1,56 @@
+# Lumina native dogfood handoff
+
+Help the owner fix small iOS and tvOS issues reported during device testing. Apply and verify each requested fix, accumulate the changes, and stage another release only after the owner explicitly asks. No new dogfood defects have been supplied at this handoff.
+
+## Start here
+
+1. Read the applicable `AGENTS.md`, inspect the branch and working tree, and preserve existing work. The last packaged source is `dbdf1a58a29e25b831752f2a8af73d8724d3bcb3` on `main`, merged through PR #154. Check for newer commits before choosing a base.
+2. Before changing appearance, read the [shared brand contract](brand-assets.md). It is the authority for colors and control roles; use its existing tokens and styles.
+3. Take the owner's next report as the work queue. For each issue, identify platform, screen, trigger, and expected result from the report or screenshot. Ask only for information that blocks reproduction or a correct fix. Completion means the reported case works and adjacent navigation, focus, and playback behavior still work.
+
+## Preserve these product decisions
+
+- Artwork leads and reaches the bezel. Detail headers show Lumina branding; search Cancel stays clear of navigation.
+- Ordinary controls are muted neutrals. Selected accents, progress, and enabled switches use the shared brand roles. The canonical warm accent is `#DBB688`; accessible text and focus follow the brand contract.
+- tvOS has one centered category menu, quiet utility icons, and no Books. iOS retains Books. Home categories match the libraries, with Watchlist last; genre filtering belongs in Library.
+- Music opens with large artwork and a bottom timeline. Queue is the top transport action, followed by Play/Pause, Repeat, and Stop. iOS artwork swipes change tracks; tvOS Left/Right changes tracks while artwork owns focus. Lyrics/options start collapsed. Preserve timeline seeking and remote focus/Back behavior.
+- Keep the bounded, session-scoped artwork cache and prefetch behavior intact. Confirm account changes cannot retain another member's artwork.
+
+## Work and verification
+
+Use the native UI skills appropriate to the change. Reuse the existing public workflow coverage in `apple/Tests/UITests/NativeProofTests.swift`; add regression coverage for changed behavior at the workflow boundary. Inspect actual screenshots for visual changes, including relevant appearance modes and tvOS focus. Follow repository test requirements before handing back changes or opening a PR.
+
+Likely entry points, relative to `apple/`:
+
+| Area | Files |
+| --- | --- |
+| Shared appearance and actions | `App/Shared/LuminaTheme.swift`, `App/Shared/MediaPresentation.swift` |
+| iOS browsing and navigation | `App/iOS/MobileRootView.swift` |
+| tvOS browsing and navigation | `App/tvOS/TVRootView.swift` |
+| Music browsing and controls | `App/Shared/NativeMusicLibraryView.swift`, `App/Shared/PlaybackScreen.swift`, `App/Shared/NativeAudioOptions.swift`, `App/tvOS/TVMusicDetailView.swift` |
+| Artwork framing | `App/Shared/SubjectAwareArtwork.swift` |
+
+Use subagents for independently bounded implementation or test packets when useful, following the current routing policy. Assign ownership and require changed-file and verification evidence. Keep final integration and acceptance review with the primary agent.
+
+The packaged source passed the full repository gate: 5,365 backend tests with 11 platform skips, 2,681 frontend tests, and 655 browser checks. Both native builds and six focused public UI methods passed. These results describe that source, not future edits. Broader exploratory tvOS Requests and iOS Account harnesses hit focus failures; those cases are not claimed green. The supported tvOS Navigation workflow verifies Requests submission through the UI and server record. Physical codec/HDR/HDMI/audio qualification remains device work.
+
+## Current distribution state
+
+Last verified on 2026-10-24: **iOS and tvOS 0.1.0 (16)** are distribution-signed, locally validated, and staged in Xcode Organizer. This work uploaded neither build; the owner may distribute them manually afterward. Apple server validation was not performed.
+
+The ignored package is `apple/Distribution/0.1.0-16/`. Its `ReleaseManifest.json`, `NativeSourceInputs.json`, `SHA256SUMS`, `README.txt`, and `What-to-Test.txt` are the release evidence. Both signed IPAs passed local validation, and the signed Organizer copies preserve matching executable/debug-symbol UUIDs. Select the entries labeled **Signed for Organizer**; retain the unsigned source archives for symbols.
+
+## When the owner asks for the next build
+
+Until that instruction arrives, finish fixes and verification without archiving, exporting, staging, or uploading another release. Prior authorization for build 16 does not authorize a later package.
+
+After an explicit staging request:
+
+1. Finish the agreed fixes and required checks. Resolve the intended clean source revision and record its provenance. Use the current [TestFlight procedure](testflight.md) and [release script](../scripts/testflight.sh).
+2. Choose a fresh build number from current local and App Store Connect evidence. Build 17 is only a candidate after build 16; recheck before using it. Preserve existing packages and successful uploads.
+3. Archive each requested platform, sign/export with the established internal-only configuration unless the owner requests another audience, and validate the IPAs, Organizer copies, privacy/artwork/fixture exclusions, and symbol UUIDs. Record source-input and package hashes.
+4. Stage the signed Organizer copies and visibly verify platform, version, build, and signing team in Xcode. Completion means both requested signed entries are available for the owner to distribute, with truthful package records and test notes.
+
+Command-line export previously reported **No Accounts**, while Xcode's existing account successfully used cloud-managed distribution signing. If this recurs, use Xcode's Custom → App Store Connect → Export flow, retain the build number, enable TestFlight internal testing only, and follow the existing signed Organizer preparation procedure. Use CUA for Xcode UI interactions. Credentials stay in Apple's UI and local signing tools.
+
+Staging and uploading are separate actions. A staging request ends with local packages and Organizer entries; upload only when the owner explicitly requests upload. Report the exact version/build, platforms, source revision, validation results, package location, and upload status.

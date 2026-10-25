@@ -29,6 +29,17 @@ public enum NativeSubtitleMode: String, CaseIterable, Codable, Hashable, Identif
     public static let subtitleLanguagesKey = "native.playback.preferences.v1.subtitleLanguages"
     public static let subtitleModeKey = "native.playback.preferences.v1.subtitleMode"
     public static let subtitleStyleKey = "native.video.subtitleAppearance"
+    public static let videoGesturesEnabledKey = "native.playback.preferences.v1.videoGesturesEnabled"
+    public static let volumeSwipeEnabledKey = "native.playback.preferences.v1.volumeSwipeEnabled"
+    public static let brightnessSwipeEnabledKey = "native.playback.preferences.v1.brightnessSwipeEnabled"
+    public static let horizontalSeekEnabledKey = "native.playback.preferences.v1.horizontalSeekEnabled"
+    public static let doubleTapSkipEnabledKey = "native.playback.preferences.v1.doubleTapSkipEnabled"
+    public static let twoFingerTapEnabledKey = "native.playback.preferences.v1.twoFingerTapEnabled"
+    public static let holdSpeedEnabledKey = "native.playback.preferences.v1.holdSpeedEnabled"
+    public static let gestureHapticsEnabledKey = "native.playback.preferences.v1.gestureHapticsEnabled"
+    public static let skipForwardSecondsKey = "native.playback.preferences.v1.skipForwardSeconds"
+    public static let skipBackwardSecondsKey = "native.playback.preferences.v1.skipBackwardSeconds"
+    public static let gestureSkipSecondChoices = [3, 5, 10, 15, 30, 60]
 
     public var quality: PlaybackQuality {
         didSet { defaults.set(quality.rawValue, forKey: Self.qualityKey) }
@@ -46,6 +57,37 @@ public enum NativeSubtitleMode: String, CaseIterable, Codable, Hashable, Identif
     public var subtitleStyle: VideoSubtitleStyle {
         didSet { defaults.set(subtitleStyle.encodedString, forKey: Self.subtitleStyleKey) }
     }
+    /// The master switch leaves ordinary controls and single-tap control revelation available.
+    public var videoGesturesEnabled: Bool {
+        didSet { defaults.set(videoGesturesEnabled, forKey: Self.videoGesturesEnabledKey) }
+    }
+    public var volumeSwipeEnabled: Bool {
+        didSet { defaults.set(volumeSwipeEnabled, forKey: Self.volumeSwipeEnabledKey) }
+    }
+    public var brightnessSwipeEnabled: Bool {
+        didSet { defaults.set(brightnessSwipeEnabled, forKey: Self.brightnessSwipeEnabledKey) }
+    }
+    public var horizontalSeekEnabled: Bool {
+        didSet { defaults.set(horizontalSeekEnabled, forKey: Self.horizontalSeekEnabledKey) }
+    }
+    public var doubleTapSkipEnabled: Bool {
+        didSet { defaults.set(doubleTapSkipEnabled, forKey: Self.doubleTapSkipEnabledKey) }
+    }
+    public var twoFingerTapEnabled: Bool {
+        didSet { defaults.set(twoFingerTapEnabled, forKey: Self.twoFingerTapEnabledKey) }
+    }
+    public var holdSpeedEnabled: Bool {
+        didSet { defaults.set(holdSpeedEnabled, forKey: Self.holdSpeedEnabledKey) }
+    }
+    public var gestureHapticsEnabled: Bool {
+        didSet { defaults.set(gestureHapticsEnabled, forKey: Self.gestureHapticsEnabledKey) }
+    }
+    public var skipForwardSeconds: Int {
+        didSet { persistSkipForwardSeconds() }
+    }
+    public var skipBackwardSeconds: Int {
+        didSet { persistSkipBackwardSeconds() }
+    }
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -56,6 +98,16 @@ public enum NativeSubtitleMode: String, CaseIterable, Codable, Hashable, Identif
         preferredSubtitleLanguages = Self.normalizedLanguages(defaults.stringArray(forKey: Self.subtitleLanguagesKey) ?? [])
         subtitleMode = defaults.string(forKey: Self.subtitleModeKey).flatMap(NativeSubtitleMode.init(rawValue:)) ?? .automatic
         subtitleStyle = VideoSubtitleStyle(encodedString: defaults.string(forKey: Self.subtitleStyleKey))
+        videoGesturesEnabled = Self.storedBoolean(forKey: Self.videoGesturesEnabledKey, defaults: defaults)
+        volumeSwipeEnabled = Self.storedBoolean(forKey: Self.volumeSwipeEnabledKey, defaults: defaults)
+        brightnessSwipeEnabled = Self.storedBoolean(forKey: Self.brightnessSwipeEnabledKey, defaults: defaults)
+        horizontalSeekEnabled = Self.storedBoolean(forKey: Self.horizontalSeekEnabledKey, defaults: defaults)
+        doubleTapSkipEnabled = Self.storedBoolean(forKey: Self.doubleTapSkipEnabledKey, defaults: defaults)
+        twoFingerTapEnabled = Self.storedBoolean(forKey: Self.twoFingerTapEnabledKey, defaults: defaults)
+        holdSpeedEnabled = Self.storedBoolean(forKey: Self.holdSpeedEnabledKey, defaults: defaults)
+        gestureHapticsEnabled = Self.storedBoolean(forKey: Self.gestureHapticsEnabledKey, defaults: defaults)
+        skipForwardSeconds = Self.storedSkipSeconds(forKey: Self.skipForwardSecondsKey, defaults: defaults)
+        skipBackwardSeconds = Self.storedSkipSeconds(forKey: Self.skipBackwardSecondsKey, defaults: defaults)
     }
 
     /// Returns a matching audio stream only when the member has chosen a device language.
@@ -106,6 +158,31 @@ public enum NativeSubtitleMode: String, CaseIterable, Codable, Hashable, Identif
         if preferredSubtitleLanguages != normalized {
             preferredSubtitleLanguages = normalized
         }
+    }
+
+    private func persistSkipForwardSeconds() {
+        let normalized = Self.normalizedSkipSeconds(skipForwardSeconds)
+        defaults.set(normalized, forKey: Self.skipForwardSecondsKey)
+        if skipForwardSeconds != normalized { skipForwardSeconds = normalized }
+    }
+
+    private func persistSkipBackwardSeconds() {
+        let normalized = Self.normalizedSkipSeconds(skipBackwardSeconds)
+        defaults.set(normalized, forKey: Self.skipBackwardSecondsKey)
+        if skipBackwardSeconds != normalized { skipBackwardSeconds = normalized }
+    }
+
+    private static func storedBoolean(forKey key: String, defaults: UserDefaults) -> Bool {
+        (defaults.object(forKey: key) as? Bool) ?? true
+    }
+
+    private static func storedSkipSeconds(forKey key: String, defaults: UserDefaults) -> Int {
+        guard let value = defaults.object(forKey: key) as? Int else { return 10 }
+        return normalizedSkipSeconds(value)
+    }
+
+    private static func normalizedSkipSeconds(_ value: Int) -> Int {
+        value > 0 ? value : 10
     }
 
     private static func normalizedLanguages(_ values: [String]) -> [String] {

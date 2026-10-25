@@ -1,4 +1,4 @@
-import { Pause, Play } from 'lucide-react';
+import { Pause, Play } from '../../luminaIcons';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { getShowcase, type ShowcaseSlide } from '../../api';
 import { IconButton } from '../../ui';

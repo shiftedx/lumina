@@ -215,6 +215,114 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items" }.count, 3)
     }
 
+    func testTechnicalMovieFiltersCarryAcrossLibraryPagingAndAlphabetIndex() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        HomeDelayedURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            case "/Lumina/Library/alphabet":
+                return response(request, json: ["anchors": [["letter": "A", "index": 0]], "total": 2])
+            case "/Items":
+                let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                let start = query.first { $0.name == "StartIndex" }?.value
+                var item = movie()
+                item["Id"] = start == "0" ? "filtered-1" : "filtered-2"
+                return response(request, json: ["Items": [item], "TotalRecordCount": 2])
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        let filters = VideoFilters(
+            resolution: .ultraHD, hdr: .dolbyVision, audio: .atmos, imaxOnly: true
+        )
+        await store.loadLibrary(kind: .movies, filters: filters)
+        await store.loadMore()
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        let catalogRequests = requests.all.filter { request in
+            guard request.url?.path == "/Items" else { return false }
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            return query.contains { $0.name == "LuminaResolution" && $0.value == "4k" }
+        }
+        XCTAssertEqual(catalogRequests.count, 2)
+        for request in catalogRequests {
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            XCTAssertEqual(query.first { $0.name == "LuminaHDR" }?.value, "dolbyvision")
+            XCTAssertEqual(query.first { $0.name == "LuminaAudio" }?.value, "atmos")
+            XCTAssertEqual(query.first { $0.name == "LuminaIMAX" }?.value, "true")
+            XCTAssertEqual(query.first { $0.name == "IncludeItemTypes" }?.value, "Movie")
+        }
+
+        let alphabet = try XCTUnwrap(requests.all.first { request in
+            guard request.url?.path == "/Lumina/Library/alphabet" else { return false }
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            return query.contains { $0.name == "LuminaResolution" && $0.value == "4k" }
+        })
+        let alphabetQuery = URLComponents(url: alphabet.url!, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(alphabetQuery?.first { $0.name == "LuminaResolution" }?.value, "4k")
+        XCTAssertEqual(alphabetQuery?.first { $0.name == "LuminaHDR" }?.value, "dolbyvision")
+        XCTAssertEqual(alphabetQuery?.first { $0.name == "LuminaAudio" }?.value, "atmos")
+        XCTAssertEqual(alphabetQuery?.first { $0.name == "LuminaIMAX" }?.value, "true")
+
+        await store.loadLibrary(search: "needle", kind: .movies, filters: filters)
+        let searched = try XCTUnwrap(requests.all.last { request in
+            guard request.url?.path == "/Items" else { return false }
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            return query.contains { $0.name == "SearchTerm" && $0.value == "needle" }
+        })
+        let searchQuery = URLComponents(url: searched.url!, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(searchQuery?.first { $0.name == "LuminaResolution" }?.value, "4k")
+        XCTAssertEqual(searchQuery?.first { $0.name == "LuminaHDR" }?.value, "dolbyvision")
+        XCTAssertEqual(searchQuery?.first { $0.name == "LuminaAudio" }?.value, "atmos")
+        XCTAssertEqual(searchQuery?.first { $0.name == "LuminaIMAX" }?.value, "true")
+    }
+
+    func testTechnicalMovieFiltersReadTheServerCapabilityMarker() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items": return response(request, json: page(items: []))
+            case "/Shows/NextUp", "/UserItems/Resume": return response(request, json: page(items: []))
+            case "/Items/Filters2": return response(request, json: ["LuminaTechnicalFilters": true])
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        let firstSupportCheck = try await store.supportsTechnicalVideoFilters()
+        XCTAssertTrue(firstSupportCheck)
+        XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items/Filters2" }.count, 1)
+    }
+
+    func testTechnicalMovieFiltersRequireTheServerCapabilityMarker() async throws {
+        let client = LuminaClient(configuration: mockConfiguration())
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            return response(request, json: [:])
+        }
+
+        let supported = try await client.supportsTechnicalVideoFilters(
+            origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", deviceID: "test-device"
+        )
+
+        XCTAssertFalse(supported, "A legacy /Items/Filters2 response must not enable queries it would ignore.")
+        XCTAssertEqual(requests.all.count, 1)
+        let request = try XCTUnwrap(requests.all.first)
+        XCTAssertEqual(request.url?.path, "/Items/Filters2")
+        let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first { $0.name == "Fields" }?.value, "LuminaTechnicalFilters")
+    }
+
     func testLibraryAlphabetSeeksTheServerIndexAndLatestRapidJumpWins() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
@@ -1857,6 +1965,94 @@ final class LuminaCoreTests: XCTestCase {
         let nonIndexPaths = requests.all.compactMap(\.url?.path).filter { $0 != "/Lumina/Library/alphabet" }
         XCTAssertEqual(nonIndexPaths.first, "/Sessions/Logout")
     }
+
+    func testOfflineRestoreKeepsRetainedSessionWithoutSendingRequests() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "saved-token",
+                                  userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            throw URLError(.notConnectedToInternet)
+        }
+        let connectivity = LuminaConnectivity(status: .offline, monitoringEnabled: false)
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()),
+                                credentials: TestCredentials(session: saved), connectivity: connectivity)
+
+        await store.restore()
+        await store.loadLibrary(kind: .movies)
+        await store.loadHome()
+
+        XCTAssertTrue(store.isOffline)
+        XCTAssertEqual(store.session?.accessToken, "saved-token")
+        XCTAssertTrue(store.items.isEmpty)
+        XCTAssertTrue(requests.all.isEmpty, "An offline cold launch must only use durable local state.")
+    }
+
+    func testServerRetryRecoversWhenRouteRemainsAvailable() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "saved-token",
+                                  userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let requests = RequestRecorder()
+        let meAttempts = Counter()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me":
+                if meAttempts.increment() == 1 { throw URLError(.cannotConnectToHost) }
+                return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            default: return response(request, status: 404)
+            }
+        }
+        let connectivity = LuminaConnectivity(status: .online, monitoringEnabled: false)
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()),
+                                credentials: TestCredentials(session: saved), connectivity: connectivity)
+
+        await store.restore()
+        XCTAssertTrue(store.isOffline)
+
+        await store.refreshConnectivity()
+
+        XCTAssertFalse(store.isOffline)
+        XCTAssertEqual(requests.all.filter { $0.url?.path == "/Users/Me" }.count, 2)
+    }
+
+    func testDownloadedMKVUsesClientDemuxAndHonorsExplicitReplayPosition() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumina-store-offline-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "saved-token",
+                                  userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        var payload = movie(positionTicks: 420_000_000)
+        payload["Container"] = "mkv"
+        payload["ImageTags"] = ["Primary": "poster-tag"]
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(payload))
+        MockURLProtocol.handler = { request in
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Items/movie-1/Download":
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                        headerFields: ["Content-Type": "video/x-matroska"])!, Data(repeating: 0, count: 64))
+            case "/Items/movie-1/Images/Primary":
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                        headerFields: ["Content-Type": "image/jpeg"])!, Data(repeating: 0, count: 32))
+            default: return response(request, status: 404)
+            }
+        }
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()),
+                                credentials: TestCredentials(session: saved),
+                                connectivity: LuminaConnectivity(status: .online, monitoringEnabled: false),
+                                offline: LuminaOfflineLibrary(root: root, configuration: mockConfiguration()))
+        await store.restore()
+        await store.downloadVideo(item: item)
+        store.offline.recordPlaybackPosition(id: item.id, seconds: 42)
+
+        let playback = try await store.preparePlayback(for: item, startPositionSeconds: 0)
+
+        XCTAssertEqual(playback.url, try XCTUnwrap(store.offline.localURL(for: item.id)))
+        XCTAssertTrue(playback.usesClientDemux)
+        XCTAssertEqual(playback.startPositionSeconds, 0)
+        XCTAssertNotNil(store.offline.artworkURL(for: item.id))
+    }
 }
 
 private final class TestCredentials: CredentialStore {
@@ -1880,6 +2076,12 @@ private final class RequestRecorder: @unchecked Sendable {
     private var requests = [URLRequest]()
     func append(_ request: URLRequest) { lock.withLock { requests.append(request) } }
     var all: [URLRequest] { lock.withLock { requests } }
+}
+
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func increment() -> Int { lock.withLock { value += 1; return value } }
 }
 
 private final class HomeRequestTimeline: @unchecked Sendable {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Upload } from 'lucide-react';
+import { Upload } from '../../luminaIcons';
 import { requestJson } from '../../api';
 import { Button, ButtonLink } from '../../ui';
 import { useSettingsHost } from './settingsHost';

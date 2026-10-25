@@ -1,5 +1,5 @@
 import { type FormEvent, useId, useState } from 'react';
-import { Bookmark } from 'lucide-react';
+import { Bookmark } from '../../luminaIcons';
 import { createLibraryNote, deleteLibraryNote, type Summary } from '../../api';
 import { formatChapterTime, type TimelineChapter } from '../../chapters';
 import { type LibraryNote } from '../../types';

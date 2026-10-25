@@ -4,7 +4,7 @@
  * household Collections. The first two chapters load with the page and the rest as they come within a viewport; Back
  * returns to the landing as it was left.
  */
-import { Library } from 'lucide-react';
+import { Library } from '../../luminaIcons';
 import { type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { recordMetric, sinceNavigation } from '../../perfMetrics';

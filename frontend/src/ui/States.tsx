@@ -1,4 +1,4 @@
-import { OctagonX } from 'lucide-react';
+import { OctagonX } from './icons';
 import { type ReactNode } from 'react';
 import { Button } from './Button';
 import { cx } from './cx';

@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Check, CircleAlert, FolderOpen, HardDrive, RefreshCw } from 'lucide-react';
+import { Check, CircleAlert, FolderOpen, HardDrive, RefreshCw } from '../../luminaIcons';
 
 import {
   createStorageRoot,

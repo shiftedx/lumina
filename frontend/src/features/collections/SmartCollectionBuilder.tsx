@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Plus, Sparkles, X } from 'lucide-react';
+import { Plus, Sparkles, X } from '../../luminaIcons';
 
 import { ApiRequestError, buildSmartCollectionRules, createHouseholdCollection, previewSmartCollectionRules, setSmartCollectionRules } from '../../api';
 import { Button, Dialog, Field, fieldProps, IconButton, Input, SegmentedControl, Select, StatusText, TextButton, Textarea } from '../../ui';

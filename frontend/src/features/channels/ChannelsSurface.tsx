@@ -5,7 +5,7 @@
  * redirects to its channel page.
  */
 import { useCanDownload } from '../access/access';
-import { CircleAlert, CircleUserRound, RefreshCw, Search } from 'lucide-react';
+import { CircleAlert, CircleUserRound, RefreshCw, Search } from '../../luminaIcons';
 import { useEffect, useRef, useState } from 'react';
 
 import { resolveChannel } from '../../api';

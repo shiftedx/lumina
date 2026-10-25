@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowDownToLine, ChevronDown, ChevronUp, ListVideo, Play, X } from 'lucide-react';
+import { ArrowDownToLine, ChevronDown, ChevronUp, ListVideo, Play, X } from '../../luminaIcons';
 
 import {
   addHouseholdCollectionRemoteItem,

@@ -18,7 +18,14 @@ let tickScale = 10_000_000.0
         }
     }
     public let music = LuminaMusicLibrary()
-    public let offline = LuminaOfflineLibrary()
+    public let offline: LuminaOfflineLibrary
+    /// Reachability includes both the OS network path and failed server requests.
+    public private(set) var connectivityStatus: LuminaConnectivity.Status = .unknown
+    public var isOffline: Bool { connectivityStatus == .offline }
+    /// Only completed, locally playable video downloads are safe to show offline.
+    public var offlineVideoItems: [MediaItem] {
+        offline.downloadedItems.filter { !$0.isAudio && $0.isPlayable && offline.localURL(for: $0.id) != nil }
+    }
     /// Device-local choices applied to each native video preparation. They never mutate member settings.
     public let playbackPreferences: NativePlaybackPreferences
     public private(set) var items = [MediaItem]()
@@ -55,6 +62,7 @@ let tickScale = 10_000_000.0
 
     private let client: LuminaClient
     private let credentials: CredentialStore
+    private let connectivity: LuminaConnectivity
     private var currentSearch = ""
     private var videoKind = VideoBrowseKind.all
     private var videoSort = VideoSort.name
@@ -70,23 +78,95 @@ let tickScale = 10_000_000.0
     private var homeTask: Task<Void, Never>?
     private var libraryTask: Task<Void, Never>?
     private var libraryAlphabetTask: Task<Void, Never>?
+    private var isConnectivityRefreshInFlight = false
     private var nextIndex = 0
     private var libraryGeneration = 0
     private var readyArtworkFramings = [URL: HeroFraming]()
     private var readyArtworkFramingOrder = [URL]()
     private let maximumReadyArtworkFramings = 80
 
-    public init(playbackPreferences: NativePlaybackPreferences = NativePlaybackPreferences()) {
+    public init(playbackPreferences: NativePlaybackPreferences = NativePlaybackPreferences(),
+                connectivity: LuminaConnectivity = LuminaConnectivity(),
+                offline: LuminaOfflineLibrary = LuminaOfflineLibrary()) {
         credentials = KeychainCredentials()
         client = LuminaClient()
+        self.connectivity = connectivity
+        self.offline = offline
         self.playbackPreferences = playbackPreferences
+        configureConnectivity()
     }
 
     init(client: LuminaClient, credentials: CredentialStore,
-         playbackPreferences: NativePlaybackPreferences = NativePlaybackPreferences()) {
+         playbackPreferences: NativePlaybackPreferences = NativePlaybackPreferences(),
+         connectivity: LuminaConnectivity = LuminaConnectivity(),
+         offline: LuminaOfflineLibrary = LuminaOfflineLibrary()) {
         self.client = client
         self.credentials = credentials
+        self.connectivity = connectivity
+        self.offline = offline
         self.playbackPreferences = playbackPreferences
+        configureConnectivity()
+    }
+
+    private func configureConnectivity() {
+        connectivityStatus = connectivity.status
+        connectivity.onChange = { [weak self] status in
+            self?.didChangeConnectivity(status)
+        }
+    }
+
+    /// Starts the platform monitor once. `restore()` also calls this so a cold offline
+    /// launch obtains a durable local library without relying on a view lifetime.
+    public func startConnectivityMonitoring() {
+        connectivity.start()
+    }
+
+    private func didChangeConnectivity(_ status: LuminaConnectivity.Status) {
+        guard status == .online else {
+            connectivityStatus = .offline
+            presentOfflineItems()
+            return
+        }
+        guard session != nil else {
+            connectivityStatus = .online
+            return
+        }
+        // Keep the local-only surface in place until the server itself answers.
+        // A usable Wi-Fi/cellular route does not necessarily reach a household server.
+        Task { [weak self] in await self?.refreshConnectivity() }
+    }
+
+    /// Revalidates the retained session when the app returns or a route becomes usable.
+    /// An unreachable server becomes offline; authentication failures still clear the session.
+    public func refreshConnectivity() async {
+        guard connectivity.status != .offline,
+              !isConnectivityRefreshInFlight,
+              let active = session else { return }
+        isConnectivityRefreshInFlight = true
+        defer { isConnectivityRefreshInFlight = false }
+        do {
+            let checked = try await client.me(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
+            guard isCurrent(active) else { return }
+            guard connectivity.status != .offline else {
+                connectivityStatus = .offline
+                presentOfflineItems()
+                return
+            }
+            session = LuminaSession(serverURL: active.serverURL, accessToken: active.accessToken,
+                                    userID: checked.id, username: checked.name, serverName: active.serverName,
+                                    deviceID: active.deviceID)
+            connectivityStatus = .online
+            await refresh()
+        } catch {
+            guard isCurrent(active) else { return }
+            if let failure = error as? LuminaError, failure == .http(401) || failure == .http(403) {
+                clearSession()
+                errorMessage = Self.message(for: error, signingIn: false)
+            } else {
+                connectivityStatus = .offline
+                presentOfflineItems()
+            }
+        }
     }
 
     /// Loads public release artwork for the signed-out welcome screen without sending member credentials or a device ID.
@@ -116,11 +196,32 @@ let tickScale = 10_000_000.0
 
     public func restore() async {
         guard let saved = try? credentials.load() else { return }
+        // Make retained credentials and their local downloads available before an
+        // initial path callback or server validation completes.
+        session = saved
+        startConnectivityMonitoring()
+        guard connectivity.status != .offline else {
+            connectivityStatus = .offline
+            presentOfflineItems()
+            return
+        }
+        // Do not launch a second `/Users/Me` validation if the initial path
+        // callback arrives while this retained-session validation is pending.
+        isConnectivityRefreshInFlight = true
         isBusy = true
         errorMessage = nil
-        defer { isBusy = false }
+        defer {
+            isConnectivityRefreshInFlight = false
+            isBusy = false
+        }
         do {
             let checked = try await client.me(origin: saved.serverURL, token: saved.accessToken, deviceID: saved.deviceID)
+            guard isCurrent(saved) else { return }
+            guard connectivity.status != .offline else {
+                connectivityStatus = .offline
+                presentOfflineItems()
+                return
+            }
             session = LuminaSession(serverURL: saved.serverURL, accessToken: saved.accessToken, userID: checked.id, username: checked.name, serverName: saved.serverName, deviceID: saved.deviceID)
             await refresh()
         } catch {
@@ -133,7 +234,8 @@ let tickScale = 10_000_000.0
                 credentials.deleteSession()
                 session = nil
             } else {
-                session = saved
+                connectivityStatus = .offline
+                presentOfflineItems()
             }
             errorMessage = Self.message(for: error, signingIn: false)
         }
@@ -178,6 +280,28 @@ let tickScale = 10_000_000.0
 
     public func loadLibrary(search: String = "", kind: VideoBrowseKind = .all, sort: VideoSort = .name, filters: VideoFilters = .init()) async {
         await loadLibrary(search: search, kind: kind, sort: sort, filters: filters, clearsError: true)
+    }
+
+    /// Feature-detects the server-side technical movie index only when the UI is
+    /// about to need it. It is deliberately rechecked on an explicit retry, so a
+    /// server upgraded in place can enable the control without restarting the app.
+    public func supportsTechnicalVideoFilters() async throws -> Bool {
+        guard let active = session else { throw LuminaError.notSignedIn }
+        guard !isOffline else { return false }
+        do {
+            let supported = try await client.supportsTechnicalVideoFilters(
+                origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID
+            )
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            return supported
+        } catch {
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            if let failure = error as? LuminaError, failure == .http(401) || failure == .http(403) {
+                clearSession()
+            }
+            if error as? LuminaError == .http(404) { return false }
+            throw error
+        }
     }
 
     /// Searches the authenticated catalog without replacing the current Library
@@ -228,6 +352,7 @@ let tickScale = 10_000_000.0
 
     private func performLibraryLoad(search: String, kind: VideoBrowseKind, sort: VideoSort, filters: VideoFilters, generation: Int) async {
         guard !Task.isCancelled, generation == libraryGeneration, let active = session else { return }
+        guard !isOffline else { presentOfflineItems(); return }
         do {
             currentSearch = search
             videoKind = kind
@@ -277,12 +402,12 @@ let tickScale = 10_000_000.0
             }
         } catch {
             guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
-            errorMessage = Self.message(for: error, signingIn: false)
+            handleRequestFailure(error, for: active)
         }
     }
 
     public func loadMore() async {
-        guard let active = session, hasMore, !isBusy else { return }
+        guard let active = session, !isOffline, hasMore, !isBusy else { return }
         let generation = libraryGeneration
         let start = nextIndex
         isBusy = true
@@ -296,7 +421,7 @@ let tickScale = 10_000_000.0
             hasMore = !page.items.isEmpty && nextIndex < page.total
         } catch {
             guard generation == libraryGeneration, isCurrent(active) else { return }
-            errorMessage = Self.message(for: error, signingIn: false)
+            handleRequestFailure(error, for: active)
         }
     }
 
@@ -345,6 +470,7 @@ let tickScale = 10_000_000.0
     }
 
     public func refresh() async {
+        guard !isOffline else { presentOfflineItems(); return }
         errorMessage = nil
         async let home: Void = loadHome(clearsError: false)
         await loadLibrary(search: currentSearch, kind: videoKind, sort: videoSort, filters: videoFilters, clearsError: false)
@@ -353,6 +479,20 @@ let tickScale = 10_000_000.0
 
     public func loadHome() async {
         await loadHome(clearsError: true)
+    }
+
+    private func presentOfflineItems() {
+        let downloads = offlineVideoItems
+        items = downloads
+        recentItems = downloads
+        resumeItems = downloads.filter { offline.resumeSeconds(for: $0.id) > 0 }
+        nextUpItems = downloads.filter { $0.type == "Episode" }
+        hasMore = false
+        nextIndex = downloads.count
+        libraryAlphabet = []
+        isBusy = false
+        isHomeBusy = false
+        errorMessage = nil
     }
 
     private func loadHome(clearsError: Bool) async {
@@ -380,6 +520,7 @@ let tickScale = 10_000_000.0
 
     private func performHomeLoad(generation: Int, clearsError: Bool) async {
         guard !Task.isCancelled, let active = session, generation == homeGeneration else { return }
+        guard !isOffline else { presentOfflineItems(); return }
         isHomeBusy = true
         if clearsError { errorMessage = nil }
         async let recent: Void = loadHomeRecent(active, generation: generation)
@@ -411,7 +552,7 @@ let tickScale = 10_000_000.0
             recentItems = page.items.filter { $0.isPlayable && !$0.isAudio }
         } catch {
             guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
-            errorMessage = Self.message(for: error, signingIn: false)
+            handleRequestFailure(error, for: active)
         }
     }
 
@@ -422,7 +563,7 @@ let tickScale = 10_000_000.0
             resumeItems = items.filter { $0.isPlayable && !$0.isAudio }
         } catch {
             guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
-            errorMessage = Self.message(for: error, signingIn: false)
+            handleRequestFailure(error, for: active)
         }
     }
 
@@ -433,7 +574,7 @@ let tickScale = 10_000_000.0
             nextUpItems = items.filter { $0.type == "Episode" }
         } catch {
             guard !Task.isCancelled, generation == homeGeneration, isCurrent(active) else { return }
-            errorMessage = Self.message(for: error, signingIn: false)
+            handleRequestFailure(error, for: active)
         }
     }
 
@@ -743,11 +884,14 @@ let tickScale = 10_000_000.0
                                 quality: PlaybackQuality? = nil,
                                 audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil,
                                 mediaSourceID: String? = nil, startPositionSeconds: Double? = nil) async throws -> PlaybackRequest {
-        guard let active = session else { throw LuminaError.notSignedIn }
-        if item.isAudio, let local = offline.localURL(for: item.id) {
-            return PlaybackRequest(id: UUID().uuidString, item: item, url: local, startPositionSeconds: 0,
-                                   mediaSourceID: item.id, isTranscoding: false, methodLabel: "Downloaded audio")
+        if let local = offline.localURL(for: item.id) {
+            return PlaybackRequest(id: UUID().uuidString, item: item, url: local,
+                                   startPositionSeconds: startPositionSeconds ?? (item.isAudio ? 0 : offline.resumeSeconds(for: item.id)),
+                                   mediaSourceID: item.id, isTranscoding: false,
+                                   methodLabel: item.isAudio ? "Downloaded audio" : "Downloaded video",
+                                   usesClientDemux: !item.isAudio && local.pathExtension.lowercased() == "mkv")
         }
+        guard !isOffline, let active = session else { throw LuminaError.notSignedIn }
         let current = try await client.item(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, id: item.id, userID: active.userID)
         guard isCurrent(active) else { throw LuminaError.notSignedIn }
         if current.isAudio { return try client.audioRequest(origin: active.serverURL, token: active.accessToken, item: current, forceCompatible: forceTranscode) }
@@ -798,6 +942,16 @@ let tickScale = 10_000_000.0
                                           result: result, quality: resolvedQuality,
                                           audioStreamIndex: preferredAudio, subtitleStreamIndex: preferredSubtitle,
                                           mediaSourceID: source.id, startPositionSeconds: startPositionSeconds)
+    }
+
+    /// Saves the server's original movie, episode, or video attachment for offline playback.
+    public func downloadVideo(item: MediaItem) async {
+        guard !isOffline, let active = session, LuminaOfflineLibrary.supportsVideoDownload(item) else { return }
+        let request = client.request(origin: active.serverURL, path: "/Items/\(item.id)/Download",
+                                     token: active.accessToken, deviceID: active.deviceID)
+        await offline.downloadVideo(item: item, request: request)
+        guard isCurrent(active), let artwork = imageURL(for: item), artwork.scheme != "file" else { return }
+        await offline.downloadArtwork(item: item, request: URLRequest(url: artwork))
     }
 
     /// Downloads an origin-validated WebVTT sidecar to a private temporary file. The caller owns
@@ -863,8 +1017,47 @@ let tickScale = 10_000_000.0
     }
 
     public func reportPlayback(event: PlaybackEvent, request: PlaybackRequest, positionSeconds: Double, isPaused: Bool) async throws {
+        if offline.localURL(for: request.item.id) != nil {
+            offline.recordPlaybackPosition(id: request.item.id, seconds: positionSeconds)
+            // Keep the on-device resume durable first, but still reconcile it
+            // with the server whenever the member's server is reachable.
+            if isOffline { return }
+        }
+        guard !isOffline else { return }
         guard let active = session else { throw LuminaError.notSignedIn }
-        try await client.report(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, event: event, request: request, positionSeconds: positionSeconds, isPaused: isPaused)
+        do {
+            try await client.report(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID,
+                                    event: event, request: request, positionSeconds: positionSeconds, isPaused: isPaused)
+        } catch {
+            guard Self.isConnectionFailure(error) else { throw error }
+            handleRequestFailure(error, for: active)
+        }
+    }
+
+    private func handleRequestFailure(_ error: Error, for active: LuminaSession) {
+        guard isCurrent(active) else { return }
+        if let failure = error as? LuminaError, failure == .http(401) || failure == .http(403) {
+            clearSession()
+            errorMessage = Self.message(for: error, signingIn: false)
+        } else if Self.isConnectionFailure(error) {
+            connectivityStatus = .offline
+            presentOfflineItems()
+        } else {
+            errorMessage = Self.message(for: error, signingIn: false)
+        }
+    }
+
+    private static func isConnectionFailure(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        switch URLError.Code(rawValue: nsError.code) {
+        case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
+             .cannotFindHost, .dnsLookupFailed, .timedOut, .internationalRoamingOff,
+             .dataNotAllowed, .callIsActive:
+            return true
+        default:
+            return false
+        }
     }
 
     private static func message(for error: Error, signingIn: Bool) -> String {

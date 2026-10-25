@@ -29,6 +29,7 @@ targets:
       - path: Config/PrivacyInfo.xcprivacy
         buildPhase: resources
       - path: Assets/Welcome.xcassets
+      - path: Assets/LuminaMediaIcons.xcassets
       - path: Assets/iOS.xcassets
       - path: Notices
         buildPhase: resources
@@ -53,6 +54,7 @@ targets:
       - path: Config/PrivacyInfo.xcprivacy
         buildPhase: resources
       - path: Assets/Welcome.xcassets
+      - path: Assets/LuminaMediaIcons.xcassets
       - path: Assets/tvOS.xcassets
       - path: Notices
         buildPhase: resources

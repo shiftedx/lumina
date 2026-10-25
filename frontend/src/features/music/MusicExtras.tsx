@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ExternalLink, Play, RefreshCw } from 'lucide-react';
+import { ExternalLink, Play, RefreshCw } from '../../luminaIcons';
 
 import { getMusicDiscography, getMusicEnrichment, getMusicHighlights, getMusicVideos, identifyMusic } from '../../api';
 import { Artwork } from '../../Artwork';

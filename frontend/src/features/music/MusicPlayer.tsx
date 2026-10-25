@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ChevronDown, ChevronUp, ListMusic, Maximize2, Minimize2, Pause, Play, Repeat, SkipBack, SkipForward, Speaker, Volume2, X } from 'lucide-react';
+import { ArrowDownToLine, ChevronDown, ChevronUp, ListMusic, Maximize2, Minimize2, Pause, Play, Repeat, SkipBack, SkipForward, Speaker, Volume2, X } from '../../luminaIcons';
 
 import { castMusic, controlMusicCast, discoverSonos, getMusicCastStatus, getMusicLyrics } from '../../api';
 import { Menu } from '../../ui';

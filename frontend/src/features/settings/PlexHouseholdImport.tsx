@@ -1,6 +1,6 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Users } from 'lucide-react';
+import { Users } from '../../luminaIcons';
 
 import { getPlexImport, previewPlexHousehold, runPlexHousehold } from '../../api';
 import type { JellyfinImportSummary, PlexHousehold, PlexHouseholdMember } from '../../types';

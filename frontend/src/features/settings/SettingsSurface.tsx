@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useRef, useState } from 'react';
-import { CircleUserRound, Compass, Download, FolderOpen, Gauge, Palette, Play, Plug, ShieldCheck, Sparkles, Users, Wrench } from 'lucide-react';
+import { CircleUserRound, Compass, Download, FolderOpen, Gauge, Palette, Play, Plug, ShieldCheck, Sparkles, Users, Wrench } from '../../luminaIcons';
 
 import { routePath, type SettingsSectionId } from '../../app/routes';
 import { Field, fieldProps, Input, Masthead } from '../../ui';

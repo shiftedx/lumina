@@ -1,4 +1,4 @@
-import { Monitor, Moon, Sun } from 'lucide-react';
+import { Monitor, Moon, Sun } from '../../../luminaIcons';
 import { AccountPassword } from '../../../AccountPassword';
 import type { AutoSkipPref } from '../../../types';
 import { PLAYBACK_MAX_HEIGHTS } from '../../../workspace';

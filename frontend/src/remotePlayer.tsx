@@ -1,4 +1,4 @@
-import { LoaderCircle, Settings } from 'lucide-react';
+import { LoaderCircle, Settings } from './luminaIcons';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { configureDashThroughput } from './dashThroughput';

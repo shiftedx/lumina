@@ -1,4 +1,4 @@
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw } from '../../luminaIcons';
 import { useCallback, useEffect, useState } from 'react';
 
 import { errorMessage, formatBytes, formatDateTime } from '../../utils';

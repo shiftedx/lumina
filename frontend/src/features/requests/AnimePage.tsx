@@ -1,5 +1,5 @@
 /** Anime: the season switcher, sort and format chips, this week's airing schedule, a big poster grid, and the extra rails. */
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from '../../luminaIcons';
 import { useState } from 'react';
 
 import { IconButton, Skeleton } from '../../ui';

@@ -139,3 +139,72 @@ def test_native_alphabet_exactly_matches_items_scopes_visibility_and_absolute_or
         }
     finally:
         client.close()
+
+
+def test_native_technical_filters_keep_one_visible_source_and_match_alphabet(tmp_path: Path) -> None:
+    """Technical predicates never combine facts from separate versions or classify unknown probe data as SDR."""
+    root = tmp_path / "media"
+    jellyfin_household(root)
+
+    def probe(*, height: int | None = 2160, transfer: str | None = "bt709", audio: str | None = "aac",
+              profile: str | None = None, title: str | None = None, hdr10: bool = False, hdr10plus: bool = False) -> dict:
+        width = 3840 if height and height >= 2000 else 1920 if height and height >= 1000 else 640 if height and height > 0 else None
+        video = {"index": 0, "type": "video", "codec": "hevc", "width": width,
+                 "height": height, "color_transfer": transfer, "hdr10": hdr10, "hdr10plus": hdr10plus}
+        streams = [video]
+        if audio:
+            streams.append({"index": 1, "type": "audio", "codec": audio, "profile": profile, "title": title})
+        return {"width": video["width"], "height": height, "streams": streams}
+
+    with db_module.SessionLocal.begin() as db:
+        def movie(number: int, name: str, path: str, facts: dict, **metadata: object) -> str:
+            title_id, item_id = uid(number), uid(number + 1000)
+            db.add(MediaTitle(id=title_id, type="movie", key=f"{ROOT}:technical/{number}", root_id=ROOT, name=name,
+                              category="movies", metadata_json={}))
+            add_file(db, root, path, item_id=item_id, title_id=title_id, owner=ALICE, visibility="shared", title=name,
+                     kind="movie", probe=facts, metadata=metadata)
+            return title_id
+
+        movie(501, "Alpha IMAX", "releases/Alpha IMAX HDR10+.mkv", probe(transfer="smpte2084", audio="truehd", title="Dolby Atmos", hdr10plus=True))
+        split = movie(502, "Bravo Split", "releases/Bravo 4K.mkv", probe(transfer="smpte2084", audio="aac", hdr10=True))
+        add_file(db, root, "releases/Bravo Atmos 1080p.mkv", item_id=uid(2502), title_id=split, owner=ALICE, visibility="shared",
+                 title="Bravo Split", kind="movie", probe=probe(height=1080, audio="eac3", title="Atmos"))
+        movie(503, "Charlie SDR", "releases/Charlie.mkv", probe(height=480))
+        movie(504, "Delta Unknown", "releases/Delta.mkv", probe(transfer=None))
+        movie(505, "Echo Parent", "IMAX/Echo.mkv", probe(height=480))
+        movie(506, "Foxtrot Climax", "releases/CLIMAX.mkv", probe(height=480))
+        movie(507, "Golf Zero", "releases/Golf.mkv", probe(height=0))
+        movie(508, "Hotel HLG", "releases/Hotel.mkv", probe(height=480, transfer="arib-std-b67", audio="dts", profile="DTS-HD MA"))
+        movie(509, "India Prefix", "releases/IMAX.Enhanced.mkv", probe(transfer=None))
+        movie(510, "Juliet Marker", "releases/Juliet_IMAX_Remaster.mkv", probe(transfer=None))
+        movie(511, "Kilo Jockey", "releases/Kilo.mkv", probe(transfer=None, audio="truehd", title="Jockey commentary"))
+        movie(512, "Lima AAC", "releases/Lima.mkv", probe(transfer=None, audio="aac", title="Atmos"))
+
+    client = TestClient(app, base_url="http://localhost")
+    try:
+        technical = {
+            "IncludeItemTypes": "Movie", "LuminaResolution": "4k", "LuminaHDR": "hdr10plus",
+            "LuminaAudio": "atmos", "LuminaIMAX": "true",
+        }
+        page = items(client, ALICE_TOKEN, **technical)
+        assert [item["Name"] for item in page["Items"]] == ["Alpha IMAX"]
+        assert alphabet(client, ALICE_TOKEN, **technical) == expected_anchors(page)
+
+        assert [item["Name"] for item in items(client, ALICE_TOKEN, IncludeItemTypes="Movie", LuminaIMAX="true")["Items"]] == [
+            "Alpha IMAX", "India Prefix", "Juliet Marker",
+        ]
+        assert [item["Name"] for item in items(client, ALICE_TOKEN, IncludeItemTypes="Movie", LuminaAudio="atmos")["Items"]] == [
+            "Alpha IMAX", "Bravo Split",
+        ]
+
+        assert [item["Name"] for item in items(client, ALICE_TOKEN, IncludeItemTypes="Movie", LuminaHDR="sdr")["Items"]] == [
+            "Bravo Split", "Charlie SDR", "Echo Parent", "Foxtrot Climax", "Golf Zero",
+        ]
+        assert [item["Name"] for item in items(client, ALICE_TOKEN, IncludeItemTypes="Movie", LuminaResolution="sd")["Items"]] == [
+            "Charlie SDR", "Echo Parent", "Foxtrot Climax", "Hotel HLG",
+        ]
+        assert [item["Name"] for item in items(client, ALICE_TOKEN, IncludeItemTypes="Movie", LuminaAudio="dtshd")["Items"]] == ["Hotel HLG"]
+        assert client.get("/Items/Filters2", params={"Fields": "LuminaTechnicalFilters", "ParentId": "not-an-id"},
+                          headers=mediabrowser(ALICE_TOKEN)).json() == {"LuminaTechnicalFilters": True}
+    finally:
+        client.close()

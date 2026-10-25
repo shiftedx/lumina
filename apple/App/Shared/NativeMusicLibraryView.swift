@@ -44,12 +44,12 @@ private struct NativeMusicList<Content: View>: View {
 enum NativeMusicSection: String, CaseIterable {
     case playlists = "Playlists", mixes = "Mixes", downloads = "Downloads", queue = "Queue"
 
-    var symbol: String {
+    var glyph: LuminaGlyph {
         switch self {
-        case .playlists: "music.note.list"
-        case .mixes: "sparkles"
-        case .downloads: "arrow.down.circle"
-        case .queue: "list.bullet"
+        case .playlists: .playlist
+        case .mixes: .discover
+        case .downloads: .download
+        case .queue: .queue
         }
     }
 }
@@ -63,7 +63,7 @@ struct NativeMusicLibraryLinks: View {
                     NavigationLink {
                         NativeMusicLibraryView(store: store, section: section)
                     } label: {
-                        Label(section.rawValue, systemImage: section.symbol)
+                        Label(section.rawValue, glyph: section.glyph)
                             .frame(minHeight: 44)
                             .contentShape(.rect)
                     }
@@ -125,7 +125,7 @@ struct NativeMusicLibraryView: View {
             case .queue: queueSections
             }
             if let message = errorMessage {
-                Section { Label(message, systemImage: "exclamationmark.triangle") }
+                Section { Label(message, glyph: .warning) }
             }
         }
         .navigationTitle(section.rawValue)
@@ -152,15 +152,15 @@ struct NativeMusicLibraryView: View {
 
     @ViewBuilder private var playlistSections: some View {
         Section {
-            Button("New playlist", systemImage: "plus") {
+            Button("New playlist", glyph: .add) {
                 playlistDraft = PlaylistDraft(tracks: [])
             }
                 .accessibilityIdentifier("createMusicPlaylistButton")
-            Button("Save listening queue as a playlist", systemImage: "text.badge.plus") {
+            Button("Save listening queue as a playlist", glyph: .playlist) {
                 playlistDraft = PlaylistDraft(tracks: audioSession.playback?.queue ?? [])
             }
             .disabled(audioSession.playback?.queue.isEmpty != false)
-            Button("Refresh playlists", systemImage: "arrow.clockwise") { Task { await store.music.refresh() } }
+            Button("Refresh playlists", glyph: .sync) { Task { await store.music.refresh() } }
         }
         Section("Saved playlists") {
             if store.music.isBusy { ProgressView("Loading playlists…") }
@@ -181,7 +181,9 @@ struct NativeMusicLibraryView: View {
                                 .filter { !$0.isEmpty }.joined(separator: " · "))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                    } icon: { Image(systemName: playlist.rules == nil ? "music.note.list" : "sparkles") }
+                    } icon: {
+                        LuminaIcon(glyph: playlist.rules == nil ? .playlist : .discover, size: 20)
+                    }
                 }
                 .accessibilityIdentifier("musicPlaylist-\(playlist.id)")
             }
@@ -190,11 +192,11 @@ struct NativeMusicLibraryView: View {
 
     @ViewBuilder private var mixSections: some View {
         Section("Made from your library") {
-            mixLink("In rotation", kind: "rotation", symbol: "arrow.trianglehead.2.clockwise.rotate.90",
+            mixLink("In rotation", kind: "rotation", glyph: .history,
                     description: "Familiar favorites with something you have not heard recently.")
-            mixLink("Favorites", kind: "favorites", symbol: "heart",
+            mixLink("Favorites", kind: "favorites", glyph: .favorite,
                     description: "Tracks from your favorite music.")
-            mixLink("Unplayed", kind: "unplayed", symbol: "sparkles",
+            mixLink("Unplayed", kind: "unplayed", glyph: .discover,
                     description: "A fresh listen from your own collection.")
             if let current = audioSession.playback?.request.item {
                 NavigationLink {
@@ -207,7 +209,7 @@ struct NativeMusicLibraryView: View {
         }
     }
 
-    private func mixLink(_ title: String, kind: String, symbol: String, description: String) -> some View {
+    private func mixLink(_ title: String, kind: String, glyph: LuminaGlyph, description: String) -> some View {
         NavigationLink {
             NativeMusicMixView(store: store, kind: kind, title: title)
         } label: {
@@ -216,7 +218,7 @@ struct NativeMusicLibraryView: View {
                     Text(title).font(.headline)
                     Text(description).font(.caption).foregroundStyle(.secondary)
                 }
-            } icon: { Image(systemName: symbol) }
+            } icon: { LuminaIcon(glyph: glyph, size: 20) }
         }
         .accessibilityIdentifier("musicMix-\(kind)")
     }
@@ -232,32 +234,32 @@ struct NativeMusicLibraryView: View {
                 .font(.footnote).foregroundStyle(.secondary)
             #endif
             if let message = store.offline.errorMessage { Text(message).foregroundStyle(.secondary) }
-            if store.offline.downloadedItems.isEmpty {
+            if store.offline.downloadedItems.filter(\.isAudio).isEmpty {
                 Text("Save tracks, albums, or your listening queue from their playback controls.").foregroundStyle(.secondary)
             } else {
-                Button("Play downloaded music", systemImage: "play.fill") { playDownloads(at: 0) }
+                Button("Play downloaded music", glyph: .play, variant: .solid) { playDownloads(at: 0) }
                     .accessibilityIdentifier("playDownloadsButton")
             }
-            ForEach(store.offline.downloadedItems) { item in
+            ForEach(store.offline.downloadedItems.filter(\.isAudio)) { item in
                 HStack {
-                    Button { playDownloads(at: store.offline.downloadedItems.firstIndex(of: item) ?? 0) } label: {
+                    Button { playDownloads(at: store.offline.downloadedItems.filter(\.isAudio).firstIndex(of: item) ?? 0) } label: {
                         NativeMusicTrackLabel(item: item, store: store)
                     }
                     .accessibilityIdentifier("downloadedTrack-\(item.id)")
                     Spacer()
-                    Button("Remove download", systemImage: "trash", role: .destructive) { store.offline.remove(id: item.id) }
+                    Button("Remove download", glyph: .trash, role: .destructive) { store.offline.remove(id: item.id) }
                         .labelStyle(.iconOnly)
                 }
                 .buttonStyle(LuminaQuietActionStyle())
             }
-            Button("Refresh downloads", systemImage: "arrow.clockwise") { store.offline.refresh() }
-            Button("Remove all downloads", systemImage: "trash", role: .destructive) { clearDownloads = true }
-                .disabled(store.offline.downloadedItems.isEmpty && store.offline.pendingItems.isEmpty
+            Button("Refresh downloads", glyph: .sync) { store.offline.refresh() }
+            Button("Remove all downloads", glyph: .trash, role: .destructive) { clearDownloads = true }
+                .disabled(store.offline.downloadedItems.filter(\.isAudio).isEmpty && store.offline.pendingItems.filter(\.isAudio).isEmpty
                           && store.offline.usedBytes == 0 && store.offline.errorMessage == nil)
         }
-        if !store.offline.pendingItems.isEmpty {
+        if !store.offline.pendingItems.filter(\.isAudio).isEmpty {
             Section("Downloads in progress") {
-                ForEach(store.offline.pendingItems) { item in
+                ForEach(store.offline.pendingItems.filter(\.isAudio)) { item in
                     VStack(alignment: .leading, spacing: 10) {
                         Text(item.name).font(.headline)
                         switch store.offline.downloadStates[item.id] {
@@ -290,7 +292,7 @@ struct NativeMusicLibraryView: View {
                 .font(.subheadline).foregroundStyle(.secondary)
             Text("Queues restored from another device stay paused until you choose Play.")
                 .font(.footnote).foregroundStyle(.secondary)
-            Button("Refresh shared queue", systemImage: "arrow.clockwise") {
+            Button("Refresh shared queue", glyph: .sync) {
                 Task { await audioSession.refreshSharedQueue() }
             }
             .accessibilityIdentifier("refreshSharedQueueButton")
@@ -302,9 +304,9 @@ struct NativeMusicLibraryView: View {
                     .accessibilityIdentifier("libraryKeepDeviceQueueButton")
             }
             if let model = audioSession.playback {
-                Button("Open player", systemImage: "music.note") { playback = model }
+                Button("Open player", glyph: .music, variant: .solid) { playback = model }
             }
-            Button("Play saved queue", systemImage: "play.fill") {
+            Button("Play saved queue", glyph: .play, variant: .solid) {
                 Task {
                     do { playback = try await audioSession.playSavedQueue() }
                     catch { errorMessage = error.localizedDescription }
@@ -312,7 +314,7 @@ struct NativeMusicLibraryView: View {
             }
             .disabled(audioSession.snapshot.queue.isEmpty || audioSession.busy || audioSession.conflict != nil)
             .accessibilityIdentifier("playSavedQueueButton")
-            Button("Clear listening queue", systemImage: "trash", role: .destructive) { clearingQueue = true }
+            Button("Clear listening queue", glyph: .trash, role: .destructive) { clearingQueue = true }
                 .disabled((audioSession.snapshot.queue.isEmpty && audioSession.snapshot.entries.isEmpty) || audioSession.conflict != nil)
                 .accessibilityIdentifier("clearSavedQueueButton")
             if let message = audioSession.message { Text(message).foregroundStyle(.secondary) }
@@ -328,7 +330,7 @@ struct NativeMusicLibraryView: View {
                 }
                 .pickerStyle(.menu)
                 .disabled(audioSession.isSonos)
-                Button("Refresh requested albums", systemImage: "arrow.clockwise") {
+                Button("Refresh requested albums", glyph: .sync) {
                     Task { await audioSession.refreshRequestedAlbums() }
                 }
             }
@@ -336,7 +338,7 @@ struct NativeMusicLibraryView: View {
     }
 
     private func playDownloads(at index: Int) {
-        let items = store.offline.downloadedItems
+        let items = store.offline.downloadedItems.filter(\.isAudio)
         guard items.indices.contains(index) else { return }
         Task {
             do {
@@ -365,16 +367,16 @@ private struct NativePlaylistDetail: View {
     var body: some View {
         NativeMusicList {
             Section {
-                if current.rules != nil { Label("Smart selection · updates with your library", systemImage: "sparkles") }
-                if !current.canEdit { Label("Shared by another household member · read only", systemImage: "person.2") }
+                if current.rules != nil { Label("Smart selection · updates with your library", glyph: .discover) }
+                if !current.canEdit { Label("Shared by another household member · read only", glyph: .users) }
                 if loading { ProgressView("Loading playlist…") }
                 if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
-                Button("Refresh playlist", systemImage: "arrow.clockwise") { Task { await load() } }
+                Button("Refresh playlist", glyph: .sync) { Task { await load() } }
                 if current.canEdit {
-                    Button("Edit playlist", systemImage: "pencil") { editing = true }
+                    Button("Edit playlist", glyph: .edit) { editing = true }
                         .disabled(loading)
                         .accessibilityIdentifier("editMusicPlaylistButton")
-                    Button("Delete playlist", systemImage: "trash", role: .destructive) { deleting = true }
+                    Button("Delete playlist", glyph: .trash, role: .destructive) { deleting = true }
                 }
             }
             NativeMusicTrackSections(store: store, tracks: tracks) { playback = $0 }
@@ -422,7 +424,7 @@ private struct NativeMusicMixView: View {
             Section {
                 if loading { ProgressView("Building your mix…") }
                 if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
-                Button("Refresh mix", systemImage: "arrow.clockwise") { Task { await load() } }
+                Button("Refresh mix", glyph: .sync) { Task { await load() } }
                 if !loading && tracks.isEmpty {
                     Text("No tracks match yet. Try another mix or add more music to your library.").foregroundStyle(.secondary)
                 }
@@ -473,8 +475,8 @@ private struct NativeMusicTrackSections: View {
     }
 
     @ViewBuilder private var transportActions: some View {
-        Button("Play", systemImage: "play.fill") { play(at: 0, shuffle: false) }
-        Button("Shuffle", systemImage: "shuffle") { play(at: 0, shuffle: true) }
+        Button("Play", glyph: .play, variant: .solid) { play(at: 0, shuffle: false) }
+        Button("Shuffle", glyph: .shuffle) { play(at: 0, shuffle: true) }
     }
 
     private func play(at index: Int, shuffle: Bool) {
@@ -495,7 +497,10 @@ private struct NativeMusicTrackLabel: View {
         HStack(spacing: 14) {
             CachedArtworkImage(url: store.imageURL(for: item, maxWidth: 160)) { image in
                 image.resizable().scaledToFill()
-            } placeholder: { Image(systemName: "music.note").frame(maxWidth: .infinity, maxHeight: .infinity) }
+            } placeholder: {
+                LuminaIcon(glyph: .music, variant: .solid, size: 24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
                 .frame(width: 58, height: 58)
                 .clipShape(.rect(cornerRadius: 9))
                 .accessibilityHidden(true)
@@ -579,7 +584,7 @@ struct NativePlaylistEditor: View {
                     }
                 } else {
                     Section("Tracks · \(tracks.count)") {
-                        Button("Add listening queue", systemImage: "text.badge.plus") {
+                        Button("Add listening queue", glyph: .queue) {
                             var seen = Set(tracks.map(\.id))
                             tracks.append(contentsOf: (audioSession.playback?.queue ?? []).filter { seen.insert($0.id).inserted })
                         }
@@ -588,12 +593,14 @@ struct NativePlaylistEditor: View {
                         ForEach(tracks) { item in
                             HStack {
                                 Text(item.name).frame(maxWidth: .infinity, alignment: .leading)
-                                Menu("Track actions", systemImage: "ellipsis") {
+                                Menu {
                                     Button("Move up") { move(item, offset: -1) }
                                         .disabled(tracks.first?.id == item.id)
                                     Button("Move down") { move(item, offset: 1) }
                                         .disabled(tracks.last?.id == item.id)
                                     Button("Remove", role: .destructive) { tracks.removeAll { $0.id == item.id } }
+                                } label: {
+                                    Label("Track actions", glyph: .moreHorizontal)
                                 }
                                 .labelStyle(.iconOnly)
                             }
@@ -672,7 +679,7 @@ struct NativeDownloadControls: View {
                 Button("Cancel saving · \(batch.completed) of \(batch.total)") { batch.cancel() }
                     .accessibilityIdentifier("cancelAudioDownloadsButton")
             } else {
-                Button(title ?? (items.count == 1 ? "Download track" : "Download tracks · \(min(100, items.count))"), systemImage: "arrow.down.circle") {
+                Button(title ?? (items.count == 1 ? "Download track" : "Download tracks · \(min(100, items.count))"), glyph: .download) {
                     batch.start(items: items, store: store)
                 }
                 .disabled(items.isEmpty)

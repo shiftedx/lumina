@@ -1,4 +1,4 @@
-import { ArrowRight, Plus, PlugZap, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowRight, Plus, PlugZap, Sparkles, Trash2 } from '../../../luminaIcons';
 import { useState } from 'react';
 
 import { Button, ConfirmDialog, Field, fieldProps, IconButton, Input, PasswordInput, Select, StatusText } from '../../../ui';

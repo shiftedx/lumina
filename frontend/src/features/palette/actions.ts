@@ -1,4 +1,4 @@
-import { Compass, Download, FolderPlus, Home, Image as ImageIcon, Library, ListVideo, LogOut, Monitor, Moon, Pencil, Menu, Plus, Radio, RefreshCw, Rss, SlidersHorizontal, Sparkles, Sun, Tv, Users, type LucideIcon } from 'lucide-react';
+import { Compass, Download, FolderPlus, Home, Image as ImageIcon, Library, ListVideo, LogOut, Monitor, Moon, Pencil, Menu, Plus, Radio, RefreshCw, Rss, SlidersHorizontal, Sparkles, Sun, Tv, Users, type LucideIcon } from '../../luminaIcons';
 import { openMemberPicker, requestHomeEdit } from '../../app/commands';
 import type { ThemePreference } from '../../theme';
 import type { ScanLibrariesResult, UserProfile } from '../../types';

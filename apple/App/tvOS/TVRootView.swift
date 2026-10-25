@@ -222,7 +222,7 @@ private struct TVConnectionView: View {
                     .focused($focusedField, equals: .password)
 
                 if let error = store.errorMessage, !error.isEmpty {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                    Label(error, glyph: .warning)
                         .foregroundStyle(LuminaTheme.accentInk)
                         .font(.callout)
                         .accessibilityLabel("Connection error: \(error)")
@@ -830,7 +830,7 @@ private struct TVLibraryView: View {
 
             HStack(spacing: 10) {
                 Button { homeSearchPresented = true } label: {
-                    Label("Search", systemImage: "magnifyingglass").labelStyle(.iconOnly)
+                    Label("Search", glyph: .search, size: 28).labelStyle(.iconOnly)
                         .frame(width: 64, height: 64)
                 }
                 .buttonStyle(TVNavigationButtonStyle())
@@ -838,10 +838,10 @@ private struct TVLibraryView: View {
                 .focused($searchFocused)
                 .accessibilityIdentifier("homeSearchButton")
 
-                utilityButton(.requests, symbol: "sparkles.tv", identifier: "requestsButton")
+                utilityButton(.requests, glyph: .requests, identifier: "requestsButton")
                 Button { deviceSettingsPresented = true } label: {
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 27, weight: deviceSettingsPresented ? .semibold : .regular))
+                    LuminaIcon(glyph: .userSettings,
+                               variant: deviceSettingsPresented ? .solid : .outline, size: 28)
                         .foregroundStyle(deviceSettingsPresented ? LuminaTheme.accentInk : accountFocused ? LuminaTheme.ink : LuminaTheme.muted)
                         .frame(width: 64, height: 64)
                 }
@@ -879,11 +879,10 @@ private struct TVLibraryView: View {
         }
     }
 
-    private func utilityButton(_ target: TVDestination, symbol: String, identifier: String) -> some View {
+    private func utilityButton(_ target: TVDestination, glyph: LuminaGlyph, identifier: String) -> some View {
         let selected = destination == target
         return Button { selectDestination(target) } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 27, weight: selected ? .semibold : .regular))
+            LuminaIcon(glyph: glyph, variant: selected ? .solid : .outline, size: 28)
                 .foregroundStyle(selected ? LuminaTheme.accentInk : focusedDestination == target ? LuminaTheme.ink : LuminaTheme.muted)
                 .frame(width: 64, height: 64)
         }
@@ -961,7 +960,7 @@ private struct TVHomeSearchView: View {
                         .focused($searchFocused)
                         .onSubmit { search() }
                         .accessibilityIdentifier("homeSearchField")
-                    Button("Search", systemImage: "magnifyingglass") { search() }
+                    Button("Search", glyph: .search, size: 24) { search() }
                         .buttonStyle(LuminaUnderlineTabStyle())
                     Button("Done") { dismiss() }.buttonStyle(LuminaUnderlineTabStyle())
                 }
@@ -1170,7 +1169,7 @@ private struct TVVideoView: View {
                     } label: {
                         HStack(spacing: 10) {
                             Text(browse.sort == .name ? "Title A–Z" : browse.sort.label)
-                            Image(systemName: "chevron.down").font(.system(size: 16, weight: .semibold))
+                            LuminaIcon(glyph: .chevronDown, size: 16)
                         }
                     }
                     .buttonStyle(LuminaUnderlineTabStyle())
@@ -1181,7 +1180,7 @@ private struct TVVideoView: View {
                     Text("By relevance").font(.body).foregroundStyle(LuminaTheme.muted)
                 }
                 Button { filtersPresented = true } label: {
-                    Label(hasFilters ? "Filters applied" : "Filters", systemImage: "line.3.horizontal.decrease")
+                    Label(hasFilters ? "Filters applied" : "Filters", glyph: .filter)
                 }
                 .buttonStyle(LuminaUnderlineTabStyle(selected: hasFilters))
                 .accessibilityIdentifier("videoFiltersButton")
@@ -1609,7 +1608,8 @@ private struct TVFeaturedView: View {
                 catch { playbackError = "Playback could not start. Try again." }
             }
         } label: {
-            Label(preparing ? "Preparing…" : item.resumeSeconds > 0 ? "Resume" : "Play", systemImage: "play.fill")
+            Label(preparing ? "Preparing…" : item.resumeSeconds > 0 ? "Resume" : "Play",
+                  glyph: .play, variant: .solid, size: 28)
         }
         .buttonStyle(LuminaQuietActionStyle(primary: true))
         .disabled(preparing)
@@ -1631,7 +1631,8 @@ private struct TVFeaturedView: View {
                 watchlist?.errorMessage == nil
                     ? watchlist?.isIncluded == true ? "In watchlist" : "Add to watchlist"
                     : "Retry watchlist",
-                systemImage: watchlist?.isIncluded == true ? "checkmark" : "plus"
+                glyph: .bookmark,
+                variant: watchlist?.isIncluded == true ? .solid : .outline
             )
         }
         .buttonStyle(LuminaQuietActionStyle(mediaOverlay: true))
@@ -1923,8 +1924,8 @@ struct TVArtwork: View {
     private var placeholder: some View {
         ZStack {
             LinearGradient(colors: [LuminaTheme.brand.opacity(0.40), LuminaTheme.paper], startPoint: .topLeading, endPoint: .bottomTrailing)
-            Image(systemName: item.isAudio || item.type.hasPrefix("Music") ? "music.note" : "film")
-                .font(.largeTitle)
+            LuminaIcon(glyph: item.isAudio || item.type.hasPrefix("Music") ? .music : .movies,
+                       variant: .solid, size: 28)
                 .foregroundStyle(LuminaTheme.ink.opacity(0.7))
         }
     }
@@ -1978,7 +1979,7 @@ private struct TVLibraryAlphabetRail: View {
     var body: some View {
         Button { if !letters.isEmpty { onSelect(letters[selectedIndex]) } } label: {
             VStack(spacing: 14) {
-                Image(systemName: "chevron.up").font(.system(size: 13, weight: .medium))
+                LuminaIcon(glyph: .chevronUp, size: 14)
                 if expanded {
                     ForEach(visibleLetters, id: \.self) { letter in
                         Text(letter)
@@ -1995,7 +1996,7 @@ private struct TVLibraryAlphabetRail: View {
                 } else {
                     Text("A–Z").font(.system(size: 19, weight: .medium)).frame(height: 44)
                 }
-                Image(systemName: "chevron.down").font(.system(size: 13, weight: .medium))
+                LuminaIcon(glyph: .chevronDown, size: 14)
             }
             .foregroundStyle(.white.opacity(isFocused ? 1 : 0.5))
             .frame(width: 72, height: 420)

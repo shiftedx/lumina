@@ -1,4 +1,4 @@
-import { Ellipsis, Search, Server } from 'lucide-react';
+import { Ellipsis, Search, Server } from '../luminaIcons';
 import { memo, type ReactNode, useRef, useLayoutEffect, type RefObject } from 'react';
 
 import { allStreamingBlocked, useAccess } from '../features/access/access';
@@ -38,7 +38,7 @@ export const MobileTabs = memo(function MobileTabs({ surface, activeDownloads, m
   const noStreaming = allStreamingBlocked(useAccess().access);
   const tab = (target: Surface, label: string, icon: LuminaRouteIconName) => {
     const active = surfaceIsActive(surface, target);
-    return <button aria-current={active ? 'page' : undefined} className={active ? 'is-active' : ''} key={target} onClick={() => onNavigate(target)} type="button"><LuminaRouteIcon route={icon} /><span>{label}</span></button>;
+    return <button aria-current={active ? 'page' : undefined} className={active ? 'is-active' : ''} key={target} onClick={() => onNavigate(target)} type="button"><LuminaRouteIcon route={icon} selected={active} /><span>{label}</span></button>;
   };
   return (
     <nav aria-label="Mobile primary navigation" className="g-mobile-tabs">
@@ -118,7 +118,7 @@ export const NavigationPopover = memo(function NavigationPopover({ surface, acti
               const count = target === 'downloads' ? activeDownloads : target === 'requests' ? pendingRequests : 0;
               const countLabel = target === 'requests' ? 'waiting' : 'active';
               return <button aria-current={active ? 'page' : undefined} aria-label={count ? `${label}, ${count} ${countLabel}` : label} className={`g-nav-item ${active ? 'is-active' : ''}`} key={target} onClick={() => choose(() => onNavigate(target))} ref={target === 'home' ? firstNavigationRef : undefined} type="button">
-                <LuminaRouteIcon route={icon} /><span>{label}</span>{count ? <b aria-hidden="true" className="g-nav-count">{count}</b> : null}
+                <LuminaRouteIcon route={icon} selected={active} /><span>{label}</span>{count ? <b aria-hidden="true" className="g-nav-count">{count}</b> : null}
               </button>;
             })}
             {group === 'Vault' && onManageServer ? <button aria-current={managingServer ? 'page' : undefined} className={`g-nav-item ${managingServer ? 'is-active' : ''}`} onClick={() => choose(onManageServer)} type="button"><Server aria-hidden="true" /><span>Manage Server</span></button> : null}

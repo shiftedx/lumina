@@ -43,7 +43,7 @@ def test_every_real_stream_is_listed_with_normalized_facts() -> None:
         "index": 0, "type": "video", "codec": "hevc", "profile": "Main 10", "level": 153, "language": None, "title": None,
         "default": True, "forced": False, "hearing_impaired": False, "width": 3840, "height": 2160, "channels": None,
         "channel_layout": None, "sample_rate": None, "bit_rate": None, "pix_fmt": "yuv420p10le", "color_transfer": "smpte2084",
-        "frame_rate": 23.976, "dv_profile": 8, "dv_compat": 1,
+        "frame_rate": 23.976, "dv_profile": 8, "dv_compat": 1, "hdr10": False, "hdr10plus": False,
     }
     assert (truehd["language"], truehd["title"], truehd["channels"], truehd["sample_rate"], truehd["default"]) == ("eng", "Atmos", 8, 48000, True)
     assert (aac["language"], aac["bit_rate"], aac["default"]) == (None, 192000, False)  # "und" is no language

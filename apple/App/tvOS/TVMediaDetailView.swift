@@ -108,7 +108,8 @@ struct TVDetailView: View {
         Button {
             preparePlayback(forceTranscode: false)
         } label: {
-            Label(isPreparingPlayback ? "Preparing…" : currentItem.resumeSeconds > 5 ? "Resume" : "Play", systemImage: "play.fill")
+            Label(isPreparingPlayback ? "Preparing…" : currentItem.resumeSeconds > 5 ? "Resume" : "Play",
+                  glyph: .play, variant: .solid, size: 28)
                 .frame(minWidth: 172)
         }
         .buttonStyle(TVDetailTextActionStyle(primary: true))
@@ -120,12 +121,12 @@ struct TVDetailView: View {
 
     @ViewBuilder private var detailStatus: some View {
         if let detailError {
-            Label(detailError, systemImage: "exclamationmark.triangle.fill")
+            Label(detailError, glyph: .warning)
                 .foregroundStyle(LuminaTheme.accentInk)
                 .accessibilityIdentifier("detailStateError")
         }
         if let playbackError {
-            Label(playbackError, systemImage: "exclamationmark.triangle.fill")
+            Label(playbackError, glyph: .warning)
                 .foregroundStyle(LuminaTheme.accentInk)
                 .accessibilityIdentifier("playbackError")
         }
@@ -289,7 +290,7 @@ struct TVVideoCollectionView: View {
             Spacer(minLength: 24)
             collectionActionRow
             if let errorMessage, !isLoading {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                Label(errorMessage, glyph: .warning)
                     .font(.system(size: 23))
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("collectionError")
@@ -331,7 +332,8 @@ struct TVVideoCollectionView: View {
                 Text(genres.prefix(3).joined(separator: ", "))
             }
             if let rating = episode.communityRating ?? currentItem.communityRating {
-                Label("\(rating.formatted(.number.precision(.fractionLength(1)))) / 10", systemImage: "star.fill")
+                Label("\(rating.formatted(.number.precision(.fractionLength(1)))) / 10",
+                      glyph: .ratingStar, variant: .solid)
             }
         }
         .font(.system(size: 23, weight: .medium))
@@ -366,7 +368,8 @@ struct TVVideoCollectionView: View {
     private var collectionActionRow: some View {
         HStack(spacing: 16) {
             Button { preparePlayback(forceTranscode: false) } label: {
-                Label(isPreparingPlayback ? "Preparing…" : playLabel, systemImage: "play.fill")
+                Label(isPreparingPlayback ? "Preparing…" : playLabel,
+                      glyph: .play, variant: .solid, size: 28)
                     .frame(minWidth: 216)
             }
             .buttonStyle(TVDetailTextActionStyle(primary: true))
@@ -686,8 +689,7 @@ private struct TVDetailCastMember: View {
     private var placeholder: some View {
         ZStack {
             Rectangle().fill(.white.opacity(0.06))
-            Image(systemName: "person.crop.circle")
-                .font(.system(size: 42, weight: .light))
+            LuminaIcon(glyph: .profile, size: 42)
                 .foregroundStyle(.white.opacity(0.38))
         }
     }
@@ -734,7 +736,8 @@ private struct TVWatchlistButton: View {
                 guard let watchlist else { return }
                 Task { await watchlist.set(itemID: item.id, included: !watchlist.isIncluded) }
             } label: {
-                Label(watchlist?.isIncluded == true ? "In watchlist" : "Add to watchlist", systemImage: watchlist?.isIncluded == true ? "checkmark" : "plus")
+                Label(watchlist?.isIncluded == true ? "In watchlist" : "Add to watchlist",
+                      glyph: .bookmark, variant: watchlist?.isIncluded == true ? .solid : .outline)
                     .frame(minWidth: 190)
             }
             .buttonStyle(TVDetailTextActionStyle())
@@ -747,7 +750,7 @@ private struct TVWatchlistButton: View {
             .accessibilityHint(watchlist?.isIncluded == true ? "Remove from your watchlist" : "Save to your watchlist")
 
             if let message = watchlist?.errorMessage {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
+                Label(message, glyph: .warning)
                     .font(.caption)
                     .foregroundStyle(LuminaTheme.accentInk)
             }
@@ -778,14 +781,16 @@ private struct TVDetailOverflowActions: View {
                 Button {
                     update(played: item.userData?.played != true)
                 } label: {
-                    Label(item.userData?.played == true ? "Mark unwatched" : "Mark watched", systemImage: item.userData?.played == true ? "checkmark.circle.fill" : "checkmark.circle")
+                    Label(item.userData?.played == true ? "Mark unwatched" : "Mark watched", glyph: .check)
                 }
                 .accessibilityIdentifier("videoWatchedButton")
 
                 Button {
                     update(favorite: item.userData?.isFavorite != true)
                 } label: {
-                    Label(item.userData?.isFavorite == true ? "Remove favorite" : "Add favorite", systemImage: item.userData?.isFavorite == true ? "heart.fill" : "heart")
+                    Label(item.userData?.isFavorite == true ? "Remove favorite" : "Add favorite",
+                          glyph: .favorite,
+                          variant: item.userData?.isFavorite == true ? .solid : .outline)
                 }
                 .accessibilityIdentifier("videoFavoriteButton")
 
@@ -799,7 +804,7 @@ private struct TVDetailOverflowActions: View {
                     .accessibilityIdentifier("convertButton")
                 }
             } label: {
-                Label("More", systemImage: "ellipsis.circle")
+                Label("More", glyph: .moreHorizontal)
                     .frame(minWidth: 132)
             }
             .buttonStyle(TVDetailTextActionStyle())
@@ -811,7 +816,7 @@ private struct TVDetailOverflowActions: View {
             .accessibilityHint("Mark watched, change favorite, or convert for compatibility")
 
             if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                Label(errorMessage, glyph: .warning)
                     .font(.caption)
                     .foregroundStyle(LuminaTheme.accentInk)
                     .accessibilityIdentifier("videoStateError")

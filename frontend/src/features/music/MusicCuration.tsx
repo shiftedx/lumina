@@ -1,4 +1,4 @@
-import { Search, Upload } from 'lucide-react';
+import { Search, Upload } from '../../luminaIcons';
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 
 import * as api from '../../api';

@@ -1,4 +1,4 @@
-import { Check, Music2, RefreshCw } from 'lucide-react';
+import { Check, Music2, RefreshCw } from '../../luminaIcons';
 import { useEffect, useState } from 'react';
 
 import { errorMessage, formatDateTime } from '../../utils';

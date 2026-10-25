@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Plus } from 'lucide-react';
+import { Plus } from '../luminaIcons';
 import { describe, expect, it, vi } from 'vitest';
 import { Button, ButtonLink, TextButton } from '.';
 

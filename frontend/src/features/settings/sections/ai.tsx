@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PlugZap } from 'lucide-react';
+import { PlugZap } from '../../../luminaIcons';
 
 import { discoverAiModels, listAdminTasks, testAiConnection } from '../../../api';
 import { Button, Checkbox, clampServerText, Field, fieldProps, Input, PasswordInput, Select, StatusText } from '../../../ui';

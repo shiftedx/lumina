@@ -6,7 +6,7 @@
  */
 import { type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { Search, SlidersHorizontal, X } from 'lucide-react';
+import { Search, SlidersHorizontal, X } from '../../luminaIcons';
 
 import { searchLibrary } from '../../api';
 import { undoBatch } from '../titles/editor/editorActions';

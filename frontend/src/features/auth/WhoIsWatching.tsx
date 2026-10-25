@@ -1,4 +1,4 @@
-import { MoreHorizontal, Plus } from 'lucide-react';
+import { MoreHorizontal, Plus } from '../../luminaIcons';
 import { type FormEvent, useId, useRef, useState } from 'react';
 import { ApiRequestError, forgetDeviceMember, loginSession, switchMember } from '../../api';
 import type { DeviceMember } from '../../types';

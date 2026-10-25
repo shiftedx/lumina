@@ -5,6 +5,7 @@ import LuminaCore
 @MainActor
 struct NativeAccountSettingsView: View {
     let store: LuminaStore
+    let onOpenRequests: (() -> Void)?
     @Environment(LuminaUserSettings.self) private var settings
     @AppStorage("lumina.appearance") private var accountAppearance = "dark"
     @State private var query = ""
@@ -16,6 +17,11 @@ struct NativeAccountSettingsView: View {
     @State private var profileError: String?
     @FocusState private var searchFocused: Bool
 
+    init(store: LuminaStore, onOpenRequests: (() -> Void)? = nil) {
+        self.store = store
+        self.onOpenRequests = onOpenRequests
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -25,7 +31,7 @@ struct NativeAccountSettingsView: View {
                     Text(store.session?.username ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
                 HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                    LuminaIcon(glyph: .search, size: 20).foregroundStyle(.secondary)
                     TextField("Find a setting", text: $query)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .textFieldStyle(.plain)
@@ -33,7 +39,7 @@ struct NativeAccountSettingsView: View {
                         .onSubmit { searchFocused = false }
                         .accessibilityIdentifier("settingsSearchField")
                     if !query.isEmpty {
-                        Button("Clear search", systemImage: "xmark") { query = "" }
+                        Button("Clear search", glyph: .close) { query = "" }
                             .labelStyle(.iconOnly).buttonStyle(.plain).frame(minWidth: 44, minHeight: 44)
                     }
                 }
@@ -45,7 +51,7 @@ struct NativeAccountSettingsView: View {
                 if matches("home layout rows shelves personalize edit") {
                     LuminaSettingsSection("Home") {
                         Button { editingHome = true } label: {
-                            LuminaSettingsActionLabel("Edit Home", symbol: "slider.horizontal.3")
+                            LuminaSettingsActionLabel("Edit Home", glyph: .edit)
                         }
                         .buttonStyle(.plain).accessibilityIdentifier("homeEditButton")
                     }
@@ -63,16 +69,23 @@ struct NativeAccountSettingsView: View {
                         Button("Retry") { Task { await loadProfile() } }.buttonStyle(.plain)
                     }
                 }
-                if matches("account security password sign out logout") {
+                if matches("account security password sign out logout requests") {
                     LuminaSettingsSection("Account") {
+                        if let onOpenRequests {
+                            Button(action: onOpenRequests) {
+                                LuminaSettingsActionLabel("Requests", glyph: .requests)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("accountRequestsButton")
+                        }
                         if let server = store.session?.serverURL,
                            let accountURL = URL(string: "/settings", relativeTo: server)?.absoluteURL {
                             Link(destination: accountURL) {
-                                LuminaSettingsActionLabel("Account & security", symbol: "arrow.up.right")
+                                LuminaSettingsActionLabel("Account & security", glyph: .externalLink)
                             }
                             .buttonStyle(.plain).accessibilityIdentifier("accountWebSettingsLink")
                         }
-                        Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                        Button("Sign out", glyph: .logout, role: .destructive) {
                             Task { store.clearError(); await store.signOut() }
                         }
                         .buttonStyle(.plain).frame(minHeight: 44).accessibilityIdentifier("signOutButton")
@@ -85,7 +98,7 @@ struct NativeAccountSettingsView: View {
                         }
                         .buttonStyle(.plain).accessibilityIdentifier("accountLicensesButton")
                         Button { creditsPresented = true } label: {
-                            LuminaSettingsActionLabel("Credits", symbol: "info.circle")
+                            LuminaSettingsActionLabel("Credits", glyph: .info)
                         }
                         .buttonStyle(.plain)
                     }
@@ -161,13 +174,13 @@ private struct NativeAdminQuickActions: View {
         }) {
             LuminaSettingsSection("Server") {
                 Button { Task { await scan() } } label: {
-                    LuminaSettingsActionLabel(scanning ? "Starting scan…" : "Scan libraries", symbol: "arrow.triangle.2.circlepath", chevron: nil)
+                    LuminaSettingsActionLabel(scanning ? "Starting scan…" : "Scan libraries", glyph: .sync, trailingGlyph: nil)
                 }
                 .buttonStyle(.plain).disabled(scanning)
                 .accessibilityIdentifier("adminScanLibrariesButton")
                 Button { activityVisible.toggle(); if activityVisible { Task { await loadActivity() } } } label: {
-                    LuminaSettingsActionLabel("Library activity", symbol: "waveform.path",
-                                             chevron: activityVisible ? "chevron.up" : "chevron.down")
+                    LuminaSettingsActionLabel("Library activity", glyph: .history,
+                                             trailingGlyph: activityVisible ? .chevronUp : .chevronDown)
                 }
                 .buttonStyle(.plain).accessibilityIdentifier("adminLibraryActivityButton")
                 if activityVisible {
@@ -182,11 +195,11 @@ private struct NativeAdminQuickActions: View {
                 NavigationLink {
                     NativeInvitationsView(settings: settings, serverURL: session.serverURL, requiresTwoFactor: requiresTwoFactor)
                 } label: {
-                    LuminaSettingsActionLabel("Invite users", symbol: "person.badge.plus")
+                    LuminaSettingsActionLabel("Invite users", glyph: .users)
                 }
                 .buttonStyle(.plain).accessibilityIdentifier("adminInvitationsButton")
                 Link(destination: session.serverURL.appendingPathComponent("manage")) {
-                    LuminaSettingsActionLabel("Manage server", symbol: "arrow.up.right")
+                    LuminaSettingsActionLabel("Manage server", glyph: .externalLink)
                 }
                 .buttonStyle(.plain)
                 if let result { Text(result).font(.caption).accessibilityIdentifier("adminScanResult") }
@@ -263,7 +276,7 @@ private struct NativeInvitationsView: View {
                 } else {
                     if let invitationURL {
                         LuminaSettingsSection("Invitation ready") {
-                            ShareLink(item: invitationURL) { LuminaSettingsActionLabel("Share invitation", symbol: "square.and.arrow.up") }
+                            ShareLink(item: invitationURL) { LuminaSettingsActionLabel("Share invitation", glyph: .share) }
                                 .buttonStyle(.plain).accessibilityIdentifier("adminShareInvitation")
                             Button("Invite another") { self.invitationURL = nil; email = ""; sections = [] }
                                 .buttonStyle(.plain).frame(minHeight: 44)

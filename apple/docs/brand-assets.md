@@ -38,6 +38,27 @@ When a role changes:
 3. Check dark, light, and high-contrast appearances, then tvOS focus, pressed, disabled, and destructive states without changing hit targets.
 4. Exercise a meaningful existing UI workflow. Run `mise exec -- make check` for the application repository; use the standalone website README’s build, capture, and check commands for that repository. Keep coverage at the workflow or shared brand-contract boundary rather than adding a test per color declaration.
 
+## Shared interface icon family
+
+The approved interface SVG family lives in [`assets/icons/`](../../assets/icons/),
+with its [style guide](../../assets/icons/STYLE_GUIDE.md) and editable
+`source/icons.json`. It is separate from the sunrise brand mark and launcher art.
+Use these masters for matching app actions instead of drawing platform variants.
+
+Run `python3 scripts/lumina_icons.py sync` from the repository root after editing
+the canonical source; run `python3 scripts/lumina_icons.py check` to detect drift.
+`check --render` also verifies every native SVG at 20, 24, 28 and 96 pixels on macOS.
+Both iOS and tvOS share the template SVG asset catalog and `LuminaIcon` helper.
+The browser uses the generated React helper through `frontend/src/ui/icons.tsx`;
+that adapter centralizes the remaining specialized glyph exceptions.
+
+Preserve the provided geometry, names, rounded 1.75-point stroke and inherited
+foreground color. Use approved solid variants where appropriate; selected
+navigation still uses the existing semantic selection treatment. Native image
+sets need explicit sizes and are not SF Symbols. OS-owned controls retain their
+native appearance and behavior. Missing semantics must remain explicit rather
+than being replaced with unrelated artwork. See the [adoption audit](../../docs/icon-adoption.md).
+
 ## Historical qualification and rollout record
 
 The entries below record the state of earlier work; they are not a statement that today's release gate is green.

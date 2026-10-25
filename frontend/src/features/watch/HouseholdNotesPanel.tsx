@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Clock } from 'lucide-react';
+import { Clock } from '../../luminaIcons';
 import { createLibraryNote, deleteLibraryNote, listLibraryNotes, updateLibraryNote } from '../../api';
 import { type LibraryNote, type NoteVisibility } from '../../types';
 import { formatDuration } from '../../utils';

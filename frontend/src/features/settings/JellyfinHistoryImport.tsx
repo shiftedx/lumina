@@ -1,6 +1,6 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { History } from 'lucide-react';
+import { History } from '../../luminaIcons';
 
 import { getJellyfinImport, previewJellyfinImport, runJellyfinImport } from '../../api';
 import type { JellyfinImportStatus, JellyfinImportSummary } from '../../types';

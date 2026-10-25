@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import AVKit
 import LuminaCore
 
 private extension EnvironmentValues {
@@ -12,6 +11,7 @@ struct MobileRootView: View {
     @Bindable var store: LuminaStore
     @State private var audioSession = NativeAudioSession()
     @State private var userSettings = LuminaUserSettings()
+    @State private var hasShownOnlineShell = false
     @AppStorage("lumina.appearance") private var appearance = "dark"
     @AppStorage("native.appearance") private var deviceAppearance = "account"
     @Environment(\.scenePhase) private var scenePhase
@@ -21,7 +21,18 @@ struct MobileRootView: View {
             if store.session == nil {
                 ConnectionView(store: store)
             } else {
-                LibraryShellView(store: store)
+                ZStack {
+                    if !store.isOffline || hasShownOnlineShell {
+                        LibraryShellView(store: store)
+                            .allowsHitTesting(!store.isOffline)
+                            .accessibilityHidden(store.isOffline)
+                            .environment(\.luminaArtworkMotionEnabled, !store.isOffline)
+                            .onAppear { hasShownOnlineShell = true }
+                    }
+                    if store.isOffline {
+                        NavigationStack { NativeOfflineLibraryView(store: store) }
+                    }
+                }
             }
         }
         .foregroundStyle(LuminaTheme.ink)
@@ -32,11 +43,15 @@ struct MobileRootView: View {
         .onChange(of: store.session?.accessToken) { _, token in
             if token == nil { audioSession.stop() }
         }
+        .onChange(of: store.isOffline) { _, _ in audioSession.connectivityDidChange() }
+        .task { store.startConnectivityMonitoring() }
         .task(id: MobileHomeSessionScope(store.session)) {
             userSettings.configure(session: store.session)
             if store.session != nil {
-                await userSettings.load()
-                if userSettings.hasLoaded { appearance = userSettings.theme }
+                if !store.isOffline {
+                    await userSettings.load()
+                    if userSettings.hasLoaded { appearance = userSettings.theme }
+                }
                 await audioSession.restore(store: store)
             }
         }
@@ -44,8 +59,9 @@ struct MobileRootView: View {
             if phase == .active {
                 audioSession.resumeAfterActivation()
                 Task {
+                    await store.refreshConnectivity()
                     await audioSession.refreshSharedQueue()
-                    if store.session != nil {
+                    if store.session != nil, !store.isOffline {
                         await userSettings.load()
                         if userSettings.hasLoaded { appearance = userSettings.theme }
                     }
@@ -58,6 +74,160 @@ struct MobileRootView: View {
 
     private var effectiveAppearance: String {
         deviceAppearance == "account" ? appearance : deviceAppearance
+    }
+}
+
+@MainActor
+struct NativeOfflineLibraryView: View {
+    @Bindable var store: LuminaStore
+    @State private var query = ""
+    @State private var searchVisible = false
+    @State private var playbackRequest: PlaybackRequest?
+    @State private var preparingID: String?
+    @State private var playbackError: String?
+
+    private var savedItems: [MediaItem] {
+        store.offline.downloadedItems.filter {
+            query.isEmpty || ($0.name + " " + ($0.seriesName ?? "") + " " + ($0.albumArtist ?? ""))
+                .localizedStandardContains(query)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    Label(store.isOffline ? "Offline" : "Downloaded", glyph: store.isOffline ? .wifiOff : .download)
+                        .font(.subheadline).foregroundStyle(LuminaTheme.muted)
+                    Spacer()
+                    Text(ByteCountFormatter.string(fromByteCount: store.offline.usedBytes, countStyle: .file))
+                        .font(.caption.monospacedDigit()).foregroundStyle(LuminaTheme.muted)
+                }
+                if searchVisible {
+                    HStack {
+                        TextField("Search downloads", text: $query).submitLabel(.search)
+                        Button("Cancel") { query = ""; searchVisible = false }
+                    }
+                    .padding(.bottom, 10)
+                    .overlay(alignment: .bottom) { Rectangle().fill(LuminaTheme.accentInk).frame(height: 1) }
+                }
+                if savedItems.isEmpty {
+                    ContentUnavailableView {
+                        Label(store.offline.downloadedItems.isEmpty ? "No downloads yet" : "No matching downloads", glyph: .download, size: 36)
+                    } description: {
+                        Text(store.offline.downloadedItems.isEmpty
+                             ? "Download movies, episodes, or music while connected to watch and listen here offline."
+                             : "Try a different search.")
+                    }
+                    .accessibilityIdentifier("offlineEmptyState")
+                }
+                ForEach(savedItems) { item in
+                    HStack(spacing: 16) {
+                        Button { play(item) } label: {
+                            HStack(spacing: 16) {
+                                ArtworkView(url: store.offline.artworkURL(for: item.id), name: item.name,
+                                            aspect: item.isAudio ? 1 : 2 / 3, glyph: item.isAudio ? .music : .movies)
+                                    .frame(width: 70, height: item.isAudio ? 70 : 105)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(item.name).font(.headline).lineLimit(2)
+                                    if !item.displaySubtitle.isEmpty {
+                                        Text(item.displaySubtitle).font(.subheadline).foregroundStyle(LuminaTheme.muted).lineLimit(2)
+                                    }
+                                    Label("On this device", glyph: .downloadDone, size: 16)
+                                        .font(.caption).foregroundStyle(LuminaTheme.muted)
+                                }
+                                Spacer(minLength: 0)
+                                if preparingID == item.id { ProgressView() }
+                                else { LuminaIcon(glyph: .play, variant: .solid, size: 24) }
+                            }
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(preparingID != nil)
+                        .accessibilityLabel("Play \(item.name) offline")
+                        .accessibilityIdentifier("offlineItem-\(item.id)")
+                        Menu {
+                            Button("Remove Download", glyph: .trash, role: .destructive) {
+                                store.offline.remove(id: item.id)
+                            }
+                        } label: { Label("Download actions", glyph: .moreHorizontal).labelStyle(.iconOnly) }
+                    }
+                    Divider()
+                }
+                if !store.isOffline, !store.offline.pendingItems.isEmpty {
+                    Text("Downloads").font(.title3.bold())
+                    ForEach(store.offline.pendingItems) { item in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(item.name).font(.headline)
+                            switch store.offline.downloadStates[item.id] {
+                            case .queued:
+                                Text("Queued").font(.caption)
+                                Button("Cancel Download", glyph: .close) { store.offline.cancel(id: item.id) }
+                            case .downloading(let received, let total):
+                                if let total, total > 0 { ProgressView(value: Double(received), total: Double(total)) }
+                                Text(ByteCountFormatter.string(fromByteCount: received, countStyle: .file)).font(.caption)
+                                Button("Cancel Download", glyph: .close) { store.offline.cancel(id: item.id) }
+                            case .failed(let message):
+                                Text(message).font(.caption).foregroundStyle(LuminaTheme.muted)
+                                retryDownload(item)
+                            case .cancelled:
+                                retryDownload(item)
+                            default:
+                                EmptyView()
+                            }
+                        }
+                    }
+                }
+                if let playbackError {
+                    Label(playbackError, glyph: .warning).foregroundStyle(LuminaTheme.muted)
+                }
+                if let error = store.offline.errorMessage {
+                    Label(error, glyph: .warning).foregroundStyle(LuminaTheme.muted)
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: 1100, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .background(LuminaTheme.paper.ignoresSafeArea())
+        .navigationTitle("On this device")
+        .tint(LuminaTheme.ink)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Search", glyph: .search) { searchVisible = true }
+                    .accessibilityIdentifier("offlineSearchButton")
+            }
+            if store.isOffline {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Reconnect", glyph: .sync) { Task { await store.refreshConnectivity() } }
+                        .accessibilityIdentifier("offlineReconnectButton")
+                }
+            }
+            NativeNowPlayingToolbar(store: store)
+        }
+        .task { store.offline.refresh() }
+        .refreshable { store.offline.refresh(); await store.refreshConnectivity() }
+        .nativePlayback(request: $playbackRequest, store: store) { store.offline.refresh() }
+        .accessibilityIdentifier("offlineLibraryScreen")
+    }
+
+    @ViewBuilder private func retryDownload(_ item: MediaItem) -> some View {
+        if item.isAudio {
+            NativeDownloadControls(items: [item], store: store, title: "Retry Download")
+        } else {
+            Button("Retry Download", glyph: .download) { Task { await store.downloadVideo(item: item) } }
+        }
+    }
+
+    private func play(_ item: MediaItem) {
+        guard preparingID == nil else { return }
+        preparingID = item.id
+        playbackError = nil
+        Task {
+            defer { preparingID = nil }
+            do { playbackRequest = try await store.preparePlayback(for: item) }
+            catch { playbackError = "This download is no longer available. Remove it and download it again when connected." }
+        }
     }
 }
 
@@ -148,7 +318,7 @@ private struct ConnectionView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Done", systemImage: "xmark") { helpPresented = false }
+                        Button("Done", glyph: .close) { helpPresented = false }
                             .labelStyle(.iconOnly)
                             .accessibilityIdentifier("connectionHelpDoneButton")
                     }
@@ -205,7 +375,7 @@ private struct ConnectionView: View {
                 }
             }
             if let message = store.errorMessage, !message.isEmpty {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
+                Label(message, glyph: .warning)
                     .font(.callout)
                     .accessibilityElement(children: .combine)
                     .accessibilityAddTraits(.isStaticText)
@@ -290,14 +460,16 @@ private struct LibraryShellView: View {
     @Bindable var store: LuminaStore
     @State private var destination: LibraryDestination = .home
     @State private var homeNavigationID = UUID()
+    @State private var homeCategory: HomeBrowseCategory = .all
     @State private var category: LibraryCategory = .movies
     @State private var homeLayout = LuminaHomeLayout()
     @State private var homeFeed = LuminaHomeFeed(includesExternalSources: true)
     @State private var homeSessionScope: MobileHomeSessionScope?
 
     var body: some View {
-        // TabView is system managed, so iPhone Duo can relocate it to the
-        // appropriate edge without a second app-made sidebar duplicating it.
+        // Keep the system TabView alive for selection and navigation state.
+        // iPad uses one unified category row instead of its large top tab pill;
+        // iPhone and Duo retain the system-managed tab placement.
         GeometryReader { geometry in
             destinations(categoryBarWidth: min(560, max(100, geometry.size.width - 180)))
         }
@@ -311,13 +483,18 @@ private struct LibraryShellView: View {
 
     private func destinations(categoryBarWidth: CGFloat) -> some View {
         TabView(selection: Binding(get: { destination }, set: { selected in
-            if selected == .home { homeNavigationID = UUID() }
+            if selected == .home {
+                homeCategory = .all
+                homeNavigationID = UUID()
+            }
             destination = selected
         })) {
-            Tab("Home", image: "LuminaNavHome", value: .home) {
-                destinationStack {
+            Tab("Home", image: LuminaGlyph.home.assetName(for: destination == .home ? .solid : .outline), value: .home) {
+                destinationStack(categoryBarWidth: categoryBarWidth) {
                     if homeSessionScope == MobileHomeSessionScope(store.session) {
-                        HomeLibraryView(store: store, homeLayout: homeLayout, feed: homeFeed, categoryBarWidth: categoryBarWidth) { selected in
+                        HomeLibraryView(store: store, homeLayout: homeLayout, feed: homeFeed,
+                                        category: $homeCategory, categoryBarWidth: categoryBarWidth,
+                                        showsBrowsingRow: !usesIPadHeaderNavigation) { selected in
                             category = selected
                             destination = .library
                         }
@@ -327,13 +504,15 @@ private struct LibraryShellView: View {
                 }
                 .id(homeNavigationID)
             }
-            Tab("Library", image: "LuminaNavLibrary", value: .library) {
-                destinationStack {
+            Tab("Library", image: LuminaGlyph.library.assetName(for: destination == .library ? .solid : .outline), value: .library) {
+                destinationStack(categoryBarWidth: categoryBarWidth) {
                     libraryContent
                         .toolbarBackground(.hidden, for: .navigationBar)
                         .toolbar {
-                            ToolbarItem(placement: .principal) {
-                                libraryCategories.frame(width: categoryBarWidth)
+                            if !usesIPadHeaderNavigation {
+                                ToolbarItem(placement: .principal) {
+                                    libraryCategories.frame(width: categoryBarWidth)
+                                }
                             }
                             if #available(iOS 26.0, *) {
                                 ToolbarItem(placement: .topBarLeading) {
@@ -348,19 +527,24 @@ private struct LibraryShellView: View {
                         }
                 }
             }
-            Tab("Requests", image: "LuminaNavRequests", value: .requests) {
-                destinationStack {
+            Tab("Requests", image: LuminaGlyph.requests.assetName(for: destination == .requests ? .solid : .outline), value: .requests) {
+                destinationStack(categoryBarWidth: categoryBarWidth) {
                     if let session = store.session {
                         NativeRequestsView(session: session, isActive: destination == .requests)
                             .id([session.serverURL.absoluteString, session.userID, session.accessToken])
                     }
                 }
             }
-            Tab("Account", image: "LuminaNavAccount", value: .account) {
-                destinationStack { NativeAccountSettingsView(store: store) }
+            Tab("Account", image: LuminaGlyph.userSettings.assetName(for: destination == .account ? .solid : .outline), value: .account) {
+                destinationStack(categoryBarWidth: categoryBarWidth) {
+                    NativeAccountSettingsView(store: store, onOpenRequests: usesIPadHeaderNavigation ? {
+                        destination = .requests
+                    } : nil)
+                }
             }
         }
         .environment(\.returnToLuminaHome, {
+            homeCategory = .all
             homeNavigationID = UUID() // Pop Home details, clear its refinement, and return to the top.
             destination = .home
         })
@@ -411,10 +595,83 @@ private struct LibraryShellView: View {
         .accessibilityIdentifier("libraryCategories")
     }
 
-    private func destinationStack<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private var unifiedCategorySelection: String? {
+        switch destination {
+        case .home: homeCategory == .watchlist ? HomeBrowsingDestination.watchlist.rawValue : HomeBrowsingDestination.all.rawValue
+        case .library: category.rawValue
+        case .account: "account"
+        case .requests: "account"
+        }
+    }
+
+    private var unifiedCategories: some View {
+        LuminaCategoryBar(selection: unifiedCategorySelection) {
+            unifiedCategoryButton("Home", id: HomeBrowsingDestination.all.rawValue,
+                                  selected: destination == .home && homeCategory == .all) {
+                homeCategory = .all
+                homeNavigationID = UUID()
+                destination = .home
+            }
+            ForEach(LibraryCategory.allCases.filter { store.availableLibraryCategories.contains($0.rawValue) }, id: \.self) { value in
+                unifiedCategoryButton(value.title, id: value.rawValue,
+                                      selected: destination == .library && category == value) {
+                    category = value
+                    destination = .library
+                }
+            }
+            unifiedCategoryButton("Watchlist", id: HomeBrowsingDestination.watchlist.rawValue,
+                                  selected: destination == .home && homeCategory == .watchlist) {
+                homeCategory = .watchlist
+                homeNavigationID = UUID()
+                destination = .home
+            }
+            unifiedCategoryButton("Account", id: "account",
+                                  selected: destination == .account || destination == .requests) {
+                destination = .account
+            }
+        }
+        .accessibilityIdentifier("iPadUnifiedCategories")
+    }
+
+    private func unifiedCategoryButton(_ title: String, id: String, selected: Bool,
+                                       action: @escaping () -> Void) -> some View {
+        Button(action: action) { Text(title) }
+            .buttonStyle(LuminaUnderlineTabStyle(selected: selected, alignsWithMasthead: true))
+            .accessibilityValue(selected ? "Selected" : "")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityIdentifier("iPadCategory-\(id)")
+            .id(id)
+    }
+
+    private func destinationStack<Content: View>(categoryBarWidth: CGFloat,
+                                                  @ViewBuilder content: () -> Content) -> some View {
         NavigationStack {
             content()
-                .safeAreaInset(edge: .bottom, spacing: 0) { playerBar }
+                .toolbar {
+                    if usesIPadHeaderNavigation {
+                        ToolbarItem(placement: .principal) {
+                            unifiedCategories.frame(width: categoryBarWidth)
+                        }
+                    }
+                    if destination == .home {
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
+                                NavigationLink {
+                                    NativeOfflineLibraryView(store: store)
+                                } label: { Label("Downloads", glyph: .download) }
+                                .accessibilityIdentifier("homeDownloadsButton")
+                            }
+                            NavigationLink {
+                                HomeSearchView(store: store)
+                                    .toolbar {
+                                        NativeNowPlayingToolbar(store: store)
+                                    }
+                            } label: { Label("Search", glyph: .search) }
+                            .accessibilityIdentifier("homeSearchButton")
+                        }
+                    }
+                    NativeNowPlayingToolbar(store: store)
+                }
                 .navigationDestination(for: MediaItem.self) { item in
                     Group {
                         if item.type == "MusicAlbum" || item.type == "MusicArtist" {
@@ -426,14 +683,17 @@ private struct LibraryShellView: View {
                         }
                     }
                     .toolbarVisibility(.visible, for: .navigationBar)
-                    .safeAreaInset(edge: .bottom, spacing: 0) { playerBar }
+                    .toolbar {
+                        NativeNowPlayingToolbar(store: store)
+                    }
                 }
         }
+        .toolbarVisibility(usesIPadHeaderNavigation ? .hidden : .automatic, for: .tabBar)
         .tint(LuminaTheme.ink)
     }
 
-    private var playerBar: some View {
-        NativeNowPlayingBar(store: store)
+    private var usesIPadHeaderNavigation: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
     }
 }
 
@@ -455,12 +715,12 @@ private struct HomeLibraryView: View {
     let store: LuminaStore
     let homeLayout: LuminaHomeLayout
     let feed: LuminaHomeFeed
+    @Binding var category: HomeBrowseCategory
     let categoryBarWidth: CGFloat
+    let showsBrowsingRow: Bool
     let onOpenLibrary: (LibraryCategory) -> Void
     @State private var completedInitialHomeLoad = false
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(NativeAudioSession.self) private var audioSession
-    @State private var category: HomeBrowseCategory = .all
     @State private var compactHeader = false
     @State private var scrollPosition = ScrollPosition(edge: .top)
 
@@ -495,8 +755,11 @@ private struct HomeLibraryView: View {
                 }
                 if category != .all, snapshot.items.isEmpty,
                    !snapshot.rows.contains(where: \.hasItems), feed.hasLoaded {
-                    ContentUnavailableView("No matches on Home", systemImage: "line.3.horizontal.decrease",
-                        description: Text("Choose Home or add something to your watchlist."))
+                    ContentUnavailableView {
+                        Label("No matches on Home", glyph: .filter)
+                    } description: {
+                        Text("Choose Home or add something to your watchlist.")
+                    }
                 }
                 if store.isHomeBusy || store.isBusy {
                     ProgressView("Loading your library…")
@@ -532,11 +795,13 @@ private struct HomeLibraryView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(snapshot.items.isEmpty ? nil : .dark, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                HomeBrowsingRow(category: category, destinations: HomeBrowsingDestination.allCases.filter {
-                    $0 != .all && ($0.homeCategory != nil || store.availableLibraryCategories.contains($0.rawValue))
-                }, onSelect: selectCategory)
-                    .frame(width: categoryBarWidth)
+            if showsBrowsingRow {
+                ToolbarItem(placement: .principal) {
+                    HomeBrowsingRow(category: category, destinations: HomeBrowsingDestination.allCases.filter {
+                        $0 != .all && ($0.homeCategory != nil || store.availableLibraryCategories.contains($0.rawValue))
+                    }, onSelect: selectCategory)
+                        .frame(width: categoryBarWidth)
+                }
             }
             if #available(iOS 26.0, *) {
                 ToolbarItem(placement: .topBarLeading) {
@@ -547,19 +812,6 @@ private struct HomeLibraryView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     HomeHeroChrome(compact: compactHeader).fixedSize()
                 }
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if audioSession.playback != nil { HomePlaybackRoutePicker().frame(width: 44, height: 44) }
-                if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
-                    NavigationLink {
-                        NativeMusicLibraryView(store: store, section: .downloads)
-                    } label: { Label("Downloads", systemImage: "arrow.down.circle") }
-                    .accessibilityIdentifier("homeDownloadsButton")
-                }
-                NavigationLink {
-                    HomeSearchView(store: store)
-                } label: { Label("Search", systemImage: "magnifyingglass") }
-                .accessibilityIdentifier("homeSearchButton")
             }
         }
         .accessibilityIdentifier("homeScreen")
@@ -645,17 +897,6 @@ private struct HomeLibraryView: View {
 }
 
 @MainActor
-private struct HomePlaybackRoutePicker: UIViewRepresentable {
-    func makeUIView(context: Context) -> AVRoutePickerView {
-        let picker = AVRoutePickerView()
-        picker.tintColor = UIColor(LuminaTheme.ink)
-        picker.activeTintColor = UIColor(LuminaTheme.accentInk)
-        return picker
-    }
-    func updateUIView(_ view: AVRoutePickerView, context: Context) { }
-}
-
-@MainActor
 private struct HomeSearchView: View {
     let store: LuminaStore
     @State private var query = ""
@@ -670,9 +911,11 @@ private struct HomeSearchView: View {
                 if loading { ProgressView("Searching…").frame(maxWidth: .infinity) }
                 if let message { Text(message).foregroundStyle(.secondary) }
                 if results.isEmpty, !loading {
-                    ContentUnavailableView(query.isEmpty ? "Search your library" : "No results",
-                        systemImage: "magnifyingglass",
-                        description: Text(query.isEmpty ? "Find films, shows, episodes, and music." : "Try another title."))
+                    ContentUnavailableView {
+                        Label(query.isEmpty ? "Search your library" : "No results", glyph: .search)
+                    } description: {
+                        Text(query.isEmpty ? "Find films, shows, episodes, and music." : "Try another title.")
+                    }
                 }
                 ForEach(results) { item in
                     NavigationLink(value: item) {
@@ -686,7 +929,7 @@ private struct HomeSearchView: View {
                                 }
                             }
                             Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                            LuminaIcon(glyph: .forward, size: 20).foregroundStyle(.secondary)
                         }
                     }
                     .buttonStyle(.plain)
@@ -732,7 +975,7 @@ private struct HomeExternalRail: View {
                                     ArtworkView(url: item.artworkURL, name: item.title, aspect: 16 / 9)
                                     Text(item.title).font(.caption.weight(.semibold)).lineLimit(2)
                                     Text(item.subtitle).font(.caption2).foregroundStyle(LuminaTheme.muted).lineLimit(1)
-                                    Label("Open source", systemImage: "arrow.up.right").font(.caption2)
+                                    Label("Open source", glyph: .externalLink, size: 16).font(.caption2)
                                 }
                                 .containerRelativeFrame(.horizontal) { width, _ in min(276, width * 0.68) }
                             }
@@ -1021,7 +1264,11 @@ private struct VideoLibraryView: View {
                         } else if !searchText.isEmpty {
                             ContentUnavailableView.search(text: searchText)
                         } else if kind != .all || filters != VideoFilters() {
-                            ContentUnavailableView("No matching video", systemImage: "film", description: Text("Try another video type or clear your filters."))
+                            ContentUnavailableView {
+                                Label("No matching video", glyph: .movies)
+                            } description: {
+                                Text("Try another video type or clear your filters.")
+                            }
                         } else {
                             EmptyLibraryView {
                                 refresh()
@@ -1119,7 +1366,15 @@ private struct VideoLibraryView: View {
                 resetAlphabetNavigation()
                 if text.isEmpty { search() }
             }
-            .onChange(of: kind) { resetAlphabetNavigation(); search() }
+            .onChange(of: kind) {
+                if !supportsTechnicalFilterKind {
+                    var compatible = filters
+                    compatible.resolution = nil; compatible.hdr = nil
+                    compatible.audio = nil; compatible.imaxOnly = false
+                    if compatible != filters { filters = compatible; return }
+                }
+                resetAlphabetNavigation(); search()
+            }
             .onChange(of: sort) { resetAlphabetNavigation(); search() }
             .onChange(of: filters) { resetAlphabetNavigation(); search() }
             .onDisappear {
@@ -1129,14 +1384,16 @@ private struct VideoLibraryView: View {
                 alphabetRailDismissTask?.cancel()
             }
             .sheet(isPresented: $filtersVisible) {
-                VideoFilterSheet(filters: $filters)
+                VideoFilterSheet(filters: $filters, store: store, allowsTechnicalFilters: supportsTechnicalFilterKind)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Search video", systemImage: "magnifyingglass") { searchVisible = true }
-                        .accessibilityIdentifier("videoSearchButton")
+                if !searchVisible {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Search video", glyph: .search) { searchVisible = true }
+                            .accessibilityIdentifier("videoSearchButton")
+                    }
                 }
                 if isAlphabetRailAvailable {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -1153,18 +1410,18 @@ private struct VideoLibraryView: View {
                         .accessibilityValue(sort.label)
 
                         Divider()
-                        Button("Filters", systemImage: filters == VideoFilters() ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill") {
+                        Button("Filters", glyph: .filter) {
                             filtersVisible = true
                         }
                         .accessibilityIdentifier("videoFiltersButton")
                         .accessibilityValue(filters == VideoFilters() ? "No filters" : filterSummary)
 
                         if filters != VideoFilters() {
-                            Button("Clear filters", systemImage: "xmark.circle") { filters = VideoFilters() }
+                            Button("Clear filters", glyph: .close) { filters = VideoFilters() }
                                 .accessibilityIdentifier("videoClearFiltersButton")
                         }
                     } label: {
-                        Label("Video options, \(optionsAccessibilityValue)", systemImage: "ellipsis.circle")
+                        Label("Video options, \(optionsAccessibilityValue)", glyph: .moreHorizontal)
                             .labelStyle(.iconOnly)
                     }
                     .accessibilityIdentifier("videoOptionsMenu")
@@ -1196,6 +1453,10 @@ private struct VideoLibraryView: View {
             filters.year.map(String.init) ?? "",
             String(filters.unwatchedOnly),
             String(filters.favoritesOnly),
+            filters.resolution?.rawValue ?? "",
+            filters.hdr?.rawValue ?? "",
+            filters.audio?.rawValue ?? "",
+            String(filters.imaxOnly),
         ].joined(separator: "\u{1F}")
     }
 
@@ -1274,12 +1535,20 @@ private struct VideoLibraryView: View {
         }
     }
 
+    private var supportsTechnicalFilterKind: Bool {
+        kind == .movies || kind == .all || kind == .episodes
+    }
+
     private var filterSummary: String {
         var labels = [String]()
         if !filters.genre.isEmpty { labels.append(filters.genre) }
         if let year = filters.year { labels.append(String(year)) }
         if filters.unwatchedOnly { labels.append("Unwatched") }
         if filters.favoritesOnly { labels.append("Favorites") }
+        if let resolution = filters.resolution { labels.append(resolution.label) }
+        if let hdr = filters.hdr { labels.append(hdr.label) }
+        if let audio = filters.audio { labels.append(audio.label) }
+        if filters.imaxOnly { labels.append("IMAX") }
         return labels.joined(separator: " · ")
     }
 
@@ -1364,77 +1633,148 @@ private struct VideoAlphabetRail: View {
 @MainActor
 private struct VideoFilterSheet: View {
     @Binding var filters: VideoFilters
+    let store: LuminaStore
+    let allowsTechnicalFilters: Bool
     @Environment(\.dismiss) private var dismiss
-    @State private var genre = ""
+    @State private var draft = VideoFilters()
     @State private var year = ""
-    @State private var unwatchedOnly = false
-    @State private var favoritesOnly = false
+    @State private var technicalSupported: Bool?
+    @State private var checkingSupport = false
+    @State private var supportError: String?
 
     private var validYear: Bool {
         year.isEmpty || (year.count == 4 && Int(year).map { (1000...9999).contains($0) } == true)
     }
 
+    private var hasTechnicalSelection: Bool {
+        draft.resolution != nil || draft.hdr != nil || draft.audio != nil || draft.imaxOnly
+    }
+
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Narrow your library") {
-                    TextField("Genre", text: $genre, prompt: Text("Any genre"))
-                        .autocorrectionDisabled()
-                        .accessibilityIdentifier("videoGenreField")
-                    TextField("Year", text: $year, prompt: Text("Any year"))
-                        .keyboardType(.numberPad)
-                        .accessibilityIdentifier("videoYearField")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    HStack(alignment: .top, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Genre").font(.caption).foregroundStyle(LuminaTheme.muted)
+                            TextField("Genre", text: $draft.genre, prompt: Text("Any genre"))
+                                .autocorrectionDisabled()
+                                .accessibilityIdentifier("videoGenreField")
+                        }
+                        .padding(.bottom, 10)
+                        .overlay(alignment: .bottom) { Divider() }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Year").font(.caption).foregroundStyle(LuminaTheme.muted)
+                            TextField("Year", text: $year, prompt: Text("Any year"))
+                                .keyboardType(.numberPad)
+                                .accessibilityIdentifier("videoYearField")
+                        }
+                        .padding(.bottom, 10)
+                        .overlay(alignment: .bottom) { Divider() }
+                    }
+                    .textFieldStyle(.plain)
                     if !validYear {
                         Text("Enter a four-digit year or leave it empty.")
-                            .font(.footnote)
-                            .foregroundStyle(LuminaTheme.muted)
+                            .font(.caption).foregroundStyle(LuminaTheme.muted)
                     }
+                    if allowsTechnicalFilters {
+                        if technicalSupported == true {
+                            choiceRow("Resolution", id: "resolution", values: VideoResolution.allCases,
+                                      selection: $draft.resolution, label: { $0.label })
+                            choiceRow("HDR", id: "hdr", values: VideoHDR.allCases,
+                                      selection: $draft.hdr, label: { $0.label })
+                            binaryRow("Edition", id: "imax", selectedTitle: "IMAX", selection: $draft.imaxOnly)
+                            choiceRow("Audio", id: "audio", values: VideoAudioFormat.allCases,
+                                      selection: $draft.audio, label: { $0.label })
+                        } else if checkingSupport || (technicalSupported == nil && supportError == nil) {
+                            ProgressView("Checking filter support…")
+                        } else {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(supportError ?? "Update the connected server to enable picture and audio filters.")
+                                    .font(.caption).foregroundStyle(LuminaTheme.muted)
+                                Button("Check again", glyph: .sync) { Task { await checkSupport() } }
+                                    .buttonStyle(LuminaQuietActionStyle())
+                                    .accessibilityIdentifier("videoTechnicalFiltersRetryButton")
+                            }
+                        }
+                    }
+                    binaryRow("Watch status", id: "unwatched", selectedTitle: "Unwatched", selection: $draft.unwatchedOnly)
+                    binaryRow("Favorites", id: "favorites", selectedTitle: "Favorites only", selection: $draft.favoritesOnly)
+                    Button("Reset filters", glyph: .restore) { draft = VideoFilters(); year = "" }
+                        .buttonStyle(LuminaQuietActionStyle())
+                        .accessibilityIdentifier("videoResetFiltersButton")
                 }
-                Section("Your activity") {
-                    Toggle("Unwatched only", isOn: $unwatchedOnly)
-                        .tint(LuminaTheme.brand)
-                        .accessibilityIdentifier("videoUnwatchedToggle")
-                    Toggle("Favorites only", isOn: $favoritesOnly)
-                        .tint(LuminaTheme.brand)
-                        .accessibilityIdentifier("videoFavoritesToggle")
-                }
-                Button("Reset filters") {
-                    genre = ""
-                    year = ""
-                    unwatchedOnly = false
-                    favoritesOnly = false
-                }
-                .accessibilityIdentifier("videoResetFiltersButton")
+                .padding(24)
             }
-            .navigationTitle("Video filters")
+            .background(LuminaTheme.paper)
+            .foregroundStyle(LuminaTheme.ink)
+            .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") {
-                        filters = VideoFilters(
-                            genre: genre.trimmingCharacters(in: .whitespacesAndNewlines),
-                            year: Int(year),
-                            unwatchedOnly: unwatchedOnly,
-                            favoritesOnly: favoritesOnly
-                        )
+                        draft.genre = draft.genre.trimmingCharacters(in: .whitespacesAndNewlines)
+                        draft.year = Int(year)
+                        filters = draft
                         dismiss()
                     }
-                    .disabled(!validYear)
+                    .disabled(!validYear || (hasTechnicalSelection && technicalSupported != true))
                     .accessibilityIdentifier("videoApplyFiltersButton")
                 }
             }
-            .onAppear {
-                genre = filters.genre
-                year = filters.year.map(String.init) ?? ""
-                unwatchedOnly = filters.unwatchedOnly
-                favoritesOnly = filters.favoritesOnly
-            }
+            .onAppear { draft = filters; year = filters.year.map(String.init) ?? "" }
+            .task { if allowsTechnicalFilters { await checkSupport() } }
         }
+        .tint(LuminaTheme.ink)
         .presentationDetents([.large])
         .accessibilityIdentifier("videoFiltersSheet")
+    }
+
+    private func checkSupport() async {
+        guard !checkingSupport else { return }
+        checkingSupport = true
+        supportError = nil
+        defer { checkingSupport = false }
+        do { technicalSupported = try await store.supportsTechnicalVideoFilters() }
+        catch { supportError = "Filter options could not load. Check the connection and retry." }
+    }
+
+    private func choiceRow<Value>(_ title: String, id: String, values: [Value], selection: Binding<Value?>,
+                                  label: @escaping (Value) -> String) -> some View
+        where Value: Hashable & RawRepresentable, Value.RawValue == String {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.headline)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    choice("Any", id: "\(id)-any", selected: selection.wrappedValue == nil) { selection.wrappedValue = nil }
+                    ForEach(values, id: \.self) { value in
+                        choice(label(value), id: "\(id)-\(value.rawValue)", selected: selection.wrappedValue == value) {
+                            selection.wrappedValue = value
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func binaryRow(_ title: String, id: String, selectedTitle: String, selection: Binding<Bool>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.headline)
+            HStack(spacing: 16) {
+                choice("Any", id: "\(id)-any", selected: !selection.wrappedValue) { selection.wrappedValue = false }
+                choice(selectedTitle, id: "\(id)-only", selected: selection.wrappedValue) { selection.wrappedValue = true }
+            }
+        }
+    }
+
+    private func choice(_ title: String, id: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(LuminaUnderlineTabStyle(selected: selected))
+            .fixedSize(horizontal: true, vertical: true)
+            .accessibilityValue(selected ? "Selected" : "Not selected")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityIdentifier("videoFilter-\(id)")
     }
 }
 
@@ -1459,7 +1799,7 @@ private struct NativeWatchlistButton: View {
                 }
             } label: {
                 Label(watchlist?.isIncluded == true ? "In watchlist" : "Add to watchlist",
-                      systemImage: watchlist?.isIncluded == true ? "checkmark" : "plus")
+                      glyph: .bookmark, variant: watchlist?.isIncluded == true ? .solid : .outline)
             }
             .buttonStyle(LuminaMediaActionStyle())
             .disabled(watchlist == nil || watchlist?.isLoading == true || watchlist?.isSaving == true || watchlist?.errorMessage != nil)
@@ -1503,7 +1843,7 @@ private struct VideoCollectionView: View {
                         VStack(alignment: .leading, spacing: 12) { playbackActions }
                     }
                     if let playbackError {
-                        Label(playbackError, systemImage: "exclamationmark.triangle.fill")
+                        Label(playbackError, glyph: .warning)
                             .font(.callout)
                             .foregroundStyle(LuminaTheme.accentInk)
                             .accessibilityIdentifier("videoCollectionPlaybackError")
@@ -1520,7 +1860,11 @@ private struct VideoCollectionView: View {
                 if isLoading && children.isEmpty {
                     ProgressView(item.type == "Series" ? "Loading seasons…" : "Loading episodes…")
                 } else if children.isEmpty && errorMessage == nil {
-                    ContentUnavailableView("Nothing here yet", systemImage: "tv", description: Text("No \(item.type == "Series" ? "seasons" : "episodes") are available. Pull to refresh after adding them to Lumina."))
+                    ContentUnavailableView {
+                        Label("Nothing here yet", glyph: .series)
+                    } description: {
+                        Text("No \(item.type == "Series" ? "seasons" : "episodes") are available. Pull to refresh after adding them to Lumina.")
+                    }
                 } else if item.type == "Series" {
                     LazyVGrid(columns: libraryGridColumns(for: dynamicTypeSize), alignment: .leading, spacing: 28) {
                         ForEach(children) { child in
@@ -1584,7 +1928,7 @@ private struct VideoCollectionView: View {
         Button {
             preparePlayback()
         } label: {
-            Label(isPreparingPlayback ? "Preparing…" : "Play", systemImage: "play.fill")
+            Label(isPreparingPlayback ? "Preparing…" : "Play", glyph: .play, variant: .solid, size: 24)
         }
         .buttonStyle(LuminaMediaActionStyle(primary: true))
         .disabled(isPreparingPlayback)
@@ -1627,9 +1971,9 @@ private struct VideoCollectionView: View {
                         Text(Duration.seconds(episode.durationSeconds).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)))
                     }
                     if episode.userData?.played == true {
-                        Image(systemName: "checkmark.circle.fill")
+                        Label("Watched", glyph: .check)
+                            .labelStyle(.iconOnly)
                             .foregroundStyle(LuminaTheme.accentInk)
-                            .accessibilityLabel("Watched")
                     }
                 }
                 .font(.caption.weight(.semibold))
@@ -1763,7 +2107,8 @@ private struct AudioLibraryView: View {
                         ProgressView("Loading music…")
                     } else if store.errorMessage == nil {
                         ContentUnavailableView {
-                            Label(searchText.isEmpty ? "Your listening room is quiet" : "No music found", systemImage: "music.note")
+                            Label(searchText.isEmpty ? "Your listening room is quiet" : "No music found",
+                                  glyph: .music, variant: .solid)
                         } description: {
                             Text(searchText.isEmpty ? "Add music to Lumina, then refresh to find your albums, artists, and tracks here." : "Try another search or browse a different collection.")
                         } actions: {
@@ -1807,8 +2152,11 @@ private struct AudioLibraryView: View {
                     ForEach(NativeMusicSection.allCases, id: \.self) { section in
                         NavigationLink {
                             NativeMusicLibraryView(store: store, section: section)
+                                .toolbar {
+                                    NativeNowPlayingToolbar(store: store)
+                                }
                         } label: {
-                            Label(section.rawValue, systemImage: section.symbol)
+                            Label(section.rawValue, glyph: section.glyph)
                         }
                         .accessibilityIdentifier("musicLibrary-\(section.rawValue.lowercased())")
                     }
@@ -1817,11 +2165,11 @@ private struct AudioLibraryView: View {
                         ForEach(MusicBrowseKind.allCases, id: \.self) { value in Text(value.label).tag(value) }
                     }
                     .accessibilityIdentifier("audioKindPicker")
-                } label: { Label("Music options", systemImage: "ellipsis.circle") }
+                } label: { Label("Music options", glyph: .moreHorizontal) }
                 .accessibilityIdentifier("musicOptionsMenu")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Search music", systemImage: "magnifyingglass") { searchVisible = true }
+                Button("Search music", glyph: .search) { searchVisible = true }
                     .accessibilityIdentifier("musicSearchButton")
             }
         }
@@ -1891,7 +2239,7 @@ private struct MusicCollectionView: View {
     }
 
     private var collectionArtwork: some View {
-        ArtworkView(url: store.imageURL(for: item, maxWidth: 760), name: item.name, aspect: 1, symbol: "music.note")
+        ArtworkView(url: store.imageURL(for: item, maxWidth: 760), name: item.name, aspect: 1, glyph: .music)
             .shadow(color: .black.opacity(0.18), radius: 20, y: 10)
     }
 
@@ -1922,7 +2270,11 @@ private struct MusicCollectionView: View {
             } else if let errorMessage {
                 InlineErrorView(message: errorMessage) { Task { await load() } }
             } else if children.isEmpty {
-                ContentUnavailableView("No music here yet", systemImage: "music.note", description: Text("Refresh after adding music to this collection."))
+                ContentUnavailableView {
+                    Label("No music here yet", glyph: .music, variant: .solid)
+                } description: {
+                    Text("Refresh after adding music to this collection.")
+                }
             } else if item.type == "MusicAlbum", children.allSatisfy(\.isAudio) {
                 albumTracks
             } else {
@@ -1971,7 +2323,7 @@ private struct MusicCollectionView: View {
         Button {
             playCollection(shuffled: false)
         } label: {
-            Label(preparingPlayback ? "Preparing…" : "Play album", systemImage: "play.fill")
+            Label(preparingPlayback ? "Preparing…" : "Play album", glyph: .play, variant: .solid, size: 24)
         }
         .buttonStyle(LuminaMediaActionStyle(primary: true))
         .controlSize(.large)
@@ -1980,7 +2332,7 @@ private struct MusicCollectionView: View {
         Button {
             playCollection(shuffled: true)
         } label: {
-            Label("Shuffle", systemImage: "shuffle")
+            Label("Shuffle", glyph: .shuffle, size: 24)
         }
         .buttonStyle(LuminaQuietActionStyle())
         .controlSize(.large)
@@ -2177,7 +2529,8 @@ private struct LibraryFeaturedView: View {
                 catch { playbackError = "Playback could not start. Try again." }
             }
         } label: {
-            Label(preparing ? "Preparing…" : item.resumeSeconds > 0 ? "Resume" : "Play", systemImage: "play.fill")
+            Label(preparing ? "Preparing…" : item.resumeSeconds > 0 ? "Resume" : "Play",
+                  glyph: .play, variant: .solid, size: 24)
         }
         .buttonStyle(LuminaMediaActionStyle(primary: true))
         .disabled(preparing)
@@ -2354,7 +2707,10 @@ private struct MediaCard: View {
 
     var body: some View {
         let content = VStack(alignment: .leading, spacing: 6) {
-            ArtworkView(url: imageURL, name: item.name, aspect: item.isAudio || item.type == "MusicAlbum" || item.type == "MusicArtist" ? 1 : wide ? 16 / 9 : 2 / 3, symbol: item.isAudio || item.type.hasPrefix("Music") ? "music.note" : "film", loadFraming: loadFraming)
+            ArtworkView(url: imageURL, name: item.name,
+                        aspect: item.isAudio || item.type == "MusicAlbum" || item.type == "MusicArtist" ? 1 : wide ? 16 / 9 : 2 / 3,
+                        glyph: item.isAudio || item.type.hasPrefix("Music") ? .music : .movies,
+                        loadFraming: loadFraming)
                 .accessibilityIdentifier("\(identifierPrefix)Artwork-\(item.id)")
                 .overlay(alignment: .bottom) {
                     if progressFraction > 0 {
@@ -2484,7 +2840,7 @@ private struct ArtworkView: View {
     let url: URL?
     let name: String
     var aspect: CGFloat = 2 / 3
-    var symbol = "film"
+    var glyph: LuminaGlyph = .movies
     var loadFraming: @MainActor (URL) async -> HeroFraming? = { _ in nil }
 
     var body: some View {
@@ -2502,8 +2858,7 @@ private struct ArtworkView: View {
 
     private var placeholder: some View {
         VStack(spacing: 8) {
-            Image(systemName: symbol)
-                .font(.title2)
+            LuminaIcon(glyph: glyph, variant: .solid, size: 28)
             Text(name)
                 .font(.caption)
                 .multilineTextAlignment(.center)
@@ -2538,7 +2893,7 @@ private struct NativeTitleSupplement: View {
                                         image.resizable().scaledToFill()
                                     } placeholder: {
                                         LuminaTheme.ink.opacity(0.06)
-                                            .overlay { Image(systemName: "person.fill").font(.largeTitle).foregroundStyle(LuminaTheme.muted) }
+                                            .overlay { LuminaIcon(glyph: .profile, variant: .solid, size: 40).foregroundStyle(LuminaTheme.muted) }
                                     }
                                     .frame(width: 112, height: 148)
                                     .clipShape(.rect(cornerRadius: 8))
@@ -2596,7 +2951,7 @@ private struct TitleDetailView: View {
 
                 VStack(alignment: .leading, spacing: 20) {
                     if let stateError {
-                        Label(stateError, systemImage: "exclamationmark.triangle.fill")
+                        Label(stateError, glyph: .warning)
                             .font(.callout)
                             .foregroundStyle(LuminaTheme.accentInk)
                             .accessibilityElement(children: .combine)
@@ -2610,8 +2965,10 @@ private struct TitleDetailView: View {
                             .foregroundStyle(LuminaTheme.ink)
                     }
 
+                    videoDownloadStatus
+
                     if let playbackError, !playbackError.isEmpty {
-                        Label(playbackError, systemImage: "exclamationmark.triangle.fill")
+                        Label(playbackError, glyph: .warning)
                             .font(.callout)
                             .foregroundStyle(LuminaTheme.accentInk)
                             .accessibilityElement(children: .combine)
@@ -2649,7 +3006,9 @@ private struct TitleDetailView: View {
         Button {
             updateState(favorite: currentItem.userData?.isFavorite != true)
         } label: {
-            Label(currentItem.userData?.isFavorite == true ? "Remove favorite" : "Add favorite", systemImage: currentItem.userData?.isFavorite == true ? "heart.fill" : "heart")
+            Label(currentItem.userData?.isFavorite == true ? "Remove favorite" : "Add favorite",
+                  glyph: .favorite,
+                  variant: currentItem.userData?.isFavorite == true ? .solid : .outline)
                 .frame(minWidth: 132)
         }
         .buttonStyle(LuminaMediaActionStyle())
@@ -2665,26 +3024,62 @@ private struct TitleDetailView: View {
             Button {
                 updateState(played: currentItem.userData?.played != true)
             } label: {
-                Label(currentItem.userData?.played == true ? "Mark unwatched" : "Mark watched", systemImage: currentItem.userData?.played == true ? "checkmark.circle.fill" : "checkmark.circle")
+                Label(currentItem.userData?.played == true ? "Mark unwatched" : "Mark watched", glyph: .check)
             }
             .accessibilityValue(currentItem.userData?.played == true ? "Watched" : "Unwatched")
             .accessibilityIdentifier("videoWatchedButton")
 
-            if currentItem.isPlayable {
-                Button {
-                    preparePlayback(forceTranscode: true)
-                } label: {
-                    Label("Convert", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .disabled(isPreparingPlayback)
-                .accessibilityHint("Use compatibility conversion before playback.")
-                .accessibilityIdentifier("convertButton")
+            if currentItem.isPlayable, !currentItem.isAudio {
+                videoDownloadAction
             }
+
         } label: {
-            Label("More actions", systemImage: "ellipsis.circle")
+            Label("More actions", glyph: .moreHorizontal)
         }
         .disabled(isSavingState || isLoadingItem)
         .accessibilityIdentifier("titleActionsMenu")
+    }
+
+    @ViewBuilder private var videoDownloadStatus: some View {
+        switch store.offline.downloadStates[currentItem.id] {
+        case .queued:
+            Label("Download queued", glyph: .download).font(.caption)
+        case .downloading(let received, let total):
+            VStack(alignment: .leading, spacing: 6) {
+                if let total, total > 0 { ProgressView(value: Double(received), total: Double(total)) }
+                Text("Downloading · \(ByteCountFormatter.string(fromByteCount: received, countStyle: .file))")
+                    .font(.caption.monospacedDigit())
+            }
+            .accessibilityIdentifier("videoDownloadProgress")
+        case .downloaded:
+            Label("Downloaded to this device", glyph: .downloadDone).font(.caption)
+                .accessibilityIdentifier("videoDownloadedStatus")
+        case .failed(let message):
+            Label(message, glyph: .warning).font(.caption)
+                .accessibilityIdentifier("videoDownloadError")
+        case .cancelled, .none:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder private var videoDownloadAction: some View {
+        switch store.offline.downloadStates[currentItem.id] {
+        case .downloaded:
+            Button("Remove Download", glyph: .trash, role: .destructive) {
+                store.offline.remove(id: currentItem.id)
+            }
+            .accessibilityIdentifier("removeVideoDownloadButton")
+        case .queued, .downloading:
+            Button("Cancel Download", glyph: .close) { store.offline.cancel(id: currentItem.id) }
+                .accessibilityIdentifier("cancelVideoDownloadButton")
+        default:
+            Button("Download to Device", glyph: .download) {
+                Task { await store.downloadVideo(item: currentItem) }
+            }
+            .disabled(store.isOffline || !LuminaOfflineLibrary.supportsVideoDownload(currentItem))
+            .accessibilityHint("Save this video for offline playback on this device.")
+            .accessibilityIdentifier("downloadVideoButton")
+        }
     }
 
     private func updateState(played: Bool? = nil, favorite: Bool? = nil) {
@@ -2745,7 +3140,7 @@ private struct TitleDetailView: View {
                 if isPreparingPlayback {
                     ProgressView()
                 }
-                Label(playLabel, systemImage: "play.fill")
+                Label(playLabel, glyph: .play, variant: .solid, size: 24)
             }
         }
         .buttonStyle(LuminaMediaActionStyle(primary: true))
@@ -2769,7 +3164,7 @@ private struct TitleDetailView: View {
                     ? (error as? LocalizedError)?.errorDescription ?? "Playback could not start. Check your connection and try again."
                     : forceTranscode
                         ? "Compatibility conversion could not start. Check the server and try again."
-                        : "Playback could not start. Try Convert for compatibility."
+                        : "Playback could not start. Check your connection or play a downloaded copy."
             }
             isPreparingPlayback = false
         }
@@ -2813,8 +3208,7 @@ private struct EmptyLibraryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Image(systemName: "film.stack")
-                .font(.largeTitle)
+            LuminaIcon(glyph: .movies, variant: .solid, size: 40)
                 .foregroundStyle(LuminaTheme.accentInk)
                 .accessibilityHidden(true)
             Text("Your video library is quiet.")
@@ -2837,7 +3231,7 @@ private struct InlineErrorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(message, systemImage: "exclamationmark.triangle.fill")
+            Label(message, glyph: .warning)
                 .font(.callout)
                 .foregroundStyle(LuminaTheme.accentInk)
                 .accessibilityElement(children: .combine)

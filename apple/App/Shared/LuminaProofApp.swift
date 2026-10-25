@@ -4,8 +4,18 @@ import LuminaCore
 @main
 @MainActor
 struct LuminaProofApp: App {
-    @State private var store = LuminaStore(playbackPreferences: NativePlaybackPreferences(defaults: LuminaPreferences.defaults))
+    @State private var store = makeStore()
     @State private var didRestore = false
+
+    private static func makeStore() -> LuminaStore {
+        #if LUMINA_UI_TESTING
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-offline") {
+            return LuminaStore(playbackPreferences: NativePlaybackPreferences(defaults: LuminaPreferences.defaults),
+                               connectivity: LuminaConnectivity(status: .offline, monitoringEnabled: false))
+        }
+        #endif
+        return LuminaStore(playbackPreferences: NativePlaybackPreferences(defaults: LuminaPreferences.defaults))
+    }
 
     var body: some Scene {
         WindowGroup {

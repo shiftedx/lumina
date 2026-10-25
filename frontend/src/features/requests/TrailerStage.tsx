@@ -2,7 +2,7 @@
  * A trailer playing inline, in the hero, through Lumina's own remote playback: the same preview → RemotePlayer path the
  * /watch?url=https://www.youtube.com/watch?v=<id> route uses. Never a YouTube iframe. The player chunk loads on first use.
  */
-import { X } from 'lucide-react';
+import { X } from '../../luminaIcons';
 import { lazy, Suspense, useEffect, useState } from 'react';
 
 import { previewUrl } from '../../api';

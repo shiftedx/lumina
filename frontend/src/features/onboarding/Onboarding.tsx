@@ -3,7 +3,7 @@ import {
   ArrowRight, BookOpen, Camera, Car, Check, ChevronDown, ChevronLeft, Compass, Dumbbell, Film,
   Gamepad2, Globe, Headphones, Heart, Leaf, Library, Mic, Music, Newspaper, Palette,
   Play, Plus, Search, Scissors, Sparkles, Sprout, Telescope, Trophy, Utensils, X,
-} from 'lucide-react';
+} from '../../luminaIcons';
 import { Artwork } from '../../Artwork';
 import { type CategoryChannelSuggestions, type ChannelCandidate, type FollowChannelRequest, type InterestCategory } from '../../types';
 import { Avatar, BrandMark, Button, EmptyState, ErrorState, Field, fieldProps, initials, Input, Masthead, Popover, ProgressBar, Skeleton } from '../../ui';

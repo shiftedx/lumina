@@ -1,4 +1,4 @@
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw } from '../../../luminaIcons';
 import { useState } from 'react';
 
 import { Button, Checkbox, Dialog, Input, StatusText, VisuallyHidden } from '../../../ui';

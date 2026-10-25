@@ -1,4 +1,4 @@
-import { Bookmark, BookOpen, Check, FileText, Heart, Layers, Plus, Trash2 } from 'lucide-react';
+import { Bookmark, BookOpen, Check, FileText, Heart, Layers, Plus, Trash2 } from '../../luminaIcons';
 
 import { Button, IconButton } from '../../ui';
 import { BookCover, readingPosition } from './BookCards';

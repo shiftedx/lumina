@@ -1,5 +1,5 @@
 import { type MouseEvent } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight } from '../../luminaIcons';
 
 import { routePath } from '../../app/routes';
 import { categoryForPage, pageForRow, type SettingsPage } from './navigation';

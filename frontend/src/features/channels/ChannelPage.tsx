@@ -5,7 +5,7 @@
  * only through their confirmation.
  */
 import { useCanDownload } from '../access/access';
-import { Check, ExternalLink, LoaderCircle, Plus } from 'lucide-react';
+import { Check, ExternalLink, LoaderCircle, Plus } from '../../luminaIcons';
 import { type KeyboardEvent, useEffect, useMemo, useState } from 'react';
 
 import { createLiveRecording, getChannelPage, listLibraryChannels } from '../../api';

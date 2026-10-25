@@ -1,5 +1,5 @@
 import { defaultRangeExtractor, useWindowVirtualizer } from '@tanstack/react-virtual';
-import { CalendarDays, Camera, Check, FolderPlus, Heart, ImagePlus, Images, Search, Trash2, Undo2, Upload, UserRound, X } from 'lucide-react';
+import { CalendarDays, Camera, Check, FolderPlus, Heart, ImagePlus, Images, Search, Trash2, Undo2, Upload, UserRound, X } from '../../luminaIcons';
 import { lazy, type KeyboardEvent, type ReactNode, Suspense, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { downloadLocalModel } from '../../api';

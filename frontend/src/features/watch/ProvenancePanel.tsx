@@ -1,5 +1,5 @@
 import { type MouseEvent, type ReactNode, useEffect, useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink } from '../../luminaIcons';
 import { getProvenance, type Provenance } from '../../api';
 import { formatBytes } from '../../utils';
 

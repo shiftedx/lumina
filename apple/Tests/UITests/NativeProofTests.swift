@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 #if os(iOS)
+import AVFoundation
 import UIKit
 #endif
 
@@ -90,6 +91,27 @@ final class NativeAudioAlbumPlayAfterUnavailableRestoreTests: NativeProofJourney
 final class NativeVideoGestureTests: NativeProofJourney {
     func testSurfaceGesturesSeekAndKeepPausedPlaybackPaused() async throws {
         try await journeyVideoSurfaceGestures()
+    }
+}
+
+@MainActor
+final class NativeVideoRotationContinuityTests: NativeProofJourney {
+    func testPlayingVideoContinuesAcrossOrientationChanges() async throws {
+        try await journeyVideoPlaybackSurvivesOrientationChanges()
+    }
+}
+
+@MainActor
+final class NativeVideoForegroundInactiveContinuityTests: NativeProofJourney {
+    func testPlayingVideoContinuesAcrossControlCenter() async throws {
+        try await journeyVideoPlaybackSurvivesForegroundInactiveTransition()
+    }
+}
+
+@MainActor
+final class NativeVideoForegroundRestoreContinuityTests: NativeProofJourney {
+    func testVideoPlaybackIntentRestoresAfterHomeAndKeepsExplicitPause() async throws {
+        try await journeyVideoPlaybackSurvivesHomeForegroundTransition()
     }
 }
 
@@ -1125,6 +1147,192 @@ class NativeProofJourney: XCTestCase {
         landscapeFrame.name = "Landscape surface gesture seeking"
         landscapeFrame.lifetime = .keepAlways
         add(landscapeFrame)
+        try closePlayer()
+    }
+
+    func journeyVideoPlaybackSurvivesOrientationChanges() async throws {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 0)
+
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.directItemID)
+
+        let time = try startPlayback(using: "playButton")
+        _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= 2 }
+        try waitForVideoPlaybackDiagnostics(
+            requested: true,
+            playing: true,
+            requiredTokens: ["policy=\(AVPlayerAudiovisualBackgroundPlaybackPolicy.automatic.rawValue)"],
+            timeout: 10
+        )
+
+        let surface = element("videoControlsSurface")
+        try waitForHittable(surface, timeout: 10, named: "video controls before rotation")
+        let playingInPortrait = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        guard waitUntil(timeout: 15, condition: { surface.frame.width > surface.frame.height }) else {
+            throw ProofFailure.ui("The player did not reflow to landscape during active playback.")
+        }
+        try waitForVideoPlaybackDiagnostics(requested: true, playing: true, timeout: 10)
+        let playingInLandscape = try waitForPlaybackValue(time, timeout: 15) { $0 >= playingInPortrait + 1 }
+
+        XCUIDevice.shared.orientation = .portrait
+        guard waitUntil(timeout: 15, condition: { surface.frame.height > surface.frame.width }) else {
+            throw ProofFailure.ui("The player did not reflow to portrait during active playback.")
+        }
+        try waitForVideoPlaybackDiagnostics(requested: true, playing: true, timeout: 10)
+        _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= playingInLandscape + 1 }
+
+        let transport = element("videoPlayPauseButton")
+        if !transport.isHittable { try activate(surface) }
+        try waitForHittable(transport, timeout: 10, named: "video pause after orientation changes")
+        try activate(transport)
+        XCTAssertTrue(waitUntil(timeout: 10) { transport.label == "Play" },
+                      "Pausing after orientation changes must update the real transport state.")
+        try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 10)
+        let pausedAt = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+
+        XCUIDevice.shared.orientation = .landscapeRight
+        guard waitUntil(timeout: 15, condition: { surface.frame.width > surface.frame.height }) else {
+            throw ProofFailure.ui("The player did not reflow to landscape while paused.")
+        }
+        try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 10)
+        try await Task.sleep(for: .seconds(2))
+        let stillPaused = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        XCTAssertLessThanOrEqual(stillPaused, pausedAt + 0.5,
+                                 "An explicitly paused video must remain paused through an orientation change.")
+        try closePlayer()
+    }
+
+    func journeyVideoPlaybackSurvivesForegroundInactiveTransition() async throws {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 0)
+
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.directItemID)
+
+        let time = try startPlayback(using: "playButton")
+        _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= 2 }
+        try waitForVideoPlaybackDiagnostics(requested: true, playing: true, timeout: 10)
+        let playingBeforeInterruption = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+
+        // Control Center changes the foreground scene to inactive without sending
+        // the app to the background. This is the lifecycle transition that must
+        // preserve an explicitly requested video playback session.
+        let app = try applicationWindow()
+        let controlCenterStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.01))
+        let controlCenterEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.72))
+        controlCenterStart.press(forDuration: 0.05, thenDragTo: controlCenterEnd)
+        try waitForVideoPlaybackDiagnostics(
+            requested: true,
+            playing: true,
+            scenePhase: "inactive",
+            timeout: 10
+        )
+
+        let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let dismissControlCenterStart = springBoard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.99))
+        let dismissControlCenterEnd = springBoard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+        dismissControlCenterStart.press(forDuration: 0.05, thenDragTo: dismissControlCenterEnd)
+        guard waitUntil(timeout: 15, condition: { self.application!.state == .runningForeground }) else {
+            throw ProofFailure.ui("Lumina did not return to the foreground after dismissing Control Center.")
+        }
+        try waitForVideoPlaybackDiagnostics(
+            requested: true,
+            playing: true,
+            scenePhase: "active",
+            timeout: 10
+        )
+        _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= playingBeforeInterruption + 1 }
+        try closePlayer()
+    }
+
+    func journeyVideoPlaybackSurvivesHomeForegroundTransition() async throws {
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 0)
+
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-force-video-system-pause"])
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.directItemID)
+
+        let time = try startPlayback(using: "playButton")
+        _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= 2 }
+        try waitForVideoPlaybackDiagnostics(
+            requested: true,
+            playing: true,
+            requiredTokens: ["policy=\(AVPlayerAudiovisualBackgroundPlaybackPolicy.pauses.rawValue)"],
+            timeout: 10
+        )
+        let playingBeforeHome = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+
+        // This exercises the real Home → foreground lifecycle boundary with a
+        // controlled native AVPlayer system-pause fault, not a fake player.
+        try backgroundApplication()
+        application!.activate()
+        try waitForExistence(element("playbackScreen"), timeout: 20, named: "video player after returning from Home")
+        try waitForVideoPlaybackDiagnostics(
+            requested: true,
+            playing: true,
+            scenePhase: "active",
+            requiredTokens: ["systemPauseInjections=1"],
+            timeout: 15
+        )
+        _ = try waitForPlaybackValue(time, timeout: 15) { $0 >= playingBeforeHome + 1 }
+
+        let surface = element("videoControlsSurface")
+        let transport = element("videoPlayPauseButton")
+        // Recovering AVFoundation can reveal the controls asynchronously. Wait
+        // for that transition before touching the surface: a blind surface tap
+        // would otherwise hide a transport that has just appeared.
+        if !waitUntil(timeout: 4, condition: { transport.isHittable }) {
+            try await Task.sleep(for: .seconds(1))
+            if !transport.isHittable { try activate(surface) }
+        }
+        try waitForHittable(transport, timeout: 10, named: "video pause before Home")
+        try activate(transport)
+        XCTAssertTrue(waitUntil(timeout: 10) { transport.label == "Play" },
+                      "The explicit pause must be visible before testing foreground restoration.")
+        try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 10)
+        let pausedBeforeHome = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+
+        try backgroundApplication()
+        application!.activate()
+        try waitForExistence(element("playbackScreen"), timeout: 20, named: "paused video player after returning from Home")
+        try waitForVideoPlaybackDiagnostics(
+            requested: false,
+            playing: false,
+            scenePhase: "active",
+            requiredTokens: ["systemPauseInjections=1"],
+            timeout: 15
+        )
+        try await Task.sleep(for: .seconds(2))
+        let stillPaused = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        XCTAssertLessThanOrEqual(stillPaused, pausedBeforeHome + 0.5,
+                                 "Returning from Home must not resume explicitly paused video playback.")
         try closePlayer()
     }
 
@@ -4974,10 +5182,11 @@ class NativeProofJourney: XCTestCase {
         return URLSession(configuration: configuration, delegate: ProofRedirectGuard(origin: origin), delegateQueue: nil)
     }
 
-    private func launchAndResetSession() throws {
+    private func launchAndResetSession(extraLaunchArguments: [String] = []) throws {
         let app = XCUIApplication()
         application = app
         app.launchArguments.append("--ui-testing")
+        app.launchArguments.append(contentsOf: extraLaunchArguments)
         app.launchEnvironment["LUMINA_UI_TEST_NAMESPACE"] = isolationID
         app.launch()
 
@@ -5839,6 +6048,31 @@ class NativeProofJourney: XCTestCase {
         }
         return latestValue
     }
+
+    #if os(iOS)
+    private func waitForVideoPlaybackDiagnostics(
+        requested: Bool,
+        playing: Bool,
+        scenePhase: String? = nil,
+        requiredTokens: [String] = [],
+        timeout: TimeInterval
+    ) throws {
+        let diagnostics = element("videoGestureDiagnostics")
+        try waitForExistence(diagnostics, timeout: timeout, named: "video playback diagnostics")
+        let expectedStates = [
+            "playing=\(playing) requested=\(requested)",
+            scenePhase.map { "phase=\($0)" }
+        ].compactMap { $0 } + requiredTokens
+        guard waitUntil(timeout: timeout, condition: {
+            guard let value = diagnostics.value as? String else { return false }
+            return expectedStates.allSatisfy(value.contains)
+        }) else {
+            throw ProofFailure.ui(
+                "Video playback state did not become \(expectedStates.joined(separator: ", ")): \(diagnostics.value ?? "absent")."
+            )
+        }
+    }
+    #endif
 
     private func accessibilityText(_ element: XCUIElement) -> String {
         let value: String

@@ -229,7 +229,7 @@ struct PlaybackScreen: View {
                     .accessibilityElement()
                     .accessibilityLabel("Gesture diagnostics")
                     .accessibilityIdentifier("videoGestureDiagnostics")
-                    .accessibilityValue("phase=\(String(describing: scenePhase)) size=\(videoGestureContainerSize) modal=\(videoSettingsPresented) pip=\(pictureInPictureActive) playing=\(playback.isPlaying) requested=\(playback.videoPlaybackRequested) status=\(playback.player.timeControlStatus.rawValue) actions=\(videoGestures.actionCount) last=\(videoGestures.lastAction)")
+                    .accessibilityValue("phase=\(String(describing: scenePhase)) size=\(videoGestureContainerSize) modal=\(videoSettingsPresented) pip=\(pictureInPictureActive) playing=\(playback.isPlaying) requested=\(playback.videoPlaybackRequested) status=\(playback.player.timeControlStatus.rawValue) policy=\(playback.videoBackgroundPlaybackPolicyRawValue) rateReason=\(playback.lastVideoRateChangeReason) pauseReason=\(playback.lastVideoNativePauseReason) systemPauseInjections=\(playback.videoSystemPauseInjectionCount) actions=\(videoGestures.actionCount) last=\(videoGestures.lastAction)")
                 Color.clear.frame(width: 1, height: 1)
                     .accessibilityElement()
                     .accessibilityLabel("System Picture in Picture")
@@ -333,6 +333,9 @@ struct PlaybackScreen: View {
         .onChange(of: scenePhase) { _, phase in
             playback.setActive(phase == .active || pictureInPictureContinuing)
             #if os(iOS)
+            if phase == .active, !playback.request.item.isAudio {
+                playback.recoverSystemBackgroundPauseIfNeeded()
+            }
             if phase != .active { cancelVideoGestures(releaseBrightness: true) }
             #endif
         }
@@ -399,6 +402,18 @@ struct PlaybackScreen: View {
             #endif
             playback.setActive(pictureInPictureContinuing)
         }
+        #if os(iOS) && LUMINA_UI_TESTING
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            playback.injectSystemBackgroundPauseForUITesting()
+        }
+        #endif
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            guard scenePhase == .active, !playback.request.item.isAudio else { return }
+            playback.setActive(true)
+            playback.recoverSystemBackgroundPauseIfNeeded()
+        }
+        #endif
         #if os(iOS)
         .onChange(of: voiceOverEnabled) { _, enabled in
             cancelVideoGestures(releaseBrightness: false)
@@ -1752,6 +1767,20 @@ final class PlaybackModel {
     private var timeObserver: Any?
     private var controlObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
+    #if os(iOS)
+    // NotificationCenter permits unregistering its token during nonisolated deinit.
+    nonisolated(unsafe) private var videoRateChangeObserver: NSObjectProtocol?
+    @ObservationIgnored private weak var pendingSystemBackgroundPauseItem: AVPlayerItem?
+    #endif
+    #if os(iOS) && LUMINA_UI_TESTING
+    private(set) var lastVideoRateChangeReason = "none"
+    private(set) var lastVideoNativePauseReason = "none"
+    private(set) var videoSystemPauseInjectionCount = 0
+
+    var videoBackgroundPlaybackPolicyRawValue: Int {
+        request.item.isAudio ? -1 : player.audiovisualBackgroundPlaybackPolicy.rawValue
+    }
+    #endif
     private var videoSource = NativeVideoSource()
     private(set) var isSwitchingVideoStream = false
     private(set) var videoStreamError: String?
@@ -1831,7 +1860,15 @@ final class PlaybackModel {
         player.preventsDisplaySleepDuringVideoPlayback = true
         if !request.item.isAudio {
             #if os(iOS)
+            #if LUMINA_UI_TESTING
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-force-video-system-pause") {
+                player.audiovisualBackgroundPlaybackPolicy = .pauses
+            } else {
+                player.audiovisualBackgroundPlaybackPolicy = .automatic
+            }
+            #else
             player.audiovisualBackgroundPlaybackPolicy = .automatic
+            #endif
             #else
             player.audiovisualBackgroundPlaybackPolicy = .pauses
             #endif
@@ -1842,10 +1879,108 @@ final class PlaybackModel {
     }
 
     deinit {
+        #if os(iOS)
+        if let videoRateChangeObserver {
+            NotificationCenter.default.removeObserver(videoRateChangeObserver)
+        }
+        #endif
         #if LUMINA_UI_TESTING
         print("LUMINA_LIFECYCLE playback-model deinit \(lifecycleToken)")
         #endif
     }
+
+    private func installVideoRateChangeObserver() {
+        #if os(iOS)
+        guard !request.item.isAudio, videoRateChangeObserver == nil else { return }
+        videoRateChangeObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayer.rateDidChangeNotification,
+            object: player,
+            queue: .main
+        ) { [weak self] notification in
+            let reason = (notification.userInfo?[AVPlayer.rateDidChangeReasonKey] as? AVPlayer.RateDidChangeReason)
+                ?? (notification.userInfo?[AVPlayer.rateDidChangeReasonKey] as? String).map(AVPlayer.RateDidChangeReason.init(rawValue:))
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.handleVideoRateChange(reason)
+            }
+        }
+        #endif
+    }
+
+    private func removeVideoRateChangeObserver() {
+        #if os(iOS)
+        if let videoRateChangeObserver {
+            NotificationCenter.default.removeObserver(videoRateChangeObserver)
+            self.videoRateChangeObserver = nil
+        }
+        #endif
+    }
+
+    private func handleVideoRateChange(_ reason: AVPlayer.RateDidChangeReason?) {
+        #if os(iOS)
+        #if LUMINA_UI_TESTING
+        let reasonValue = reason?.rawValue ?? "unknown"
+        lastVideoRateChangeReason = reasonValue
+        if player.rate == 0 { lastVideoNativePauseReason = reasonValue }
+        #endif
+        guard player.rate == 0 else {
+            pendingSystemBackgroundPauseItem = nil
+            return
+        }
+        guard reason == .appBackgrounded,
+              videoPlaybackRequested,
+              let item = player.currentItem else {
+            pendingSystemBackgroundPauseItem = nil
+            return
+        }
+        pendingSystemBackgroundPauseItem = item
+        recoverSystemBackgroundPauseIfNeeded()
+        #endif
+    }
+
+    func recoverSystemBackgroundPauseIfNeeded() {
+        #if os(iOS)
+        guard !request.item.isAudio,
+              let pausedItem = pendingSystemBackgroundPauseItem,
+              UIApplication.shared.applicationState == .active,
+              isActive,
+              videoPlaybackRequested,
+              !closed,
+              !hasFinished,
+              didSeek,
+              !isSwitchingVideoStream,
+              !isCommittingVideoStream,
+              !isReplaying,
+              !isSeekingChapter,
+              videoSeekAuthority.optimisticTarget == nil,
+              pendingVideoPlayer == nil,
+              player.currentItem === pausedItem,
+              player.timeControlStatus == .paused,
+              pausedItem.status == .readyToPlay else { return }
+        pendingSystemBackgroundPauseItem = nil
+        player.play()
+        #endif
+    }
+
+    #if os(iOS) && LUMINA_UI_TESTING
+    func injectSystemBackgroundPauseForUITesting() {
+        guard ProcessInfo.processInfo.arguments.contains("--ui-testing-force-video-system-pause"),
+              !request.item.isAudio,
+              videoPlaybackRequested else { return }
+        player.pause()
+        isPlaying = false
+        videoSystemPauseInjectionCount += 1
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, self.player.rate == 0 else { return }
+            NotificationCenter.default.post(
+                name: AVPlayer.rateDidChangeNotification,
+                object: self.player,
+                userInfo: [AVPlayer.rateDidChangeReasonKey: AVPlayer.RateDidChangeReason.appBackgrounded]
+            )
+        }
+    }
+    #endif
 
     func start() async {
         guard !started, !closed else { return }
@@ -1932,6 +2067,7 @@ final class PlaybackModel {
                 self.enqueue(.progress, paused: self.player.timeControlStatus != .playing)
             }
         }
+        installVideoRateChangeObserver()
         installEndObserver()
         if autoplayWhenReady { player.play() }
     }
@@ -1943,6 +2079,9 @@ final class PlaybackModel {
         // Leaving during asset loading must also suppress the later autoplay.
         autoplayWhenReady = false
         videoRateLease.cancel()
+        #if os(iOS)
+        pendingSystemBackgroundPauseItem = nil
+        #endif
         player.pause()
         isPlaying = false
         guard !hasFinished, !isCommittingVideoStream else { return }
@@ -2103,6 +2242,7 @@ final class PlaybackModel {
                 isPlaying = player.timeControlStatus == .playing
                 enqueue(.progress, paused: !isPlaying)
             }
+            recoverSystemBackgroundPauseIfNeeded()
         }
     }
 
@@ -2747,11 +2887,15 @@ final class PlaybackModel {
         if !isCommittingVideoStream { updatePosition() }
         audioTransport?.stop()
         audioTransport = nil
+        #if os(iOS)
+        pendingSystemBackgroundPauseItem = nil
+        #endif
         player.pause()
         isPlaying = false
         if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
         controlObservation = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
+        removeVideoRateChangeObserver()
         if !didReportCompletion && (!request.item.isAudio || reportedAudioStart) {
             enqueue(.stop, paused: true)
         }

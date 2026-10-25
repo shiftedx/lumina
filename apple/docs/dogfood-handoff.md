@@ -54,3 +54,11 @@ After an explicit staging request:
 Command-line export previously reported **No Accounts**, while Xcode's existing account successfully used cloud-managed distribution signing. If this recurs, use Xcode's Custom → App Store Connect → Export flow, retain the build number, enable TestFlight internal testing only, and follow the existing signed Organizer preparation procedure. Use CUA for Xcode UI interactions. Credentials stay in Apple's UI and local signing tools.
 
 Staging and uploading are separate actions. A staging request ends with local packages and Organizer entries; upload only when the owner explicitly requests upload. Report the exact version/build, platforms, source revision, validation results, package location, and upload status.
+
+## QR-first authentication integration — 2026-10-25
+
+The current `codex/ios-dogfood-followups` branch contains the native QR-first sign-in integration alongside the retained dogfood fixes. It incorporates the earlier `codex/mobile-connect` work without modifying that source worktree. Scanning is the default; Advanced reveals manual entry, and unavailable/denied camera access falls back to the same manual form. Personal codes expire after five minutes; owner-shared codes expire after fifteen minutes. Deep links use `lumina://pair`.
+
+Server/web pairing is merged in PR #160 and production was independently verified at revision `bffe58d90f58c12f37753c6d14e527bea0c76c86`, schema 38, with healthy service and protected QR endpoints. The separate unmerged security batch was excluded at the owner's request. A consistent database snapshot and stopped rollback image are retained in private deployment storage; private paths and credentials are not recorded here.
+
+Focused qualification passed: four native Core pairing tests, 36 backend checks, 21 frontend tests, frontend typecheck/build, the real-stack create/claim/authenticate/revoke workflow, and the iOS welcome/manual-fallback workflow. The final iOS test build passed. Physical camera/mail-client behavior still needs device qualification. No full suite, native archive, upload, build-number change, or native release was performed for this task.

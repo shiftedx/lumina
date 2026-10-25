@@ -105,7 +105,7 @@ WORKDIR /app
 # setpriv comes from util-linux (essential in Debian); local .debs resolve their Debian dependencies.
 RUN --mount=type=bind,from=media-debs,source=/debs,target=/tmp/media-debs \
     apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libseccomp2 libgomp1 libbz2-1.0 liblzma5 libzstd1 liblz4-1 tzdata /tmp/media-debs/*.deb \
+    && apt-get install -y --no-install-recommends ca-certificates libseccomp2 bubblewrap=0.12.0-1~deb13u1 libgomp1 libbz2-1.0 liblzma5 libzstd1 liblz4-1 tzdata /tmp/media-debs/*.deb \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg \
     && ln -s /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe

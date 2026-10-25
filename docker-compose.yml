@@ -18,6 +18,7 @@ services:
       LUMINA_HOST: 0.0.0.0
       LUMINA_DATA_DIR: /app/backend/.data
       LUMINA_PLAYBACK_TEMP_DIR: /playback
+      LUMINA_PARSER_SANDBOX: ${LUMINA_PARSER_SANDBOX:-landlock}
       # Numeric host account that owns ./app-data (and any managed media mount). Never 0.
       LUMINA_RUNTIME_UID: ${LUMINA_RUNTIME_UID:-1000}
       LUMINA_RUNTIME_GID: ${LUMINA_RUNTIME_GID:-1000}

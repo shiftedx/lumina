@@ -7,7 +7,7 @@ Lumina is built on other people's work. Thank you.
 | Project | Used for | License |
 | --- | --- | --- |
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Every online source: search, streams, downloads, live chat | Unlicense |
-| [FFmpeg](https://ffmpeg.org) via [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg) 8.1.2-5 | Probing, remux, transcode, artwork | GPL-3.0 |
+| [FFmpeg](https://ffmpeg.org) via [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg) 8.1.3-1 | Probing, remux, transcode, artwork | GPL-3.0 |
 | [Intel compute-runtime](https://github.com/intel/compute-runtime) and [graphics compiler](https://github.com/intel/intel-graphics-compiler) | OpenCL tone-mapping on Intel GPUs (amd64) | MIT |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) | On-device search models | MIT |
 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and [CTranslate2](https://github.com/OpenNMT/CTranslate2) | On-device transcripts | MIT |
@@ -17,11 +17,12 @@ Lumina is built on other people's work. Thank you.
 | [OpenCV](https://opencv.org), [NumPy](https://numpy.org) | Local backdrop analysis in a bounded child process | Apache-2.0 / BSD-3-Clause |
 | [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet), [NanoDet](https://github.com/opencv/opencv_zoo/tree/main/models/object_detection_nanodet) | Bundled small face/generic-subject proposal models for automatic hero framing | MIT / Apache-2.0 ([provenance and licenses](backend/app/data/hero_models/README.md)) |
 | [libarchive](https://www.libarchive.org) and [libarchive-c](https://github.com/Changaco/python-libarchive-c) | Read CBR archives without extraction | BSD |
+| [Bubblewrap](https://github.com/containers/bubblewrap) | Optional Linux parser namespace isolation | LGPL-2.1-or-later |
 | [Node.js](https://nodejs.org) | JavaScript runtime yt-dlp uses for YouTube | MIT |
 | [React](https://react.dev), [hls.js](https://github.com/video-dev/hls.js), [dash.js](https://github.com/Dash-Industry-Forum/dash.js), [Lucide](https://lucide.dev) | Web app and player | MIT / Apache-2.0 / BSD-3-Clause / ISC |
 | [Newsreader](https://github.com/productiontype/Newsreader) | Typeface | OFL-1.1 ([text](frontend/public/fonts/OFL.txt)) |
 
-Exact versions are pinned in `Dockerfile`, `backend/requirements.runtime.lock` and `frontend/package-lock.json`. License texts ship with the image: Python packages in their `site-packages` metadata, Debian packages under `/usr/share/doc`, llama.cpp at `/opt/lumina-llama/LICENSE`, Node.js at `/usr/local/share/doc/node/LICENSE`, and the web app's bundled packages at `/third-party-licenses.txt` on any running Lumina. FFmpeg source for the bundled build is at the [jellyfin-ffmpeg v8.1.2-5 release](https://github.com/jellyfin/jellyfin-ffmpeg/releases/tag/v8.1.2-5).
+Exact versions are pinned in `Dockerfile`, `backend/requirements.runtime.lock` and `frontend/package-lock.json`. License texts ship with the image: Python packages in their `site-packages` metadata, Debian packages under `/usr/share/doc`, llama.cpp at `/opt/lumina-llama/LICENSE`, Node.js at `/usr/local/share/doc/node/LICENSE`, and the web app's bundled packages at `/third-party-licenses.txt` on any running Lumina. FFmpeg source for the bundled build is at the [jellyfin-ffmpeg v8.1.3-1 release](https://github.com/jellyfin/jellyfin-ffmpeg/releases/tag/v8.1.3-1). The optional namespace seccomp profile derives from [Moby profiles](https://github.com/moby/profiles), Apache-2.0; its [provenance and license](docker/parser-namespace-seccomp.md) accompany the configuration.
 
 Search and speech models are downloaded only when an admin chooses one, and each model's license is shown before download (see `backend/app/model_catalog.json`). The small backdrop-analysis models ship with their licenses under `/app/backend/app/data/hero_models/`.
 

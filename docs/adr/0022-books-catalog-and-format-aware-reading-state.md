@@ -165,12 +165,12 @@ format-specific checkpoints and native curl cancellation remain unchanged.
 
 ### Linux native-reader and XML hardening (2026-10-25)
 
-Native PDF/CBR children share the Linux Landlock/libseccomp policy described in
+Native PDF/CBR children share the Linux filesystem/libseccomp policy described in
 [ADR 0032](0032-owned-photo-catalog-and-local-person-index.md#linux-decoder-boundary-2026-10-25).
 The input remains read-only, codecs/runtime remain available, and unrelated data,
 sockets, metadata changes, interprocess signals and new processes are denied.
-Unsupported kernels fail closed. ARM64 execution is qualified; native AMD64
-qualification is still required because emulation lacks Landlock support.
+The operator selects Landlock or the Bubblewrap namespace backend described in
+ADR 0032. Both retain filesystem isolation and fail closed on missing support.
 
 The image builds a SHA-pinned maintained libarchive source release with RAR5
 support, compression filters and its license, excluding optional XML backends.

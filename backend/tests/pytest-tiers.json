@@ -113,6 +113,10 @@
           "reason": "Linux sandbox; macOS retains portable limits only"
         },
         {
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_namespace_and_mount_changes_are_denied_before_codec_import",
+          "reason": "Linux sandbox; macOS retains portable limits only"
+        },
+        {
           "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_metadata_signals_and_process_creation_are_denied_but_threads_work",
           "reason": "Linux sandbox; macOS retains portable limits only"
         },
@@ -125,7 +129,7 @@
           "reason": "Linux sandbox; macOS retains portable limits only"
         },
         {
-          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_unavailable_landlock_fails_before_worker_without_fallback",
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_unavailable_selected_sandbox_fails_before_worker_without_fallback",
           "reason": "Linux sandbox; macOS retains portable limits only"
         },
         {
@@ -135,6 +139,14 @@
         {
           "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_x32_abi_is_rejected_by_libseccomp",
           "reason": "x32 applies to amd64 only"
+        },
+        {
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_namespace_timeout_and_parent_death_reap_all_descendants",
+          "reason": "Linux sandbox; macOS retains portable limits only"
+        },
+        {
+          "nodeid": "tests/test_parser_boundary.py::ParserBoundaryTests::test_namespace_timeout_and_parent_death_reap_all_descendants",
+          "reason": "Namespace sandbox only"
         }
       ]
     }

@@ -1,5 +1,6 @@
 """The Docker packaging stays browser-only, credential-free and pinned to one toolchain source."""
 from pathlib import Path
+import hashlib
 import json
 import os
 import re
@@ -39,6 +40,31 @@ def test_shipped_caddy_replaces_untrusted_client_forwarding_headers() -> None:
     assert "header_up X-Forwarded-For {remote_host}" in caddyfile
     assert "header_up -CF-Connecting-IP" in caddyfile
     assert "header_up -Forwarded" in caddyfile
+
+
+def test_namespace_overlay_retains_docker_baseline_and_bounds_bootstrap_permissions() -> None:
+    profile = json.loads((ROOT / "docker/parser-namespace-seccomp.json").read_text())
+    added = profile["syscalls"][-3:]
+    baseline = {**profile, "syscalls": profile["syscalls"][:-3]}
+    canonical = json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode()
+    # Pinned complete Moby policy; changes must not drop unrelated default rules.
+    assert hashlib.sha256(canonical).hexdigest() == "a894b5730caa168d88da7fffe8ace974ad05fb84547e1766fa879d75d3ac6ba2"
+    assert [{key: value for key, value in rule.items() if key != "comment"} for rule in added] == [
+        {"names": ["clone"], "action": "SCMP_ACT_ALLOW",
+         "args": [{"index": 0, "value": 0x7c020011, "op": "SCMP_CMP_EQ"}]},
+        {"names": ["unshare"], "action": "SCMP_ACT_ALLOW",
+         "args": [{"index": 0, "value": 0x10000000, "op": "SCMP_CMP_EQ"}]},
+        {"names": ["mount", "umount2", "pivot_root"], "action": "SCMP_ACT_ALLOW"},
+    ]
+    base = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]["lumina"]
+    overlay = yaml.safe_load((ROOT / "docker-compose.parser-namespace.yml").read_text())["services"]["lumina"]
+    assert base["security_opt"] == ["no-new-privileges:true"]
+    assert overlay == {
+        "environment": {"LUMINA_PARSER_SANDBOX": "namespace"},
+        "security_opt": ["seccomp=./docker/parser-namespace-seccomp.json"],
+    }
+    for filename in ("Dockerfile", "scripts/perf/Dockerfile.compare"):
+        assert "bubblewrap=0.12.0-1~deb13u1" in (ROOT / filename).read_text()
 
 
 def test_python_pin_reaches_pyproject_and_both_locks() -> None:

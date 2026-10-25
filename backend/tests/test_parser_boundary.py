@@ -8,12 +8,31 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from app.config import EnvSettings
 from app.services import book_native, parser_boundary, photo_derivatives
 from app.services.book_archives import BookArchiveError
+
+
+class ParserIsolationSettingsTests(unittest.TestCase):
+    def test_sandbox_defaults_to_landlock_and_rejects_disabled_or_unknown_backends(self) -> None:
+        from pydantic import ValidationError
+
+        variable = 'LUMINA_PARSER_SANDBOX'
+        with patch.dict(os.environ):
+            os.environ.pop(variable, None)
+            self.assertEqual(EnvSettings().parser_sandbox, 'landlock')
+            for value in ('landlock', 'namespace'):
+                os.environ[variable] = value
+                self.assertEqual(EnvSettings().parser_sandbox, value)
+            for value in ('off', 'false', '0', '', 'automatic', 'unexpected'):
+                os.environ[variable] = value
+                with self.subTest(value=value), self.assertRaises(ValidationError):
+                    EnvSettings()
 
 
 @unittest.skipUnless(sys.platform == 'linux', 'Linux sandbox; macOS retains portable limits only')
@@ -30,13 +49,13 @@ class ParserBoundaryTests(unittest.TestCase):
         self.target.mkdir()
         self.children: list[subprocess.Popen] = []
 
-    def substitute(self, program: str):
+    def substitute(self, program: str, *, prefix: tuple[str, ...] = ()):
         real_popen = subprocess.Popen
 
         def launch(argv, **kwargs):
             # Keep the real setpriv policy and supervision; replace only the codec.
-            offset = argv.index('--') + 1 if '--' in argv else 0
-            process = real_popen([*argv[:offset], sys.executable, '-c', program], **kwargs)
+            offset = len(argv) - argv[::-1].index('--') if '--' in argv else 0
+            process = real_popen([*prefix, *argv[:offset], sys.executable, '-c', program], **kwargs)
             self.children.append(process)
             return process
 
@@ -71,7 +90,7 @@ for name, action in [
     try:
         action()
         result[name] = False
-    except PermissionError:
+    except (PermissionError, FileNotFoundError):
         result[name] = True
 try:
     result['inherited_socket'] = os.fstat({inherited.fileno()}).st_ino == {os.fstat(inherited.fileno()).st_ino}
@@ -172,6 +191,118 @@ print(json.dumps(result))
         for page in (manifest['pages'][0], manifest['pages'][-1]):
             self.assertTrue(book_native.native_book(comic, 'cbr', page).startswith(b'\x89PNG'))
 
+    def test_namespace_and_mount_changes_are_denied_before_codec_import(self) -> None:
+        program = r'''
+import ctypes,errno,json,os
+from pathlib import Path
+libc = ctypes.CDLL(None, use_errno=True)
+assert libc.prctl(21, 0, 0, 0, 0) == 2
+assert libc.prctl(39, 0, 0, 0, 0) == 1
+library = ctypes.CDLL('libseccomp.so.2')
+library.seccomp_syscall_resolve_name.argtypes = [ctypes.c_char_p]
+checked = []
+for name, args in [
+    ('unshare', [0x10000000]), ('setns', [-1, 0]),
+    ('mount', [b'none', b'/tmp', b'tmpfs', 0, 0]), ('umount2', [b'/tmp', 0]),
+    ('pivot_root', [b'/tmp', b'/tmp']), ('chroot', [b'/tmp']),
+    ('fsopen', [b'tmpfs', 0]), ('fsconfig', [-1, 0, 0, 0, 0]), ('fsmount', [-1, 0, 0]),
+    ('fspick', [-1, b'/', 0]), ('move_mount', [-1, b'/', -1, b'/', 0]),
+    ('open_tree', [-1, b'/', 0]), ('mount_setattr', [-1, b'/', 0, 0, 0]),
+]:
+    number = library.seccomp_syscall_resolve_name(name.encode())
+    assert number != -1
+    ctypes.set_errno(0)
+    assert libc.syscall(number, *args) == -1 and ctypes.get_errno() == errno.EPERM, name
+    checked.append(name)
+class Header(ctypes.Structure):
+    _fields_ = [('version', ctypes.c_uint32), ('pid', ctypes.c_int)]
+class Data(ctypes.Structure):
+    _fields_ = [('effective', ctypes.c_uint32), ('permitted', ctypes.c_uint32), ('inheritable', ctypes.c_uint32)]
+header = Header(0x20080522, 0)
+capabilities = (Data * 2)()
+assert libc.capget(ctypes.byref(header), capabilities) == 0
+result = {'ok': True, 'denied': checked, 'zero_caps': all(value.effective == value.permitted == value.inheritable == 0 for value in capabilities)}
+if NAMESPACE:
+    assert result['zero_caps']
+    assert os.listdir('/proc') == []
+    assert os.listdir('/dev') == ['null']
+    for path in ('/unexpected-output', '/tmp/unexpected-output'):
+        try:
+            Path(path).write_bytes(b'forbidden')
+            raise AssertionError('sandbox root must be read-only')
+        except OSError as error:
+            assert error.errno == errno.EROFS
+print(json.dumps(result))
+'''
+        program = program.replace('NAMESPACE', repr(parser_boundary.settings.parser_sandbox == 'namespace'))
+        for parser in ('photo', 'book'):
+            with self.subTest(parser=parser), self.substitute(program):
+                result = self.invoke(parser)
+                self.assertEqual(len(result['denied']), 13)
+        self.assert_reaped()
+
+    def test_namespace_timeout_and_parent_death_reap_all_descendants(self) -> None:
+        if parser_boundary.settings.parser_sandbox != 'namespace':
+            self.skipTest('Namespace sandbox only')
+
+        def descendants(pid: int) -> list[int]:
+            try:
+                children = [int(value) for value in Path(f'/proc/{pid}/task/{pid}/children').read_text().split()]
+            except FileNotFoundError:
+                return []
+            return children + [descendant for child in children for descendant in descendants(child)]
+
+        def wait_for_children(pid: int) -> list[int]:
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                children = descendants(pid)
+                if len(children) >= 2:
+                    return children
+                time.sleep(0.01)
+            self.fail('Namespace init and codec did not start')
+
+        def assert_all_reaped(children: list[int]) -> None:
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline and any(Path(f'/proc/{pid}').exists() for pid in children):
+                time.sleep(0.01)
+            self.assertFalse([pid for pid in children if Path(f'/proc/{pid}').exists()])
+
+        children: list[int] = []
+        real_popen = subprocess.Popen
+
+        with self.substitute('import time; time.sleep(60)'):
+            substituting_popen = subprocess.Popen
+
+            def tracked(argv, **kwargs):
+                process = substituting_popen(argv, **kwargs)
+                try:
+                    children.extend(wait_for_children(process.pid))
+                except BaseException:
+                    process.kill()
+                    process.wait(timeout=3)
+                    raise
+                return process
+
+            with patch.object(subprocess, 'Popen', tracked), patch.object(photo_derivatives, 'TIMEOUT_SECONDS', 0.05):
+                with self.assertRaises(photo_derivatives.PhotoDecodeError):
+                    self.invoke('photo')
+        self.assert_reaped()
+        assert_all_reaped(children)
+
+        with parser_boundary.parser_command([sys.executable, '-c', 'import time; time.sleep(60)'], self.source, self.target) as command:
+            launcher = 'import subprocess,sys,time; child=subprocess.Popen(sys.argv[1:]); print(child.pid,flush=True); time.sleep(60)'
+            with real_popen(
+                [sys.executable, '-c', launcher, *command], env=parser_boundary.parser_environment(),
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            ) as supervisor:
+                try:
+                    wrapper = int(supervisor.stdout.readline())
+                    children = [wrapper, *wait_for_children(wrapper)]
+                finally:
+                    supervisor.kill()
+                    supervisor.wait(timeout=3)
+            assert_all_reaped(children)
+
     def test_deadline_and_interrupted_supervision_reap_child(self) -> None:
         for interruption in (False, True):
             with self.subTest(interruption=interruption), self.substitute('import time; time.sleep(60)'):
@@ -216,11 +347,9 @@ print(json.dumps(result))
                 self.invoke(parser)
             self.assert_reaped()
 
-    def test_unavailable_landlock_fails_before_worker_without_fallback(self) -> None:
-        # Export a real additional denial of the Landlock creation syscall. This
-        # simulates ENOSYS from an older/disabled kernel without changing the host.
-        original_export = parser_boundary._export_socket_filter
-
+    def test_unavailable_selected_sandbox_fails_before_worker_without_fallback(self) -> None:
+        # Apply a real outer denial before launching the selected helper. This
+        # simulates an unavailable Landlock kernel or Docker's namespace filter.
         def unavailable(fd: int) -> None:
             library = ctypes.CDLL('libseccomp.so.2')
             library.seccomp_init.argtypes = [ctypes.c_uint32]
@@ -231,21 +360,30 @@ print(json.dumps(result))
             library.seccomp_release.argtypes = [ctypes.c_void_p]
             context = library.seccomp_init(0x7fff0000)
             try:
-                number = library.seccomp_syscall_resolve_name(b'landlock_create_ruleset')
-                self.assertEqual(library.seccomp_rule_add(context, 0x00050000 | 38, number, 0), 0)
+                denied = ('clone', 'unshare') if parser_boundary.settings.parser_sandbox == 'namespace' else ('landlock_create_ruleset',)
+                for name in denied:
+                    number = library.seccomp_syscall_resolve_name(name.encode())
+                    self.assertNotEqual(number, -1)
+                    self.assertEqual(library.seccomp_rule_add(context, 0x00050000 | 38, number, 0), 0)
                 self.assertEqual(library.seccomp_export_bpf(context, fd), 0)
             finally:
                 library.seccomp_release(context)
 
         marker = self.target / 'worker-started'
         program = f'from pathlib import Path; Path({str(marker)!r}).write_text("started")'
-        with patch.object(parser_boundary, '_export_socket_filter', unavailable):
+        with tempfile.NamedTemporaryFile(prefix='unavailable-parser-', suffix='.bpf') as policy:
+            unavailable(policy.fileno())
+            prefix = ('/usr/bin/setpriv', '--no-new-privs', '--seccomp-filter', policy.name, '--')
             for parser, error in (('photo', photo_derivatives.PhotoDecodeError), ('book', BookArchiveError)):
-                with self.subTest(parser=parser), self.substitute(program), self.assertRaises(error):
+                with self.subTest(parser=parser, failure='policy'), self.substitute(program, prefix=prefix), self.assertRaises(error):
                     self.invoke(parser)
+                with self.subTest(parser=parser, failure='missing helper'):
+                    with patch.object(subprocess, 'Popen', side_effect=FileNotFoundError('missing parser helper')) as launch:
+                        with self.assertRaises(error):
+                            self.invoke(parser)
+                    self.assertEqual(launch.call_count, 1, 'An unavailable helper must not trigger a fallback launch')
         self.assertFalse(marker.exists())
         self.assert_reaped()
-        self.assertIs(parser_boundary._export_socket_filter, original_export)
 
     @unittest.skipUnless(__import__('platform').machine() == 'x86_64', 'x32 applies to amd64 only')
     def test_x32_abi_is_rejected_by_libseccomp(self) -> None:

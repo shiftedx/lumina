@@ -12,6 +12,8 @@ from contextlib import contextmanager
 from collections.abc import Iterator
 from pathlib import Path
 
+from app.config import settings
+
 
 def parser_environment() -> dict[str, str]:
     # Build from literals: app settings, loader hooks, user Python paths and
@@ -74,6 +76,8 @@ def _export_socket_filter(fd: int) -> None:
             "setxattrat", "removexattr", "lremovexattr", "fremovexattr", "removexattrat", "ioctl",
             "kill", "tkill", "tgkill", "rt_sigqueueinfo", "rt_tgsigqueueinfo", "pidfd_send_signal",
             "fork", "vfork",
+            "unshare", "setns", "mount", "umount2", "pivot_root", "chroot",
+            "fsopen", "fsconfig", "fsmount", "fspick", "move_mount", "open_tree", "mount_setattr",
         ):
             deny(name)
         # Both supported ABIs put clone flags in argument 0. Deny creation of
@@ -102,14 +106,48 @@ def parser_command(argv: list[str], source: Path, target: Path | None = None) ->
         return
     if platform.machine() not in {"aarch64", "x86_64"}:
         raise OSError("Parser sandbox supports Linux arm64 and amd64 only")
+    if settings.parser_sandbox not in {"landlock", "namespace"}:
+        raise OSError("Parser sandbox must be landlock or namespace")
     # Explicit rights through TRUNCATE require Landlock ABI 3 (Linux >= 6.2).
     # setpriv aborts before exec if any requested right or kernel policy fails.
     rights = ("execute,write-file,read-file,read-dir,remove-dir,remove-file,make-char,"
               "make-dir,make-reg,make-sock,make-fifo,make-block,make-sym,refer,truncate")
     with tempfile.NamedTemporaryFile(prefix="lumina-parser-", suffix=".bpf") as policy:
         _export_socket_filter(policy.fileno())
-        command = ["/usr/bin/setpriv", "--no-new-privs", "--seccomp-filter", policy.name,
-                   "--landlock-access", f"fs:{rights}"]
+        if settings.parser_sandbox == "namespace":
+            command = [
+                "/usr/bin/bwrap", "--unshare-user", "--unshare-pid", "--unshare-net",
+                "--unshare-ipc", "--unshare-uts", "--die-with-parent", "--new-session",
+                "--cap-drop", "ALL", "--clearenv",
+            ]
+            for key, value in parser_environment().items():
+                command.extend(["--setenv", key, value])
+            command.extend(["--ro-bind", "/usr", "/usr"])
+            for path in (Path("/lib"), Path("/lib64")):
+                if path.is_symlink():
+                    command.extend(["--symlink", os.readlink(path), str(path)])
+                elif path.exists():
+                    command.extend(["--ro-bind", str(path), str(path)])
+            for path in dict.fromkeys((Path(sys.prefix), Path(sys.base_prefix), Path(__file__).resolve().parents[1])):
+                if not path.is_relative_to("/usr"):
+                    command.extend(["--ro-bind", str(path), str(path)])
+            for path in (Path("/etc/ld.so.cache"), Path("/etc/localtime")):
+                if path.exists():
+                    command.extend(["--ro-bind", str(path), str(path)])
+            command.extend([
+                "--dir", "/proc", "--dir", "/dev", "--dev-bind", "/dev/null", "/dev/null",
+                "--dir", "/tmp", "--ro-bind", str(source.absolute()), str(source.absolute()),
+                "--ro-bind", policy.name, "/policy.bpf", "--chdir", str(Path(__file__).resolve().parents[2]),
+            ])
+            if target is not None:
+                command.extend(["--bind", str(target.absolute()), str(target.absolute())])
+            # The root tmpfs is immutable; only the selected output bind stays writable.
+            command.extend(["--remount-ro", "/"])
+            yield command + ["--", "/usr/bin/setpriv", "--no-new-privs", "--seccomp-filter", "/policy.bpf", "--", *argv]
+            return
+        command = ["/usr/bin/setpriv", "--no-new-privs", "--seccomp-filter", policy.name]
+
+        command.extend(["--landlock-access", f"fs:{rights}"])
 
         def allow(path: Path, access: str) -> None:
             command.extend(["--landlock-rule", f"path-beneath:{access}:{path.resolve(strict=True)}"])

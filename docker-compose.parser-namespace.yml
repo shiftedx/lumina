@@ -1,0 +1,7 @@
+# Alternative parser isolation for hosts without Landlock. See docker/README.md.
+services:
+  lumina:
+    environment:
+      LUMINA_PARSER_SANDBOX: namespace
+    security_opt:
+      - seccomp=./docker/parser-namespace-seccomp.json

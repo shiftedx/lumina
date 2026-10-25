@@ -70,3 +70,9 @@ The owner confirmed the affected TestFlight build is 0.1.0 (18); the earlier bui
 Ordinary simulator rotation, Control Center, foreground return, and Duo Closed/Book/Open transitions did not naturally reproduce the physical report. A controlled real AVPlayer pause at the background boundary reproduced the stuck state (active, playback requested, engine paused). That regression now passes on the isolated Duo simulator, including deliberate pause remaining paused. Normal portrait/landscape continuity and explicit-pause rotation pass on iPhone 17. The normal Release simulator build passed, and its executable excludes the test fault-injection argument and diagnostic token. Focused result bundles are retained locally under `/tmp/lumina-video-recovery-final-20261025.xcresult` and `/tmp/lumina-video-rotation-final-20261025.xcresult`.
 
 Physical Duo confirmation of the OS-generated orientation/posture handoff remains necessary in the next native build. No full suite, native archive, staging, upload, release, or build-number change was performed.
+
+## Closed Duo Home categories — 2026-10-25
+
+Compact Home headers anchor the category scroller beside the full wordmark and reclaim 40 points of trailing space. Compact overflowing menus use leading alignment so the first category is not clipped behind the logo; wider menus retain their centered presentation and existing selection behavior. Text sizes and touch targets are unchanged.
+
+The focused closed-Duo workflow passed: three complete categories clear the wordmark and scroll edge, share the header baseline, and the third opens its matching library. The fixture has Movies, TV, and Music (no Anime); Music provides an equally wide third-label check. Screenshot inspected at 466×678 points. Result: `/tmp/lumina-category-width-r4-20261025.xcresult`. No full suite or native release was staged.

@@ -923,6 +923,7 @@ struct LuminaCarouselEdges: ViewModifier {
 /// Keeps short category menus centered and long menus reachable by scrolling.
 struct LuminaCategoryBar<Content: View>: View {
     var selection: String? = nil
+    var centersContent = true
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -938,7 +939,8 @@ struct LuminaCategoryBar<Content: View>: View {
                 #endif
             }
             #if os(iOS)
-            .defaultScrollAnchor(.center, for: .alignment)
+            .defaultScrollAnchor(.leading, for: .initialOffset)
+            .defaultScrollAnchor(centersContent ? .center : .leading, for: .alignment)
             .fixedSize(horizontal: false, vertical: true)
             #else
             .scrollClipDisabled()
@@ -988,11 +990,13 @@ enum HomeBrowsingDestination: String, CaseIterable, Hashable {
 /// commands so returning to Home preserves the member's current Home selection.
 struct HomeBrowsingRow: View {
     let category: HomeBrowseCategory
+    var centersContent = true
     var destinations = HomeBrowsingDestination.allCases.filter { $0 != .all }
     let onSelect: (HomeBrowsingDestination) -> Void
 
     var body: some View {
-        LuminaCategoryBar(selection: destinations.first { $0.homeCategory == category }?.rawValue) {
+        LuminaCategoryBar(selection: destinations.first { $0.homeCategory == category }?.rawValue,
+                          centersContent: centersContent) {
             ForEach(destinations, id: \.self) { option in
                 let selected = option.homeCategory == category
                 Button { onSelect(option) } label: { Text(option.title) }

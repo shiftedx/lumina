@@ -237,6 +237,9 @@ final class NativeHomeEmptyWatchlistLayoutTests: NativeProofJourney {
 #if os(iOS)
 @MainActor
 final class NativeHomeBrowseFiltersSearchAndHeroWatchlistTests: NativeProofJourney {
+    func testClosedDisplayFitsThreeCategoriesBesideWordmark() async throws {
+        try await journeyClosedDisplayCategoryWidth()
+    }
     func testHomeBrowseFiltersSearchAndHeroWatchlist() async throws {
         try await journeyNativeHomeBrowseFiltersSearchAndHeroWatchlist()
     }
@@ -2791,6 +2794,31 @@ class NativeProofJourney: XCTestCase {
             let current = self.element(identifier)
             return current.exists && self.accessibilityText(current).localizedCaseInsensitiveContains(expected)
         }, "\(identifier) did not retain \(expected).")
+    }
+
+    func journeyClosedDisplayCategoryWidth() async throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        let viewport = application!.windows.firstMatch.frame
+        guard viewport.width >= 450, viewport.width < 500, viewport.height > viewport.width else {
+            throw XCTSkip("This layout contract targets the closed Duo portrait display.")
+        }
+        let row = element("homeBrowsingRow")
+        let masthead = element("homeMasthead")
+        let movies = element("homeBrowse-movies")
+        // This fixture has no Anime library; Music is its third, equally wide label.
+        let third = element("homeBrowse-music")
+        try waitForHittable(third, timeout: 20, named: "Third category")
+        XCTAssertGreaterThanOrEqual(movies.frame.minX, masthead.frame.maxX + 8,
+                                    "Categories must clear the full Lumina wordmark.")
+        XCTAssertGreaterThanOrEqual(movies.frame.minX, row.frame.minX)
+        XCTAssertLessThanOrEqual(third.frame.maxX, row.frame.maxX - 8,
+                                 "The third category must fit completely before the scroll edge.")
+        XCTAssertEqual(movies.frame.midY, masthead.frame.midY, accuracy: 6)
+        try attachFrame(named: "Closed Duo three complete categories")
+        try activate(third)
+        try waitForExistence(element("audioScreen"), timeout: 20, named: "Third category destination")
     }
 
     func journeyHomeSettingsOpensEditor() async throws {

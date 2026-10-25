@@ -972,22 +972,31 @@ private struct HomeLibraryView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(snapshot.items.isEmpty ? nil : .dark, for: .navigationBar)
         .toolbar {
-            if showsBrowsingRow {
-                ToolbarItem(placement: .principal) {
-                    HomeBrowsingRow(category: category, destinations: HomeBrowsingDestination.allCases.filter {
-                        $0 != .all && ($0.homeCategory != nil || store.availableLibraryCategories.contains($0.rawValue))
-                    }, onSelect: selectCategory)
-                        .frame(width: categoryBarWidth)
-                }
-            }
-            if #available(iOS 26.0, *) {
+            if #available(iOS 26.0, *), showsBrowsingRow, categoryBarWidth < 360 {
+                // Anchor the compact menu beside the wordmark, then reclaim the
+                // unused trailing space instead of centering it behind the logo.
                 ToolbarItem(placement: .topBarLeading) {
-                    HomeHeroChrome(compact: compactHeader).fixedSize()
+                    HStack(spacing: 12) {
+                        HomeHeroChrome(compact: compactHeader).fixedSize()
+                        browsingRow.frame(width: categoryBarWidth + 40)
+                    }
                 }
                 .sharedBackgroundVisibility(.hidden)
             } else {
-                ToolbarItem(placement: .topBarLeading) {
-                    HomeHeroChrome(compact: compactHeader).fixedSize()
+                if showsBrowsingRow {
+                    ToolbarItem(placement: .principal) {
+                        browsingRow.frame(width: categoryBarWidth)
+                    }
+                }
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarLeading) {
+                        HomeHeroChrome(compact: compactHeader).fixedSize()
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarLeading) {
+                        HomeHeroChrome(compact: compactHeader).fixedSize()
+                    }
                 }
             }
         }
@@ -1014,6 +1023,13 @@ private struct HomeLibraryView: View {
             if phase == .active { refreshHomeRowsAfterInitialLoad() }
         }
         .onAppear { refreshHomeRowsAfterInitialLoad() }
+    }
+
+    private var browsingRow: some View {
+        HomeBrowsingRow(category: category, centersContent: categoryBarWidth >= 360,
+                        destinations: HomeBrowsingDestination.allCases.filter {
+            $0 != .all && ($0.homeCategory != nil || store.availableLibraryCategories.contains($0.rawValue))
+        }, onSelect: selectCategory)
     }
 
     private func selectCategory(_ selected: HomeBrowsingDestination) {

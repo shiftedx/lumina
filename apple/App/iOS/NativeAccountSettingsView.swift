@@ -1,255 +1,410 @@
 import SwiftUI
 import LuminaCore
 
-/// Personal settings stay on one searchable surface; every result is the control itself.
+/// The native settings surface prioritizes this installation; account administration stays on the web.
 @MainActor
 struct NativeAccountSettingsView: View {
     let store: LuminaStore
     @Environment(LuminaUserSettings.self) private var settings
-    @AppStorage("lumina.appearance") private var appearance = "dark"
+    @AppStorage("lumina.appearance") private var accountAppearance = "dark"
     @State private var query = ""
     @State private var licensesPresented = false
+    @State private var creditsPresented = false
     @State private var editingHome = false
+    @State private var profile: SettingsValue = .null
+    @State private var profileOwner: String?
+    @State private var profileError: String?
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
-        Form {
-            if query.isEmpty {
-                Section {
-                    Label(store.session?.username ?? "Your account", systemImage: "person.crop.circle")
-                        .font(.title3.weight(.semibold))
-                    Text("Your preferences, across Lumina.").foregroundStyle(.secondary)
-                    Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
-                        Task { store.clearError(); await store.signOut() }
-                    }.accessibilityIdentifier("signOutButton")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    Text("Settings").font(LuminaTheme.editorial(36, relativeTo: .largeTitle)).fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 12)
+                    Text(store.session?.username ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
-            }
-            if matchesHomePreferences {
-                Section("Home") {
-                    Button("Edit Home", systemImage: "slider.horizontal.3") { editingHome = true }
-                        .accessibilityIdentifier("homeEditButton")
-                }
-            }
-            if matchesDevicePreferences {
-                Section {
-                    NavigationLink {
-                        DeviceSettingsView(store: store)
-                    } label: {
-                        Label("Device settings", systemImage: "tv.and.mediabox")
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                    TextField("Find a setting", text: $query)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .textFieldStyle(.plain)
+                        .focused($searchFocused).submitLabel(.search)
+                        .onSubmit { searchFocused = false }
+                        .accessibilityIdentifier("settingsSearchField")
+                    if !query.isEmpty {
+                        Button("Clear search", systemImage: "xmark") { query = "" }
+                            .labelStyle(.iconOnly).buttonStyle(.plain).frame(minWidth: 44, minHeight: 44)
                     }
-                    .accessibilityIdentifier("deviceSettingsButton")
-                } header: {
-                    Text("This device")
-                } footer: {
-                    Text("Playback defaults, captions, downloads, and appearance apply only on this device.")
                 }
-            }
-            if settings.isLoading { ProgressView("Loading your settings…") }
-            if let error = settings.errorMessage {
-                Section {
-                    Text(error).foregroundStyle(.red)
-                    Button("Try again") { Task { await settings.load() } }
+                .frame(minHeight: 44)
+                .overlay(alignment: .bottom) { Rectangle().fill(LuminaTheme.ink.opacity(0.18)).frame(height: 1) }
+
+                DeviceSettingsView(store: store, embedded: true, query: query)
+
+                if matches("home layout rows shelves personalize edit") {
+                    LuminaSettingsSection("Home") {
+                        Button { editingHome = true } label: {
+                            LuminaSettingsActionLabel("Edit Home", symbol: "slider.horizontal.3")
+                        }
+                        .buttonStyle(.plain).accessibilityIdentifier("homeEditButton")
+                    }
                 }
-            }
-            ForEach(SettingGroup.allCases) { group in
-                let fields = NativeSetting.fields.filter {
-                    $0.group == group && $0.matches(query)
+
+                if let session = store.session, profileOwner == session.accessToken, profile["role"]?.stringValue == "admin" {
+                    NativeAdminQuickActions(settings: settings, session: session,
+                        requiresTwoFactor: profile["two_factor_enabled"]?.boolValue == true, query: query)
+                        .id(session.accessToken)
                 }
-                if !fields.isEmpty {
-                    Section {
-                        ForEach(fields) { field in
-                            NativeSettingRow(field: field, value: value(field), saving: settings.isSaving) { next in
-                                save(field, value: next)
+                if let profileError {
+                    HStack {
+                        Text(profileError).font(.caption).foregroundStyle(.red)
+                        Spacer()
+                        Button("Retry") { Task { await loadProfile() } }.buttonStyle(.plain)
+                    }
+                }
+                if matches("account security password sign out logout") {
+                    LuminaSettingsSection("Account") {
+                        if let server = store.session?.serverURL,
+                           let accountURL = URL(string: "/settings", relativeTo: server)?.absoluteURL {
+                            Link(destination: accountURL) {
+                                LuminaSettingsActionLabel("Account & security", symbol: "arrow.up.right")
                             }
+                            .buttonStyle(.plain).accessibilityIdentifier("accountWebSettingsLink")
                         }
-                    } header: { Text(group.rawValue) } footer: {
-                        if group == .captions {
-                            Text("Server language defaults apply across Lumina. Playback defaults and caption appearance for this device are in Device settings.")
+                        Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                            Task { store.clearError(); await store.signOut() }
                         }
+                        .buttonStyle(.plain).frame(minHeight: 44).accessibilityIdentifier("signOutButton")
                     }
-                    .disabled(!settings.hasLoaded || settings.isSaving)
+                }
+                if matches("about credits licenses legal") {
+                    LuminaSettingsSection("About") {
+                        Button { licensesPresented = true } label: {
+                            LuminaSettingsActionLabel("Open-source licenses", symbol: "doc.text")
+                        }
+                        .buttonStyle(.plain).accessibilityIdentifier("accountLicensesButton")
+                        Button { creditsPresented = true } label: {
+                            LuminaSettingsActionLabel("Credits", symbol: "info.circle")
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
-            NativeAccountActionsView(settings: settings, store: store, query: query)
-            NativeAccountSecurityView(settings: settings, store: store, query: query)
-            NativeAccountConnectionsView(settings: settings, query: query)
-            NativeAccountAllowancesView(settings: settings, query: query)
-            if query.isEmpty || "about credits licenses sign out logout".localizedCaseInsensitiveContains(query) {
-                Section("About") {
-                    Button("Open-source licenses", systemImage: "doc.text") { licensesPresented = true }
-                        .accessibilityIdentifier("accountLicensesButton")
-                    Text("Movie and show artwork and metadata are provided by TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    Link("All credits", destination: URL(string: "https://github.com/shiftedx/lumina/blob/main/CREDITS.md")!)
-                }
-            }
+            .padding(24)
+            .frame(maxWidth: 920)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .scrollContentBackground(.hidden)
         .background(LuminaTheme.paper)
-        .navigationTitle("Account")
+        .scrollDismissesKeyboard(.interactively)
+        .foregroundStyle(LuminaTheme.ink)
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarVisibility(.visible, for: .navigationBar)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search your settings")
+        .toolbarBackground(.hidden, for: .navigationBar)
         .accessibilityIdentifier("accountScreen")
-        .refreshable { await settings.load() }
         .sheet(isPresented: $licensesPresented) {
             PlaybackLicensesView().accessibilityIdentifier("accountLicensesSheet")
         }
+        .sheet(isPresented: $creditsPresented) {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        Text("Movie and show artwork and metadata are provided by TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.")
+                        Link("All credits", destination: URL(string: "https://github.com/shiftedx/lumina/blob/main/CREDITS.md")!)
+                    }.padding(24)
+                }
+                .navigationTitle("Credits")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { creditsPresented = false } } }
+            }
+        }
         .sheet(isPresented: $editingHome) { NativeHomePreferencesView(store: store) }
+        .task(id: store.session?.accessToken) { await loadProfile() }
         .onChange(of: settings.document, initial: true) { _, _ in
-            if settings.hasLoaded { appearance = settings.theme }
+            if settings.hasLoaded { accountAppearance = settings.theme }
         }
     }
 
-    private var matchesHomePreferences: Bool {
+    private func matches(_ keywords: String) -> Bool {
         query.split(whereSeparator: \.isWhitespace).allSatisfy {
-            "home layout rows shelves edit".localizedCaseInsensitiveContains(String($0))
+            keywords.localizedCaseInsensitiveContains(String($0))
         }
     }
 
-    private var matchesDevicePreferences: Bool {
-        query.split(whereSeparator: \.isWhitespace).allSatisfy {
-            "device playback captions subtitles audio language quality downloads appearance storage licenses".localizedCaseInsensitiveContains(String($0))
-        }
+    private func loadProfile() async {
+        let owner = store.session?.accessToken
+        profile = .null; profileOwner = nil; profileError = nil
+        do {
+            let loaded = try await settings.action("profile")
+            guard owner == store.session?.accessToken else { return }
+            profile = loaded; profileOwner = owner
+        } catch is CancellationError { }
+        catch { if owner == store.session?.accessToken { profileError = error.localizedDescription } }
     }
-
-    private func value(_ field: NativeSetting) -> SettingsValue {
-        var current = SettingsValue.object(settings.document)
-        for key in field.path { current = current[key] ?? .null }
-        return current == .null ? field.fallback : current
-    }
-
-    private func save(_ field: NativeSetting, value: SettingsValue) {
-        // Patch one UI preference key while preserving sibling nested settings.
-        let path = field.path
-        guard let root = path.first else { return }
-        var patch: SettingsValue = value
-        if root == "ui_prefs", path.count > 1 {
-            let key = path[1]
-            var branch = settings.document[root]?[key] ?? .object([:])
-            branch = replacing(branch, path: Array(path.dropFirst(2)), value: value)
-            patch = .object([key: branch])
-        } else {
-            patch = replacing(settings.document[root] ?? .object([:]), path: Array(path.dropFirst()), value: value)
-        }
-        Task { _ = await settings.update([root: patch]) }
-    }
-
-    private func replacing(_ object: SettingsValue, path: [String], value: SettingsValue) -> SettingsValue {
-        guard let key = path.first else { return value }
-        var values = object.objectValue ?? [:]
-        values[key] = replacing(values[key] ?? .object([:]), path: Array(path.dropFirst()), value: value)
-        return .object(values)
-    }
-}
-
-private enum SettingGroup: String, CaseIterable, Identifiable {
-    case display = "Display"
-    case watching = "Watching"
-    case captions = "Subtitles & languages"
-    case skipping = "Automatic skipping"
-    var id: String { rawValue }
-}
-
-private struct NativeSetting: Identifiable {
-    enum Control { case toggle, choice([(String, SettingsValue)]), text, lines, languages }
-    let id: String
-    let title: String
-    let group: SettingGroup
-    let path: [String]
-    let fallback: SettingsValue
-    let control: Control
-    var note: String = ""
-    var keywords: String = ""
-
-    func matches(_ query: String) -> Bool {
-        query.split(whereSeparator: \.isWhitespace).allSatisfy {
-            "\(title) \(group.rawValue) \(note) \(keywords)".localizedCaseInsensitiveContains(String($0))
-        }
-    }
-
-    static func pref(_ id: String, _ title: String, _ group: SettingGroup, _ suffix: [String], _ fallback: SettingsValue,
-                     _ control: Control, note: String = "", keywords: String = "") -> Self {
-        Self(id: id, title: title, group: group, path: ["ui_prefs"] + suffix, fallback: fallback,
-             control: control, note: note, keywords: keywords)
-    }
-    static func strings(_ options: [(String, String)]) -> Control { .choice(options.map { ($0.0, .string($0.1)) }) }
-
-    static let fields: [Self] = [
-        pref("theme", "Appearance", .display, ["theme"], .string("system"), strings([("System", "system"), ("Light", "light"), ("Dark", "dark"), ("OLED", "oled")]), keywords: "theme dark mode"),
-        pref("quality", "Video quality", .watching, ["playback_max_height"], .null, .choice([("Best available", .null), ("Up to 1440p", .number(1440)), ("Up to 1080p", .number(1080)), ("Up to 720p", .number(720)), ("Data saver · 480p", .number(480))]), note: "A manual choice in the player takes priority. Downloads are unaffected."),
-        pref("loudness", "Even out loudness", .watching, ["normalize_loudness"], .bool(true), .toggle, note: "Keeps volume steady across videos; files are unchanged."),
-        pref("caption-size", "Caption size", .captions, ["captions", "size"], .string("medium"), strings([("Small", "small"), ("Medium", "medium"), ("Large", "large"), ("Extra large", "xlarge")])),
-        pref("caption-background", "Caption background", .captions, ["captions", "background"], .string("shadow"), strings([("None", "none"), ("Shadow", "shadow"), ("Box", "box"), ("Solid", "solid")]), note: "Full-screen iPhone and iPad captions use the system caption style."),
-        pref("audio-languages", "Audio languages", .captions, ["captions", "tracks", "audioLanguages"], .array([]), .languages, note: "Language codes in preference order, such as en, ja, es. Leave empty for the file’s default."),
-        pref("subtitle-languages", "Subtitle languages", .captions, ["captions", "tracks", "subtitleLanguages"], .array([]), .languages),
-        pref("subtitles", "Enable subtitles by default", .captions, ["captions", "tracks", "subtitlesEnabled"], .bool(false), .toggle),
-        pref("forced", "Use only forced subtitles", .captions, ["captions", "tracks", "forcedOnly"], .bool(false), .toggle),
-        pref("sdh", "Prefer SDH subtitles", .captions, ["captions", "tracks", "preferSdh"], .bool(false), .toggle, note: "Subtitles for deaf and hard of hearing."),
-        pref("skip-intro", "Skip intros automatically", .skipping, ["auto_skip", "intro"], .bool(false), .toggle),
-        pref("skip-recap", "Skip recaps automatically", .skipping, ["auto_skip", "recap"], .bool(false), .toggle),
-        pref("skip-credits", "Skip credits automatically", .skipping, ["auto_skip", "credits"], .bool(false), .toggle),
-    ]
 }
 
 @MainActor
-private struct NativeSettingRow: View {
-    let field: NativeSetting
-    let value: SettingsValue
-    let saving: Bool
-    let onChange: (SettingsValue) -> Void
-    @State private var draft = ""
-    @State private var validation: String?
+private struct NativeAdminQuickActions: View {
+    let settings: LuminaUserSettings
+    let session: LuminaSession
+    let requiresTwoFactor: Bool
+    let query: String
+    @State private var roots: [SettingsValue] = []
+    @State private var scanning = false
+    @State private var activityVisible = false
+    @State private var result: String?
+    @State private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            switch field.control {
-            case .toggle:
-                Toggle(field.title, isOn: Binding(get: { value.boolValue ?? false }, set: { onChange(.bool($0)) }))
-                    .tint(LuminaTheme.brand)
-            case .choice(let choices):
-                Picker(field.title, selection: Binding(get: { choices.firstIndex { $0.1 == value } ?? 0 }, set: { onChange(choices[$0].1) })) {
-                    ForEach(choices.indices, id: \.self) { index in Text(choices[index].0).tag(index) }
+        if query.split(whereSeparator: \.isWhitespace).allSatisfy({
+            "server admin scan library activity invite users invitations manage".localizedCaseInsensitiveContains(String($0))
+        }) {
+            LuminaSettingsSection("Server") {
+                Button { Task { await scan() } } label: {
+                    LuminaSettingsActionLabel(scanning ? "Starting scan…" : "Scan libraries", symbol: "arrow.triangle.2.circlepath", chevron: nil)
                 }
-                .pickerStyle(.menu)
-                .accessibilityValue(choices.first { $0.1 == value }?.0 ?? "")
-                .accessibilityIdentifier(field.id == "theme" ? "appearancePicker" : "setting-\(field.id)")
-            case .text, .lines, .languages:
-                Text(field.title).font(.body)
-                TextField(field.title, text: $draft, axis: field.isLines ? .vertical : .horizontal)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .lineLimit(field.isLines ? 3...6 : 1...1)
-                    .submitLabel(.done)
-                    .onSubmit { commit() }
-                if draft != textValue { Button("Save \(field.title)") { commit() }.font(.callout) }
+                .buttonStyle(.plain).disabled(scanning)
+                .accessibilityIdentifier("adminScanLibrariesButton")
+                Button { activityVisible.toggle(); if activityVisible { Task { await loadActivity() } } } label: {
+                    LuminaSettingsActionLabel("Library activity", symbol: "waveform.path",
+                                             chevron: activityVisible ? "chevron.up" : "chevron.down")
+                }
+                .buttonStyle(.plain).accessibilityIdentifier("adminLibraryActivityButton")
+                if activityVisible {
+                    ForEach(roots.compactMap(LibraryActivityRow.init)) { root in
+                        HStack { Text(root.label); Spacer(); Text(root.state).foregroundStyle(.secondary) }
+                            .font(.subheadline).frame(minHeight: 44)
+                    }
+                    if roots.isEmpty { Text("No active libraries").font(.subheadline).foregroundStyle(.secondary) }
+                    Button("Refresh activity") { Task { await loadActivity() } }
+                        .buttonStyle(.plain).frame(minHeight: 44)
+                }
+                NavigationLink {
+                    NativeInvitationsView(settings: settings, serverURL: session.serverURL, requiresTwoFactor: requiresTwoFactor)
+                } label: {
+                    LuminaSettingsActionLabel("Invite users", symbol: "person.badge.plus")
+                }
+                .buttonStyle(.plain).accessibilityIdentifier("adminInvitationsButton")
+                Link(destination: session.serverURL.appendingPathComponent("manage")) {
+                    LuminaSettingsActionLabel("Manage server", symbol: "arrow.up.right")
+                }
+                .buttonStyle(.plain)
+                if let result { Text(result).font(.caption).accessibilityIdentifier("adminScanResult") }
+                if let error { Text(error).font(.caption).foregroundStyle(.red).accessibilityIdentifier("adminActionError") }
             }
-            if !field.note.isEmpty { Text(field.note).font(.footnote).foregroundStyle(.secondary) }
-            if let validation { Text(validation).font(.footnote).foregroundStyle(.red) }
+            .accessibilityIdentifier("nativeAdminSettings")
         }
-        .accessibilityIdentifier(field.id == "theme" ? "appearancePicker" : "setting-\(field.id)")
-        .onChange(of: value, initial: true) { _, _ in draft = textValue }
     }
 
-    private var textValue: String {
-        value.stringValue ?? value.arrayValue?.compactMap(\.stringValue).joined(separator: field.isLines ? "\n" : ", ") ?? ""
+    private func loadActivity() async {
+        do {
+            roots = try await settings.action("admin/library")["roots"]?.arrayValue ?? []
+            error = nil
+        } catch { self.error = adminMessage(error) }
     }
-    private func commit() {
-        validation = nil
-        switch field.control {
-        case .languages:
-            let languages = draft.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased().replacingOccurrences(of: "_", with: "-") }
-            guard languages.count <= 10, languages.allSatisfy({ $0.range(of: "^[a-z]{2,3}(-[a-z0-9]{2,8})*$", options: .regularExpression) != nil }) else {
-                validation = "Use up to ten language codes, such as en, ja, es."; return
-            }
-            var seen = Set<String>()
-            onChange(.array(languages.filter { seen.insert($0).inserted }.map(SettingsValue.string)))
-        case .lines:
-            let words = draft.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            onChange(.array(words.map(SettingsValue.string)))
-        default: onChange(.string(draft.trimmingCharacters(in: .whitespacesAndNewlines)))
+
+    private func scan() async {
+        guard !scanning else { return }
+        scanning = true; error = nil; result = nil
+        defer { scanning = false }
+        do {
+            let response = try await settings.action("admin/library/scan", method: "POST")
+            let started = response["started"]?.arrayValue?.count ?? 0
+            let queued = response["queued"]?.arrayValue?.count ?? 0
+            let skipped = response["skipped"]?.arrayValue?.count ?? 0
+            result = "\(started) scanning · \(queued) queued · \(skipped) skipped"
+            if activityVisible { await loadActivity() }
+        } catch { self.error = adminMessage(error) }
+    }
+
+    private struct LibraryActivityRow: Identifiable {
+        let id: String
+        let label: String
+        let state: String
+        init?(_ value: SettingsValue) {
+            guard let id = value["root_id"]?.stringValue else { return nil }
+            self.id = id; label = value["label"]?.stringValue ?? "Library"
+            state = (value["state"]?.stringValue ?? "Ready").replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 }
 
-private extension NativeSetting {
-    var isLines: Bool { if case .lines = control { true } else { false } }
+@MainActor
+private struct NativeInvitationsView: View {
+    let settings: LuminaUserSettings
+    let serverURL: URL
+    let requiresTwoFactor: Bool
+    @State private var email = ""
+    @State private var sections = Set<String>()
+    @State private var password = ""
+    @State private var code = ""
+    @State private var invitations: [Invitation] = []
+    @State private var invitationURL: URL?
+    @State private var revoking: Invitation?
+    @State private var busy = false
+    @State private var error: String?
+    private enum Field: Hashable { case email, password, code }
+    @FocusState private var editingField: Field?
+    private let libraries = [("movies", "Movies"), ("shows", "TV"), ("anime", "Anime"),
+                             ("music", "Music"), ("photos", "Photos"), ("books", "Books")]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                if let revoking {
+                    LuminaSettingsSection("Revoke invitation") {
+                        Text(revoking.email).font(.headline)
+                        verification
+                        Button("Revoke invitation", role: .destructive) { Task { await revoke(revoking) } }
+                            .buttonStyle(.plain).frame(minHeight: 44).disabled(!canVerify || busy)
+                            .accessibilityIdentifier("adminRevokeInviteConfirm")
+                        Button("Cancel") { self.revoking = nil; clearCredentials() }.buttonStyle(.plain).frame(minHeight: 44)
+                    }
+                } else {
+                    if let invitationURL {
+                        LuminaSettingsSection("Invitation ready") {
+                            ShareLink(item: invitationURL) { LuminaSettingsActionLabel("Share invitation", symbol: "square.and.arrow.up") }
+                                .buttonStyle(.plain).accessibilityIdentifier("adminShareInvitation")
+                            Button("Invite another") { self.invitationURL = nil; email = ""; sections = [] }
+                                .buttonStyle(.plain).frame(minHeight: 44)
+                        }
+                    } else {
+                        LuminaSettingsSection("New invitation") {
+                            TextField("Email address", text: $email)
+                                .textContentType(.emailAddress).keyboardType(.emailAddress)
+                                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                                .focused($editingField, equals: .email).submitLabel(.done)
+                                .onSubmit { editingField = nil }
+                                .textFieldStyle(.plain).frame(minHeight: 44)
+                                .accessibilityIdentifier("adminInviteEmail")
+                            Text("Libraries").font(.subheadline).foregroundStyle(.secondary)
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), alignment: .leading)], alignment: .leading, spacing: 8) {
+                                ForEach(libraries, id: \.0) { key, title in
+                                    Button(title) {
+                                        if sections.contains(key) { sections.remove(key) } else { sections.insert(key) }
+                                    }
+                                    .buttonStyle(LuminaUnderlineTabStyle(selected: sections.contains(key)))
+                                    .accessibilityAddTraits(sections.contains(key) ? .isSelected : [])
+                                    .accessibilityIdentifier("adminInviteLibrary-\(key)")
+                                }
+                            }
+                            verification
+                            Button(busy ? "Creating…" : "Create invitation") { Task { await create() } }
+                                .buttonStyle(.plain).frame(minHeight: 44)
+                                .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sections.isEmpty || !canVerify || busy)
+                                .accessibilityIdentifier("adminCreateInvitation")
+                        }
+                    }
+                    LuminaSettingsSection("Invitations") {
+                        ForEach(invitations) { invitation in
+                            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(invitation.email).lineLimit(2)
+                                    Text(invitation.status.capitalized).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 8)
+                                if invitation.status == "pending" {
+                                    Button("Revoke", role: .destructive) { revoking = invitation; clearCredentials() }
+                                        .buttonStyle(.plain).frame(minHeight: 44)
+                                        .accessibilityIdentifier("adminRevokeInvite-\(invitation.id)")
+                                }
+                            }
+                        }
+                        if invitations.isEmpty { Text("No invitations").foregroundStyle(.secondary) }
+                    }
+                }
+                if let error { Text(error).font(.callout).foregroundStyle(.red).accessibilityIdentifier("adminInviteError") }
+            }
+            .padding(24).frame(maxWidth: 920).frame(maxWidth: .infinity, alignment: .top)
+        }
+        .background(LuminaTheme.paper).foregroundStyle(LuminaTheme.ink)
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle("Invitations")
+        .accessibilityIdentifier("nativeInvitationsScreen")
+        .task { await reload() }
+        .onDisappear { clearCredentials(); invitationURL = nil }
+    }
+
+    private var canVerify: Bool { !password.isEmpty && (!requiresTwoFactor || !code.isEmpty) }
+
+    private var verification: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            SecureField("Admin password", text: $password)
+                .textContentType(.password).textFieldStyle(.plain).frame(minHeight: 44)
+                .focused($editingField, equals: .password).submitLabel(.done).onSubmit { editingField = nil }
+                .privacySensitive().accessibilityIdentifier("adminVerificationPassword")
+            if requiresTwoFactor {
+                TextField("Authenticator code", text: $code)
+                    .keyboardType(.numberPad).textContentType(.oneTimeCode).textFieldStyle(.plain).frame(minHeight: 44)
+                    .focused($editingField, equals: .code)
+                    .privacySensitive().accessibilityIdentifier("adminVerificationCode")
+            }
+        }
+    }
+
+    private func proof() async throws -> String {
+        var body: [String: SettingsValue] = ["password": .string(password)]
+        if !code.isEmpty { body["code"] = .string(code) }
+        let response = try await settings.action("reauth", method: "POST", body: body)
+        guard let proof = response["proof"]?.stringValue else { throw UserSettingsError.malformedResponse }
+        return proof
+    }
+
+    private func create() async {
+        guard !busy, canVerify else { return }
+        busy = true; error = nil
+        defer { busy = false; clearCredentials() }
+        do {
+            let verified = try await proof()
+            clearCredentials()
+            let response = try await settings.action("admin/invites", method: "POST", body: [
+                "email": .string(email.trimmingCharacters(in: .whitespacesAndNewlines)),
+                "send": .bool(false),
+                "access": .object(["sections": .array(sections.sorted().map(SettingsValue.string))]),
+            ], reauth: verified)
+            guard let raw = response["invitation_url"]?.stringValue,
+                  let url = URL(string: raw, relativeTo: serverURL)?.absoluteURL, ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  url.host != nil else { throw UserSettingsError.malformedResponse }
+            invitationURL = url
+            await reload()
+        } catch { self.error = adminMessage(error) }
+    }
+
+    private func revoke(_ invitation: Invitation) async {
+        guard !busy, canVerify else { return }
+        busy = true; error = nil
+        defer { busy = false; clearCredentials() }
+        do {
+            let verified = try await proof()
+            clearCredentials()
+            _ = try await settings.action("admin/invites/\(invitation.id)", method: "DELETE", reauth: verified)
+            revoking = nil
+            await reload()
+        } catch { self.error = adminMessage(error) }
+    }
+
+    private func reload() async {
+        do { invitations = try await settings.action("admin/invites").arrayValue?.compactMap(Invitation.init) ?? [] }
+        catch { self.error = adminMessage(error) }
+    }
+
+    private func clearCredentials() { password = ""; code = ""; editingField = nil }
+
+    private struct Invitation: Identifiable {
+        let id: String
+        let email: String
+        let status: String
+        init?(_ value: SettingsValue) {
+            guard let id = value["id"]?.stringValue, let email = value["email"]?.stringValue else { return nil }
+            self.id = id; self.email = email; status = value["status"]?.stringValue ?? "pending"
+        }
+    }
+}
+
+private func adminMessage(_ error: Error) -> String {
+    if let error = error as? UserSettingsError {
+        if error == .server(404) { return "Update the server to use native admin actions." }
+        if error == .server(422) { return "Check the invitation details." }
+    }
+    return error.localizedDescription
 }

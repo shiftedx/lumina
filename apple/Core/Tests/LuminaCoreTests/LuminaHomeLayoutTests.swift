@@ -73,7 +73,7 @@ final class LuminaHomeLayoutTests: XCTestCase {
         let watchlist = feed.refined(HomeRefinement(category: .watchlist), heroItems: [heroes[1]])
         XCTAssertEqual(watchlist.rows.map(\.id), ["watchlist", "recommended"])
         XCTAssertEqual(watchlist.rows[1].items.map(\.id), ["show-1"])
-        XCTAssertEqual(watchlist.items.map(\.id), ["episode-1", "show-1"])
+        XCTAssertEqual(watchlist.items.map(\.id), ["episode-1"], "Watchlist heroes must preserve saved entries without duplicating their related series cards.")
         XCTAssertEqual(watchlist.rows[0].externalItems?.map(\.id), ["saved-source"])
 
         let movies = feed.refined(HomeRefinement(category: .movies, genre: "Drama"), heroItems: heroes)

@@ -13,6 +13,7 @@ struct NativeBooksView: View {
     @State private var seriesItems = [BookSeries]()
     @State private var seriesCursor: String?
     @State private var search = ""
+    @State private var searchVisible = false
     @State private var kindFilter = NativeBookKindFilter.all
     @State private var readingFilter = NativeBookReadingFilter.all
     @State private var sort = NativeBookSort.added
@@ -21,11 +22,11 @@ struct NativeBooksView: View {
     @State private var error: String?
     @State private var selected: BookItem?
     @State private var api: LuminaBooks?
-    @State private var covers: NativeBookCovers?
+    @State private var covers: BookCoverCache?
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    init(session: LuminaSession, shelf: BookShelf? = nil, series: BookSeries? = nil, catalogOnly: Bool = false, covers: NativeBookCovers? = nil) {
+    init(session: LuminaSession, shelf: BookShelf? = nil, series: BookSeries? = nil, catalogOnly: Bool = false, covers: BookCoverCache? = nil) {
         self.session = session; self.shelf = shelf; self.series = series; self.catalogOnly = catalogOnly
         _covers = State(initialValue: covers)
     }
@@ -174,8 +175,12 @@ struct NativeBooksView: View {
                 }
                 .accessibilityIdentifier("booksOptionsMenu")
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Search books", systemImage: "magnifyingglass") { searchVisible = true }
+                    .accessibilityIdentifier("booksSearchButton")
+            }
         }
-        .searchable(text: $search, prompt: "Title or author")
+        .modifier(NativeSearchPresentation(text: $search, isPresented: $searchVisible, prompt: "Title or author"))
         .task(id: catalogQuery) {
             do { try await Task.sleep(for: .milliseconds(250)); await load() } catch { }
         }
@@ -191,13 +196,13 @@ struct NativeBooksView: View {
             .font(.title2.weight(.bold))
             .accessibilityAddTraits(.isHeader)
     }
-    private func catalogLink(covers: NativeBookCovers) -> some View {
+    private func catalogLink(covers: BookCoverCache) -> some View {
         NavigationLink {
             NativeBooksView(session: session, catalogOnly: true, covers: covers)
         } label: { Label("Browse all", systemImage: "square.grid.2x2") }
         .accessibilityIdentifier("bookCatalogButton")
     }
-    private func bookCard(_ book: BookItem, covers: NativeBookCovers) -> some View {
+    private func bookCard(_ book: BookItem, covers: BookCoverCache) -> some View {
         Button { selected = book } label: {
             VStack(alignment: .leading, spacing: 8) {
                 NativeBookCover(id: book.coverURL == nil ? nil : book.id, title: book.title, author: book.author, covers: covers)
@@ -226,7 +231,7 @@ struct NativeBooksView: View {
         do {
             let api = self.api ?? LuminaBooks(session: session)
             self.api = api
-            if covers == nil { covers = NativeBookCovers(api: api) }
+            if covers == nil { covers = BookCoverCache(api: api) }
             let loadOverview = root && requestedQuery.search.isEmpty && !requestedQuery.hasFilters && !more
             async let summary: BooksOverview? = loadOverview ? api.overview() : nil
             async let manga: BookSeriesCatalog? = loadOverview ? api.series() : nil
@@ -383,7 +388,7 @@ private extension NativeBookSort {
 private struct NativeBookStack: View {
     let ids: [String]
     let title: String
-    let covers: NativeBookCovers
+    let covers: BookCoverCache
     var count: Int = 0
     var body: some View {
         NativeBookCover(id: ids.first, title: title, covers: covers)
@@ -402,9 +407,9 @@ struct NativeBookCover: View {
     let id: String?
     let title: String
     var author = ""
-    let covers: NativeBookCovers
+    let covers: BookCoverCache
     @State private var image: UIImage?
-    init(id: String?, title: String, author: String = "", covers: NativeBookCovers) {
+    init(id: String?, title: String, author: String = "", covers: BookCoverCache) {
         self.id = id; self.title = title; self.author = author; self.covers = covers
     }
     var body: some View {
@@ -430,31 +435,5 @@ struct NativeBookCover: View {
             }
             .onDisappear { image = nil }
             .accessibilityHidden(true)
-    }
-}
-
-/// Session-local thumbnails, coalesced across shelves and the grid; all decode work stays on this actor.
-actor NativeBookCovers {
-    private final class Entry {
-        let image: CGImage
-        init(_ image: CGImage) { self.image = image }
-    }
-    let api: LuminaBooks
-    private let cache = NSCache<NSString, Entry>()
-    private var pending = [String: Task<CGImage?, Never>]()
-    init(api: LuminaBooks) { self.api = api; cache.countLimit = 32; cache.totalCostLimit = 24 * 1024 * 1024 }
-    func image(_ id: String) async -> CGImage? {
-        if let image = cache.object(forKey: id as NSString)?.image { return image }
-        if let task = pending[id] { return await task.value }
-        let api = api
-        let task = Task<CGImage?, Never> {
-            do { return BookPagePreparation.image(from: try await api.cover(id: id), maximumPixelSize: 600) }
-            catch { return nil }
-        }
-        pending[id] = task
-        let image = await task.value
-        pending[id] = nil
-        if let image { cache.setObject(Entry(image), forKey: id as NSString, cost: image.bytesPerRow * image.height) }
-        return image
     }
 }

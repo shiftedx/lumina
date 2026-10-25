@@ -107,6 +107,13 @@ final class LuminaClient: @unchecked Sendable {
         try await json(request(origin: origin, path: "/UserViews", token: token, deviceID: deviceID))
     }
 
+    func navigationCategories(origin: URL, token: String, deviceID: String) async throws -> Set<String> {
+        let result: NativeNavigation = try await json(request(origin: origin, path: "/Lumina/Settings/navigation", token: token, deviceID: deviceID))
+        return Set(result.categories)
+    }
+
+    private struct NativeNavigation: Decodable { let categories: [String] }
+
     func children(origin: URL, token: String, deviceID: String, item: MediaItem, start: Int) async throws -> ItemPage {
         if item.type == "Series" {
             return try await json(request(origin: origin, path: "/Shows/\(item.id)/Seasons", token: token, deviceID: deviceID))

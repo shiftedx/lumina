@@ -123,7 +123,7 @@ final class LuminaMusicLibraryTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let library = library(root: root)
         let alice = session()
-        let bob = session(user: "bob", token: "music-test-token-bob")
+        let bob = session(user: "bob", token: alice.accessToken)
         library.configure(session: alice)
         var checkpointJSON = snapshotJSON(revision: 4, position: 7)
         checkpointJSON["entries"] = [["kind": "track", "item_id": musicTrackID, "tracks": [trackJSON()]]]
@@ -232,6 +232,31 @@ final class LuminaMusicLibraryTests: XCTestCase {
         XCTAssertEqual(URLComponents(url: compatible.url!, resolvingAgainstBaseURL: false)?.queryItems, [URLQueryItem(name: "format", value: "flac")])
         library.configure(session: nil)
         XCTAssertThrowsError(try library.downloadRequest(for: track.mediaItem))
+    }
+
+    func testMetadataHistoryIsBoundedWithoutTruncatingTheResolvedQueue() async throws {
+        let library = library()
+        library.configure(session: session())
+        let ids = (1...640).map { String(format: "00000000-0000-0000-0001-%012d", $0) }
+        let requests = MusicRequests()
+        MusicURLProtocol.handler = { @Sendable transport in
+            requests.append(transport.request)
+            if transport.request.httpMethod == "POST" { transport.respond(ids.map { trackJSON(id: $0) }) }
+            else { transport.respond(trackJSON(id: ids[0])) }
+        }
+        let queue = try await library.resolve(items: [])
+        XCTAssertEqual(queue.map(\.id), ids, "Cache eviction must never truncate or reorder playback's queue")
+        let retained = ids.filter { library.cachedTrack(for: $0) != nil }.count
+        print("LUMINA_METADATA_BENCH resolved=\(queue.count) retained=\(retained)")
+        XCTAssertLessThanOrEqual(retained, 512, "Browsing new albums must not retain every earlier track for the session")
+        let latest = try XCTUnwrap(queue.last)
+        XCTAssertEqual(library.cachedTrack(for: latest.id), latest)
+        XCTAssertEqual(library.cachedTrack(for: latest.nativeID), latest)
+        XCTAssertNil(library.cachedTrack(for: ids[0]))
+        XCTAssertNil(library.cachedTrack(for: queue[0].nativeID))
+        let reloaded = try await library.track(for: queue[0].mediaItem)
+        XCTAssertEqual(reloaded.id, ids[0], "An evicted track remains available through the member API")
+        XCTAssertEqual(requests.getCount, 1)
     }
 
     private func library(root: URL? = nil) -> LuminaMusicLibrary {

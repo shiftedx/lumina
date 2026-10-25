@@ -13,6 +13,7 @@ import Observation
     private let client: LuminaClient
     private let root: URL
     private var metadata: [String: MusicTrack] = [:]
+    private var metadataOrder: [String] = []
     private var lyricCache: [String: MusicLyrics] = [:]
     private var generation = 0
     private var playlistGeneration = 0
@@ -32,11 +33,11 @@ import Observation
     }
 
     public func configure(session: LuminaSession?) {
-        guard self.session?.accessToken != session?.accessToken || self.session?.serverURL != session?.serverURL else { return }
+        guard self.session?.accessToken != session?.accessToken || self.session?.serverURL != session?.serverURL || self.session?.userID != session?.userID else { return }
         checkpointWriter.flushSynchronously()
         generation += 1
         self.session = session
-        playlists = []; metadata = [:]; lyricCache = [:]; cachedSession = nil
+        playlists = []; metadata = [:]; metadataOrder = []; lyricCache = [:]; cachedSession = nil
         isBusy = false; errorMessage = nil
         sessionIdentity = session.map {
             SHA256.hash(data: Data(($0.serverURL.absoluteString.lowercased() + "|" + $0.userID).utf8))
@@ -212,7 +213,21 @@ import Observation
     }
 
     private func remember(_ tracks: [MusicTrack]) {
-        for track in tracks { metadata[track.id] = track; metadata[track.nativeID] = track }
+        for track in tracks {
+            if let previous = metadata[track.id] {
+                if previous.nativeID != track.nativeID { metadata[previous.nativeID] = nil }
+            } else { metadataOrder.append(track.id) }
+            metadata[track.id] = track
+            metadata[track.nativeID] = track
+        }
+        // Queue/snapshot owners retain their complete order; this is only lookup history.
+        let excess = max(0, metadataOrder.count - 512)
+        for id in metadataOrder.prefix(excess) {
+            if let previous = metadata.removeValue(forKey: id), metadata[previous.nativeID]?.id == id {
+                metadata[previous.nativeID] = nil
+            }
+        }
+        metadataOrder.removeFirst(excess)
     }
 
     private func safeID(_ value: String) throws -> String {

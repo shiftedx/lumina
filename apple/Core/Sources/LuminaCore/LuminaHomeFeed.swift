@@ -154,9 +154,13 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
             guard !localItems.isEmpty || !(externalItems ?? []).isEmpty else { return nil }
             return row.replacing(items: localItems, externalItems: externalItems)
         }
-        let matchingHeroes = heroItems.filter { context.includes($0, refinement: refinement) }
+        // Watchlist owns its saved versions and their enriched artwork. A related
+        // Series card from another Home shelf must not replace or duplicate them.
+        let heroCandidates = refinement.category == .watchlist
+            ? rows.first(where: { $0.shelfID == .watchlist })?.items ?? [] : heroItems
+        let matchingHeroes = heroCandidates.filter { context.includes($0, refinement: refinement) }
         let fallbackHeroes: [MediaItem]
-        if refinement.category != .all, matchingHeroes.isEmpty {
+        if refinement.category != .all, refinement.category != .watchlist, matchingHeroes.isEmpty {
             var seen = Set<String>()
             fallbackHeroes = Array(filteredRows.flatMap(\.items).filter { seen.insert($0.id).inserted }.prefix(8))
         } else {

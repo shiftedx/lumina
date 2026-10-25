@@ -169,7 +169,7 @@ private final class BookReaderModel {
 struct NativeBookReader: View {
     let session: LuminaSession
     let book: BookItem
-    private let covers: NativeBookCovers?
+    private let covers: BookCoverCache?
     @State private var model: BookReaderModel
     @State private var contents = false
     @State private var controlsVisible = false
@@ -189,7 +189,7 @@ struct NativeBookReader: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var fontSize = 20.0
-    init(session: LuminaSession, book: BookItem, covers: NativeBookCovers? = nil) {
+    init(session: LuminaSession, book: BookItem, covers: BookCoverCache? = nil) {
         self.session = session; self.book = book; self.covers = covers
         _model = State(initialValue: BookReaderModel(session: session, book: book))
     }

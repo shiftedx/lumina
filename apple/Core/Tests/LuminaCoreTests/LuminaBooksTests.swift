@@ -59,6 +59,11 @@ final class LuminaBooksTests: XCTestCase {
         let camera = CGRect(x: 780, y: 0, width: 40, height: 40)
         let safe = BookReaderLayout(size: CGSize(width: 840, height: 720), expanded: true, occlusions: [camera])
         XCTAssertFalse(safe.primary.intersects(camera))
+        let closedDisplay = CGSize(width: 466, height: 678)
+        let outerCamera = CGRect(x: 390, y: 0, width: 76, height: 82)
+        let immersive = BookReaderLayout(size: closedDisplay, expanded: false, occlusions: [outerCamera], artwork: true)
+        XCTAssertEqual(immersive.primary, CGRect(origin: .zero, size: closedDisplay),
+                       "Artwork must not reserve a full-width strip for a corner camera.")
         XCTAssertEqual(BookSpread.companion(current: 3, count: 8, rightToLeft: false), 2)
         XCTAssertEqual(BookSpread.companion(current: 3, count: 8, rightToLeft: true), 3)
         for count in 1...8 {

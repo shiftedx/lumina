@@ -6,6 +6,45 @@ import UIKit
 
 #if os(iOS)
 @MainActor
+final class NativeHomeHeroMotionTests: NativeProofJourney {
+    func testHomeArtworkMovesWhileDetailArtworkStaysStill() async throws {
+        try await journeyNativeHomeHeroMotion()
+    }
+}
+@MainActor
+final class NativeWatchlistEpisodeHeroTests: NativeProofJourney {
+    func testSavedEpisodeShowsSeriesArtworkAndEpisodeDetails() async throws {
+        try await journeyWatchlistEpisodeHero()
+    }
+}
+@MainActor
+final class NativeAlbumArtworkColorTests: NativeProofJourney {
+    func testAlbumPageUsesItsCoverColor() async throws {
+        try await journeyAlbumArtworkColor()
+    }
+}
+@MainActor
+final class NativeMobileWelcomeTests: NativeProofJourney {
+    func testMinimalWelcomeHelpAndSignIn() async throws {
+        try await journeyMobileWelcome()
+    }
+}
+@MainActor
+final class NativeRequestDetailLayoutTests: NativeProofJourney {
+    func testRequestHeroExtendsBehindDuoNavigationRail() async throws {
+        try await journeyRequestDetailLayout()
+    }
+}
+@MainActor
+final class NativeSearchPresentationTests: NativeProofJourney {
+    func testSearchIsHiddenUntilOpenedAndRemovedOnCancel() async throws {
+        try await journeyNativeSearchPresentation()
+    }
+}
+#endif
+
+#if os(iOS)
+@MainActor
 final class NativeNativeBooksReadTurnAndRestoreAllFormatsTests: NativeProofJourney {
     func testNativeBooksReadTurnAndRestoreAllFormats() async throws { try await journeyNativeBooksReadTurnAndRestoreAllFormats() }
 }
@@ -116,6 +155,12 @@ final class NativeAccountPerformanceTourTests: NativeProofJourney {
 
 @MainActor
 final class NativeAccountSettingsSearchSaveAndPersistTests: NativeProofJourney { func testNativeAccountSettingsSearchSaveAndPersist() async throws { try await journeyNativeAccountSettingsSearchSaveAndPersist() } }
+#if os(iOS)
+@MainActor
+final class NativeAdminQuickActionsTests: NativeProofJourney {
+    func testAdminCanScanInviteAndRevokeFromSettings() async throws { try await journeyNativeAdminQuickActions() }
+}
+#endif
 @MainActor
 final class NativeDeviceSettingsRouteTests: NativeProofJourney {
     func testDeviceSettingsUsesNativeLocalPreferences() throws { try journeyNativeDeviceSettingsRoute() }
@@ -287,7 +332,10 @@ class NativeProofJourney: XCTestCase {
         for book in [comic, pdf] { try await api.seedBookProgress(identity: identity, bookID: book) }
         try launchAndResetSession()
         try signIn(using: fixture)
-        try selectDestination("Books", screen: "booksScreen")
+        let booksCategory = element("homeBrowse-books")
+        revealHomeMenuControl(booksCategory)
+        try activate(booksCategory)
+        try waitForExistence(element("booksScreen"), timeout: 20, named: "Books library")
         try revealBookItem(element("bookCatalogButton"))
         try activate(element("bookCatalogButton"))
         for book in [comic, pdf] {
@@ -298,15 +346,18 @@ class NativeProofJourney: XCTestCase {
             try waitForExistence(application!.images.matching(NSPredicate(format: "label BEGINSWITH %@", "Page 1 of")).firstMatch,
                 timeout: 30, named: "prepared artwork")
             let window = application!.windows.firstMatch.frame
+            try attachFrame(named: "Immersive artwork reaches the display edges")
             XCTAssertGreaterThanOrEqual(pager.frame.width, window.width * 0.95)
+            XCTAssertLessThanOrEqual(pager.frame.minY, window.minY + 1,
+                "Immersive artwork must reach the top of the display without a reserved black strip.")
             XCTAssertGreaterThanOrEqual(pager.frame.maxY, window.maxY * 0.95)
             if compactLayoutOnly {
                 guard window.width < 700 else { throw XCTSkip("Requires the closed or compact reading viewport.") }
-                XCTAssertEqual(pager.value as? String, "Page 1 of 6", "The closed screen defaults to one page.")
+                XCTAssertEqual(pager.value as? String, "Page 1 of \(book == comic ? 6 : 4)", "The closed screen defaults to one page.")
                 XCTAssertGreaterThanOrEqual(element("bookPrimaryPage").frame.width, window.width * 0.95)
                 try activate(element("bookControlsButton"))
                 try activate(element("bookCloseButton"))
-                return
+                continue
             }
             let before = pager.value as? String
             let rtl = book == comic
@@ -364,8 +415,8 @@ class NativeProofJourney: XCTestCase {
         let viewport = try applicationViewport()
         for _ in 0..<8 {
             if hasVisibleFrame(item) && item.isHittable { return }
-            let anchor = item.exists && !item.frame.isEmpty ? item.frame.midX : viewport.midX
-            try dragVertically(in: viewport, anchorX: anchor, up: true)
+            // The outer Duo display can place navigation over a trailing catalog action.
+            try dragVertically(in: viewport, anchorX: viewport.midX, up: true)
         }
         throw ProofFailure.ui("The Books catalog item could not be revealed.")
     }
@@ -558,15 +609,26 @@ class NativeProofJourney: XCTestCase {
                            "Play/Pause must share the navigation bar with Queue.")
         }
         let timeline = element("audioTimeline")
-        XCTAssertGreaterThan(timeline.frame.minY, window.minY + window.height * 0.7,
-                             "Only the track timeline should occupy the bottom of the artwork stage.")
-        XCTAssertLessThanOrEqual(timeline.frame.maxY, window.maxY)
-        XCTAssertLessThanOrEqual(timeline.frame.minX, window.minX + 26)
-        XCTAssertGreaterThanOrEqual(timeline.frame.maxX, window.maxX - 26,
-                                    "Track progress must span the normal navigation area.")
-        try waitForHittable(element("audioRepeatButton"), timeout: 15, named: "Repeat in navigation")
         let artwork = element("audioAlbumArtwork")
         try waitForExistence(artwork, timeout: 15, named: "Full-screen album artwork")
+        XCTAssertTrue(waitUntil(timeout: 3) { !timeline.exists }, "Track progress must fade while artwork is idle.")
+        artwork.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(timeline.exists, "Tapping artwork must reveal track progress immediately.")
+        let timelineFrame = timeline.frame
+        XCTAssertGreaterThan(timelineFrame.minY, window.minY + window.height * 0.7,
+                             "Only the track timeline should occupy the bottom of the artwork stage.")
+        XCTAssertLessThanOrEqual(timelineFrame.maxY, window.maxY)
+        XCTAssertLessThanOrEqual(timelineFrame.minX, window.minX + 26)
+        XCTAssertGreaterThanOrEqual(timelineFrame.maxX, window.maxX - 26,
+                                    "Track progress must span the normal navigation area.")
+        XCTAssertTrue(waitUntil(timeout: 3) { !timeline.exists }, "Revealed progress must fade again after inactivity.")
+        artwork.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        let slider = application!.sliders["Track position"]
+        XCTAssertTrue(slider.exists, "The revealed timeline must support seeking.")
+        slider.adjust(toNormalizedSliderPosition: 0.6)
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { $0 >= 45 }
+        XCTAssertTrue(waitUntil(timeout: 3) { !timeline.exists }, "Progress must fade after seeking ends.")
+        try waitForHittable(element("audioRepeatButton"), timeout: 15, named: "Repeat in navigation")
         XCTAssertGreaterThanOrEqual(artwork.frame.height, window.height * 0.85)
         XCTAssertLessThanOrEqual(artwork.frame.minY, window.minY + 2)
         XCTAssertFalse(element("audioCurrentLyric").exists, "Lyrics must have one expandable presentation.")
@@ -1456,20 +1518,20 @@ class NativeProofJourney: XCTestCase {
         try launchAndResetSession()
         try signIn(using: fixture)
         try waitForExistence(element("homeScreen"), timeout: 30, named: "TV Home browse screen")
-        let all = element("homeBrowse-all")
         let movies = element("homeBrowse-movies")
         try waitForExistence(movies, timeout: 20, named: "TV Home Movies destination")
-        XCTAssertTrue(accessibilityText(all).contains("Selected"), "TV Home must begin with All selected.")
+        XCTAssertFalse(accessibilityText(movies).contains("Selected"), "Home must not select a media category.")
+        XCTAssertFalse(element("homeBrowse-all").exists)
         try activate(movies)
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "TV Movies library")
         XCTAssertTrue(accessibilityText(element("homeBrowse-movies")).contains("Selected"),
                       "Movies must open the matching Library category.")
 
-        try activate(element("homeBrowse-all"))
+        try activate(element("homeMasthead"))
         XCTAssertTrue(waitUntil(timeout: 15) { self.hasVisibleFrame(self.element("homeScreen")) },
-                      "All must route directly from Movies back to Home.")
-        XCTAssertTrue(accessibilityText(element("homeBrowse-all")).contains("Selected"),
-                      "All must become selected after routing directly from Movies.")
+                      "The Lumina logo must route directly from Movies back to Home.")
+        XCTAssertFalse(accessibilityText(element("homeBrowse-movies")).contains("Selected"),
+                       "Returning Home must clear the media category selection.")
 
         try activate(element("homeBrowse-movies"))
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "TV Movies library before direct Watchlist")
@@ -1479,12 +1541,12 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(accessibilityText(element("homeBrowse-watchlist")).contains("Selected"),
                       "Watchlist must become selected after routing directly from Movies.")
 
-        try activate(element("homeBrowse-all"))
+        try activate(element("homeMasthead"))
         try activate(element("homeBrowse-movies"))
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "TV Movies library before Back")
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("homeScreen"), timeout: 15, named: "TV Home after Video Back")
-        XCTAssertTrue(waitUntil(timeout: 12) { self.accessibilityText(self.element("homeBrowse-all")).contains("Selected") },
+        XCTAssertTrue(waitUntil(timeout: 12) { !self.accessibilityText(self.element("homeBrowse-watchlist")).contains("Selected") },
                       "A Library destination must not replace the selected local Home state.")
 
         let shows = element("homeBrowse-tv")
@@ -1507,8 +1569,9 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 10) { self.element("homeBrowse-music").hasFocus },
                       "Up from the focused Music hero must return to the persistent Music category.")
         XCUIRemote.shared.press(.left)
-        XCTAssertTrue(waitUntil(timeout: 10) { self.element("homeBrowse-anime").hasFocus },
-                      "Left from Music in the persistent header must reach Anime.")
+        XCTAssertTrue(waitUntil(timeout: 10) { self.element("homeBrowse-tv").hasFocus },
+                      "Left from Music must skip the unconfigured Anime library and reach TV.")
+        XCTAssertFalse(element("homeBrowse-anime").exists)
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("homeScreen"), timeout: 15, named: "TV Home after Music Back")
 
@@ -1550,7 +1613,7 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(firstShelfHeading, timeout: 15, named: "first shelf below Home hero")
         XCTAssertGreaterThanOrEqual(firstShelfHeading.frame.minY, homeViewport.height * 0.75,
                                     "The TV Home artwork must dominate the first viewport before shelves begin.")
-        let firstCategory = element("homeBrowse-all")
+        let firstCategory = element("homeBrowse-movies")
         let lastCategory = element("homeBrowse-watchlist")
         let categoryMidpoint = (firstCategory.frame.minX + lastCategory.frame.maxX) / 2
         XCTAssertEqual(categoryMidpoint, homeViewport.midX, accuracy: 8,
@@ -1622,7 +1685,7 @@ class NativeProofJourney: XCTestCase {
         try activate(element("homeBrowse-tv"))
         try waitForExistence(element("libraryItem-\(fixture.showID)"), timeout: 25, named: "Shows library")
         try attachFrame(named: "TV Library Shows category")
-        try activate(element("homeBrowse-anime"))
+        XCTAssertFalse(element("homeBrowse-anime").exists, "Unconfigured Anime must be absent on TV too.")
         XCTAssertFalse(element("homeBrowse-books").exists,
                        "Books remain intentionally unavailable on tvOS.")
         XCUIRemote.shared.press(.menu)
@@ -1633,7 +1696,7 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(element("deviceSettingsScreen"), timeout: 15, named: "TV Account settings")
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("homeScreen"), timeout: 15, named: "Account Back returns to Home")
-        XCTAssertEqual(element("homeBrowse-all").value as? String, "Selected",
+        XCTAssertFalse(accessibilityText(element("homeBrowse-watchlist")).contains("Selected"),
                        "Closing Account settings must preserve the selected primary category.")
         try selectDestination("Account", screen: "accountScreen")
         try activateDeviceControl("devicePlaybackQualityPicker")
@@ -1707,10 +1770,10 @@ class NativeProofJourney: XCTestCase {
         let filters = element("videoFiltersButton")
         let search = element("searchField")
         try waitForExistence(filters, timeout: 10, named: "inline Video filters")
-        let categoryMidpoint = (element("homeBrowse-all").frame.minX + element("homeBrowse-watchlist").frame.maxX) / 2
+        let categoryMidpoint = (element("homeBrowse-movies").frame.minX + element("homeBrowse-watchlist").frame.maxX) / 2
         XCTAssertEqual(categoryMidpoint, viewport.midX, accuracy: 8,
                        "The six primary categories must remain centered in the TV viewport.")
-        XCTAssertLessThan(element("homeBrowse-all").frame.maxY, sortPicker.frame.minY,
+        XCTAssertLessThan(element("homeBrowse-movies").frame.maxY, sortPicker.frame.minY,
                           "Library categories must remain pinned above its options row.")
         XCTAssertEqual(filters.frame.midY, sortPicker.frame.midY, accuracy: 3,
                        "Sort and filters must share the Library options baseline.")
@@ -1943,83 +2006,30 @@ class NativeProofJourney: XCTestCase {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
         let fixture = try loadFixture()
-
         try await performancePhase("login_form") {
             try launchAndResetSession()
             try waitForExistence(element("serverURLField"), timeout: 20, named: "connection form")
         }
         try await performanceQuietPhase("login_form_idle")
-
         try await performancePhase("account_sign_in") {
             try signIn(using: fixture)
             try selectDestination("Account", screen: "accountScreen")
         }
-
-        let search = application!.searchFields.firstMatch
-        try waitForHittable(search, timeout: 20, named: "Account settings search")
-        try replaceText(search, with: "video quality")
-        try waitForHittable(element("setting-quality"), timeout: 15, named: "Account video quality preference")
+        let search = element("settingsSearchField")
+        try waitForHittable(search, timeout: 20, named: "Settings search")
+        try await performancePhase("account_device_preferences") {
+            try replaceText(search, with: "video quality")
+            try waitForHittable(element("devicePlaybackQualityPicker"), timeout: 15, named: "Device video quality")
+        }
         try await performanceQuietPhase("account_preferences_idle")
-
-        try await performancePhase("account_profile_notifications_interests") {
-            try replaceText(search, with: "profile")
-            try waitForHittable(element("accountDisplayName"), timeout: 15, named: "Account profile")
-            try await performanceQuietPhase("account_profile_idle")
-
-            try replaceText(search, with: "notifications")
-            try waitForHittable(element("requestNotificationsEnabled"), timeout: 15, named: "request notifications")
-            try await performanceQuietPhase("account_notifications_idle")
-
-            try replaceText(search, with: "interests")
-            try waitForExistence(element("accountInterestsSection"), timeout: 15, named: "Account interests")
-            try await performanceQuietPhase("account_interests_idle")
-        }
-
-        try await performancePhase("account_allowances") {
-            try replaceText(search, with: "allowances")
-            try waitForExistence(element("accountAllowancesSection"), timeout: 15, named: "Account allowances")
-            if waitUntil(timeout: 20, condition: {
-                self.element("accountAllowancesLoaded").exists || self.element("accountAllowancesError").exists
-            }) {
-                if element("accountAllowancesError").exists {
-                    emitPerformanceSkip("account_allowances_idle", reason: "allowances endpoint unavailable")
-                } else {
-                    try await performanceQuietPhase("account_allowances_idle")
-                }
-            } else {
-                emitPerformanceSkip("account_allowances_idle", reason: "allowances did not settle")
-            }
-        }
-
         try await performancePhase("account_licenses") {
             try replaceText(search, with: "licenses")
             try activate(element("accountLicensesButton"))
             try waitForExistence(element("accountLicensesSheet"), timeout: 15, named: "Open-source licenses")
             try await performanceQuietPhase("account_licenses_idle")
             try activate(application!.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch)
-            try waitForHittable(search, timeout: 15, named: "Account after licenses")
         }
-
-        try await performancePhase("account_security_verification") {
-            try replaceText(search, with: "password")
-            try activate(element("accountChangePassword"))
-            try waitForExistence(element("accountSecuritySheet"), timeout: 15, named: "Account password verification")
-            try waitForExistence(element("accountVerificationPassword"), timeout: 15, named: "Account password field")
-            try await performanceQuietPhase("account_security_verification_idle")
-            try activate(element("accountSecurityCancel"))
-            try waitForHittable(search, timeout: 15, named: "Account after password verification")
-        }
-
-        try await performancePhase("account_connections") {
-            try replaceText(search, with: "import")
-            try waitForExistence(element("accountConnectionsImportSection"), timeout: 15, named: "watch history import")
-            try activate(element("accountImportJellyfinButton"))
-            try waitForExistence(element("accountConnectionSheet"), timeout: 15, named: "watch history import sheet")
-            try await performanceQuietPhase("account_connections_idle")
-            try activate(element("accountConnectionCancel"))
-            try waitForHittable(search, timeout: 15, named: "Account after import preview")
-        }
-
+        try replaceText(search, with: "")
         completed = true
     }
     #endif
@@ -2036,72 +2046,87 @@ class NativeProofJourney: XCTestCase {
         _ = try await api.settingsJSON(identity: identity, method: "PUT", body: ["ui_prefs": [
             "theme": "dark", "playback_max_height": 1080,
             "auto_skip": ["intro": false, "recap": true, "credits": false],
-            "captions": ["size": "medium", "background": "box", "tracks": ["audioLanguages": ["ja"]]],
         ]])
         try launchAndResetSession()
         try signIn(using: fixture)
         try selectDestination("Account", screen: "accountScreen")
-        let search = application!.searchFields.firstMatch
-        try waitForHittable(search, timeout: 20, named: "Account settings search")
-        try activate(search)
-        search.typeText("streaming")
-        XCTAssertFalse(element("setting-providers").exists,
-                       "External providers must stay hidden without a server opt-in.")
-        XCTAssertFalse(element("setting-cache-enabled").exists)
-        try replaceText(search, with: "youtube")
-        XCTAssertFalse(application!.staticTexts["Personal YouTube session"].exists)
-        XCTAssertFalse(application!.buttons["Connect or replace YouTube session"].exists)
-        try replaceText(search, with: "download defaults")
-        XCTAssertFalse(element("setting-download-quality").exists,
-                       "Remote acquisition defaults must not appear as local-download settings.")
+        let search = element("settingsSearchField")
+        try waitForHittable(search, timeout: 20, named: "Device-focused settings search")
+        try replaceText(search, with: "import")
+        XCTAssertFalse(element("accountConnectionsImportSection").exists)
+        XCTAssertFalse(element("accountImportJellyfinButton").exists,
+                       "Watch-history import belongs on the website.")
         try replaceText(search, with: "video quality")
-        try activate(element("setting-quality"))
-        try activate(menuAction("Up to 720p"))
-        _ = try await waitForSettings(api, identity: identity) { settings in
-            (settings["ui_prefs"] as? [String: Any])?["playback_max_height"] as? Int == 720
-        }
-        try replaceText(search, with: "skip intros")
-        let visibility = try waitForHittable(element("setting-skip-intro"), timeout: 15, named: "intro skip preference")
-        let toggle = visibility.switches.firstMatch
-        if toggle.exists { try activate(toggle) } else { try activate(visibility) }
-        _ = try await waitForSettings(api, identity: identity) { settings in
-            ((settings["ui_prefs"] as? [String: Any])?["auto_skip"] as? [String: Any])?["intro"] as? Bool == true
-        }
-        try replaceText(search, with: "caption size")
-        try activate(element("setting-caption-size"))
-        try activate(menuAction("Large"))
-        try attachFrame(named: "Search reaches caption settings directly")
-        let saved = try await waitForSettings(api, identity: identity) { settings in
-            ((settings["ui_prefs"] as? [String: Any])?["captions"] as? [String: Any])?["size"] as? String == "large"
-        }
+        try chooseDeviceSetting("devicePlaybackQualityPicker", option: "Up to 720p")
+        try attachFrame(named: "Lumina settings with inline underline selections")
+        let saved = try await api.settingsJSON(identity: identity, method: "GET")
         let prefs = saved["ui_prefs"] as? [String: Any]
-        XCTAssertEqual(prefs?["playback_max_height"] as? Int, 720)
-        let skip = prefs?["auto_skip"] as? [String: Any]
-        XCTAssertEqual(skip?["intro"] as? Bool, true)
-        XCTAssertEqual(skip?["recap"] as? Bool, true, "Editing one preference discarded its sibling.")
-        let captions = prefs?["captions"] as? [String: Any]
-        XCTAssertEqual(captions?["size"] as? String, "large")
-        XCTAssertEqual(captions?["background"] as? String, "box")
-        XCTAssertEqual((captions?["tracks"] as? [String: Any])?["audioLanguages"] as? [String], ["ja"])
+        XCTAssertEqual(prefs?["playback_max_height"] as? Int, 1080,
+                       "Device quality must not overwrite the website preference.")
+        XCTAssertEqual((prefs?["auto_skip"] as? [String: Any])?["intro"] as? Bool, false)
+        XCTAssertEqual((prefs?["auto_skip"] as? [String: Any])?["recap"] as? Bool, true)
         application!.terminate()
         application!.launch()
         try selectDestination("Account", screen: "accountScreen")
-        let restoredSearch = application!.searchFields.firstMatch
-        try waitForHittable(restoredSearch, timeout: 20, named: "Account settings after relaunch")
-        try activate(restoredSearch)
-        restoredSearch.typeText("skip intros")
-        let restored = element("setting-skip-intro")
-        try waitForHittable(restored, timeout: 15, named: "saved intro skip preference")
-        XCTAssertEqual(restored.switches.firstMatch.value as? String, "1")
-        try replaceText(restoredSearch, with: "password")
-        try activate(element("accountChangePassword"))
-        try waitForExistence(element("accountVerificationPassword"), timeout: 15, named: "account identity verification")
-        XCTAssertFalse(element("accountSecuritySubmit").isEnabled, "A playback token alone must not authorize a password change.")
-        try attachFrame(named: "Account security keeps identity verification in the app")
-        try activate(element("accountSecurityCancel"))
-        XCTAssertFalse(element("Manage Server").exists)
+        let restoredSearch = element("settingsSearchField")
+        try waitForHittable(restoredSearch, timeout: 20, named: "Settings after relaunch")
+        try replaceText(restoredSearch, with: "video quality")
+        try assertDeviceSetting("devicePlaybackQualityPicker", contains: "Up to 720p")
+        try replaceText(restoredSearch, with: "")
+        try attachFrame(named: "Device-focused Lumina settings")
         completed = true
     }
+
+    #if os(iOS)
+    func journeyNativeAdminQuickActions() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Account", screen: "accountScreen")
+        try chooseDeviceSetting("deviceAppearancePicker", option: "Light")
+        try replaceText(element("settingsSearchField"), with: "server")
+        try waitForExistence(element("nativeAdminSettings"), timeout: 15, named: "Verified admin quick actions")
+        try activate(element("adminScanLibrariesButton"))
+        try waitForExistence(element("adminScanResult"), timeout: 15, named: "Library scan acknowledgment")
+        try attachFrame(named: "Compact native admin quick actions")
+        try activate(element("adminInvitationsButton"))
+        try waitForExistence(element("nativeInvitationsScreen"), timeout: 15, named: "Native invitations")
+        let email = "native-settings-\(UUID().uuidString.lowercased())@example.test"
+        try activate(element("adminInviteEmail"))
+        element("adminInviteEmail").typeText(email + "\n")
+        try activate(element("adminInviteLibrary-movies"))
+        let password = element("adminVerificationPassword")
+        try revealInLibraryViewport([password], in: element("nativeInvitationsScreen"))
+        try activate(password)
+        password.typeText(fixture.password + "\n")
+        try activate(element("adminCreateInvitation"))
+        try waitForExistence(element("adminShareInvitation"), timeout: 15, named: "Created one-time invitation")
+        let invitations = try await api.nativeInvitations(identity: identity)
+        let created = try XCTUnwrap(invitations.first { $0["email"] as? String == email })
+        let id = try XCTUnwrap(created["id"] as? String)
+        XCTAssertEqual(created["status"] as? String, "pending")
+        XCTAssertNil(created["invitation_url"], "Listing invitations must not reveal their secret links.")
+        try activate(element("adminRevokeInvite-\(id)"))
+        try activate(password)
+        password.typeText(fixture.password + "\n")
+        try activate(element("adminRevokeInviteConfirm"))
+        XCTAssertTrue(waitUntil(timeout: 15) { !self.element("adminRevokeInvite-\(id)").exists })
+        let revoked = try await api.nativeInvitations(identity: identity)
+        XCTAssertEqual(revoked.first { $0["id"] as? String == id }?["status"] as? String, "revoked")
+        try activate(application!.buttons.matching(identifier: "BackButton").firstMatch)
+        try replaceText(element("settingsSearchField"), with: "")
+        try attachFrame(named: "Lumina settings in light appearance")
+        try chooseDeviceSetting("deviceAppearancePicker", option: "Default")
+        completed = true
+    }
+    #endif
 
     func journeyNativeDeviceSettingsRoute() throws {
         var completed = false
@@ -2149,13 +2174,17 @@ class NativeProofJourney: XCTestCase {
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("deviceSettingsScreen"), timeout: 15, named: "Device Settings after caption Back")
         #else
-        try activate(application!.navigationBars["Caption appearance"].buttons.firstMatch)
+        try activate(application!.buttons.matching(identifier: "BackButton").firstMatch)
         try waitForExistence(element("deviceSettingsScreen"), timeout: 15, named: "Device Settings after caption Back")
         #endif
         #if os(tvOS)
         try selectDeviceSettingsCategory("playback")
         #endif
+        #if os(tvOS)
         try chooseDeviceSetting("devicePlaybackQualityPicker", option: "Original (best available)")
+        #else
+        try chooseDeviceSetting("devicePlaybackQualityPicker", option: "Original")
+        #endif
         #if os(tvOS)
         try selectDeviceSettingsCategory("audio")
         #endif
@@ -2181,7 +2210,6 @@ class NativeProofJourney: XCTestCase {
     private func openDeviceSettings() throws {
         #if os(iOS)
         try selectDestination("Account", screen: "accountScreen")
-        try activate(element("deviceSettingsButton"))
         #else
         try selectDestination("Account", screen: "accountScreen")
         #endif
@@ -2198,7 +2226,10 @@ class NativeProofJourney: XCTestCase {
         // Resolve the destination only after its custom choice list is visible.
         try activate(try devicePickerOption(option))
         #else
-        try activate(menuAction(option))
+        let choices = element("\(identifier)-choices")
+        let choice = choices.buttons.matching(NSPredicate(format: "label == %@", option)).firstMatch
+        try revealInLibraryViewport([choice], in: element("accountScreen").exists ? element("accountScreen") : element("deviceSettingsScreen"))
+        try activate(choice)
         #endif
         try assertDeviceSetting(identifier, contains: option)
     }
@@ -2209,7 +2240,11 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(control, timeout: 15, named: "Device Settings \(identifier)")
         try activate(control)
         #else
-        try activate(element(identifier))
+        let control = element(identifier)
+        let screen = hasVisibleFrame(element("deviceSubtitleAppearanceScreen"))
+            ? element("deviceSubtitleAppearanceScreen") : element("accountScreen")
+        try revealInLibraryViewport([control], in: screen)
+        try activate(control)
         #endif
     }
 
@@ -2257,7 +2292,10 @@ class NativeProofJourney: XCTestCase {
         }
         XCTAssertEqual(nativeSwitchValue(control), enabled, "\(identifier) did not change.")
         #else
-        try setNativeSwitch(identifier, to: enabled)
+        let row = element(identifier)
+        try revealInLibraryViewport([row], in: element("deviceSubtitleAppearanceScreen"))
+        try activate(element("\(identifier)-\(enabled ? "on" : "off")"))
+        XCTAssertEqual(nativeSwitchValue(row), enabled)
         #endif
     }
 
@@ -2281,12 +2319,12 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(application!.navigationBars.descendants(matching: .any)
             .matching(identifier: "homeMasthead").firstMatch.exists,
             "Lumina must remain in the top navigation header, outside the scrolling hero.")
-        let homeCategories = element("homeBrowse-all")
-        try waitForHittable(element("homeBrowse-all"), timeout: 15, named: "Top navigation Home categories")
+        let homeCategories = element("homeBrowse-movies")
+        try waitForHittable(element("homeBrowse-movies"), timeout: 15, named: "Top navigation Home categories")
         let homeCategoryY = homeCategories.frame.minY
         XCTAssertEqual(homeCategories.frame.midY, masthead.frame.midY, accuracy: 6,
                        "Categories must share the top navigation line with the Lumina logo.")
-        let homeMenuCenter = (element("homeBrowse-all").frame.minX + element("homeBrowse-watchlist").frame.maxX) / 2
+        let homeMenuCenter = (element("homeBrowse-movies").frame.minX + element("homeBrowse-watchlist").frame.maxX) / 2
         if application!.windows.firstMatch.frame.width > 700 {
             XCTAssertLessThan(abs(homeMenuCenter - application!.windows.firstMatch.frame.midX), 48,
                               "Home categories must occupy the center of the top navigation.")
@@ -2481,6 +2519,11 @@ class NativeProofJourney: XCTestCase {
         try await api.setWatchlistIncluded(identity: identity, itemID: fixture.episodeID, included: false)
         try launchAndResetSession()
         try signIn(using: fixture)
+        XCTAssertFalse(element("homeBrowse-all").exists, "Home must not appear as a category.")
+        XCTAssertFalse(application!.buttons["All"].exists)
+        XCTAssertFalse(element("homeBrowse-anime").exists, "A server without an Anime library must not advertise Anime.")
+        XCTAssertTrue(element("homeBrowse-music").exists, "Available Music must remain in the server menu.")
+        XCTAssertTrue(element("homeBrowse-books").exists, "Available Books must remain in the server menu.")
         let watchlist = element("homeBrowse-watchlist")
         try waitForExistence(watchlist, timeout: 20, named: "Home Watchlist")
         revealHomeMenuControl(watchlist)
@@ -2494,10 +2537,125 @@ class NativeProofJourney: XCTestCase {
         XCTAssertGreaterThan(emptyState.frame.minY, watchlist.frame.maxY + 12,
                              "The empty state must start below the Home navigation.")
         try attachFrame(named: "Empty Watchlist clears top navigation")
-        revealHomeMenuControl(element("homeBrowse-all"))
-        try activate(element("homeBrowse-all"))
-        try waitForHittable(element("featuredPlayButton"), timeout: 15, named: "Hero restored after choosing All")
-        XCTAssertGreaterThan(element("featuredTitleButton").frame.minY, element("homeBrowse-all").frame.maxY + 20)
+        try activate(destinationControl("Home"))
+        try waitForHittable(element("featuredPlayButton"), timeout: 15, named: "Hero restored after choosing Home")
+        XCTAssertFalse(accessibilityText(element("homeBrowse-watchlist")).contains("Selected"))
+        XCTAssertGreaterThan(element("featuredTitleButton").frame.minY, element("homeBrowse-movies").frame.maxY + 20)
+
+        revealHomeMenuControl(watchlist)
+        try activate(watchlist)
+        try waitForExistence(emptyState, timeout: 15, named: "Watchlist before logo navigation")
+        try activate(element("homeMasthead"))
+        try waitForHittable(element("featuredPlayButton"), timeout: 15, named: "Logo restores full Home feed")
+        XCTAssertFalse(accessibilityText(element("homeBrowse-watchlist")).contains("Selected"))
+
+        revealHomeMenuControl(element("homeBrowse-movies"))
+        try activate(element("homeBrowse-movies"))
+        try waitForHittable(element("libraryCategory-movies"), timeout: 15, named: "Movies before logo navigation")
+        XCTAssertFalse(element("libraryCategory-anime").exists, "Library must use the same server categories as Home.")
+        try activate(element("homeMasthead"))
+        try waitForHittable(element("featuredPlayButton"), timeout: 15, named: "Logo returns from Library to Home")
+
+        try activate(element("featuredTitleButton"))
+        try waitForHittable(element("playButton"), timeout: 15, named: "Detail before logo navigation")
+        try activate(element("homeMasthead"))
+        try waitForHittable(element("featuredPlayButton"), timeout: 15, named: "Logo pops detail back to Home")
+        XCTAssertFalse(hasVisibleFrame(element("detailScreen")))
+    }
+    #endif
+
+    #if os(iOS)
+    func journeyWatchlistEpisodeHero() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.setWatchlistIncluded(identity: identity, itemID: fixture.directItemID, included: false)
+        try await api.setWatchlistIncluded(identity: identity, itemID: fixture.episodeID, included: true)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        let watchlist = element("homeBrowse-watchlist")
+        revealHomeMenuControl(watchlist)
+        try activate(watchlist)
+        try waitForHittable(element("featuredTitleButton"), timeout: 20, named: "Saved episode hero")
+        XCTAssertEqual(element("featuredTitleButton").label, fixture.showTitle)
+        let subtitle = element("featuredEpisodeSubtitle")
+        try waitForExistence(subtitle, timeout: 15, named: "Episode information below series title")
+        XCTAssertTrue(subtitle.label.contains("S1 · E1") && subtitle.label.contains(fixture.episodeTitle))
+        try waitForExistence(element("featuredTitleButton").images.firstMatch, timeout: 20, named: "Loaded series logo")
+        XCTAssertEqual(element("featuredWatchlistButton").value as? String, "In watchlist")
+        try attachFrame(named: "Watchlist episode with series artwork and episode details")
+        try activate(element("featuredWatchlistButton"))
+        try waitForExistence(application!.staticTexts["No matches on Home"].firstMatch, timeout: 20, named: "Removed saved episode leaves empty Watchlist")
+        let stillIncluded = try await api.watchlistIncluded(identity: identity, itemID: fixture.episodeID)
+        XCTAssertFalse(stillIncluded)
+        completed = true
+    }
+
+    func journeyNativeHomeHeroMotion() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        let play = element("featuredPlayButton")
+        try waitForHittable(play, timeout: 20, named: "Home hero")
+        // Choosing a feature gives the artwork time to move without advancing the carousel.
+        let choice = element("featuredChoice-\(fixture.convertedItemID)")
+        try activate(choice)
+        try await Task.sleep(for: .seconds(2))
+        let controls = play.frame
+        if application!.windows.firstMatch.frame.width > 700 {
+            let carousel = element("featuredControls").frame
+            XCTAssertEqual(carousel.maxY - play.frame.maxY, 16, accuracy: 3,
+                           "Home actions must share the hero's bottom row with its carousel controls.")
+            XCTAssertEqual(play.frame.minX, element("featuredTitleButton").frame.minX, accuracy: 2)
+            XCTAssertEqual(play.frame.maxY, element("featuredWatchlistButton").frame.maxY, accuracy: 2)
+        }
+        let homeBefore = try heroPixels()
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertNotEqual(try heroPixels(), homeBefore, "Home hero artwork must pan and zoom.")
+        XCTAssertEqual(play.frame, controls, "Artwork motion must leave the hero controls stationary.")
+        try attachFrame(named: "Home hero during slow artwork motion")
+
+        try activate(element("featuredTitleButton"))
+        try waitForHittable(element("playButton"), timeout: 20, named: "Expanded media detail")
+        if application!.windows.firstMatch.frame.width > 700 {
+            XCTAssertGreaterThan(element("playButton").frame.minY, application!.windows.firstMatch.frame.height * 0.65,
+                                 "Detail actions must remain near the bottom of the hero.")
+            XCTAssertEqual(element("playButton").frame.minX, element("detailTitle").frame.minX, accuracy: 2)
+        }
+        try await Task.sleep(for: .seconds(2))
+        let detailBefore = try heroPixels()
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertEqual(try heroPixels(), detailBefore, "Expanded detail artwork must stay static.")
+        try attachFrame(named: "Static expanded detail artwork")
+        completed = true
+    }
+
+    private func heroPixels() throws -> Data {
+        let window = try applicationWindow()
+        let screenshot = window.screenshot().image
+        let viewport = window.frame
+        // Duo snapshots can carry a rotated UIImage orientation. Normalize it
+        // before sampling in the same coordinates used by the visible controls.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let normalized = UIGraphicsImageRenderer(size: viewport.size, format: format).image { _ in
+            screenshot.draw(in: CGRect(origin: .zero, size: viewport.size))
+        }
+        let source = try XCTUnwrap(normalized.cgImage)
+        let scale = CGFloat(source.width) / viewport.width
+        // Sample artwork below the Home header and outside the system rail and title controls.
+        let viewportWidth = application!.windows.firstMatch.frame.width
+        let sampleX = viewportWidth > 700 ? viewportWidth * 0.70 : 40
+        let region = CGRect(x: sampleX * scale, y: 165 * scale, width: 160 * scale, height: 90 * scale)
+        let sample = try XCTUnwrap(source.cropping(to: region))
+        return try XCTUnwrap(UIImage(cgImage: sample).pngData())
     }
     #endif
 
@@ -2521,7 +2679,7 @@ class NativeProofJourney: XCTestCase {
         let title = element("featuredTitleButton")
         let play = element("featuredPlayButton")
         try waitForHittable(play, timeout: 20, named: "Home hero controls")
-        let categories = element("homeBrowse-all")
+        let categories = element("homeBrowse-movies")
         if application!.windows.firstMatch.frame.width < 700 {
             XCTAssertGreaterThan(element("homeBrowsingRow").frame.width, 180,
                                  "The closed display must use the available width for multiple categories.")
@@ -2537,9 +2695,9 @@ class NativeProofJourney: XCTestCase {
         }
         try attachFrame(named: "Home initial browse and hero")
 
-        let all = element("homeBrowse-all")
-        try waitForHittable(all, timeout: 20, named: "All Home filter")
-        XCTAssertTrue(accessibilityText(all).contains("Selected"), "Home must begin with the All filter selected.")
+        XCTAssertFalse(element("homeBrowse-all").exists, "Home must not appear as a category.")
+        XCTAssertFalse(accessibilityText(element("homeBrowse-movies")).contains("Selected"))
+        XCTAssertFalse(accessibilityText(element("homeBrowse-watchlist")).contains("Selected"))
         XCTAssertFalse(element("homeGenresMenu").exists, "Home must leave genre refinement to Library.")
 
         let episodeResume = element("resumeItem-\(fixture.episodeID)")
@@ -2559,6 +2717,10 @@ class NativeProofJourney: XCTestCase {
         }
         for (homeID, libraryID) in [("movies", "movies"), ("tv", "tv"), ("anime", "anime"), ("music", "music"), ("books", "books")] {
             let category = element("homeBrowse-\(homeID)")
+            if homeID == "anime" {
+                XCTAssertFalse(category.exists, "This server has no Anime library.")
+                continue
+            }
             revealHomeMenuControl(category)
             try activate(category)
             let selected = element("libraryCategory-\(libraryID)")
@@ -2626,9 +2788,9 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Account", screen: "accountScreen")
         try activate(element("homeEditButton"))
         try waitForHittable(element("homeLayoutSaveButton"), timeout: 20, named: "loaded Home editor")
-        try waitForHittable(element("homeShelfVisibility-next_up"), timeout: 15, named: "Home visibility switch")
-            .switches.firstMatch.tap()
-        guard element("homeShelfVisibility-next_up").value as? String == "0" else { throw ProofFailure.ui("The visibility switch did not turn off.") }
+        try waitForHittable(element("homeShelfVisibility-next_up"), timeout: 15, named: "Home visibility choices")
+        try setNativeSwitch("homeShelfVisibility-next_up", to: false)
+        guard nativeSwitchValue(element("homeShelfVisibility-next_up")) == false else { throw ProofFailure.ui("The visibility switch did not turn off.") }
         try activate(element("homeLayoutCancelButton"))
         let cancelled = try await api.homeLayout(identity: identity)
         XCTAssertEqual(cancelled?.first { $0.id == "next_up" }?.visible, true, "Cancel saved an uncommitted Home edit.")
@@ -2636,15 +2798,15 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Account", screen: "accountScreen")
         try activate(element("homeEditButton"))
         try waitForHittable(element("homeLayoutSaveButton"), timeout: 20, named: "Home editor ready for reordering")
-        XCTAssertEqual(element("homeShelfVisibility-next_up").value as? String, "1", "Reopening the editor retained a cancelled visibility edit.")
+        XCTAssertEqual(nativeSwitchValue(element("homeShelfVisibility-next_up")), true, "Reopening the editor retained a cancelled visibility edit.")
         let handles = application!.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Reorder"))
             .allElementsBoundByIndex.filter { hasVisibleFrame($0) }
         XCTAssertGreaterThanOrEqual(handles.count, 4, "The full Home shelf editor is missing its first four row handles.")
         guard handles.count >= 4, let first = handles.first else { throw ProofFailure.ui("Missing Home row reorder handles.") }
         handles[3].press(forDuration: 0.8, thenDragTo: first)
-        try waitForHittable(element("homeShelfVisibility-next_up"), timeout: 15, named: "Home visibility switch")
-            .switches.firstMatch.tap()
-        guard element("homeShelfVisibility-next_up").value as? String == "0" else { throw ProofFailure.ui("The visibility switch did not turn off after dragging.") }
+        try waitForHittable(element("homeShelfVisibility-next_up"), timeout: 15, named: "Home visibility choices")
+        try setNativeSwitch("homeShelfVisibility-next_up", to: false)
+        guard nativeSwitchValue(element("homeShelfVisibility-next_up")) == false else { throw ProofFailure.ui("The visibility switch did not turn off after dragging.") }
         try attachFrame(named: "Home editor with reordered shelves and visibility controls")
         try activate(element("homeLayoutSaveButton"))
         guard disappears(element("homeLayoutEditor"), timeout: 20) else { throw ProofFailure.ui("Saving Home layout did not finish.") }
@@ -2660,10 +2822,11 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Account", screen: "accountScreen")
         try activate(element("homeEditButton"))
         try waitForHittable(element("homeLayoutSaveButton"), timeout: 20, named: "persisted Home editor")
-        XCTAssertEqual(element("homeShelfVisibility-next_up").value as? String, "0")
+        XCTAssertEqual(nativeSwitchValue(element("homeShelfVisibility-next_up")), false)
         let picked = element("homeShelfVisibility-picked_for_you")
         for _ in 0..<6 where !picked.isHittable { application!.swipeUp() }
-        try waitForHittable(picked, timeout: 10, named: "Picked for you in the full Home editor").switches.firstMatch.tap()
+        try waitForHittable(picked, timeout: 10, named: "Picked for you in the full Home editor")
+        try setNativeSwitch("homeShelfVisibility-picked_for_you", to: false)
         try activate(element("homeLayoutSaveButton"))
         guard disappears(element("homeLayoutEditor"), timeout: 20) else { throw ProofFailure.ui("Saving a discovery shelf failed.") }
         let discoverySaved = try await api.homeLayout(identity: identity)
@@ -2683,6 +2846,116 @@ class NativeProofJourney: XCTestCase {
         throw XCTSkip("Home shelf reordering uses iOS drag gestures.")
         #endif
     }
+
+    #if os(iOS)
+    func journeyNativeSearchPresentation() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        for (destination, screen, category, searchButton) in [
+            ("Requests", "requestsScreen", "", "requestsSearchButton"),
+            ("Library", "audioScreen", "music", "musicSearchButton"),
+            ("Library", "booksScreen", "books", "booksSearchButton"),
+        ] {
+            try activate(destinationControl(destination))
+            if !category.isEmpty {
+                try waitForHittable(element("libraryCategory-\(category)"), timeout: 15, named: "Library category")
+                try activate(element("libraryCategory-\(category)"))
+            }
+            try waitForHittable(element(screen), timeout: 20, named: "Browse surface before Search")
+            XCTAssertFalse(application!.searchFields.firstMatch.exists, "\(screen) must open without a search drawer.")
+            try activate(element(searchButton))
+            let search = application!.searchFields.firstMatch
+            let cancel = application!.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "Close"])).firstMatch
+            try waitForHittable(search, timeout: 10, named: "Search opened from navigation")
+            search.typeText("Synthetic")
+            try activate(cancel)
+            XCTAssertTrue(disappears(search, timeout: 10), "Cancel must remove the search drawer on \(screen).")
+            try attachFrame(named: "\(screen) after cancelling Search")
+            try activate(element(searchButton))
+            try waitForHittable(search, timeout: 10, named: "Reopened Search")
+            XCTAssertFalse((search.value as? String ?? "").contains("Synthetic"), "Cancelled search text must be cleared.")
+            try activate(cancel)
+            XCTAssertTrue(disappears(search, timeout: 10))
+        }
+        completed = true
+    }
+    #endif
+
+    #if os(iOS)
+    func journeyAlbumArtworkColor() async throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Audio", screen: "audioScreen")
+        let album = try revealMusicAlbum(fixture, named: "Album with generated cover art")
+        try activate(album)
+        try waitForHittable(element("musicPlayButton"), timeout: 25, named: "Album actions")
+        try await Task.sleep(for: .seconds(1))
+        let window = try applicationWindow()
+        let image = window.screenshot().image
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.preferredRange = .standard
+        let sample = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1), format: format).image { _ in
+            image.draw(in: CGRect(x: -window.frame.width * 0.025, y: -window.frame.height * 0.90,
+                                  width: window.frame.width, height: window.frame.height))
+        }
+        let data = try XCTUnwrap(sample.cgImage?.dataProvider?.data)
+        let bytes = try XCTUnwrap(CFDataGetBytePtr(data))
+        let channels = [Int(bytes[0]), Int(bytes[1]), Int(bytes[2])]
+        XCTAssertGreaterThan(channels.max()! - channels.min()!, 12,
+                             "The page outside the cover must inherit its color rather than neutral charcoal.")
+        XCTAssertTrue(element("musicShuffleButton").isEnabled)
+        try attachFrame(named: "Album page with dominant cover color")
+    }
+
+    func journeyMobileWelcome() async throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try waitForHittable(element("serverURLField"), timeout: 20, named: "Server address")
+        XCTAssertFalse(element("connectButton").isEnabled, "Empty credentials must not submit.")
+        XCTAssertFalse(element("connectionHelpSheet").exists)
+        try attachFrame(named: "Mobile welcome with shared offline artwork")
+        try activate(element("connectionHelpButton"))
+        try waitForExistence(element("connectionHelpSheet"), timeout: 10, named: "Connection help")
+        try activate(element("connectionHelpDoneButton"))
+        XCTAssertTrue(disappears(element("connectionHelpSheet"), timeout: 10))
+        try signIn(using: fixture)
+        try waitForExistence(element("homeScreen"), timeout: 20, named: "Home after minimal sign-in")
+    }
+
+    func journeyRequestDetailLayout() async throws {
+        let fixture = try loadFixture()
+        let key = try XCTUnwrap(fixture.requestMovieKey)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try selectDestination("Requests", screen: "requestsScreen")
+        let movie = element("requestDetails-\(key)")
+        try waitForHittable(movie, timeout: 30, named: "Requests hero")
+        try activate(movie)
+        try waitForHittable(element("requestDetailsCloseButton"), timeout: 20, named: "Request detail close")
+        try await Task.sleep(for: .seconds(2))
+        let window = try applicationWindow()
+        let image = window.screenshot().image
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let railSample = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1), format: format).image { _ in
+            image.draw(in: CGRect(x: -window.frame.width * 0.96, y: -window.frame.height * 0.10,
+                                  width: window.frame.width, height: window.frame.height))
+        }
+        let pixels = try XCTUnwrap(railSample.cgImage?.dataProvider?.data)
+        let bytes = try XCTUnwrap(CFDataGetBytePtr(pixels))
+        let channels = [Int(bytes[0]), Int(bytes[1]), Int(bytes[2])]
+        XCTAssertGreaterThan(channels.max()! - channels.min()!, 40,
+                             "Generated colored artwork must reach behind the rail instead of a black safe-area strip.")
+        try attachFrame(named: "Closed Duo request hero behind navigation rail")
+        try activate(element("requestDetailsCloseButton"))
+        XCTAssertTrue(disappears(element("requestDetailScreen"), timeout: 10))
+    }
+    #endif
 
     func journeyNativeRequestsDiscoverSelectAndSubmitThroughTheServer() async throws {
         var completed = false
@@ -2832,7 +3105,7 @@ class NativeProofJourney: XCTestCase {
                              "Home footer controls must remain below its actions, not over title artwork.")
         try activate(homeTitle)
         #else
-        let details = element("featuredDetailsButton")
+        let details = element("featuredTitleButton")
         try revealInLibraryViewport([details, footer])
         XCTAssertGreaterThan(footer.frame.minY, details.frame.maxY,
                              "Home footer controls must remain below Details, not over title artwork.")
@@ -2907,7 +3180,7 @@ class NativeProofJourney: XCTestCase {
         guard waitUntil(timeout: 5, condition: { self.featuredTitleElement.label == fixture.directItemTitle }) else {
             throw ProofFailure.ui("The selected Home feature did not update before opening Details.")
         }
-        let details = element("featuredDetailsButton")
+        let details = element("featuredTitleButton")
         try revealInLibraryViewport([details])
         let controls = element("featuredControls")
         XCTAssertGreaterThan(controls.frame.minY, details.frame.maxY,
@@ -2999,6 +3272,12 @@ class NativeProofJourney: XCTestCase {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
         let fixture = try loadFixture()
+        if let selection = ProcessInfo.processInfo.environment["LUMINA_PERF_PHASES"], !selection.isEmpty {
+            let phases = selection.split(separator: ",").map(String.init)
+            guard phases.allSatisfy(Self.performanceTourPhases.contains) else {
+                throw ProofFailure.ui("LUMINA_PERF_PHASES contains an unknown phase.")
+            }
+        }
         let startAt = try performanceTourStartPhase()
 
         try await performancePhase("login_form") {
@@ -3028,7 +3307,7 @@ class NativeProofJourney: XCTestCase {
 
         if shouldRunPerformancePhase("home_feature_detail", startingAt: startAt) {
             try await performancePhase("home_feature_detail") {
-            let details = element("featuredDetailsButton")
+            let details = element("featuredTitleButton")
             let readyDetails = try waitForPerformanceControl(details, timeout: 20, named: "Home feature details")
             try activate(readyDetails)
             try waitForPerformanceContainer(element("detailScreen"), timeout: 20, named: "Home feature detail")
@@ -3292,6 +3571,9 @@ class NativeProofJourney: XCTestCase {
             let movieTitle = try XCTUnwrap(fixture.requestMovieTitle, "Generate the Requests movie fixture.")
             try selectDestination("Requests", screen: "requestsScreen")
             try await performanceQuietPhase("requests_idle")
+            #if os(iOS)
+            try waitForExistence(application!.buttons["Watch trailer on YouTube"], timeout: 15, named: "featured trailer")
+            #endif
             #if os(tvOS)
             let search = element("requestsSearchField")
             let readySearch = try waitForPerformanceControl(search, timeout: 20, named: "Requests search")
@@ -3347,6 +3629,7 @@ class NativeProofJourney: XCTestCase {
             let closeSearch = application!.navigationBars.buttons["Close"]
             try waitForHittable(closeSearch, timeout: 10, named: "Requests search close")
             try activate(closeSearch)
+            try waitForExistence(application!.buttons["Watch trailer on YouTube"], timeout: 15, named: "featured trailer after search cancellation")
             try waitForHittable(destinationControl("Account"), timeout: 10, named: "Account after Requests search")
             #endif
             }
@@ -3356,6 +3639,7 @@ class NativeProofJourney: XCTestCase {
             try await performancePhase("account") {
             #if os(iOS)
             try selectDestination("Account", screen: "accountScreen")
+            try revealInLibraryViewport([element("homeEditButton")], in: element("accountScreen"))
             try waitForHittable(element("homeEditButton"), timeout: 20, named: "Home settings in Account")
             try await performanceQuietPhase("account_idle")
             try activate(element("homeEditButton"))
@@ -3382,7 +3666,8 @@ class NativeProofJourney: XCTestCase {
             let book = element("book-\(bookID)")
             try revealBookItem(book)
             try await performanceQuietPhase("books_catalog_idle")
-            try activate(book)
+            // Tap the visible artwork rather than the cell center under Duo’s side rail.
+            book.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.2)).tap()
             try waitForExistence(element("bookControlsButton"), timeout: 25, named: "book reader controls")
             try await performanceQuietPhase("books_reader_idle")
             try activate(element("bookControlsButton"))
@@ -3457,6 +3742,9 @@ class NativeProofJourney: XCTestCase {
     }
 
     private func shouldRunPerformancePhase(_ phase: String, startingAt startAt: String?) -> Bool {
+        if let selection = ProcessInfo.processInfo.environment["LUMINA_PERF_PHASES"], !selection.isEmpty {
+            return selection.split(separator: ",").map(String.init).contains(phase)
+        }
         guard let startAt,
               let selectedIndex = Self.performanceTourPhases.firstIndex(of: startAt),
               let phaseIndex = Self.performanceTourPhases.firstIndex(of: phase) else {
@@ -3681,11 +3969,36 @@ class NativeProofJourney: XCTestCase {
         let fixture = try loadFixture()
         try launchAndResetSession()
         try signIn(using: fixture)
+        #if os(iOS)
+        try selectDestination("Video", screen: "libraryScreen")
+        try activate(element("libraryCategory-tv"))
+        try activate(element("libraryItem-\(fixture.showID)"))
+        try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "show seasons")
+        try activate(element("videoSeason-\(fixture.seasonID)"))
+        try activate(element("videoEpisode-\(fixture.episodeID)"))
+        try waitForExistence(element("detailScreen"), timeout: 20, named: "episode details")
+        #else
         try openLibraryItem(id: fixture.directItemID)
+        #endif
         _ = try startPlayback(using: "playButton")
         #if os(iOS)
-        let background = application!.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
-        if element("videoPlaybackChrome").exists { background.tap() }
+        if element("videoTabletopControls").exists {
+            let time = element("playbackTime")
+            let initial = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+            _ = try waitForPlaybackValue(time, timeout: 12) { $0 >= initial + 5 }
+            try attachPlaybackFrame(named: "Tabletop video after system status auto-hides")
+            let transport = element("videoPlayPauseButton")
+            try activate(transport)
+            XCTAssertEqual(transport.frame.midX, application!.windows.firstMatch.frame.midX, accuracy: 2,
+                           "The tabletop transport must remain centered with Next Episode present.")
+            XCTAssertTrue(element("nextEpisodeTransportButton").exists)
+            try attachPlaybackFrame(named: "Centered tabletop episode transport")
+            completed = true
+            return
+        }
+        let background = application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        XCTAssertTrue(disappears(element("videoPlaybackChrome"), timeout: 8))
+        try attachPlaybackFrame(named: "Video after controls and system status auto-hide")
         background.tap()
         let transport = application!.buttons["videoPlayPauseButton"]
         transport.tap()
@@ -3701,9 +4014,20 @@ class NativeProofJourney: XCTestCase {
         let chrome = element("videoPlaybackChrome").frame
         XCTAssertEqual(chrome.midX, viewport.midX, accuracy: 2,
                        "Video chrome must share the video's horizontal center.")
+        #if os(iOS)
+        XCTAssertTrue(element("nextEpisodeTransportButton").exists,
+                      "Centering must hold when an episode has a next action.")
+        let close = element("closePlayerButton").frame
+        let mute = element("videoMuteButton").frame
+        let settings = element("videoSettingsButton").frame
+        XCTAssertEqual(close.minX - viewport.minX, viewport.maxX - mute.maxX, accuracy: 3,
+                       "The top controls must have balanced margins around system UI.")
+        XCTAssertEqual(close.midY, settings.midY, accuracy: 2)
+        XCTAssertEqual(settings.midY, mute.midY, accuracy: 2)
+        #endif
         try attachPlaybackFrame(named: "Centered video overlay")
         #if os(iOS)
-        application!.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
+        application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(disappears(element("videoPlaybackChrome"), timeout: 3),
                       "Tapping the video background must dismiss paused controls immediately.")
         try activate(element("videoControlsSurface"))
@@ -4121,6 +4445,7 @@ class NativeProofJourney: XCTestCase {
             field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
         }
         field.typeText(text)
+        if field.identifier == "settingsSearchField" { field.typeText("\n") }
     }
 
     private func revealVideoBrowseControl(_ control: XCUIElement, named name: String) throws {
@@ -4335,7 +4660,7 @@ class NativeProofJourney: XCTestCase {
         usernameField.typeText("\n")
         try waitForExistence(passwordField, timeout: 10, named: "password field after Next")
         passwordField.typeText(fixture.password)
-        try activate(element("connectButton"))
+        passwordField.typeText("\n") // Use Go when the software keyboard covers Connect on closed Duo.
         #else
         try enter(fixture.serverURL, into: serverField)
         try enter(fixture.username, into: usernameField)
@@ -4405,6 +4730,11 @@ class NativeProofJourney: XCTestCase {
 
     private func setNativeSwitch(_ identifier: String, to enabled: Bool) throws {
         #if os(iOS)
+        if identifier.hasPrefix("homeShelfVisibility-") {
+            try activate(element("\(identifier)-\(enabled ? "on" : "off")"))
+            XCTAssertEqual(nativeSwitchValue(element(identifier)), enabled)
+            return
+        }
         let native = application!.switches.matching(identifier: identifier).firstMatch
         #else
         let native = element(identifier)
@@ -4455,7 +4785,7 @@ class NativeProofJourney: XCTestCase {
     private func destinationControl(_ requestedTitle: String) -> XCUIElement {
         #if os(tvOS)
         let identifier = switch requestedTitle {
-        case "Home": "homeBrowse-all"
+        case "Home": "homeMasthead"
         case "Library", "Video": "homeBrowse-movies"
         case "Audio": "homeBrowse-music"
         case "Requests": "requestsButton"
@@ -4493,6 +4823,9 @@ class NativeProofJourney: XCTestCase {
         let signOut = element("deviceSignOutButton")
         #endif
         try waitForExistence(signOut, timeout: 10, named: "account sign-out action")
+        #if os(iOS)
+        try revealInLibraryViewport([signOut], in: element("accountScreen"))
+        #endif
         try activate(signOut)
     }
 
@@ -4982,6 +5315,9 @@ class NativeProofJourney: XCTestCase {
         }
         XCUIRemote.shared.press(.select)
         #else
+        if control.exists, control.identifier == "homeEditButton" {
+            try revealInLibraryViewport([control], in: element("accountScreen"))
+        }
         let visibleControl = try waitForHittable(control, timeout: 15, named: "control")
         visibleControl.tap()
         #endif
@@ -5384,6 +5720,15 @@ private enum APIRequestSeasons: Decodable {
 private struct ProofAPI {
     let origin: URL
     let session: URLSession
+
+    @MainActor func nativeInvitations(identity: APIIdentity) async throws -> [[String: Any]] {
+        var request = URLRequest(url: origin.appendingPathComponent("Lumina/Settings/admin/invites"))
+        request.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
+        guard let rows = try JSONSerialization.jsonObject(with: await send(request)) as? [[String: Any]] else {
+            throw ProofAPIError.malformedResponse
+        }
+        return rows
+    }
 
     @MainActor func settingsJSON(identity: APIIdentity, method: String = "GET", body: [String: Any]? = nil) async throws -> [String: Any] {
         var request = URLRequest(url: origin.appendingPathComponent("Lumina/Settings"))

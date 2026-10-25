@@ -150,6 +150,12 @@ struct PlaybackScreen: View {
     @FocusState private var focusedAudioControl: TVAudioFocus?
     #endif
     @State private var videoIsScrubbing = false
+    #if os(iOS)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var audioTimelineVisible = true
+    @State private var audioIsScrubbing = false
+    @State private var audioTimelineHideTask: Task<Void, Never>?
+    #endif
     private let store: LuminaStore
 
     init(request: PlaybackRequest, store: LuminaStore, queue: [MediaItem] = [], queueIndex: Int? = nil) {
@@ -197,7 +203,9 @@ struct PlaybackScreen: View {
                         #endif
                 }
             } else {
-                videoStage.ignoresSafeArea()
+                GeometryReader { container in
+                    videoStage(safeArea: container.safeAreaInsets).ignoresSafeArea()
+                }
             }
             #if !os(tvOS)
             if requestedPlayback.request.item.isAudio, ProcessInfo.processInfo.arguments.contains("--ui-testing") {
@@ -251,6 +259,8 @@ struct PlaybackScreen: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarVisibility(requestedPlayback.request.item.isAudio ? .visible : .hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
+        .statusBarHidden(!requestedPlayback.request.item.isAudio && !videoSystemOverlaysVisible)
+        .persistentSystemOverlays(requestedPlayback.request.item.isAudio || videoSystemOverlaysVisible ? .visible : .hidden)
         #endif
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("playbackScreen")
@@ -487,6 +497,8 @@ struct PlaybackScreen: View {
                             .accessibilityAction(named: "Next track") { skipAudioTrack(offset: 1) }
                             .accessibilityAction(named: "Previous track") { skipAudioTrack(offset: -1) }
                             .gesture(AudioArtworkSwipe(onSkip: skipAudioTrack))
+                            .simultaneousGesture(TapGesture().onEnded { revealAudioTimeline() })
+                            .accessibilityAction(named: "Show track progress") { revealAudioTimeline() }
                         }
                         .ignoresSafeArea(.container, edges: [.top, .horizontal])
                         VStack(alignment: .leading, spacing: 12) {
@@ -506,6 +518,9 @@ struct PlaybackScreen: View {
                             LinearGradient(colors: [.clear, .black.opacity(0.88)], startPoint: .top, endPoint: .bottom)
                                 .ignoresSafeArea(.container, edges: .horizontal)
                         }
+                        .opacity(showsAudioTimeline ? 1 : 0)
+                        .allowsHitTesting(showsAudioTimeline)
+                        .accessibilityHidden(!showsAudioTimeline)
                     }
                     .frame(height: geometry.size.height + geometry.safeAreaInsets.bottom)
                     VStack(alignment: .leading, spacing: 24) {
@@ -534,11 +549,27 @@ struct PlaybackScreen: View {
         }
         .foregroundStyle(.white)
         .accessibilityIdentifier("audioPlayerStage")
+        .task(id: playback.request.id) { revealAudioTimeline() }
+        .onDisappear { audioTimelineHideTask?.cancel() }
+    }
+
+    private var showsAudioTimeline: Bool {
+        audioTimelineVisible || displayedError != nil || playback.syncError != nil
+    }
+
+    private func revealAudioTimeline() {
+        audioTimelineHideTask?.cancel()
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { audioTimelineVisible = true }
+        guard !audioIsScrubbing, !UIAccessibility.isVoiceOverRunning else { return }
+        audioTimelineHideTask = Task {
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { audioTimelineVisible = false }
+        }
     }
 
     #endif
 
-    private var videoStage: some View {
+    private func videoStage(safeArea: EdgeInsets) -> some View {
         GeometryReader { geometry in
             let division = tabletopDivision(in: geometry)
             #if os(tvOS)
@@ -583,6 +614,12 @@ struct PlaybackScreen: View {
                     }
                     if !videoSettingsVisible && (videoChromeVisible || displayedError != nil || playback.hasFinished) {
                         videoOverlay
+                            #if os(iOS)
+                            .padding(.top, safeArea.top)
+                            .padding(.bottom, safeArea.bottom)
+                            .padding(.horizontal, max(safeArea.leading, safeArea.trailing))
+                            #endif
+                            .background { videoScrim.allowsHitTesting(false) }
                             .transition(.opacity)
                     }
                     if !videoSettingsVisible, !videoSettingsPresented, displayedError == nil {
@@ -732,10 +769,11 @@ struct PlaybackScreen: View {
                     }
                     .labelStyle(.iconOnly)
                     .accessibilityIdentifier("videoSeekForwardButton")
-                    nextEpisodeTransport
                 }
                 .controlSize(.large)
                 .buttonStyle(LuminaQuietActionStyle())
+                .frame(maxWidth: .infinity)
+                .overlay(alignment: .trailing) { nextEpisodeTransport }
                 videoContextActions(showNext: playback.activeCredits != nil || playback.hasFinished)
                 if let syncError = playback.syncError {
                     Text(syncError)
@@ -856,6 +894,10 @@ struct PlaybackScreen: View {
         guard !videoSettingsVisible, !videoSettingsPresented, displayedError == nil, !playback.hasFinished else { return }
         if videoChromeVisible { hideVideoChrome() }
         else { revealVideoChrome() }
+    }
+
+    private var videoSystemOverlaysVisible: Bool {
+        videoChromeVisible || videoSettingsPresented || displayedError != nil || playback.hasFinished
     }
 
     private func hideVideoChrome() {
@@ -1063,11 +1105,11 @@ struct PlaybackScreen: View {
                         .labelStyle(.iconOnly)
                         .accessibilityIdentifier("videoSeekForwardButton")
                     .focused($focusedVideoControl, equals: "videoSeekForwardButton")
-                    nextEpisodeTransport
                 }
                 .buttonStyle(LuminaQuietActionStyle())
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
+                .overlay(alignment: .trailing) { nextEpisodeTransport }
                 #if os(tvOS)
                 .focusSection()
                 .onMoveCommand { direction in
@@ -1094,7 +1136,6 @@ struct PlaybackScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(.horizontal, videoHorizontalInset)
         .padding(.vertical, videoVerticalInset)
-        .background { videoScrim.allowsHitTesting(false) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("videoPlaybackChrome")
         #if os(tvOS)
@@ -1190,7 +1231,10 @@ struct PlaybackScreen: View {
             ProgressView(value: min(playback.elapsedSeconds, max(1, playback.request.item.durationSeconds)), total: max(1, playback.request.item.durationSeconds))
                 .tint(focusedAudioControl == .timeline ? .white : LuminaTheme.brand)
             #else
-            Slider(value: Binding(get: { playback.elapsedSeconds }, set: { playback.seek(to: $0) }), in: 0...max(1, playback.request.item.durationSeconds))
+            Slider(value: Binding(get: { playback.elapsedSeconds }, set: { playback.seek(to: $0) }), in: 0...max(1, playback.request.item.durationSeconds), onEditingChanged: { editing in
+                audioIsScrubbing = editing
+                revealAudioTimeline()
+            })
                 .tint(LuminaTheme.brand)
                 .accessibilityLabel("Track position")
             #endif

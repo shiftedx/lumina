@@ -39,6 +39,7 @@ struct NativeRequestsView: View {
     @State private var loadingResults = false
     @State private var resultGeneration = UUID()
     @State private var featuredTrailer: URL?
+    @State private var trailerItemID: String?
     @Environment(\.horizontalSizeClass) private var widthClass
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.openURL) private var openURL
@@ -185,8 +186,7 @@ struct NativeRequestsView: View {
                 .accessibilityIdentifier("requestsOptionsMenu")
             }
         }
-        .searchable(text: $search, isPresented: $searchVisible, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search all films, series, and anime")
-        .onSubmit(of: .search) { searchVisible = false }
+        .modifier(NativeSearchPresentation(text: $search, isPresented: $searchVisible, prompt: "Search all films, series, and anime"))
         .accessibilityElement(children: .contain)
         .ignoresSafeArea(.container, edges: .horizontal)
         .accessibilityIdentifier("requestsScreen")
@@ -209,11 +209,14 @@ struct NativeRequestsView: View {
         }
         .onChange(of: kind) { _, _ in section = "trending"; genre = nil }
         .task(id: "\(featured?.id ?? "")|\(isActive)") {
-            featuredTrailer = nil
-            guard isActive, let item = featured, let id = item.catalogID else { return }
-            let detail = try? await catalog.detail(kind: item.kind, id: id)
-            guard !Task.isCancelled else { return }
-            featuredTrailer = detail?.trailers.compactMap(\.youtubeURL).first
+            if trailerItemID != featured?.id {
+                featuredTrailer = nil
+                trailerItemID = nil
+            }
+            guard isActive, let item = featured, let id = item.catalogID, trailerItemID != item.id else { return }
+            guard let detail = try? await catalog.detail(kind: item.kind, id: id), !Task.isCancelled else { return }
+            featuredTrailer = detail.trailers.compactMap(\.youtubeURL).first
+            trailerItemID = item.id
         }
     }
 
@@ -356,94 +359,102 @@ private struct RequestDetailSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    ZStack(alignment: .bottomLeading) {
-                        RequestArtwork(url: current.backdropURL ?? current.posterURL, catalog: catalog)
-                        LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .center, endPoint: .bottom)
-                        MediaTitleArtwork(name: current.title, url: current.logoURL) {
-                            Text(current.title)
-                                .font(LuminaTheme.editorial(38, relativeTo: .largeTitle, italic: true))
-                        }
-                        .padding(24)
-                    }
-                    .frame(height: typeSize.isAccessibilitySize ? 380 : 300)
-                    VStack(alignment: .leading, spacing: 22) {
-                        HStack(spacing: 12) {
-                            if let year = current.year { Text(String(year)) }
-                            if let runtime = detail?.runtime { Text("\(runtime) min") }
-                            if let rating = current.rating { Label(rating.formatted(.number.precision(.fractionLength(1))), systemImage: "star.fill") }
-                        }.font(.subheadline).foregroundStyle(.secondary)
-                        if let tagline = detail?.tagline, !tagline.isEmpty { Text(tagline).font(.headline) }
-                        if let overview = current.overview { Text(overview).font(.body) }
-                        if !current.genres.isEmpty {
-                            Text(current.genres.joined(separator: " · ")).font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        if let trailerURL = detail?.trailers.compactMap(\.youtubeURL).first {
-                            Button { openURL(trailerURL) } label: {
-                                Label("Watch trailer on YouTube", systemImage: "arrow.up.right")
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        ZStack(alignment: .bottomLeading) {
+                            RequestArtwork(url: current.backdropURL ?? current.posterURL, catalog: catalog)
+                            LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .center, endPoint: .bottom)
+                            MediaTitleArtwork(name: current.title, url: current.logoURL) {
+                                Text(current.title)
+                                    .font(LuminaTheme.editorial(38, relativeTo: .largeTitle, italic: true))
                             }
-                            .buttonStyle(.plain).font(.headline)
-                            .accessibilityIdentifier("requestYouTubeTrailerButton")
+                            .padding(.vertical, 24)
+                            .padding(.leading, 24 + geometry.safeAreaInsets.leading)
+                            .padding(.trailing, 24 + geometry.safeAreaInsets.trailing)
                         }
-                        if loading { ProgressView("Loading title details…") }
-                        else if let created {
-                            Label(created.status.label, systemImage: "checkmark.circle.fill")
-                                .font(.title3.weight(.semibold)).foregroundStyle(LuminaTheme.accentInk)
-                                .accessibilityIdentifier("requestSubmittedStatus")
-                            Text(created.status == .pending ? "Your household’s administrator will review this request." : "Your request is saved. Follow its progress in My requests.")
-                                .foregroundStyle(.secondary)
-                        } else if current.canRequest && current.status.canCreateRequest {
-                            requestChoices
-                        } else {
-                            Label(current.status.state == .none ? "Not available to request yet" : current.status.label, systemImage: "info.circle")
-                                .foregroundStyle(.secondary)
-                        }
-                        if let problem {
-                            Text(problem).foregroundStyle(.red).accessibilityIdentifier("requestSubmissionError")
-                        }
-                        if let cast = detail?.cast, !cast.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Starring").font(.headline)
-                                Text(cast.prefix(8).map(\.name).joined(separator: ", ")).foregroundStyle(.secondary)
+                        .frame(height: typeSize.isAccessibilitySize ? 380 : 300)
+                        VStack(alignment: .leading, spacing: 22) {
+                            HStack(spacing: 12) {
+                                if let year = current.year { Text(String(year)) }
+                                if let runtime = detail?.runtime { Text("\(runtime) min") }
+                                if let rating = current.rating { Label(rating.formatted(.number.precision(.fractionLength(1))), systemImage: "star.fill") }
+                            }.font(.subheadline).foregroundStyle(.secondary)
+                            if let tagline = detail?.tagline, !tagline.isEmpty { Text(tagline).font(.headline) }
+                            if let overview = current.overview { Text(overview).font(.body) }
+                            if !current.genres.isEmpty {
+                                Text(current.genres.joined(separator: " · ")).font(.subheadline).foregroundStyle(.secondary)
                             }
-                        }
-                        if let recommendations = detail?.recommendations, !recommendations.isEmpty {
-                            VStack(alignment: .leading, spacing: 14) {
-                                Text("More like this").font(.title2.weight(.bold))
-                                ScrollView(.horizontal) {
-                                    HStack(spacing: 12) {
-                                        ForEach(recommendations.prefix(12)) { entry in
-                                            Button { recommendation = entry } label: {
-                                                RequestArtwork(url: entry.posterURL, catalog: catalog)
-                                                    .frame(width: 128, height: 192).clipShape(.rect(cornerRadius: 8))
-                                            }.accessibilityLabel(entry.title)
+                            if let trailerURL = detail?.trailers.compactMap(\.youtubeURL).first {
+                                Button { openURL(trailerURL) } label: {
+                                    Label("Watch trailer on YouTube", systemImage: "arrow.up.right")
+                                }
+                                .buttonStyle(.plain).font(.headline)
+                                .accessibilityIdentifier("requestYouTubeTrailerButton")
+                            }
+                            if loading { ProgressView("Loading title details…") }
+                            else if let created {
+                                Label(created.status.label, systemImage: "checkmark.circle.fill")
+                                    .font(.title3.weight(.semibold)).foregroundStyle(LuminaTheme.accentInk)
+                                    .accessibilityIdentifier("requestSubmittedStatus")
+                                Text(created.status == .pending ? "Your household’s administrator will review this request." : "Your request is saved. Follow its progress in My requests.")
+                                    .foregroundStyle(.secondary)
+                            } else if current.canRequest && current.status.canCreateRequest {
+                                requestChoices
+                            } else {
+                                Label(current.status.state == .none ? "Not available to request yet" : current.status.label, systemImage: "info.circle")
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let problem {
+                                Text(problem).foregroundStyle(.red).accessibilityIdentifier("requestSubmissionError")
+                            }
+                            if let cast = detail?.cast, !cast.isEmpty {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("Starring").font(.headline)
+                                    Text(cast.prefix(8).map(\.name).joined(separator: ", ")).foregroundStyle(.secondary)
+                                }
+                            }
+                            if let recommendations = detail?.recommendations, !recommendations.isEmpty {
+                                VStack(alignment: .leading, spacing: 14) {
+                                    Text("More like this").font(.title2.weight(.bold))
+                                    ScrollView(.horizontal) {
+                                        LazyHStack(spacing: 12) {
+                                            ForEach(recommendations.prefix(12)) { entry in
+                                                Button { recommendation = entry } label: {
+                                                    RequestArtwork(url: entry.posterURL, catalog: catalog)
+                                                        .frame(width: 128, height: 192).clipShape(.rect(cornerRadius: 8))
+                                                }.accessibilityLabel(entry.title)
+                                            }
                                         }
-                                    }
-                                }.scrollIndicators(.hidden)
-                                .modifier(LuminaCarouselEdges(inset: 24))
+                                    }.scrollIndicators(.hidden)
+                                    .modifier(LuminaCarouselEdges(inset: 24))
+                                }
                             }
                         }
-                    }.padding(.horizontal, 24).padding(.bottom, 32)
+                        .padding(.leading, 24 + geometry.safeAreaInsets.leading)
+                        .padding(.trailing, 24 + geometry.safeAreaInsets.trailing)
+                        .padding(.bottom, 32)
+                    }
                 }
-            }
-            .scrollClipDisabled()
-            .background(.black).foregroundStyle(.white)
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", systemImage: "xmark") { dismiss() }
-                        .labelStyle(.iconOnly).accessibilityIdentifier("requestDetailsCloseButton")
+                .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                .scrollClipDisabled()
+                .background(.black).foregroundStyle(.white)
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done", systemImage: "xmark") { dismiss() }
+                            .labelStyle(.iconOnly).accessibilityIdentifier("requestDetailsCloseButton")
+                    }
                 }
+                .task { await load() }
+                .sheet(item: $recommendation) { entry in
+                    RequestDetailSheet(item: entry, catalog: catalog)
+                }
+                .accessibilityIdentifier("requestDetailScreen")
             }
-            .task { await load() }
-            .sheet(item: $recommendation) { entry in
-                RequestDetailSheet(item: entry, catalog: catalog)
-            }
-            .accessibilityIdentifier("requestDetailScreen")
         }
         .preferredColorScheme(.dark)
     }

@@ -19,10 +19,19 @@ public final class ArtworkImageCache {
         init(_ image: CGImage) { self.image = image }
     }
 
-    private struct InFlight {
+    private typealias PreparedImage = (image: CGImage, encoded: Data)
+
+    private final class InFlight {
         let identifier = UUID()
         let generation: Int
-        let task: Task<(image: CGImage, encoded: Data)?, Never>
+        let priority: TaskPriority
+        var task: Task<PreparedImage?, Never>?
+        var consumers = [UUID: CheckedContinuation<CGImage?, Never>]()
+
+        init(generation: Int, priority: TaskPriority) {
+            self.generation = generation
+            self.priority = priority
+        }
     }
 
     private let transport: BoundedArtworkTransport
@@ -32,6 +41,8 @@ public final class ArtworkImageCache {
     private let images = NSCache<NSURL, CachedImage>()
     private let encodedImages = NSCache<NSURL, NSData>()
     private var inFlight = [URL: InFlight]()
+    private var queuedLoads: [URL] = []
+    private var activeLoads = 0
     private var generation = 0
     private var pendingPrefetch: [URL] = []
     private var prefetchTask: Task<Void, Never>?
@@ -80,58 +91,91 @@ public final class ArtworkImageCache {
         prefetchTask?.cancel()
         prefetchTask = nil
         pendingPrefetch.removeAll()
-        inFlight.values.forEach { $0.task.cancel() }
+        for entry in inFlight.values {
+            entry.task?.cancel()
+            entry.consumers.values.forEach { $0.resume(returning: nil) }
+        }
+        queuedLoads.removeAll()
         inFlight.removeAll()
         images.removeAllObjects()
         encodedImages.removeAllObjects()
     }
 
-    /// Coalesces view lifetimes that ask for the same signed rendition. A cancelled caller does
-    /// not cancel a shared fetch; it simply declines to use the result in its own view task.
+    /// Visible consumers share one rendition. Work is cancelled when its last consumer leaves;
+    /// prefetch uses the same admission limit as mounted artwork instead of a second load pool.
     public func image(for url: URL) async -> CGImage? {
+        guard !Task.isCancelled else { return nil }
         if let image = cachedImage(for: url) { return image }
-        if let entry = inFlight[url] {
-            let image = await entry.task.value
-            return generation == entry.generation ? image?.image : nil
-        }
-
-        let transport = transport
-        let decode = decode
-        let retained = encodedImages.object(forKey: url as NSURL).map { $0 as Data }
-        let task = Task.detached(priority: Task.currentPriority) { [transport, decode] () -> (image: CGImage, encoded: Data)? in
-            do {
-                let data: Data
-                if let retained {
-                    data = retained
-                } else if url.isFileURL {
-                    data = try Data(contentsOf: url, options: .mappedIfSafe)
-                } else {
-                    data = try await transport.data(from: url, maximumBytes: BillboardArtworkPreparation.maximumEncodedBytes)
+        let consumer = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(returning: nil); return }
+                let entry: InFlight
+                if let existing = inFlight[url] { entry = existing }
+                else {
+                    entry = InFlight(generation: generation, priority: Task.currentPriority)
+                    inFlight[url] = entry
+                    queuedLoads.append(url)
                 }
-                guard !Task.isCancelled,
-                      data.count <= BillboardArtworkPreparation.maximumEncodedBytes
-                else { return nil }
-                guard let image = decode(data) else { return nil }
-                return (image, data)
-            } catch {
-                return nil
+                entry.consumers[consumer] = continuation
+                startQueuedLoads()
             }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelConsumer(consumer, for: url) }
         }
-        let entry = InFlight(generation: generation, task: task)
-        inFlight[url] = entry
-        let image = await task.value
-        guard inFlight[url]?.identifier == entry.identifier else { return nil }
+    }
+
+    private func cancelConsumer(_ consumer: UUID, for url: URL) {
+        guard let entry = inFlight[url], let waiter = entry.consumers.removeValue(forKey: consumer) else { return }
+        waiter.resume(returning: nil)
+        guard entry.consumers.isEmpty else { return }
+        entry.task?.cancel()
         inFlight[url] = nil
-        guard generation == entry.generation else { return nil }
-        if let image {
-            if image.encoded.count <= maximumEncodedBytes {
-                encodedImages.setObject(image.encoded as NSData, forKey: url as NSURL, cost: image.encoded.count)
+        queuedLoads.removeAll { $0 == url }
+    }
+
+    private func startQueuedLoads() {
+        while activeLoads < 4, !queuedLoads.isEmpty {
+            let url = queuedLoads.removeFirst()
+            guard let entry = inFlight[url], !entry.consumers.isEmpty else { continue }
+            activeLoads += 1
+            let transport = transport, decode = decode
+            let retained = encodedImages.object(forKey: url as NSURL).map { $0 as Data }
+            let task = Task.detached(priority: entry.priority) { [transport, decode] () -> PreparedImage? in
+                do {
+                    let data: Data
+                    if let retained { data = retained }
+                    else if url.isFileURL { data = try Data(contentsOf: url, options: .mappedIfSafe) }
+                    else { data = try await transport.data(from: url, maximumBytes: BillboardArtworkPreparation.maximumEncodedBytes) }
+                    guard !Task.isCancelled, data.count <= BillboardArtworkPreparation.maximumEncodedBytes,
+                          let image = decode(data), !Task.isCancelled else { return nil }
+                    return (image, data)
+                } catch { return nil }
             }
-            if let cost = decodedByteCost(of: image.image) {
-                images.setObject(CachedImage(image.image), forKey: url as NSURL, cost: cost)
+            entry.task = task
+            let identifier = entry.identifier, scope = entry.generation
+            Task { [weak self] in
+                let result = await task.value
+                self?.finishLoad(for: url, identifier: identifier, generation: scope, result: result)
             }
         }
-        return image?.image
+    }
+
+    private func finishLoad(for url: URL, identifier: UUID, generation scope: Int, result: PreparedImage?) {
+        // A cancelled predecessor still owns its slot until transport/decode actually finishes.
+        activeLoads -= 1
+        defer { startQueuedLoads() }
+        guard let entry = inFlight[url], entry.identifier == identifier, generation == scope else { return }
+        inFlight[url] = nil
+        if let result {
+            if result.encoded.count <= maximumEncodedBytes {
+                encodedImages.setObject(result.encoded as NSData, forKey: url as NSURL, cost: result.encoded.count)
+            }
+            if let cost = decodedByteCost(of: result.image) {
+                images.setObject(CachedImage(result.image), forKey: url as NSURL, cost: cost)
+            }
+        }
+        entry.consumers.values.forEach { $0.resume(returning: result?.image) }
     }
 
     /// Replace stale lookahead with the latest window. A single worker keeps speculative

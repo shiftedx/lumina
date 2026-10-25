@@ -9,7 +9,7 @@ import secrets
 import threading
 import time
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,9 +19,9 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import get_db
 from app.media_schemas import AppPasswordCreateRequest, AppPasswordCreated, ConnectedApp, ConnectedAppCreateRequest, ConnectedAppCreated, SignOutAllAppsResponse
-from app.models import AppSettings, DeviceToken, User, utcnow
+from app.models import AccountToken, AppSettings, DeviceToken, User, utcnow
 from app.persistence import write_transaction
-from app.routers import requests as member_requests
+from app.routers import admin_library_automation, requests as member_requests
 from app.routers import profile_export, reco as reco_routes, search_history
 from app.services.resource_policy import effective as effective_resource_allowances
 from app.routers.jellyfin_integration import JellyfinCaller, jellyfin_caller
@@ -30,7 +30,7 @@ from app.schemas import (
     UserResponse, UserSelfUpdateRequest, UserSettingsResponse, UserSettingsUpdateRequest,
 )
 from app.security import DEVICE_TOKEN_IDLE_DAYS, PasswordPolicyError, audit_log, hash_password, session_digest, validate_password_policy, verify_password
-from app.services import member_access, public_address, two_factor
+from app.services import invites, member_access, public_address, two_factor
 from app.services.connected_apps import create_agent_token, create_app_password, revoke_connected_app as revoke_connected_app_service, sign_out_all_apps, to_connected_app
 from app.services.rate_limit import enforce_rate_limit
 from app.services.user_settings import UserSettingsService
@@ -102,6 +102,78 @@ def _live_user(db: Session, caller: JellyfinCaller) -> User:
 def _require_reauth(request: Request, caller: JellyfinCaller) -> None:
     if not _reauth_proofs.consume(request.headers.get(_REAUTH_HEADER), caller):
         raise HTTPException(status_code=401, detail="reauthentication_required")
+
+
+def _no_store(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+
+
+def _live_admin(db: Session, caller: JellyfinCaller, *, write: bool = False) -> User:
+    """Authorize native admin quick actions from live member and token rows."""
+    user = db.get(User, caller.user.id, populate_existing=True)
+    token = db.get(DeviceToken, caller.token_id, populate_existing=True)
+    if user is None or not user.is_active or token is None or token.kind != "jellyfin" or token.user_id != user.id:
+        raise HTTPException(status_code=401, detail="Invalid or revoked token")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if write and token.scope != "write":
+        raise HTTPException(status_code=403, detail="This connected app has read-only access.")
+    return user
+
+
+@router.get("/admin/library")
+def get_admin_library(response: Response, caller: Caller, db: Db) -> admin_library_automation.LibraryAutomationResponse:
+    _live_admin(db, caller)
+    _no_store(response)
+    return admin_library_automation.get_automation()
+
+
+@router.post("/admin/library/scan", status_code=202)
+def scan_admin_library(
+    response: Response, caller: Caller, db: Db,
+    payload: admin_library_automation.ScanRequest | None = None,
+) -> dict[str, Any]:
+    admin = _live_admin(db, caller, write=True)
+    _no_store(response)
+    return admin_library_automation.scan_now(payload, admin=admin, db=db)
+
+
+@router.get("/admin/invites")
+def get_admin_invites(response: Response, caller: Caller, db: Db) -> list[dict]:
+    _live_admin(db, caller)
+    _no_store(response)
+    rows = db.scalars(
+        select(AccountToken).where(AccountToken.kind == "invite", AccountToken.email.is_not(None))
+        .order_by(AccountToken.created_at.desc()).limit(100)
+    ).all()
+    return [invites.serialize(db, row) for row in rows]
+
+
+@router.post("/admin/invites", status_code=201)
+def create_admin_invite(
+    body: invites.InviteCreate, request: Request, response: Response, caller: Caller, db: Db,
+) -> dict:
+    admin = _live_admin(db, caller, write=True)
+    _require_reauth(request, caller)
+    result = invites.create(db, admin, body)
+    audit_log.info("invite.create actor=%s invite=%s sent=%s", admin.id, result["id"], result["email_sent"])
+    _no_store(response)
+    return result
+
+
+@router.delete("/admin/invites/{invite_id}", status_code=204)
+def revoke_admin_invite(invite_id: str, request: Request, caller: Caller, db: Db) -> Response:
+    admin = _live_admin(db, caller, write=True)
+    _require_reauth(request, caller)
+    try:
+        UserService(db).revoke_invitation(admin, invite_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Invitation not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    response = Response(status_code=204)
+    _no_store(response)
+    return response
 
 
 def _server_native_streaming_enabled(db: Session) -> bool:
@@ -228,6 +300,34 @@ def get_capabilities(response: Response, caller: Caller, db: Db) -> dict[str, bo
         "streaming_enabled": native_streaming_enabled(db, user),
         "youtube_session_enabled": native_youtube_session_enabled(db, user),
     }
+
+
+@router.get("/navigation")
+def get_navigation(response: Response, caller: Caller, db: Db) -> dict[str, list[str]]:
+    """Native menus reflect the complete visible catalog, never just a Home page of titles."""
+    from app.book_models import BookItem
+    from app.models import LibraryItem, MediaTitle
+    from app.services.books import BookService
+    from app.services.library import LibraryService
+    from app.services.titles import TitleService
+
+    user = _live_user(db, caller)
+    categories = set()
+    for category in db.scalars(select(MediaTitle.category).where(
+        MediaTitle.type.in_(("movie", "series")), TitleService.visible(user),
+    ).distinct()):
+        if category in ("movies", "shows", "anime"):
+            categories.add("tv" if category == "shows" else category)
+    if db.scalar(select(LibraryItem.id).where(
+        LibraryItem.kind.in_(("track", "audio")), LibraryItem.status != "missing", LibraryService.visible_predicate(user),
+    ).limit(1)):
+        categories.add("music")
+    if db.scalar(select(BookItem.id).where(
+        BookService(db).catalog_predicate(user), BookItem.available.is_(True),
+    ).limit(1)):
+        categories.add("books")
+    _no_store(response)
+    return {"categories": [key for key in ("movies", "tv", "anime", "music", "books") if key in categories]}
 
 
 def _resource_jobs(db: Session, user: User) -> list[dict[str, str]]:

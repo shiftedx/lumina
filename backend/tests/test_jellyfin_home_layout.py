@@ -9,10 +9,10 @@ from sqlalchemy import select
 
 from app import db as db_module
 from app.main import app
-from app.models import PlaybackProgress, User, UserSettings
+from app.models import MediaTitle, PlaybackProgress, User, UserSettings
 from app.services.watch_queue import WatchQueueService
 from app.services.user_settings import UserSettingsService
-from title_support import ALICE, ALICE_TOKEN, BOB_TOKEN, FILE, MOVIE_1080, S1E1, TRACKS, T0, jellyfin_household, mediabrowser, seed_gallery, uid
+from title_support import ALICE, ALICE_TOKEN, BOB_TOKEN, FILE, MOVIE_1080, S1E1, SERIES, TRACKS, T0, jellyfin_household, mediabrowser, seed_gallery, uid
 
 
 BASE = "/Lumina/Home/layout"
@@ -100,6 +100,10 @@ def test_layout_validates_member_scope_and_null_reset(native: TestClient) -> Non
 def test_rows_follow_the_shared_layout_and_only_serve_visible_member_media(native: TestClient, tmp_path: Path) -> None:
     with db_module.SessionLocal.begin() as db:
         seed_gallery(db, tmp_path / "media")
+        series = db.get(MediaTitle, SERIES)
+        series.images = {**series.images,
+                         "Backdrop": {"path": "Show/poster.png", "tag": "series-backdrop"},
+                         "Logo": {"path": "Show/poster.png", "tag": "series-logo"}}
         db.add_all([
             PlaybackProgress(id=uid(900), user_id=ALICE, item_id=FILE[S1E1], position_seconds=90, duration_seconds=1500, last_watched_at=T0),
             PlaybackProgress(id=uid(901), user_id=ALICE, item_id=TRACKS[0], position_seconds=30, duration_seconds=180, last_watched_at=T0),
@@ -143,6 +147,17 @@ def test_rows_follow_the_shared_layout_and_only_serve_visible_member_media(nativ
     assert queued_episode["LuminaCategory"] == "shows"
     assert queued_episode["SeriesId"]
     assert queued_episode["Genres"] == ["Drama"]  # inherited from its series; the episode itself has none
+    assert queued_episode["Id"] == FILE[S1E1].replace("-", "")  # retain the saved playable version
+    assert queued_episode["Type"] == "Episode"
+    assert queued_episode["Name"] == "Pilot"
+    assert queued_episode["SeriesName"] == "Show"
+    assert queued_episode["IndexNumber"] == 1 and queued_episode["ParentIndexNumber"] == 1
+    assert queued_episode["ParentBackdropItemId"] == SERIES.replace("-", "")
+    assert queued_episode["ParentBackdropImageTags"]
+    assert queued_episode["ParentLogoItemId"] == SERIES.replace("-", "")
+    assert queued_episode["ParentLogoImageTag"]
+    assert queued_episode["ParentPrimaryImageItemId"] == SERIES.replace("-", "")
+    assert queued_episode["ParentPrimaryImageTag"]
     anime = rows[1]["items"]
     assert anime and all(item["LuminaCategory"] == "anime" for item in anime)
     generic = native.get("/Items", params={"IncludeItemTypes": "Movie", "Recursive": "true"}, headers=mediabrowser(ALICE_TOKEN))

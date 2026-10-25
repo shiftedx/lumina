@@ -7,10 +7,11 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app import db as db_module
 from app.main import app
-from app.models import AppSettings, DeviceToken, MemberAccess, User
+from app.models import AccountToken, AppSettings, DeviceToken, MemberAccess, User
 from app.security import hash_password, session_digest
 from app.services import two_factor
 from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, jellyfin_household, mediabrowser
@@ -50,6 +51,36 @@ def native(tmp_path: Path):  # noqa: ANN201
     yield client
     client.close()
     rate_limiter.clear()
+
+
+def test_navigation_tracks_available_libraries_and_member_visibility(native: TestClient, tmp_path: Path) -> None:
+    from app.book_models import BookItem
+    from app.models import LibraryItem, MediaTitle
+    from title_support import add_file, seed_gallery, uid
+
+    initial = call(native, "GET", "/navigation")
+    assert initial.status_code == 200
+    assert initial.headers["cache-control"] == "no-store"
+    assert initial.json() == {"categories": ["movies", "tv"]}
+    with db_module.SessionLocal.begin() as db:
+        seed_gallery(db, tmp_path / "media")
+        db.add(BookItem(id="native-nav-book", storage_key="native-nav-book.epub", format="epub", kind="ebook",
+                        title="Synthetic book", owner_user_id=ALICE, visibility="private"))
+    assert call(native, "GET", "/navigation").json()["categories"] == ["movies", "tv", "anime", "music", "books"]
+    assert call(native, "GET", "/navigation", token=BOB_TOKEN).json()["categories"] == ["movies", "tv", "anime", "music"]
+    with db_module.SessionLocal.begin() as db:
+        db.add(MemberAccess(user_id=BOB, sections=["shows"]))
+        db.get(BookItem, "native-nav-book").available = False
+        # A removed library's remaining metadata must not keep its menu alive.
+        album_ids = select(MediaTitle.id).where(MediaTitle.type == "album")
+        for track in db.scalars(select(LibraryItem).where(LibraryItem.title_id.in_(album_ids))):
+            track.status = "missing"
+    assert call(native, "GET", "/navigation", token=BOB_TOKEN).json()["categories"] == ["tv"]
+    assert call(native, "GET", "/navigation").json()["categories"] == ["movies", "tv", "anime"]
+    with db_module.SessionLocal.begin() as db:
+        add_file(db, tmp_path / "media", "Music/Standalone.flac", item_id=uid(990), title_id=None,
+                 owner=ALICE, title="Standalone track", kind="audio")
+    assert "music" in call(native, "GET", "/navigation").json()["categories"]
 
 
 def test_settings_share_member_preferences_but_never_browser_api_or_other_members(native: TestClient) -> None:
@@ -142,6 +173,101 @@ def test_sensitive_writes_reject_bearer_only_expired_wrong_token_and_replayed_pr
     assert created.status_code == 201, created.text
     assert created.headers["cache-control"] == "no-store"
     assert created.json()["app"]["user_id"] == ALICE
+
+
+def test_native_admin_quick_actions_use_live_admin_and_safe_library_contract(native: TestClient) -> None:
+    with db_module.SessionLocal.begin() as db:
+        db.get(User, ALICE).role = "admin"
+
+    browser_surface = native.get("/api/admin/invites", headers=mediabrowser(ALICE_TOKEN))
+    assert browser_surface.status_code == 401
+
+    snapshot = call(native, "GET", "/admin/library")
+    assert snapshot.status_code == 200, snapshot.text
+    assert snapshot.headers["cache-control"] == "no-store"
+    assert set(snapshot.json()) == {"server_timezone", "night_hour", "poller", "roots"}
+    assert '"path"' not in snapshot.text
+
+    scan = call(native, "POST", "/admin/library/scan", json={})
+    assert scan.status_code == 202, scan.text
+    assert scan.headers["cache-control"] == "no-store"
+    assert set(scan.json()) == {"started", "queued", "skipped"}
+    assert '"path"' not in scan.text
+
+    unknown = call(native, "POST", "/admin/library/scan", json={"root_id": "not-a-storage-root"})
+    assert unknown.status_code == 404
+
+    with db_module.SessionLocal.begin() as db:
+        db.get(User, ALICE).role = "viewer"
+    assert call(native, "GET", "/admin/library").status_code == 403
+    assert call(native, "POST", "/admin/library/scan", json={}).status_code == 403
+
+    with db_module.SessionLocal.begin() as db:
+        user = db.get(User, ALICE)
+        assert user is not None
+        user.role, user.is_active = "admin", False
+    assert call(native, "GET", "/admin/library").status_code == 401
+
+
+def test_native_admin_invites_reuse_email_contract_and_require_one_use_proofs(native: TestClient) -> None:
+    with db_module.SessionLocal.begin() as db:
+        db.get(User, ALICE).role = "admin"
+
+    body = {"email": "Native-Pal@Example.test", "display_name": "Native Pal", "send": False}
+    missing_proof = call(native, "POST", "/admin/invites", json=body)
+    assert missing_proof.status_code == 401
+
+    proof = reauth(native)
+    created = native.post(BASE + "/admin/invites", headers=sensitive_headers(ALICE_TOKEN, proof), json=body)
+    assert created.status_code == 201, created.text
+    assert created.headers["cache-control"] == "no-store"
+    created_body = created.json()
+    assert created_body["email"] == "native-pal@example.test"
+    assert created_body["email_sent"] is False
+    assert "#invite=" in created_body["invitation_url"]
+    with db_module.SessionLocal.begin() as db:
+        record = db.get(AccountToken, created_body["id"])
+        assert record is not None and record.role == "viewer"
+
+    listed = call(native, "GET", "/admin/invites")
+    assert listed.status_code == 200, listed.text
+    assert listed.headers["cache-control"] == "no-store"
+    listed_body = listed.json()
+    assert listed_body[0]["id"] == created_body["id"]
+    assert listed_body[0]["email"] == "native-pal@example.test"
+    assert "invitation_url" not in listed_body[0]
+
+    assert native.post(BASE + "/admin/invites", headers=sensitive_headers(ALICE_TOKEN, proof), json=body).status_code == 401
+    assert native.delete(BASE + f"/admin/invites/{created_body['id']}", headers=mediabrowser(ALICE_TOKEN)).status_code == 401
+
+    revoked = native.delete(
+        BASE + f"/admin/invites/{created_body['id']}",
+        headers=sensitive_headers(ALICE_TOKEN, reauth(native)),
+    )
+    assert revoked.status_code == 204
+    assert revoked.headers["cache-control"] == "no-store"
+    assert call(native, "GET", "/admin/invites").json()[0]["status"] == "revoked"
+
+
+def test_native_admin_invite_proof_is_token_bound_and_mutations_need_write_scope(native: TestClient) -> None:
+    with db_module.SessionLocal.begin() as db:
+        db.get(User, ALICE).role = "admin"
+        db.get(User, BOB).role = "admin"
+
+    body = {"email": "bound@example.test", "send": False}
+    proof = reauth(native)
+    wrong_token = native.post(BASE + "/admin/invites", headers=sensitive_headers(BOB_TOKEN, proof), json=body)
+    assert wrong_token.status_code == 401
+
+    with db_module.SessionLocal.begin() as db:
+        token = db.query(DeviceToken).filter(DeviceToken.user_id == ALICE).one()
+        token.scope = "read"
+    assert call(native, "POST", "/admin/library/scan", json={}).status_code == 403
+    assert call(native, "POST", "/admin/invites", json=body).status_code == 403
+
+    with db_module.SessionLocal.begin() as db:
+        token = db.query(DeviceToken).filter(DeviceToken.user_id == ALICE).one()
+        token.scope = "write"
 
 
 def test_connected_app_list_and_revoke_stay_member_scoped_even_for_owner(native: TestClient) -> None:

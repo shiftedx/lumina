@@ -1,6 +1,6 @@
 # OAuth and authentication validation
 
-Validated on the `codex/oauth-support` branch. External login is opt-in: `LUMINA_OAUTH_PROVIDERS` defaults to an empty array. Production configuration and deployment were not changed.
+Validated on 2026-10-25 on the `codex/oauth-support` branch after rebasing onto main at `a6aadd8`; the full integration gate tested source revision `e433db2`. External login is opt-in: `LUMINA_OAUTH_PROVIDERS` defaults to an empty array. Production configuration and deployment were not changed.
 
 ## Scope
 
@@ -12,9 +12,9 @@ An independent Astra review at medium reasoning covered the new provider flow an
 
 `mise exec -- make check` completed successfully with exit code 0:
 
-- Backend: 5,395 passed, 11 retained prerequisite skips.
-- Frontend: 2,691 passed across 311 files.
-- Browser full tier: all 656 passed, with no skipped or flaky cases; 1,087.894 seconds.
+- Backend: 5,432 passed, 11 retained prerequisite skips.
+- Frontend: 2,694 passed across 312 files.
+- Browser full tier: all 656 passed, with no skipped or flaky cases; 1,092.931 seconds.
 - Bootstrap/runner checks, TypeScript/e2e typechecking, production build and style budgets passed.
 - `git diff --check` passed. The patched Python lock audit and full npm audit each reported no known vulnerabilities.
 

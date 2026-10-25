@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react';
+import type { OAuthProvider } from '../../api';
 import { Button, Checkbox, Field, fieldProps, Input, PasswordInput } from '../../ui';
 
 export interface SignInPanelProps {
@@ -7,10 +8,15 @@ export interface SignInPanelProps {
   onSubmit: (username: string, password: string, rememberOnDevice: boolean) => void;
   /** Present when the ring has members: returns to "Who's watching?". */
   onChoosePicker?: () => void;
+  /** Optional external providers discovered by the public sign-in screen. */
+  oauthProviders?: OAuthProvider[];
+  oauthBusyProvider?: string | null;
+  oauthError?: string | null;
+  onOAuth?: (providerId: string, rememberOnDevice: boolean) => void;
 }
 
 /** The one sign-in form: the sign-in page and the signed-in picker's "Someone else" both render it (app polish 6.1, 6.2). */
-export function SignInPanel({ busy, error, onSubmit, onChoosePicker }: SignInPanelProps) {
+export function SignInPanel({ busy, error, onSubmit, onChoosePicker, oauthProviders = [], oauthBusyProvider = null, oauthError = null, onOAuth }: SignInPanelProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
@@ -27,6 +33,26 @@ export function SignInPanel({ busy, error, onSubmit, onChoosePicker }: SignInPan
       <Checkbox checked={remember} label="Show me in Who's watching on this device" onChange={(event) => setRemember(event.target.checked)} />
       <Button busy={busy} disabled={!username.trim() || !password} type="submit" variant="primary" wide>Sign in</Button>
       {onChoosePicker ? <Button onClick={onChoosePicker} variant="quiet" wide>Choose who's watching</Button> : null}
+      {onOAuth && oauthProviders.length ? (
+        <>
+          <p className="g-field-hint">or</p>
+          <div aria-label="Other ways to sign in" role="group">
+            {oauthProviders.map((provider) => (
+              <Button
+                busy={oauthBusyProvider === provider.id}
+                disabled={busy || (oauthBusyProvider !== null && oauthBusyProvider !== provider.id)}
+                key={provider.id}
+                onClick={() => onOAuth(provider.id, remember)}
+                variant="secondary"
+                wide
+              >
+                Continue with {provider.name}
+              </Button>
+            ))}
+          </div>
+          {oauthError ? <p className="g-field-error" role="alert">{oauthError}</p> : null}
+        </>
+      ) : null}
     </form>
   );
 }

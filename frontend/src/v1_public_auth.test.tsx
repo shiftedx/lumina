@@ -1,9 +1,8 @@
 /**
- * Local-only public auth surface (updated for the public-edge cut).
+ * Public auth surface with optional external providers.
  *
- * The auth screen renders NO provider OAuth buttons (asserted by label
- * absence) and the local login form works end-to-end against the session API
- * (fetch-stubbed).
+ * A server with no configured providers renders no provider buttons, while
+ * the local login form remains available.
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,12 +12,12 @@ import { AuthScreen } from './features/auth/AuthScreen';
 import { resetDeviceRing } from './features/auth/deviceRing';
 import type { SessionState } from './types';
 
-describe('local-only auth screen', () => {
+describe('public auth screen', () => {
   // A signed-out sign-in page first asks for this browser's ring; here it holds nobody.
-  beforeEach(() => { resetDeviceRing(); vi.spyOn(api, 'getDeviceMembers').mockResolvedValue([]); });
+  beforeEach(() => { resetDeviceRing(); vi.spyOn(api, 'getDeviceMembers').mockResolvedValue([]); vi.spyOn(api, 'getOAuthProviders').mockResolvedValue([]); });
   afterEach(() => vi.restoreAllMocks());
 
-  it('renders no provider buttons: the local form is the whole sign-in surface', async () => {
+  it('renders no provider buttons when the server has no configured providers', async () => {
     render(
       <AuthScreen stage="login" busy={false} error={null} onLogin={vi.fn()} onSetup={vi.fn()} onRetrySession={vi.fn()} onSwitched={vi.fn()} sessionProblem={null} />,
     );

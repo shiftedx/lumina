@@ -33,6 +33,15 @@ def test_basic_auth_failures_are_rate_limited(client: TestClient) -> None:
     assert client.post("/api/session/login", json={"username": "local", "password": PASSWORD}).status_code == 429
 
 
+
+@pytest.mark.parametrize("origin", ["null", "", "not-an-origin"])
+def test_present_invalid_origin_cannot_use_headerless_client_allowance(client: TestClient, origin: str) -> None:
+    response = client.post("/api/session/login", json={"username": "local", "password": PASSWORD},
+                           headers={"Origin": origin, "Referer": "http://127.0.0.1:8765/"})
+    assert response.status_code == 403
+    assert "set-cookie" not in response.headers
+
+
 def test_lan_failures_never_lock_out_a_member(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     ceiling = RATE_LIMIT_RULES["session_login_username"].max_requests
     ip = {"value": ""}

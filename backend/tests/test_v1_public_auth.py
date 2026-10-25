@@ -1,4 +1,8 @@
-"""S02 — provider OAuth and Twitch connection identity are absent; local auth survives.
+"""Legacy provider connections remain absent; optional household login is separate.
+
+The historical /api/oauth login/connection surface stays removed. New optional
+household login lives at /api/session/oauth; test_oauth.py retains its enabled
+and disabled login, account binding, token validation and revocation contracts.
 
 Desired behavior after the removal (provider-native chat that needs
 third-party authentication is unavailable in 1.0; MVP first release, no legacy
@@ -47,7 +51,7 @@ TWITCH_SOURCE_URL = "https://twitch.tv/videos/12345"
 TWITCH_ENDPOINT = f"/api/chat-replay/{quote(TWITCH_IDENTITY, safe='')}"
 
 
-def test_provider_auth_routes_absent() -> None:
+def test_legacy_provider_connection_routes_remain_absent() -> None:
     """The OAuth + Twitch-connection + Twitch-live-chat routes are gone from
     the router, the service modules are deleted, and the removed paths have the
     same fallback semantics as an unregistered sibling path."""
@@ -68,7 +72,6 @@ def test_provider_auth_routes_absent() -> None:
     assert "TwitchLiveChatService" not in main_source
     # The provider-credential service modules are gone from the repo.
     for name in (
-        "oauth.py",
         "twitch_connection.py",
         "twitch_live_chat.py",
         "live_recording_twitch.py",

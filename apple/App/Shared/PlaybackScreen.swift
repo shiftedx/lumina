@@ -399,6 +399,7 @@ struct PlaybackScreen: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            playback.recordPlaybackDiagnostic(.appResignActive)
             #if os(iOS)
             cancelVideoGestures(releaseBrightness: true)
             #endif
@@ -411,6 +412,7 @@ struct PlaybackScreen: View {
         #endif
         #if os(iOS)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            playback.recordPlaybackDiagnostic(.appBecomeActive)
             #if LUMINA_UI_TESTING
             uiTestingDidBecomeActiveOutcome = "seen-appState=\(UIApplication.shared.applicationState.rawValue)-\(scenePhase == .active ? "accepted" : "ignored")"
             #endif
@@ -435,6 +437,7 @@ struct PlaybackScreen: View {
             else if videoChromeVisible { revealVideoChrome() }
         }
         .onChange(of: pictureInPictureActive) { _, active in
+            playback.recordPlaybackDiagnostic(.pictureInPictureChanged, nativeReason: active ? 1 : 0)
             if active { cancelVideoGestures(releaseBrightness: true) }
         }
         .onChange(of: pictureInPictureContinuing) { _, active in
@@ -450,11 +453,19 @@ struct PlaybackScreen: View {
         .onChange(of: playback.videoPlaybackRequested) { _, requested in
             if !requested { cancelVideoGestures(releaseBrightness: false) }
         }
-        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
+            let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+            playback.recordPlaybackDiagnostic(.audioRouteChanged, nativeReason: Int(clamping: reason))
             cancelVideoGestures(releaseBrightness: false)
         }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
             guard !requestedPlayback.request.item.isAudio else { return }
+            let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt ?? 99
+            if type == AVAudioSession.InterruptionType.began.rawValue {
+                playback.recordPlaybackDiagnostic(.audioInterruptionBegan, nativeReason: Int(clamping: type))
+            } else if type == AVAudioSession.InterruptionType.ended.rawValue {
+                playback.recordPlaybackDiagnostic(.audioInterruptionEnded, nativeReason: Int(clamping: type))
+            }
             playback.traceContinuity("audio-interruption=\(notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt ?? 99)")
             cancelVideoGestures(releaseBrightness: true)
             if (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue {
@@ -1751,18 +1762,142 @@ final class PlaybackModel {
         var symbol: String { self == .one ? "repeat.1" : "repeat" }
     }
     let player: AVPlayer
-    #if LUMINA_UI_TESTING
     private let lifecycleToken = UUID().uuidString
+    #if LUMINA_UI_TESTING
     @ObservationIgnored private let continuityTrace = PlaybackContinuityTrace()
     #endif
     // Opt-in simulator diagnostics contain transport state only, never media URLs or titles.
-    func traceContinuity(_ event: String) {
+    func traceContinuity(_ event: @autoclosure () -> String) {
+        var enabled = PlaybackDiagnostics.shared.isCapturing
+        #if LUMINA_UI_TESTING
+        enabled = enabled || PlaybackContinuityTrace.enabled
+        #endif
+        guard enabled else { return }
+        let event = event()
+        if PlaybackDiagnostics.shared.isCapturing, !request.item.isAudio {
+            let parts = event.split(separator: "=", maxSplits: 1).map(String.init)
+            let kind: PlaybackDiagnosticEvent?
+            switch parts.first {
+            case "initial-seek": kind = .initialSeek
+            case "periodic-callback": kind = .sample
+            case "control-status-callback": kind = .timeControlChanged
+            case "close": kind = .close
+            case "scene":
+                switch parts.last {
+                case "active": kind = .sceneActive
+                case "inactive": kind = .sceneInactive
+                case "background": kind = .sceneBackground
+                default: kind = nil
+                }
+            default: kind = nil
+            }
+            if let kind {
+                recordPlaybackDiagnostic(kind, seekTarget: kind == .initialSeek ? request.startPositionSeconds : nil)
+            }
+        }
         #if LUMINA_UI_TESTING
         guard PlaybackContinuityTrace.enabled,
               !request.item.isAudio else { return }
         let item = player.currentItem
         continuityTrace.record(event, state: "model=\(lifecycleToken) player=\(ObjectIdentifier(player)) item=\(item.map { String(describing: ObjectIdentifier($0)) } ?? "nil") time=\(player.currentTime().seconds) saved=\(request.startPositionSeconds) rate=\(player.rate) status=\(player.timeControlStatus.rawValue) waiting=\(player.reasonForWaitingToPlay?.rawValue ?? "none") ready=\(item?.status.rawValue ?? -1) empty=\(item?.isPlaybackBufferEmpty ?? false) keepUp=\(item?.isPlaybackLikelyToKeepUp ?? false) requested=\(autoplayWhenReady) closed=\(closed) queuedReports=\(pendingReports.count)")
         #endif
+    }
+
+    func recordPlaybackDiagnostic(_ event: PlaybackDiagnosticEvent, seekTarget: Double? = nil,
+                                  requestedPosition: Double? = nil, nativeReason: Int? = nil,
+                                  rateReason: AVPlayer.RateDidChangeReason? = nil, seekFinished: Bool? = nil) {
+        guard !request.item.isAudio, PlaybackDiagnostics.shared.isCapturing else { return }
+        var sample = PlaybackDiagnosticSample()
+        let item = player.currentItem
+        sample.modelID = UUID(uuidString: lifecycleToken)
+        sample.playerID = PlaybackDiagnostics.identity(player)
+        sample.itemID = PlaybackDiagnostics.identity(item)
+        sample.positionSeconds = player.currentTime().seconds
+        sample.rate = Double(player.rate)
+        sample.timeControlStatus = player.timeControlStatus.rawValue
+        sample.itemStatus = item?.status.rawValue
+        sample.playbackRequested = videoPlaybackRequested
+        sample.bufferEmpty = item?.isPlaybackBufferEmpty
+        sample.likelyToKeepUp = item?.isPlaybackLikelyToKeepUp
+        sample.bufferedUntilSeconds = item?.loadedTimeRanges.map { $0.timeRangeValue.end.seconds }.filter { $0.isFinite }.max()
+        sample.seekTargetSeconds = seekTarget
+        sample.requestedPositionSeconds = requestedPosition
+        sample.sceneState = UIApplication.shared.applicationState.rawValue
+        sample.usesClientDemux = request.usesClientDemux
+        sample.nativeReason = nativeReason
+        sample.seekFinished = seekFinished
+        if event == .rateChanged {
+            if rateReason == .appBackgrounded { sample.rateChangeReason = .appBackgrounded }
+            else if rateReason == .setRateCalled { sample.rateChangeReason = .setRateCalled }
+            else if rateReason == .audioSessionInterrupted { sample.rateChangeReason = .audioSessionInterrupted }
+            else if rateReason == .setRateFailed { sample.rateChangeReason = .setRateFailed }
+            else { sample.rateChangeReason = rateReason == nil ? .unknown : .other }
+        }
+        if let reason = player.reasonForWaitingToPlay {
+            switch reason {
+            case .toMinimizeStalls: sample.waitingReason = .minimizeStalls
+            case .evaluatingBufferingRate: sample.waitingReason = .evaluateBuffering
+            case .noItemToPlay: sample.waitingReason = .noItem
+            default: sample.waitingReason = .other
+            }
+        }
+        if event == .accessLog, let log = item?.accessLog()?.events.last {
+            sample.accessStalls = log.numberOfStalls
+            sample.accessObservedBitrate = log.observedBitrate
+            sample.accessIndicatedBitrate = log.indicatedBitrate
+        }
+        if event == .errorLog, let log = item?.errorLog()?.events.last {
+            sample.errorCode = log.errorStatusCode
+            switch log.errorDomain {
+            case AVFoundationErrorDomain: sample.errorDomain = .avFoundation
+            case NSURLErrorDomain: sample.errorDomain = .url
+            case NSOSStatusErrorDomain: sample.errorDomain = .osStatus
+            default: sample.errorDomain = .other
+            }
+        }
+        PlaybackDiagnostics.shared.record(event, sample: sample)
+    }
+
+    private func installPlaybackDiagnosticObservers() {
+        guard !request.item.isAudio, playbackDiagnosticObservers.isEmpty else { return }
+        let events: [(Notification.Name, PlaybackDiagnosticEvent)] = [
+            (AVPlayerItem.timeJumpedNotification, .timeJump),
+            (AVPlayerItem.newAccessLogEntryNotification, .accessLog),
+            (AVPlayerItem.newErrorLogEntryNotification, .errorLog)
+        ]
+        for (name, event) in events {
+            let token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                guard let item = notification.object as? AVPlayerItem else { return }
+                let identity = ObjectIdentifier(item)
+                MainActor.assumeIsolated {
+                    guard let self, self.player.currentItem.map(ObjectIdentifier.init) == identity else { return }
+                    self.recordPlaybackDiagnostic(event)
+                }
+            }
+            playbackDiagnosticObservers.append(token)
+        }
+    }
+
+    private func playNativePlayer() {
+        recordPlaybackDiagnostic(.play)
+        player.play()
+    }
+
+    private func pauseNativePlayer() {
+        recordPlaybackDiagnostic(.pause)
+        player.pause()
+    }
+
+    private func replaceNativeItem(_ item: AVPlayerItem?) {
+        player.replaceCurrentItem(with: item)
+        recordPlaybackDiagnostic(.itemReplaced)
+    }
+
+    private func seekNativePlayer(to time: CMTime, toleranceBefore: CMTime, toleranceAfter: CMTime) async -> Bool {
+        recordPlaybackDiagnostic(.seekRequested, seekTarget: time.seconds)
+        let result = await player.seek(to: time, toleranceBefore: toleranceBefore, toleranceAfter: toleranceAfter)
+        recordPlaybackDiagnostic(.seekCompleted, seekTarget: time.seconds, seekFinished: result)
+        return result
     }
 
     private(set) var request: PlaybackRequest
@@ -1806,6 +1941,7 @@ final class PlaybackModel {
     private var timeObserver: Any?
     private var controlObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var playbackDiagnosticObservers: [NSObjectProtocol] = []
     #if os(iOS)
     // NotificationCenter permits unregistering its token during nonisolated deinit.
     nonisolated(unsafe) private var videoRateChangeObserver: NSObjectProtocol?
@@ -1932,6 +2068,7 @@ final class PlaybackModel {
             player.audiovisualBackgroundPlaybackPolicy = .pauses
             #endif
         }
+        recordPlaybackDiagnostic(.modelCreated)
         #if LUMINA_UI_TESTING
         PlaybackLifecycleProbe.resetCloseMarker()
         print("LUMINA_LIFECYCLE playback-model init \(lifecycleToken)")
@@ -1939,6 +2076,7 @@ final class PlaybackModel {
     }
 
     deinit {
+        for observer in playbackDiagnosticObservers { NotificationCenter.default.removeObserver(observer) }
         #if os(iOS)
         if let videoRateChangeObserver {
             NotificationCenter.default.removeObserver(videoRateChangeObserver)
@@ -1977,6 +2115,7 @@ final class PlaybackModel {
     }
 
     private func handleVideoRateChange(_ reason: AVPlayer.RateDidChangeReason?) {
+        recordPlaybackDiagnostic(.rateChanged, rateReason: reason)
         traceContinuity("rate-change=\(reason?.rawValue ?? "unknown")")
         #if os(iOS)
         #if LUMINA_UI_TESTING
@@ -2020,7 +2159,7 @@ final class PlaybackModel {
               player.timeControlStatus == .paused,
               pausedItem.status == .readyToPlay else { return }
         pendingSystemBackgroundPauseItem = nil
-        player.play()
+        playNativePlayer()
         #endif
     }
 
@@ -2029,7 +2168,7 @@ final class PlaybackModel {
         guard ProcessInfo.processInfo.arguments.contains("--ui-testing-force-video-system-pause"),
               !request.item.isAudio,
               videoPlaybackRequested else { return }
-        player.pause()
+        pauseNativePlayer()
         isPlaying = false
         videoSystemPauseInjectionCount += 1
         Task { @MainActor [weak self] in
@@ -2047,9 +2186,11 @@ final class PlaybackModel {
     func start() async {
         traceContinuity("start-enter")
         guard !started, !closed else { return }
+        installPlaybackDiagnosticObservers()
+        recordPlaybackDiagnostic(.start, requestedPosition: request.startPositionSeconds)
         if request.item.isAudio, let audioOwner {
             started = true
-            player.replaceCurrentItem(with: nil)
+            replaceNativeItem(nil)
             installRemoteControls()
             await audioOwner.start(self)
             return
@@ -2072,7 +2213,7 @@ final class PlaybackModel {
             do {
                 let item = try await prepareVideoItem(request, source: videoSource, externalSubtitle: attachedVideoSubtitle)
                 guard !closed, !Task.isCancelled else { videoSource.stop(); return }
-                player.replaceCurrentItem(with: item)
+                replaceNativeItem(item)
             } catch {
                 videoSource.stop()
                 errorMessage = "This video could not be played in its current format."
@@ -2094,7 +2235,7 @@ final class PlaybackModel {
         guard !closed, !Task.isCancelled else { return }
         if request.startPositionSeconds > 0 {
             traceContinuity("initial-seek")
-            await player.seek(to: CMTime(seconds: request.startPositionSeconds, preferredTimescale: 600),
+            await seekNativePlayer(to: CMTime(seconds: request.startPositionSeconds, preferredTimescale: 600),
                               toleranceBefore: .zero, toleranceAfter: .zero)
         }
         guard !closed, !Task.isCancelled else { return }
@@ -2135,7 +2276,7 @@ final class PlaybackModel {
         }
         installVideoRateChangeObserver()
         installEndObserver()
-        if autoplayWhenReady { player.play() }
+        if autoplayWhenReady { playNativePlayer() }
     }
 
     func pause() {
@@ -2149,7 +2290,7 @@ final class PlaybackModel {
         #if os(iOS)
         pendingSystemBackgroundPauseItem = nil
         #endif
-        player.pause()
+        pauseNativePlayer()
         isPlaying = false
         guard !hasFinished, !isCommittingVideoStream else { return }
         updatePosition()
@@ -2174,7 +2315,7 @@ final class PlaybackModel {
         }
         let shouldPause = request.item.isAudio ? player.timeControlStatus == .playing : autoplayWhenReady
         if shouldPause { pause() }
-        else { autoplayWhenReady = true; player.play(); isPlaying = true }
+        else { autoplayWhenReady = true; playNativePlayer(); isPlaying = true }
     }
 
     func setActive(_ active: Bool) {
@@ -2287,7 +2428,7 @@ final class PlaybackModel {
             guard let revalidated = self.videoSeekAuthority.revalidatedSubmission(
                 submission, ranges: self.currentVideoSeekRanges(), direction: direction
             ) else { return }
-            let didSeek = await self.player.seek(
+            let didSeek = await self.seekNativePlayer(
                 to: CMTime(seconds: revalidated.target, preferredTimescale: 600),
                 toleranceBefore: .zero, toleranceAfter: .zero
             )
@@ -2400,7 +2541,7 @@ final class PlaybackModel {
         isSeekingChapter = true
         videoStreamError = nil
         defer { isSeekingChapter = false }
-        let success = await player.seek(to: CMTime(seconds: marker.endSeconds, preferredTimescale: 600),
+        let success = await seekNativePlayer(to: CMTime(seconds: marker.endSeconds, preferredTimescale: 600),
                                         toleranceBefore: .zero, toleranceAfter: .zero)
         guard !closed, player.currentItem === item else { return }
         updatePosition()
@@ -2494,9 +2635,9 @@ final class PlaybackModel {
             updatePosition()
             previousPosition = elapsedSeconds
             isCommittingVideoStream = true
-            player.pause()
+            pauseNativePlayer()
             candidatePlayer.replaceCurrentItem(with: nil)
-            player.replaceCurrentItem(with: item)
+            replaceNativeItem(item)
             installed = true
             #if os(iOS) && LUMINA_UI_TESTING
             recordNextEpisodeDiagnostic("installed")
@@ -2505,7 +2646,7 @@ final class PlaybackModel {
             #if os(iOS) && LUMINA_UI_TESTING
             recordNextEpisodeDiagnostic("visible-ready")
             #endif
-            guard await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero), item.status == .readyToPlay else {
+            guard await seekNativePlayer(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero), item.status == .readyToPlay else {
                 throw POSIXError(.EIO)
             }
             try Task.checkCancellation()
@@ -2539,7 +2680,7 @@ final class PlaybackModel {
             isCommittingVideoStream = false
             autoplayWhenReady = nextEpisodeAutoplay == true && isActive
             enqueue(.start, paused: !autoplayWhenReady)
-            if autoplayWhenReady { player.play() }
+            if autoplayWhenReady { playNativePlayer() }
             isPlaying = autoplayWhenReady
             previousSource.stop()
         } catch {
@@ -2549,12 +2690,12 @@ final class PlaybackModel {
             candidatePlayer.replaceCurrentItem(with: nil)
             if installed, !closed {
                 if !hasFinished, let previousItem {
-                    player.replaceCurrentItem(with: previousItem)
-                    _ = await player.seek(to: CMTime(seconds: previousPosition, preferredTimescale: 600),
+                    replaceNativeItem(previousItem)
+                    _ = await seekNativePlayer(to: CMTime(seconds: previousPosition, preferredTimescale: 600),
                                           toleranceBefore: .zero, toleranceAfter: .zero)
-                    if autoplayWhenReady && isActive { player.play() }
+                    if autoplayWhenReady && isActive { playNativePlayer() }
                 } else {
-                    player.replaceCurrentItem(with: nil)
+                    replaceNativeItem(nil)
                 }
             }
             candidateSource.stop()
@@ -2581,7 +2722,7 @@ final class PlaybackModel {
         isSeekingChapter = true
         videoStreamError = nil
         defer { isSeekingChapter = false }
-        let success = await player.seek(to: CMTime(seconds: chapter.startPositionSeconds, preferredTimescale: 600),
+        let success = await seekNativePlayer(to: CMTime(seconds: chapter.startPositionSeconds, preferredTimescale: 600),
                                         toleranceBefore: .zero, toleranceAfter: .zero)
         guard !closed, player.currentItem === item else { return }
         updatePosition()
@@ -2791,12 +2932,12 @@ final class PlaybackModel {
             position = CMTime(seconds: commitPosition, preferredTimescale: 600)
             // AVPlayer stays stable across rotations and Duo poses. Only its item changes.
             isCommittingVideoStream = true
-            player.pause()
+            pauseNativePlayer()
             candidatePlayer.replaceCurrentItem(with: nil)
-            player.replaceCurrentItem(with: nextItem)
+            replaceNativeItem(nextItem)
             replacementInstalled = true
             try await NativeVideoSource.waitUntilReady(player)
-            guard await player.seek(to: position, toleranceBefore: .zero, toleranceAfter: .zero),
+            guard await seekNativePlayer(to: position, toleranceBefore: .zero, toleranceAfter: .zero),
                   nextItem.status == .readyToPlay else { throw POSIXError(.EIO) }
             try Task.checkCancellation()
             guard !closed else { throw CancellationError() }
@@ -2823,16 +2964,16 @@ final class PlaybackModel {
             isCommittingVideoStream = false
             let resume = autoplayWhenReady && isActive
             enqueue(.start, paused: !resume)
-            if resume { player.play() }
+            if resume { playNativePlayer() }
             isPlaying = resume
             previousSource.stop()
         } catch {
             candidatePlayer.replaceCurrentItem(with: nil)
             if replacementInstalled, !closed {
-                player.replaceCurrentItem(with: previousItem)
-                _ = await player.seek(to: CMTime(seconds: commitPosition, preferredTimescale: 600),
+                replaceNativeItem(previousItem)
+                _ = await seekNativePlayer(to: CMTime(seconds: commitPosition, preferredTimescale: 600),
                                       toleranceBefore: .zero, toleranceAfter: .zero)
-                if autoplayWhenReady && isActive { player.play() }
+                if autoplayWhenReady && isActive { playNativePlayer() }
                 isPlaying = player.timeControlStatus == .playing
             }
             candidateSource.stop()
@@ -2938,7 +3079,7 @@ final class PlaybackModel {
             guard !closed, !Task.isCancelled else { return }
             updatePosition()
             if !didReportCompletion { enqueue(.stop, paused: true) }
-            player.pause()
+            pauseNativePlayer()
             isPlaying = false
             if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
             controlObservation = nil
@@ -2953,7 +3094,7 @@ final class PlaybackModel {
             lastReport = -1
             autoplayWhenReady = next.item.isAudio || isActive
             errorMessage = nil
-            player.replaceCurrentItem(with: AVPlayerItem(url: next.url))
+            replaceNativeItem(AVPlayerItem(url: next.url))
             await start()
         } catch {
             errorMessage = "The next track could not start. Check your connection and try again."
@@ -3001,7 +3142,7 @@ final class PlaybackModel {
         do {
             let item = try await prepareVideoItem(newRequest, source: videoSource, externalSubtitle: attachedVideoSubtitle)
             guard !closed, !Task.isCancelled else { videoSource.stop(); return }
-            player.replaceCurrentItem(with: item)
+            replaceNativeItem(item)
         } catch {
             failReplay("Replay could not start. Reopen the video and try again.")
             return
@@ -3044,7 +3185,7 @@ final class PlaybackModel {
         }
         if videoSpeed < 1, player.currentItem?.canPlaySlowForward != true { setStoredPreferredVideoRate(1) }
         player.defaultRate = videoSpeed
-        guard await player.seek(to: CMTime(seconds: newRequest.startPositionSeconds, preferredTimescale: 600),
+        guard await seekNativePlayer(to: CMTime(seconds: newRequest.startPositionSeconds, preferredTimescale: 600),
                                 toleranceBefore: .zero, toleranceAfter: .zero) else {
             failReplay("Playback could not seek to the requested position. Try again.")
             return
@@ -3053,7 +3194,7 @@ final class PlaybackModel {
         updatePosition()
         hasFinished = false
         enqueue(.start, paused: !autoplayWhenReady)
-        if autoplayWhenReady { player.play() }
+        if autoplayWhenReady { playNativePlayer() }
     }
 
     func close() {
@@ -3080,16 +3221,18 @@ final class PlaybackModel {
         #if os(iOS)
         pendingSystemBackgroundPauseItem = nil
         #endif
-        player.pause()
+        pauseNativePlayer()
         isPlaying = false
         if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
         controlObservation = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
         removeVideoRateChangeObserver()
+        for observer in playbackDiagnosticObservers { NotificationCenter.default.removeObserver(observer) }
+        playbackDiagnosticObservers.removeAll()
         if !didReportCompletion && (!request.item.isAudio || reportedAudioStart) {
             enqueue(.stop, paused: true)
         }
-        player.replaceCurrentItem(with: nil)
+        replaceNativeItem(nil)
         #if LUMINA_UI_TESTING
         PlaybackLifecycleProbe.recordClose(state: "closed", player: player)
         #endif
@@ -3116,11 +3259,11 @@ final class PlaybackModel {
         hasFinished = true
         videoSource.stop()
         autoplayWhenReady = false
-        player.pause()
+        pauseNativePlayer()
         isPlaying = false
         // The stopped server session is no longer a valid replay source (especially for HLS).
         // Remove it so AVKit can't restart the obsolete item behind the fresh Replay action.
-        player.replaceCurrentItem(with: nil)
+        replaceNativeItem(nil)
         didReportCompletion = true
         enqueue(.stop, paused: true)
         updateNowPlaying()
@@ -3136,7 +3279,7 @@ final class PlaybackModel {
         cancelVideoGestureOverrides()
         videoSource.stop()
         errorMessage = message
-        player.replaceCurrentItem(with: nil)
+        replaceNativeItem(nil)
         didReportCompletion = true
         enqueue(.stop, paused: true)
     }
@@ -3285,9 +3428,14 @@ final class PlaybackModel {
         updateNowPlaying()
     }
 
+    private func diagnosticReportCode(_ event: PlaybackEvent) -> Int {
+        switch event { case .start: 0; case .progress: 1; case .stop: 2 }
+    }
+
     private func enqueue(_ event: PlaybackEvent, paused: Bool,
                          for requestOverride: PlaybackRequest? = nil, position: Double? = nil) {
         traceContinuity("report-enqueue=\(event)")
+        recordPlaybackDiagnostic(.reportQueued, requestedPosition: position ?? elapsedSeconds, nativeReason: diagnosticReportCode(event))
         let reportedRequest = requestOverride ?? request
         let reportedPosition = position ?? elapsedSeconds
         if requestOverride == nil { lastReport = elapsedSeconds }
@@ -3313,9 +3461,11 @@ final class PlaybackModel {
                     traceContinuity("report-send=\(report.event)")
                     try await store.reportPlayback(event: report.event, request: report.request,
                                                    positionSeconds: report.seconds, isPaused: report.paused)
+                    recordPlaybackDiagnostic(.reportAcknowledged, requestedPosition: report.seconds, nativeReason: diagnosticReportCode(report.event))
                     syncError = nil
                     if case .stop = report.event { await store.refresh() }
                 } catch {
+                    recordPlaybackDiagnostic(.reportFailed, requestedPosition: report.seconds, nativeReason: diagnosticReportCode(report.event))
                     syncError = report.request.item.isAudio ? "Listening progress could not sync. Check the server connection." : "Watch progress could not sync. Check the server connection."
                 }
             }
@@ -3860,6 +4010,9 @@ private struct VideoPlaybackSettings: View {
             if let container = item.container, !container.isEmpty {
                 LabeledContent("Container", value: container.uppercased())
             }
+            #if os(iOS)
+            PlaybackDiagnosticsControls(playback: playback)
+            #endif
             if let error = playback.videoActionsError {
                 Text(error).font(.callout)
                 Button("Retry playback actions") { Task { await playback.refreshVideoActions() } }
@@ -4330,6 +4483,7 @@ private struct NativePlayerLayer: UIViewRepresentable {
             view.playerLayer.videoGravity = videoGravity
         }
         context.coordinator.attach(view: view, player: player)
+        view.traceRendering("view-attached")
         context.coordinator.handlePictureInPictureStartRequest(pictureInPictureStartRequest)
         return view
     }
@@ -4805,17 +4959,55 @@ private final class PlayerLayerView: UIView {
     var didMoveToWindowHandler: (() -> Void)?
     #if LUMINA_UI_TESTING
     private let continuityTrace = PlaybackContinuityTrace()
-    private var readyObservation: NSKeyValueObservation?
     #endif
+    private var readyObservation: NSKeyValueObservation?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        observeReadiness()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        observeReadiness()
+    }
+
+    private func observeReadiness() {
+        readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.traceRendering("render-ready-change") }
+        }
+    }
 
     func traceRendering(_ event: String) {
-        #if LUMINA_UI_TESTING
-        guard PlaybackContinuityTrace.enabled else { return }
-        if readyObservation == nil {
-            readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in
-                Task { @MainActor [weak self] in self?.traceRendering("render-ready-change") }
+        if PlaybackDiagnostics.shared.isCapturing {
+            let kind: PlaybackDiagnosticEvent?
+            switch event {
+            case "view-attached": kind = .rendererCreated
+            case "view-dismantle": kind = .rendererDetached
+            case "layer-window-change": kind = .rendererWindowChanged
+            case "layer-layout", "view-update": kind = .rendererLayout
+            case "render-ready-change": kind = .rendererReadyChanged
+            default: kind = nil
+            }
+            if let kind {
+                var sample = PlaybackDiagnosticSample()
+                let player = playerLayer.player
+                sample.playerID = PlaybackDiagnostics.identity(player)
+                sample.itemID = PlaybackDiagnostics.identity(player?.currentItem)
+                sample.positionSeconds = player?.currentTime().seconds
+                sample.rate = player.map { Double($0.rate) }
+                sample.timeControlStatus = player?.timeControlStatus.rawValue
+                sample.width = Double(bounds.width)
+                sample.height = Double(bounds.height)
+                sample.displayReady = playerLayer.isReadyForDisplay
+                sample.windowID = PlaybackDiagnostics.identity(window)
+                sample.viewID = PlaybackDiagnostics.identity(self)
+                sample.layerID = PlaybackDiagnostics.identity(playerLayer)
+                PlaybackDiagnostics.shared.record(kind, sample: sample)
             }
         }
+        #if LUMINA_UI_TESTING
+        guard PlaybackContinuityTrace.enabled else { return }
         continuityTrace.record(event, state: "view=\(ObjectIdentifier(self)) layer=\(ObjectIdentifier(playerLayer)) player=\(playerLayer.player.map { String(describing: ObjectIdentifier($0)) } ?? "nil") window=\(window.map { String(describing: ObjectIdentifier($0)) } ?? "nil") bounds=\(bounds) ready=\(playerLayer.isReadyForDisplay) hidden=\(isHidden) opacity=\(layer.opacity)")
         #endif
     }

@@ -47,6 +47,7 @@
 		98458D825FAF973FA3AFA876 /* Welcome.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 63E82E4F101C1A735C456278 /* Welcome.xcassets */; };
 		AA394110C437FDAD03FB8E79 /* VideoGesturePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50608E85B15677ADE34D2EB /* VideoGesturePresentation.swift */; };
 		ADDC403792789BCF6025D3E4 /* DeviceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66ED2282DED2E5E4EDD1A4D /* DeviceSettingsView.swift */; };
+		AFF6A2818284C95BE80C1660 /* PlaybackDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0884654DE8D1EE55415DF6 /* PlaybackDiagnostics.swift */; };
 		B533AFA094362744AEAA1AA7 /* LuminaIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F9C4C01E99E28F24D06063 /* LuminaIcon.swift */; };
 		B58C903FC35688BDA8AF2B0E /* LuminaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 132B0C8FC5C18B467CE10EEE /* LuminaCore */; };
 		B66CA5BFC0A18CF26EDB28B3 /* NativeProofTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60BC5C5F0113F2BAB1CBB46C /* NativeProofTests.swift */; };
@@ -68,6 +69,7 @@
 		F599CD444E8B163A5431E3A9 /* TVMediaDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025107FD778D5100813EEE31 /* TVMediaDetailView.swift */; };
 		F5B0240E517BA8922A99B55F /* NativeBookText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0EBAA5842AC90340C8E0E5 /* NativeBookText.swift */; };
 		F8A8360A940EA872E7A225DF /* NativeMusicLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */; };
+		FBB930AA525BD4B5D3863447 /* PlaybackDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0884654DE8D1EE55415DF6 /* PlaybackDiagnostics.swift */; };
 		FF52EACBD79D7B2000EEF1B2 /* MobilePairScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34453117E4BDD0C2E7FDB62C /* MobilePairScanner.swift */; };
 		FFE152FE4201A2D038064057 /* NativeRequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C2BCCD8AD7583AD47A8A64 /* NativeRequestsView.swift */; };
 /* End PBXBuildFile section */
@@ -130,6 +132,7 @@
 		D66ED2282DED2E5E4EDD1A4D /* DeviceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSettingsView.swift; sourceTree = "<group>"; };
 		E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuminaProofApp.swift; sourceTree = "<group>"; };
 		EBDC1F7C8ABA920BF6757F1C /* NativeAccountSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAccountSettingsView.swift; sourceTree = "<group>"; };
+		EC0884654DE8D1EE55415DF6 /* PlaybackDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackDiagnostics.swift; sourceTree = "<group>"; };
 		F55F2C18A68824D28C25F076 /* PlaybackNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = PlaybackNotices.txt; sourceTree = "<group>"; };
 		FA03108E3BD9293FA9BADA4F /* TVRequestsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVRequestsView.swift; sourceTree = "<group>"; };
 		FF579594D69A5C4AE1BC2F04 /* TVRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVRootView.swift; sourceTree = "<group>"; };
@@ -196,6 +199,7 @@
 				D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */,
 				05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */,
 				6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */,
+				EC0884654DE8D1EE55415DF6 /* PlaybackDiagnostics.swift */,
 				CF1B5313F9328DED936A9078 /* PlaybackScreen.swift */,
 				5ACC561F4F7F700F23190053 /* QueuePresentation.swift */,
 				2E804B5D3304229A2484E08D /* SubjectAwareArtwork.swift */,
@@ -521,6 +525,7 @@
 				9249D589D38569A775ACC901 /* NativeAudioOptions.swift in Sources */,
 				C6D69D97B34EB0282F10D0EB /* NativeAudioSession.swift in Sources */,
 				F8A8360A940EA872E7A225DF /* NativeMusicLibraryView.swift in Sources */,
+				FBB930AA525BD4B5D3863447 /* PlaybackDiagnostics.swift in Sources */,
 				256B066751245D56CA2F482F /* PlaybackScreen.swift in Sources */,
 				7F717D172FB4056DA14D3917 /* QueuePresentation.swift in Sources */,
 				C534A92E652DF4C30E34B20D /* SubjectAwareArtwork.swift in Sources */,
@@ -551,6 +556,7 @@
 				67A647797CF52955C36B7932 /* NativeBooksView.swift in Sources */,
 				C3CDF44890749BE14C5012EE /* NativeMusicLibraryView.swift in Sources */,
 				FFE152FE4201A2D038064057 /* NativeRequestsView.swift in Sources */,
+				AFF6A2818284C95BE80C1660 /* PlaybackDiagnostics.swift in Sources */,
 				6FF87874D2D2C10672F2A68E /* PlaybackScreen.swift in Sources */,
 				7AADFE0CF515C62B11270709 /* QueuePresentation.swift in Sources */,
 				BB88685BF33A07687C25E1ED /* SubjectAwareArtwork.swift in Sources */,

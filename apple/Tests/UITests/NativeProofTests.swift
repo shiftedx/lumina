@@ -93,6 +93,13 @@ final class NativePlaybackDiagnosticsTests: NativeProofJourney {
 
 @MainActor
 final class NativeVideoDuoContinuityTests: NativeProofJourney {
+    func testPlaybackRetainsSessionWhenPresentationIsRebuilt() async throws {
+        try await journeyVideoPresentationRebuild()
+    }
+    func testClientDemuxPlaybackRetainsSessionWhenPresentationIsRebuilt() async throws {
+        try await journeyVideoPresentationRebuild(clientDemux: true)
+    }
+
     func testStablePlaybackDoesNotContinuouslyRewritePlayerRate() async throws {
         try await journeyVideoRateSettlesDuringPlayback()
     }
@@ -1353,6 +1360,48 @@ class NativeProofJourney: XCTestCase {
         let stillPaused = try waitForPlaybackValue(time, timeout: 5) { _ in true }
         XCTAssertLessThanOrEqual(stillPaused, pausedAt + 0.5,
                                  "An explicitly paused video must remain paused through an orientation change.")
+        try closePlayer()
+    }
+
+    func journeyVideoPresentationRebuild(clientDemux: Bool = false) async throws {
+        let fixture = try loadFixture()
+        let itemID = clientDemux ? fixture.convertedItemID : fixture.directItemID
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: itemID, seconds: 12)
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-rebuild-video-presentation"])
+        try signIn(using: fixture)
+        try openLibraryItem(id: itemID)
+        _ = try startPlayback(using: "playButton")
+        let time = element("playbackTime")
+        let before = try waitForPlaybackValue(time, timeout: 15) { $0 >= 15 }
+        func playerIdentity() -> String? {
+            (element("videoGestureDiagnostics").value as? String ?? "")
+                .split(separator: " ").first { $0.hasPrefix("player=") }.map(String.init)
+        }
+        let player = try XCTUnwrap(playerIdentity())
+        try activate(element("rebuildVideoPresentationButton"))
+        XCTAssertTrue(waitUntil(timeout: 8) { playerIdentity() == player }, "A new presentation must retain the active player.")
+        let after = try waitForPlaybackValue(time, timeout: 10) { $0 >= before + 2 }
+        XCTAssertGreaterThan(after, before, "Rebuilding the playback screen must advance from the live position, not the original resume position.")
+        XCTAssertEqual(playerIdentity(), player)
+        try tapVideoTransportAfterChromeHides(named: "pause before rebuilding presentation")
+        try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 5)
+        let paused = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        try activate(element("rebuildVideoPresentationButton"))
+        try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 5)
+        try await Task.sleep(for: .seconds(2))
+        let retainedPause = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        XCTAssertEqual(retainedPause, paused, accuracy: 0.5)
+        XCTAssertEqual(playerIdentity(), player)
+        try closePlayer()
+        _ = try startPlayback(using: "playButton")
+        XCTAssertNotEqual(playerIdentity(), player, "Explicit Close must end the old session; a subsequent Play must create a fresh player.")
+        try waitForVideoPlaybackDiagnostics(requested: true, playing: true, timeout: 15)
+        try tapVideoTransportAfterChromeHides(named: "pause fresh session before closing")
         try closePlayer()
     }
 

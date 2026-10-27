@@ -18,7 +18,7 @@ from yt_dlp.networking import Request
 from yt_dlp.networking.exceptions import HTTPError
 
 from app.persistence import atomic_write, read_regular_file
-from app.services.network_policy import PolicyYoutubeDL, PublicSourcePolicy, PublicSourcePolicyError
+from app.services.network_policy import AbsoluteRequestDeadline, PolicyYoutubeDL, PublicSourcePolicy, PublicSourcePolicyError
 
 
 logger = logging.getLogger("lumina.artwork")
@@ -131,6 +131,7 @@ class RemoteArtworkResponse:
     final_url: str | None = field(default=None, repr=False)
     close: Callable[[], None] = field(default=lambda: None, repr=False)
     headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    check_deadline: Callable[[], None] = field(default=lambda: None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -176,38 +177,56 @@ class PublicArtworkFetcher:
         self, url: str, *, validate_redirect: Callable[[str], str], headers: Mapping[str, str] | None = None,
         data: bytes | None = None,  # a request body makes it a POST (AniList GraphQL)
     ) -> RemoteArtworkResponse:
-        validate_redirect(url)
-        ydl = PolicyYoutubeDL({"ignoreconfig": True, "quiet": True, "proxy": ""}, policy=self._policy)
+        deadline = AbsoluteRequestDeadline(self._request_timeout_seconds)
+        ydl = None
         response = None
+
+        def close() -> None:
+            deadline.close()
+            try:
+                if response is not None:
+                    response.close()
+            finally:
+                if ydl is not None:
+                    ydl.close()
+
         try:
-            response = ydl.urlopen(Request(url, data=data, headers=dict(headers or {}), extensions={"timeout": self._request_timeout_seconds}))
-        except HTTPError as exc:
-            response = exc.response
-        except BaseException:
-            ydl.close()
-            raise
-        try:
+            deadline.check()
+            validate_redirect(url)
+            deadline.check()
+            ydl = PolicyYoutubeDL(
+                {"ignoreconfig": True, "quiet": True, "proxy": ""}, policy=self._policy, request_deadline=deadline,
+            )
+            try:
+                response = ydl.urlopen(Request(url, data=data, headers=dict(headers or {}), extensions={"timeout": self._request_timeout_seconds}))
+            except HTTPError as exc:
+                response = exc.response
+            deadline.check()
             final_url = getattr(response, "url", None)
             if isinstance(final_url, str):
                 validate_redirect(final_url)
+            deadline.check()
             status_code = int(response.status)
             content_type = str(response.headers.get("Content-Type") or "")
             response_headers = {str(key): str(value) for key, value in response.headers.items()}
         except BaseException:
             try:
-                response.close()
+                deadline.check()
             finally:
-                ydl.close()
+                close()
             raise
 
-        def close() -> None:
-            try:
-                response.close()
-            finally:
-                ydl.close()
-
         def chunks() -> Iterable[bytes]:
-            while chunk := response.read(self.chunk_size):
+            while True:
+                deadline.check()
+                try:
+                    chunk = response.read(self.chunk_size)
+                except BaseException:
+                    deadline.check()
+                    raise
+                deadline.check()
+                if not chunk:
+                    return
                 yield chunk
 
         return RemoteArtworkResponse(
@@ -217,6 +236,7 @@ class PublicArtworkFetcher:
             final_url=final_url if isinstance(final_url, str) else None,
             close=close,
             headers=response_headers,
+            check_deadline=deadline.check,
         )
 
 
@@ -537,8 +557,10 @@ class ArtworkService:
             _log_remote_fetch_failure(code, error=exc)
             raise ArtworkUnavailableError("Artwork is temporarily unavailable.") from exc
         try:
+            response.check_deadline()
             if response.final_url is not None:
                 validate(response.final_url)
+            response.check_deadline()
             if response.status_code in (404, 410):
                 _log_remote_fetch_failure("upstream_http", upstream_status=response.status_code)
                 raise ArtworkNotFoundError("Artwork is unavailable.")
@@ -552,11 +574,13 @@ class ArtworkService:
                 raise ArtworkContentError("Artwork must be a supported image type.")
             content = bytearray()
             for chunk in response.body:
+                response.check_deadline()
                 if not isinstance(chunk, bytes):
                     raise ArtworkContentError("Artwork response did not contain image bytes.")
                 if len(content) + len(chunk) > self._max_artwork_bytes:
                     raise ArtworkContentError("Artwork exceeds the maximum allowed size.")
                 content.extend(chunk)
+            response.check_deadline()
         except PublicSourcePolicyError as exc:
             _log_remote_fetch_failure("policy", error=exc)
             raise

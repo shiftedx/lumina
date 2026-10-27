@@ -6,6 +6,8 @@ import http.client
 import io
 import ipaddress
 import socket
+import threading
+from time import monotonic
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
@@ -145,18 +147,105 @@ class PublicSourcePolicy:
         )
 
 
-def _socket_connect(ip_addr: tuple[Any, ...], timeout: object, source_address: tuple[str, int] | None):
+class AbsoluteRequestDeadline:
+    """Interrupt finite HTTP I/O, including trickled reads and TLS, without a reader thread.
+
+    The OS resolver is synchronous and is not interruptible by socket shutdown.
+    Duplicate descriptors keep ownership stable when HTTPS detaches the TCP socket.
+    """
+
+    def __init__(self, seconds: float) -> None:
+        if seconds <= 0:
+            raise ValueError("A request deadline must be positive")
+        self._deadline = monotonic() + seconds
+        self._lock = threading.Lock()
+        self._sockets: set[socket.socket] = set()
+        self._expired = False
+        self._closed = False
+        self._timer = threading.Timer(seconds, self._expire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def check(self) -> None:
+        with self._lock:
+            expired = self._expired or monotonic() >= self._deadline
+        if expired:
+            self._expire()
+            raise TimeoutError("The public request deadline expired")
+
+    def timeout(self, idle_timeout: object) -> float:
+        self.check()
+        remaining = max(0.0, self._deadline - monotonic())
+        if idle_timeout is None or idle_timeout is socket._GLOBAL_DEFAULT_TIMEOUT:
+            return remaining
+        return min(float(idle_timeout), remaining)
+
+    def watch(self, sock: socket.socket) -> socket.socket:
+        duplicate = sock.dup()
+        with self._lock:
+            if not self._closed and not self._expired and monotonic() < self._deadline:
+                self._sockets.add(duplicate)
+                return duplicate
+        duplicate.close()
+        self.check()
+        raise OSError("The public request deadline is closed")
+
+    def unwatch(self, duplicate: socket.socket) -> None:
+        with self._lock:
+            owned = duplicate in self._sockets
+            self._sockets.discard(duplicate)
+        if owned:
+            duplicate.close()
+
+    def _expire(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._expired = True
+            sockets, self._sockets = self._sockets, set()
+        for sock in sockets:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            finally:
+                sock.close()
+
+    def close(self) -> None:
+        self._timer.cancel()
+        with self._lock:
+            self._closed = True
+            sockets, self._sockets = self._sockets, set()
+        for sock in sockets:
+            sock.close()
+        # Expiry may already own the descriptors; wait for it outside the lock.
+        if threading.current_thread() is not self._timer:
+            self._timer.join()
+
+
+def _socket_connect(
+    ip_addr: tuple[Any, ...], timeout: object, source_address: tuple[str, int] | None,
+    *, request_deadline: AbsoluteRequestDeadline | None = None,
+):
     family, socktype, proto, _canonname, sockaddr = ip_addr
     sock = socket.socket(family, socktype, proto)
+    watched = None
     try:
+        if request_deadline is not None:
+            watched = request_deadline.watch(sock)
+            timeout = request_deadline.timeout(timeout)
         if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
             sock.settimeout(timeout)
         if source_address:
             sock.bind(source_address)
         sock.connect(sockaddr)
+        if request_deadline is not None:
+            request_deadline.check()
         return sock
-    except OSError:
+    except BaseException:
         sock.close()
+        if watched is not None:
+            request_deadline.unwatch(watched)
         raise
 
 
@@ -167,18 +256,35 @@ def create_public_connection(
     source_address: tuple[str, int] | None = None,
     *,
     _create_socket_func: Callable[..., Any] = _socket_connect,
+    request_deadline: AbsoluteRequestDeadline | None = None,
 ):
     host, port = address
+    if request_deadline is not None:
+        request_deadline.check()
     answers = policy.resolve(host, port)
     error: OSError | None = None
     for answer in answers:
         try:
+            if request_deadline is not None:
+                return _create_socket_func(
+                    answer, request_deadline.timeout(timeout), source_address, request_deadline=request_deadline,
+                )
             return _create_socket_func(answer, timeout, source_address)
         except OSError as exc:
+            if request_deadline is not None:
+                request_deadline.check()
             error = exc
     if error is not None:
         raise error
     raise PublicSourcePolicyError()
+
+
+class _DeadlineHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self) -> None:
+        http.client.HTTPConnection.connect(self)
+        self.sock.settimeout(self._request_deadline.timeout(self.sock.gettimeout()))
+        self.sock = self._context.wrap_socket(self.sock, server_hostname=self._tunnel_host or self.host)
+        self._request_deadline.check()
 
 
 def _create_http_connection(
@@ -186,10 +292,15 @@ def _create_http_connection(
     source_address: str | None,
     policy: PublicSourcePolicy,
     *args,
+    request_deadline: AbsoluteRequestDeadline | None = None,
     **kwargs,
 ):
+    if request_deadline is not None and http_class is http.client.HTTPSConnection:
+        http_class = _DeadlineHTTPSConnection
     connection = http_class(*args, **kwargs)
-    connection._create_connection = functools.partial(create_public_connection, policy)
+    connection._create_connection = functools.partial(create_public_connection, policy, request_deadline=request_deadline)
+    if request_deadline is not None:
+        connection._request_deadline = request_deadline
     if source_address is not None:
         connection.source_address = (source_address, 0)
     return connection
@@ -202,27 +313,37 @@ class SafeHTTPHandler(ytdlp_urllib.HTTPHandler):
         *,
         response_limit: ResponseLimit,
         error_response_limit: int = MAX_YTDLP_METADATA_RESPONSE_BYTES,
+        request_deadline: AbsoluteRequestDeadline | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.policy = policy
         self._response_limit = response_limit
         self._error_response_limit = error_response_limit
+        self._request_deadline = request_deadline
 
     def http_open(self, request):
         return self.do_open(
-            functools.partial(_create_http_connection, http.client.HTTPConnection, self._source_address, self.policy),
+            functools.partial(_create_http_connection, http.client.HTTPConnection, self._source_address, self.policy,
+                              request_deadline=self._request_deadline),
             request,
         )
 
     def https_open(self, request):
         return self.do_open(
-            functools.partial(_create_http_connection, http.client.HTTPSConnection, self._source_address, self.policy),
+            functools.partial(_create_http_connection, http.client.HTTPSConnection, self._source_address, self.policy,
+                              request_deadline=self._request_deadline),
             request,
             context=self._context,
         )
 
     def http_response(self, request, response):  # noqa: ANN001
+        if self._request_deadline is not None:
+            try:
+                self._request_deadline.check()
+            except BaseException:
+                response.close()
+                raise
         # Every guarded request asks for identity below. If an upstream ignores
         # that request, reject its compressed body before yt-dlp's handler calls
         # ``read()`` and hands the complete payload to a bulk gzip/deflate/Brotli
@@ -422,13 +543,18 @@ class _OriginBoundYoutubeDL:
 
 
 class SafeRedirectHandler(ytdlp_urllib.RedirectHandler):
-    def __init__(self, policy: PublicSourcePolicy):
+    def __init__(self, policy: PublicSourcePolicy, request_deadline: AbsoluteRequestDeadline | None = None):
         self.policy = policy
+        self._request_deadline = request_deadline
         super().__init__()
 
     def redirect_request(self, request, fp, code, message, headers, new_url):
+        if self._request_deadline is not None:
+            self._request_deadline.check()
         absolute_url = urllib.parse.urljoin(request.full_url, new_url)
         self.policy.validate_url(absolute_url)
+        if self._request_deadline is not None:
+            self._request_deadline.check()
         origin = getattr(request, "_lumina_credential_origin", None) or _credential_origin.get() or effective_origin(request.full_url)
         redirected = super().redirect_request(request, fp, code, message, headers, absolute_url)
         redirected._lumina_credential_origin = origin
@@ -447,9 +573,13 @@ class SafeRedirectHandler(ytdlp_urllib.RedirectHandler):
 class SafeUrllibRH(ytdlp_urllib.UrllibRH):
     _SUPPORTED_URL_SCHEMES = ("http", "https", "data")
 
-    def __init__(self, *, policy: PublicSourcePolicy, response_limit: ResponseLimit, **kwargs):
+    def __init__(
+        self, *, policy: PublicSourcePolicy, response_limit: ResponseLimit,
+        request_deadline: AbsoluteRequestDeadline | None = None, **kwargs,
+    ):
         self.policy = policy
         self._response_limit = response_limit
+        self._request_deadline = request_deadline
         super().__init__(**kwargs)
 
     def _create_instance(self, proxies, cookiejar, legacy_ssl_support=None):
@@ -461,6 +591,7 @@ class SafeUrllibRH(ytdlp_urllib.UrllibRH):
             SafeHTTPHandler(
                 self.policy,
                 response_limit=self._response_limit,
+                request_deadline=self._request_deadline,
                 debuglevel=int(bool(self.verbose)),
                 context=self._make_sslcontext(legacy_ssl_support=legacy_ssl_support),
                 source_address=self.source_address,
@@ -470,7 +601,7 @@ class SafeUrllibRH(ytdlp_urllib.UrllibRH):
             ytdlp_urllib.UnknownHandler(),
             ytdlp_urllib.HTTPDefaultErrorHandler(),
             ytdlp_urllib.HTTPErrorProcessor(),
-            SafeRedirectHandler(self.policy),
+            SafeRedirectHandler(self.policy, self._request_deadline),
         ]
         for handler in handlers:
             opener.add_handler(handler)
@@ -478,11 +609,20 @@ class SafeUrllibRH(ytdlp_urllib.UrllibRH):
         return opener
 
     def _send(self, request):  # noqa: ANN001
+        if self._request_deadline is not None:
+            self._request_deadline.check()
         if request.url.startswith("data:"):
             return super()._send(request)
         token = _credential_origin.set(_credential_origin.get() or effective_origin(request.url))
         try:
-            return super()._send(request)
+            response = super()._send(request)
+            if self._request_deadline is not None:
+                try:
+                    self._request_deadline.check()
+                except BaseException:
+                    response.close()
+                    raise
+            return response
         finally:
             _credential_origin.reset(token)
 
@@ -564,8 +704,12 @@ class PolicyYoutubeDL(yt_dlp.YoutubeDL):
     # transport. This set intentionally excludes ffmpeg-delegating HLS variants.
     _TRACER_NATIVE_HLS_PROTOCOLS = {"m3u8", "m3u8_native"}
 
-    def __init__(self, params=None, *, policy: PublicSourcePolicy | None = None, **kwargs):
+    def __init__(
+        self, params=None, *, policy: PublicSourcePolicy | None = None,
+        request_deadline: AbsoluteRequestDeadline | None = None, **kwargs,
+    ):
         self.public_source_policy = policy or PublicSourcePolicy()
+        self._request_deadline = request_deadline
         self._metadata_extraction_depth = 0
         self._media_download_depth = 0
         super().__init__(params, **kwargs)
@@ -589,7 +733,8 @@ class PolicyYoutubeDL(yt_dlp.YoutubeDL):
 
         class BoundSafeUrllibRH(SafeUrllibRH):
             def __init__(self, **kwargs):
-                super().__init__(policy=policy, response_limit=self_outer._metadata_response_limit, **kwargs)
+                super().__init__(policy=policy, response_limit=self_outer._metadata_response_limit,
+                                 request_deadline=self_outer._request_deadline, **kwargs)
 
         return super().build_request_director([BoundSafeUrllibRH], preferences)
 

@@ -88,7 +88,7 @@ def test_public_fetcher_sends_headers_and_reports_response_headers(monkeypatch) 
             pass
 
     class FakeYDL:
-        def __init__(self, options, policy) -> None:  # noqa: ANN001
+        def __init__(self, options, policy, request_deadline) -> None:  # noqa: ANN001
             pass
 
         def urlopen(self, request):  # noqa: ANN001, ANN201

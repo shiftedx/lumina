@@ -217,8 +217,8 @@ def test_public_fetcher_closes_transport_on_open_and_final_url_validation_failur
     class FakeYDL:
         fail_open = True
 
-        def __init__(self, options, policy):  # noqa: ANN001
-            del options, policy
+        def __init__(self, options, policy, request_deadline):  # noqa: ANN001
+            del options, policy, request_deadline
 
         def urlopen(self, request):  # noqa: ANN001
             del request
@@ -481,3 +481,181 @@ def test_library_artwork_falls_back_to_remote_and_rejects_paths_outside_the_libr
     )
     with pytest.raises(ArtworkNotFoundError):
         service.load_library_artwork("viewer", "library-item")
+
+
+@pytest.fixture
+def trickling_artwork_server():
+    """Local synthetic wire framing only; the fixture policy never resolves an external host."""
+    import socket
+    import socketserver
+    from types import SimpleNamespace
+
+    stop = threading.Event()
+    state = SimpleNamespace(paths=[], slow=set(), responses={}, stop=stop, peer_closed=threading.Event())
+
+    class Handler(socketserver.BaseRequestHandler):
+        def handle(self):
+            self.request.settimeout(1)
+            try:
+                raw = b""
+                while b"\r\n\r\n" not in raw:
+                    block = self.request.recv(4096)
+                    if not block:
+                        return  # A TLS ClientHello never contains an HTTP request.
+                    raw += block
+                    if not raw.startswith(b"GET "):
+                        self.request.settimeout(0.02)
+                        while not stop.is_set():
+                            try:
+                                if not self.request.recv(4096):
+                                    state.peer_closed.set()
+                                    return
+                            except socket.timeout:
+                                pass
+                        return
+                path = raw.split(b" ")[1].decode()
+                state.paths.append(path)
+                if path == "/redirect":
+                    self.request.sendall(b"HTTP/1.1 302 Found\r\nLocation: http://images.test/body\r\nContent-Length: 0\r\n\r\n")
+                    return
+                if path == "/headers":
+                    self.request.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nX-Slow: ")
+                elif path == "/chunk":
+                    self.request.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nTransfer-Encoding: chunked\r\n\r\n")
+                elif path in {"/body", "/close"} or path in state.slow:
+                    length = b"Content-Length: 999999\r\n" if path != "/close" else b""
+                    self.request.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\n" + length + b"Connection: close\r\n\r\n")
+                else:
+                    if path == "/normal-delayed":
+                        stop.wait(0.2)
+                    data = state.responses.get(path, b"fresh-art")
+                    self.request.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(data)).encode() + b"\r\n\r\n" + data)
+                    return
+                # Each byte arrives well inside the socket's idle timeout. Neither
+                # a 64 KiB body read nor an unterminated header/chunk line completes.
+                while not stop.wait(0.005):
+                    self.request.sendall(b"a")
+            except OSError:
+                state.peer_closed.set()  # The deadline must close the peer before fixture teardown.
+
+    with socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler) as server:
+        worker = threading.Thread(target=lambda: server.serve_forever(poll_interval=0.01))
+        worker.start()
+
+        class FixturePolicy(PublicSourcePolicy):
+            def resolve(self, host, port):  # noqa: ANN001
+                assert host == "images.test" and port in {80, 443}
+                return socket.getaddrinfo("127.0.0.1", server.server_address[1], 0, socket.SOCK_STREAM)
+
+        state.policy = FixturePolicy()
+        try:
+            yield state
+        finally:
+            stop.set()
+            server.shutdown()
+            worker.join(timeout=1)
+            assert not worker.is_alive()
+
+
+@pytest.mark.parametrize("phase", ["headers", "body", "close", "chunk", "tls"])
+def test_public_artwork_deadline_releases_api_worker_and_slot_without_partial_cache(
+    phase, trickling_artwork_server, api_client, monkeypatch, tmp_path,
+) -> None:
+    from app import main as main_module
+    from app.models import User
+    from app.services.network_policy import AbsoluteRequestDeadline
+
+    deadlines = []
+
+    class TrackingDeadline(AbsoluteRequestDeadline):
+        def __init__(self, seconds):  # noqa: ANN001
+            super().__init__(seconds)
+            deadlines.append(self)
+
+    monkeypatch.setattr(artwork_module, "AbsoluteRequestDeadline", TrackingDeadline)
+    fixture = trickling_artwork_server
+    fetcher = artwork_module.PublicArtworkFetcher(policy=fixture.policy, request_timeout_seconds=0.15)
+    service = ArtworkService(remote_fetcher=fetcher, public_source_policy=fixture.policy,
+                             max_concurrent_fetches=1, cache_root=tmp_path / "cache")
+    monkeypatch.setattr(main_module, "artwork", service)
+    slow = main_module._remote_artwork_url(f"{'https' if phase == 'tls' else 'http'}://images.test/{phase}")
+    normal = main_module._remote_artwork_url("http://images.test/normal")
+    client = api_client(user=User(id="artwork-member", username="artwork-member", role="viewer", is_active=True), base_url="http://localhost")
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(client.get, slow)
+        try:
+            failed = future.result(timeout=2)
+            assert fixture.peer_closed.wait(1)
+            assert not fixture.stop.is_set()
+        finally:
+            if not future.done():
+                # Release the hostile peer BEFORE the executor waits on a broken
+                # implementation, so the regression itself cannot strand a worker.
+                fixture.stop.set()
+    assert failed.status_code == 502
+    assert list((tmp_path / "cache").iterdir()) == []
+    assert all(not deadline._timer.is_alive() and not deadline._sockets for deadline in deadlines)
+    assert service._inflight == {}
+    # A different image immediately reuses the SAME slot and API worker.
+    assert client.get(normal).content == b"fresh-art"
+    assert all(not deadline._timer.is_alive() and not deadline._sockets for deadline in deadlines)
+
+
+def test_public_artwork_redirects_share_one_deadline_and_timeout_can_serve_stale(
+    trickling_artwork_server, monkeypatch,
+) -> None:
+    from app.services.network_policy import AbsoluteRequestDeadline
+
+    deadlines = []
+
+    class TrackingDeadline(AbsoluteRequestDeadline):
+        def __init__(self, seconds):  # noqa: ANN001
+            super().__init__(seconds)
+            deadlines.append(self)
+
+    monkeypatch.setattr(artwork_module, "AbsoluteRequestDeadline", TrackingDeadline)
+    fixture = trickling_artwork_server
+    fetcher = artwork_module.PublicArtworkFetcher(policy=fixture.policy, request_timeout_seconds=0.15)
+    now = [1000.0]
+    service = ArtworkService(remote_fetcher=fetcher, public_source_policy=fixture.policy,
+                             clock=lambda: now[0], cache_ttl_seconds=1, max_concurrent_fetches=1)
+
+    def bounded_load(artwork_id):  # noqa: ANN001
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(service.load_remote_artwork, artwork_id)
+            try:
+                return future.result(timeout=2)
+            finally:
+                if not future.done():
+                    fixture.stop.set()
+
+    redirect = service.register_remote_artwork("http://images.test/redirect")
+    with pytest.raises(ArtworkUnavailableError):
+        bounded_load(redirect)
+    assert fixture.paths == ["/redirect", "/body"]
+    assert len(deadlines) == 1 and deadlines[0]._expired
+    assert not deadlines[0]._timer.is_alive() and not deadlines[0]._sockets
+    cached = service.register_remote_artwork("http://images.test/cached")
+    assert bounded_load(cached).content == b"fresh-art"
+    fixture.slow.add("/cached")
+    now[0] += 2
+    assert bounded_load(cached).content == b"fresh-art"
+    assert service._inflight == {}
+    normal = service.register_remote_artwork("http://images.test/normal")
+    assert service.load_remote_artwork(normal).content == b"fresh-art"
+    assert all(not deadline._timer.is_alive() and not deadline._sockets for deadline in deadlines)
+
+
+def test_ordinary_guarded_media_does_not_inherit_the_artwork_deadline(trickling_artwork_server) -> None:
+    from app.services.network_policy import PolicyYoutubeDL
+    from yt_dlp.networking import Request
+
+    fixture = trickling_artwork_server
+    # This takes longer than the artwork fixture's deadline but stays within
+    # the caller's ordinary idle timeout. No absolute budget was opted into.
+    with PolicyYoutubeDL({"quiet": True, "proxy": ""}, policy=fixture.policy) as ydl:
+        response = ydl.urlopen(Request("http://images.test/normal-delayed", extensions={"timeout": 1}))
+        try:
+            assert response.read(64 * 1024) == b"fresh-art"
+        finally:
+            response.close()

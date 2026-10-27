@@ -75,7 +75,14 @@ private struct BillboardArtwork: View {
             source = UIImage(cgImage: image)
             loadedURL = url
         }
+        #if os(iOS) && LUMINA_UI_TESTING
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Hero artwork bounds")
+        .accessibilityIdentifier(home ? "homeHeroArtworkBounds" : "")
+        .accessibilityHidden(!home)
+        #else
         .accessibilityHidden(true)
+        #endif
         .allowsHitTesting(false)
     }
 }
@@ -180,8 +187,10 @@ struct MediaBillboard<Actions: View>: View {
     var featured = false
     var artworkMotionDirection: Int? = nil
     var compactMinimumHeight: CGFloat?
+    var compactArtworkMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat?
     var topContentClearance: CGFloat = 0
+    var bottomContentClearance: CGFloat = 0
     var onOpen: ((MediaItem) -> Void)? = nil
     /// tvOS Home uses the focused title as its single browse surface. Detail
     /// billboards leave this nil so their remote directions remain unchanged.
@@ -206,7 +215,8 @@ struct MediaBillboard<Actions: View>: View {
                     .frame(maxWidth: .infinity, minHeight: compactMinimumHeight ?? (featured ? 336 : 380), alignment: .bottomLeading)
                     .padding(.horizontal, 20)
                     .padding(.top, topInset)
-                    .padding(.bottom, featured ? 68 : 24)
+                    .padding(.bottom, featured ? 68 + bottomContentClearance : 24)
+                    .frame(minHeight: compactArtworkMinimumHeight, alignment: .topLeading)
                     .background {
                         ZStack {
                             BillboardArtwork(item: item, store: store, showsPoster: true, home: featured, motionDirection: artworkMotionDirection)
@@ -472,8 +482,10 @@ struct FeaturedShelf<Actions: View>: View {
     var showsMetadata = true
     var showsProgress = true
     var compactMinimumHeight: CGFloat?
+    var compactArtworkMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat?
     var topContentClearance: CGFloat = 0
+    var bottomContentClearance: CGFloat = 0
     var onOpen: ((MediaItem) -> Void)? = nil
     /// An optional owner for the chosen hero. tvOS keeps this in its tab root
     /// so Back returns to the title the viewer last browsed; iOS keeps the
@@ -535,8 +547,10 @@ struct FeaturedShelf<Actions: View>: View {
                     featured: true,
                     artworkMotionDirection: isInteracting ? nil : index,
                     compactMinimumHeight: compactMinimumHeight,
+                    compactArtworkMinimumHeight: compactArtworkMinimumHeight,
                     wideMinimumHeight: wideMinimumHeight,
                     topContentClearance: topContentClearance,
+                    bottomContentClearance: bottomContentClearance,
                     onOpen: onOpen,
                     onBrowse: { direction in step(direction) }
                 ) {
@@ -560,7 +574,7 @@ struct FeaturedShelf<Actions: View>: View {
                     controls
                         .frame(maxWidth: .infinity, alignment: compact ? .center : .trailing)
                         .padding(.horizontal, compact ? 12 : controlInset)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, 8 + (compact ? bottomContentClearance : 0))
                 }
             }
             #if !os(tvOS)

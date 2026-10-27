@@ -3433,6 +3433,16 @@ class NativeProofJourney: XCTestCase {
         XCTAssertLessThanOrEqual(third.frame.maxX, row.frame.maxX - 8,
                                  "The third category must fit completely before the scroll edge.")
         XCTAssertEqual(movies.frame.midY, masthead.frame.midY, accuracy: 6)
+
+        let heroArtwork = application!.descendants(matching: .any)
+            .matching(identifier: "homeHeroArtworkBounds").firstMatch
+        try waitForExistence(heroArtwork, timeout: 15, named: "Closed Duo hero artwork bounds")
+        XCTAssertTrue(waitUntil(timeout: 15) { self.hasVisibleFrame(heroArtwork) },
+                      "Closed Duo Home must expose a visible hero artwork bounds marker.")
+        XCTAssertLessThanOrEqual(heroArtwork.frame.minY, viewport.minY + 2,
+                                 "Closed Duo hero artwork must reach the top edge of Home.")
+        XCTAssertGreaterThanOrEqual(heroArtwork.frame.maxY, viewport.maxY - 0.5,
+                                    "Closed Duo hero artwork must reach the bottom edge without a black band.")
         try attachFrame(named: "Closed Duo three complete categories")
 
         let initialRefreshes = try homeRefreshCount()

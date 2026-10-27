@@ -1111,8 +1111,10 @@ private struct HomeLibraryView: View {
                 if !snapshot.items.isEmpty {
                     LibraryFeaturedView(store: store, items: snapshot.items,
                         compactMinimumHeight: max(460, geometry.size.height * 0.78),
+                        compactArtworkMinimumHeight: geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom,
                         wideMinimumHeight: min(720, max(540, geometry.size.height * 0.78)),
                         topContentClearance: geometry.safeAreaInsets.top + 32,
+                        bottomContentClearance: geometry.safeAreaInsets.bottom,
                         onWatchlistChanged: { await feed.load() })
                         .padding(.horizontal, -20)
                 }
@@ -3079,8 +3081,10 @@ private struct LibraryFeaturedView: View {
     let store: LuminaStore
     var items: [MediaItem]? = nil
     var compactMinimumHeight: CGFloat? = 320
+    var compactArtworkMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat? = 540
     var topContentClearance: CGFloat = 0
+    var bottomContentClearance: CGFloat = 0
     var onWatchlistChanged: @MainActor () async -> Void = {}
 
     @State private var request: PlaybackRequest?
@@ -3100,8 +3104,10 @@ private struct LibraryFeaturedView: View {
             showsMetadata: false,
             showsProgress: false,
             compactMinimumHeight: compactMinimumHeight,
+            compactArtworkMinimumHeight: compactArtworkMinimumHeight,
             wideMinimumHeight: wideMinimumHeight,
             topContentClearance: topContentClearance,
+            bottomContentClearance: bottomContentClearance,
             onOpen: { detailItem = $0 }
         ) { item in
             VStack(alignment: .leading, spacing: 12) {

@@ -94,7 +94,7 @@ final class VideoGesturePresentation {
             lastAdjustmentY = 0
             lastAdjustmentUpdate = 0
             if kind == .volume {
-                adjustmentLevel = playback.player.isExternalPlaybackActive ? nil : Double(playback.player.volume)
+                adjustmentLevel = playback.player.isExternalPlaybackActive && !playback.isCasting ? nil : playback.videoOutputVolume
                 showVolume(playback)
             } else {
                 adjustmentLevel = screen.map { Double($0.brightness) }
@@ -115,9 +115,9 @@ final class VideoGesturePresentation {
             lastAdjustmentY = delta.y
             lastAdjustmentUpdate = now
             if kind == .volume {
-                if movement < 0 { playback.player.isMuted = false }
-                playback.player.volume = Float(applied)
-                adjustmentLevel = Double(playback.player.volume)
+                if movement < 0 { playback.setVideoOutputMuted(false) }
+                playback.setVideoOutputVolume(applied)
+                adjustmentLevel = applied
                 showVolume(playback)
             } else if let screen {
                 if VideoScreenBrightness.shared.apply(applied, screen: screen, owner: owner, revoked: { [weak self] in
@@ -210,12 +210,12 @@ final class VideoGesturePresentation {
     }
 
     private func showVolume(_ playback: PlaybackModel) {
-        if playback.player.isExternalPlaybackActive {
+        if playback.player.isExternalPlaybackActive && !playback.isCasting {
             show(Feedback(title: "Adjust volume on the connected device", glyph: .volumeHigh, side: .trailing))
         } else {
-            let level = Double(playback.player.volume)
-            show(Feedback(title: "Player volume", detail: playback.player.isMuted ? "Muted" : "\(Int((level * 100).rounded()))%", level: level,
-                          glyph: playback.player.isMuted || level == 0 ? .volumeOff : .volumeHigh, side: .trailing))
+            let level = playback.videoOutputVolume
+            show(Feedback(title: playback.isCasting ? "Chromecast volume" : "Player volume", detail: playback.videoOutputMuted ? "Muted" : "\(Int((level * 100).rounded()))%", level: level,
+                          glyph: playback.videoOutputMuted || level == 0 ? .volumeOff : .volumeHigh, side: .trailing))
         }
     }
 

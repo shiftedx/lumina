@@ -644,3 +644,40 @@ and debug-symbol UUIDs match. The ignored release directory retains provenance,
 141 native build-input hashes, IPA checksums and this composed browser evidence.
 No build 12 upload or production deployment was performed. The Duo, complete
 playback-settings and physical 4K/HDR/HDMI/audio limits above remain in force.
+
+
+## Duo dogfood: artwork, controls, and receiver output, 2026-10-27
+
+The pending dogfood batch adds native video and music AirPlay/Chromecast output,
+server conversion for native video receivers, and scoped music receiver queues.
+Receiver credentials are separate from native app credentials. A valid native
+video ticket recreates an idle-reaped HLS session on the next receiver request,
+including its selected audio and subtitle tracks. Cast hardware qualification
+remains outstanding; simulator checks do not establish receiver compatibility.
+
+iOS detail heroes now occupy the first viewport. The Seasons action scrolls to
+the existing collection, and synopsis/supporting detail follows below. Artwork
+uses localized bottom shading; pushed details omit the Lumina masthead while
+Home, Library, and Requests retain their navigation branding. Video controls use
+a shared inset, centered transport, and grouped output actions, with Lumina SVG
+assets and plain 44-point targets. Playback remains owned above adaptive
+presentation; the layout changes do not replace the retained player/session.
+
+Focused checks during this pass: 14 Core Chromecast client/handoff tests, nine
+backend Chromecast tests (including renewal after idle reaping), 68 music receiver,
+audio, device-lifecycle and schema tests, and the shared 144-asset icon contract
+passed. The iOS Release simulator build and these native workflows passed:
+
+- Closed Duo, 466×678 points: full-viewport hero, Seasons reveal, episode playback,
+  centered transport/output group, common utility baseline, and chrome dismissal.
+- Open Duo, 951×669 points: the same artwork and player alignment workflow.
+- Open Duo: music output controls, background pause/restore, and queue conflicts.
+- Open Duo: retained direct and client-demux playback sessions across repeated
+  presentation rebuilds, with advancing playback and no replacement session.
+
+The final open layout run is `lumina-dogfood-open-grid-r6.xcresult`; closed layout
+is `lumina-dogfood-artwork-grid-r5.xcresult`. Music and retained-session results are
+in `lumina-dogfood-open-qualified.xcresult` (that bundle's earlier overlay assertion
+failed before the footer inset correction; it is superseded by the r6 overlay run).
+These are focused simulator checks, not a full repository gate or receiver hardware
+qualification. No archive, signed export, or TestFlight upload was made.

@@ -90,6 +90,7 @@ final class NativeVideoSession {
         let playback: PlaybackModel
     }
     private(set) var presentation: Presentation?
+    let casting = NativeVideoCasting()
     @ObservationIgnored private var startup: Task<Void, Never>?
     @ObservationIgnored private var onDismiss: (() -> Void)?
 
@@ -98,6 +99,7 @@ final class NativeVideoSession {
         guard presentation == nil else { return }
         audioSession.stop()
         let model = PlaybackModel(request: request, store: store, queue: [])
+        casting.attach(model)
         model.setActive(UIApplication.shared.applicationState == .active)
         self.onDismiss = onDismiss
         presentation = Presentation(playback: model)
@@ -525,6 +527,10 @@ struct PlaybackScreen: View {
         .onChange(of: displayedError) { _, error in
             if error != nil { cancelVideoGestures(releaseBrightness: false) }
         }
+        .onChange(of: playback.isCasting) { _, _ in
+            cancelVideoGestures(releaseBrightness: false)
+            revealVideoChrome()
+        }
         .onChange(of: playback.isSwitchingVideoStream) { _, changing in
             if changing { cancelVideoGestures(releaseBrightness: false) }
         }
@@ -900,7 +906,8 @@ struct PlaybackScreen: View {
                                 if direction == .up { focusedVideoControl = "videoSettingsButton" }
                             }
                             #else
-                            .padding(.top, videoVerticalInset + 80)
+                            .padding(.top, safeArea.top + videoVerticalInset + 56)
+                            .padding(.trailing, max(0, safeArea.trailing - videoHorizontalInset))
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                             #endif
                     }
@@ -977,7 +984,7 @@ struct PlaybackScreen: View {
                 pictureInPictureStartRequest += 1
             }
             .labelStyle(.iconOnly)
-            .disabled(!pictureInPicturePossible || pictureInPictureContinuing || playback.hasFinished)
+            .disabled(playback.isCasting || !pictureInPicturePossible || pictureInPictureContinuing || playback.hasFinished)
             .accessibilityIdentifier("videoPictureInPictureButton")
         }
         #endif
@@ -1089,7 +1096,7 @@ struct PlaybackScreen: View {
                     .tint(.white)
                     .foregroundStyle(.black)
                     .accessibilityIdentifier(playback.hasFinished ? "replayButton" : "videoPlayPauseButton")
-                    .disabled(playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
+                    .disabled(playback.isVideoOutputUnavailable || playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
 
                     Button("Forward \(videoSkipForwardSeconds) seconds", glyph: videoSkipForwardSeconds == 10 ? .seekForward10 : .fastForward, size: 28) {
                         skipVideo(forward: true)
@@ -1375,6 +1382,9 @@ struct PlaybackScreen: View {
     }
 
     @ViewBuilder private func videoOverlay(safeArea: EdgeInsets) -> some View {
+        #if os(iOS)
+        videoOverlayIOS(safeArea: safeArea)
+        #else
         VStack(spacing: 24) {
             HStack(spacing: 12) {
                 Button("Close player", glyph: .close) { finish() }
@@ -1463,7 +1473,7 @@ struct PlaybackScreen: View {
                     .foregroundStyle(.black)
                     .accessibilityIdentifier(playback.hasFinished ? "replayButton" : "videoPlayPauseButton")
                     .focused($focusedVideoControl, equals: "videoPlayPauseButton")
-                    .disabled(playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
+                    .disabled(playback.isVideoOutputUnavailable || playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
                     #if os(iOS)
                     .frame(maxWidth: .infinity)
                     #endif
@@ -1526,7 +1536,189 @@ struct PlaybackScreen: View {
             restoreSettingsFocus = false
         }
         #endif
+        #endif
     }
+
+    #if os(iOS)
+    private func videoOverlayIOS(safeArea: EdgeInsets) -> some View {
+        ZStack {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Button("Close player", glyph: .close, size: 24) { finish() }
+                        .labelStyle(.iconOnly)
+                        .accessibilityIdentifier("closePlayerButton")
+                        .frame(width: 44, height: 44)
+                    videoPictureInPictureButton
+                        .frame(width: 44, height: 44)
+                    Spacer(minLength: 0)
+                    if videoGestureContainerSize.width > videoGestureContainerSize.height {
+                        videoOutputVolume
+                            .frame(width: 120, height: 44)
+                    }
+                    videoMuteControl
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .padding(.leading, max(0, safeArea.leading - videoHorizontalInset))
+                .padding(.trailing, max(0, safeArea.trailing - videoHorizontalInset))
+
+                Spacer(minLength: 0)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    if let error = displayedError {
+                        Text(error)
+                            .font(.callout)
+                            .padding(10)
+                            .background(.black.opacity(0.7), in: .rect(cornerRadius: 12))
+                    }
+                    if let syncError = playback.syncError {
+                        Text(syncError)
+                            .font(.caption)
+                            .padding(10)
+                            .background(.black.opacity(0.7), in: .rect(cornerRadius: 12))
+                    }
+                    NativeVideoCastStatus(playback: playback)
+                    videoOverlayBottomContent
+                }
+            }
+
+            videoCenterTransport
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, videoHorizontalInset)
+        .padding(.vertical, videoVerticalInset)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("videoPlaybackChrome")
+    }
+
+    private var videoOverlayBottomContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            videoPlaybackMetadata
+            videoUtilityControls
+        }
+    }
+
+    private var videoPlaybackMetadata: some View {
+        let item = playback.request.item
+        return VStack(alignment: .leading, spacing: 8) {
+            if item.type == "Episode", let seriesName = item.seriesName, !seriesName.isEmpty {
+                Text(seriesName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            Text(item.type == "Episode" ? item.homeHeroSubtitle ?? item.name : item.name)
+                .font(.headline)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            videoTimeline
+            HStack {
+                Text(Duration.seconds(playback.elapsedSeconds).formatted(.time(pattern: .minuteSecond)))
+                Spacer()
+                Text("−" + Duration.seconds(max(0, item.durationSeconds - playback.elapsedSeconds)).formatted(.time(pattern: .minuteSecond)))
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.white.opacity(0.72))
+        }
+    }
+
+    private var videoOutputVolume: some View {
+        HStack(spacing: 8) {
+            if playback.isCasting {
+                Slider(value: Binding(get: { playback.videoOutputVolume },
+                                      set: { playback.setVideoOutputVolume($0) }), in: 0...1)
+                    .accessibilityLabel("Chromecast volume")
+                    .accessibilityIdentifier("videoCastVolume")
+                    .disabled(playback.isVideoOutputUnavailable)
+                    .tint(.white)
+            } else {
+                VideoOverlaySystemVolumeView()
+            }
+        }
+    }
+
+    private var videoMuteControl: some View {
+        Button(playback.videoOutputMuted ? "Unmute" : "Mute", glyph: playback.videoOutputMuted ? .volumeOff : .volumeHigh, size: 24) {
+            playback.setVideoOutputMuted(!playback.videoOutputMuted)
+            isMuted = playback.player.isMuted
+        }
+        .labelStyle(.iconOnly)
+        .accessibilityIdentifier("videoMuteButton")
+        .disabled(playback.isVideoOutputUnavailable)
+        .frame(width: 44, height: 44)
+    }
+
+    private var videoUtilityControls: some View {
+        HStack(spacing: 0) {
+            Button("Playback settings", glyph: .settings, size: 24) { presentVideoSettings() }
+                .labelStyle(.iconOnly)
+                .accessibilityIdentifier("videoSettingsButton")
+                .frame(width: 44, height: 44)
+                .disabled(playback.isCasting)
+            Spacer(minLength: 12)
+            HStack(spacing: 12) {
+                VideoRoutePicker(active: playback.player.isExternalPlaybackActive)
+                    .frame(width: 44, height: 44)
+                    .disabled(playback.isCasting)
+                NativeVideoCastButton(playback: playback)
+                    .frame(width: 44, height: 44)
+            }
+            Spacer(minLength: 12)
+            if playback.nextEpisode != nil {
+                nextEpisodeTransport
+                    .frame(width: 44, height: 44)
+            } else {
+                Color.clear.frame(width: 44, height: 44)
+                    .accessibilityHidden(true)
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+    }
+
+    private var videoCenterTransport: some View {
+        HStack(spacing: 24) {
+            Button("Back \(videoSkipBackwardSeconds) seconds", glyph: videoSkipBackwardSeconds == 10 ? .seekBack10 : .rewind, size: 32) {
+                skipVideo(forward: false)
+                revealVideoChrome()
+            }
+            .labelStyle(.iconOnly)
+            .accessibilityIdentifier("videoSeekBackwardButton")
+            .disabled(!playback.canSeekVideo)
+            .frame(width: 72, height: 72)
+
+            Button {
+                if playback.hasFinished { replay() } else { playback.togglePlayback() }
+                revealVideoChrome()
+            } label: {
+                if playback.hasFinished {
+                    LuminaIcon(glyph: .play, variant: .solid, size: 56)
+                } else {
+                    LuminaIcon(glyph: playback.videoPlaybackRequested ? .pause : .play,
+                               variant: .solid,
+                               size: 56)
+                }
+            }
+            .accessibilityLabel(playback.hasFinished ? "Replay" : playback.videoPlaybackRequested ? "Pause" : "Play")
+            .accessibilityIdentifier(playback.hasFinished ? "replayButton" : "videoPlayPauseButton")
+            .disabled(playback.isVideoOutputUnavailable || playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
+            .frame(width: 72, height: 72)
+
+            Button("Forward \(videoSkipForwardSeconds) seconds", glyph: videoSkipForwardSeconds == 10 ? .seekForward10 : .fastForward, size: 32) {
+                skipVideo(forward: true)
+                revealVideoChrome()
+            }
+            .labelStyle(.iconOnly)
+            .accessibilityIdentifier("videoSeekForwardButton")
+            .disabled(!playback.canSeekVideo)
+            .frame(width: 72, height: 72)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .accessibilityElement(children: .contain)
+    }
+    #endif
 
     private var preferredContextualControl: String? {
         if playback.activeIntro != nil { return "skipIntroButton" }
@@ -1729,7 +1921,7 @@ struct PlaybackScreen: View {
         }
         .labelStyle(.iconOnly)
         .accessibilityIdentifier("audioPlayPauseButton")
-        .disabled(playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
+        .disabled(playback.isVideoOutputUnavailable || playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
     }
 
     private var audioRepeatButton: some View {
@@ -1796,7 +1988,7 @@ struct PlaybackScreen: View {
                         Text(item.name).frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .disabled(playback.isReplaying || audioSession.isSonos)
+                .disabled(playback.isReplaying || audioSession.isSonos || audioSession.isRemoteOutput)
                 .accessibilityIdentifier(row.accessibilityID)
                 if index > playback.queueIndex {
                     Menu {
@@ -1810,7 +2002,7 @@ struct PlaybackScreen: View {
                         Label("Track actions", glyph: .moreHorizontal)
                     }
                     .labelStyle(.iconOnly)
-                    .disabled(audioSession.isSonos)
+                    .disabled(audioSession.isSonos || audioSession.isRemoteOutput)
                 }
             }
         }
@@ -1842,6 +2034,44 @@ final class PlaybackModel {
         var symbol: String { self == .one ? "repeat.1" : "repeat" }
     }
     let player: AVPlayer
+    #if os(iOS)
+    @ObservationIgnored weak var castOwner: NativeVideoCasting?
+    #endif
+    var isCasting: Bool {
+        #if os(iOS)
+        castOwner.map { $0.isCasting || $0.canReturnToDevice } ?? false
+        #else
+        false
+        #endif
+    }
+    var videoOutputVolume: Double {
+        #if os(iOS)
+        if let castOwner, isCasting { return castOwner.volume }
+        #endif
+        return Double(player.volume)
+    }
+    var videoOutputMuted: Bool {
+        #if os(iOS)
+        if let castOwner, isCasting { return castOwner.isMuted }
+        #endif
+        return player.isMuted
+    }
+    func setVideoOutputVolume(_ volume: Double) {
+        guard volume.isFinite else { return }
+        #if os(iOS)
+        if let castOwner, isCasting { castOwner.setVolume(volume); return }
+        #endif
+        player.volume = Float(min(1, max(0, volume)))
+    }
+    func setVideoOutputMuted(_ muted: Bool) {
+        #if os(iOS)
+        if let castOwner, isCasting {
+            if castOwner.isMuted != muted { castOwner.toggleMute() }
+            return
+        }
+        #endif
+        player.isMuted = muted
+    }
     private let lifecycleToken = UUID().uuidString
     #if LUMINA_UI_TESTING
     @ObservationIgnored private let continuityTrace = PlaybackContinuityTrace()
@@ -1959,6 +2189,7 @@ final class PlaybackModel {
     }
 
     private func playNativePlayer() {
+        guard !isCasting else { return }
         recordPlaybackDiagnostic(.play)
         player.play()
     }
@@ -2075,7 +2306,7 @@ final class PlaybackModel {
     private var pendingVideoPlayer: AVPlayer?
     private var episodeTask: Task<Void, Never>?
     private var actionsGeneration = UUID()
-    var canUseVideoActions: Bool { didSeek && !closed && !isSwitchingVideoStream && !isSeekingChapter && !isReplaying }
+    var canUseVideoActions: Bool { !isCasting && didSeek && !closed && !isSwitchingVideoStream && !isSeekingChapter && !isReplaying }
     var canAdjustSubtitleTiming: Bool { request.usesClientDemux || attachedVideoSubtitle != nil }
     var subtitlesExplicitlyOff = false
     private var isCommittingVideoStream = false
@@ -2102,11 +2333,28 @@ final class PlaybackModel {
     var gestureSeekTime: Double { videoSeekAuthority.optimisticTarget ?? elapsedSeconds }
 
     /// Valid spans for gesture projection, including live-window gaps when present.
-    var gestureSeekRanges: [VideoSeekRange] { currentVideoSeekRanges() }
+    var gestureSeekRanges: [VideoSeekRange] {
+        if isCasting, let range = VideoSeekRange(0, max(0, request.item.durationSeconds - 1.0 / 600)) { return [range] }
+        return currentVideoSeekRanges()
+    }
+    var canSeekVideo: Bool { (canControlCast || canUseVideoActions) && !closed && !hasFinished }
+    private var canControlCast: Bool {
+        #if os(iOS)
+        castOwner?.isCasting == true
+        #else
+        false
+        #endif
+    }
+    var isVideoOutputUnavailable: Bool { isCasting && !canControlCast }
 
     /// The user's durable speed choice; a temporary hold never changes this value.
     var preferredVideoRate: Double { videoRateLease.preferredRate }
-    var videoPlaybackRequested: Bool { autoplayWhenReady && !closed && !hasFinished }
+    var videoPlaybackRequested: Bool {
+        #if os(iOS)
+        if let castOwner, isCasting { return castOwner.isPlaying && !closed }
+        #endif
+        return autoplayWhenReady && !closed && !hasFinished
+    }
 
     init(request: PlaybackRequest, store: LuminaStore, queue: [MediaItem], queueIndex: Int? = nil, initiallyPaused: Bool = false) {
         self.request = request
@@ -2221,7 +2469,7 @@ final class PlaybackModel {
 
     func recoverSystemBackgroundPauseIfNeeded() {
         #if os(iOS)
-        guard !request.item.isAudio,
+        guard !isCasting, !request.item.isAudio,
               let pausedItem = pendingSystemBackgroundPauseItem,
               UIApplication.shared.applicationState == .active,
               isActive,
@@ -2330,7 +2578,7 @@ final class PlaybackModel {
         let progressInterval = CMTime(seconds: 1, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: progressInterval, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, !self.closed, !self.hasFinished, !self.isCommittingVideoStream else { return }
+                guard let self, !self.isCasting, !self.closed, !self.hasFinished, !self.isCommittingVideoStream else { return }
                 self.traceContinuity("periodic-callback")
                 self.isPlaying = self.player.timeControlStatus == .playing
                 self.applyEffectiveVideoRateIfPermitted()
@@ -2346,7 +2594,7 @@ final class PlaybackModel {
         }
         controlObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in
-                guard let self, !self.closed, !self.hasFinished, !self.isCommittingVideoStream else { return }
+                guard let self, !self.isCasting, !self.closed, !self.hasFinished, !self.isCommittingVideoStream else { return }
                 self.traceContinuity("control-status-callback")
                 self.isPlaying = self.player.timeControlStatus == .playing
                 self.applyEffectiveVideoRateIfPermitted()
@@ -2363,6 +2611,9 @@ final class PlaybackModel {
         traceContinuity("pause")
         guard !closed else { return }
         if let audioOwner { audioOwner.pause(); return }
+        #if os(iOS)
+        if let castOwner, isCasting { castOwner.pause(); return }
+        #endif
         if nextEpisodeAutoplay != nil { nextEpisodeAutoplay = false }
         // Leaving during asset loading must also suppress the later autoplay.
         autoplayWhenReady = false
@@ -2378,6 +2629,9 @@ final class PlaybackModel {
     }
 
     func togglePlayback() {
+        #if os(iOS)
+        if let castOwner, isCasting { castOwner.togglePlayback(); return }
+        #endif
         if let audioOwner { Task { await audioOwner.toggle() }; return }
         guard !closed else { return }
         if let nextEpisodeAutoplay {
@@ -2441,7 +2695,7 @@ final class PlaybackModel {
     func setPreferredVideoRate(_ rate: Double) {
         guard rate.isFinite, rate > 0 else { return }
         let nativeRate = Float(rate)
-        guard !closed, !hasFinished, !isSwitchingVideoStream, supportsVideoSpeed(nativeRate) else { return }
+        guard !isCasting, !closed, !hasFinished, !isSwitchingVideoStream, supportsVideoSpeed(nativeRate) else { return }
         setStoredPreferredVideoRate(Double(nativeRate))
         applyEffectiveVideoRateIfPermitted()
     }
@@ -2489,6 +2743,13 @@ final class PlaybackModel {
 
     private func requestVideoSeek(to candidate: Double, direction: VideoSeekDirection) {
         traceContinuity("seek-request=\(candidate)")
+        #if os(iOS)
+        if let castOwner, isCasting {
+            guard candidate.isFinite else { return }
+            castOwner.seek(to: min(max(0, candidate), request.item.durationSeconds))
+            return
+        }
+        #endif
         guard candidate.isFinite, canUseVideoActions, !hasFinished else { return }
         guard let submission = videoSeekAuthority.request(
             target: candidate, ranges: currentVideoSeekRanges(), direction: direction
@@ -2549,7 +2810,7 @@ final class PlaybackModel {
     }
 
     private var permitsVideoRateApplication: Bool {
-        autoplayWhenReady && isActive && !closed && !hasFinished
+        !isCasting && autoplayWhenReady && isActive && !closed && !hasFinished
             && !isSwitchingVideoStream && !isCommittingVideoStream
             && player.timeControlStatus == .playing
     }
@@ -2569,7 +2830,7 @@ final class PlaybackModel {
     private func restorePreferredVideoRateIfRunning() {
         // PiP may continue after scene deactivation. Also replace a buffering
         // engine's pending 2× rate; a paused engine never receives a nonzero rate.
-        guard !request.item.isAudio, autoplayWhenReady, !closed, !hasFinished,
+        guard !isCasting, !request.item.isAudio, autoplayWhenReady, !closed, !hasFinished,
               !isSwitchingVideoStream, !isCommittingVideoStream,
               player.timeControlStatus != .paused else { return }
         player.rate = Float(videoRateLease.preferredRate)
@@ -2915,16 +3176,19 @@ final class PlaybackModel {
         return item
     }
 
+    @discardableResult
     private func replaceVideoStream(audioIndex: Int?, externalSubtitle: PlaybackStream?,
                                     selectsExternalSubtitle: Bool, changesAudio: Bool,
-                                    subtitleDelay: Double? = nil, quality: PlaybackQuality? = nil) async {
-        guard !request.item.isAudio, didSeek, !closed, !hasFinished, !isSwitchingVideoStream, !isSeekingChapter,
+                                    subtitleDelay: Double? = nil, quality: PlaybackQuality? = nil,
+                                    resumePosition: Double? = nil) async -> Bool {
+        guard !isCasting, !request.item.isAudio, didSeek, !closed, !hasFinished, !isSwitchingVideoStream, !isSeekingChapter,
               let previousItem = player.currentItem else {
-            return
+            return false
         }
+        guard resumePosition.map({ $0.isFinite && $0 >= 0 }) ?? true else { return false }
         guard selectsExternalSubtitle || !hasUnresolvedEmbeddedSubtitleSelection else {
             videoStreamError = "Select a uniquely identified subtitle or Auto before changing this stream."
-            return
+            return false
         }
         invalidateVideoSeekWork()
         cancelVideoGestureOverrides()
@@ -2938,9 +3202,9 @@ final class PlaybackModel {
         let previousRequest = request
         let previousSource = videoSource
         var replacementInstalled = false
-        var commitPosition = elapsedSeconds
+        var commitPosition = resumePosition ?? elapsedSeconds
         do {
-            updatePosition()
+            if resumePosition == nil { updatePosition() }
             let next = try await store.preparePlayback(
                 for: request.item,
                 forceTranscode: (quality == nil && request.isTranscoding)
@@ -2952,7 +3216,7 @@ final class PlaybackModel {
                     : hasExplicitEmbeddedSubtitleSelection
                         ? selectedEmbeddedSubtitleStreamIndex ?? request.subtitleStreamIndex
                         : nil,
-                mediaSourceID: request.mediaSourceID, startPositionSeconds: elapsedSeconds
+                mediaSourceID: request.mediaSourceID, startPositionSeconds: commitPosition
             )
             candidateRequest = next
             try Task.checkCancellation()
@@ -2999,16 +3263,20 @@ final class PlaybackModel {
             }
             try Task.checkCancellation()
             guard !closed, player.currentItem === previousItem else { throw CancellationError() }
-            updatePosition()
-            commitPosition = elapsedSeconds
+            if resumePosition == nil {
+                updatePosition()
+                commitPosition = elapsedSeconds
+            }
             var position = CMTime(seconds: commitPosition, preferredTimescale: 600)
             guard await candidatePlayer.seek(to: position, toleranceBefore: .zero, toleranceAfter: .zero) else {
                 throw POSIXError(.EIO)
             }
             try Task.checkCancellation()
             guard !closed, !hasFinished, player.currentItem === previousItem else { throw CancellationError() }
-            updatePosition()
-            commitPosition = elapsedSeconds
+            if resumePosition == nil {
+                updatePosition()
+                commitPosition = elapsedSeconds
+            }
             position = CMTime(seconds: commitPosition, preferredTimescale: 600)
             // AVPlayer stays stable across rotations and Duo poses. Only its item changes.
             isCommittingVideoStream = true
@@ -3047,6 +3315,7 @@ final class PlaybackModel {
             if resume { playNativePlayer() }
             isPlaying = resume
             previousSource.stop()
+            return true
         } catch {
             candidatePlayer.replaceCurrentItem(with: nil)
             if replacementInstalled, !closed {
@@ -3058,11 +3327,11 @@ final class PlaybackModel {
             }
             candidateSource.stop()
             isCommittingVideoStream = false
-            if !closed { updatePosition() }
+            if !closed, resumePosition == nil { updatePosition() }
             if let candidateRequest {
-                enqueue(.stop, paused: true, for: candidateRequest, position: elapsedSeconds)
+                enqueue(.stop, paused: true, for: candidateRequest, position: commitPosition)
             }
-            guard !closed else { return }
+            guard !closed else { return false }
             request = previousRequest
             if !(error is CancellationError) {
                 if error as? NativeVideoSource.SelectionError == .subtitleDelayUnavailable {
@@ -3073,6 +3342,7 @@ final class PlaybackModel {
                     videoStreamError = "That stream could not be opened. Your previous stream is still selected."
                 }
             }
+            return false
         }
     }
 
@@ -3277,6 +3547,109 @@ final class PlaybackModel {
         if autoplayWhenReady { playNativePlayer() }
     }
 
+    #if os(iOS)
+    func chromecastTrackSelection() async -> (audioIndex: Int?, subtitle: String?)? {
+        guard !hasUnresolvedEmbeddedSubtitleSelection, subtitleDelaySeconds == 0,
+              let item = player.currentItem else { return nil }
+        let requestID = request.id
+        let audioGroup = try? await item.asset.loadMediaSelectionGroup(for: .audible)
+        let subtitleGroup = try? await item.asset.loadMediaSelectionGroup(for: .legible)
+        guard player.currentItem === item, request.id == requestID, !closed else { return nil }
+        func index(for option: AVMediaSelectionOption, group: AVMediaSelectionGroup,
+                   type: PlaybackStreamType) -> Int? {
+            let streams = request.mediaStreams.filter { $0.type == type }
+            let named = streams.filter { $0.label.caseInsensitiveCompare(option.displayName) == .orderedSame }
+            if named.count == 1 { return named[0].index }
+            if let language = option.extendedLanguageTag ?? option.locale?.identifier {
+                let matching = streams.filter { NativePlaybackPreferences.languageMatches($0.language, preferred: language) }
+                if matching.count == 1 { return matching[0].index }
+            }
+            if option === group.defaultOption {
+                let defaults = streams.filter(\.isDefault)
+                if defaults.count == 1 { return defaults[0].index }
+            }
+            return streams.count == 1 ? streams[0].index : nil
+        }
+        var audioIndex = sourceAudioIsAutomatic ? nil : request.audioStreamIndex
+        if let group = audioGroup, let selected = item.currentMediaSelection.selectedMediaOption(in: group) {
+            guard let mapped = index(for: selected, group: group, type: .audio) else { return nil }
+            audioIndex = mapped
+        }
+        let subtitleIndex: Int?
+        if subtitlesExplicitlyOff { subtitleIndex = nil }
+        else if let attachedVideoSubtitle { subtitleIndex = attachedVideoSubtitle.index }
+        else if let selectedEmbeddedSubtitleStreamIndex { subtitleIndex = selectedEmbeddedSubtitleStreamIndex }
+        else if let group = subtitleGroup {
+            if let selected = item.currentMediaSelection.selectedMediaOption(in: group) {
+                guard let mapped = index(for: selected, group: group, type: .subtitle) else { return nil }
+                subtitleIndex = mapped
+            } else { subtitleIndex = nil }
+        } else { subtitleIndex = request.subtitleStreamIndex }
+        return (audioIndex, subtitleIndex.flatMap { $0 >= 0 ? "j:\($0)" : nil })
+    }
+
+    func beginCastHandoff() {
+        guard !closed else { return }
+        invalidateVideoSeekWork()
+        cancelVideoGestureOverrides()
+        pendingSystemBackgroundPauseItem = nil
+        pauseNativePlayer()
+    }
+
+    func receiveCastStatus(position: Double, playing: Bool) {
+        guard !closed, isCasting, position.isFinite, position >= 0 else { return }
+        elapsedSeconds = position
+        isPlaying = playing
+        if abs(elapsedSeconds - lastReport) >= NativeVideoSource.progressObservationInterval.seconds {
+            enqueue(.progress, paused: !playing)
+        }
+    }
+
+    func returnFromCast(position: Double, playing: Bool) async {
+        guard !closed, position.isFinite, position >= 0 else { return }
+        autoplayWhenReady = false
+        isPlaying = false
+        if request.isTranscoding {
+            let recovered = await replaceVideoStream(
+                audioIndex: sourceAudioIsAutomatic ? nil : request.audioStreamIndex,
+                externalSubtitle: attachedVideoSubtitle,
+                selectsExternalSubtitle: false,
+                changesAudio: false,
+                resumePosition: position
+            )
+            guard !closed, !isCasting else { return }
+            guard recovered, player.currentItem?.status == .readyToPlay else {
+                autoplayWhenReady = false
+                isPlaying = false
+                videoStreamError = nil
+                errorMessage = "Couldn’t resume on this device. Reopen the video and try again."
+                return
+            }
+            elapsedSeconds = position
+            let resume = playing && isActive
+            autoplayWhenReady = resume
+            if resume { playNativePlayer() }
+            isPlaying = resume
+            enqueue(.progress, paused: !isPlaying)
+            return
+        }
+        let finished = await seekNativePlayer(to: CMTime(seconds: position, preferredTimescale: 600),
+                                              toleranceBefore: .zero, toleranceAfter: .zero)
+        guard !closed, !isCasting else { return }
+        guard finished, player.currentItem?.status == .readyToPlay else {
+            autoplayWhenReady = false
+            errorMessage = "Couldn’t resume on this device. Reopen the video and try again."
+            return
+        }
+        elapsedSeconds = position
+        let resume = playing && isActive
+        autoplayWhenReady = resume
+        if resume { playNativePlayer() }
+        isPlaying = resume
+        enqueue(.progress, paused: !isPlaying)
+    }
+    #endif
+
     func close() {
         traceContinuity("close")
         guard !closed else {
@@ -3285,6 +3658,10 @@ final class PlaybackModel {
             #endif
             return
         }
+        let wasCasting = isCasting
+        #if os(iOS)
+        castOwner?.detach()
+        #endif
         invalidateVideoSeekWork()
         cancelVideoGestureOverrides()
         closed = true
@@ -3295,7 +3672,7 @@ final class PlaybackModel {
         pendingVideoPlayer = nil
         pendingVideoSource = nil
         videoSource.stop()
-        if !isCommittingVideoStream { updatePosition() }
+        if !isCommittingVideoStream, !wasCasting { updatePosition() }
         audioTransport?.stop()
         audioTransport = nil
         #if os(iOS)
@@ -3385,6 +3762,7 @@ final class PlaybackModel {
     }
 
     private func updatePosition() {
+        guard !isCasting else { return }
         traceContinuity("position")
         let seconds = player.currentTime().seconds
         if didSeek, seconds.isFinite, seconds >= 0, player.currentItem?.status == .readyToPlay {
@@ -3630,16 +4008,6 @@ private struct StandardPhonePushedHeader<Actions: View>: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                LuminaBrandMark()
-                    .frame(width: 20, height: 20 * 34 / 56)
-                Text("LUMINA")
-                    .font(.caption.weight(.black))
-                    .tracking(1.5)
-            }
-            .accessibilityHidden(true)
-            .allowsHitTesting(false)
-
             Spacer(minLength: 12)
 
             actions.labelStyle(.iconOnly)
@@ -3660,7 +4028,7 @@ private struct StandardPhonePushedHeader<Actions: View>: View {
         .overlay {
             Color.clear
                 .accessibilityElement()
-                .accessibilityLabel("Lumina navigation")
+                .accessibilityLabel("Detail navigation")
                 .accessibilityIdentifier("standardPhoneNavigationHeader")
                 .allowsHitTesting(false)
         }
@@ -3845,7 +4213,7 @@ struct NativeNowPlayingBar: View {
                 }
                 .labelStyle(.iconOnly)
                 .frame(minWidth: 44, minHeight: 44)
-                .disabled(playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
+                .disabled(playback.isVideoOutputUnavailable || playback.isReplaying || (playback.hasFinished && playback.isSwitchingVideoStream))
                 .accessibilityIdentifier("nowPlayingPauseButton")
                 #if os(tvOS)
                 Button("Next track", glyph: .next, variant: .solid, size: 24) {
@@ -5105,16 +5473,48 @@ private final class PlayerLayerView: UIView {
 }
 
 #if os(iOS)
-private struct VideoRoutePicker: UIViewRepresentable {
+private struct VideoRoutePicker: View {
+    var active = false
+
+    var body: some View {
+        ZStack {
+            NativeAirPlayRoutePicker()
+            LuminaIcon(glyph: .airplay, size: 24)
+                .foregroundStyle(active ? LuminaTheme.brand : .white)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+private struct NativeAirPlayRoutePicker: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let picker = AVRoutePickerView()
-        picker.tintColor = .white
-        picker.activeTintColor = UIColor(LuminaTheme.brand)
-        picker.accessibilityLabel = "Audio output"
+        picker.tintColor = .clear
+        picker.activeTintColor = .clear
+        picker.prioritizesVideoDevices = true
+        picker.accessibilityLabel = "AirPlay"
+        picker.accessibilityIdentifier = "videoAirPlayButton"
         return picker
     }
 
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) { }
+}
+
+/// AVPlayer does not own the device's output volume. This keeps the overlay's volume
+/// control in sync with the system while leaving route selection to `VideoRoutePicker`.
+private struct VideoOverlaySystemVolumeView: UIViewRepresentable {
+    func makeUIView(context: Context) -> MPVolumeView {
+        let volume = MPVolumeView()
+        volume.showsRouteButton = false
+        volume.showsVolumeSlider = true
+        volume.tintColor = .white
+        volume.accessibilityLabel = "System volume"
+        volume.accessibilityIdentifier = "videoSystemVolume"
+        return volume
+    }
+
+    func updateUIView(_ uiView: MPVolumeView, context: Context) { }
 }
 #endif
 

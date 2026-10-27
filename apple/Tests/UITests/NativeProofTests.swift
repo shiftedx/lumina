@@ -1812,6 +1812,32 @@ class NativeProofJourney: XCTestCase {
         try activate(element("audioSleepTimerButton"))
         try activate(menuAction("15 minutes"))
         XCTAssertFalse(element("audioSleepTimerButton").label.contains("Off"))
+        #if os(iOS)
+        try revealMusicControl(element("audioOutput"))
+        try activate(element("audioOutput"))
+        XCTAssertTrue(waitUntil(timeout: 5, condition: {
+            let header = self.element("audioOutput")
+            return header.exists && header.value as? String == "Expanded"
+        }), "Audio output must expand before its native route controls are queried")
+        let airPlay = element("audioAirPlayButton")
+        let chromecast = element("musicChromecastButton")
+        try revealMusicControl(airPlay)
+        try revealMusicControl(chromecast)
+        XCTAssertGreaterThanOrEqual(airPlay.frame.width, 44, "AirPlay needs a 44 pt touch target.")
+        XCTAssertGreaterThanOrEqual(airPlay.frame.height, 44, "AirPlay needs a 44 pt touch target.")
+        XCTAssertGreaterThanOrEqual(chromecast.frame.width, 44, "Chromecast needs a 44 pt touch target.")
+        XCTAssertGreaterThanOrEqual(chromecast.frame.height, 44, "Chromecast needs a 44 pt touch target.")
+        XCTAssertTrue(airPlay.isEnabled && chromecast.isEnabled,
+                      "A local session must expose, but not open, its native output pickers.")
+        XCTAssertFalse(element("audioRefreshSpeakersButton").exists)
+        XCTAssertFalse(application!.switches["Compatibility mode for Sonos S1"].exists)
+        XCTAssertFalse(application!.buttons["Refresh Sonos speakers"].exists)
+        XCTAssertFalse(application!.staticTexts["Sonos receives at most the next 100 tracks. The local player pauses after the speaker acknowledges the transfer."].exists)
+        let volume = application!.sliders["Music volume"]
+        try revealMusicControl(volume)
+        XCTAssertTrue(volume.isEnabled, "Local output volume must remain available before a receiver handoff.")
+        volume.adjust(toNormalizedSliderPosition: 0.7)
+        #endif
         try revealMusicControl(element("audioLyrics"))
         XCTAssertEqual(element("audioLyrics").value as? String, "Collapsed",
                        "Lyrics must remain collapsed until explicitly opened, including after loading.")
@@ -5464,6 +5490,14 @@ class NativeProofJourney: XCTestCase {
         try activate(element("libraryItem-\(fixture.showID)"))
         try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "show seasons")
         let collection = element("videoCollectionScreen")
+        let hero = element("collectionHero")
+        try waitForExistence(hero, timeout: 15, named: "full-page show artwork")
+        let detailViewport = try applicationViewport()
+        XCTAssertGreaterThanOrEqual(hero.frame.height, detailViewport.height - 2,
+                                    "The detail hero must fill the first viewport before seasons.")
+        try attachFrame(named: "Full-page show artwork before revealing seasons")
+        let revealSeasons = element("collectionSeasonsButton")
+        try activate(revealSeasons)
         let season = element("videoSeason-\(fixture.seasonID)")
         try revealDetailElement(season, in: collection, named: "season", requiresHittable: true)
         try activate(season)
@@ -5504,6 +5538,7 @@ class NativeProofJourney: XCTestCase {
         let viewport = try applicationViewport()
         XCTAssertEqual(transport.frame.midX, viewport.midX, accuracy: 2,
                        "The video transport must be centered over the full video viewport.")
+        try attachPlaybackFrame(named: "Video overlay before layout checks")
         let chrome = element("videoPlaybackChrome").frame
         XCTAssertEqual(chrome.midX, viewport.midX, accuracy: 2,
                        "Video chrome must share the video's horizontal center.")
@@ -5514,7 +5549,7 @@ class NativeProofJourney: XCTestCase {
         let mute = element("videoMuteButton").frame
         let settings = element("videoSettingsButton").frame
         if viewport.width < 600, viewport.height > viewport.width {
-            let timeline = application!.sliders["Video position"].frame
+            let timeline = element("videoTimeline").frame
             XCTAssertLessThanOrEqual(timeline.minX - viewport.minX, 24,
                                      "Portrait playback must not mirror the system rail's inset on the left.")
             XCTAssertLessThanOrEqual(viewport.maxX - timeline.maxX, 24,
@@ -5523,18 +5558,29 @@ class NativeProofJourney: XCTestCase {
             let forward = element("videoSeekForwardButton").frame
             XCTAssertLessThan(backward.midX, viewport.minX + viewport.width * 0.35)
             XCTAssertGreaterThan(forward.midX, viewport.minX + viewport.width * 0.65)
-            XCTAssertLessThanOrEqual(forward.maxX, element("nextEpisodeTransportButton").frame.minX,
-                                     "Spreading transport controls must keep Forward clear of Next Episode.")
-            XCTAssertLessThanOrEqual(close.minX - viewport.minX, 24,
-                                     "The toolbar's left edge must use its own safe-area inset.")
+            XCTAssertFalse(forward.intersects(element("nextEpisodeTransportButton").frame),
+                           "Centered transport must keep Forward clear of Next Episode.")
+            XCTAssertEqual(close.minX, settings.minX, accuracy: 2,
+                           "Top and bottom utility icons must share the same leading edge.")
         }
-        XCTAssertLessThanOrEqual(settings.maxX, mute.minX + 2)
-        XCTAssertEqual(close.midY, settings.midY, accuracy: 2)
-        XCTAssertEqual(settings.midY, mute.midY, accuracy: 2)
+        XCTAssertLessThan(close.maxY, transport.frame.minY,
+                          "Close belongs above the centered transport.")
+        XCTAssertGreaterThan(settings.minY, transport.frame.maxY,
+                             "Playback utilities belong below the centered transport.")
+        XCTAssertEqual(close.midY, mute.midY, accuracy: 2,
+                       "Close and audio share the top toolbar baseline.")
+        let airPlay = element("videoAirPlayButton").frame
+        let cast = element("videoChromecastButton").frame
+        let next = element("nextEpisodeTransportButton").frame
+        XCTAssertEqual(settings.midY, airPlay.midY, accuracy: 2)
+        XCTAssertEqual(airPlay.midY, cast.midY, accuracy: 2)
+        XCTAssertEqual(cast.midY, next.midY, accuracy: 2)
+        XCTAssertEqual((airPlay.midX + cast.midX) / 2, chrome.midX, accuracy: 2,
+                       "Output routes form one centered group between settings and next.")
         #endif
         try attachPlaybackFrame(named: "Centered video overlay")
         #if os(iOS)
-        try applicationWindow().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try applicationWindow().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.32)).tap()
         XCTAssertTrue(disappears(element("videoPlaybackChrome"), timeout: 3),
                       "Tapping the video background must dismiss paused controls immediately.")
         try activate(element("videoControlsSurface"))
@@ -6944,6 +6990,11 @@ class NativeProofJourney: XCTestCase {
         let app = application!
         let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         XCUIDevice.shared.press(.home)
+        if !waitUntil(timeout: 3, condition: {
+            app.state == .runningBackground || app.state == .runningBackgroundSuspended
+        }) {
+            springBoard.activate()
+        }
         let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = "Home background probe — Lumina \(app.state.rawValue), SpringBoard \(springBoard.state.rawValue)"
         screenshot.lifetime = .keepAlways

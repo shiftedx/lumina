@@ -184,6 +184,9 @@ struct MediaBillboard<Actions: View>: View {
     var showsContext = true
     var showsMetadata = true
     var showsProgress = true
+    /// Detail heroes make the artwork the primary surface. Keep the readability
+    /// treatment at the copy edge instead of dimming the whole image.
+    var artworkFirst = false
     var featured = false
     var artworkMotionDirection: Int? = nil
     var compactMinimumHeight: CGFloat?
@@ -215,8 +218,10 @@ struct MediaBillboard<Actions: View>: View {
                     .frame(maxWidth: .infinity, minHeight: compactMinimumHeight ?? (featured ? 336 : 380), alignment: .bottomLeading)
                     .padding(.horizontal, 20)
                     .padding(.top, topInset)
-                    .padding(.bottom, featured ? 68 + bottomContentClearance : 24)
-                    .frame(minHeight: compactArtworkMinimumHeight, alignment: .topLeading)
+                    .padding(.bottom, featured ? 68 + bottomContentClearance : artworkFirst ? 44 : 24)
+                    .frame(minHeight: compactArtworkMinimumHeight,
+                           maxHeight: artworkFirst ? .infinity : nil,
+                           alignment: artworkFirst ? .bottomLeading : .topLeading)
                     .background {
                         ZStack {
                             BillboardArtwork(item: item, store: store, showsPoster: true, home: featured, motionDirection: artworkMotionDirection)
@@ -225,7 +230,9 @@ struct MediaBillboard<Actions: View>: View {
                                 .init(color: LuminaTheme.theater.opacity(0.16), location: 0.40),
                                 .init(color: LuminaTheme.theater.opacity(0.96), location: 1),
                             ], startPoint: .top, endPoint: .bottom)
-                            LinearGradient(colors: [LuminaTheme.theater.opacity(0.64), .clear], startPoint: .leading, endPoint: .trailing)
+                            if !artworkFirst {
+                                LinearGradient(colors: [LuminaTheme.theater.opacity(0.64), .clear], startPoint: .leading, endPoint: .trailing)
+                            }
                         }
                         #if !os(tvOS)
                         .ignoresSafeArea(.container, edges: [.top, .horizontal])
@@ -237,16 +244,20 @@ struct MediaBillboard<Actions: View>: View {
                     .frame(maxWidth: copyWidth, alignment: .leading)
                     .padding(.horizontal, contentInset)
                     .padding(.top, topInset)
-                    .padding(.bottom, 24)
-                    .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .bottomLeading)
+                    .padding(.bottom, artworkFirst ? 44 : 24)
+                    .frame(maxWidth: .infinity, minHeight: minimumHeight,
+                           maxHeight: artworkFirst ? .infinity : nil,
+                           alignment: .bottomLeading)
                     .background {
                         ZStack {
                             BillboardArtwork(item: item, store: store, showsPoster: true, home: featured, motionDirection: artworkMotionDirection)
-                            LinearGradient(stops: [
-                                .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.96 : 0.72), location: 0),
-                                .init(color: LuminaTheme.theater.opacity(0.30), location: 0.48),
-                                .init(color: .clear, location: 0.76),
-                            ], startPoint: .leading, endPoint: .trailing)
+                            if !artworkFirst {
+                                LinearGradient(stops: [
+                                    .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.96 : 0.72), location: 0),
+                                    .init(color: LuminaTheme.theater.opacity(0.30), location: 0.48),
+                                    .init(color: .clear, location: 0.76),
+                                ], startPoint: .leading, endPoint: .trailing)
+                            }
                             LinearGradient(stops: [
                                 .init(color: .clear, location: 0.35),
                                 .init(color: LuminaTheme.theater.opacity(0.4), location: 0.8),

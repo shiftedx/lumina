@@ -3,8 +3,16 @@ import LuminaCore
 import Observation
 import UIKit
 
+private enum NativeAudioOutputError: LocalizedError {
+    case returnRequired
+    var errorDescription: String? { "Return to this device before starting another queue." }
+}
+
 @MainActor @Observable
 final class NativeAudioSession {
+    #if os(iOS)
+    let casting = NativeMusicCasting()
+    #endif
     private(set) var playback: PlaybackModel?
     private var compatibleAudioIDs = Set<String>()
     private(set) var tracks: [LuminaCore.MusicTrack] = []
@@ -98,10 +106,20 @@ final class NativeAudioSession {
     #endif
 
     var isSonos: Bool { snapshot.activeOutput.kind == "sonos" && snapshot.activeOutput.ticketID != nil }
+    var isRemoteOutput: Bool {
+        #if os(iOS)
+        casting.isRemoteOutput || casting.canReturnToDevice
+        #else
+        false
+        #endif
+    }
     var repeatMode: String { snapshot.repeatMode }
     var pendingEntries: [MusicQueueEntry] { snapshot.entries.filter { $0.state != nil && $0.state != "playable" } }
 
     init() {
+        #if os(iOS)
+        casting.attach(self)
+        #endif
         interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
             let began = (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue
             if began { Task { @MainActor in self?.transport?.pause() } }
@@ -115,6 +133,10 @@ final class NativeAudioSession {
     func adoptForPlayback(_ model: PlaybackModel) async throws {
         if playback === model { return }
         guard !transferring else { throw URLError(.cancelled) }
+        guard !isRemoteOutput else {
+            message = NativeAudioOutputError.returnRequired.localizedDescription
+            throw NativeAudioOutputError.returnRequired
+        }
         guard let owner = model.store.music.sessionIdentity else { throw LuminaError.notSignedIn }
         cancelRestoreTask()
         let token = generation
@@ -133,11 +155,22 @@ final class NativeAudioSession {
             dirty = true
         }
         guard token == generation, owner == model.store.music.sessionIdentity, !Task.isCancelled else { throw CancellationError() }
+        guard !isRemoteOutput else {
+            message = NativeAudioOutputError.returnRequired.localizedDescription
+            throw NativeAudioOutputError.returnRequired
+        }
         adopt(model)
     }
 
     func adopt(_ model: PlaybackModel, preservingTVRestoreToggle: Bool = false) {
         guard playback !== model else { return }
+        guard !isRemoteOutput else {
+            message = "Return playback here before starting local playback."
+            return
+        }
+        #if os(iOS)
+        casting.detach()
+        #endif
         generation += 1
         transportReady = false
         if !preservingTVRestoreToggle { clearTVRestoreToggle() }
@@ -158,6 +191,10 @@ final class NativeAudioSession {
 
     func play(tracks: [LuminaCore.MusicTrack], index: Int = 0, store: LuminaStore, shuffle: Bool = false) async throws -> PlaybackModel {
         guard !busy, !transferring else { throw URLError(.cancelled) }
+        guard !isRemoteOutput else {
+            message = NativeAudioOutputError.returnRequired.localizedDescription
+            throw NativeAudioOutputError.returnRequired
+        }
         guard tracks.indices.contains(index), let owner = store.music.sessionIdentity else { throw LuminaError.notSignedIn }
         cancelRestoreTask()
         let token = generation
@@ -179,6 +216,10 @@ final class NativeAudioSession {
         guard token == generation, owner == store.music.sessionIdentity, !Task.isCancelled else { throw CancellationError() }
         let revision = store.isOffline ? snapshot.revision : (try? await store.music.loadSession())?.revision ?? snapshot.revision
         guard token == generation, owner == store.music.sessionIdentity, !Task.isCancelled else { throw CancellationError() }
+        guard !isRemoteOutput else {
+            message = NativeAudioOutputError.returnRequired.localizedDescription
+            throw NativeAudioOutputError.returnRequired
+        }
         let ownerChanged = identity != owner
         self.store = store; identity = owner
         if ownerChanged { restorePreferences(owner: owner) }
@@ -241,7 +282,7 @@ final class NativeAudioSession {
             }
             var receivedState = false
             transport.onChange = { [weak self, weak model] state in
-                guard let self, let model, self.playback === model, !self.isSonos else { return }
+                guard let self, let model, self.playback === model, !self.isSonos, !self.isRemoteOutput else { return }
                 model.receiveAudioState(state)
                 self.snapshot.currentIndex = state.index
                 self.snapshot.positionSeconds = state.position
@@ -320,6 +361,9 @@ final class NativeAudioSession {
         guard isCurrentRestoreTask(restoreTaskID), identity != owner || self.store == nil else { return }
         generation += 1
         let token = generation
+        #if os(iOS)
+        casting.detach()
+        #endif
         startTask?.cancel(); lyricsTask?.cancel(); statusTask?.cancel(); syncTask?.cancel(); syncTask = nil
         transport?.onChange = nil; transport?.onTrack = nil; transport?.onUnsupportedAudio = nil
         playback?.audioOwner = nil; playback?.close(); playback = nil; transport?.stop(); transport = nil
@@ -387,7 +431,10 @@ final class NativeAudioSession {
     private func install(_ value: MusicListeningSnapshot, store: LuminaStore,
                          preservingTVRestoreToggle: Bool = false,
                          restoreTaskID: Int? = nil) async -> Task<Void, Never>? {
-        guard isCurrentRestoreTask(restoreTaskID), !Task.isCancelled else { return nil }
+        guard isCurrentRestoreTask(restoreTaskID), !Task.isCancelled, !isRemoteOutput else {
+            if isRemoteOutput { message = "Return playback here before changing the shared queue." }
+            return nil
+        }
         generation += 1
         let token = generation, owner = identity
         transportReady = false
@@ -422,6 +469,10 @@ final class NativeAudioSession {
                 #endif
                 return nil
             }
+            guard !isRemoteOutput else {
+                message = "Return playback here before changing the shared queue."
+                return nil
+            }
             let resumed = PlaybackRequest(id: request.id, item: request.item, url: request.url,
                 startPositionSeconds: value.positionSeconds, mediaSourceID: request.mediaSourceID,
                 isTranscoding: request.isTranscoding, methodLabel: request.methodLabel)
@@ -445,16 +496,16 @@ final class NativeAudioSession {
 
     func refreshSharedQueue() async {
         guard !refreshingShared, !transferring, !restoringPausedQueue, let store, !store.isOffline,
-              let owner = identity, owner == store.music.sessionIdentity else { return }
+              let owner = identity, owner == store.music.sessionIdentity, !isRemoteOutput else { return }
         refreshingShared = true
         defer { refreshingShared = false }
         // Never interrupt an active output to publish or adopt a foreground refresh.
         if dirty, playback?.isPlaying != true, !isSonos, conflict == nil { await syncNow() }
-        guard owner == store.music.sessionIdentity, !restoringPausedQueue else { return }
+        guard owner == store.music.sessionIdentity, !restoringPausedQueue, !isRemoteOutput else { return }
         let token = generation
         do {
             let server = try await store.music.loadSession()
-            guard token == generation, owner == store.music.sessionIdentity, !restoringPausedQueue else { return }
+            guard token == generation, owner == store.music.sessionIdentity, !restoringPausedQueue, !isRemoteOutput else { return }
             let changedRemotely = server.revision != snapshot.revision || server.queue.map(\.id) != snapshot.queue.map(\.id)
                 || server.entries != snapshot.entries || server.activeOutput.kind != snapshot.activeOutput.kind
                 || server.activeOutput.ticketID != snapshot.activeOutput.ticketID
@@ -479,6 +530,10 @@ final class NativeAudioSession {
         guard !busy, !transferring else { throw URLError(.cancelled) }
         guard let store, let owner = identity, owner == store.music.sessionIdentity else { throw LuminaError.notSignedIn }
         guard conflict == nil else { message = "Choose Use server or Keep this device before playing the shared queue."; return nil }
+        guard !isRemoteOutput else {
+            message = "Return playback here before starting local playback."
+            return playback
+        }
         if isSonos {
             await pollStatus()
             guard owner == store.music.sessionIdentity else { throw LuminaError.notSignedIn }
@@ -500,6 +555,10 @@ final class NativeAudioSession {
         let value = snapshot, token = generation
         let request = try await store.preparePlayback(for: value.queue[index].mediaItem)
         guard token == generation, owner == store.music.sessionIdentity else { throw LuminaError.notSignedIn }
+        guard !isRemoteOutput else {
+            message = "Return playback here before starting local playback."
+            return playback
+        }
         let position = requestedIndex == nil && value.currentIndex != nil ? value.positionSeconds : 0
         let resumed = PlaybackRequest(id: request.id, item: request.item, url: request.url,
             startPositionSeconds: position, mediaSourceID: request.mediaSourceID,
@@ -547,7 +606,7 @@ final class NativeAudioSession {
             if unchanged {
                 dirty = false
                 if saved.queue.map(\.id) != sent.queue.map(\.id) {
-                    if playback?.isPlaying == true {
+                    if playback?.isPlaying == true || isRemoteOutput {
                         conflict = saved
                         message = "The shared queue changed while playing. Choose which queue to keep."
                     } else { await install(saved, store: store, restoreTaskID: restoreTaskID) }
@@ -567,6 +626,10 @@ final class NativeAudioSession {
 
     func useServerSession() async {
         guard !transferring else { return }
+        guard !isRemoteOutput else {
+            message = "Return playback here before changing the shared queue."
+            return
+        }
         guard let server = conflict, let store else { return }
         conflict = nil; dirty = false
         await install(server, store: store)
@@ -574,6 +637,10 @@ final class NativeAudioSession {
     }
     func keepDeviceSession() async {
         guard !transferring else { return }
+        guard !isRemoteOutput else {
+            message = "Return playback here before changing the shared queue."
+            return
+        }
         guard let server = conflict else { return }
         snapshot.revision = server.revision; conflict = nil; dirty = true
         await syncNow()
@@ -595,6 +662,9 @@ final class NativeAudioSession {
 
     func toggle() async {
         guard !transferring else { return }
+        #if os(iOS)
+        if isRemoteOutput { casting.togglePlayback(); return }
+        #endif
         guard pendingSpeakerStop == nil else { message = "Stop the previous speaker before starting local playback."; return }
         if isSonos { await remote(action: playback?.isPlaying == true ? "pause" : "play"); return }
         if waitingForEntry != nil {
@@ -647,36 +717,48 @@ final class NativeAudioSession {
     #endif
     func pause() {
         guard !transferring else { return }
+        #if os(iOS)
+        if isRemoteOutput { casting.pause(); return }
+        #endif
         if isSonos { Task { await remote(action: "pause") } }
         else { transport?.pause(); changed() }
     }
     func seek(_ seconds: Double) async {
         guard !transferring else { return }
+        #if os(iOS)
+        if isRemoteOutput { casting.seek(to: seconds); return }
+        #endif
         if isSonos { await remote(action: "seek", value: Int(max(0, seconds))); return }
         await transport?.seek(seconds); changed()
     }
     func select(_ index: Int) async {
         guard !transferring else { return }
         guard tracks.indices.contains(index) else { return }
-        if isSonos { message = "Return playback here before choosing another queued track."; return }
+        if isSonos || isRemoteOutput {
+            message = "Return playback here before choosing another queued track."
+            return
+        }
         await transport?.select(index)
         changed()
     }
     func step(_ offset: Int) async {
         guard !transferring else { return }
+        #if os(iOS)
+        if isRemoteOutput { await casting.step(by: offset); return }
+        #endif
         if isSonos { await remote(action: offset < 0 ? "previous" : "next") }
         else { await select((playback?.queueIndex ?? 0) + offset) }
     }
     func cycleRepeat() {
         guard !transferring else { return }
-        guard !isSonos else { return }
+        guard !isSonos, !isRemoteOutput else { return }
         snapshot.repeatMode = snapshot.repeatMode == "off" ? "all" : snapshot.repeatMode == "all" ? "one" : "off"
         playback?.configureAudioQueue(tracks.map(\.mediaItem), index: playback?.queueIndex ?? 0, repeatMode: snapshot.repeatMode)
         configureTransport(); changed()
     }
     func move(from: Int, to: Int) {
         guard !transferring else { return }
-        guard !isSonos, tracks.indices.contains(from), tracks.indices.contains(to),
+        guard !isSonos, !isRemoteOutput, tracks.indices.contains(from), tracks.indices.contains(to),
               from > (playback?.queueIndex ?? -1), to > (playback?.queueIndex ?? -1) else { return }
         guard !snapshot.entries.contains(where: { $0.kind != "track" }) else {
             message = "Reorder after requested albums finish importing."; return
@@ -687,7 +769,7 @@ final class NativeAudioSession {
     }
     func remove(at index: Int) {
         guard !transferring else { return }
-        guard !isSonos, tracks.indices.contains(index), index > (playback?.queueIndex ?? -1) else { return }
+        guard !isSonos, !isRemoteOutput, tracks.indices.contains(index), index > (playback?.queueIndex ?? -1) else { return }
         guard !snapshot.entries.contains(where: { $0.kind != "track" }) else { message = "Refresh requested albums before removing entries."; return }
         tracks.remove(at: index); playback?.reflectQueueRemoval(at: index); queueEdited()
     }
@@ -719,10 +801,18 @@ final class NativeAudioSession {
         return candidates.first { snapshot.entries[$0].state.map { $0 != "playable" } ?? false }
     }
     func refreshRequestedAlbums() async {
+        guard !isRemoteOutput else {
+            message = "Return playback here before changing the queued albums."
+            return
+        }
         await refreshSharedQueue()
     }
     func setUnavailablePolicy(_ policy: String) {
         guard !transferring else { return }
+        guard !isRemoteOutput else {
+            message = "Return playback here before changing the queued albums."
+            return
+        }
         snapshot.unavailablePolicy = policy == "wait" ? "wait" : "skip"
         transport?.replaceUpcoming(tracks)
         changed()
@@ -858,7 +948,7 @@ final class NativeAudioSession {
             snapshot = result.session; tracks = result.session.queue
             dirty = false; persist()
             playback?.configureAudioQueue(tracks.map(\.mediaItem), index: result.currentIndex, repeatMode: snapshot.repeatMode)
-            if result.excludedCount > 0 { message = "\(result.excludedCount) unsupported or unavailable tracks were excluded from Sonos." }
+            if result.excludedCount > 0 { message = "\(result.excludedCount) unsupported or unavailable tracks were excluded from the speaker." }
             startStatusPolling()
             await pollStatus()
         } catch MusicAPIError.conflict(let server) {
@@ -950,7 +1040,7 @@ final class NativeAudioSession {
             return true
         } catch {
             guard owner == store.music.sessionIdentity else { return false }
-            message = "Sonos is not responding. Retry before returning playback here."
+            message = "The remote output is not responding. Retry before returning playback here."
             return false
         }
     }
@@ -975,8 +1065,71 @@ final class NativeAudioSession {
             await pollStatus()
         } catch { if owner == store.music.sessionIdentity { message = error.localizedDescription } }
     }
+
+    /// Snapshot only local queue state. The Cast controller owns receiver state and may not
+    /// infer a track from a receiver URL.
+    func musicCastState() -> (index: Int, track: LuminaCore.MusicTrack, position: Double, playing: Bool)? {
+        guard let index = snapshot.currentIndex, tracks.indices.contains(index) else { return nil }
+        let position = max(0, playback?.elapsedSeconds ?? snapshot.positionSeconds)
+        return (index, tracks[index], position, playback?.isPlaying == true)
+    }
+
+    func prepareMusicCastTicket(for index: Int, position: Double) async throws -> MusicReceiverTicket {
+        guard let store, identity == store.music.sessionIdentity else {
+            throw LuminaError.notSignedIn
+        }
+        let projection = musicCastTracks(from: index)
+        guard !projection.isEmpty else { throw LuminaError.notSignedIn }
+        return try await store.prepareMusicReceiver(itemIDs: projection.map { $0.track.id }, currentIndex: 0,
+                                                    positionSeconds: position)
+    }
+
+    func beginMusicCastHandoff() {
+        transport?.pause()
+        playback?.receiveAudioState(.init(index: snapshot.currentIndex ?? 0,
+                                           position: snapshot.positionSeconds, playing: false))
+    }
+
+    func receiveMusicCastStatus(index: Int, position: Double, playing: Bool) {
+        guard tracks.indices.contains(index) else { return }
+        snapshot.currentIndex = index
+        snapshot.entryIndex = logicalIndex(for: index)
+        snapshot.positionSeconds = max(0, position)
+        playback?.receiveAudioState(.init(index: index, position: snapshot.positionSeconds, playing: playing))
+        persist()
+    }
+
+    func returnFromMusicCast(index: Int, position: Double, playing: Bool) async -> Bool {
+        guard tracks.indices.contains(index), let transport else { return false }
+        await transport.select(index, position: max(0, position), playing: false)
+        if playing { await transport.resume() }
+        let resumed: Bool
+        if playing { resumed = await transport.confirmPlaying() }
+        else { resumed = true }
+        guard resumed else { transport.pause(); return false }
+        receiveMusicCastStatus(index: index, position: max(0, position), playing: playing)
+        return true
+    }
+
+    func musicCastTrack(at index: Int) -> LuminaCore.MusicTrack? {
+        tracks.indices.contains(index) ? tracks[index] : nil
+    }
+
+    func musicCastTracks(from index: Int) -> [(index: Int, track: LuminaCore.MusicTrack)] {
+        guard tracks.indices.contains(index) else { return [] }
+        return Array(tracks[index...].prefix(100).enumerated()).map { offset, track in
+            (index + offset, track)
+        }
+    }
+
+    func musicCastQueueIsLimited(from index: Int, limit: Int) -> Bool {
+        tracks.indices.contains(index) && tracks.distance(from: index, to: tracks.endIndex) > limit
+    }
     func setOutputVolume(_ value: Float) async {
         volumeTask?.cancel()
+        #if os(iOS)
+        if isRemoteOutput { casting.setVolume(Double(value)); return }
+        #endif
         guard isSonos else { remoteVolumeDraft = nil; volume = value; return }
         let target = min(1, max(0, value)), owner = identity, ticket = snapshot.activeOutput.ticketID
         remoteVolumeDraft = target
@@ -992,11 +1145,21 @@ final class NativeAudioSession {
         // Session teardown hides local state without writing another member's queue.
         cancelRestoreTask()
         guard let store, identity == store.music.sessionIdentity else {
+            #if os(iOS)
+            casting.detach()
+            #endif
             clearPlayback()
             identity = nil; speakers = []; outputStatus = nil; conflict = nil; pendingSpeakerStop = nil
             return
         }
         guard !busy else { return }
+        if isRemoteOutput {
+            #if os(iOS)
+            casting.detach()
+            #endif
+            clearPlayback()
+            return
+        }
         let owner = identity
         if let ticket = pendingSpeakerStop ?? snapshot.activeOutput.ticketID {
             busy = true
@@ -1020,6 +1183,9 @@ final class NativeAudioSession {
     }
 
     private func clearPlayback() {
+        #if os(iOS)
+        casting.detach()
+        #endif
         cancelRestoreTask()
         volumeTask?.cancel(); volumeTask = nil; remoteVolumeDraft = nil
         waitingForEntry = nil; waitingNextIndex = nil

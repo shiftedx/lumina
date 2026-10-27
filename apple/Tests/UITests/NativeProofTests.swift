@@ -3827,19 +3827,21 @@ class NativeProofJourney: XCTestCase {
         try launchAndResetSession()
         let qrLanding = element("qrPairingLanding")
         try waitForExistence(qrLanding, timeout: 20, named: "QR pairing landing")
-        XCTAssertTrue(waitUntil(timeout: 10) {
-            self.application!.staticTexts.matching(
-                NSPredicate(format: "label CONTAINS[c] %@", "Camera scanning")
-            ).firstMatch.exists
-        }, "A simulator must explain when QR camera scanning is unavailable.")
+        let cameraStatus = element("connectionCameraStatus")
+        try waitForExistence(cameraStatus, timeout: 10, named: "Camera availability")
+        XCTAssertEqual(cameraStatus.label, "Camera unavailable")
+        let manualAction = element("advancedConnectionButton")
+        XCTAssertEqual(manualAction.label, "Sign in manually")
+        XCTAssertTrue(qrLanding.label.contains("Mobile connect"),
+                      "QR setup must identify the web action needed to obtain a code.")
         XCTAssertFalse(element("serverURLField").exists,
-                       "Manual credentials must stay hidden until Advanced is explicitly chosen.")
+                       "Manual credentials must stay hidden until manual sign-in is explicitly chosen.")
         XCTAssertFalse(element("usernameField").exists,
                        "QR pairing must remain the primary mobile connection path.")
         XCTAssertFalse(element("passwordField").exists,
                        "QR pairing must not pre-expose a password field.")
         try waitForExistence(element("scanPairingCodeButton"), timeout: 10, named: "QR scan action")
-        try attachFrame(named: "QR-primary mobile welcome before Advanced")
+        try attachFrame(named: "Compact mobile connection actions")
         try revealManualConnection()
         try waitForHittable(element("serverURLField"), timeout: 20, named: "Server address")
         XCTAssertFalse(element("connectButton").isEnabled, "Empty credentials must not submit.")

@@ -308,6 +308,7 @@ private struct ConnectionView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private let artwork = ["WelcomeCoast", "WelcomeOrbit", "WelcomeDunes"]
 
@@ -388,11 +389,23 @@ private struct ConnectionView: View {
         .sheet(isPresented: $helpPresented) {
             NavigationStack {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        Text("Server access").font(.headline)
-                        Text("Ask your administrator for your server address and household account. The server’s Jellyfin-compatible API must be enabled in Manage Server → Connections → Metadata → Apps like Infuse.")
-                        Text("Two-factor authentication").font(.headline)
-                        Text("Use an app password if your account has two-factor authentication. It is used only for this sign-in attempt.")
+                    VStack(alignment: .leading, spacing: 20) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("QR setup").font(.headline)
+                            Text("Web app → Member menu → Mobile connect → Show QR code")
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Sign in manually").font(.headline)
+                            LabeledContent("Server address", value: "From your administrator")
+                            LabeledContent("Username", value: "Household account")
+                            LabeledContent("2FA", value: "App password")
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Server setting").font(.headline)
+                            Text("Manage Server → Connections → Metadata → Apps like Infuse")
+                            Text("Enable Jellyfin-compatible API")
+                                .fontWeight(.semibold)
+                        }
                     }
                     .padding(28)
                 }
@@ -420,7 +433,7 @@ private struct ConnectionView: View {
                     .font(LuminaTheme.editorial(28, relativeTo: .title2))
                     .tracking(2.4)
             }
-            Text(showManual ? "Sign in" : "Scan a QR code")
+            Text(showManual ? "Sign in" : "Connect")
                 .font(.title2.weight(.semibold))
 
             connectionMethod
@@ -431,34 +444,26 @@ private struct ConnectionView: View {
                     .accessibilityAddTraits(.isStaticText)
                     .accessibilityIdentifier("connectionError")
             }
-            Button("Connection help") { focusedField = nil; helpPresented = true }
-                .buttonStyle(LuminaQuietActionStyle())
-                .accessibilityIdentifier("connectionHelpButton")
         }
     }
 
     @ViewBuilder private var connectionMethod: some View {
         if claimingPair {
-            ProgressView("Connecting…")
-                .frame(maxWidth: .infinity, minHeight: 280)
+            VStack(alignment: .leading, spacing: 14) {
+                ProgressView("Connecting…")
+                    .frame(maxWidth: .infinity, minHeight: 280)
+                connectionHelpAction
+            }
         } else if showManual {
             manualConnection
         } else if showScanner {
-            VStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 14) {
+                pairingSetupPath
                 MobilePairScanner(onCode: claim(code:), onUnavailable: scannerUnavailable)
                     .frame(height: 280)
                     .clipShape(.rect(cornerRadius: 16))
                     .accessibilityLabel("QR code scanner")
-                Text("Open Mobile connect in Lumina on a browser, then scan its QR code.")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.74))
-                Button("Advanced") {
-                    showScanner = false
-                    showManual = true
-                    manualRequested = true
-                }
-                .buttonStyle(LuminaQuietActionStyle())
-                .accessibilityIdentifier("advancedConnectionButton")
+                secondaryConnectionActions
             }
         } else {
             qrPairingLanding
@@ -467,33 +472,66 @@ private struct ConnectionView: View {
 
     private var qrPairingLanding: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                LuminaIcon(glyph: .scanQr, size: 20)
-                Text("Connect with a QR code")
-                    .font(.headline)
-                    .accessibilityIdentifier("qrPairingLanding")
-            }
-            Text("Open Mobile connect in Lumina on a browser, then scan its QR code here.")
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.74))
+            pairingSetupPath
             if !scannerCheckFinished {
                 ProgressView("Checking camera…")
             } else if !scannerAvailable {
-                Text("Camera scanning isn’t available on this device. Choose Advanced to sign in manually.")
+                Text("Camera unavailable")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.74))
+                    .accessibilityIdentifier("connectionCameraStatus")
             }
-            Button("Scan QR code") { Task { await prepareScanner(requestPermission: true) } }
+            Button {
+                Task { await prepareScanner(requestPermission: true) }
+            } label: {
+                Text("Scan QR code").frame(maxWidth: .infinity)
+            }
                 .buttonStyle(LuminaQuietActionStyle(primary: true))
                 .disabled(!scannerAvailable)
                 .accessibilityIdentifier("scanPairingCodeButton")
-            Button("Advanced") {
-                showManual = true
-                manualRequested = true
-            }
-            .buttonStyle(LuminaQuietActionStyle())
-            .accessibilityIdentifier("advancedConnectionButton")
+            secondaryConnectionActions
         }
+    }
+
+    private var pairingSetupPath: some View {
+        Text("Web app → Member menu → Mobile connect → Show QR code")
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.white.opacity(0.82))
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("qrPairingLanding")
+    }
+
+    @ViewBuilder private var secondaryConnectionActions: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                manualSignInAction
+                connectionHelpAction
+            }
+        } else {
+            HStack(spacing: 8) {
+                manualSignInAction.frame(maxWidth: .infinity)
+                connectionHelpAction.frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var manualSignInAction: some View {
+        Button("Sign in manually") {
+            showScanner = false
+            showManual = true
+            manualRequested = true
+        }
+        .buttonStyle(LuminaQuietActionStyle())
+        .accessibilityIdentifier("advancedConnectionButton")
+    }
+
+    private var connectionHelpAction: some View {
+        Button("Help") {
+            focusedField = nil
+            helpPresented = true
+        }
+        .buttonStyle(LuminaQuietActionStyle())
+        .accessibilityIdentifier("connectionHelpButton")
     }
 
     private var manualConnection: some View {
@@ -549,6 +587,11 @@ private struct ConnectionView: View {
                 }
                 .buttonStyle(LuminaQuietActionStyle())
                 .accessibilityIdentifier("scanPairingCodeButton")
+            }
+
+            HStack {
+                connectionHelpAction
+                Spacer(minLength: 0)
             }
         }
     }

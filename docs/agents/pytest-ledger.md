@@ -152,7 +152,7 @@ The seven malformed-caption inputs/assertions are unchanged. Their old byte-deri
 | `backend/tests/test_album_detail.py::test_a_members_private_album_is_invisible_to_others` | keep | No chain established; provenance `caa0a302d52f` | Same case: a members private album is invisible to others | Retains the observable behavior and distinct input domain. |
 | `backend/tests/test_album_detail.py::test_album_and_artist_pages_are_a_fixed_number_of_queries` | keep | No chain established; provenance `caa0a302d52f` | Same case: album and artist pages are a fixed number of queries | Retains the observable behavior and distinct input domain. |
 | `backend/tests/test_application_contracts.py::test_request_database_transactions_finish_before_responses_are_sent` | keep | No chain established; provenance `caa0a302d52f` | Same case: request database transactions finish before responses are sent | Retains the observable behavior and distinct input domain. |
-| `backend/tests/test_application_contracts.py::test_production_python_avoids_deprecated_naive_utc_constructors` | keep | No chain established; provenance `caa0a302d52f` | Same case: production python avoids deprecated naive utc constructors | Retains the observable behavior and distinct input domain. |
+| `backend/tests/test_application_contracts.py::test_production_python_avoids_deprecated_naive_utc_constructors` | delete | No chain established; provenance `caa0a302d52f` | Public serialization and metric-report contracts retained; see 2026-10-26 note below | No substantiated significant catch; source-spelling/configuration recipe retired |
 | `backend/tests/test_arr_observations.py::test_observation_runs_when_requests_are_disabled_paginates_and_starts_a_scoped_import` | keep | No chain established; provenance `b3bae8918e2b` | Same case: observation runs when requests are disabled paginates and starts a scoped import | Retains the observable behavior and distinct input domain. |
 | `backend/tests/test_arr_observations.py::test_registered_titles_keep_reconciling_new_seasons_and_replacements[sonarr]` | keep | No chain established; provenance `b3bae8918e2b` | Same case: registered titles keep reconciling new seasons and replacements | Retains the observable behavior and distinct input domain. |
 | `backend/tests/test_arr_observations.py::test_registered_titles_keep_reconciling_new_seasons_and_replacements[radarr]` | keep | No chain established; provenance `b3bae8918e2b` | Same case: registered titles keep reconciling new seasons and replacements | Retains the observable behavior and distinct input domain. |
@@ -884,7 +884,7 @@ The seven malformed-caption inputs/assertions are unchanged. Their old byte-deri
 | `backend/tests/test_hls_relay_api.py::test_relay_refresh_and_release_dispatch_through_shared_routes` | keep | No chain established; provenance `caa0a302d52f` | Same case: relay refresh and release dispatch through shared routes | Retains the observable behavior and distinct input domain. |
 | `backend/tests/test_home_contract.py::test_home_metrics_take_the_home_label_only[home_first_screen_ms]` | keep | No chain established; provenance `caa0a302d52f` | Same case: home metrics take the home label only | Retains the observable behavior and distinct input domain. |
 | `backend/tests/test_home_contract.py::test_home_metrics_take_the_home_label_only[home_hero_ms]` | keep | No chain established; provenance `caa0a302d52f` | Same case: home metrics take the home label only | Retains the observable behavior and distinct input domain. |
-| `backend/tests/test_home_contract.py::test_home_budgets_are_warm_p50_and_cold_p95` | keep | No chain established; provenance `caa0a302d52f` | Same case: home budgets are warm p50 and cold p95 | Retains the observable behavior and distinct input domain. |
+| `backend/tests/test_home_contract.py::test_home_budgets_are_warm_p50_and_cold_p95` | delete | No chain established; provenance `caa0a302d52f` | Public serialization and metric-report contracts retained; see 2026-10-26 note below | No substantiated significant catch; source-spelling/configuration recipe retired |
 | `backend/tests/test_household_account_policy.py::test_vault_owner_can_change_another_household_members_role_and_access` | keep | No chain established; provenance `caa0a302d52f` | Same case: vault owner can change another household members role and access | Retains the observable behavior and distinct input domain. |
 | `backend/tests/test_household_account_policy.py::test_household_member_cannot_manage_accounts` | keep | No chain established; provenance `caa0a302d52f` | Same case: household member cannot manage accounts | Retains the observable behavior and distinct input domain. |
 | `backend/tests/test_household_account_policy.py::test_vault_owner_cannot_remove_their_own_owner_access[deactivate]` | keep | No chain established; provenance `caa0a302d52f` | Same case: vault owner cannot remove their own owner access | Retains the observable behavior and distinct input domain. |
@@ -5304,3 +5304,23 @@ The seven malformed-caption inputs/assertions are unchanged. Their old byte-deri
 | `backend/tests/test_ytdlp_search.py::test_deep_youtube_search_lifts_the_24_cap_only_when_asked` | keep | No chain established; provenance `caa0a302d52f` | Same case: deep youtube search lifts the 24 cap only when asked | Retains the observable behavior and distinct input domain. |
 
 | `backend/tests/test_probe_streams.py::test_frame_colors_follow_playable_video_when_cover_art_comes_first` | keep | New contract and accompanying fix; no historical regression chain claimed. Reverting the fix fails the two-probe assertion. | Playable HDR video receives frame colors when an attached cover precedes it. | Distinct media input domain at the service seam; excludes attached pictures and selects the actual video stream. |
+
+## 2026-10-26: retire two implementation-recipe checks
+
+Under the owner’s revised significant-regression-catch criterion, remove
+`test_application_contracts.py::test_production_python_avoids_deprecated_naive_utc_constructors`
+and `test_home_contract.py::test_home_budgets_are_warm_p50_and_cold_p95`.
+Both are unchanged since `caa0a30`; the existing history ledger and follow-up
+file history contain no substantiated catch. Confidence is moderate, not proof
+that no unrecorded failure ever occurred.
+
+The retained public contracts are
+`test_library_service.py::test_serialize_chapters_and_timestamps_are_typed_and_warning_free`,
+`test_route_artwork_mapping.py::test_preview_route_chapters_and_timestamps_serialize_without_warnings`,
+and `test_client_metrics.py::test_report_merges_stored_and_pending_days_with_budgets_and_failure_rate`.
+Real-stack Home performance journeys still measure actual Home timing. These do
+not assert every source file uses a particular datetime constructor or pin the
+old metric constant values/order; those recipes are intentionally retired.
+Transaction completion, authentication, invalid metric input, rate limits,
+privacy and the historically caught regressions remain. No full-suite run or
+runtime saving is inferred from these two cheap deletions.

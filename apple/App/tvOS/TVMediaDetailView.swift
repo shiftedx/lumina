@@ -217,6 +217,19 @@ struct TVVideoCollectionView: View {
     @State private var returnEpisodeID: String?
 
     private enum Action: Hashable { case play, watchlist, more, episode(String) }
+
+    init(item: MediaItem, store: LuminaStore, onOpen: @escaping (MediaItem) -> Void,
+         onPlayback: @escaping (PlaybackRequest) -> Void, initialSeasonID: String? = nil,
+         initialEpisodeID: String? = nil) {
+        self.item = item
+        self.store = store
+        self.onOpen = onOpen
+        self.onPlayback = onPlayback
+        _selectedSeasonID = State(initialValue: initialSeasonID)
+        _selectedEpisodeID = State(initialValue: initialEpisodeID)
+        _returnEpisodeID = State(initialValue: initialEpisodeID)
+    }
+
     private var currentItem: MediaItem { refreshedItem ?? item }
     private var selectedEpisode: MediaItem? {
         guard let selectedEpisodeID else { return nil }
@@ -435,14 +448,15 @@ struct TVVideoCollectionView: View {
                         LazyHStack(alignment: .top, spacing: 30) {
                             ForEach(episodes) { episode in
                                 Button {
-                                    returnEpisodeID = episode.id
-                                    onOpen(episode)
-                                } label: { episodeCard(episode) }
+                                    selectEpisode(episode)
+                                } label: { episodeCard(episode, selected: episode.id == selectedEpisodeID) }
                                     .buttonStyle(TVArtworkButtonStyle(aspect: 16 / 9))
                                     .fixedSize(horizontal: false, vertical: true)
                                     .frame(width: 320, height: 248, alignment: .topLeading)
                                     .focused($focusedAction, equals: .episode(episode.id))
                                     .accessibilityIdentifier("videoCollectionItem-\(episode.id)")
+                                    .accessibilityValue(episode.id == selectedEpisodeID ? "Selected" : "")
+                                    .accessibilityAddTraits(episode.id == selectedEpisodeID ? .isSelected : [])
                             }
                         }
                         .padding(.horizontal, 82).padding(.vertical, 16)
@@ -456,7 +470,7 @@ struct TVVideoCollectionView: View {
         }
     }
 
-    private func episodeCard(_ episode: MediaItem) -> some View {
+    private func episodeCard(_ episode: MediaItem, selected: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             TVArtwork(item: episode, store: store, aspect: 16 / 9)
                 .frame(width: 320, height: 180)
@@ -472,6 +486,12 @@ struct TVVideoCollectionView: View {
                 .frame(height: 58, alignment: .topLeading)
         }
         .frame(width: 320, height: 248, alignment: .topLeading)
+        .overlay {
+            if selected {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(LuminaTheme.brand, lineWidth: 4)
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(episodeHeading(episode))\(episode.userData?.played == true ? ", Watched" : "")")
     }
@@ -560,6 +580,12 @@ struct TVVideoCollectionView: View {
                 errorMessage = "This season could not load. Try again."
             }
         }
+    }
+
+    private func selectEpisode(_ episode: MediaItem) {
+        returnEpisodeID = episode.id
+        selectedEpisodeID = episode.id
+        detailRevision += 1
     }
 
     private func loadEpisodeDetail() async {

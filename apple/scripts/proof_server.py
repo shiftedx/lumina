@@ -27,7 +27,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -43,6 +43,7 @@ AUDIO_ARTIST = "The Synthetic Lantern Ensemble"
 AUDIO_ALBUM = "Signals from a Quiet Observatory"
 AUDIO_TRACK = "First Light in the Listening Room"
 AUDIO_SECOND_TRACK = "A Signal Answered at Dawn"
+AUDIO_TRACK_DURATION_SECONDS = 90
 SHARED_MUSIC_PLAYLIST = "Observatory household listening"
 SYNTHETIC_LYRIC = "A lantern answers through the quiet night"
 SHOW_TITLE = "The Observatory Signal Logs"
@@ -65,8 +66,15 @@ REQUEST_MOVIE_KEY = "movie:603"
 REQUEST_MOVIE_TITLE = "The Matrix"
 REQUEST_SHOW_KEY = "show:1399"
 REQUEST_SHOW_TITLE = "Game of Thrones"
+REQUEST_UNAVAILABLE_SHOW_KEY = "show:95396"
+REQUEST_UNAVAILABLE_SHOW_TITLE = "Severance"
 REQUEST_ANIME_KEY = "anime:154587"
 REQUEST_ANIME_TITLE = "Frieren: Beyond Journey's End"
+REQUEST_FRESH_ANIME_ID = 20003
+REQUEST_FRESH_ANIME_KEY = f"anime:{REQUEST_FRESH_ANIME_ID}"
+REQUEST_FRESH_ANIME_TITLE = "Orbiting Lanterns"
+REQUEST_FRESH_ANIME_TMDB_ID = 209868
+REQUEST_FRESH_ANIME_TVDB_ID = 424537
 
 
 class _ProofCatalogPolicy:
@@ -106,6 +114,36 @@ class _ProofCatalogTransport:
             "credits": {"cast": [], "crew": []}, "content_ratings": {"results": []},
             "recommendations": {"results": []}, "similar": {"results": []},
         }
+        fresh_anime = {
+            "id": REQUEST_FRESH_ANIME_ID,
+            "title": {"romaji": "Orbiting Lanterns", "english": REQUEST_FRESH_ANIME_TITLE, "native": "灯台軌道"},
+            "format": "TV", "status": "FINISHED", "episodes": 12, "duration": 24,
+            "season": "SPRING", "seasonYear": 2026, "startDate": {"year": 2026, "month": 4, "day": 3},
+            "description": "A cartographer follows lanterns through an orbital archive.",
+            "coverImage": {"extraLarge": "https://s4.anilist.co/orbiting-lanterns.jpg", "color": "#9fd7f0"},
+            "bannerImage": "https://s4.anilist.co/orbiting-lanterns-banner.jpg", "averageScore": 84,
+            "popularity": 40_000, "genres": ["Adventure", "Fantasy"],
+            "studios": {"nodes": [{"name": "Lantern Studio", "isAnimationStudio": True}]},
+            "nextAiringEpisode": None, "trailer": None, "isAdult": False,
+        }
+        fresh_anime_detail = {
+            "data": {"Media": {**fresh_anime, "relations": {"edges": []}, "characters": {"edges": []},
+                               "recommendations": {"nodes": []}}}
+        }
+        fresh_anime_tmdb = {
+            "id": REQUEST_FRESH_ANIME_TMDB_ID, "name": REQUEST_FRESH_ANIME_TITLE,
+            "original_name": "Orbiting Lanterns", "genre_ids": [16, 10765], "original_language": "ja",
+            "origin_country": ["JP"], "first_air_date": "2026-04-03",
+            "overview": "A cartographer follows lanterns through an orbital archive.", "episode_run_time": [24],
+            "status": "Ended", "poster_path": "/orbiting-lanterns.jpg", "backdrop_path": "/orbiting-lanterns-bd.jpg",
+            "vote_average": 8.4, "vote_count": 400, "genres": [{"id": 16, "name": "Animation"}, {"id": 10765, "name": "Fantasy"}],
+            "networks": [{"name": "Lantern Studio"}], "created_by": [],
+            "seasons": [{"season_number": 1, "name": "Season 1", "episode_count": 12,
+                         "air_date": "2026-04-03", "poster_path": "/orbiting-lanterns-s1.jpg"}],
+            "external_ids": {"tvdb_id": REQUEST_FRESH_ANIME_TVDB_ID}, "images": {"logos": []},
+            "videos": {"results": []}, "credits": {"cast": [], "crew": []}, "content_ratings": {"results": []},
+            "recommendations": {"results": []}, "similar": {"results": []},
+        }
 
         def movie_card(identifier: int, title: str, year: int) -> dict[str, Any]:
             return {"id": identifier, "title": title, "original_title": title, "release_date": f"{year}-01-01",
@@ -126,6 +164,18 @@ class _ProofCatalogTransport:
                     {**movies[3], "media_type": "movie"}, {**shows[2], "media_type": "tv"}]
         movie_detail = {**movie, "recommendations": {"results": movies[1:]}, "similar": {"results": movies[2:]}}
         show_detail = {**show, "recommendations": {"results": shows[1:]}, "similar": {"results": shows[2:]}}
+        unavailable_show = {
+            **shows[1], "overview": "A worker discovers a mystery beyond the office floor.",
+            "episode_run_time": [50], "status": "Returning Series", "genres": [{"id": 18, "name": "Drama"}],
+            "networks": [{"name": "Lumon"}], "created_by": [],
+            "seasons": [
+                {"season_number": 1, "name": "Season 1", "episode_count": 9, "air_date": "2022-02-18", "poster_path": "/95396.jpg"},
+                {"season_number": 2, "name": "Season 2", "episode_count": 10, "air_date": "2025-01-17", "poster_path": "/95396.jpg"},
+            ],
+            "external_ids": {"tvdb_id": 371980}, "images": {"logos": []}, "videos": {"results": []},
+            "credits": {"cast": [], "crew": []}, "content_ratings": {"results": []},
+            "recommendations": {"results": shows[2:]}, "similar": {"results": shows[2:]},
+        }
         self.tmdb = {
             "/3/genre/movie/list": load("tmdb_genres_movie"), "/3/genre/tv/list": load("tmdb_genres_tv"),
             "/3/trending/all/week": {"page": 1, "total_pages": 2, "results": trending},
@@ -138,8 +188,13 @@ class _ProofCatalogTransport:
             "/3/tv/popular": {"page": 1, "total_pages": 2, "results": shows},
             "/3/tv/on_the_air": {"page": 1, "total_pages": 2, "results": shows[1:]},
             "/3/tv/airing_today": {"page": 1, "total_pages": 2, "results": shows[2:]},
-            "/3/movie/603": movie_detail, "/3/tv/1399": show_detail, "/3/tv/209867": frieren,
+            "/3/movie/603": movie_detail, "/3/tv/1399": show_detail, "/3/tv/95396": unavailable_show, "/3/tv/209867": frieren,
+            "/3/tv/95396/external_ids": {"id": 95396, "tvdb_id": 371980},
             "/3/tv/209867/external_ids": {"id": 209867, "tvdb_id": 424536},
+            f"/3/tv/{REQUEST_FRESH_ANIME_TMDB_ID}": fresh_anime_tmdb,
+            f"/3/tv/{REQUEST_FRESH_ANIME_TMDB_ID}/external_ids": {
+                "id": REQUEST_FRESH_ANIME_TMDB_ID, "tvdb_id": REQUEST_FRESH_ANIME_TVDB_ID,
+            },
             "/3/tv/37854/external_ids": load("tmdb_external_ids"),
             "/3/search/multi": {"page": 1, "total_pages": 2, "results": [{**frieren, "media_type": "tv"}, *trending]},
             "/3/search/tv": {"page": 1, "total_pages": 1, "results": [frieren]},
@@ -157,6 +212,9 @@ class _ProofCatalogTransport:
             "Browse": anime, "Detail": anime_detail, "Schedule": load("anilist_schedule"),
             "Genres": load("anilist_genres"), "Match": load("anilist_match"),
         }
+        self.fresh_anime = fresh_anime
+        self.fresh_anime_detail = fresh_anime_detail
+        self.fresh_anime_tmdb = fresh_anime_tmdb
 
     def fetch(self, url: str, *, validate_redirect, headers=None, data=None):  # noqa: ANN001, ANN201
         from app.services.artwork import RemoteArtworkResponse
@@ -166,11 +224,31 @@ class _ProofCatalogTransport:
         if parts.hostname == "graphql.anilist.co":
             body = json.loads(data or b"{}")
             operation = body.get("query", "").split("(", 1)[0].removeprefix("query ").strip().split()[0]
-            payload = self.anilist.get(operation, {"data": {}})
+            variables = body.get("variables") or {}
+            if operation == "Detail" and variables.get("id") == REQUEST_FRESH_ANIME_ID:
+                payload = self.fresh_anime_detail
+            elif operation == "Match" and any(
+                str(value).casefold() == REQUEST_FRESH_ANIME_TITLE.casefold() for value in variables.values()
+            ):
+                payload = {"data": {
+                    f"m{key.removeprefix('s')}": (
+                        self.fresh_anime if str(value).casefold() == REQUEST_FRESH_ANIME_TITLE.casefold() else None
+                    )
+                    for key, value in variables.items() if key.startswith("s")
+                }}
+            else:
+                payload = self.anilist.get(operation, {"data": {}})
         else:
-            # The fixture intentionally ignores filters and requested page; it keeps
-            # a stable, multi-card catalog while exercising the production normalizer.
-            payload = self.tmdb.get(parts.path)
+            # The fixture intentionally ignores filters and requested page except
+            # the fresh anime's exact search title. That identity must remain
+            # search-only so default rails retain their established card counts.
+            query = (parse_qs(parts.query).get("query") or [""])[0].casefold()
+            if query == REQUEST_FRESH_ANIME_TITLE.casefold() and parts.path == "/3/search/multi":
+                payload = {"page": 1, "total_pages": 1, "results": [{**self.fresh_anime_tmdb, "media_type": "tv"}]}
+            elif query == REQUEST_FRESH_ANIME_TITLE.casefold() and parts.path == "/3/search/tv":
+                payload = {"page": 1, "total_pages": 1, "results": [self.fresh_anime_tmdb]}
+            else:
+                payload = self.tmdb.get(parts.path)
             if payload is None:
                 return RemoteArtworkResponse(content_type="application/json", body=[b"{}"], status_code=404)
         return RemoteArtworkResponse(content_type="application/json", body=[json.dumps(payload).encode("utf-8")])
@@ -232,15 +310,18 @@ def install_showcase_art_fixture(state_root: Path) -> None:
     for identifier, generated_identifier in {
         603: 702, 604: 702, 329865: 700, 376867: 701,
         1399: 701, 95396: 700, 125988: 702, 83867: 701,
+        REQUEST_FRESH_ANIME_TMDB_ID: 700,
     }.items():
         allow_card(identifier, generated_identifier)
     for filename, generated_filename in {
         "matrix.jpg": "702.jpg", "reloaded.jpg": "702.jpg",
         "got.jpg": "701.jpg", "s1.jpg": "701.jpg", "frieren.jpg": "700.jpg",
+        "orbiting-lanterns.jpg": "700.jpg", "orbiting-lanterns-s1.jpg": "700.jpg",
     }.items():
         allow_tmdb(filename, "w500", generated_filename)
     for filename, generated_filename in {
         "matrix-bd.jpg": "702-bd.jpg", "got-bd.jpg": "701-bd.jpg", "frieren-bd.jpg": "700-bd.jpg",
+        "orbiting-lanterns-bd.jpg": "700-bd.jpg",
     }.items():
         allow_tmdb(filename, "w1280", generated_filename)
     allow_tmdb("frieren-s1.jpg", "w500", "700.jpg")
@@ -249,6 +330,7 @@ def install_showcase_art_fixture(state_root: Path) -> None:
     for filename, generated_filename in {
         "frieren.jpg": "700.jpg", "frieren-banner.jpg": "700-bd.jpg", "m.jpg": "702.jpg",
         "a.jpg": "701.jpg", "c1.jpg": "700.jpg", "c2.jpg": "701.jpg",
+        "orbiting-lanterns.jpg": "700.jpg", "orbiting-lanterns-banner.jpg": "700-bd.jpg",
     }.items():
         fixture_pictures[f"https://s4.anilist.co/{filename}"] = pictures[generated_filename]
 
@@ -282,6 +364,20 @@ def install_showcase_art_fixture(state_root: Path) -> None:
     def request_fixture_art(index: int):
         content, mime = local_pictures[index]
         return Response(content=content, media_type=mime)
+
+    # The production application mounts its SPA fallback at `/`.  This
+    # proof-only image seam is registered after importing that application, so
+    # place its exact route ahead of the catch-all without changing production
+    # route order.
+    request_art_route = next(
+        route for route in reversed(app.router.routes)
+        if getattr(route, "path", None) == "/proof/requests-art/{index}"
+    )
+    frontend_index = next(
+        index for index, route in enumerate(app.router.routes) if getattr(route, "name", None) == "frontend"
+    )
+    app.router.routes.remove(request_art_route)
+    app.router.routes.insert(frontend_index, request_art_route)
 
     catalog._image = lambda path, size: local_urls.get(original_image(path, size))
 
@@ -761,7 +857,7 @@ def make_music(media_root: Path, artwork: Path | None = None) -> None:
     from mutagen.mp4 import MP4
     for number, title, frequency in [(1, AUDIO_TRACK, 440), (2, AUDIO_SECOND_TRACK, 550)]:
         ffmpeg(
-            "-f", "lavfi", "-i", f"sine=frequency={frequency}:duration=90",
+            "-f", "lavfi", "-i", f"sine=frequency={frequency}:duration={AUDIO_TRACK_DURATION_SECONDS}",
             "-c:a", "aac", "-metadata", f"title={title}",
             "-metadata", f"artist={AUDIO_ARTIST}", "-metadata", f"album_artist={AUDIO_ARTIST}",
             "-metadata", f"album={AUDIO_ALBUM}", "-metadata", f"track={number}", "-metadata", "date=2026",
@@ -871,7 +967,7 @@ def configure_environment(state_root: Path) -> None:
 def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
     sys.path.insert(0, str(REPOSITORY_ROOT / "backend"))
     from app.db import init_db, session_scope
-    from app.models import LibraryItem, MediaTitle, User
+    from app.models import LibraryItem, MediaRequest, MediaTitle, User
     from app.media_schemas import MediaSegmentInput
     from app.music_schemas import MusicPlaylistSave
     from app.services import media_segments
@@ -899,7 +995,14 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
     with session_scope() as db:
         items = {item.title: item.id for item in db.query(LibraryItem).all()}
         titles = {(title.type, title.name): title.id for title in db.query(MediaTitle).all()}
+        direct_title = db.query(MediaTitle).filter_by(type="movie", name=DIRECT_TITLE).one()
         show_id = titles[("series", SHOW_TITLE)]
+        show_title = db.query(MediaTitle).filter_by(id=show_id).one()
+        # Reuse the generated vault titles as exact, authenticated catalog matches.
+        # This keeps the proof server offline while Requests follows the same
+        # provider-ID status path as a household library.
+        direct_title.provider_ids = {**direct_title.provider_ids, "Tmdb": "603"}
+        show_title.provider_ids = {**show_title.provider_ids, "Tmdb": "1399", "Tvdb": "424536"}
         first_episode_title = db.query(MediaTitle).filter_by(type="episode", name=EPISODE_TITLE).one()
         second_season_episode_title = db.query(MediaTitle).filter_by(
             type="episode", name=SECOND_SEASON_EPISODE_TITLE
@@ -914,6 +1017,12 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
             MediaSegmentInput(type="credits", start_seconds=EPISODE_CREDITS_START_SECONDS, end_seconds=90),
         ])
         owner = db.query(User).filter_by(username=username).one()
+        db.add(MediaRequest(
+            id=str(uuid.uuid4()), kind="anime", media_type="tv", tmdb_id=209867,
+            tvdb_id=424536, anilist_id=154587, title=REQUEST_ANIME_TITLE,
+            year=2023, seasons=[1], language="sub", status="partially_available",
+            requested_by=owner.id, library_title_id=show_id,
+        ))
         curator = UserService(db).create_member_without_password(owner, "observatory-curator", "Observatory curator")
         shared_playlist = music_playlists.save(db, curator, MusicPlaylistSave(
             name=SHARED_MUSIC_PLAYLIST, shared=True, item_ids=[items[AUDIO_TRACK], items[AUDIO_SECOND_TRACK]]))
@@ -944,6 +1053,7 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
             "audioArtistID": uuid.UUID(titles[("artist", AUDIO_ARTIST)]).hex,
             "audioTrackID": uuid.UUID(items[AUDIO_TRACK]).hex,
             "audioTrackTitle": AUDIO_TRACK,
+            "audioTrackDurationSeconds": AUDIO_TRACK_DURATION_SECONDS,
             "audioSecondTrackID": uuid.UUID(items[AUDIO_SECOND_TRACK]).hex,
             "audioSecondTrackTitle": AUDIO_SECOND_TRACK,
             "sharedMusicPlaylistID": shared_playlist["id"],
@@ -953,8 +1063,12 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
             "requestMovieTitle": REQUEST_MOVIE_TITLE,
             "requestShowKey": REQUEST_SHOW_KEY,
             "requestShowTitle": REQUEST_SHOW_TITLE,
+            "requestUnavailableShowKey": REQUEST_UNAVAILABLE_SHOW_KEY,
+            "requestUnavailableShowTitle": REQUEST_UNAVAILABLE_SHOW_TITLE,
             "requestAnimeKey": REQUEST_ANIME_KEY,
             "requestAnimeTitle": REQUEST_ANIME_TITLE,
+            "requestFreshAnimeKey": REQUEST_FRESH_ANIME_KEY,
+            "requestFreshAnimeTitle": REQUEST_FRESH_ANIME_TITLE,
         }
     except KeyError as error:
         raise RuntimeError("The production import did not index all proof videos and music.") from error
@@ -994,18 +1108,71 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
     }
     if not {REQUEST_MOVIE_KEY, REQUEST_SHOW_KEY, REQUEST_ANIME_KEY}.issubset(request_keys):
         raise RuntimeError("The native Requests catalog did not expose the proof titles.")
+    request_movie = next(
+        (
+            item
+            for rail in request_home.get("rails", []) if isinstance(rail, dict)
+            for item in rail.get("items", []) if isinstance(item, dict) and item.get("key") == REQUEST_MOVIE_KEY
+        ),
+        None,
+    )
+    request_art_url = request_movie.get("backdrop_url") if isinstance(request_movie, dict) else None
+    if not isinstance(request_art_url, str) or not request_art_url.startswith(f"{ORIGIN}/proof/requests-art/"):
+        raise RuntimeError("The native Requests fixture did not rewrite catalog artwork to its loopback image route.")
+    with urlopen(request_art_url, timeout=60) as response:
+        if response.status != 200 or not response.headers.get_content_type().startswith("image/") or not response.read(1):
+            raise RuntimeError("The native Requests fixture artwork route did not return image bytes.")
+    request_statuses = {
+        item.get("key"): item.get("status")
+        for rail in request_home.get("rails", []) if isinstance(rail, dict)
+        for item in rail.get("items", []) if isinstance(item, dict)
+    }
+    for key in (REQUEST_MOVIE_KEY, REQUEST_SHOW_KEY, REQUEST_ANIME_KEY):
+        status = request_statuses.get(key)
+        if not isinstance(status, dict) or not status.get("library_title_id"):
+            raise RuntimeError(f"The native Requests catalog did not link the proof vault title for {key}.")
+    unavailable_status = request_statuses.get(REQUEST_UNAVAILABLE_SHOW_KEY)
+    if unavailable_status != {"state": "none"}:
+        raise RuntimeError("The native Requests catalog lost its unlinked series request fixture.")
     request_search = request_json("/Lumina/Requests/catalog/search?q=Frieren&page=1", token=token)
     if not any(item.get("key") == REQUEST_ANIME_KEY for item in request_search.get("items", [])):
         raise RuntimeError("The native Requests search did not expose the anime proof title.")
+    fresh_anime_search = request_json(
+        f"/Lumina/Requests/catalog/search?{urlencode({'q': REQUEST_FRESH_ANIME_TITLE, 'page': 1})}", token=token,
+    )
+    fresh_anime = next((item for item in fresh_anime_search.get("items", []) if item.get("key") == REQUEST_FRESH_ANIME_KEY), None)
+    if not isinstance(fresh_anime, dict) or fresh_anime.get("status") != {"state": "none"}:
+        raise RuntimeError("The fresh anime request fixture was not search-reachable without a seeded request.")
+    request_history = request_json("/Lumina/Requests", token=token)
+    history_items = [item for item in request_history.get("items", []) if isinstance(item, dict)]
+    if any(item.get("key") == REQUEST_FRESH_ANIME_KEY for item in history_items):
+        raise RuntimeError("The fresh anime request fixture unexpectedly has a seeded request.")
+    seeded_anime = next((item for item in history_items if item.get("key") == REQUEST_ANIME_KEY), None)
+    if not isinstance(seeded_anime, dict) or seeded_anime.get("seasons") != [1] or seeded_anime.get("language") != "sub":
+        raise RuntimeError("The seeded partial anime request fixture lost its Season 1 subtitle request.")
     request_quota = request_json("/Lumina/Requests/quota", token=token)
     if not any(row.get("kind") == "anime" for row in request_quota.get("quotas", []) if isinstance(row, dict)):
         raise RuntimeError("The native Requests quota route did not expose the anime policy.")
     request_show = request_json("/Lumina/Requests/catalog/title/show/1399", token=token)
     if not any(row.get("number") == 1 for row in request_show.get("seasons", []) if isinstance(row, dict)):
         raise RuntimeError("The native Requests title route did not expose the show season selector.")
+    request_unlinked_show = request_json("/Lumina/Requests/catalog/title/show/95396", token=token)
+    if request_unlinked_show.get("key") != REQUEST_UNAVAILABLE_SHOW_KEY or request_unlinked_show.get("status") != {"state": "none"}:
+        raise RuntimeError("The unlinked Requests show fixture did not retain its requestable identity.")
+    if request_unlinked_show.get("tvdb_id") != 371980 or not any(
+        row.get("number") == 1 for row in request_unlinked_show.get("seasons", []) if isinstance(row, dict)
+    ):
+        raise RuntimeError("The unlinked Requests show fixture did not expose provider metadata and seasons.")
     request_anime = request_json("/Lumina/Requests/catalog/title/anime/154587", token=token)
     if request_anime.get("key") != REQUEST_ANIME_KEY or request_anime.get("tvdb_id") != 424536:
         raise RuntimeError("The native Requests title route did not preserve anime request metadata.")
+    if request_anime.get("status", {}).get("state") != "partially_available" or request_anime.get("status", {}).get("library_title_id") is None:
+        raise RuntimeError("The seeded partial anime request fixture lost its vault and partial-coverage state.")
+    fresh_anime_detail = request_json(f"/Lumina/Requests/catalog/title/anime/{REQUEST_FRESH_ANIME_ID}", token=token)
+    if fresh_anime_detail.get("key") != REQUEST_FRESH_ANIME_KEY or fresh_anime_detail.get("status") != {"state": "none"}:
+        raise RuntimeError("The fresh anime request fixture did not retain a distinct unrequested identity.")
+    if not any(row.get("number") == 1 for row in fresh_anime_detail.get("seasons", []) if isinstance(row, dict)):
+        raise RuntimeError("The fresh anime request fixture did not expose its first-season selector.")
 
     showcase = request_json("/api/public/showcase")
     slides = showcase.get("slides", [])
@@ -1078,6 +1245,8 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
     track = request_json(f"/Users/{signed_in['User']['Id']}/Items/{expected['audioTrackID']}", token=token)
     if track.get("Type") != "Audio" or track.get("Id") != expected["audioTrackID"]:
         raise RuntimeError("The authenticated fresh-item route did not expose the synthetic audio track.")
+    if track.get("RunTimeTicks") != expected["audioTrackDurationSeconds"] * 10_000_000:
+        raise RuntimeError("The synthetic audio track did not retain its advertised duration.")
     native_track = request_json(f"/Lumina/Music/tracks/{expected['audioTrackID']}", token=token)
     if native_track.get("gain_db") != -6 or native_track.get("album_gain_db") != -4:
         raise RuntimeError("The production music import did not preserve synthetic ReplayGain metadata.")
@@ -1121,6 +1290,28 @@ def verify_api(expected: dict[str, Any], username: str, password: str) -> dict[s
     )
     if not any(candidate.get("SupportsTranscoding") for candidate in converted_playback.get("MediaSources", [])):
         raise RuntimeError("The compatibility fixture did not negotiate a transcode source.")
+
+    capped_profile = {
+        **profile,
+        "DirectPlayProfiles": [
+            {"Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264", "AudioCodec": "aac"},
+            {"Type": "Video", "Container": "mkv", "VideoCodec": "h264", "AudioCodec": "aac"},
+        ],
+        "CodecProfiles": [{
+            "Type": "Video", "Codec": "h264",
+            "Conditions": [{"Property": "Height", "Condition": "LessThanEqual", "Value": "480"}],
+        }],
+        "MaxStreamingBitrate": 1_500_000,
+    }
+    capped_playback = request_json(
+        f"/Items/{converted['Id']}/PlaybackInfo",
+        method="POST",
+        token=token,
+        payload={"DeviceProfile": capped_profile, "EnableDirectPlay": True, "MaxStreamingBitrate": 1_500_000},
+    )
+    if not any(candidate.get("SupportsTranscoding") and ".m3u8" in str(candidate.get("TranscodingUrl") or "")
+               for candidate in capped_playback.get("MediaSources", [])):
+        raise RuntimeError("The 480p proof profile did not negotiate HLS for the high-resolution subtitle fixture.")
 
     request_json(
         "/Sessions/Playing/Progress",
@@ -1195,8 +1386,10 @@ def main() -> None:
         print("Generating synthetic proof video and music media...", flush=True)
         make_movie(state_root / "media", DIRECT_TITLE, 2026, ".mp4", "360x540", artwork=artwork.get("lanterns.png"),
                    video_size=perf_video_size, title_logo=True)
+        # This fixture must physically exceed the 480p quality rung: its poster
+        # dimensions are unrelated to the imported video stream's dimensions.
         make_movie(state_root / "media", CONVERTED_TITLE, 2025, ".mkv", "960x540", artwork=artwork.get("cartographer.png"),
-                   embedded_subtitle=True, embedded_chapters=True, video_size=perf_video_size)
+                   embedded_subtitle=True, embedded_chapters=True, video_size="960x540")
         make_movie(state_root / "media", MATRIX_TITLE, 2024, ".mp4", "360x540", duration=40, artwork=artwork.get("observatory.png"))
         if performance_catalogue:
             print(f"Adding {performance_catalogue} synthetic performance-catalog movies...", flush=True)

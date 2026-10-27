@@ -32,6 +32,14 @@ public struct TVRootView: View {
             .navigationDestination(for: MediaItem.self) { item in
                 if item.isAudio || item.type == "MusicAlbum" || item.type == "MusicArtist" {
                     TVMusicDetailView(item: item, store: store) { path.append($0) }
+                } else if item.type == "Episode" {
+                    TVEpisodeCollectionDestination(
+                        item: item,
+                        store: store,
+                        onOpen: { path.append($0) },
+                        onPlayback: { playbackRequest = $0 }
+                    )
+                        .onPlayPauseCommand(perform: toggleAudioPlayback)
                 } else if item.isCollection {
                     TVVideoCollectionView(item: item, store: store, onOpen: { path.append($0) }, onPlayback: { playbackRequest = $0 })
                         .onPlayPauseCommand(perform: toggleAudioPlayback)
@@ -48,7 +56,7 @@ public struct TVRootView: View {
             if token == nil { audioSession.stop() }
         }
         .task(id: store.session?.accessToken) {
-            if store.session != nil { await audioSession.restore(store: store) }
+            if store.session != nil { audioSession.restoreFromTVRoot(store: store) }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -73,8 +81,78 @@ public struct TVRootView: View {
     private func toggleAudioPlayback() {
         // Keep background music reachable without intercepting a music detail's
         // command to start its album when no session exists yet.
-        guard playbackRequest == nil, audioSession.playback != nil else { return }
-        Task { await audioSession.toggle() }
+        guard playbackRequest == nil else {
+            #if LUMINA_UI_TESTING
+            audioSession.recordTVRestoreRemoteOutcome("root-cover-present")
+            #endif
+            return
+        }
+        let isAtNavigationRoot = path.isEmpty
+        Task {
+            if isAtNavigationRoot {
+                if await audioSession.toggleTVPausedRestoreIfNeeded() {
+                    #if LUMINA_UI_TESTING
+                    audioSession.recordTVRestoreRemoteOutcome("root-restore-handled")
+                    #endif
+                    return
+                }
+            }
+            guard audioSession.playback != nil else {
+                #if LUMINA_UI_TESTING
+                audioSession.recordTVRestoreRemoteOutcome("root-no-playback")
+                #endif
+                return
+            }
+            #if LUMINA_UI_TESTING
+            audioSession.recordTVRestoreRemoteOutcome("root-toggle")
+            #endif
+            await audioSession.toggle()
+            #if LUMINA_UI_TESTING
+            audioSession.recordTVRestoreRemoteOutcome("root-toggle-finished")
+            #endif
+        }
+    }
+}
+
+@MainActor
+private struct TVEpisodeCollectionDestination: View {
+    let item: MediaItem
+    let store: LuminaStore
+    let onOpen: (MediaItem) -> Void
+    let onPlayback: (PlaybackRequest) -> Void
+    @State private var series: MediaItem?
+    @State private var couldNotResolveSeries = false
+
+    var body: some View {
+        Group {
+            if let series {
+                TVVideoCollectionView(
+                    item: series,
+                    store: store,
+                    onOpen: onOpen,
+                    onPlayback: onPlayback,
+                    initialSeasonID: item.seasonID,
+                    initialEpisodeID: item.id
+                )
+            } else if couldNotResolveSeries {
+                TVDetailView(item: item, store: store, onOpen: onOpen, onPlayback: onPlayback)
+            } else {
+                ProgressView("Loading show…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("videoCollectionLoading")
+            }
+        }
+        .task(id: item.id) {
+            guard let seriesID = item.seriesID else {
+                couldNotResolveSeries = true
+                return
+            }
+            do {
+                series = try await store.seriesCollection(id: seriesID)
+            } catch {
+                couldNotResolveSeries = true
+            }
+        }
     }
 }
 
@@ -680,7 +758,13 @@ private struct TVLibraryView: View {
                         )
                     }
                 case .requests:
-                    TVRequestsView(store: store, focusRequest: contentFocusRequest)
+                    TVRequestsView(
+                        store: store,
+                        focusRequest: contentFocusRequest,
+                        onOpen: onOpen,
+                        onPlayback: onPlayback,
+                        onOpenVault: { id in try await store.libraryItem(id: id) }
+                    )
                 }
             }
             .padding(.top, contentTopPadding)
@@ -1017,6 +1101,9 @@ private struct TVHomeView: View {
     let onPlayback: (PlaybackRequest) -> Void
     let focusRequest: Int
     @Environment(\.scenePhase) private var scenePhase
+    #if LUMINA_UI_TESTING
+    @Environment(NativeAudioSession.self) private var audioSession
+    #endif
 
     @State private var loadingInitialLibrary = false
     private var refinement: HomeRefinementResult {
@@ -1087,6 +1174,9 @@ private struct TVHomeView: View {
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .top])
         .accessibilityIdentifier("homeScreen")
+        #if LUMINA_UI_TESTING
+        .accessibilityValue(audioSession.uiTestingTVRestoreDiagnostics)
+        #endif
         .task(id: TVHomeSessionScope(store.session)) {
             guard store.session != nil else { return }
             let needsInitialLibraryLoad = !layout.hasLoaded || !feed.hasLoaded

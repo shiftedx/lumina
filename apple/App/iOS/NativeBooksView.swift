@@ -4,10 +4,12 @@ import UIKit
 
 @MainActor
 struct NativeBooksView: View {
+    let store: LuminaStore
     let session: LuminaSession
     var shelf: BookShelf?
     var series: BookSeries?
     var catalogOnly = false
+    var isActive = true
     @State private var books = [BookItem]()
     @State private var overview: BooksOverview?
     @State private var seriesItems = [BookSeries]()
@@ -23,11 +25,20 @@ struct NativeBooksView: View {
     @State private var selected: BookItem?
     @State private var api: LuminaBooks?
     @State private var covers: BookCoverCache?
+    #if LUMINA_UI_TESTING
+    @State private var uiTestingLoadGeneration = 0
+    @State private var uiTestingLoadStage = "initial"
+    @State private var uiTestingCatalogCount = -1
+    @State private var uiTestingOverviewComplete = false
+    @State private var uiTestingSeriesComplete = false
+    @State private var uiTestingTaskCancelled = false
+    #endif
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    init(session: LuminaSession, shelf: BookShelf? = nil, series: BookSeries? = nil, catalogOnly: Bool = false, covers: BookCoverCache? = nil) {
-        self.session = session; self.shelf = shelf; self.series = series; self.catalogOnly = catalogOnly
+    init(store: LuminaStore, session: LuminaSession, shelf: BookShelf? = nil, series: BookSeries? = nil, catalogOnly: Bool = false, covers: BookCoverCache? = nil, isActive: Bool = true) {
+        self.store = store
+        self.session = session; self.shelf = shelf; self.series = series; self.catalogOnly = catalogOnly; self.isActive = isActive
         _covers = State(initialValue: covers)
     }
 
@@ -39,6 +50,15 @@ struct NativeBooksView: View {
     private var catalogQuery: NativeBookCatalogQuery {
         NativeBookCatalogQuery(search: search, kind: kindFilter, status: readingFilter, sort: sort)
     }
+    #if LUMINA_UI_TESTING
+    private var uiTestingLoadDiagnostics: String {
+        let sessionHasToken = !session.accessToken.isEmpty
+        let originScopeMatches = store.session?.serverURL == session.serverURL
+            && store.session?.userID == session.userID
+            && store.session?.accessToken == session.accessToken
+        return "generation=\(uiTestingLoadGeneration) stage=\(uiTestingLoadStage) catalog=\(uiTestingCatalogCount) committed=\(books.count) overview=\(uiTestingOverviewComplete) series=\(uiTestingSeriesComplete) taskCancelled=\(uiTestingTaskCancelled) sessionHasToken=\(sessionHasToken) originScopeMatches=\(originScopeMatches)"
+    }
+    #endif
     private var title: String { shelf?.name ?? series?.title ?? (catalogOnly ? "All books" : "Books") }
     private var featuredBooks: [BookItem] {
         if let reading = overview?.continueReading, !reading.isEmpty { return reading }
@@ -61,6 +81,7 @@ struct NativeBooksView: View {
     }
 
     var body: some View {
+        navigationChrome {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 30) {
                 if let error {
@@ -89,7 +110,7 @@ struct NativeBooksView: View {
                                 LazyHStack(alignment: .top, spacing: 18) {
                                     ForEach(shelves) { shelf in
                                         NavigationLink {
-                                            NativeBooksView(session: session, shelf: shelf, covers: covers)
+                                            NativeBooksView(store: store, session: session, shelf: shelf, covers: covers)
                                         } label: {
                                             VStack(alignment: .leading, spacing: 10) {
                                                 NativeBookStack(ids: Array(shelf.coverBookIDs.prefix(3)), title: shelf.name, covers: covers, count: shelf.count)
@@ -107,7 +128,7 @@ struct NativeBooksView: View {
                             LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
                                 ForEach(seriesItems) { series in
                                     NavigationLink {
-                                        NativeBooksView(session: session, series: series, covers: covers)
+                                        NativeBooksView(store: store, session: session, series: series, covers: covers)
                                     } label: {
                                         VStack(alignment: .leading, spacing: 10) {
                                             NativeBookStack(ids: series.coverBookID.map { [$0] } ?? [], title: series.title, covers: covers, count: series.volumeCount)
@@ -164,35 +185,61 @@ struct NativeBooksView: View {
         .toolbarVisibility(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Type", selection: $kindFilter) {
-                        ForEach(NativeBookKindFilter.allCases) { filter in Text(filter.title).tag(filter) }
-                    }
-                    Picker("Reading", selection: $readingFilter) {
-                        ForEach(NativeBookReadingFilter.allCases) { filter in Text(filter.title).tag(filter) }
-                    }
-                    Picker("Sort", selection: $sort) {
-                        ForEach(NativeBookSort.allCases) { option in Text(option.title).tag(option) }
-                    }
-                } label: {
-                    Label("Book options", glyph: .moreHorizontal)
-                }
-                .accessibilityIdentifier("booksOptionsMenu")
+                bookOptionsMenu
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Search books", glyph: .search) { searchVisible = true }
-                    .accessibilityIdentifier("booksSearchButton")
+                bookSearchButton
             }
         }
+        .accessibilityIdentifier("booksScreen")
+        #if LUMINA_UI_TESTING
+        .accessibilityValue(uiTestingLoadDiagnostics)
+        #endif
         .modifier(NativeSearchPresentation(text: $search, isPresented: $searchVisible, prompt: "Title or author"))
-        .task(id: catalogQuery) {
-            do { try await Task.sleep(for: .milliseconds(250)); await load() } catch { }
+        .task(id: NativeBookLoadKey(query: catalogQuery, isActive: isActive)) {
+            #if LUMINA_UI_TESTING
+            uiTestingLoadGeneration += 1
+            uiTestingLoadStage = "task-entry"
+            uiTestingTaskCancelled = false
+            #endif
+            guard isActive else {
+                #if LUMINA_UI_TESTING
+                uiTestingLoadStage = "task-inactive"
+                #endif
+                return
+            }
+            do {
+                // Only free-form text needs debouncing.  The initial catalog load
+                // must start with the active Books view: a Library shell transition
+                // can legitimately replace its task during the old debounce window.
+                if !catalogQuery.search.isEmpty {
+                    try await Task.sleep(for: .milliseconds(250))
+                }
+                await load()
+            } catch is CancellationError {
+                #if LUMINA_UI_TESTING
+                uiTestingLoadStage = "task-sleep-cancel"
+                uiTestingTaskCancelled = true
+                #endif
+            } catch { }
         }
         .refreshable { await load() }
         .fullScreenCover(item: $selected, onDismiss: { Task { await load() } }) { book in
             NativeBookReader(session: session, book: book, covers: covers)
         }
-        .accessibilityIdentifier("booksScreen")
+        }
+    }
+
+    @ViewBuilder
+    private func navigationChrome<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        if root {
+            content()
+        } else {
+            content()
+                .standardPhonePushedChrome(store: store) {
+                    bookHeaderActions
+                }
+        }
     }
 
     private func sectionTitle(_ title: String) -> some View {
@@ -202,10 +249,38 @@ struct NativeBooksView: View {
     }
     private func catalogLink(covers: BookCoverCache) -> some View {
         NavigationLink {
-            NativeBooksView(session: session, catalogOnly: true, covers: covers)
+            NativeBooksView(store: store, session: session, catalogOnly: true, covers: covers)
         } label: { Label("Browse all", glyph: .grid) }
         .accessibilityIdentifier("bookCatalogButton")
     }
+
+    @ViewBuilder private var bookHeaderActions: some View {
+        bookOptionsMenu
+        bookSearchButton
+    }
+
+    private var bookOptionsMenu: some View {
+        Menu {
+            Picker("Type", selection: $kindFilter) {
+                ForEach(NativeBookKindFilter.allCases) { filter in Text(filter.title).tag(filter) }
+            }
+            Picker("Reading", selection: $readingFilter) {
+                ForEach(NativeBookReadingFilter.allCases) { filter in Text(filter.title).tag(filter) }
+            }
+            Picker("Sort", selection: $sort) {
+                ForEach(NativeBookSort.allCases) { option in Text(option.title).tag(option) }
+            }
+        } label: {
+            Label("Book options", glyph: .moreHorizontal)
+        }
+        .accessibilityIdentifier("booksOptionsMenu")
+    }
+
+    private var bookSearchButton: some View {
+        Button("Search books", glyph: .search) { searchVisible = true }
+            .accessibilityIdentifier("booksSearchButton")
+    }
+
     private func bookCard(_ book: BookItem, covers: BookCoverCache) -> some View {
         Button { selected = book } label: {
             VStack(alignment: .leading, spacing: 8) {
@@ -230,6 +305,13 @@ struct NativeBooksView: View {
     private func load(more: Bool = false) async {
         if more && busy { return }
         let requestedQuery = catalogQuery
+        #if LUMINA_UI_TESTING
+        uiTestingLoadStage = "load-start"
+        uiTestingCatalogCount = -1
+        uiTestingOverviewComplete = false
+        uiTestingSeriesComplete = false
+        uiTestingTaskCancelled = Task.isCancelled
+        #endif
         busy = true; error = nil
         defer { if requestedQuery == catalogQuery { busy = false } }
         do {
@@ -255,8 +337,20 @@ struct NativeBooksView: View {
                     sort: requestedQuery.sort.catalogSort
                 )
                 result = page.items; cursor = page.nextCursor
+                #if LUMINA_UI_TESTING
+                uiTestingCatalogCount = page.items.count
+                uiTestingLoadStage = "catalog-complete"
+                uiTestingTaskCancelled = Task.isCancelled
+                #endif
             }
             let (loadedOverview, loadedSeries) = try await (summary, manga)
+            #if LUMINA_UI_TESTING
+            uiTestingOverviewComplete = loadedOverview != nil
+            uiTestingSeriesComplete = loadedSeries != nil
+            uiTestingLoadStage = "overview-series-complete"
+            uiTestingTaskCancelled = Task.isCancelled
+            uiTestingLoadStage = "precheck-cancel"
+            #endif
             try Task.checkCancellation()
             guard requestedQuery == catalogQuery else { return }
             if let loadedOverview { overview = loadedOverview }
@@ -265,8 +359,21 @@ struct NativeBooksView: View {
             var ids = Set(existing.map(\.id))
             books = existing + result.filter { ids.insert($0.id).inserted }
             nextCursor = cursor
-        } catch is CancellationError { }
-        catch { if requestedQuery == catalogQuery { self.error = error.localizedDescription } }
+            #if LUMINA_UI_TESTING
+            uiTestingLoadStage = "commit"
+            #endif
+        } catch is CancellationError {
+            #if LUMINA_UI_TESTING
+            uiTestingLoadStage = "catch-cancel"
+            uiTestingTaskCancelled = true
+            #endif
+        } catch {
+            #if LUMINA_UI_TESTING
+            uiTestingLoadStage = "catch-other"
+            uiTestingTaskCancelled = Task.isCancelled
+            #endif
+            if requestedQuery == catalogQuery { self.error = error.localizedDescription }
+        }
     }
     private func locallyFilteredSeries(_ items: [BookItem], matching query: NativeBookCatalogQuery) -> [BookItem] {
         let filtered = items.filter { book in
@@ -356,6 +463,11 @@ private struct NativeBookCatalogQuery: Hashable {
     let sort: NativeBookSort
 
     var hasFilters: Bool { kind != .all || status != .all || sort != .added }
+}
+
+private struct NativeBookLoadKey: Hashable {
+    let query: NativeBookCatalogQuery
+    let isActive: Bool
 }
 
 private extension NativeBookKindFilter {

@@ -251,7 +251,8 @@ final class LuminaClient: @unchecked Sendable {
     func playbackRequest(origin: URL, token: String, item: MediaItem, result: PlaybackInfo,
                          quality: PlaybackQuality = .automatic,
                          audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil, mediaSourceID: String? = nil,
-                         startPositionSeconds: Double? = nil) throws -> PlaybackRequest {
+                         startPositionSeconds: Double? = nil,
+                         selectedSourceChapters: [PlaybackChapter]? = nil) throws -> PlaybackRequest {
         let source = try preferredSource(in: result, mediaSourceID: mediaSourceID)
         let streams = try source.mediaStreams.map { try PlaybackStream($0, origin: origin) }
         let sourceChapters = source.chapters.map {
@@ -262,7 +263,8 @@ final class LuminaClient: @unchecked Sendable {
         }
         // The item detail's chapters describe its preferred source. The preferred source uses
         // the item id on Lumina; legacy callers omit an id. Explicit alternates never inherit it.
-        let chapters = sourceChapters ?? ((mediaSourceID == nil || source.id == item.id) ? item.chapters : [])
+        let chapters = sourceChapters ?? selectedSourceChapters
+            ?? ((mediaSourceID == nil || source.id == item.id) ? item.chapters : [])
         let resolvedAudioStreamIndex = audioStreamIndex ?? source.defaultAudioStreamIndex
         let resolvedSubtitleStreamIndex = subtitleStreamIndex ?? source.defaultSubtitleStreamIndex
         let start = try boundedStartPosition(startPositionSeconds, item: item)

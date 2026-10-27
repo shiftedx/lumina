@@ -50,7 +50,22 @@ def _keep(latest: dict, slot: tuple[str, int], req: MediaRequest) -> None:
         latest[slot] = req
 
 
-def catalog_statuses(session: Session, user: User, keys: list[str]) -> dict[str, dict[str, Any]]:
+def _catalog_source(value: dict[str, Any] | None) -> tuple[str, int | None, int | None] | None:
+    """The normalized catalog's exact provider ids, when it has them.
+
+    Catalog keys identify movies and shows by TMDB but identify anime by AniList.
+    The latter still has a cached, server-derived TMDB/TVDB mapping, so status
+    annotation accepts that mapping rather than guessing from a title.
+    """
+    if value is None or value.get("media_type") not in ("movie", "tv"):
+        return None
+    identifier = lambda field: value[field] if type(value.get(field)) is int and value[field] > 0 else None
+    return value["media_type"], identifier("tmdb_id"), identifier("tvdb_id")
+
+
+def catalog_statuses(
+    session: Session, user: User, keys: list[str], item_sources: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
     """{key: CatalogStatus} for "movie:603", "show:1399", "anime:16498" (an AniList id). Unknown keys are left out."""
     parsed = {key: p for key in keys if (p := parse_key(key))}
     if not parsed:
@@ -69,21 +84,29 @@ def catalog_statuses(session: Session, user: User, keys: list[str]) -> dict[str,
         slots.append(("movie" if req.media_type == "movie" else "show", req.tmdb_id))
         for slot in slots:
             _keep(latest, slot, req)
-    movies = {v for k, v in parsed.values() if k == "movie"} | {r.tmdb_id for r in latest.values() if r.media_type == "movie" and r.tmdb_id}
-    shows = {v for k, v in parsed.values() if k == "show"} | {r.tmdb_id for r in latest.values() if r.media_type == "tv" and r.tmdb_id}
+    sources = {key: source for key in parsed if (source := _catalog_source((item_sources or {}).get(key)))}
+    resolved: dict[str, tuple[MediaRequest | None, str, int | None, int | None]] = {}
+    for key, (kind, value) in parsed.items():
+        req = latest.get((kind, value))
+        source = sources.get(key)
+        media_type = req.media_type if req else (source[0] if source else "movie" if kind == "movie" else "tv")
+        tmdb_id = req.tmdb_id if req else (source[1] if source else None if kind == "anime" else value)
+        tvdb_id = req.tvdb_id if req else (source[2] if source else None)
+        resolved[key] = req, media_type, tmdb_id, tvdb_id
+    movies = {tmdb_id for _req, media_type, tmdb_id, _tvdb_id in resolved.values() if media_type == "movie" and tmdb_id}
+    shows = {tmdb_id for _req, media_type, tmdb_id, _tvdb_id in resolved.values() if media_type == "tv" and tmdb_id}
+    show_tvdb = {tvdb_id for _req, media_type, _tmdb_id, tvdb_id in resolved.values() if media_type == "tv" and tvdb_id}
     in_vault = {
         "movie": library_titles(session, user, "movie", movies),
-        "tv": library_titles(session, user, "series", shows, {r.tvdb_id for r in latest.values() if r.media_type == "tv" and r.tvdb_id}),
+        "tv": library_titles(session, user, "series", shows, show_tvdb),
     }
     linked = visible_title_ids(session, user, [r.library_title_id for r in latest.values() if r.library_title_id])
     result: dict[str, dict[str, Any]] = {}
-    for key, (kind, value) in parsed.items():
-        req = latest.get((kind, value))
-        media_type = req.media_type if req else "movie" if kind == "movie" else "tv"  # an unrequested anime key has no TMDB id
-        tmdb_id = req.tmdb_id if req else None if kind == "anime" else value
+    for key in parsed:
+        req, media_type, tmdb_id, tvdb_id = resolved[key]
         found = in_vault[media_type]
         # A linked title the viewer cannot see (member access, ADR 0019) is not available to them.
-        title_id = (req and req.library_title_id in linked and req.library_title_id) or found.get(("Tmdb", str(tmdb_id))) or (req and found.get(("Tvdb", str(req.tvdb_id))))
+        title_id = (req and req.library_title_id in linked and req.library_title_id) or found.get(("Tmdb", str(tmdb_id))) or found.get(("Tvdb", str(tvdb_id)))
         if req is None:
             result[key] = {"state": "available", "library_title_id": title_id} if title_id else {"state": "none"}
             continue

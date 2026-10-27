@@ -212,6 +212,35 @@ def test_catalog_statuses_report_requests_and_vault_titles(db) -> None:  # noqa:
     }
 
 
+def test_catalog_annotation_links_unrequested_mapped_anime_titles(db) -> None:  # noqa: ANN001
+    from app.models import LibraryItem, MediaTitle
+
+    library_title(db, "series", "anime-series", Tmdb="37854", Tvdb="81797")
+    library_title(db, "movie", "anime-film", Tmdb="129")
+    db.add_all([
+        MediaTitle(id="hidden-anime", type="series", key="series:hidden-anime", name="hidden-anime", provider_ids={"Tmdb": "777"}),
+        LibraryItem(id="hidden-anime-item", title="hidden-anime", title_id="hidden-anime", user_id="alice", visibility="private", status="available"),
+    ])
+    db.commit()
+    response = {
+        "items": [
+            {"key": "anime:21", "kind": "anime", "media_type": "tv", "tmdb_id": 37854, "tvdb_id": 81797},
+            {"key": "anime:199", "kind": "anime", "media_type": "movie", "tmdb_id": 129},
+            {"key": "anime:777", "kind": "anime", "media_type": "tv", "tmdb_id": 777},
+            {"key": "anime:99", "kind": "anime", "media_type": "tv"},
+        ]
+    }
+
+    annotated = catalog.annotate(response, db, user(db, "bob"))
+
+    assert [item["status"] for item in annotated["items"]] == [
+        {"state": "available", "library_title_id": "anime-series"},
+        {"state": "available", "library_title_id": "anime-film"},
+        {"state": "none"},
+        {"state": "none"},
+    ]
+
+
 def test_anime_language_profiles_are_created_once(db, sonarr) -> None:  # noqa: ANN001
     server = add_server(db, sonarr)
     client = arr.ArrClient.of(server)

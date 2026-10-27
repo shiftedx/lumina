@@ -58,7 +58,7 @@ struct NativeAccountSettingsView: View {
                 }
 
                 if let session = store.session, profileOwner == session.accessToken, profile["role"]?.stringValue == "admin" {
-                    NativeAdminQuickActions(settings: settings, session: session,
+                    NativeAdminQuickActions(store: store, settings: settings, session: session,
                         requiresTwoFactor: profile["two_factor_enabled"]?.boolValue == true, query: query)
                         .id(session.accessToken)
                 }
@@ -158,6 +158,7 @@ struct NativeAccountSettingsView: View {
 
 @MainActor
 private struct NativeAdminQuickActions: View {
+    let store: LuminaStore
     let settings: LuminaUserSettings
     let session: LuminaSession
     let requiresTwoFactor: Bool
@@ -193,7 +194,7 @@ private struct NativeAdminQuickActions: View {
                         .buttonStyle(.plain).frame(minHeight: 44)
                 }
                 NavigationLink {
-                    NativeInvitationsView(settings: settings, serverURL: session.serverURL, requiresTwoFactor: requiresTwoFactor)
+                    NativeInvitationsView(store: store, settings: settings, serverURL: session.serverURL, requiresTwoFactor: requiresTwoFactor)
                 } label: {
                     LuminaSettingsActionLabel("Invite users", glyph: .users)
                 }
@@ -244,6 +245,7 @@ private struct NativeAdminQuickActions: View {
 
 @MainActor
 private struct NativeInvitationsView: View {
+    let store: LuminaStore
     let settings: LuminaUserSettings
     let serverURL: URL
     let requiresTwoFactor: Bool
@@ -334,6 +336,7 @@ private struct NativeInvitationsView: View {
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Invitations")
         .accessibilityIdentifier("nativeInvitationsScreen")
+        .standardPhonePushedChrome(store: store)
         .task { await reload() }
         .onDisappear { clearCredentials(); invitationURL = nil }
     }

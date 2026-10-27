@@ -157,7 +157,6 @@ struct PlaybackScreen: View {
     #if os(iOS)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var videoGestures = VideoGesturePresentation()
     @State private var videoGestureCancellationID = UUID()
     @State private var videoGestureContainerSize = CGSize.zero
@@ -166,6 +165,9 @@ struct PlaybackScreen: View {
     @State private var audioTimelineVisible = true
     @State private var audioIsScrubbing = false
     @State private var audioTimelineHideTask: Task<Void, Never>?
+    #if LUMINA_UI_TESTING
+    @State private var uiTestingDidBecomeActiveOutcome = "none"
+    #endif
     #endif
     private let store: LuminaStore
 
@@ -229,7 +231,7 @@ struct PlaybackScreen: View {
                     .accessibilityElement()
                     .accessibilityLabel("Gesture diagnostics")
                     .accessibilityIdentifier("videoGestureDiagnostics")
-                    .accessibilityValue("phase=\(String(describing: scenePhase)) size=\(videoGestureContainerSize) modal=\(videoSettingsPresented) pip=\(pictureInPictureActive) playing=\(playback.isPlaying) requested=\(playback.videoPlaybackRequested) status=\(playback.player.timeControlStatus.rawValue) policy=\(playback.videoBackgroundPlaybackPolicyRawValue) rateReason=\(playback.lastVideoRateChangeReason) pauseReason=\(playback.lastVideoNativePauseReason) systemPauseInjections=\(playback.videoSystemPauseInjectionCount) actions=\(videoGestures.actionCount) last=\(videoGestures.lastAction)")
+                    .accessibilityValue("phase=\(String(describing: scenePhase)) appState=\(UIApplication.shared.applicationState.rawValue) gestureEnabled=\(scenePhase == .active && !pictureInPictureActive && !pictureInPictureContinuing && !videoSettingsPresented && !videoSettingsVisible && displayedError == nil && !playback.hasFinished && !playback.isSwitchingVideoStream) didBecome=\(uiTestingDidBecomeActiveOutcome) size=\(videoGestureContainerSize) modal=\(videoSettingsPresented) pip=\(pictureInPictureActive) playing=\(playback.isPlaying) requested=\(playback.videoPlaybackRequested) status=\(playback.player.timeControlStatus.rawValue) policy=\(playback.videoBackgroundPlaybackPolicyRawValue) rateReason=\(playback.lastVideoRateChangeReason) pauseReason=\(playback.lastVideoNativePauseReason) systemPauseInjections=\(playback.videoSystemPauseInjectionCount) next=\(playback.uiTestingNextEpisodeDiagnostics) actions=\(videoGestures.actionCount) last=\(videoGestures.lastAction)")
                 Color.clear.frame(width: 1, height: 1)
                     .accessibilityElement()
                     .accessibilityLabel("System Picture in Picture")
@@ -270,14 +272,7 @@ struct PlaybackScreen: View {
         .toolbar {
             if requestedPlayback.request.item.isAudio {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button("Queue", glyph: .queue) { queuePresented = true }
-                        .labelStyle(.iconOnly)
-                        .accessibilityIdentifier("audioQueueButton")
-                    audioPlayPauseButton
-                    audioRepeatButton.labelStyle(.iconOnly)
-                    Button("Stop", glyph: .stop, variant: .solid) { stopAudio() }
-                        .labelStyle(.iconOnly)
-                        .accessibilityIdentifier("audioStopButton")
+                    audioHeaderActions
                 }
             }
         }
@@ -289,6 +284,12 @@ struct PlaybackScreen: View {
         #endif
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("playbackScreen")
+        #if os(iOS)
+        .standardPhonePushedChrome(isEnabled: requestedPlayback.request.item.isAudio,
+                                   foreground: .white, background: .black) {
+            audioHeaderActions
+        }
+        #endif
         .preferredColorScheme(.dark)
         .sheet(isPresented: $queuePresented) { audioQueue }
         #if !os(tvOS)
@@ -306,9 +307,6 @@ struct PlaybackScreen: View {
                 onDone: { videoSettingsPresented = false }
             )
             .background(LuminaTheme.theater)
-            // The portrait half-sheet sits below Duo's status rail. Its trailing
-            // safe-area column is empty here; retain it for full-height/landscape settings.
-            .ignoresSafeArea(.container, edges: verticalSizeClass != .compact && videoSettingsDetent == .medium ? .trailing : [])
             .preferredColorScheme(.dark)
             .presentationDetents([.medium, .large], selection: $videoSettingsDetent)
         }
@@ -395,6 +393,9 @@ struct PlaybackScreen: View {
             #if os(iOS)
             cancelVideoGestures(releaseBrightness: true)
             #endif
+            if !requestedPlayback.request.item.isAudio {
+                playback.close()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
             #if os(iOS)
@@ -409,6 +410,9 @@ struct PlaybackScreen: View {
         #endif
         #if os(iOS)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            #if LUMINA_UI_TESTING
+            uiTestingDidBecomeActiveOutcome = "seen-appState=\(UIApplication.shared.applicationState.rawValue)-\(scenePhase == .active ? "accepted" : "ignored")"
+            #endif
             guard scenePhase == .active, !playback.request.item.isAudio else { return }
             playback.setActive(true)
             playback.recoverSystemBackgroundPauseIfNeeded()
@@ -678,6 +682,11 @@ struct PlaybackScreen: View {
         }
     }
 
+    private func finishAudioScrubbing() {
+        audioIsScrubbing = false
+        revealAudioTimeline()
+    }
+
     #endif
 
     #if os(iOS)
@@ -820,23 +829,11 @@ struct PlaybackScreen: View {
                 }
                 #endif
                 #if os(iOS)
-                if let feedback = videoGestures.feedback {
-                    HStack {
-                        if feedback.side != .leading { Spacer(minLength: 0) }
-                        VideoGestureFeedbackView(feedback: feedback)
-                        if feedback.side != .trailing { Spacer(minLength: 0) }
-                    }
-                    .padding(.horizontal, max(24, max(safeArea.leading, safeArea.trailing)))
-                    .padding(.top, safeArea.top + 84)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-                }
+                    VideoGestureFeedbackOverlay(presentation: videoGestures, safeArea: safeArea, reduceMotion: reduceMotion)
                 #endif
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             #if os(iOS)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: videoGestures.feedback == nil)
             .onChange(of: geometry.size, initial: true) { _, size in
                 if videoGestureContainerSize != .zero { cancelVideoGestures(releaseBrightness: false) }
                 videoGestureContainerSize = size
@@ -865,7 +862,6 @@ struct PlaybackScreen: View {
         NativePlayerLayer(
             player: playback.player,
             videoGravity: videoGravity,
-            onTearDown: { [playback] in playback.close() },
             onVideoTap: toggleVideoChrome,
             pictureInPictureStartRequest: pictureInPictureStartRequest,
             onPictureInPicturePossibleChange: { pictureInPicturePossible = $0 },
@@ -1266,17 +1262,21 @@ struct PlaybackScreen: View {
         switch selection {
         case .automatic:
             playback.subtitlesExplicitlyOff = false
+            playback.selectEmbeddedSubtitle(nil)
             item.selectMediaOptionAutomatically(in: group)
             videoTracks.markSubtitlesAutomatic()
         case .off:
             guard group.allowsEmptySelection else { return }
             playback.subtitlesExplicitlyOff = true
+            playback.selectEmbeddedSubtitle(nil)
             item.select(nil, in: group)
             videoTracks.markSubtitlesOff()
         case let .option(index):
             guard videoTracks.subtitleOptions.indices.contains(index) else { return }
             playback.subtitlesExplicitlyOff = false
-            item.select(videoTracks.subtitleOptions[index], in: group)
+            let option = videoTracks.subtitleOptions[index]
+            playback.selectEmbeddedSubtitle(option)
+            item.select(option, in: group)
             videoTracks.selectSubtitle(index)
         }
     }
@@ -1382,15 +1382,19 @@ struct PlaybackScreen: View {
                     .frame(maxWidth: .infinity)
                     #endif
                     #if os(iOS)
-                    Color.clear
-                        .frame(width: videoTransportSideReserve, height: 44)
-                        .accessibilityHidden(true)
+                    if playback.nextEpisode != nil {
+                        nextEpisodeTransport
+                            .frame(width: videoTransportSideReserve, height: 44, alignment: .trailing)
+                    } else {
+                        Color.clear
+                            .frame(width: videoTransportSideReserve, height: 44)
+                            .accessibilityHidden(true)
+                    }
                     #endif
                 }
                 .buttonStyle(LuminaQuietActionStyle())
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
-                .overlay(alignment: .trailing) { nextEpisodeTransport }
                 #if os(tvOS)
                 .focusSection()
                 .onMoveCommand { direction in
@@ -1545,10 +1549,20 @@ struct PlaybackScreen: View {
                 .tint(focusedAudioControl == .timeline ? .white : LuminaTheme.brand)
             #else
             Slider(value: Binding(get: { playback.elapsedSeconds }, set: { playback.seek(to: $0) }), in: 0...max(1, playback.request.item.durationSeconds), onEditingChanged: { editing in
-                audioIsScrubbing = editing
-                revealAudioTimeline()
+                if editing {
+                    audioIsScrubbing = true
+                    revealAudioTimeline()
+                } else {
+                    finishAudioScrubbing()
+                }
             })
                 .tint(LuminaTheme.brand)
+                // A physical Slider drag can update its binding while UIKit drops its
+                // editing-end callback. The paired SwiftUI gesture keeps that missed
+                // release from permanently suppressing the progress fade.
+                .simultaneousGesture(DragGesture(minimumDistance: 0).onEnded { _ in
+                    finishAudioScrubbing()
+                })
                 .accessibilityLabel("Track position")
             #endif
             HStack {
@@ -1594,6 +1608,17 @@ struct PlaybackScreen: View {
         .accessibilityElement(children: .contain)
         #endif
         .accessibilityIdentifier("audioTimeline")
+    }
+
+    @ViewBuilder private var audioHeaderActions: some View {
+        Button("Queue", glyph: .queue) { queuePresented = true }
+            .labelStyle(.iconOnly)
+            .accessibilityIdentifier("audioQueueButton")
+        audioPlayPauseButton
+        audioRepeatButton.labelStyle(.iconOnly)
+        Button("Stop", glyph: .stop, variant: .solid) { stopAudio() }
+            .labelStyle(.iconOnly)
+            .accessibilityIdentifier("audioStopButton")
     }
 
     private var audioPlayPauseButton: some View {
@@ -1776,6 +1801,21 @@ final class PlaybackModel {
     private(set) var lastVideoRateChangeReason = "none"
     private(set) var lastVideoNativePauseReason = "none"
     private(set) var videoSystemPauseInjectionCount = 0
+    private(set) var uiTestingNextEpisodeDiagnostics = "initial"
+
+    private func recordNextEpisodeDiagnostic(_ outcome: String) {
+        uiTestingNextEpisodeDiagnostics = "\(outcome)-finished=\(hasFinished ? 1 : 0)-switching=\(isSwitchingVideoStream ? 1 : 0)-taskcancelled=\(Task.isCancelled ? 1 : 0)"
+    }
+
+    private func nextEpisodeFailureKind(_ error: Error) -> String {
+        if error is CancellationError { return "cancelled" }
+        let error = error as NSError
+        switch error.domain {
+        case NSURLErrorDomain: return "url-\(error.code)"
+        case NSPOSIXErrorDomain: return "posix-\(error.code)"
+        default: return "other"
+        }
+    }
 
     var videoBackgroundPlaybackPolicyRawValue: Int {
         request.item.isAudio ? -1 : player.audiovisualBackgroundPlaybackPolicy.rawValue
@@ -1786,6 +1826,9 @@ final class PlaybackModel {
     private(set) var videoStreamError: String?
     private(set) var sourceAudioIsAutomatic = true
     private(set) var attachedVideoSubtitle: PlaybackStream?
+    private var selectedEmbeddedSubtitleStreamIndex: Int?
+    private var hasExplicitEmbeddedSubtitleSelection = false
+    private var hasUnresolvedEmbeddedSubtitleSelection = false
     private(set) var videoQuality: PlaybackQuality = .automatic
     private(set) var subtitleDelaySeconds: Double = 0
     private(set) var videoSpeed: Float = 1
@@ -1851,6 +1894,7 @@ final class PlaybackModel {
             $0.index == request.subtitleStreamIndex && $0.hasExternalSubtitle
         }
         attachedVideoSubtitle = initialSubtitle
+        selectedEmbeddedSubtitleStreamIndex = initialSubtitle == nil ? request.subtitleStreamIndex : nil
         elapsedSeconds = request.startPositionSeconds
         player = request.item.isAudio || request.usesClientDemux || initialSubtitle != nil
             ? AVPlayer() : AVPlayer(url: request.url)
@@ -1874,6 +1918,7 @@ final class PlaybackModel {
             #endif
         }
         #if LUMINA_UI_TESTING
+        PlaybackLifecycleProbe.resetCloseMarker()
         print("LUMINA_LIFECYCLE playback-model init \(lifecycleToken)")
         #endif
     }
@@ -2267,7 +2312,11 @@ final class PlaybackModel {
     private func applyEffectiveVideoRateIfPermitted() {
         guard !request.item.isAudio,
               let rate = videoRateLease.rateToApply(isPlaybackAllowed: permitsVideoRateApplication) else { return }
-        player.rate = Float(rate)
+        let target = Float(rate)
+        // Equal assignments retrigger AVPlayer rate/status observation without
+        // changing playback, feeding periodic callbacks back into this path.
+        guard player.rate != target else { return }
+        player.rate = target
     }
 
     private func restorePreferredVideoRateIfRunning() {
@@ -2343,7 +2392,21 @@ final class PlaybackModel {
     }
 
     func playNextEpisode() async {
-        guard episodeTask == nil, canUseVideoActions else { return }
+        guard episodeTask == nil else {
+            #if os(iOS) && LUMINA_UI_TESTING
+            recordNextEpisodeDiagnostic("busy")
+            #endif
+            return
+        }
+        guard canUseVideoActions else {
+            #if os(iOS) && LUMINA_UI_TESTING
+            recordNextEpisodeDiagnostic("unavailable")
+            #endif
+            return
+        }
+        #if os(iOS) && LUMINA_UI_TESTING
+        recordNextEpisodeDiagnostic("requested")
+        #endif
         let task = Task { await advanceToNextEpisode() }
         episodeTask = task
         await task.value
@@ -2351,7 +2414,15 @@ final class PlaybackModel {
     }
 
     private func advanceToNextEpisode() async {
-        guard canUseVideoActions, !request.item.isAudio, let episode = nextEpisode else { return }
+        guard canUseVideoActions, !request.item.isAudio, let episode = nextEpisode else {
+            #if os(iOS) && LUMINA_UI_TESTING
+            recordNextEpisodeDiagnostic("rejected")
+            #endif
+            return
+        }
+        #if os(iOS) && LUMINA_UI_TESTING
+        recordNextEpisodeDiagnostic("entry")
+        #endif
         invalidateVideoSeekWork()
         cancelVideoGestureOverrides()
         isSwitchingVideoStream = true
@@ -2372,6 +2443,9 @@ final class PlaybackModel {
         var previousPosition = elapsedSeconds
         do {
             let next = try await store.preparePlayback(for: episode, quality: videoQuality, startPositionSeconds: 0)
+            #if os(iOS) && LUMINA_UI_TESTING
+            recordNextEpisodeDiagnostic("prepared")
+            #endif
             candidateRequest = next
             try Task.checkCancellation()
             guard !closed, request.id == previousRequest.id else { throw CancellationError() }
@@ -2380,6 +2454,9 @@ final class PlaybackModel {
             // item sharing the asset, leaving the configured item for the visible player.
             candidatePlayer.replaceCurrentItem(with: AVPlayerItem(asset: item.asset))
             try await NativeVideoSource.waitUntilReady(candidatePlayer)
+            #if os(iOS) && LUMINA_UI_TESTING
+            recordNextEpisodeDiagnostic("candidate-ready")
+            #endif
             guard await candidatePlayer.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) else {
                 throw POSIXError(.EIO)
             }
@@ -2395,7 +2472,13 @@ final class PlaybackModel {
             candidatePlayer.replaceCurrentItem(with: nil)
             player.replaceCurrentItem(with: item)
             installed = true
+            #if os(iOS) && LUMINA_UI_TESTING
+            recordNextEpisodeDiagnostic("installed")
+            #endif
             try await NativeVideoSource.waitUntilReady(player)
+            #if os(iOS) && LUMINA_UI_TESTING
+            recordNextEpisodeDiagnostic("visible-ready")
+            #endif
             guard await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero), item.status == .readyToPlay else {
                 throw POSIXError(.EIO)
             }
@@ -2403,10 +2486,16 @@ final class PlaybackModel {
             guard !closed else { throw CancellationError() }
             if !didReportCompletion { enqueue(.stop, paused: true, for: previousRequest, position: previousPosition) }
             request = next
+            #if os(iOS) && LUMINA_UI_TESTING
+            recordNextEpisodeDiagnostic("committed")
+            #endif
             videoSource = candidateSource
             attachedVideoSubtitle = next.mediaStreams.first {
                 $0.index == next.subtitleStreamIndex && $0.hasExternalSubtitle
             }
+            selectedEmbeddedSubtitleStreamIndex = attachedVideoSubtitle == nil ? next.subtitleStreamIndex : nil
+            hasExplicitEmbeddedSubtitleSelection = false
+            hasUnresolvedEmbeddedSubtitleSelection = false
             subtitleDelaySeconds = 0
             subtitlesExplicitlyOff = next.subtitleStreamIndex == -1
             sourceAudioIsAutomatic = true
@@ -2428,6 +2517,9 @@ final class PlaybackModel {
             isPlaying = autoplayWhenReady
             previousSource.stop()
         } catch {
+            #if os(iOS) && LUMINA_UI_TESTING
+            recordNextEpisodeDiagnostic("failed-\(nextEpisodeFailureKind(error))")
+            #endif
             candidatePlayer.replaceCurrentItem(with: nil)
             if installed, !closed {
                 if !hasFinished, let previousItem {
@@ -2496,6 +2588,49 @@ final class PlaybackModel {
                                  changesAudio: false, subtitleDelay: delay)
     }
 
+    func selectEmbeddedSubtitle(_ option: AVMediaSelectionOption?) {
+        guard let option else {
+            hasExplicitEmbeddedSubtitleSelection = false
+            hasUnresolvedEmbeddedSubtitleSelection = false
+            selectedEmbeddedSubtitleStreamIndex = nil
+            return
+        }
+        hasExplicitEmbeddedSubtitleSelection = true
+        let streams = request.mediaStreams.filter { $0.type == .subtitle && !$0.hasExternalSubtitle }
+        guard !streams.isEmpty else {
+            hasExplicitEmbeddedSubtitleSelection = false
+            hasUnresolvedEmbeddedSubtitleSelection = true
+            selectedEmbeddedSubtitleStreamIndex = nil
+            return
+        }
+        let labelMatches = streams.filter {
+            $0.label.caseInsensitiveCompare(option.displayName) == .orderedSame
+        }
+        if labelMatches.count == 1 {
+            hasUnresolvedEmbeddedSubtitleSelection = false
+            selectedEmbeddedSubtitleStreamIndex = labelMatches[0].index
+            return
+        }
+        if let language = option.extendedLanguageTag ?? option.locale?.identifier {
+            let languageMatches = streams.filter {
+                NativePlaybackPreferences.languageMatches($0.language, preferred: language)
+            }
+            if languageMatches.count == 1 {
+                hasUnresolvedEmbeddedSubtitleSelection = false
+                selectedEmbeddedSubtitleStreamIndex = languageMatches[0].index
+                return
+            }
+        }
+        if streams.count == 1 {
+            hasUnresolvedEmbeddedSubtitleSelection = false
+            selectedEmbeddedSubtitleStreamIndex = streams[0].index
+        } else {
+            hasExplicitEmbeddedSubtitleSelection = false
+            hasUnresolvedEmbeddedSubtitleSelection = true
+            selectedEmbeddedSubtitleStreamIndex = nil
+        }
+    }
+
     func selectVideoQuality(_ quality: PlaybackQuality) async {
         guard quality != videoQuality else { return }
         await replaceVideoStream(audioIndex: sourceAudioIsAutomatic ? nil : request.audioStreamIndex,
@@ -2537,7 +2672,13 @@ final class PlaybackModel {
                                     selectsExternalSubtitle: Bool, changesAudio: Bool,
                                     subtitleDelay: Double? = nil, quality: PlaybackQuality? = nil) async {
         guard !request.item.isAudio, didSeek, !closed, !hasFinished, !isSwitchingVideoStream, !isSeekingChapter,
-              let previousItem = player.currentItem else { return }
+              let previousItem = player.currentItem else {
+            return
+        }
+        guard selectsExternalSubtitle || !hasUnresolvedEmbeddedSubtitleSelection else {
+            videoStreamError = "Select a uniquely identified subtitle or Auto before changing this stream."
+            return
+        }
         invalidateVideoSeekWork()
         cancelVideoGestureOverrides()
         isSwitchingVideoStream = true
@@ -2560,7 +2701,10 @@ final class PlaybackModel {
                     || (audioIndex != nil && !request.usesClientDemux),
                 quality: quality ?? videoQuality,
                 audioStreamIndex: audioIndex,
-                subtitleStreamIndex: externalSubtitle != nil || subtitlesExplicitlyOff ? -1 : request.subtitleStreamIndex,
+                subtitleStreamIndex: externalSubtitle != nil || subtitlesExplicitlyOff ? -1
+                    : hasExplicitEmbeddedSubtitleSelection
+                        ? selectedEmbeddedSubtitleStreamIndex ?? request.subtitleStreamIndex
+                        : nil,
                 mediaSourceID: request.mediaSourceID, startPositionSeconds: elapsedSeconds
             )
             candidateRequest = next
@@ -2588,11 +2732,18 @@ final class PlaybackModel {
                     let equivalents = nextGroup.options.filter {
                         $0.displayName == selected.displayName && $0.extendedLanguageTag == selected.extendedLanguageTag
                     }
-                    guard let matching = nextGroup.mediaSelectionOption(withPropertyList: selected.propertyList())
-                            ?? (equivalents.count == 1 ? equivalents.first : nil) else {
+                    if let matching = nextGroup.mediaSelectionOption(withPropertyList: selected.propertyList())
+                        ?? (equivalents.count == 1 ? equivalents.first : nil) {
+                        nextItem.select(matching, in: nextGroup)
+                    } else if next.subtitleStreamIndex.map({ $0 >= 0 }) == true,
+                              let serverSelected = nextGroup.defaultOption {
+                        // Prism's opaque option property list cannot survive a switch to
+                        // server HLS. The replacement request already names this source
+                        // subtitle stream, so retain the server's corresponding default.
+                        nextItem.select(serverSelected, in: nextGroup)
+                    } else {
                         throw POSIXError(.ENOTSUP)
                     }
-                    nextItem.select(matching, in: nextGroup)
                 } else if nextGroup.allowsEmptySelection {
                     nextItem.select(nil, in: nextGroup)
                 } else {
@@ -2631,6 +2782,13 @@ final class PlaybackModel {
             player.defaultRate = videoSpeed
             if changesAudio { sourceAudioIsAutomatic = audioIndex == nil }
             attachedVideoSubtitle = externalSubtitle
+            if selectsExternalSubtitle {
+                selectedEmbeddedSubtitleStreamIndex = nil
+                hasExplicitEmbeddedSubtitleSelection = false
+                hasUnresolvedEmbeddedSubtitleSelection = false
+            } else if externalSubtitle == nil {
+                selectedEmbeddedSubtitleStreamIndex = next.subtitleStreamIndex
+            }
             if let quality { videoQuality = quality }
             if let subtitleDelay { subtitleDelaySeconds = subtitleDelay }
             if selectsExternalSubtitle { subtitlesExplicitlyOff = false }
@@ -2873,7 +3031,12 @@ final class PlaybackModel {
     }
 
     func close() {
-        guard !closed else { return }
+        guard !closed else {
+            #if LUMINA_UI_TESTING
+            PlaybackLifecycleProbe.recordClose(state: "already-closed", player: player)
+            #endif
+            return
+        }
         invalidateVideoSeekWork()
         cancelVideoGestureOverrides()
         closed = true
@@ -2900,6 +3063,9 @@ final class PlaybackModel {
             enqueue(.stop, paused: true)
         }
         player.replaceCurrentItem(with: nil)
+        #if LUMINA_UI_TESTING
+        PlaybackLifecycleProbe.recordClose(state: "closed", player: player)
+        #endif
         #if os(iOS)
         if !request.item.isAudio {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -3128,25 +3294,176 @@ final class PlaybackModel {
 
 }
 
+#if LUMINA_UI_TESTING
+private enum PlaybackLifecycleProbe {
+    private static let markerName = "lumina-playback-close.txt"
+
+    static func resetCloseMarker() {
+        for directory in directories {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(markerName))
+        }
+    }
+
+    static func recordClose(state: String, player: AVPlayer) {
+        let snapshot = "state=\(state) rate=\(player.rate) item-nil=\(player.currentItem == nil)"
+        print("LUMINA_LIFECYCLE playback-close \(snapshot)")
+        for directory in directories {
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let marker = directory.appendingPathComponent(markerName)
+                guard state == "closed" || !FileManager.default.fileExists(atPath: marker.path) else { continue }
+                try Data(snapshot.utf8).write(to: marker, options: .atomic)
+            } catch {
+                // The test runner reads the marker if this process can write its own sandbox.
+            }
+        }
+    }
+
+    private static var directories: [URL] {
+        let manager = FileManager.default
+        return [manager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+                manager.urls(for: .cachesDirectory, in: .userDomainMask).first].compactMap { $0 }
+    }
+}
+
+#endif
+
 #if os(iOS)
-struct NativeNowPlayingToolbar: ToolbarContent {
+@MainActor
+var usesStandardPhonePushedChrome: Bool {
+    UIDevice.current.userInterfaceIdiom == .phone
+        && min(UIScreen.main.bounds.width, UIScreen.main.bounds.height) < 450
+}
+
+private struct StandardPhoneLeadingEdgePopGesture: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.layoutDirection) private var layoutDirection
+    @State private var isDismissing = false
+
+    var body: some View {
+        Color.clear
+            .frame(width: 18)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 12)
+                    .onEnded { value in
+                        let horizontal = layoutDirection == .leftToRight
+                            ? value.translation.width
+                            : -value.translation.width
+                        guard !isDismissing,
+                              horizontal >= 72,
+                              abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
+                        isDismissing = true
+                        dismiss()
+                    }
+            )
+    }
+}
+
+@MainActor
+private struct StandardPhonePushedHeader<Actions: View>: View {
+    let store: LuminaStore?
+    let foreground: Color
+    let background: Color
+    let actions: Actions
+
+    var body: some View {
+        HStack(spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                LuminaBrandMark()
+                    .frame(width: 20, height: 20 * 34 / 56)
+                Text("LUMINA")
+                    .font(.caption.weight(.black))
+                    .tracking(1.5)
+            }
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
+
+            Spacer(minLength: 12)
+
+            actions.labelStyle(.iconOnly)
+
+            if let store {
+                NativeNowPlayingControls(store: store)
+            }
+        }
+        .foregroundStyle(foreground)
+        .tint(foreground)
+        .frame(minHeight: 44)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 4)
+        .background {
+            background
+                .ignoresSafeArea(.container, edges: .top)
+        }
+        .overlay {
+            Color.clear
+                .accessibilityElement()
+                .accessibilityLabel("Lumina navigation")
+                .accessibilityIdentifier("standardPhoneNavigationHeader")
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+@MainActor
+private struct StandardPhonePushedChrome<Actions: View>: ViewModifier {
+    let isEnabled: Bool
+    let store: LuminaStore?
+    let foreground: Color
+    let background: Color
+    let actions: Actions
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        if isEnabled && usesStandardPhonePushedChrome {
+            content
+                .toolbarVisibility(.hidden, for: .navigationBar)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    StandardPhonePushedHeader(store: store, foreground: foreground, background: background, actions: actions)
+                }
+                .accessibilityAction(.escape) { dismiss() }
+                .overlay(alignment: .leading) {
+                    StandardPhoneLeadingEdgePopGesture()
+                }
+        } else {
+            content
+        }
+    }
+}
+
+@MainActor
+extension View {
+    func standardPhonePushedChrome(isEnabled: Bool = true,
+                                   store: LuminaStore? = nil,
+                                   foreground: Color = LuminaTheme.ink,
+                                   background: Color = LuminaTheme.paper) -> some View {
+        modifier(StandardPhonePushedChrome(isEnabled: isEnabled, store: store, foreground: foreground,
+                                            background: background, actions: EmptyView()))
+    }
+
+    func standardPhonePushedChrome<Actions: View>(isEnabled: Bool = true,
+                                                   store: LuminaStore? = nil,
+                                                   foreground: Color = LuminaTheme.ink,
+                                                   background: Color = LuminaTheme.paper,
+                                                   @ViewBuilder actions: () -> Actions) -> some View {
+        modifier(StandardPhonePushedChrome(isEnabled: isEnabled, store: store, foreground: foreground,
+                                            background: background, actions: actions()))
+    }
+}
+
+@MainActor
+struct NativeNowPlayingControls: View {
     let store: LuminaStore
     @Environment(NativeAudioSession.self) private var audioSession
 
-    @ToolbarContentBuilder
-    var body: some ToolbarContent {
-        if let playback = audioSession.playback, !playback.hasFinished {
-            if #available(iOS 27.1, *) {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    artworkLink(for: playback)
-                    playPauseButton(for: playback)
-                }
-                .axisBehavior(.verticalPreferred)
-            } else {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    artworkLink(for: playback)
-                    playPauseButton(for: playback)
-                }
+    var body: some View {
+        if let playback = audioSession.playback,
+           !playback.hasFinished,
+           (playback.isPlaying || !playback.initiallyPaused) {
+            HStack(spacing: 0) {
+                artworkLink(for: playback)
+                playPauseButton(for: playback)
             }
         }
     }
@@ -3179,6 +3496,24 @@ struct NativeNowPlayingToolbar: ToolbarContent {
         .labelStyle(.iconOnly)
         .frame(minWidth: 44, minHeight: 44)
         .accessibilityIdentifier("nowPlayingPauseButton")
+    }
+}
+
+struct NativeNowPlayingToolbar: ToolbarContent {
+    let store: LuminaStore
+
+    @ToolbarContentBuilder
+    var body: some ToolbarContent {
+        if #available(iOS 27.1, *) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                NativeNowPlayingControls(store: store)
+            }
+            .axisBehavior(.verticalPreferred)
+        } else {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                NativeNowPlayingControls(store: store)
+            }
+        }
     }
 }
 #endif
@@ -3391,6 +3726,9 @@ private struct VideoPlaybackSettings: View {
     @Binding var subtitleStyle: VideoSubtitleStyle
     @State private var subtitleAppearanceExpanded = false
     @FocusState private var focusedTab: VideoSettingsTab?
+    #if os(tvOS)
+    @FocusState private var focusedVideoFitChoiceID: String?
+    #endif
     private var item: MediaItem { playback.request.item }
     private var methodLabel: String { playback.request.methodLabel }
     @Binding var videoGravity: AVLayerVideoGravity
@@ -3428,7 +3766,7 @@ private struct VideoPlaybackSettings: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("videoSettingsPanel")
         #if os(tvOS)
-        .defaultFocus($focusedTab, tab)
+        .defaultFocus($focusedTab, tab, priority: .userInitiated)
         #endif
     }
 
@@ -3484,7 +3822,10 @@ private struct VideoPlaybackSettings: View {
         switch tab {
         case .info:
             LabeledContent("Title", value: item.name)
-            LabeledContent("Stream", value: methodLabel)
+            LabeledContent("Stream") {
+                Text(methodLabel)
+                    .accessibilityIdentifier("videoPlaybackMethod")
+            }
             if let container = item.container, !container.isEmpty {
                 LabeledContent("Container", value: container.uppercased())
             }
@@ -3495,6 +3836,17 @@ private struct VideoPlaybackSettings: View {
             }
         case .video:
             LabeledContent("Video fit") {
+                #if os(tvOS)
+                HStack(spacing: 12) {
+                    videoFitChoice("Fit", gravity: .resizeAspect, identifier: "videoFitFitButton")
+                    videoFitChoice("Fill", gravity: .resizeAspectFill, identifier: "videoFitFillButton")
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Video fit")
+                .accessibilityValue(videoGravity == .resizeAspect ? "Fit" : "Fill")
+                .accessibilityIdentifier("videoFitPicker")
+                .focusSection()
+                #else
                 Picker("Video fit", selection: $videoGravity) {
                     Text("Fit").tag(AVLayerVideoGravity.resizeAspect)
                     Text("Fill").tag(AVLayerVideoGravity.resizeAspectFill)
@@ -3503,6 +3855,7 @@ private struct VideoPlaybackSettings: View {
                 .labelsHidden()
                 .accessibilityLabel("Video fit")
                 .accessibilityIdentifier("videoFitPicker")
+                #endif
             }
             LabeledContent("Stream quality") {
                 Picker("Stream quality", selection: Binding(
@@ -3572,6 +3925,29 @@ private struct VideoPlaybackSettings: View {
             chapterButtons
         }
     }
+
+    #if os(tvOS)
+    private func videoFitChoice(_ title: String, gravity: AVLayerVideoGravity, identifier: String) -> some View {
+        let selected = videoGravity == gravity
+        return Button {
+            videoGravity = gravity
+            focusedVideoFitChoiceID = identifier
+        } label: {
+            HStack(spacing: 8) {
+                Text(title)
+                if selected {
+                    LuminaIcon(glyph: .check, size: 20)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .buttonStyle(LuminaQuietActionStyle(selected: selected))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityValue(selected ? "Selected" : "Not selected")
+        .accessibilityIdentifier(identifier)
+        .focused($focusedVideoFitChoiceID, equals: identifier)
+    }
+    #endif
 
     @ViewBuilder private func trackButtons(options: [AVMediaSelectionOption], selected: Int?, emptyMessage: String, action: @escaping (Int) -> Void) -> some View {
         if options.isEmpty {
@@ -3767,6 +4143,35 @@ private struct VideoPlaybackSettings: View {
     private func stylePicker<Option: Hashable & Identifiable>(
         _ title: String, value: Binding<Option>, options: [Option], label: @escaping (Option) -> String
     ) -> some View {
+        #if os(tvOS)
+        LabeledContent(title) {
+            HStack(spacing: 12) {
+                ForEach(options) { option in
+                    let selected = option == value.wrappedValue
+                    Button {
+                        value.wrappedValue = option
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(label(option))
+                            if selected {
+                                LuminaIcon(glyph: .check, size: 20)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                    }
+                    .buttonStyle(LuminaQuietActionStyle(selected: selected))
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityValue(selected ? "Selected" : "Not selected")
+                    .accessibilityIdentifier("videoSubtitleStyle-\(title.replacingOccurrences(of: " ", with: ""))-\(String(describing: option.id))")
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(title)
+            .accessibilityValue(label(value.wrappedValue))
+            .accessibilityIdentifier("videoSubtitleStyle-" + title)
+            .focusSection()
+        }
+        #else
         LabeledContent(title) {
             Picker(title, selection: value) {
                 ForEach(options) { option in Text(label(option)).tag(option) }
@@ -3777,8 +4182,6 @@ private struct VideoPlaybackSettings: View {
             .accessibilityValue(label(value.wrappedValue))
             .accessibilityIdentifier("videoSubtitleStyle-" + title)
         }
-        #if os(tvOS)
-        .focusSection()
         #endif
     }
 
@@ -3849,7 +4252,6 @@ private struct VideoControlsRevealButtonStyle: ButtonStyle {
 private struct NativePlayerLayer: UIViewRepresentable {
     let player: AVPlayer
     let videoGravity: AVLayerVideoGravity
-    let onTearDown: @MainActor () -> Void
     let onVideoTap: @MainActor () -> Void
     let pictureInPictureStartRequest: Int
     let onPictureInPicturePossibleChange: @MainActor (Bool) -> Void
@@ -3858,7 +4260,6 @@ private struct NativePlayerLayer: UIViewRepresentable {
     let onPictureInPictureRestoreUI: @MainActor () -> Void
 
     init(player: AVPlayer, videoGravity: AVLayerVideoGravity,
-         onTearDown: @escaping @MainActor () -> Void,
          onVideoTap: @escaping @MainActor () -> Void,
          pictureInPictureStartRequest: Int = 0,
          onPictureInPicturePossibleChange: @escaping @MainActor (Bool) -> Void = { _ in },
@@ -3867,7 +4268,6 @@ private struct NativePlayerLayer: UIViewRepresentable {
          onPictureInPictureRestoreUI: @escaping @MainActor () -> Void = {}) {
         self.player = player
         self.videoGravity = videoGravity
-        self.onTearDown = onTearDown
         self.onVideoTap = onVideoTap
         self.pictureInPictureStartRequest = pictureInPictureStartRequest
         self.onPictureInPicturePossibleChange = onPictureInPicturePossibleChange
@@ -3877,7 +4277,7 @@ private struct NativePlayerLayer: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTearDown: onTearDown, onVideoTap: onVideoTap,
+        Coordinator(onVideoTap: onVideoTap,
                     onPictureInPicturePossibleChange: onPictureInPicturePossibleChange,
                     onPictureInPictureActiveChange: onPictureInPictureActiveChange,
                     onPictureInPictureContinuationChange: onPictureInPictureContinuationChange,
@@ -3904,24 +4304,18 @@ private struct NativePlayerLayer: UIViewRepresentable {
             continuation: onPictureInPictureContinuationChange,
             restoreUI: onPictureInPictureRestoreUI
         )
-        view.playerLayer.player = player
-        view.playerLayer.videoGravity = videoGravity
+        if view.playerLayer.player !== player { view.playerLayer.player = player }
+        if view.playerLayer.videoGravity != videoGravity { view.playerLayer.videoGravity = videoGravity }
         context.coordinator.attach(view: view, player: player)
         context.coordinator.handlePictureInPictureStartRequest(pictureInPictureStartRequest)
     }
 
     static func dismantleUIView(_ view: PlayerLayerView, coordinator: Coordinator) {
-        #if LUMINA_UI_TESTING
-        let playerToken = view.playerLayer.player.map { String(ObjectIdentifier($0).hashValue) } ?? "none"
-        print("LUMINA_LIFECYCLE native-player-layer dismantle \(playerToken)")
-        #endif
         coordinator.detach(from: view)
         view.playerLayer.player = nil
-        coordinator.onTearDown()
     }
 
     @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        let onTearDown: @MainActor () -> Void
         var onVideoTap: @MainActor () -> Void
         private weak var view: PlayerLayerView?
         private weak var player: AVPlayer?
@@ -3952,13 +4346,11 @@ private struct NativePlayerLayer: UIViewRepresentable {
         private var displayCriteriaLeaseLost = false
         #endif
 
-        init(onTearDown: @escaping @MainActor () -> Void,
-             onVideoTap: @escaping @MainActor () -> Void,
+        init(onVideoTap: @escaping @MainActor () -> Void,
              onPictureInPicturePossibleChange: @escaping @MainActor (Bool) -> Void,
              onPictureInPictureActiveChange: @escaping @MainActor (Bool) -> Void,
              onPictureInPictureContinuationChange: @escaping @MainActor (Bool) -> Void,
              onPictureInPictureRestoreUI: @escaping @MainActor () -> Void) {
-            self.onTearDown = onTearDown
             self.onVideoTap = onVideoTap
             #if os(iOS)
             self.onPictureInPicturePossibleChange = onPictureInPicturePossibleChange
@@ -4043,6 +4435,13 @@ private struct NativePlayerLayer: UIViewRepresentable {
         private func configurePictureInPicture(for layer: AVPlayerLayer) {
             guard pictureInPictureLayer !== layer else { return }
             releasePictureInPicture()
+            #if LUMINA_UI_TESTING
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-force-video-system-pause") {
+                reportPictureInPicturePossible(false)
+                reportPictureInPictureActive(false)
+                return
+            }
+            #endif
             guard AVPictureInPictureController.isPictureInPictureSupported() else {
                 reportPictureInPicturePossible(false)
                 reportPictureInPictureActive(false)

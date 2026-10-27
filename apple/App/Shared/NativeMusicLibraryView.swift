@@ -130,6 +130,9 @@ struct NativeMusicLibraryView: View {
         }
         .navigationTitle(section.rawValue)
         .accessibilityIdentifier("musicLibraryScreen")
+        #if os(iOS)
+        .standardPhonePushedChrome(store: store)
+        #endif
         .sheet(item: $playlistDraft) { draft in
             NativePlaylistEditor(store: store, playlist: nil, initialTracks: draft.tracks) { }
         }
@@ -383,6 +386,9 @@ private struct NativePlaylistDetail: View {
         }
         .navigationTitle(current.name)
         .accessibilityIdentifier("musicPlaylistDetailScreen")
+        #if os(iOS)
+        .standardPhonePushedChrome(store: store)
+        #endif
         .nativeAudioPlayer(playback: $playback, store: store)
         .task(id: playlist.id) { await load() }
         .sheet(isPresented: $editing) {
@@ -432,6 +438,9 @@ private struct NativeMusicMixView: View {
             NativeMusicTrackSections(store: store, tracks: tracks) { playback = $0 }
         }
         .navigationTitle(title)
+        #if os(iOS)
+        .standardPhonePushedChrome(store: store)
+        #endif
         .nativeAudioPlayer(playback: $playback, store: store)
         .task { await load() }
     }

@@ -177,6 +177,7 @@ final class NativeVideoSourceTests: XCTestCase {
             url: source,
             usesClientDemux: true,
             preferredAudioStreamIndex: 2,
+            preferredSubtitleStreamIndex: 3,
             externalSubtitles: [.init(fileURL: captions, language: "en", name: "Downloaded sidecar")],
             subtitleDelaySeconds: 99
         )
@@ -206,6 +207,12 @@ final class NativeVideoSourceTests: XCTestCase {
         XCTAssertTrue(decoded)
         XCTAssertGreaterThan(item.currentTime().seconds, 0.5)
         XCTAssertTrue(item.tracks.contains { $0.isEnabled && $0.assetTrack?.mediaType == .audio })
+        let audibleGroup = try XCTUnwrap(item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible))
+        XCTAssertEqual(
+            item.currentMediaSelection.selectedMediaOption(in: audibleGroup)?.displayName,
+            "Spanish",
+            "The authored master must retain the requested stream-copied audio as its default rendition."
+        )
         let legibleGroup = try XCTUnwrap(item.asset.mediaSelectionGroup(forMediaCharacteristic: .legible))
         let subtitleOption = try XCTUnwrap(legibleGroup.options.first)
         item.select(subtitleOption, in: legibleGroup)
@@ -216,6 +223,25 @@ final class NativeVideoSourceTests: XCTestCase {
         let (masterData, masterResponse) = try await URLSession.shared.data(from: playlist)
         XCTAssertEqual((masterResponse as? HTTPURLResponse)?.statusCode, 200)
         let master = String(decoding: masterData, as: UTF8.self)
+        XCTAssertTrue(master.contains("#EXT-X-INDEPENDENT-SEGMENTS"))
+        XCTAssertTrue(master.contains("RESOLUTION=160x90"),
+                      "A video-bearing subtitle master must retain Prism's declared resolution.")
+        XCTAssertTrue(master.contains("CODECS=\""),
+                      "A video-bearing subtitle master must retain Prism's declared codecs.")
+        XCTAssertTrue(master.contains("CLOSED-CAPTIONS=NONE"),
+                      "The master must retain Prism's explicit closed-caption signaling.")
+        let masterLines = master.split(separator: "\n")
+        let streamOffset = try XCTUnwrap(masterLines.firstIndex(where: { $0.hasPrefix("#EXT-X-STREAM-INF:") }))
+        let videoVariantName = try XCTUnwrap(
+            masterLines.dropFirst(streamOffset + 1).first { !$0.isEmpty && !$0.hasPrefix("#") }
+        )
+        let videoVariant = try XCTUnwrap(URL(string: String(videoVariantName), relativeTo: playlist))
+        let (videoVariantData, videoVariantResponse) = try await URLSession.shared.data(from: videoVariant)
+        XCTAssertEqual((videoVariantResponse as? HTTPURLResponse)?.statusCode, 200)
+        let videoVariantText = String(decoding: videoVariantData, as: UTF8.self)
+        XCTAssertFalse(videoVariantText.contains("#EXT-X-STREAM-INF:"),
+                       "The authored master must target Prism's media playlist, never another master")
+        XCTAssertTrue(videoVariantText.contains("#EXT-X-TARGETDURATION:"))
         let subtitleLine = try XCTUnwrap(master.split(separator: "\n").first { $0.contains("TYPE=SUBTITLES") })
         let uriPrefix = try XCTUnwrap(subtitleLine.range(of: "URI=\""))
         let uriSuffix = subtitleLine[uriPrefix.upperBound...]

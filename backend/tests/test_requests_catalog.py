@@ -250,15 +250,16 @@ def test_home_survives_one_failing_rail(client, fake) -> None:  # noqa: ANN001
 
 
 def test_statuses_are_looked_up_once_per_response_and_cached_data_is_not_polluted(client, fake, monkeypatch) -> None:  # noqa: ANN001
-    seen: list[list[str]] = []
+    seen: list[tuple[list[str], dict[str, dict]]] = []
 
-    def statuses(session, user, keys):  # noqa: ANN001, ANN202
-        seen.append(keys)
+    def statuses(session, user, keys, sources):  # noqa: ANN001, ANN202
+        seen.append((keys, sources))
         return {"movie:603": {"state": "available", "library_title_id": "t1"}}
 
     monkeypatch.setattr(catalog, "catalog_statuses", statuses)
     body = client.get(f"{BASE}/title/movie/603").json()
-    assert len(seen) == 1 and body["status"]["state"] == "available" and body["recommendations"][0]["status"] == {"state": "none"}
+    assert len(seen) == 1 and seen[0][1]["movie:603"]["tmdb_id"] == 603
+    assert body["status"]["state"] == "available" and body["recommendations"][0]["status"] == {"state": "none"}
     monkeypatch.setattr(catalog, "catalog_statuses", lambda *_: {})
     assert client.get(f"{BASE}/title/movie/603").json()["status"] == {"state": "none"}
     assert fake.paths().count("/3/movie/603") == 1  # the second answer came from the cache

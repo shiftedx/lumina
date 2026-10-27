@@ -52,3 +52,8 @@ Limit: GitHub has no issue/PR explicitly naming most individual XCTest symbols.
 For those rows, full file history, method `-S` history, and PR bodies found no
 qualifying failure-to-fix evidence; that is recorded as `No`, not as a claim
 that no unrecorded regression ever occurred.
+
+
+### 2026-10-26 measured product regression: video rate/status feedback
+
+The manual app-only sampler plus temporary overlay workload caught sustained redundant playback-rate updates: median steady-play CPU 143.674% before versus 4.620% after an equal-rate guard, with three successful cycles per variant. A separate Time Profiler trace attributed 64.09% of samples in a steady-play slice to rate-set paths. This is a substantiated product-performance catch, not a navigation-harness failure. The ordinary functional gesture test had passed without detecting the CPU regression. The temporary measurement selector was removed and no default-suite cost was added. See [the measured follow-up](../../apple/docs/native-view-performance-2026-10-24.md#2026-10-26-follow-up-playback-rate-status-feedback) and its retained results JSON for exact scope and simulator limitations.

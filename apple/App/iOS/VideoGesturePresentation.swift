@@ -237,7 +237,10 @@ final class VideoGesturePresentation {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
-    private func show(_ value: Feedback) { dismissal?.cancel(); feedback = value }
+    private func show(_ value: Feedback) {
+        dismissal?.cancel()
+        feedback = value
+    }
 
     private func endFeedback() {
         interacting = false
@@ -309,6 +312,31 @@ private final class VideoScreenBrightness {
             entries.removeValue(forKey: id)
             entry.revoked?()
         }
+    }
+}
+
+/// Keeps display-rate gesture feedback out of the video stage's dependency set.
+struct VideoGestureFeedbackOverlay: View {
+    let presentation: VideoGesturePresentation
+    let safeArea: EdgeInsets
+    let reduceMotion: Bool
+
+    var body: some View {
+        ZStack {
+            if let feedback = presentation.feedback {
+                HStack {
+                    if feedback.side != .leading { Spacer(minLength: 0) }
+                    VideoGestureFeedbackView(feedback: feedback)
+                    if feedback.side != .trailing { Spacer(minLength: 0) }
+                }
+                .padding(.horizontal, max(24, max(safeArea.leading, safeArea.trailing)))
+                .padding(.top, safeArea.top + 84)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .transition(.opacity)
+            }
+        }
+        .allowsHitTesting(false)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: presentation.feedback == nil)
     }
 }
 

@@ -116,33 +116,41 @@ Tests that previously caused an app-code fix are never deleted.
 | Tier | Intended use | Selected journeys | Budget |
 | --- | --- | --- | --- |
 | smoke | Merge bar for native UI changes | Audio/now-playing/background and direct/conversion/resume/background video on both platforms (4 broad cases) | <10 minutes wall per complete two-platform run |
-| full | Pre-release | 7 iOS and 5 tvOS cases: playback, downloads, reader restoration and advanced queue reconciliation | <45 minutes wall per complete two-platform run |
+| full | Pre-release | Every currently compiled native UI method: 54 iOS methods split across iPad, iPhone, and closed Duo lanes, plus 31 tvOS methods | <90 minutes aggregate wall per repeat across the serial qualification phases |
 
-The suite has fewer than 50 critical journeys, so smoke retains the critical
-playback paths without adding tests to meet a count. With most UI being replaced,
-full retains only durable native integration: all-format reader preparation and
-position restoration, downloaded-file audio, advanced queue/paused restoration,
-original MKV progress/resume, and HLS end-of-stream replay. Carousel, hierarchy,
-appearance, copy and viewport walks are retired; existing Core/API contracts
-remain. Both historical regression catchers are retained. Physical-device layout
-and replacement-screen routing require their own design qualification.
+Smoke retains the critical playback paths without adding cases merely to meet a
+count. The full tier discovers the current compiled platform methods and runs
+every applicable one. Its generated lane manifests, not this illustrative count,
+are authoritative for the selected identifiers, lane union, and expected case
+counts. The iPad, iPhone, and closed-Duo lanes together must cover the complete
+iOS discovery set without overlap; tvOS runs its complete discovery set. Existing
+Core/API contracts remain complementary rather than substitutes for this UI
+qualification. Physical-device layout and replacement-screen routing require
+their own design qualification.
 
 Run from the repository root with locked dependencies installed:
 
 ```sh
-mise exec -- python3 apple/scripts/run_ui_tiers.py --tier smoke --repeat 2 --ios-runtime 26.5 --output /tmp/lumina-ui-smoke-<unique-run>
-mise exec -- python3 apple/scripts/run_ui_tiers.py --tier full --repeat 2 --ios-runtime 26.5 --output /tmp/lumina-ui-full-<unique-run>
+mise exec -- python3 apple/scripts/run_ui_tiers.py --tier smoke --repeat 2 --ios-runtime 27.0 --output /tmp/lumina-ui-smoke-<unique-run>
+mise exec -- python3 apple/scripts/run_ui_tiers.py --tier full --repeat 2 --ios-runtime 27.0 \
+  --prepared-duo-device <owned-closed-duo-udid> \
+  --prepared-duo-readiness /absolute/path/to/closed-duo-readiness.json \
+  --output /tmp/lumina-ui-full-<unique-run>
 ```
 
-The qualification commands pin installed iPadOS 26.5 on an iPad Pro 11-inch
-(M5); tvOS uses the available compatible 27.0 runtime. Other runtime versions
-need their own qualification. Use a fresh output directory. The runner reports build time separately and measures
-the complete concurrent iOS/tvOS test cohort wall for each repeat, including simulator
-startup and fixture provisioning.
-The platforms run concurrently with separate fixture brokers. Each platform warms
-two owned simulators concurrently, then runs two explicit XCTest shards concurrently.
-Cohort barriers align both platform repeats. Each shard
-disables Xcode's internal clone scheduling; the overall cohort remains parallel.
+The full command requires a preserved, owned closed-Duo device and a current
+readiness JSON with its app viewport and screenshot; the runner fails closed if
+either is absent or does not identify that closed portrait device. The
+qualification commands pin an installed compatible iPadOS runtime on an iPad
+Pro 11-inch (M5); tvOS uses the available compatible runtime. Other runtime
+versions need their own qualification. Use a fresh output directory. The runner
+reports build time separately and measures the complete test cohort wall for each
+repeat, including simulator startup and fixture provisioning. To reuse the shared
+iOS build safely, it runs iPad and tvOS first, then iPhone and closed Duo; the
+per-repeat allowance is 5,400 seconds. This is an orchestration allowance only:
+it does not change per-shard XCTest timeouts, journey budgets, assertions, or
+coverage. Each phase uses separate fixture brokers and explicit XCTest shards;
+the generated manifests remain the authority for exact execution.
 Fresh iOS devices disable only the stock widget renderer, empty Photos analysis and
 CoreSpotlight indexing jobs, which are outside Lumina's tested integrations. Monotonic start/end timestamps measure the actual cross-platform setup and test
 phase spans; the first repeat includes cold simulator setup. A full pass requires
@@ -165,14 +173,13 @@ measurement context without waiting or cancelling because of load. It creates
 its own simulators and removes only its recorded devices/clones and child
 processes. It never stops another agent's Xcode run or simulator.
 
-**Qualified twice in parallel on 2026-10-22:** smoke 4/4 each in 447.462 / 196.621
-seconds (<600); full 12/12 each in 733.433 / 576.970 seconds (<2,700). Every
-selected case passed with zero skips/failures. First-pass times include cold
-setup; builds are recorded separately. The full runs preceded the startup-only
-change to concurrent pair boot; selected tests and four-worker execution are
-unchanged. See the ledger and its machine-readable timing reports for counts,
-setup/build spans, failed startup attempt and cleanup. All owned devices and
-fixture processes were removed. The suite was reduced from 24 to 12 platform
-cases. The obsolete full baseline was stopped under the user's UI-rework
-direction, so no full before wall or speedup is claimed. Passing this suite does
-not replace physical-device format/output and App Store requirements above.
+**Historical retired baseline (2026-10-22):** smoke 4/4 each in 447.462 /
+196.621 seconds (<600); the then-current full selection was 12/12 each in
+733.433 / 576.970 seconds (<2,700). Those results predate the current
+manifest-driven 85-method scope and 5,400-second allowance, so they are not
+qualification for current source. First-pass times included cold setup; builds
+were recorded separately. See the ledger and its machine-readable timing reports
+for that historical run's counts, setup/build spans, failed startup attempt and
+cleanup. All owned devices and fixture processes were removed. Passing either
+historical or current simulator gate does not replace physical-device
+format/output and App Store requirements above.

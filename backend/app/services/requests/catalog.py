@@ -524,7 +524,8 @@ def _walk(value: Any) -> Iterable[dict]:
 def annotate(response: dict, session: Session, user: User) -> dict:
     """Set ``status`` on every CatalogItem in ``response`` with one ``catalog_statuses`` call."""
     items = list(_walk(response))
-    statuses = catalog_statuses(session, user, sorted({i["key"] for i in items})) if items else {}
+    sources = {item["key"]: item for item in items}
+    statuses = catalog_statuses(session, user, sorted(sources), sources) if items else {}
     for item in items:
         item["status"] = statuses.get(item["key"], NONE_STATUS)
     return response

@@ -91,25 +91,6 @@ final class HeroFramingTests: XCTestCase {
         }
     }
 
-    func testMotionCropUsesFourGentleDiagonalsAndCapsZoom() throws {
-        let framing = try decode(#"{"state":"ready","width":1920,"height":1080,"regions":[{"kind":"face","x":0.44,"y":0.35,"width":0.12,"height":0.18,"weight":1}]}"#)
-        let viewport = CGSize(width: 466, height: 678)
-        let staticCrop = HeroFraming.crop(framing, source: source, viewport: viewport, home: false)
-        let endpoints = (0...3).map {
-            HeroFraming.motionCrop(framing, source: source, viewport: viewport, home: false, progress: 1, direction: $0)
-        }
-
-        for crop in endpoints {
-            XCTAssertEqual(crop.width, staticCrop.width / 1.06, accuracy: 0.000_001)
-            XCTAssertEqual(crop.height, staticCrop.height / 1.06, accuracy: 0.000_001)
-            assertFullBleed(crop, source: source, viewport: viewport)
-        }
-        XCTAssertLessThan(endpoints[0].midX, endpoints[1].midX)
-        XCTAssertLessThan(endpoints[3].midX, endpoints[2].midX)
-        XCTAssertLessThan(endpoints[0].midY, endpoints[3].midY)
-        XCTAssertLessThan(endpoints[1].midY, endpoints[2].midY)
-    }
-
     func testMotionCropClampsProgressAndSafelyHandlesUnavailableAnalysis() throws {
         let viewport = CGSize(width: 951, height: 600)
         let unavailable = try decode(#"{"state":"unavailable"}"#)

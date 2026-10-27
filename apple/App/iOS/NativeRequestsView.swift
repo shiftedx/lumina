@@ -21,6 +21,7 @@ private struct RequestArtwork: View {
 
 @MainActor
 struct NativeRequestsView: View {
+    let store: LuminaStore
     let session: LuminaSession
     var isActive: Bool
     @State private var catalog: LuminaRequests
@@ -44,7 +45,8 @@ struct NativeRequestsView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.openURL) private var openURL
 
-    init(session: LuminaSession, isActive: Bool) {
+    init(store: LuminaStore, session: LuminaSession, isActive: Bool) {
+        self.store = store
         self.session = session
         self.isActive = isActive
         _catalog = State(initialValue: LuminaRequests(session: session))
@@ -194,7 +196,7 @@ struct NativeRequestsView: View {
         .accessibilityElement(children: .contain)
         .ignoresSafeArea(.container, edges: .horizontal)
         .accessibilityIdentifier("requestsScreen")
-        .sheet(item: $selected) { RequestDetailSheet(item: $0, catalog: catalog) }
+        .sheet(item: $selected) { RequestDetailSheet(item: $0, store: store, catalog: catalog) }
         .sheet(isPresented: $myRequestsPresented) { RequestHistorySheet(catalog: catalog) }
         .task { if catalog.home == nil { await catalog.loadHome() }; await catalog.loadQuotas() }
         .task(id: queryKey) {
@@ -268,9 +270,10 @@ struct NativeRequestsView: View {
                     Text(overview).font(.body).lineLimit(3).frame(maxWidth: 580, alignment: .leading)
                 }
                 HStack(spacing: 16) {
+                    let hasVaultItem = item.status.libraryTitleID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                     Button { searchVisible = false; selected = item } label: {
-                        Label((item.canRequest && item.status.canCreateRequest) ? "Request" : (item.status.label.isEmpty ? "Details" : item.status.label),
-                              glyph: (item.canRequest && item.status.canCreateRequest) ? .add : .info)
+                        Label(hasVaultItem ? "View" : ((item.canRequest && item.status.canCreateRequest) ? "Request" : (item.status.label.isEmpty ? "Details" : item.status.label)),
+                              glyph: hasVaultItem ? .library : ((item.canRequest && item.status.canCreateRequest) ? .add : .info))
                             .font(.headline).padding(.horizontal, 20).padding(.vertical, 14)
                             .foregroundStyle(.black).background(.white, in: .capsule)
                     }.buttonStyle(.plain).accessibilityIdentifier("requestPrimary-\(item.id)")
@@ -328,6 +331,7 @@ struct NativeRequestsView: View {
 @MainActor
 private struct RequestDetailSheet: View {
     let item: RequestCatalogItem
+    let store: LuminaStore
     @Bindable var catalog: LuminaRequests
     @State private var detail: RequestCatalogDetail?
     @State private var loading = true
@@ -339,13 +343,21 @@ private struct RequestDetailSheet: View {
     @State private var pickedSeasons = Set<Int>()
     @State private var language: RequestLanguage?
     @State private var languageRequired = false
+    @State private var vaultItem: MediaItem?
+    @State private var openingVault = false
+    @State private var vaultProblem: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var current: RequestCatalogItem { detail?.item ?? item }
     private var quota: RequestQuota? { catalog.quotas.first { $0.kind == current.kind } }
+    private var vaultID: String? {
+        guard let id = current.status.libraryTitleID?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else { return nil }
+        return id
+    }
     private var series: Bool { current.mediaType == .tv }
+    private var canRequestMore: Bool { vaultID != nil && series && current.status.state == .partiallyAvailable }
     private var asksLanguage: Bool { (current.kind == .anime && series) || languageRequired }
     private var seasons: RequestSeasonSelection? {
         guard series else { return nil }
@@ -357,7 +369,7 @@ private struct RequestDetailSheet: View {
         return .all
     }
     private var canSubmit: Bool {
-        !loading && !submitting && created == nil && current.canRequest && current.status.canCreateRequest
+        (vaultID == nil || canRequestMore) && !loading && !submitting && created == nil && current.canRequest && current.status.canCreateRequest
         && quota?.canRequest != false && quota?.remaining != 0
         && (!series || seasons != nil) && (!asksLanguage || language != nil)
     }
@@ -400,7 +412,20 @@ private struct RequestDetailSheet: View {
                                 .accessibilityIdentifier("requestYouTubeTrailerButton")
                             }
                             if loading { ProgressView("Loading title details…") }
-                            else if let created {
+                            else if vaultID != nil {
+                                vaultAction
+                                if canRequestMore {
+                                    if let created {
+                                        Label(created.status.label, glyph: .check)
+                                            .font(.title3.weight(.semibold)).foregroundStyle(LuminaTheme.accentInk)
+                                            .accessibilityIdentifier("requestSubmittedStatus")
+                                        Text(created.status == .pending ? "Your household’s administrator will review this request." : "Your request is saved. Follow its progress in My requests.")
+                                            .foregroundStyle(.secondary)
+                                    } else if current.canRequest && current.status.canCreateRequest {
+                                        requestChoices
+                                    }
+                                }
+                            } else if let created {
                                 Label(created.status.label, glyph: .check)
                                     .font(.title3.weight(.semibold)).foregroundStyle(LuminaTheme.accentInk)
                                     .accessibilityIdentifier("requestSubmittedStatus")
@@ -411,6 +436,9 @@ private struct RequestDetailSheet: View {
                             } else {
                                 Label(current.status.state == .none ? "Not available to request yet" : current.status.label, glyph: .info)
                                     .foregroundStyle(.secondary)
+                            }
+                            if let vaultProblem {
+                                Text(vaultProblem).foregroundStyle(.red).accessibilityIdentifier("requestVaultLookupError")
                             }
                             if let problem {
                                 Text(problem).foregroundStyle(.red).accessibilityIdentifier("requestSubmissionError")
@@ -457,8 +485,11 @@ private struct RequestDetailSheet: View {
                     }
                 }
                 .task { await load() }
+                .navigationDestination(item: $vaultItem) { item in
+                    NativeRequestVaultDestination(item: item, store: store)
+                }
                 .sheet(item: $recommendation) { entry in
-                    RequestDetailSheet(item: entry, catalog: catalog)
+                    RequestDetailSheet(item: entry, store: store, catalog: catalog)
                 }
                 .accessibilityIdentifier("requestDetailScreen")
             }
@@ -511,12 +542,41 @@ private struct RequestDetailSheet: View {
             } label: {
                 HStack {
                     if submitting { ProgressView() }
-                    Label("Request \(current.title)", glyph: .add)
+                    Label(canRequestMore ? "Request more from \(current.title)" : "Request \(current.title)", glyph: .add)
                 }
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(LuminaMediaActionStyle(primary: true))
             .disabled(!canSubmit).accessibilityIdentifier("requestConfirmButton")
+        }
+    }
+
+    @ViewBuilder private var vaultAction: some View {
+        if let id = vaultID {
+            Button {
+                Task { await openVault(id: id) }
+            } label: {
+                HStack {
+                    if openingVault { ProgressView() }
+                    Label("View", glyph: .library)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(LuminaMediaActionStyle(primary: false))
+            .disabled(openingVault)
+            .accessibilityIdentifier("requestViewVaultButton")
+        }
+    }
+
+    private func openVault(id: String) async {
+        guard !openingVault else { return }
+        openingVault = true
+        vaultProblem = nil
+        defer { openingVault = false }
+        do {
+            vaultItem = try await store.libraryItem(id: id)
+        } catch {
+            vaultProblem = "This title is no longer available in your vault."
         }
     }
 
@@ -539,6 +599,20 @@ private struct RequestDetailSheet: View {
         } catch {
             if case RequestAPIError.server(_, "language_required") = error { languageRequired = true }
             problem = error.localizedDescription
+        }
+    }
+}
+
+@MainActor
+private struct NativeRequestVaultDestination: View {
+    let item: MediaItem
+    let store: LuminaStore
+
+    var body: some View {
+        if item.isCollection {
+            VideoCollectionView(item: item, store: store)
+        } else {
+            TitleDetailView(item: item, store: store)
         }
     }
 }

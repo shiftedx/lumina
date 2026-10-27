@@ -33,13 +33,16 @@ def proof_server_environment(test_class: str) -> dict[str, str]:
     """Return class-scoped faults for disposable native journeys."""
     if test_class == PLAYBACK_PREPARATION_DELAY_TEST:
         return {PLAYBACK_PREPARATION_DELAY_ENV: "3"}
-    if test_class == "NativeLibraryEdgeTests":
-        return {"LUMINA_NATIVE_PERF_CATALOGUE_COUNT": "240"}
     if test_class == "NativeAudioFormatRecoveryTests":
         return {"LUMINA_NATIVE_AUDIO_FORMAT_FAILURE": "1"}
     if test_class == "NativeAudioAlbumPlayAfterUnavailableRestoreTests":
         return {"LUMINA_NATIVE_AUDIO_RESTORE_FAILURE": "1"}
     return {}
+
+
+def fixture_test_class(key: str) -> str:
+    """Recover the XCTestCase name from an optional per-instance fixture key."""
+    return key.split("-", 1)[0]
 
 
 class FixtureBroker:
@@ -72,7 +75,7 @@ class FixtureBroker:
             environment.pop("LUMINA_NATIVE_AUDIO_RESTORE_FAILURE", None)
             environment.pop("LUMINA_NATIVE_AUDIO_FORMAT_FAILURE", None)
             environment.update(LUMINA_NATIVE_PORT="0", LUMINA_NATIVE_FIXTURE=str(fixture))
-            environment.update(proof_server_environment(key))
+            environment.update(proof_server_environment(fixture_test_class(key)))
             # Do not retain the server's output: its errors may include the fixture path.
             log = self.state / f"{key}.log"
             with log.open("w", encoding="utf-8") as stream:

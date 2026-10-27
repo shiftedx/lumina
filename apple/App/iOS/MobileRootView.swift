@@ -39,7 +39,7 @@ struct MobileRootView: View {
                             .onAppear { hasShownOnlineShell = true }
                     }
                     if store.isOffline {
-                        NavigationStack { NativeOfflineLibraryView(store: store) }
+                        NavigationStack { NativeOfflineLibraryView(store: store, usesPushedChrome: false) }
                     }
                 }
             }
@@ -104,11 +104,13 @@ struct MobileRootView: View {
     private var effectiveAppearance: String {
         deviceAppearance == "account" ? appearance : deviceAppearance
     }
+
 }
 
 @MainActor
 struct NativeOfflineLibraryView: View {
     @Bindable var store: LuminaStore
+    var usesPushedChrome = true
     @State private var query = ""
     @State private var searchVisible = false
     @State private var playbackRequest: PlaybackRequest?
@@ -123,6 +125,7 @@ struct NativeOfflineLibraryView: View {
     }
 
     var body: some View {
+        navigationChrome {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
                 HStack {
@@ -222,15 +225,8 @@ struct NativeOfflineLibraryView: View {
         .navigationTitle("On this device")
         .tint(LuminaTheme.ink)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Search", glyph: .search) { searchVisible = true }
-                    .accessibilityIdentifier("offlineSearchButton")
-            }
-            if store.isOffline {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Reconnect", glyph: .sync) { Task { await store.refreshConnectivity() } }
-                        .accessibilityIdentifier("offlineReconnectButton")
-                }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                offlineHeaderActions
             }
             NativeNowPlayingToolbar(store: store)
         }
@@ -238,6 +234,25 @@ struct NativeOfflineLibraryView: View {
         .refreshable { store.offline.refresh(); await store.refreshConnectivity() }
         .nativePlayback(request: $playbackRequest, store: store) { store.offline.refresh() }
         .accessibilityIdentifier("offlineLibraryScreen")
+        }
+    }
+
+    @ViewBuilder private func navigationChrome<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        if usesPushedChrome {
+            content()
+                .standardPhonePushedChrome(store: store) { offlineHeaderActions }
+        } else {
+            content()
+        }
+    }
+
+    @ViewBuilder private var offlineHeaderActions: some View {
+        Button("Search", glyph: .search) { searchVisible = true }
+            .accessibilityIdentifier("offlineSearchButton")
+        if store.isOffline {
+            Button("Reconnect", glyph: .sync) { Task { await store.refreshConnectivity() } }
+                .accessibilityIdentifier("offlineReconnectButton")
+        }
     }
 
     @ViewBuilder private func retryDownload(_ item: MediaItem) -> some View {
@@ -270,6 +285,7 @@ private struct ConnectionView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var scannerAvailable = false
+    @State private var scannerCheckFinished = false
     @State private var showScanner = false
     @State private var showManual = false
     @State private var manualRequested = false
@@ -401,7 +417,7 @@ private struct ConnectionView: View {
                     .font(LuminaTheme.editorial(28, relativeTo: .title2))
                     .tracking(2.4)
             }
-            Text(showManual ? "Sign in" : "Connect your device")
+            Text(showManual ? "Sign in" : "Scan a QR code")
                 .font(.title2.weight(.semibold))
 
             connectionMethod
@@ -422,13 +438,15 @@ private struct ConnectionView: View {
         if claimingPair {
             ProgressView("Connecting…")
                 .frame(maxWidth: .infinity, minHeight: 280)
+        } else if showManual {
+            manualConnection
         } else if showScanner {
             VStack(spacing: 14) {
                 MobilePairScanner(onCode: claim(code:), onUnavailable: scannerUnavailable)
                     .frame(height: 280)
                     .clipShape(.rect(cornerRadius: 16))
                     .accessibilityLabel("QR code scanner")
-                Text("Scan the code from Lumina.")
+                Text("Open Mobile connect in Lumina on a browser, then scan its QR code.")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.74))
                 Button("Advanced") {
@@ -439,23 +457,39 @@ private struct ConnectionView: View {
                 .buttonStyle(LuminaQuietActionStyle())
                 .accessibilityIdentifier("advancedConnectionButton")
             }
-        } else if showManual {
-            manualConnection
-        } else if scannerAvailable {
-            VStack(spacing: 14) {
-                Button("Scan new code") { showScanner = true }
-                    .buttonStyle(LuminaQuietActionStyle(primary: true))
-                    .accessibilityIdentifier("scanPairingCodeButton")
-                Button("Advanced") {
-                    showManual = true
-                    manualRequested = true
-                }
-                .buttonStyle(LuminaQuietActionStyle())
-                .accessibilityIdentifier("advancedConnectionButton")
-            }
         } else {
-            ProgressView()
-                .frame(maxWidth: .infinity, minHeight: 160)
+            qrPairingLanding
+        }
+    }
+
+    private var qrPairingLanding: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                LuminaIcon(glyph: .scanQr, size: 20)
+                Text("Connect with a QR code")
+                    .font(.headline)
+                    .accessibilityIdentifier("qrPairingLanding")
+            }
+            Text("Open Mobile connect in Lumina on a browser, then scan its QR code here.")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.74))
+            if !scannerCheckFinished {
+                ProgressView("Checking camera…")
+            } else if !scannerAvailable {
+                Text("Camera scanning isn’t available on this device. Choose Advanced to sign in manually.")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.74))
+            }
+            Button("Scan QR code") { Task { await prepareScanner(requestPermission: true) } }
+                .buttonStyle(LuminaQuietActionStyle(primary: true))
+                .disabled(!scannerAvailable)
+                .accessibilityIdentifier("scanPairingCodeButton")
+            Button("Advanced") {
+                showManual = true
+                manualRequested = true
+            }
+            .buttonStyle(LuminaQuietActionStyle())
+            .accessibilityIdentifier("advancedConnectionButton")
         }
     }
 
@@ -508,7 +542,7 @@ private struct ConnectionView: View {
                 Button("Scan code") {
                     manualRequested = false
                     showManual = false
-                    showScanner = true
+                    Task { await prepareScanner(requestPermission: true) }
                 }
                 .buttonStyle(LuminaQuietActionStyle())
                 .accessibilityIdentifier("scanPairingCodeButton")
@@ -529,38 +563,53 @@ private struct ConnectionView: View {
         }
     }
 
-    private func prepareScanner() async {
+    private func prepareScanner(requestPermission: Bool = false) async {
         guard !manualRequested, !claimingPair, !helpPresented, scenePhase == .active else { return }
         guard DataScannerViewController.isSupported else {
-            showManual = true
+            scannerAvailable = false
+            scannerCheckFinished = true
+            showScanner = false
             return
         }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             break
         case .notDetermined:
+            guard requestPermission else {
+                scannerAvailable = true
+                scannerCheckFinished = true
+                showScanner = false
+                return
+            }
             guard await AVCaptureDevice.requestAccess(for: .video) else {
-                showManual = true
+                scannerAvailable = false
+                scannerCheckFinished = true
+                showScanner = false
                 return
             }
         default:
-            showManual = true
+            scannerAvailable = false
+            scannerCheckFinished = true
+            showScanner = false
             return
         }
         guard !manualRequested, !claimingPair, !helpPresented, scenePhase == .active else { return }
         guard DataScannerViewController.isAvailable else {
-            showManual = true
+            scannerAvailable = false
+            scannerCheckFinished = true
+            showScanner = false
             return
         }
         scannerAvailable = true
+        scannerCheckFinished = true
         showManual = false
         showScanner = true
     }
 
     private func scannerUnavailable() {
         scannerAvailable = false
+        scannerCheckFinished = true
         showScanner = false
-        showManual = true
     }
 
     private func claim(code: String) {
@@ -637,6 +686,12 @@ private struct LibraryShellView: View {
     @Bindable var store: LuminaStore
     @State private var destination: LibraryDestination = .home
     @State private var homeNavigationID = UUID()
+    #if LUMINA_UI_TESTING
+    @State private var homeNavigationGeneration = 0
+    @State private var uiTestingHomeNavigationDiagnostics = "route=root generation=0"
+    #endif
+    @State private var libraryPath = [MediaItem]()
+    @State private var libraryNavigationRootID = UUID()
     @State private var homeCategory: HomeBrowseCategory = .all
     @State private var category: LibraryCategory = .movies
     @State private var homeLayout = LuminaHomeLayout()
@@ -667,27 +722,31 @@ private struct LibraryShellView: View {
         TabView(selection: Binding(get: { destination }, set: { selected in
             if selected == .home {
                 homeCategory = .all
-                homeNavigationID = UUID()
+                resetHomeNavigation()
             }
             destination = selected
         })) {
             Tab("Home", image: LuminaGlyph.home.assetName(for: destination == .home ? .solid : .outline), value: .home) {
-                destinationStack(categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
+                destinationStack(owner: .home, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
                     if homeSessionScope == MobileHomeSessionScope(store.session) {
                         HomeLibraryView(store: store, homeLayout: homeLayout, feed: homeFeed,
                                         category: $homeCategory, categoryBarWidth: categoryBarWidth,
-                                        showsBrowsingRow: showsCategoryHeader && !usesIPadHeaderNavigation) { selected in
-                            category = selected
-                            destination = .library
+                                        showsBrowsingRow: showsCategoryHeader && !usesIPadHeaderNavigation,
+                                        uiTestingNavigationDiagnostics: homeNavigationDiagnosticValue
+                        ) { selected in
+                            openLibrary(selected, fromHome: true)
                         }
                     } else {
                         ProgressView("Loading Home…")
                     }
                 }
                 .id(homeNavigationID)
+                #if LUMINA_UI_TESTING
+                .onAppear { recordHomeNavigationDiagnostic("root") }
+                #endif
             }
             Tab("Library", image: LuminaGlyph.library.assetName(for: destination == .library ? .solid : .outline), value: .library) {
-                destinationStack(categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
+                destinationStack(owner: .library, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader, path: $libraryPath) {
                     libraryContent
                         .toolbarBackground(.hidden, for: .navigationBar)
                         .toolbar {
@@ -708,17 +767,18 @@ private struct LibraryShellView: View {
                             }
                         }
                 }
+                .id(libraryNavigationRootID)
             }
             Tab("Requests", image: LuminaGlyph.requests.assetName(for: destination == .requests ? .solid : .outline), value: .requests) {
-                destinationStack(categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
+                destinationStack(owner: .requests, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
                     if let session = store.session {
-                        NativeRequestsView(session: session, isActive: destination == .requests)
+                        NativeRequestsView(store: store, session: session, isActive: destination == .requests)
                             .id([session.serverURL.absoluteString, session.userID, session.accessToken])
                     }
                 }
             }
             Tab("Account", image: LuminaGlyph.userSettings.assetName(for: destination == .account ? .solid : .outline), value: .account) {
-                destinationStack(categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
+                destinationStack(owner: .account, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
                     NativeAccountSettingsView(store: store, onOpenRequests: usesIPadHeaderNavigation ? {
                         destination = .requests
                     } : nil)
@@ -727,7 +787,7 @@ private struct LibraryShellView: View {
         }
         .environment(\.returnToLuminaHome, {
             homeCategory = .all
-            homeNavigationID = UUID() // Pop Home details, clear its refinement, and return to the top.
+            resetHomeNavigation() // Pop Home details, clear its refinement, and return to the top.
             destination = .home
         })
         .onChange(of: store.availableLibraryCategories, initial: true) { _, available in
@@ -745,13 +805,15 @@ private struct LibraryShellView: View {
         if store.availableLibraryCategories.contains(category.rawValue) {
             switch category {
             case .movies, .tv, .anime:
-                VideoLibraryView(store: store, kind: .constant(category.videoKind))
+                VideoLibraryView(store: store, kind: .constant(category.videoKind),
+                                 activeKind: destination == .library ? category.videoKind : nil)
                     .id(category)
             case .music:
                 AudioLibraryView(store: store)
             case .books:
                 if let session = store.session {
-                    NativeBooksView(session: session).id([session.serverURL.absoluteString, session.userID, session.accessToken])
+                    NativeBooksView(store: store, session: session, isActive: destination == .library)
+                        .id([session.serverURL.absoluteString, session.userID, session.accessToken])
                 }
             }
         } else {
@@ -791,20 +853,19 @@ private struct LibraryShellView: View {
             unifiedCategoryButton("Home", id: HomeBrowsingDestination.all.rawValue,
                                   selected: destination == .home && homeCategory == .all) {
                 homeCategory = .all
-                homeNavigationID = UUID()
+                resetHomeNavigation()
                 destination = .home
             }
             ForEach(LibraryCategory.allCases.filter { store.availableLibraryCategories.contains($0.rawValue) }, id: \.self) { value in
                 unifiedCategoryButton(value.title, id: value.rawValue,
                                       selected: destination == .library && category == value) {
-                    category = value
-                    destination = .library
+                    openLibrary(value, fromHome: destination == .home)
                 }
             }
             unifiedCategoryButton("Watchlist", id: HomeBrowsingDestination.watchlist.rawValue,
                                   selected: destination == .home && homeCategory == .watchlist) {
                 homeCategory = .watchlist
-                homeNavigationID = UUID()
+                resetHomeNavigation()
                 destination = .home
             }
             unifiedCategoryButton("Account", id: "account",
@@ -825,29 +886,43 @@ private struct LibraryShellView: View {
             .id(id)
     }
 
-    private func destinationStack<Content: View>(categoryBarWidth: CGFloat, showsCategoryHeader: Bool,
+    @ViewBuilder
+    private func destinationStack<Content: View>(owner: LibraryDestination, categoryBarWidth: CGFloat, showsCategoryHeader: Bool,
+                                                  path: Binding<[MediaItem]>? = nil,
                                                   @ViewBuilder content: () -> Content) -> some View {
-        NavigationStack {
+        if let path {
+            NavigationStack(path: path) {
+                destinationStackContent(owner: owner, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader, content: content)
+            }
+        } else {
+            NavigationStack {
+                destinationStackContent(owner: owner, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader, content: content)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func destinationStackContent<Content: View>(owner: LibraryDestination, categoryBarWidth: CGFloat, showsCategoryHeader: Bool,
+                                                         @ViewBuilder content: () -> Content) -> some View {
             content()
                 .toolbar {
-                    if usesIPadHeaderNavigation {
+                    if usesIPadHeaderNavigation, owner == destination {
                         ToolbarItem(placement: .principal) {
                             unifiedCategories.frame(width: categoryBarWidth)
                         }
                     }
-                    if !showsCategoryHeader, (destination == .home || destination == .library) {
+                    if !showsCategoryHeader, owner == destination, (owner == .home || owner == .library) {
                         ToolbarItem(placement: .topBarTrailing) {
                             Menu {
                                 ForEach(LibraryCategory.allCases.filter { store.availableLibraryCategories.contains($0.rawValue) }, id: \.self) { value in
                                     Button(value.title) {
-                                        category = value
-                                        destination = .library
+                                        openLibrary(value, fromHome: destination == .home)
                                     }
                                     .accessibilityIdentifier("compactCategory-\(value.rawValue)")
                                 }
                                 Button("Watchlist") {
                                     homeCategory = .watchlist
-                                    homeNavigationID = UUID()
+                                    resetHomeNavigation()
                                     destination = .home
                                 }
                                 .accessibilityIdentifier("compactCategory-watchlist")
@@ -858,13 +933,13 @@ private struct LibraryShellView: View {
                                     .accessibilityIdentifier("homeDownloadsButton")
                                 }
                             } label: {
-                                Label(destination == .library ? "Libraries" : "Browse",
-                                      glyph: destination == .library ? .library : .moreHorizontal)
+                                Label(owner == .library ? "Libraries" : "Browse",
+                                      glyph: owner == .library ? .library : .moreHorizontal)
                             }
                             .accessibilityIdentifier("compactBrowseMenu")
                         }
                     }
-                    if destination == .home {
+                    if owner == .home, destination == .home {
                         ToolbarItemGroup(placement: .topBarTrailing) {
                             if showsCategoryHeader, !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
                                 NavigationLink {
@@ -887,24 +962,97 @@ private struct LibraryShellView: View {
                     Group {
                         if item.type == "MusicAlbum" || item.type == "MusicArtist" {
                             MusicCollectionView(item: item, store: store)
+                        } else if item.type == "Episode" {
+                            EpisodeCollectionDestination(item: item, store: store)
                         } else if item.isCollection {
                             VideoCollectionView(item: item, store: store)
                         } else {
                             TitleDetailView(item: item, store: store)
                         }
                     }
-                    .toolbarVisibility(.visible, for: .navigationBar)
                     .toolbar {
                         NativeNowPlayingToolbar(store: store)
                     }
+                    #if LUMINA_UI_TESTING
+                    .onAppear {
+                        if owner == .home { recordHomeNavigationDiagnostic("destination-appeared") }
+                    }
+                    .onDisappear {
+                        if owner == .home { recordHomeNavigationDiagnostic("destination-disappeared") }
+                    }
+                    #endif
                 }
-        }
-        .toolbarVisibility(usesIPadHeaderNavigation ? .hidden : .automatic, for: .tabBar)
-        .tint(LuminaTheme.ink)
+            .toolbarVisibility(usesIPadHeaderNavigation ? .hidden : .automatic, for: .tabBar)
+            .tint(LuminaTheme.ink)
     }
 
     private var usesIPadHeaderNavigation: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
+    }
+
+    private func resetHomeNavigation() {
+        homeNavigationID = UUID()
+        #if LUMINA_UI_TESTING
+        homeNavigationGeneration += 1
+        recordHomeNavigationDiagnostic("root")
+        #endif
+    }
+
+    #if LUMINA_UI_TESTING
+    private func recordHomeNavigationDiagnostic(_ route: String) {
+        uiTestingHomeNavigationDiagnostics = "route=\(route) generation=\(homeNavigationGeneration)"
+    }
+    #endif
+
+    private var homeNavigationDiagnosticValue: String? {
+        #if LUMINA_UI_TESTING
+        uiTestingHomeNavigationDiagnostics
+        #else
+        nil
+        #endif
+    }
+
+    private func openLibrary(_ selected: LibraryCategory, fromHome: Bool) {
+        guard store.availableLibraryCategories.contains(selected.rawValue) else { return }
+        if fromHome {
+            libraryPath.removeAll()
+            libraryNavigationRootID = UUID()
+        }
+        category = selected
+        destination = .library
+    }
+}
+
+@MainActor
+private struct EpisodeCollectionDestination: View {
+    let item: MediaItem
+    let store: LuminaStore
+    @State private var series: MediaItem?
+    @State private var couldNotResolveSeries = false
+
+    var body: some View {
+        Group {
+            if let series {
+                VideoCollectionView(item: series, store: store, initialSeasonID: item.seasonID, initialEpisodeID: item.id)
+            } else if couldNotResolveSeries {
+                TitleDetailView(item: item, store: store)
+            } else {
+                ProgressView("Loading show…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("videoCollectionLoading")
+            }
+        }
+        .task(id: item.id) {
+            guard let seriesID = item.seriesID else {
+                couldNotResolveSeries = true
+                return
+            }
+            do {
+                series = try await store.seriesCollection(id: seriesID)
+            } catch {
+                couldNotResolveSeries = true
+            }
+        }
     }
 }
 
@@ -929,6 +1077,7 @@ private struct HomeLibraryView: View {
     @Binding var category: HomeBrowseCategory
     let categoryBarWidth: CGFloat
     let showsBrowsingRow: Bool
+    let uiTestingNavigationDiagnostics: String?
     let onOpenLibrary: (LibraryCategory) -> Void
     @State private var completedInitialHomeLoad = false
     @Environment(\.scenePhase) private var scenePhase
@@ -1035,6 +1184,9 @@ private struct HomeLibraryView: View {
             }
         }
         .accessibilityIdentifier("homeScreen")
+        #if LUMINA_UI_TESTING
+        .accessibilityValue(uiTestingNavigationDiagnostics ?? "")
+        #endif
         .refreshable { await store.loadHome(); await homeLayout.load(); await feed.load() }
         .task(id: MobileHomeSessionScope(store.session)) {
             guard store.session != nil else {
@@ -1056,7 +1208,9 @@ private struct HomeLibraryView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { refreshHomeRowsAfterInitialLoad() }
         }
-        .onAppear { refreshHomeRowsAfterInitialLoad() }
+        .onAppear {
+            refreshHomeRowsAfterInitialLoad()
+        }
     }
 
     private var browsingRow: some View {
@@ -1128,13 +1282,47 @@ private struct HomeSearchView: View {
     let store: LuminaStore
     @State private var query = ""
     @State private var searchPresented = true
+    @FocusState private var searchFocused: Bool
     @State private var results: [MediaItem] = []
     @State private var loading = false
     @State private var message: String?
+    @State private var selectedSearchItem: MediaItem?
 
     var body: some View {
+        if usesStandardPhonePushedChrome {
+            searchContent
+                .navigationDestination(item: $selectedSearchItem) { item in
+                    searchDestination(for: item)
+                }
+                .standardPhonePushedChrome(store: store)
+                .task { searchFocused = true }
+        } else {
+            searchContent
+                .searchable(text: $query, isPresented: $searchPresented, prompt: "Films, shows, and music")
+        }
+    }
+
+    private var searchContent: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
+                if usesStandardPhonePushedChrome {
+                    HStack(spacing: 10) {
+                        LuminaIcon(glyph: .search, size: 20).foregroundStyle(.secondary)
+                        TextField("Search your library", text: $query)
+                            .textFieldStyle(.plain)
+                            .focused($searchFocused)
+                            .submitLabel(.search)
+                            .accessibilityIdentifier("homeSearchField")
+                        if !query.isEmpty {
+                            Button("Clear search", glyph: .close) { query = "" }
+                                .labelStyle(.iconOnly)
+                                .accessibilityIdentifier("homeSearchClearButton")
+                        }
+                    }
+                    .frame(minHeight: 44)
+                    .padding(.horizontal, 12)
+                    .background(LuminaTheme.ink.opacity(0.08), in: .rect(cornerRadius: 12))
+                }
                 if loading { ProgressView("Searching…").frame(maxWidth: .infinity) }
                 if let message { Text(message).foregroundStyle(.secondary) }
                 if results.isEmpty, !loading {
@@ -1145,18 +1333,15 @@ private struct HomeSearchView: View {
                     }
                 }
                 ForEach(results) { item in
-                    NavigationLink(value: item) {
-                        HStack(spacing: 16) {
-                            ArtworkView(url: store.imageURL(for: item), name: item.name)
-                                .frame(width: 64, height: 96).clipped()
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.name).font(.headline)
-                                if !item.displaySubtitle.isEmpty {
-                                    Text(item.displaySubtitle).font(.subheadline).foregroundStyle(.secondary)
-                                }
+                    Group {
+                        if usesStandardPhonePushedChrome {
+                            Button { selectedSearchItem = item } label: {
+                                searchResultRow(item)
                             }
-                            Spacer()
-                            LuminaIcon(glyph: .forward, size: 20).foregroundStyle(.secondary)
+                        } else {
+                            NavigationLink(value: item) {
+                                searchResultRow(item)
+                            }
                         }
                     }
                     .buttonStyle(.plain)
@@ -1167,7 +1352,6 @@ private struct HomeSearchView: View {
         .background(LuminaTheme.paper)
         .navigationTitle("Search")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, isPresented: $searchPresented, prompt: "Films, shows, and music")
         .accessibilityIdentifier("homeSearchScreen")
         .task(id: query.trimmingCharacters(in: .whitespacesAndNewlines)) {
             let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1183,6 +1367,34 @@ private struct HomeSearchView: View {
                 guard !Task.isCancelled else { return }
                 message = "Search could not finish. Try again."; loading = false
             }
+        }
+    }
+
+    private func searchResultRow(_ item: MediaItem) -> some View {
+        HStack(spacing: 16) {
+            ArtworkView(url: store.imageURL(for: item), name: item.name)
+                .frame(width: 64, height: 96).clipped()
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.name).font(.headline)
+                if !item.displaySubtitle.isEmpty {
+                    Text(item.displaySubtitle).font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            LuminaIcon(glyph: .forward, size: 20).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func searchDestination(for item: MediaItem) -> some View {
+        if item.type == "MusicAlbum" || item.type == "MusicArtist" {
+            MusicCollectionView(item: item, store: store)
+        } else if item.type == "Episode" {
+            EpisodeCollectionDestination(item: item, store: store)
+        } else if item.isCollection {
+            VideoCollectionView(item: item, store: store)
+        } else {
+            TitleDetailView(item: item, store: store)
         }
     }
 }
@@ -1442,6 +1654,7 @@ private struct VideoLibraryView: View {
     @State private var searchText = ""
     @State private var searchVisible = false
     @Binding var kind: VideoBrowseKind
+    let activeKind: VideoBrowseKind?
     @State private var sort: VideoSort = .name
     @State private var filters = VideoFilters()
     @State private var filtersVisible = false
@@ -1655,7 +1868,8 @@ private struct VideoLibraryView: View {
                     .accessibilityValue(optionsAccessibilityValue)
                 }
             }
-            .task {
+            .task(id: "\(kind.rawValue)-\(activeKind?.rawValue ?? "inactive")") {
+                guard activeKind == kind else { return }
                 await loadInitialContent()
             }
         }
@@ -2049,11 +2263,19 @@ private struct NativeWatchlistButton: View {
 }
 
 @MainActor
-private struct VideoCollectionView: View {
+struct VideoCollectionView: View {
     let item: MediaItem
     let store: LuminaStore
+    let initialSeasonID: String?
+    let initialEpisodeID: String?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var children: [MediaItem] = []
+    @State private var selectedSeasonEpisodes: [MediaItem] = []
+    @State private var selectedSeasonID: String?
+    @State private var selectedEpisodeID: String?
+    @State private var isLoadingSelectedSeason = false
+    @State private var hasPositionedInitialEpisode = false
+    @State private var hasCenteredInitialEpisode = false
     @State private var detailItem: MediaItem?
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -2061,9 +2283,21 @@ private struct VideoCollectionView: View {
     @State private var isPreparingPlayback = false
     @State private var playbackError: String?
 
+    init(item: MediaItem, store: LuminaStore, initialSeasonID: String? = nil, initialEpisodeID: String? = nil) {
+        self.item = item
+        self.store = store
+        self.initialSeasonID = initialSeasonID
+        self.initialEpisodeID = initialEpisodeID
+        _selectedSeasonID = State(initialValue: initialSeasonID)
+        _selectedEpisodeID = State(initialValue: initialEpisodeID)
+    }
+
+    private var isEpisodeFocusedSeries: Bool { item.type == "Series" && initialSeasonID != nil }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
                 MediaBillboard(item: detailItem ?? item, store: store, context: "", showsOverview: true, showsContext: false, compactMinimumHeight: 460, wideMinimumHeight: 540) {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 12) { playbackActions }
@@ -2093,60 +2327,124 @@ private struct VideoCollectionView: View {
                         Text("No \(item.type == "Series" ? "seasons" : "episodes") are available. Pull to refresh after adding them to Lumina.")
                     }
                 } else if item.type == "Series" {
-                    LazyVGrid(columns: libraryGridColumns(for: dynamicTypeSize), alignment: .leading, spacing: 28) {
-                        ForEach(children) { child in
-                            NavigationLink(value: child) {
-                                MediaCard(item: child, imageURL: store.imageURL(for: child), identifierPrefix: "season", loadFraming: { await store.artworkFraming(for: $0) })
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape([.interaction, .accessibility], Rectangle())
-                            .buttonStyle(.plain)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityAddTraits(.isButton)
-                            .accessibilityLabel(child.name)
-                            .accessibilityIdentifier("videoSeason-\(child.id)")
-                        }
-                    }
-                } else {
-                    if dynamicTypeSize.isAccessibilitySize {
-                        LazyVStack(spacing: 12) {
-                            ForEach(children) { episode in
-                                episodeLink(episode)
-                            }
-                        }
-                    } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            LazyHStack(alignment: .top, spacing: 12) {
-                                ForEach(children) { episode in
-                                    episodeLink(episode)
-                                        .containerRelativeFrame(.horizontal) { width, _ in
-                                            min(max(340, width * 0.30), width * 0.86)
-                                        }
+                    seasonCards
+                    if isEpisodeFocusedSeries {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Episodes")
+                                .font(.title2.weight(.bold))
+                                .accessibilityAddTraits(.isHeader)
+                            if let selectedEpisode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
+                                Text(selectedEpisode.name)
+                                    .font(.headline)
+                                    .accessibilityIdentifier("collectionEpisodeTitle")
+                                if !selectedEpisode.displaySubtitle.isEmpty {
+                                    Text(selectedEpisode.displaySubtitle)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
                                 }
                             }
-                            .scrollTargetLayout()
+                            if isLoadingSelectedSeason {
+                                ProgressView("Loading episodes…")
+                            } else {
+                                episodeCards(selectedSeasonEpisodes)
+                            }
                         }
-                        .scrollTargetBehavior(.viewAligned)
-                        .modifier(LuminaCarouselEdges())
+                        .id(initialEpisodeSectionID)
                     }
+                } else {
+                    episodeCards(children)
                 }
                 NativeTitleSupplement(item: detailItem ?? item, store: store)
                     .padding(.top, 18)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 28)
-            .frame(maxWidth: .infinity)
+            .onChange(of: selectedSeasonEpisodes.map(\.id)) {
+                positionInitialEpisode(using: proxy)
+            }
         }
         .background(LuminaTheme.paper)
         .modifier(VideoDetailChrome())
-        .scrollClipDisabled()
         .accessibilityIdentifier("videoCollectionScreen")
+        .standardPhonePushedChrome(store: store, foreground: .white, background: LuminaTheme.theater)
+        .scrollClipDisabled()
         .task(id: item.id) { await load() }
         .refreshable { await load() }
         .fullScreenCover(item: $playbackRequest, onDismiss: {
             Task { await load() }
         }) { request in
             PlaybackScreen(request: request, store: store)
+        }
+    }
+
+    @ViewBuilder private var seasonCards: some View {
+        LazyVGrid(columns: libraryGridColumns(for: dynamicTypeSize), alignment: .leading, spacing: 28) {
+            ForEach(children) { child in
+                seasonCard(child)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func seasonCard(_ season: MediaItem) -> some View {
+        if isEpisodeFocusedSeries {
+            Button { Task { await selectSeason(season) } } label: {
+                MediaCard(item: season, imageURL: store.imageURL(for: season), identifierPrefix: "season", loadFraming: { await store.artworkFraming(for: $0) })
+                    .overlay {
+                        if season.id == selectedSeasonID {
+                            RoundedRectangle(cornerRadius: 12).strokeBorder(LuminaTheme.brand, lineWidth: 3)
+                        }
+                    }
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape([.interaction, .accessibility], Rectangle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(season.name)
+            .accessibilityValue(season.id == selectedSeasonID ? "Selected" : "")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAddTraits(season.id == selectedSeasonID ? .isSelected : [])
+            .accessibilityIdentifier("videoSeason-\(season.id)")
+        } else {
+            NavigationLink(value: season) {
+                MediaCard(item: season, imageURL: store.imageURL(for: season), identifierPrefix: "season", loadFraming: { await store.artworkFraming(for: $0) })
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape([.interaction, .accessibility], Rectangle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(season.name)
+            .accessibilityIdentifier("videoSeason-\(season.id)")
+        }
+    }
+
+    @ViewBuilder private func episodeCards(_ episodes: [MediaItem]) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            LazyVStack(spacing: 12) {
+                ForEach(episodes) { episode in
+                    episodeLink(episode)
+                }
+            }
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 12) {
+                        ForEach(episodes) { episode in
+                            episodeLink(episode)
+                                .containerRelativeFrame(.horizontal) { width, _ in
+                                    min(max(340, width * 0.30), width * 0.86)
+                                }
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .onAppear { centerInitialEpisode(using: proxy) }
+                .scrollTargetBehavior(.viewAligned)
+                .modifier(LuminaCarouselEdges())
+            }
         }
     }
 
@@ -2167,16 +2465,27 @@ private struct VideoCollectionView: View {
     }
 
     private func episodeLink(_ episode: MediaItem) -> some View {
-        NavigationLink(value: episode) {
-            episodeCard(episode)
+        Group {
+            if isEpisodeFocusedSeries {
+                Button { selectedEpisodeID = episode.id } label: {
+                    episodeCard(episode, selected: episode.id == selectedEpisodeID)
+                }
+            } else {
+                NavigationLink(value: episode) {
+                    episodeCard(episode)
+                }
+            }
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(mediaAccessibilityLabel(for: episode) + (episode.userData?.played == true ? ", Watched" : ""))
+        .accessibilityValue(episode.id == selectedEpisodeID ? "Selected" : "")
+        .accessibilityAddTraits(episode.id == selectedEpisodeID ? .isSelected : [])
         .accessibilityIdentifier("videoEpisode-\(episode.id)")
+        .id(episodeScrollID(episode.id))
     }
 
-    private func episodeCard(_ episode: MediaItem) -> some View {
+    private func episodeCard(_ episode: MediaItem, selected: Bool = false) -> some View {
         ZStack(alignment: .bottomLeading) {
             ArtworkView(
                 url: store.backdropURL(for: episode, maxWidth: 920) ?? store.imageURL(for: episode),
@@ -2234,6 +2543,9 @@ private struct VideoCollectionView: View {
             }
         }
         .clipShape(.rect(cornerRadius: 8))
+        .overlay {
+            if selected { RoundedRectangle(cornerRadius: 8).strokeBorder(LuminaTheme.brand, lineWidth: 3) }
+        }
         .contentShape(Rectangle())
     }
 
@@ -2243,10 +2555,55 @@ private struct VideoCollectionView: View {
         detailItem = try? await store.loadItem(item)
         do {
             children = try await store.loadChildren(of: item)
+            if isEpisodeFocusedSeries, let season = children.first(where: { $0.id == selectedSeasonID }) {
+                await selectSeason(season)
+            }
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "This collection could not load. Check your connection and try again."
         }
         isLoading = false
+    }
+
+    private func selectSeason(_ season: MediaItem) async {
+        guard !isLoadingSelectedSeason else { return }
+        isLoadingSelectedSeason = true
+        defer { isLoadingSelectedSeason = false }
+        do {
+            let episodes = try await store.loadChildren(of: season)
+            selectedSeasonID = season.id
+            selectedSeasonEpisodes = episodes
+            selectedEpisodeID = episodes.contains(where: { $0.id == selectedEpisodeID })
+                ? selectedEpisodeID
+                : episodes.first?.id
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "This season could not load. Check your connection and try again."
+        }
+    }
+
+    private func episodeScrollID(_ episodeID: String) -> String {
+        "selected-episode-\(episodeID)"
+    }
+
+    private var initialEpisodeSectionID: String { "initial-episode-section" }
+
+    private func positionInitialEpisode(using proxy: ScrollViewProxy) {
+        guard isEpisodeFocusedSeries, !hasPositionedInitialEpisode,
+              let selectedEpisodeID,
+              selectedSeasonEpisodes.contains(where: { $0.id == selectedEpisodeID }) else { return }
+        hasPositionedInitialEpisode = true
+        DispatchQueue.main.async {
+            proxy.scrollTo(initialEpisodeSectionID, anchor: .top)
+        }
+    }
+
+    private func centerInitialEpisode(using proxy: ScrollViewProxy) {
+        guard isEpisodeFocusedSeries, !hasCenteredInitialEpisode,
+              let selectedEpisodeID,
+              selectedSeasonEpisodes.contains(where: { $0.id == selectedEpisodeID }) else { return }
+        hasCenteredInitialEpisode = true
+        DispatchQueue.main.async {
+            proxy.scrollTo(episodeScrollID(selectedEpisodeID), anchor: .center)
+        }
     }
 
     private func preparePlayback() {
@@ -2265,6 +2622,10 @@ private struct VideoCollectionView: View {
     }
 
     private func playableEpisode() async throws -> MediaItem {
+        if isEpisodeFocusedSeries,
+           let selectedEpisode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
+            return selectedEpisode
+        }
         if let resume = store.resumeItems.first(where: { candidate in
             candidate.type == "Episode" && (candidate.seriesID == item.id || candidate.seasonID == item.id) && candidate.userData?.played != true
         }) {
@@ -2458,6 +2819,9 @@ private struct MusicCollectionView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("musicCollectionScreen")
+        .standardPhonePushedChrome(store: store,
+                                   foreground: item.type == "MusicAlbum" ? .white : LuminaTheme.ink,
+                                   background: item.type == "MusicAlbum" ? LuminaTheme.theater : LuminaTheme.paper)
         .task(id: item.id) { await load() }
         .refreshable { await load() }
         .nativeAudioPlayer(playback: $albumPlayback, store: store) {
@@ -2641,6 +3005,18 @@ struct NativeSearchPresentation: ViewModifier {
             if isPresented {
                 content.searchable(text: $text, isPresented: $isPresented,
                     placement: .navigationBarDrawer(displayMode: .always), prompt: Text(prompt))
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if UIDevice.current.userInterfaceIdiom == .pad {
+                            HStack {
+                                Spacer()
+                                Button("Cancel") { isPresented = false }
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .accessibilityIdentifier("nativeSearchDismissButton")
+                            }
+                            .padding(.horizontal, 16)
+                            .background(.bar)
+                        }
+                    }
             } else {
                 content
             }
@@ -3155,7 +3531,7 @@ private struct NativeTitleSupplement: View {
 }
 
 @MainActor
-private struct TitleDetailView: View {
+struct TitleDetailView: View {
     let item: MediaItem
     @Bindable var store: LuminaStore
 
@@ -3213,6 +3589,13 @@ private struct TitleDetailView: View {
         .scrollClipDisabled()
         .accessibilityIdentifier("detailScreen")
         .modifier(VideoDetailChrome(isEnabled: !currentItem.isAudio))
+        .standardPhonePushedChrome(store: store,
+                                   foreground: currentItem.isAudio ? LuminaTheme.ink : .white,
+                                   background: currentItem.isAudio ? LuminaTheme.paper : LuminaTheme.theater) {
+            if !currentItem.isAudio {
+                titleActionsMenu
+            }
+        }
         .toolbar {
             if !currentItem.isAudio {
                 ToolbarItem(placement: .topBarTrailing) {

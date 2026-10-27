@@ -88,7 +88,7 @@ struct DeviceSettingsView: View {
                     LuminaSettingsPicker("Show subtitles", selection: $preferences.subtitleMode,
                         options: NativeSubtitleMode.allCases, identifier: "deviceSubtitleModePicker") { $0.label }
                     NavigationLink {
-                        DeviceSubtitleAppearanceView(style: subtitleStyle)
+                        DeviceSubtitleAppearanceView(store: store, style: subtitleStyle)
                     } label: {
                         LuminaSettingsActionLabel("Caption appearance", glyph: .subtitles)
                     }
@@ -332,6 +332,7 @@ private struct DeviceLanguagePicker: View {
 
 @MainActor
 private struct DeviceSubtitleAppearanceView: View {
+    let store: LuminaStore
     @Binding var style: VideoSubtitleStyle
     @Environment(\.dismiss) private var dismiss
 
@@ -368,6 +369,7 @@ private struct DeviceSubtitleAppearanceView: View {
         .background(LuminaTheme.paper)
         .navigationTitle("Caption appearance")
         .accessibilityIdentifier("deviceSubtitleAppearanceScreen")
+        .standardPhonePushedChrome(store: store)
         #endif
     }
 

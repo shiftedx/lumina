@@ -655,6 +655,33 @@ let tickScale = 10_000_000.0
         }
     }
 
+    /// Resolves a Requests-provided vault title without replacing the active browse page.
+    public func libraryItem(id: String) async throws -> MediaItem {
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LuminaError.malformedResponse
+        }
+        guard let active = session else { throw LuminaError.notSignedIn }
+        do {
+            let fresh = try await client.item(
+                origin: active.serverURL,
+                token: active.accessToken,
+                deviceID: active.deviceID,
+                id: id,
+                userID: active.userID
+            )
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            guard canonicalItemID(fresh.id) == canonicalItemID(id) else { throw LuminaError.malformedResponse }
+            replaceCachedItem(fresh)
+            return fresh
+        } catch {
+            if isCurrent(active), let failure = error as? LuminaError,
+               failure == .http(401) || failure == .http(403) {
+                clearSession()
+            }
+            throw error
+        }
+    }
+
     /// Resolves a concrete music pivot without changing the active browse page.
     /// TV uses this for album and artist tiles that were sourced from a related
     /// media item rather than the current audio catalogue.
@@ -664,7 +691,7 @@ let tickScale = 10_000_000.0
             throw LuminaError.malformedResponse
         }
         guard let active = session else { throw LuminaError.notSignedIn }
-        let requestedID = canonicalMusicCollectionID(id)
+        let requestedID = canonicalItemID(id)
         do {
             let fresh = try await client.item(
                 origin: active.serverURL,
@@ -674,8 +701,35 @@ let tickScale = 10_000_000.0
                 userID: active.userID
             )
             guard isCurrent(active) else { throw LuminaError.notSignedIn }
-            guard canonicalMusicCollectionID(fresh.id) == requestedID,
+            guard canonicalItemID(fresh.id) == requestedID,
                   fresh.type == expectedType else { throw LuminaError.malformedResponse }
+            replaceCachedItem(fresh)
+            return fresh
+        } catch {
+            if isCurrent(active), let failure = error as? LuminaError,
+               failure == .http(401) || failure == .http(403) {
+                clearSession()
+            }
+            throw error
+        }
+    }
+
+    /// Resolves the parent series for an episode without replacing the active browse page.
+    public func seriesCollection(id: String) async throws -> MediaItem {
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LuminaError.malformedResponse
+        }
+        guard let active = session else { throw LuminaError.notSignedIn }
+        do {
+            let fresh = try await client.item(
+                origin: active.serverURL,
+                token: active.accessToken,
+                deviceID: active.deviceID,
+                id: id,
+                userID: active.userID
+            )
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            guard fresh.id == id, fresh.type == "Series" else { throw LuminaError.malformedResponse }
             replaceCachedItem(fresh)
             return fresh
         } catch {
@@ -714,11 +768,11 @@ let tickScale = 10_000_000.0
         nextUpItems = nextUpItems.map { $0.id == fresh.id ? fresh : $0 }.filter { $0.userData?.played != true }
     }
 
-    /// Jellyfin commonly represents a UUID link in music metadata with hyphens,
-    /// while its item endpoint returns the same value in compact lowercase form.
+    /// Jellyfin commonly represents a UUID link with hyphens, while its item
+    /// endpoint returns the same value in compact lowercase form.
     /// Non-UUID fixture and provider identifiers deliberately remain byte-for-byte
     /// unchanged.
-    private func canonicalMusicCollectionID(_ id: String) -> String {
+    private func canonicalItemID(_ id: String) -> String {
         let compact = id.replacingOccurrences(of: "-", with: "")
         guard compact.utf8.count == 32,
               compact.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "0123456789abcdefABCDEF").contains($0) }) else {
@@ -967,17 +1021,52 @@ let tickScale = 10_000_000.0
                                                           mediaSourceID: source.id,
                                                           startPositionSeconds: startPositionSeconds)
             guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            let selectedSource = try client.preferredSource(in: selected, mediaSourceID: source.id)
+            let selectedSourceChapters = try await chaptersForSelectedPlaybackSource(
+                selectedSource, loadedItem: current, active: active
+            )
             let request = try client.playbackRequest(origin: active.serverURL, token: active.accessToken, item: current,
                                                       result: selected, quality: resolvedQuality,
                                                       audioStreamIndex: preferredAudio, subtitleStreamIndex: preferredSubtitle,
-                                                      mediaSourceID: source.id, startPositionSeconds: startPositionSeconds)
+                                                      mediaSourceID: source.id, startPositionSeconds: startPositionSeconds,
+                                                      selectedSourceChapters: selectedSourceChapters)
             guard !requiresServerHLS || request.isTranscoding else { throw LuminaError.malformedResponse }
             return request
         }
+        let selectedSourceChapters = try await chaptersForSelectedPlaybackSource(
+            source, loadedItem: current, active: active
+        )
         return try client.playbackRequest(origin: active.serverURL, token: active.accessToken, item: current,
                                           result: result, quality: resolvedQuality,
                                           audioStreamIndex: preferredAudio, subtitleStreamIndex: preferredSubtitle,
-                                          mediaSourceID: source.id, startPositionSeconds: startPositionSeconds)
+                                          mediaSourceID: source.id, startPositionSeconds: startPositionSeconds,
+                                          selectedSourceChapters: selectedSourceChapters)
+    }
+
+    /// Jellyfin places chapter markers on BaseItemDto, not MediaSourceInfo. When a
+    /// selected version omits the optional legacy source markers, read only that
+    /// visible version's item detail. A missing version leaves playback usable
+    /// without borrowing markers from the title's preferred file.
+    private func chaptersForSelectedPlaybackSource(_ source: MediaSource, loadedItem: MediaItem,
+                                                    active: LuminaSession) async throws -> [PlaybackChapter]? {
+        guard source.chapters == nil, source.id != loadedItem.id else { return nil }
+        do {
+            let selected = try await client.item(
+                origin: active.serverURL,
+                token: active.accessToken,
+                deviceID: active.deviceID,
+                id: source.id,
+                userID: active.userID
+            )
+            try Task.checkCancellation()
+            guard isCurrent(active) else { throw LuminaError.notSignedIn }
+            guard selected.id == source.id else { return [] }
+            return selected.chapters
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as LuminaError where error == .http(404) {
+            return []
+        }
     }
 
     /// Saves the server's original movie, episode, or video attachment for offline playback.

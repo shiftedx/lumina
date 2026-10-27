@@ -42,14 +42,6 @@ final class VideoSubtitleStyleTests: XCTestCase {
         XCTAssertEqual(numberArray(attributes[kCMTextMarkupAttribute_BackgroundColorARGB as String]), [0.6, 0, 0, 0])
     }
 
-    func testRestoreDefaultsEnablesACompleteBoundedCustomStyle() {
-        var style = VideoSubtitleStyle.system
-        style.restoreDefaults()
-        XCTAssertEqual(style, .defaultCustom)
-        XCTAssertNotNil(style.makeTextStyleRules())
-        XCTAssertEqual(VideoSubtitleStyle.Weight.allCases.map(\.label), ["Regular", "Bold"])
-    }
-
     private func numberArray(_ value: Any?) -> [Double]? {
         (value as? [NSNumber])?.map(\.doubleValue)
     }

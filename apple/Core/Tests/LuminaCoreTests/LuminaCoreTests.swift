@@ -730,7 +730,11 @@ final class LuminaCoreTests: XCTestCase {
             ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) ? 0.3 : 0
         }
         let obsoleteStarts = RequestStartRecorder()
-        HomeDelayedURLProtocol.onStart = { obsoleteStarts.record($0) }
+        HomeDelayedURLProtocol.onStart = { request in
+            if ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) {
+                obsoleteStarts.record(request)
+            }
+        }
         let obsolete = Task { await store.loadHome() }
         await obsoleteStarts.waitForThree()
         HomeDelayedURLProtocol.delay = { _ in 0.01 }
@@ -747,7 +751,11 @@ final class LuminaCoreTests: XCTestCase {
             ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) ? 0.3 : 0
         }
         let cancelledStarts = RequestStartRecorder()
-        HomeDelayedURLProtocol.onStart = { cancelledStarts.record($0) }
+        HomeDelayedURLProtocol.onStart = { request in
+            if ["/Items", "/UserItems/Resume", "/Shows/NextUp"].contains(request.url?.path) {
+                cancelledStarts.record(request)
+            }
+        }
         let cancelled = Task { await store.loadHome() }
         await cancelledStarts.waitForThree()
         cancelled.cancel()
@@ -908,6 +916,95 @@ final class LuminaCoreTests: XCTestCase {
             "/Users/user-1/Items/artist-1",
             "/Users/user-1/Items/wrong-type",
             "/Users/user-1/Items/wrong-id",
+        ])
+        XCTAssertTrue(pivots.allSatisfy {
+            $0.httpMethod == "GET" && $0.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"test-token\"") == true
+        })
+    }
+
+    func testSeriesCollectionResolvesOnlyTheAuthenticatedParentSeriesWithoutReplacingBrowsePage() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items": return response(request, json: page(items: [movie()]))
+            case "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/series-1": return response(request, json: ["Id": "series-1", "Name": "Series", "Type": "Series"])
+            case "/Users/user-1/Items/wrong-type": return response(request, json: ["Id": "wrong-type", "Name": "Movie", "Type": "Movie"])
+            case "/Users/user-1/Items/wrong-id": return response(request, json: ["Id": "another-id", "Name": "Series", "Type": "Series"])
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        let series = try await store.seriesCollection(id: "series-1")
+        XCTAssertEqual([series.id, series.type], ["series-1", "Series"])
+        XCTAssertEqual(store.items.map(\.id), ["movie-1"], "A parent-series pivot must not replace the video browse page.")
+
+        for id in ["", "wrong-type", "wrong-id"] {
+            do {
+                _ = try await store.seriesCollection(id: id)
+                XCTFail("Parent-series pivots must reject missing, mismatched, and non-series responses.")
+            } catch {
+                XCTAssertEqual(error as? LuminaError, .malformedResponse)
+            }
+        }
+
+        let pivots = requests.all.filter { $0.url?.path.hasPrefix("/Users/user-1/Items/") == true }
+        XCTAssertEqual(pivots.map { $0.url?.path }, [
+            "/Users/user-1/Items/series-1",
+            "/Users/user-1/Items/wrong-type",
+            "/Users/user-1/Items/wrong-id",
+        ])
+        XCTAssertTrue(pivots.allSatisfy {
+            $0.httpMethod == "GET" && $0.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"test-token\"") == true
+        })
+    }
+
+    func testLibraryItemResolvesAnExactAuthenticatedVaultTitleWithoutReplacingBrowsePage() async throws {
+        let vaultMovieID = "B313B443-44D5-44A1-95E2-052A2D34C25B"
+        let vaultMovieResponseID = "b313b44344d544a195e2052a2d34c25b"
+        let mismatchedVaultID = "F982FDE7-27C6-441B-A915-046B0D29FFBB"
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items": return response(request, json: page(items: [movie()]))
+            case "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/\(vaultMovieID)": return response(request, json: ["Id": vaultMovieResponseID, "Name": "Vault movie", "Type": "Movie"])
+            case "/Users/user-1/Items/vault-series": return response(request, json: ["Id": "vault-series", "Name": "Vault series", "Type": "Series"])
+            case "/Users/user-1/Items/\(mismatchedVaultID)": return response(request, json: ["Id": "1A5D6533-B044-45A3-BE3B-71FC48705696", "Name": "Wrong", "Type": "Movie"])
+            default: return response(request, status: 404)
+            }
+        }
+
+        await store.restore()
+        let movie = try await store.libraryItem(id: vaultMovieID)
+        let series = try await store.libraryItem(id: "vault-series")
+        XCTAssertEqual([movie.id, movie.type], [vaultMovieResponseID, "Movie"])
+        XCTAssertEqual([series.id, series.type], ["vault-series", "Series"])
+        XCTAssertEqual(store.items.map(\.id), ["movie-1"], "A Requests pivot must not replace the active video browse page.")
+
+        for id in ["", mismatchedVaultID] {
+            do {
+                _ = try await store.libraryItem(id: id)
+                XCTFail("Requests pivots must reject blank and mismatched vault IDs.")
+            } catch {
+                XCTAssertEqual(error as? LuminaError, .malformedResponse)
+            }
+        }
+
+        let pivots = requests.all.filter { $0.url?.path.hasPrefix("/Users/user-1/Items/") == true }
+        XCTAssertEqual(pivots.map { $0.url?.path }, [
+            "/Users/user-1/Items/\(vaultMovieID)",
+            "/Users/user-1/Items/vault-series",
+            "/Users/user-1/Items/\(mismatchedVaultID)",
         ])
         XCTAssertTrue(pivots.allSatisfy {
             $0.httpMethod == "GET" && $0.value(forHTTPHeaderField: "Authorization")?.contains("Token=\"test-token\"") == true
@@ -1423,8 +1520,74 @@ final class LuminaCoreTests: XCTestCase {
         let alternate = try LuminaClient().playbackRequest(
             origin: URL(string: "http://127.0.0.1:8765")!, token: "test-token", item: item,
             result: alternateInfo, mediaSourceID: "source-alternate",
+            selectedSourceChapters: [PlaybackChapter(id: 10_000_000, title: "Wrong fallback")],
         )
         XCTAssertTrue(alternate.chapters.isEmpty)
+    }
+
+    func testPreparePlaybackReadsOnlyTheSelectedVersionChaptersWhenPlaybackInfoOmitsThem() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/movie-1":
+                var title = movie()
+                title["Chapters"] = [["StartPositionTicks": 0, "Name": "Preferred opening"]]
+                return response(request, json: title)
+            case "/Users/user-1/Items/source-version":
+                var version = movie()
+                version["Id"] = "source-version"
+                version["Chapters"] = [["StartPositionTicks": 100_000_000, "Name": "Version chapter"]]
+                return response(request, json: version)
+            case "/Items/movie-1/PlaybackInfo":
+                return response(request, json: ["PlaySessionId": "version-chapters", "MediaSources": [[
+                    "Id": "source-version", "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                ]]])
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+
+        let request = try await store.preparePlayback(for: item)
+
+        XCTAssertEqual(request.chapters.map(\.id), [100_000_000])
+        XCTAssertEqual(request.chapters.map(\.title), ["Version chapter"])
+        XCTAssertEqual(requests.all.filter { $0.url?.path == "/Users/user-1/Items/source-version" }.count, 1)
+    }
+
+    func testPreparePlaybackDoesNotBorrowTitleChaptersWhenSelectedVersionIsUnavailable() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/movie-1":
+                var title = movie()
+                title["Chapters"] = [["StartPositionTicks": 0, "Name": "Preferred opening"]]
+                return response(request, json: title)
+            case "/Users/user-1/Items/missing-version": return response(request, status: 404)
+            case "/Items/movie-1/PlaybackInfo":
+                return response(request, json: ["PlaySessionId": "missing-version", "MediaSources": [[
+                    "Id": "missing-version", "SupportsDirectPlay": true, "SupportsTranscoding": false,
+                ]]])
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+
+        let request = try await store.preparePlayback(for: item)
+
+        XCTAssertTrue(request.chapters.isEmpty)
+        XCTAssertEqual(requests.all.filter { $0.url?.path == "/Users/user-1/Items/missing-version" }.count, 1)
     }
 
     func testPlaybackMarkersAndNextEpisodeUseRecordedSourceMetadataAndSeriesOrder() async throws {

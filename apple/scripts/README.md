@@ -55,7 +55,7 @@ The current UI contracts are:
 - Home: actual sign-in, cinematic hero, recent-shelf caption and a visible known poster, destination navigation, title selection, detail, and resumed video. iOS additionally requires idle rotation within its bounded wait, Pause, and a real horizontal swipe to another title. Automatic rotation is intentionally disabled with Reduce Motion or VoiceOver; use normal motion and VoiceOver off for that specific idle-rotation check. TV focus intentionally pauses rotation.
 - Audio: album → track → player with advancing time and server progress; iOS background playback and TV remote pause/resume; Browse retaining the now-playing bar while navigating Video/Audio; reopening without restarting; album Next, queue inspection/selection, and repeat values. Stop ends playback and removes the bar for test isolation. Browse is different from video Done, which closes the video session.
 - Extended music (both platforms): `testMusicPlaylistsSmartSelectionAndDownloadedPlayback` checks shared read-only playback, saved/smart playlists and actual local-file playback; `testMusicAdvancedControlsPausedRestoreAndQueueConflict` checks listening options, lyrics, paused restore and revision-conflict resolution. Both feature workflows have passing case-level evidence on both platforms, and the selected current simulator renders have been accepted in the verification record.
-- Shows: show → season → two episode entries → episode detail/playback, then saved progress.
+- Shows: show → season → two episode entries → selected episode in its parent show → playback, then saved progress.
 - Member activity: watched/favorite actions checked against server state; native switch values and visible filter summaries checked before catalog membership assertions; cleanup resets the fixture state.
 
 Screenshot attachments cover the hero, automatic/manual carousel changes, recent shelf, Video/Audio destinations, album tracks, persistent audio, queue, and episode list. Failed audio journeys include the accessibility hierarchy. Inspect the result images as well as test status. Catalog-specific playback/layout/discovery checks explicitly select Video; sign-in itself lands on Home. These workflows replace the old requirement that the full catalog fit on Home's first screen.
@@ -160,7 +160,6 @@ The sampler waits for the tour's settled login marker, scopes samples and
 Time Profiler to the simulator's exact app executable, rejects process changes,
 and writes phase-level CPU, wakeups, charged footprint and host-load results.
 CPU is a percentage of one host core, not whole-device energy or GPU/decoder
-usage. The tour's five playback/settings/Back cycles support a retention trend;
-one-time framework growth alone does not prove a leak. Simulator traces cannot
-qualify hardware frame pacing, HDR or HDMI output. See the dated performance
-record for the actual completed coverage and limitations.
+usage. The tour does not establish a retention trend or prove a leak. Simulator
+traces cannot qualify hardware frame pacing, HDR or HDMI output. See the dated
+performance record for the actual completed coverage and limitations.

@@ -82,3 +82,25 @@ Deterministic service checks retain a full 640-track resolved queue while boundi
 85 focused native contracts, nine sampler checks, the optimized artwork `--check`, the iOS Release build, and six clean UI cohorts passed. The full repository gate was intentionally skipped under the owner's dogfood instruction. No version bump, archive, upload, deployment, release, or tag was created.
 
 This partial result makes no app-wide CPU, memory, FPS, hitch, or zero-leak claim. Simulator captures omit physical-device thermal behavior, GPU/decoder-service cost, HDR, and display pacing; host load varies. The slow-server rapid-track-change playback-report backlog and foreground-independent Sonos polling remain separate measurement targets, with no redesign in this pass. The complete compact measurements are in [the results JSON](../Benchmarks/results/2026-10-24-ios-views.json).
+
+
+## 2026-10-26 follow-up: playback rate/status feedback
+
+A manual direct-play performance investigation found a significant CPU regression missed by the functional control checks. `PlaybackModel` reapplied an unchanged `AVPlayer.rate` from its time-control-status observer, feeding further observation work. A fresh `Float` equality guard now skips that assignment while preserving the existing playback-eligibility checks and intended rate changes.
+
+The app-only Time Profiler trace captured 5.071 seconds strictly inside steady playback: rate-set paths appeared in 64.09% of 6886 CPU samples. The app caller was `PlaybackModel.applyEffectiveVideoRateIfPermitted`; MediaToolbox rate-setting work also dominated its player queue. A separate matched sampler run measured three open/play/control/seek/vertical-gesture/close cycles per variant, with no concurrent builds or tests. Each variant's UI workload passed 1/1; existing Core rate contracts passed 6/6.
+
+| Measurement | Before guard | After guard |
+| --- | ---: | ---: |
+| Steady-play CPU, median of 3 window means |143.674%|4.620%|
+| Controls CPU, median of 3 window means |112.412%|12.565%|
+| Post-close CPU, median of 3 window means |0.406%|0.396%|
+| Peak charged footprint |74.034 MiB|74.549 MiB|
+| Peak resident memory (RSS) |520.047 MiB|519.000 MiB|
+| Charged footprint after closes 1/2/3 |63.003 /63.018 /63.049 MiB|63.862 /63.846 /63.924 MiB|
+
+CPU is percent of one core; steady-play CPU fell 96.78%, and controls CPU fell 88.82%. Memory stayed at the same scale; the bounded run does not establish an all-duration leak guarantee. RSS includes shared/mapped resident pages and differs from charged physical footprint.
+
+Both captures used Release plus identical UI-testing/performance flags, iPhone 17 simulator on iOS 27.0, and the same synthetic 320×180 H.264/AAC 90-second 24 fps fixture configuration. The payload fingerprint was recorded during the baseline; teardown prevented rehashing the after fixture. This is not a long-movie, HDR/4K, physical-Duo, energy, or crash-resolution claim. XCTest command timings include automation overhead and are not input-to-frame latency.
+
+[Compact results, exact per-cycle windows, source hashes and qualifications](../Benchmarks/results/2026-10-26-video-overlay.json) retain the measured evidence. Raw reports, samples, trace, reproduction commands and the optional temporary workload patch remain under `/tmp/lumina-overlay-perf-current/`. The temporary selector and performance guards were removed from shipped source; the default native inventory remains 70 (43 iOS +27 tvOS), and no always-on performance test was added.

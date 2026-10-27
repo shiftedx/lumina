@@ -12,10 +12,32 @@ private enum TVRequestQuotaState: Equatable {
     case failed(String)
 }
 
+private struct TVRequestVaultDestination: View {
+    let item: MediaItem
+    let store: LuminaStore
+    let onOpen: (MediaItem) -> Void
+    let onPlayback: (PlaybackRequest) -> Void
+    let onExit: () -> Void
+
+    var body: some View {
+        Group {
+            if item.isCollection {
+                TVVideoCollectionView(item: item, store: store, onOpen: onOpen, onPlayback: onPlayback)
+            } else {
+                TVDetailView(item: item, store: store, onOpen: onOpen, onPlayback: onPlayback)
+            }
+        }
+        .onExitCommand(perform: onExit)
+    }
+}
+
 @MainActor
 struct TVRequestsView: View {
     let store: LuminaStore
     var focusRequest = 0
+    let onOpen: (MediaItem) -> Void
+    let onPlayback: (PlaybackRequest) -> Void
+    let onOpenVault: @MainActor (String) async throws -> MediaItem
     @FocusState private var focusedSearch: Bool
     @State private var catalog = LuminaRequests()
     @State private var search = ""
@@ -57,12 +79,12 @@ struct TVRequestsView: View {
                     ProgressView("Finding something new…")
                         .frame(maxWidth: .infinity, minHeight: 460)
                 } else if let home = catalog.home, let featured = home.hero.first {
-                    TVRequestHero(item: featured, catalog: catalog, quotaState: quotaState, reloadQuotas: loadQuotas)
+                    TVRequestHero(item: featured, store: store, catalog: catalog, quotaState: quotaState, reloadQuotas: loadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
                         .focusSection()
 
                     ForEach(home.rails) { rail in
                         if !rail.items.isEmpty {
-                            TVRequestRail(title: rail.title, items: rail.items, catalog: catalog, quotaState: quotaState, reloadQuotas: loadQuotas)
+                            TVRequestRail(title: rail.title, items: rail.items, store: store, catalog: catalog, quotaState: quotaState, reloadQuotas: loadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
                                 .focusSection()
                         }
                     }
@@ -247,7 +269,7 @@ struct TVRequestsView: View {
             spacing: 44
         ) {
             ForEach(items) { item in
-                TVRequestPoster(item: item, width: 238, catalog: catalog, quotaState: quotaState, reloadQuotas: loadQuotas)
+                TVRequestPoster(item: item, width: 238, store: store, catalog: catalog, quotaState: quotaState, reloadQuotas: loadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
             }
         }
         .padding(.horizontal, 80)
@@ -390,13 +412,17 @@ struct TVRequestsView: View {
 @MainActor
 private struct TVRequestHero: View {
     let item: RequestCatalogItem
+    let store: LuminaStore
     @Bindable var catalog: LuminaRequests
     let quotaState: TVRequestQuotaState
     let reloadQuotas: @MainActor () async -> TVRequestQuotaState
+    let onOpen: (MediaItem) -> Void
+    let onPlayback: (PlaybackRequest) -> Void
+    let onOpenVault: @MainActor (String) async throws -> MediaItem
 
     var body: some View {
         NavigationLink {
-            TVRequestDetailView(item: item, catalog: catalog, initialQuotaState: quotaState, reloadQuotas: reloadQuotas)
+            TVRequestDetailView(item: item, store: store, catalog: catalog, initialQuotaState: quotaState, reloadQuotas: reloadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
         } label: {
             ZStack(alignment: .bottomLeading) {
                 TVRequestArtwork(url: item.backdropURL ?? item.posterURL, aspect: 16 / 7, fillsCanvas: true, home: true, catalog: catalog)
@@ -428,7 +454,7 @@ private struct TVRequestHero: View {
 
                     Label(
                         actionLabel(for: item),
-                        glyph: item.status.canCreateRequest && item.canRequest ? .add : .info,
+                        glyph: hasVaultItem(item) ? .library : (item.status.canCreateRequest && item.canRequest ? .add : .info),
                         variant: .solid,
                         size: 24
                     )
@@ -454,9 +480,13 @@ private struct TVRequestHero: View {
 private struct TVRequestRail: View {
     let title: String
     let items: [RequestCatalogItem]
+    let store: LuminaStore
     @Bindable var catalog: LuminaRequests
     let quotaState: TVRequestQuotaState
     let reloadQuotas: @MainActor () async -> TVRequestQuotaState
+    let onOpen: (MediaItem) -> Void
+    let onPlayback: (PlaybackRequest) -> Void
+    let onOpenVault: @MainActor (String) async throws -> MediaItem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -465,7 +495,7 @@ private struct TVRequestRail: View {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 30) {
                     ForEach(items) { item in
-                        TVRequestPoster(item: item, width: 224, catalog: catalog, quotaState: quotaState, reloadQuotas: reloadQuotas)
+                        TVRequestPoster(item: item, width: 224, store: store, catalog: catalog, quotaState: quotaState, reloadQuotas: reloadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
                     }
                 }
                 .padding(.vertical, 24)
@@ -480,13 +510,17 @@ private struct TVRequestRail: View {
 private struct TVRequestPoster: View {
     let item: RequestCatalogItem
     let width: CGFloat
+    let store: LuminaStore
     @Bindable var catalog: LuminaRequests
     let quotaState: TVRequestQuotaState
     let reloadQuotas: @MainActor () async -> TVRequestQuotaState
+    let onOpen: (MediaItem) -> Void
+    let onPlayback: (PlaybackRequest) -> Void
+    let onOpenVault: @MainActor (String) async throws -> MediaItem
 
     var body: some View {
         NavigationLink {
-            TVRequestDetailView(item: item, catalog: catalog, initialQuotaState: quotaState, reloadQuotas: reloadQuotas)
+            TVRequestDetailView(item: item, store: store, catalog: catalog, initialQuotaState: quotaState, reloadQuotas: reloadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
         } label: {
             VStack(alignment: .leading, spacing: 12) {
                 TVRequestArtwork(url: item.posterURL ?? item.backdropURL, aspect: 2 / 3, catalog: catalog)
@@ -521,9 +555,13 @@ private struct TVRequestPoster: View {
 @MainActor
 private struct TVRequestDetailView: View {
     let item: RequestCatalogItem
+    let store: LuminaStore
     @Bindable var catalog: LuminaRequests
     let initialQuotaState: TVRequestQuotaState
     let reloadQuotas: @MainActor () async -> TVRequestQuotaState
+    let onOpen: (MediaItem) -> Void
+    let onPlayback: (PlaybackRequest) -> Void
+    let onOpenVault: @MainActor (String) async throws -> MediaItem
     @State private var quotaState: TVRequestQuotaState = .loading
     @State private var detail: RequestCatalogDetail?
     @State private var loading = true
@@ -535,12 +573,20 @@ private struct TVRequestDetailView: View {
     @State private var language: RequestLanguage?
     @State private var languageRequired = false
     @State private var trailerUnavailable = false
+    @State private var openingVault = false
+    @State private var vaultProblem: String?
+    @State private var vaultItem: MediaItem?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
     private var current: RequestCatalogItem { detail?.item ?? item }
     private var quota: RequestQuota? { catalog.quotas.first { $0.kind == current.kind } }
+    private var vaultID: String? {
+        guard let id = current.status.libraryTitleID?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else { return nil }
+        return id
+    }
     private var isSeries: Bool { current.mediaType == .tv }
+    private var canRequestMore: Bool { vaultID != nil && isSeries && current.status.state == .partiallyAvailable }
     private var needsLanguage: Bool { languageRequired || (current.kind == .anime && current.mediaType == .tv) }
     private var seasons: RequestSeasonSelection? {
         guard isSeries else { return nil }
@@ -551,7 +597,7 @@ private struct TVRequestDetailView: View {
     }
     private var canSubmit: Bool {
         guard case .ready = quotaState, let quota else { return false }
-        return !loading && !submitting && created == nil && current.canRequest && current.status.canCreateRequest && quota.canRequest && quota.remaining != 0 && (!isSeries || seasons != nil) && (!needsLanguage || language != nil)
+        return (vaultID == nil || canRequestMore) && !loading && !submitting && created == nil && current.canRequest && current.status.canCreateRequest && quota.canRequest && quota.remaining != 0 && (!isSeries || seasons != nil) && (!needsLanguage || language != nil)
     }
 
     var body: some View {
@@ -579,6 +625,11 @@ private struct TVRequestDetailView: View {
         .task(id: item.id) {
             quotaState = initialQuotaState
             await refreshQuota()
+        }
+        .navigationDestination(item: $vaultItem) { item in
+            TVRequestVaultDestination(item: item, store: store, onOpen: onOpen, onPlayback: onPlayback) {
+                vaultItem = nil
+            }
         }
     }
 
@@ -632,7 +683,19 @@ private struct TVRequestDetailView: View {
                 }
             }
 
-            if let created {
+            if vaultID != nil {
+                vaultAction
+                if canRequestMore {
+                    if let created {
+                        Label(created.status.label, glyph: .check, variant: .solid, size: 24)
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(LuminaTheme.accentInk)
+                            .accessibilityIdentifier("requestSubmittedStatus")
+                    } else if current.canRequest && current.status.canCreateRequest {
+                        requestChoices
+                    }
+                }
+            } else if let created {
                 Label(created.status.label, glyph: .check, variant: .solid, size: 24)
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(LuminaTheme.accentInk)
@@ -647,6 +710,12 @@ private struct TVRequestDetailView: View {
             } else {
                 Label(current.unrequestableReason ?? "This title cannot be requested yet.", glyph: .info, size: 24)
                     .foregroundStyle(LuminaTheme.muted)
+            }
+
+            if let vaultProblem {
+                Label(vaultProblem, glyph: .warning, variant: .solid, size: 24)
+                    .foregroundStyle(LuminaTheme.accentInk)
+                    .accessibilityIdentifier("requestVaultLookupError")
             }
 
             if let problem {
@@ -708,13 +777,42 @@ private struct TVRequestDetailView: View {
             } label: {
                 HStack(spacing: 12) {
                     if submitting { ProgressView() }
-                    Label("Request \(current.title)", glyph: .add, variant: .solid, size: 24)
+                    Label(canRequestMore ? "Request more from \(current.title)" : "Request \(current.title)", glyph: .add, variant: .solid, size: 24)
                 }
             }
             .buttonStyle(LuminaQuietActionStyle(primary: true))
             .controlSize(.large)
             .disabled(!canSubmit)
             .accessibilityIdentifier("requestConfirmButton")
+        }
+    }
+
+    @ViewBuilder private var vaultAction: some View {
+        if let id = vaultID {
+            Button {
+                Task { await openVault(id: id) }
+            } label: {
+                HStack(spacing: 12) {
+                    if openingVault { ProgressView() }
+                    Label("View", glyph: .library, variant: .solid, size: 24)
+                }
+            }
+            .buttonStyle(LuminaQuietActionStyle(primary: true))
+            .controlSize(.large)
+            .disabled(openingVault)
+            .accessibilityIdentifier("requestViewVaultButton")
+        }
+    }
+
+    private func openVault(id: String) async {
+        guard !openingVault else { return }
+        openingVault = true
+        vaultProblem = nil
+        defer { openingVault = false }
+        do {
+            vaultItem = try await onOpenVault(id)
+        } catch {
+            vaultProblem = "This title is no longer available in your vault."
         }
     }
 
@@ -782,7 +880,7 @@ private struct TVRequestDetailView: View {
     @ViewBuilder private var recommendations: some View {
         let entries = detail?.recommendations ?? []
         if !entries.isEmpty {
-            TVRequestRail(title: "More like this", items: entries, catalog: catalog, quotaState: quotaState, reloadQuotas: reloadQuotas)
+            TVRequestRail(title: "More like this", items: entries, store: store, catalog: catalog, quotaState: quotaState, reloadQuotas: reloadQuotas, onOpen: onOpen, onPlayback: onPlayback, onOpenVault: onOpenVault)
                 .focusSection()
         }
     }
@@ -859,6 +957,9 @@ private struct TVRequestHistory: View {
                             }
                         }
                         .padding(.vertical, 10)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(record.title)
+                        .accessibilityValue(record.status.label)
                         .accessibilityIdentifier("requestHistory-\(record.key)")
                     }
                     if let result = catalog.myRequests, result.totalPages > 1 {
@@ -900,6 +1001,7 @@ private struct TVRequestHistory: View {
             .task(id: query) {
                 await catalog.loadMyRequests(status: query.status, page: query.page)
             }
+            .accessibilityIdentifier("requestHistoryScreen")
         }
         .preferredColorScheme(.dark)
     }
@@ -986,8 +1088,13 @@ private func metadata(for item: RequestCatalogItem) -> String {
 }
 
 private func actionLabel(for item: RequestCatalogItem) -> String {
+    if hasVaultItem(item) { return "View" }
     if item.canRequest && item.status.canCreateRequest { return "Request" }
     return item.status.label.isEmpty ? "Details" : item.status.label
+}
+
+private func hasVaultItem(_ item: RequestCatalogItem) -> Bool {
+    item.status.libraryTitleID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 }
 
 private func quotaText(_ quota: RequestQuota) -> String {

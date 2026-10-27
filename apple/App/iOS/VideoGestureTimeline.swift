@@ -16,19 +16,15 @@ struct VideoGestureTimeline: View {
     @State private var lastPointerX = 0.0
     @State private var direction = VideoSeekDirection.forward
 
-    private var ranges: [VideoSeekRange] { playback.gestureSeekRanges }
-    private var lower: Double { ranges.first?.lowerBound ?? 0 }
-    private var upper: Double { ranges.last?.upperBound ?? 0 }
-    private var position: Double { presentation.previewTime ?? playback.gestureSeekTime }
-    private var fraction: Double {
-        let currentRanges = ranges
-        let lower = currentRanges.first?.lowerBound ?? 0
-        let upper = currentRanges.last?.upperBound ?? 0
-        return upper > lower ? min(1, max(0, (position - lower) / (upper - lower))) : 0
-    }
-
     var body: some View {
-        let progress = fraction
+        // Previewing a drag can run at display cadence. Read AVFoundation's live
+        // seekable ranges once for this render; PlaybackModel validates them again
+        // before a seek is committed so live/DVR bounds remain authoritative.
+        let ranges = playback.gestureSeekRanges
+        let lower = ranges.first?.lowerBound ?? 0
+        let upper = ranges.last?.upperBound ?? 0
+        let position = presentation.previewTime ?? playback.gestureSeekTime
+        let progress = upper > lower ? min(1, max(0, (position - lower) / (upper - lower))) : 0
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.2)).frame(height: 5)
@@ -40,7 +36,8 @@ struct VideoGestureTimeline: View {
                     value: VideoGesturePresentation.clock(position),
                     cancellationID: cancellationID,
                     event: { event, point, size in
-                        handle(event, point: point, size: size, containerHeight: max(1, containerHeight))
+                        handle(event, point: point, size: size, containerHeight: max(1, containerHeight),
+                               ranges: ranges, lower: lower, upper: upper)
                     },
                     adjust: { direction in
                         playback.requestRelativeVideoSeek(Double(direction > 0 ? preferences.skipForwardSeconds : -preferences.skipBackwardSeconds))
@@ -56,7 +53,12 @@ struct VideoGestureTimeline: View {
         .accessibilityIdentifier("videoTimeline")
     }
 
-    private func handle(_ event: VideoTimelineTouchSurface.Event, point: CGPoint, size: CGSize, containerHeight: Double) {
+    private func handle(_ event: VideoTimelineTouchSurface.Event, point: CGPoint, size: CGSize, containerHeight: Double,
+                        ranges: [VideoSeekRange], lower: Double, upper: Double) {
+        if case .cancelled = event {
+            cancel()
+            return
+        }
         guard size.width > 0, upper > lower else { return }
         let pointer = VideoGesturePoint(x: Double(point.x), y: Double(point.y))
         switch event {
@@ -67,7 +69,7 @@ struct VideoGestureTimeline: View {
             direction = (candidate ?? lower) >= playback.gestureSeekTime ? .forward : .backward
             fine.begin(at: pointer)
             onEditing(true)
-            show(direction: direction)
+            show(direction: direction, ranges: ranges)
         case .moved, .ended:
             guard candidate != nil else { return }
             let movement = Double(point.x) - lastPointerX
@@ -79,18 +81,18 @@ struct VideoGestureTimeline: View {
                 } else {
                     candidate = lower + min(1, max(0, point.x / size.width)) * (upper - lower)
                 }
-                show(direction: direction)
+                show(direction: direction, ranges: ranges)
             }
             if event == .ended {
                 if let target = presentation.previewTime { playback.seek(to: target) }
                 finish()
             }
         case .cancelled:
-            cancel()
+            break
         }
     }
 
-    private func show(direction: VideoSeekDirection) {
+    private func show(direction: VideoSeekDirection, ranges: [VideoSeekRange]) {
         guard let candidate,
               let target = VideoSeekAuthority.project(candidate, into: ranges, direction: direction) else { return }
         presentation.showTimeline(target: target, multiplier: fine.multiplier)
@@ -116,14 +118,18 @@ private struct VideoTimelineTouchSurface: UIViewRepresentable {
 
     func makeUIView(context: Context) -> TimelineControl { TimelineControl() }
     func updateUIView(_ view: TimelineControl, context: Context) {
+        let previousEvent = view.event
+        if view.cancellationID != cancellationID {
+            view.cancelContact(deferred: true, event: previousEvent)
+            view.cancellationID = cancellationID
+        }
+        if !enabled { view.cancelContact(deferred: true, event: previousEvent) }
         view.event = event
         view.adjust = adjust
         view.accessibilityValue = value
-        if view.cancellationID != cancellationID { view.cancelContact(); view.cancellationID = cancellationID }
-        if !enabled { view.cancelContact() }
         view.isEnabled = enabled
     }
-    static func dismantleUIView(_ view: TimelineControl, coordinator: ()) { view.cancelContact() }
+    static func dismantleUIView(_ view: TimelineControl, coordinator: ()) { view.cancelContact(deferred: true) }
 
     final class TimelineControl: UIControl {
         var event: ((VideoTimelineTouchSurface.Event, CGPoint, CGSize) -> Void)?
@@ -131,6 +137,7 @@ private struct VideoTimelineTouchSurface: UIViewRepresentable {
         var cancellationID: UUID?
         private var active: UITouch?
         private var suppressed = false
+        private var interactionGeneration = 0
         override init(frame: CGRect) {
             super.init(frame: frame)
             isMultipleTouchEnabled = true
@@ -150,6 +157,7 @@ private struct VideoTimelineTouchSurface: UIViewRepresentable {
                 cancelContact(); suppressed = true; return
             }
             active = touch
+            interactionGeneration &+= 1
             self.event?(.began, touch.location(in: self), bounds.size)
         }
         override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -164,10 +172,21 @@ private struct VideoTimelineTouchSurface: UIViewRepresentable {
             if event?.allTouches?.allSatisfy({ $0.phase == .ended || $0.phase == .cancelled }) != false { suppressed = false }
         }
         override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { cancelContact(); suppressed = false }
-        func cancelContact() {
+        func cancelContact(deferred: Bool = false,
+                           event callback: ((VideoTimelineTouchSurface.Event, CGPoint, CGSize) -> Void)? = nil) {
             guard active != nil else { return }
             active = nil
-            event?(.cancelled, .zero, bounds.size)
+            let callback = callback ?? event
+            let generation = interactionGeneration
+            let size = bounds.size
+            if deferred {
+                DispatchQueue.main.async { [weak self] in
+                    guard self?.interactionGeneration == generation else { return }
+                    callback?(.cancelled, .zero, size)
+                }
+            } else {
+                callback?(.cancelled, .zero, size)
+            }
         }
     }
 }

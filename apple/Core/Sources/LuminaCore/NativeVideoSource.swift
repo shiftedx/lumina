@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 public final class NativeVideoSource {
     public enum SelectionError: Error, Equatable, Sendable {
-        /// PrismCore's muxed shape can only carry a stream-copyable audio track.
+        /// Native client delivery can only carry a stream-copyable selected audio track.
         /// Callers retain the existing item and use their server fallback instead.
         case unsupportedAudioStream(Int)
         case externalSubtitleMustBeLocal
@@ -62,6 +62,7 @@ public final class NativeVideoSource {
     // Server reporting cadence; the app-owned timeline can update more frequently.
     public static let progressObservationInterval = CMTime(seconds: 5, preferredTimescale: 600)
     private static let maximumExternalSubtitleBytes = 10 << 20
+    private static let maximumPrismPlaylistBytes = 128 << 10
     private static let maximumWebVTTSeconds = Double(Int.max / 1_000)
 
     public init() {}
@@ -95,7 +96,7 @@ public final class NativeVideoSource {
             )
         }
         let session = try PrismCoreSession(url: url, display: .current(),
-                                          segmentCacheBytes: 64 << 20, forceMuxedShape: true,
+                                          segmentCacheBytes: 64 << 20,
                                           preferredAudioStreamIndex: preferredAudioStreamIndex,
                                           preferredSubtitleStreamIndex: preferredSubtitleStreamIndex,
                                           coordinatedHTTP: true,
@@ -134,22 +135,37 @@ public final class NativeVideoSource {
             if renditions.isEmpty {
                 playableURL = playlist
             } else {
-                let master = try await makeSubtitleMaster(
-                    variantURL: playlist,
-                    prismRenditions: renditions,
-                    externalSubtitles: [],
-                    bandwidth: bandwidth
-                )
-                guard demux === session else {
-                    await Self.stop(master)
-                    throw CancellationError()
+                // Prism's ordinary session owns a complete master, including video
+                // metadata and its subtitle rendition paths. Only a muxed fallback
+                // lacks that master and needs Lumina's local wrapper.
+                let mediaPlaylist = try await prismMediaVariant(for: playlist)
+                if mediaPlaylist == playlist {
+                    let master = try await makeSubtitleMaster(
+                        variantURL: mediaPlaylist,
+                        prismRenditions: renditions,
+                        externalSubtitles: [],
+                        bandwidth: bandwidth
+                    )
+                    guard demux === session else {
+                        await Self.stop(master)
+                        throw CancellationError()
+                    }
+                    subtitleMaster = master
+                    playableURL = master.playlistURL
+                } else {
+                    playableURL = playlist
                 }
-                subtitleMaster = master
                 hasSelectableExternalSubtitles = !externalSubtitles.isEmpty
                 externalSubtitleDisplayName = externalSubtitles.first.map { hlsValue($0.name ?? $0.language ?? "Subtitle 1") }
-                playableURL = master.playlistURL
             }
             let item = AVPlayerItem(url: playableURL)
+            if let preferredAudioStreamIndex {
+                guard let audioGroup = try await item.asset.loadMediaSelectionGroup(for: .audible),
+                      let selectedAudio = audioGroup.defaultOption else {
+                    throw SelectionError.unsupportedAudioStream(preferredAudioStreamIndex)
+                }
+                item.select(selectedAudio, in: audioGroup)
+            }
             item.preferredForwardBufferDuration = 4
             statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
                 guard item.status == .failed else { return }
@@ -314,6 +330,65 @@ public final class NativeVideoSource {
             try? FileManager.default.removeItem(at: directory)
             throw error
         }
+    }
+
+    /// Resolves the one video variant produced by Lumina's own Prism loopback session before
+    /// a second master wraps its subtitle renditions. This never follows a server URL or accepts
+    /// a non-loopback redirect: Prism owns the input listener and the wrapper only needs its
+    /// generated HLS manifest.
+    private func prismMediaVariant(for playlistURL: URL) async throws -> URL {
+        guard isPrismLoopbackURL(playlistURL) else { throw URLError(.badURL) }
+        let guardDelegate = PrismLoopbackRedirectGuard(origin: playlistURL)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = false
+        let session = URLSession(configuration: configuration, delegate: guardDelegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+
+        var request = URLRequest(url: playlistURL)
+        request.timeoutInterval = 5
+        request.setValue("application/vnd.apple.mpegurl, application/x-mpegURL", forHTTPHeaderField: "Accept")
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let response = response as? HTTPURLResponse,
+              response.statusCode == 200,
+              let responseURL = response.url,
+              samePrismLoopbackOrigin(playlistURL, responseURL) else {
+            throw URLError(.cannotParseResponse)
+        }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < Self.maximumPrismPlaylistBytes else {
+                throw URLError(.cannotParseResponse)
+            }
+            data.append(byte)
+        }
+        try Task.checkCancellation()
+        return try prismMediaVariantURL(masterURL: responseURL, playlist: data)
+    }
+
+    private func prismMediaVariantURL(masterURL: URL, playlist: Data) throws -> URL {
+        guard let source = String(data: playlist, encoding: .utf8) else {
+            throw URLError(.cannotParseResponse)
+        }
+        let lines = source.split(whereSeparator: { $0.isNewline }).map(String.init)
+        guard lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "#EXTM3U" else {
+            throw URLError(.cannotParseResponse)
+        }
+        let streamInfos = lines.indices.filter { lines[$0].hasPrefix("#EXT-X-STREAM-INF:") }
+        if streamInfos.isEmpty {
+            guard lines.contains(where: { $0.hasPrefix("#EXTINF:") || $0.hasPrefix("#EXT-X-TARGETDURATION:") }) else {
+                throw URLError(.cannotParseResponse)
+            }
+            return masterURL
+        }
+        guard streamInfos.count == 1,
+              let variantLine = lines[(streamInfos[0] + 1)...].first(where: { !$0.isEmpty && !$0.hasPrefix("#") }),
+              let variantURL = URL(string: variantLine, relativeTo: masterURL)?.absoluteURL,
+              variantURL.pathExtension.lowercased() == "m3u8",
+              samePrismLoopbackOrigin(masterURL, variantURL) else {
+            throw URLError(.cannotParseResponse)
+        }
+        return variantURL
     }
 
     private func copyExternalSubtitles(
@@ -554,4 +629,41 @@ public final class NativeVideoSource {
             if let retainedDirectory { try? FileManager.default.removeItem(at: retainedDirectory) }
         }
     }
+}
+
+private final class PrismLoopbackRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    let origin: URL
+
+    init(origin: URL) { self.origin = origin }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        guard let target = request.url, samePrismLoopbackOrigin(origin, target) else {
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
+        completionHandler(request)
+    }
+}
+
+private func isPrismLoopbackURL(_ url: URL) -> Bool {
+    guard url.scheme?.lowercased() == "http",
+          url.host?.lowercased() == "127.0.0.1",
+          url.port != nil,
+          url.user == nil,
+          url.password == nil else {
+        return false
+    }
+    return true
+}
+
+private func samePrismLoopbackOrigin(_ left: URL, _ right: URL) -> Bool {
+    guard isPrismLoopbackURL(left), isPrismLoopbackURL(right) else { return false }
+    return left.port == right.port
 }

@@ -1,0 +1,474 @@
+{
+  "units": {
+    "cpu": "percent of one CPU core; mean per sampled window",
+    "memory": "MiB (2^20 bytes)"
+  },
+  "method": {
+    "sample_interval_seconds": 0.5,
+    "cycles": 3,
+    "warmup_seconds": 3,
+    "steady_play_seconds": 8,
+    "post_close_settle_seconds": 3,
+    "post_close_sample_seconds": 5,
+    "configuration": "Release; LUMINA_UI_TESTING + LUMINA_PERF_CAPTURE identically on both sides",
+    "device": "iPhone17 simulator; iOS27.0 (24A434); SDK27.1",
+    "fixture": {
+      "video_codec": "H.264",
+      "width": 320,
+      "height": 180,
+      "fps": 24,
+      "duration_seconds": 90,
+      "video_bitrate_bps": 612328,
+      "container_bitrate_bps": 686631,
+      "sha256": "9acaae2dbe61aabe4e0931e6888cb8bcfdc544cb780cd4db70c58dbd79ee5b1b",
+      "fingerprint_qualification": "Payload fingerprint observed during the live baseline fixture. After used the unchanged broker/generator configuration; teardown removed its media before a second hash could be collected."
+    },
+    "baseline": "current optimized overlay before equal-rate guard",
+    "change": "skip AVPlayer.rate assignment when current Float rate already equals desired Float rate"
+  },
+  "before": {
+    "valid": true,
+    "exit_code": 0,
+    "system_crashes": [],
+    "windows": [
+      {
+        "phase": "overlay_play_cycle_1",
+        "cycle": 0,
+        "sample_count": 16,
+        "workflow_ms": 36173.48790168762,
+        "seconds": 7.5583460330963135,
+        "cpu_one_core_percent": 147.33057383505616,
+        "wakeups_per_second": 58.478402293911984,
+        "footprint_start_mib": 72.1900405883789,
+        "footprint_end_mib": 72.3306655883789,
+        "footprint_peak_mib": 72.3775405883789,
+        "rss_peak_mib": 514.671875,
+        "host_load1_median": 5.4912109375
+      },
+      {
+        "phase": "overlay_controls_cycle_1",
+        "cycle": 0,
+        "sample_count": 46,
+        "workflow_ms": 28460.76798439026,
+        "seconds": 22.62502694129944,
+        "cpu_one_core_percent": 113.5703682637216,
+        "wakeups_per_second": 61.9667770401991,
+        "footprint_start_mib": 73.1744155883789,
+        "footprint_end_mib": 73.8619155883789,
+        "footprint_peak_mib": 74.0337905883789,
+        "rss_peak_mib": 518.609375,
+        "host_load1_median": 5.81689453125
+      },
+      {
+        "phase": "overlay_post_close_cycle_1",
+        "cycle": 0,
+        "sample_count": 11,
+        "workflow_ms": 12550.220012664795,
+        "seconds": 5.02656102180481,
+        "cpu_one_core_percent": 0.40000757799973197,
+        "wakeups_per_second": 10.54398818000823,
+        "footprint_start_mib": 63.065040588378906,
+        "footprint_end_mib": 63.002540588378906,
+        "footprint_peak_mib": 63.065040588378906,
+        "rss_peak_mib": 507.71875,
+        "host_load1_median": 6.2958984375
+      },
+      {
+        "phase": "overlay_play_cycle_2",
+        "cycle": 0,
+        "sample_count": 16,
+        "workflow_ms": 21388.176918029785,
+        "seconds": 7.529046058654785,
+        "cpu_one_core_percent": 143.1943142731454,
+        "wakeups_per_second": 59.370071124238216,
+        "footprint_start_mib": 72.3462905883789,
+        "footprint_end_mib": 72.5181655883789,
+        "footprint_peak_mib": 72.5181655883789,
+        "rss_peak_mib": 518.1875,
+        "host_load1_median": 6.654296875
+      },
+      {
+        "phase": "overlay_controls_cycle_2",
+        "cycle": 0,
+        "sample_count": 46,
+        "workflow_ms": 28479.833841323853,
+        "seconds": 22.601210117340088,
+        "cpu_one_core_percent": 112.41242685721322,
+        "wakeups_per_second": 61.36839544427166,
+        "footprint_start_mib": 72.9087905883789,
+        "footprint_end_mib": 73.6900405883789,
+        "footprint_peak_mib": 73.7525405883789,
+        "rss_peak_mib": 519.671875,
+        "host_load1_median": 6.572265625
+      },
+      {
+        "phase": "overlay_post_close_cycle_2",
+        "cycle": 0,
+        "sample_count": 10,
+        "workflow_ms": 12461.146116256714,
+        "seconds": 4.531280994415283,
+        "cpu_one_core_percent": 0.40621146697116695,
+        "wakeups_per_second": 10.593030990388607,
+        "footprint_start_mib": 63.080665588378906,
+        "footprint_end_mib": 63.018165588378906,
+        "footprint_peak_mib": 63.080665588378906,
+        "rss_peak_mib": 508.515625,
+        "host_load1_median": 6.4130859375
+      },
+      {
+        "phase": "overlay_play_cycle_3",
+        "cycle": 0,
+        "sample_count": 16,
+        "workflow_ms": 21391.54601097107,
+        "seconds": 7.531250953674316,
+        "cpu_one_core_percent": 143.67362384493342,
+        "wakeups_per_second": 59.883809844361636,
+        "footprint_start_mib": 72.2837905883789,
+        "footprint_end_mib": 72.4556655883789,
+        "footprint_peak_mib": 72.4556655883789,
+        "rss_peak_mib": 518.515625,
+        "host_load1_median": 5.79296875
+      },
+      {
+        "phase": "overlay_controls_cycle_3",
+        "cycle": 0,
+        "sample_count": 46,
+        "workflow_ms": 28529.24108505249,
+        "seconds": 22.593339920043945,
+        "cpu_one_core_percent": 112.39484643645643,
+        "wakeups_per_second": 62.05368506655359,
+        "footprint_start_mib": 72.7994155883789,
+        "footprint_end_mib": 73.6431655883789,
+        "footprint_peak_mib": 73.6900405883789,
+        "rss_peak_mib": 520.046875,
+        "host_load1_median": 6.14453125
+      },
+      {
+        "phase": "overlay_post_close_cycle_3",
+        "cycle": 0,
+        "sample_count": 10,
+        "workflow_ms": 12420.309066772461,
+        "seconds": 4.522252798080444,
+        "cpu_one_core_percent": 0.425596331283593,
+        "wakeups_per_second": 10.393050123148807,
+        "footprint_start_mib": 63.080665588378906,
+        "footprint_end_mib": 63.049415588378906,
+        "footprint_peak_mib": 63.080665588378906,
+        "rss_peak_mib": 508.59375,
+        "host_load1_median": 5.832275390625
+      }
+    ],
+    "peak_charged_footprint_mib_all_capture": 74.0337905883789,
+    "peak_rss_mib_all_capture": 520.046875,
+    "phases": {
+      "play": {
+        "cpu_mean_percent": 144.73283731771167,
+        "cpu_median_percent": 143.67362384493342,
+        "cpu_range_percent": [
+          143.1943142731454,
+          147.33057383505616
+        ],
+        "samples": 48,
+        "sampled_seconds": 22.618643045425415,
+        "footprint_end_mib": [
+          72.3306655883789,
+          72.5181655883789,
+          72.4556655883789
+        ]
+      },
+      "controls": {
+        "cpu_mean_percent": 112.79254718579709,
+        "cpu_median_percent": 112.41242685721322,
+        "cpu_range_percent": [
+          112.39484643645643,
+          113.5703682637216
+        ],
+        "samples": 138,
+        "sampled_seconds": 67.81957697868347,
+        "footprint_end_mib": [
+          73.8619155883789,
+          73.6900405883789,
+          73.6431655883789
+        ]
+      },
+      "post_close": {
+        "cpu_mean_percent": 0.41060512541816396,
+        "cpu_median_percent": 0.40621146697116695,
+        "cpu_range_percent": [
+          0.40000757799973197,
+          0.425596331283593
+        ],
+        "samples": 31,
+        "sampled_seconds": 14.080094814300537,
+        "footprint_end_mib": [
+          63.002540588378906,
+          63.018165588378906,
+          63.049415588378906
+        ]
+      }
+    },
+    "post_close_cycle1_to3_growth_mib": 0.046875
+  },
+  "after": {
+    "valid": true,
+    "exit_code": 0,
+    "system_crashes": [],
+    "windows": [
+      {
+        "phase": "overlay_play_cycle_1",
+        "cycle": 0,
+        "sample_count": 16,
+        "workflow_ms": 36705.991983413696,
+        "seconds": 7.537057161331177,
+        "cpu_one_core_percent": 4.619901050856578,
+        "wakeups_per_second": 70.71725589856915,
+        "footprint_start_mib": 72.8619155883789,
+        "footprint_end_mib": 73.0181655883789,
+        "footprint_peak_mib": 73.0181655883789,
+        "rss_peak_mib": 513.953125,
+        "host_load1_median": 5.05126953125
+      },
+      {
+        "phase": "overlay_controls_cycle_1",
+        "cycle": 0,
+        "sample_count": 45,
+        "workflow_ms": 28225.472927093506,
+        "seconds": 22.14023494720459,
+        "cpu_one_core_percent": 12.74455592602581,
+        "wakeups_per_second": 100.58610512989065,
+        "footprint_start_mib": 73.7837905883789,
+        "footprint_end_mib": 74.3150405883789,
+        "footprint_peak_mib": 74.3775405883789,
+        "rss_peak_mib": 517.625,
+        "host_load1_median": 4.19482421875
+      },
+      {
+        "phase": "overlay_post_close_cycle_1",
+        "cycle": 0,
+        "sample_count": 10,
+        "workflow_ms": 12345.456838607788,
+        "seconds": 4.530308961868286,
+        "cpu_one_core_percent": 0.41295655897792877,
+        "wakeups_per_second": 10.37456835628653,
+        "footprint_start_mib": 63.861915588378906,
+        "footprint_end_mib": 63.861915588378906,
+        "footprint_peak_mib": 63.861915588378906,
+        "rss_peak_mib": 507.0,
+        "host_load1_median": 3.9970703125
+      },
+      {
+        "phase": "overlay_play_cycle_2",
+        "cycle": 0,
+        "sample_count": 16,
+        "workflow_ms": 21412.446975708008,
+        "seconds": 7.544826030731201,
+        "cpu_one_core_percent": 4.806035268713257,
+        "wakeups_per_second": 70.51189753522277,
+        "footprint_start_mib": 72.9556655883789,
+        "footprint_end_mib": 73.1119155883789,
+        "footprint_peak_mib": 73.1119155883789,
+        "rss_peak_mib": 517.078125,
+        "host_load1_median": 6.19677734375
+      },
+      {
+        "phase": "overlay_controls_cycle_2",
+        "cycle": 0,
+        "sample_count": 45,
+        "workflow_ms": 28220.396995544434,
+        "seconds": 22.162195920944214,
+        "cpu_one_core_percent": 12.480924204744388,
+        "wakeups_per_second": 100.71204171111336,
+        "footprint_start_mib": 73.7681655883789,
+        "footprint_end_mib": 74.4087905883789,
+        "footprint_peak_mib": 74.5494155883789,
+        "rss_peak_mib": 518.78125,
+        "host_load1_median": 5.51123046875
+      },
+      {
+        "phase": "overlay_post_close_cycle_2",
+        "cycle": 0,
+        "sample_count": 10,
+        "workflow_ms": 12448.421955108643,
+        "seconds": 4.530840873718262,
+        "cpu_one_core_percent": 0.3955612324405469,
+        "wakeups_per_second": 10.373350402268525,
+        "footprint_start_mib": 63.893165588378906,
+        "footprint_end_mib": 63.846290588378906,
+        "footprint_peak_mib": 63.893165588378906,
+        "rss_peak_mib": 507.53125,
+        "host_load1_median": 5.044921875
+      },
+      {
+        "phase": "overlay_play_cycle_3",
+        "cycle": 0,
+        "sample_count": 16,
+        "workflow_ms": 21520.46775817871,
+        "seconds": 7.5592451095581055,
+        "cpu_one_core_percent": 4.444856306817673,
+        "wakeups_per_second": 70.90655114784778,
+        "footprint_start_mib": 72.9712905883789,
+        "footprint_end_mib": 73.1431655883789,
+        "footprint_peak_mib": 73.1431655883789,
+        "rss_peak_mib": 517.5625,
+        "host_load1_median": 3.83984375
+      },
+      {
+        "phase": "overlay_controls_cycle_3",
+        "cycle": 0,
+        "sample_count": 45,
+        "workflow_ms": 28249.440670013428,
+        "seconds": 22.152662754058838,
+        "cpu_one_core_percent": 12.56487326558525,
+        "wakeups_per_second": 99.35600177891618,
+        "footprint_start_mib": 73.8150405883789,
+        "footprint_end_mib": 74.3306655883789,
+        "footprint_peak_mib": 74.4400405883789,
+        "rss_peak_mib": 519.0,
+        "host_load1_median": 4.85009765625
+      },
+      {
+        "phase": "overlay_post_close_cycle_3",
+        "cycle": 0,
+        "sample_count": 10,
+        "workflow_ms": 12532.195091247559,
+        "seconds": 4.524975776672363,
+        "cpu_one_core_percent": 0.3935785268025648,
+        "wakeups_per_second": 10.607791592488674,
+        "footprint_start_mib": 63.971290588378906,
+        "footprint_end_mib": 63.924415588378906,
+        "footprint_peak_mib": 63.971290588378906,
+        "rss_peak_mib": 507.796875,
+        "host_load1_median": 4.83984375
+      }
+    ],
+    "peak_charged_footprint_mib_all_capture": 74.5494155883789,
+    "peak_rss_mib_all_capture": 519.0,
+    "phases": {
+      "play": {
+        "cpu_mean_percent": 4.623597542129169,
+        "cpu_median_percent": 4.619901050856578,
+        "cpu_range_percent": [
+          4.444856306817673,
+          4.806035268713257
+        ],
+        "samples": 48,
+        "sampled_seconds": 22.641128301620483,
+        "footprint_end_mib": [
+          73.0181655883789,
+          73.1119155883789,
+          73.1431655883789
+        ]
+      },
+      "controls": {
+        "cpu_mean_percent": 12.596784465451817,
+        "cpu_median_percent": 12.56487326558525,
+        "cpu_range_percent": [
+          12.480924204744388,
+          12.74455592602581
+        ],
+        "samples": 135,
+        "sampled_seconds": 66.45509362220764,
+        "footprint_end_mib": [
+          74.3150405883789,
+          74.4087905883789,
+          74.3306655883789
+        ]
+      },
+      "post_close": {
+        "cpu_mean_percent": 0.4006987727403468,
+        "cpu_median_percent": 0.3955612324405469,
+        "cpu_range_percent": [
+          0.3935785268025648,
+          0.41295655897792877
+        ],
+        "samples": 30,
+        "sampled_seconds": 13.586125612258911,
+        "footprint_end_mib": [
+          63.861915588378906,
+          63.846290588378906,
+          63.924415588378906
+        ]
+      }
+    },
+    "post_close_cycle1_to3_growth_mib": 0.0625
+  },
+  "comparison": {
+    "play": {
+      "median_cpu_before_percent": 143.67362384493342,
+      "median_cpu_after_percent": 4.619901050856578,
+      "relative_cpu_reduction_percent": 96.78444732775529
+    },
+    "controls": {
+      "median_cpu_before_percent": 112.41242685721322,
+      "median_cpu_after_percent": 12.56487326558525,
+      "relative_cpu_reduction_percent": 88.82252290349962
+    },
+    "post_close": {
+      "median_cpu_before_percent": 0.40621146697116695,
+      "median_cpu_after_percent": 0.3955612324405469,
+      "relative_cpu_reduction_percent": 2.6218448755352286
+    }
+  },
+  "trace": {
+    "steady_trace_seconds": 5.070827960968018,
+    "rows": 6886,
+    "sampled_cpu_seconds": 6.886,
+    "weights": {
+      "rate_paths": {
+        "cpu_seconds": 4.413,
+        "fraction": 0.6408655242521057
+      },
+      "media_set_rate": {
+        "cpu_seconds": 2.329,
+        "fraction": 0.33822248039500435
+      },
+      "app_apply_rate": {
+        "cpu_seconds": 1.985,
+        "fraction": 0.28826604705198955
+      },
+      "status_KVO_closure": {
+        "cpu_seconds": 2.581,
+        "fraction": 0.3748184722625617
+      }
+    }
+  },
+  "source_hashes": {
+    "measured_after": {
+      "apple/Tests/UITests/NativeProofTests.swift": "312ff4ace99fa7d3ec6b8d671a87d5acd05ee1d38e351726269df854d2a191fb",
+      "apple/App/Shared/PlaybackScreen.swift": "9b5b4fbd79f99f3ca8b822211343cfb5b90c6ea0bda580e13db76f6d6eb00761",
+      "apple/App/iOS/VideoGesturePresentation.swift": "f79d6e142346c8632be0dcc8f845d8cd46a0843fad7025289f16e7b95c3559dd",
+      "apple/App/iOS/VideoGestureTimeline.swift": "275b33c04295fa59bd576fe171680b58c76e41b75d153a1a5347e8334d2cbd30"
+    },
+    "final_production": {
+      "apple/Tests/UITests/NativeProofTests.swift": "cb07a2828b7c2620cef99afb113b5d59135ec3a950a14c6dd7421174d36a5368",
+      "apple/App/Shared/PlaybackScreen.swift": "15674697c0083c27b9b4fc89df187ba717364c0bc231a4720a0e8c1ccdace286",
+      "apple/App/iOS/VideoGesturePresentation.swift": "d6cf7e136704f659d6d2a2bdda4e4847980b5a28e268113039e474e1ce13c289",
+      "apple/App/iOS/VideoGestureTimeline.swift": "275b33c04295fa59bd576fe171680b58c76e41b75d153a1a5347e8334d2cbd30"
+    },
+    "measured_before": {
+      "apple/App/Shared/PlaybackScreen.swift": "69ef0954ba5d448fe3b867ee9274d6be85b285d3ac5afd934fce4dc616c92952",
+      "apple/App/iOS/VideoGesturePresentation.swift": "f79d6e142346c8632be0dcc8f845d8cd46a0843fad7025289f16e7b95c3559dd",
+      "apple/App/iOS/VideoGestureTimeline.swift": "275b33c04295fa59bd576fe171680b58c76e41b75d153a1a5347e8334d2cbd30",
+      "apple/Tests/UITests/NativeProofTests.swift": "312ff4ace99fa7d3ec6b8d671a87d5acd05ee1d38e351726269df854d2a191fb"
+    }
+  },
+  "limits": [
+    "Simulator synthetic SDR180p workload, not long physical Duo/HDR/4K media.",
+    "No physical-device crash resolution claim.",
+    "Three short repeated cycles do not prove absence of all leaks.",
+    "XCTest command+observation times include automation overhead and are not input-to-frame latency.",
+    "Peak RSS includes shared/mapped resident pages; charged physical footprint is separate.",
+    "Time Profiler attribution was a separate run and excluded from before/after CPU measurements."
+  ],
+  "final_validation": {
+    "swift_parse": "passed",
+    "diff_check": "passed",
+    "existing_core_video_rate_contracts": "6/6 passed",
+    "temporary_harness_and_perf_guards_removed": true,
+    "source_selected_inventory": {
+      "iOS": 43,
+      "tvOS": 27
+    },
+    "inventory_qualification": "Source conditional-selection check after removal, not a fresh compiled discovery; matches the earlier compiled43iOS+27tvOS inventory."
+  }
+}

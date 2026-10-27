@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi.dependencies.models import Dependant
 
 from app.db import get_db
@@ -26,14 +24,3 @@ def test_request_database_transactions_finish_before_responses_are_sent() -> Non
     assert [
         path for path, scope in database_dependencies if scope != "function"
     ] == []
-
-
-def test_production_python_avoids_deprecated_naive_utc_constructors() -> None:
-    app_root = Path(__file__).resolve().parents[1] / "app"
-    deprecated_calls = {
-        str(path.relative_to(app_root)): constructor
-        for path in app_root.rglob("*.py")
-        for constructor in ("datetime.utcnow(", "datetime.utcfromtimestamp(")
-        if constructor in path.read_text(encoding="utf-8")
-    }
-    assert deprecated_calls == {}

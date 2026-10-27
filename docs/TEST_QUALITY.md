@@ -9,9 +9,9 @@ The 0.3.4 frontend collected 2,528 cases. This pass removes 70 cases from 11 sou
 | Removed files under frontend/src | Retained observable contracts |
 | --- | --- |
 | styles/base.test.ts, app/shellCss.test.ts | e2e/v1_a11y_sweep.spec.ts: focus rings, keyboard traversal, reduced motion, forced colors, shell across themes/widths |
-| ui/ui.css.test.ts | UI component behavior tests; e2e/v1_settings_tv.spec.ts target sizes; v1_a11y_sweep.spec.ts; borderless-surfaces.spec.ts computed borders/radii |
-| features/settings/settingsCss.test.ts, features/settings/outlinedBoxesCss.test.ts | e2e/settings_visual_polish.spec.ts layout and reachable controls; borderless-surfaces.spec.ts; v1_settings_tv.spec.ts |
-| features/gallery/mediaSurfacesCss.test.ts, features/gallery/liveHeroContrast.test.ts | e2e/borderless-surfaces.spec.ts, live-surface.spec.ts and v1_a11y_sweep.spec.ts rendered layout/contrast |
+| ui/ui.css.test.ts | UI component behavior tests; e2e/v1_settings_tv.spec.ts target sizes; v1_a11y_sweep.spec.ts; decorative border/radius coverage retired in the 2026-10-26 selection below |
+| features/settings/settingsCss.test.ts, features/settings/outlinedBoxesCss.test.ts | e2e/settings_visual_polish.spec.ts layout and reachable controls; v1_settings_tv.spec.ts |
+| features/gallery/mediaSurfacesCss.test.ts, features/gallery/liveHeroContrast.test.ts | e2e/live-surface.spec.ts and v1_a11y_sweep.spec.ts rendered layout/contrast |
 | features/watch/player.css.test.ts | e2e/watch_quality.spec.ts, media_quality.spec.ts, v1_watch_layout.spec.ts and v1_a11y_sweep.spec.ts player layout/controls |
 | features/downloads/downloadsCss.test.ts, features/collections/collectionsCss.test.ts | e2e/vault.spec.ts journeys and v1_a11y_sweep.spec.ts rendered controls/layout |
 | retired.test.ts | Frontend build resolves imports; current route/component and browser journeys verify the current product. Retired-name spelling is not a user contract. |
@@ -64,3 +64,40 @@ This removes three duplicate backend workloads and four additional frontend reci
 An exact-AST-body duplicate audit also found identical test bodies in import-scope validation and music/video metadata validation. Those tests stay: their parameter sets exercise different invalid inputs and domain schemas. Short code or a common assertion is insufficient evidence of redundant coverage. Authentication, member access, migrations, ranges, state machines, FFmpeg integration and existing browser matrices stay in the gate.
 
 Full verification: `mise exec -- make check` passed with 4,825 backend cases (11 skipped), 2,454 frontend cases across 286 files, 47 real-backend browser cases (4 skipped), and 588 mocked browser cases (2 skipped), plus bootstrap, typecheck, build and style/bundle gates. The backend gate took 505.99 seconds; the prior run took 530.25 seconds under different host conditions.
+
+## 2026-10-26: selection by demonstrated regression history
+
+The owner requested removal of tests without a substantiated significant
+regression catch. The bounded review reused the existing native, browser and
+pytest history ledgers, checked candidate creation/line history and recent
+native run logs, and inspected each retained contract. It did not establish
+historical verdicts for every test in the repository. “No evidence found” has
+moderate confidence and does not mean “never caught anything.”
+
+The approved deletion packet removes fourteen native platform cases, twelve
+cosmetic browser cases, two backend recipe checks and two Core recipe checks.
+The native performance tour also loses its unrelated five-cycle suffix, while
+preserving the context that exposed the Books-load cancellation defect.
+See [native selection](../apple/docs/native-ui-test-selection-2026-10-26.md),
+[browser ledger](agents/playwright-ledger.md) and [backend ledger](agents/pytest-ledger.md).
+
+The Core removals are
+`HeroFramingTests.testMotionCropUsesFourGentleDiagonalsAndCapsZoom` (introduced
+with #163 / `9fe7478`) and
+`VideoSubtitleStyleTests.testRestoreDefaultsEnablesACompleteBoundedCustomStyle`
+(introduced with #147 / `cf27a76`). Neither has a substantiated catch in the
+reviewed history. Retain
+`testMotionCropPreservesStaticStartAndPaddedMaterialAcrossAnimation`,
+`testMotionCropRemainsStaticWhenPaddedGroupCannotFit`,
+`testCustomStyleRoundTripsAndMapsOnlySupportedCoreMediaMarkup`, and the native
+Video Settings workflow’s actual subtitle-reset action. The removed exact zoom,
+direction-count, constant-equality and label-enumeration recipes are retired;
+untrusted-input and malformed-persistence checks remain.
+
+Relative to the supplied inventories, expected selected counts are native
+84 → 70, Core 200 → 198, browser 661 → 649 and backend 5,523 → 5,521: thirty
+cases removed. These are selection deltas, not a claim that those complete
+suites have passed on the new source. The removed native cases’ latest available
+passing durations sum to 1,142.925 seconds of test execution across separate
+attempts; parallelism and large run-to-run variation prevent converting that
+sum into a wall-time forecast. No speed percentage is claimed.

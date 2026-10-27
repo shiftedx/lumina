@@ -24,12 +24,12 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.media_schemas import ConnectedApp, ConnectedAppScope
-from app.models import AppSettings, DeviceToken, MemberAccess, User
+from app.models import AppSettings, DeviceToken, MediaCastTicket, MemberAccess, User
 from app.persistence import write_transaction
 from app.security import DEVICE_TOKEN_IDLE_DAYS, MAX_BEARER_LENGTH, resolve_device_token, session_digest, utcnow, validate_device_token_record
 from app.services.rate_limit import grant_address
 from app.services.local_playback_sessions import sessions
-from app.services import member_access, two_factor
+from app.services import member_access, music_cast_capabilities, two_factor
 from app.services.background_work import background_work
 from app.services.media_titles import parse_item_id
 from app.services.yt_dlp_service import YtDlpService
@@ -112,6 +112,7 @@ def sign_out_all_apps(db: Session, user: User) -> int:
     with write_transaction(db, name="connected_apps_sign_out_all"):
         ids = [row.id for row in db.query(DeviceToken.id).filter(DeviceToken.user_id == user.id, DeviceToken.kind.in_(("jellyfin", "agent")))]
         if ids:
+            _revoke_device_cast_tickets(db, ids)
             db.query(DeviceToken).filter(DeviceToken.id.in_(ids)).delete(synchronize_session=False)
             db.flush()
     for app_id in ids:
@@ -146,6 +147,7 @@ def revoke_connected_app(db: Session, actor: User, app_id: str) -> None:
         user_id = record.user_id  # Read before the delete expires the row
         # Revoking an app password signs out the apps that signed in with it.
         signed_in = [row.id for row in db.query(DeviceToken.id).filter(DeviceToken.app_password_id == app_id)] if record.kind == "app_password" else []
+        _revoke_device_cast_tickets(db, [app_id, *signed_in])
         db.delete(record)
         if signed_in:
             db.query(DeviceToken).filter(DeviceToken.id.in_(signed_in)).delete(synchronize_session=False)
@@ -153,6 +155,18 @@ def revoke_connected_app(db: Session, actor: User, app_id: str) -> None:
     for device in (app_id, *signed_in):
         sessions.stop_where(user_id=user_id, device=device)  # its HLS encodes end with it
     audit_log.info("connected_app.revoke actor=%s app=%s", actor.id, app_id)
+
+
+def _revoke_device_cast_tickets(db: Session, device_ids: list[str]) -> None:
+    """End receiver-owned conversions before their issuing paired device disappears."""
+    if not device_ids:
+        return
+    music_cast_capabilities.revoke_for_devices(db, device_ids)
+    tickets = db.query(MediaCastTicket).filter(MediaCastTicket.issuer_device_id.in_(device_ids)).all()
+    for ticket in tickets:
+        if ticket.playback_session_id:
+            sessions.stop(ticket.playback_session_id, ticket.user_id)
+        db.delete(ticket)
 
 
 # ---- Jellyfin clients ------------------------------------------------

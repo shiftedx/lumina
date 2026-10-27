@@ -57,6 +57,79 @@ final class LuminaClient: @unchecked Sendable {
         _ = try await send(request(origin: origin, path: "/Sessions/Logout", method: "POST", token: token, deviceID: deviceID))
     }
 
+    func prepareChromecast(origin: URL, token: String, deviceID: String, itemID: String,
+                           positionSeconds: Double, audioIndex: Int?, subtitle: String?) async throws -> ChromecastTicket {
+        guard !itemID.isEmpty, itemID.utf8.count <= 64,
+              positionSeconds.isFinite, (0...604_800).contains(positionSeconds),
+              audioIndex.map({ $0 >= 0 }) ?? true,
+              subtitle.map({ !$0.isEmpty && $0.utf8.count <= 128 }) ?? true else {
+            throw LuminaError.malformedResponse
+        }
+        var body: [String: Any] = ["item_id": itemID, "position_seconds": positionSeconds]
+        if let audioIndex { body["audio_index"] = audioIndex }
+        if let subtitle { body["subtitle"] = subtitle }
+        let response: ChromecastTicketResponse = try await json(request(
+            origin: origin, path: "/Lumina/Cast/tickets", method: "POST", token: token,
+            deviceID: deviceID, body: body
+        ))
+        let ticket = try response.ticket()
+        guard receiverCapability(in: ticket.mediaURL) != token,
+              ticket.subtitle.map({ receiverCapability(in: $0.url) != token }) ?? true else {
+            throw LuminaError.malformedResponse
+        }
+        return ticket
+    }
+
+    func renewChromecast(origin: URL, token: String, deviceID: String, ticketID: UUID) async throws {
+        let response: ChromecastRenewalResponse = try await json(request(
+            origin: origin, path: "/Lumina/Cast/tickets/\(ticketID.uuidString.lowercased())/renew",
+            method: "POST", token: token, deviceID: deviceID
+        ))
+        guard response.validates(ticketID: ticketID) else { throw LuminaError.malformedResponse }
+    }
+
+    func revokeChromecast(origin: URL, token: String, deviceID: String, ticketID: UUID) async throws {
+        _ = try await send(request(
+            origin: origin, path: "/Lumina/Cast/tickets/\(ticketID.uuidString.lowercased())",
+            method: "DELETE", token: token, deviceID: deviceID
+        ))
+    }
+
+    func prepareMusicReceiver(origin: URL, token: String, deviceID: String, itemIDs: [String],
+                              currentIndex: Int, positionSeconds: Double) async throws -> MusicReceiverTicket {
+        guard !itemIDs.isEmpty, itemIDs.count <= 100, itemIDs.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 64 }),
+              itemIDs.indices.contains(currentIndex), positionSeconds.isFinite,
+              (0...604_800).contains(positionSeconds) else {
+            throw LuminaError.malformedResponse
+        }
+        let response: MusicReceiverTicketResponse = try await json(request(
+            origin: origin, path: "/Lumina/Music/Receiver/tickets", method: "POST", token: token,
+            deviceID: deviceID, body: ["item_ids": itemIDs, "current_index": currentIndex,
+                                        "position_seconds": positionSeconds]
+        ))
+        let ticket = try response.ticket(currentIndex: currentIndex)
+        guard receiverCapability(in: ticket.ticket.mediaURL) != token,
+              ticket.queue.allSatisfy({ receiverCapability(in: $0.mediaURL) != token }) else {
+            throw LuminaError.malformedResponse
+        }
+        return ticket
+    }
+
+    func renewMusicReceiver(origin: URL, token: String, deviceID: String, ticketID: UUID) async throws {
+        let response: ChromecastRenewalResponse = try await json(request(
+            origin: origin, path: "/Lumina/Music/Receiver/tickets/\(ticketID.uuidString.lowercased())/renew",
+            method: "POST", token: token, deviceID: deviceID
+        ))
+        guard response.validates(ticketID: ticketID) else { throw LuminaError.malformedResponse }
+    }
+
+    func revokeMusicReceiver(origin: URL, token: String, deviceID: String, ticketID: UUID) async throws {
+        _ = try await send(request(
+            origin: origin, path: "/Lumina/Music/Receiver/tickets/\(ticketID.uuidString.lowercased())",
+            method: "DELETE", token: token, deviceID: deviceID
+        ))
+    }
+
     func items(origin: URL, token: String, deviceID: String, search: String, start: Int, types: String = "Movie,Episode,Video", sort: VideoSort = .name, parentID: String? = nil, sourceProvider: String? = nil, luminaCategory: String? = nil, filters: VideoFilters = .init()) async throws -> ItemPage {
         let query = libraryQuery(search: search, start: start, types: types, sort: sort, parentID: parentID,
                                  sourceProvider: sourceProvider, luminaCategory: luminaCategory, filters: filters)
@@ -522,6 +595,13 @@ private final class RedirectGuard: NSObject, URLSessionTaskDelegate {
         }
         completionHandler(request)
     }
+}
+
+private func receiverCapability(in url: URL) -> String? {
+    guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+          let items = components.queryItems, items.count == 1,
+          items[0].name == "token" else { return nil }
+    return items[0].value
 }
 
 private let platformName: String = {

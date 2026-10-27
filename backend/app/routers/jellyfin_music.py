@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.music_schemas import CastControl, CastRequest, MusicPlaylistSave, MusicQueueRequest
-from app.routers import music, music_listening_session
+from app.routers import music, music_listening_session, music_receiver
 from app.routers.jellyfin_integration import JellyfinCaller, jellyfin_caller
 from app.services import music_playlists
 from app.services.media_titles import jellyfin_id, parse_item_id
@@ -142,3 +142,18 @@ def control(ticket_id: str, body: CastControl, request: Request, caller: Caller,
 @router.get("/cast/{ticket_id}/status")
 def cast_status(ticket_id: str, request: Request, caller: Caller, db: Db) -> dict:
     return music.cast_status(_id(ticket_id), request, caller.user, db)
+
+
+@router.post("/receiver/tickets")
+def receiver_mint(body: music_receiver.MusicReceiverTicketBody, caller: Caller, db: Db) -> dict:
+    return music_receiver.mint_native(body, caller.user, db, issuer_device_id=caller.token_id)
+
+
+@router.post("/receiver/tickets/{ticket_id}/renew")
+def receiver_renew(ticket_id: str, caller: Caller, db: Db) -> dict:
+    return music_receiver.renew_native(ticket_id, caller.user, db, issuer_device_id=caller.token_id)
+
+
+@router.delete("/receiver/tickets/{ticket_id}")
+def receiver_revoke(ticket_id: str, caller: Caller, db: Db) -> Response:
+    return music_receiver.revoke_native(ticket_id, caller.user, db, issuer_device_id=caller.token_id)

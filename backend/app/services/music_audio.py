@@ -105,7 +105,7 @@ def _wav_codec(stream: dict[str, Any]) -> str:
 def _evict_locked(root: Path, incoming_size: int) -> None:
     files: list[tuple[Path, os.stat_result]] = []
     for path in root.iterdir():
-        if path.suffix not in (".flac", ".wav") or path.name.startswith("encoding-"):
+        if path.suffix not in (".flac", ".wav", ".m4a") or path.name.startswith("encoding-"):
             continue
         try:
             files.append((path, path.stat()))
@@ -131,7 +131,7 @@ def _evict_locked(root: Path, incoming_size: int) -> None:
 def playback_file(source: Path, format_: str = "native") -> PlaybackFile:
     if format_ == "native":
         return PlaybackFile(source, media_content_type(source, audio=True))
-    if format_ not in ("flac", "wav", "sonos", "sonos_s1"):
+    if format_ not in ("flac", "wav", "sonos", "sonos_s1", "chromecast"):
         raise HTTPException(422, "Unsupported audio output")
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -140,8 +140,8 @@ def playback_file(source: Path, format_: str = "native") -> PlaybackFile:
     digest = hashlib.sha256(f"{source}:{stat.st_size}:{stat.st_mtime_ns}:{format_}".encode()).hexdigest()
     root = settings.data_dir / "music-audio"
     root.mkdir(parents=True, exist_ok=True)
-    extension = "wav" if format_ == "wav" else "flac"
-    content_type = f"audio/{extension}"
+    extension = "m4a" if format_ == "chromecast" else "wav" if format_ == "wav" else "flac"
+    content_type = "audio/mp4" if format_ == "chromecast" else f"audio/{extension}"
     target = root / f"{digest}.{extension}"
     conversion_lock = _conversion_locks[int(digest[:8], 16) % len(_conversion_locks)]
     with conversion_lock:
@@ -168,8 +168,14 @@ def playback_file(source: Path, format_: str = "native") -> PlaybackFile:
                 rate = _integer(stream.get("sample_rate")) or 48000
                 channels = _integer(stream.get("channels")) or 2
                 args.extend(["-ar", str(min(48000, rate)), "-ac", str(min(2, channels)), "-sample_fmt", "s16" if format_ == "sonos_s1" else "s32"])
-            codec = _wav_codec(stream) if extension == "wav" else "flac"
-            args.extend(["-c:a", codec, "-threads", "1", str(temporary)])
+            if format_ == "chromecast":
+                # Chromecast's default receiver gets one predictable, broadly
+                # decodable rendition regardless of the library's source codec.
+                args.extend(["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart"])
+            else:
+                codec = _wav_codec(stream) if extension == "wav" else "flac"
+                args.extend(["-c:a", codec])
+            args.extend(["-threads", "1", str(temporary)])
             try:
                 subprocess.run(args, check=True, timeout=120, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except (subprocess.SubprocessError, OSError) as error:

@@ -3425,6 +3425,7 @@ class NativeProofJourney: XCTestCase {
         let movies = element("homeBrowse-movies")
         // This fixture has no Anime library; Music is its third, equally wide label.
         let third = element("homeBrowse-music")
+        let watchlist = element("homeBrowse-watchlist")
         try waitForHittable(third, timeout: 20, named: "Third category")
         XCTAssertGreaterThanOrEqual(movies.frame.minX, masthead.frame.maxX + 8,
                                     "Categories must clear the full Lumina wordmark.")
@@ -3433,6 +3434,36 @@ class NativeProofJourney: XCTestCase {
                                  "The third category must fit completely before the scroll edge.")
         XCTAssertEqual(movies.frame.midY, masthead.frame.midY, accuracy: 6)
         try attachFrame(named: "Closed Duo three complete categories")
+
+        let initialRefreshes = try homeRefreshCount()
+        try revealHomeMenuControl(watchlist)
+        try waitForHittable(watchlist, timeout: 10, named: "Horizontally revealed Watchlist category")
+        XCTAssertEqual(try homeRefreshCount(), initialRefreshes,
+                       "Horizontally scrolling Home categories must not begin Home refresh.")
+
+        let toolbarDragStart = row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        toolbarDragStart.press(forDuration: 0.1,
+                               thenDragTo: toolbarDragStart.withOffset(CGVector(dx: 0, dy: 260)),
+                               withVelocity: .slow,
+                               thenHoldForDuration: 0.5)
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(try homeRefreshCount(), initialRefreshes,
+                       "A downward gesture beginning in the horizontal category toolbar must not refresh Home.")
+        XCTAssertLessThanOrEqual(try categoryVerticalPull(), 2,
+                                 "The horizontal category toolbar must not vertically rubber-band.")
+
+        let contentDragStart = element("homeScreen").coordinate(
+            withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)
+        )
+        contentDragStart.press(forDuration: 0.1,
+                               thenDragTo: contentDragStart.withOffset(CGVector(dx: 0, dy: 250)),
+                               withVelocity: .slow,
+                               thenHoldForDuration: 0.5)
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            (try? self.homeRefreshCount()).map { $0 > initialRefreshes } ?? false
+        }, "A downward gesture in Home content must retain pull-to-refresh.")
+
+        try revealHomeMenuControl(third)
         try activate(third)
         try waitForExistence(element("audioScreen"), timeout: 20, named: "Third category destination")
     }
@@ -3441,6 +3472,28 @@ class NativeProofJourney: XCTestCase {
     #if os(iOS)
     private func revealHomeMenuControl(_ category: XCUIElement) {
         revealMenuControl(category, in: element("homeBrowsingRow"))
+    }
+
+    private func homeRefreshCount() throws -> Int {
+        let diagnostics = try XCTUnwrap(element("homeScreen").value as? String,
+                                        "UI-testing Home diagnostics must expose a refresh count.")
+        let prefix = "refreshes="
+        guard let refreshToken = diagnostics.split(separator: " ").first(where: { $0.hasPrefix(prefix) }),
+              let refreshes = Int(refreshToken.dropFirst(prefix.count)) else {
+            throw ProofFailure.ui("UI-testing Home diagnostics did not include a numeric refresh count: \(diagnostics)")
+        }
+        return refreshes
+    }
+
+    private func categoryVerticalPull() throws -> Double {
+        let diagnostics = try XCTUnwrap(element("homeBrowsingRow").value as? String,
+                                        "UI-testing category diagnostics must expose vertical pull distance.")
+        let prefix = "verticalPull="
+        guard let pullToken = diagnostics.split(separator: " ").first(where: { $0.hasPrefix(prefix) }),
+              let pull = Double(pullToken.dropFirst(prefix.count)) else {
+            throw ProofFailure.ui("UI-testing category diagnostics did not include a numeric vertical pull: \(diagnostics)")
+        }
+        return pull
     }
 
     private func revealMenuControl(_ category: XCUIElement, in menu: XCUIElement) {

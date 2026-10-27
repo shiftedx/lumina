@@ -925,6 +925,9 @@ struct LuminaCategoryBar<Content: View>: View {
     var selection: String? = nil
     var centersContent = true
     @ViewBuilder let content: Content
+    #if os(iOS) && LUMINA_UI_TESTING
+    @State private var uiTestingMaxVerticalPull: CGFloat = 0
+    #endif
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -939,9 +942,18 @@ struct LuminaCategoryBar<Content: View>: View {
                 #endif
             }
             #if os(iOS)
+            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
             .defaultScrollAnchor(.leading, for: .initialOffset)
             .defaultScrollAnchor(centersContent ? .center : .leading, for: .alignment)
             .fixedSize(horizontal: false, vertical: true)
+            #if LUMINA_UI_TESTING
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                abs(geometry.contentOffset.y + geometry.contentInsets.top)
+            } action: { _, distance in
+                uiTestingMaxVerticalPull = max(uiTestingMaxVerticalPull, distance)
+            }
+            .accessibilityValue("verticalPull=\(uiTestingMaxVerticalPull)")
+            #endif
             #else
             .scrollClipDisabled()
             #endif

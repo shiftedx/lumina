@@ -1083,6 +1083,9 @@ private struct HomeLibraryView: View {
     let uiTestingNavigationDiagnostics: String?
     let onOpenLibrary: (LibraryCategory) -> Void
     @State private var completedInitialHomeLoad = false
+    #if LUMINA_UI_TESTING
+    @State private var uiTestingHomeRefreshCount = 0
+    #endif
     @Environment(\.scenePhase) private var scenePhase
     @State private var compactHeader = false
     @State private var scrollPosition = ScrollPosition(edge: .top)
@@ -1150,6 +1153,12 @@ private struct HomeLibraryView: View {
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top > 80
         } action: { _, scrolled in compactHeader = scrolled }
+        .refreshable {
+            #if LUMINA_UI_TESTING
+            uiTestingHomeRefreshCount += 1
+            #endif
+            await store.loadHome(); await homeLayout.load(); await feed.load()
+        }
         }
 
         .navigationBarTitleDisplayMode(.inline)
@@ -1188,9 +1197,8 @@ private struct HomeLibraryView: View {
         }
         .accessibilityIdentifier("homeScreen")
         #if LUMINA_UI_TESTING
-        .accessibilityValue(uiTestingNavigationDiagnostics ?? "")
+        .accessibilityValue("\(uiTestingNavigationDiagnostics ?? "") refreshes=\(uiTestingHomeRefreshCount)")
         #endif
-        .refreshable { await store.loadHome(); await homeLayout.load(); await feed.load() }
         .task(id: MobileHomeSessionScope(store.session)) {
             guard store.session != nil else {
                 completedInitialHomeLoad = false

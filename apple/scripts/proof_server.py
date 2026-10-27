@@ -927,7 +927,10 @@ def make_show(media_root: Path) -> None:
         season = show / f"Season {season_number:02d}"
         season.mkdir(parents=True, exist_ok=True)
         stem = f"{SHOW_TITLE} S{season_number:02d}E{episode_number:02d}"
-        shutil.copyfile(movie / f"{DIRECT_TITLE} (2026).mp4", season / f"{stem}.mp4")
+        if os.environ.get("LUMINA_NATIVE_EPISODE_MKV") == "1":
+            ffmpeg("-i", movie / f"{DIRECT_TITLE} (2026).mp4", "-c", "copy", season / f"{stem}.mkv")
+        else:
+            shutil.copyfile(movie / f"{DIRECT_TITLE} (2026).mp4", season / f"{stem}.mp4")
         (season / f"{stem}.nfo").write_text(
             f"<episodedetails><title>{title}</title><showtitle>{SHOW_TITLE}</showtitle><season>{season_number}</season><episode>{episode_number}</episode><plot>Synthetic episode.</plot></episodedetails>",
             encoding="utf-8",

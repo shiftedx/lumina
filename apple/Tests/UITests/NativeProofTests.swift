@@ -1358,6 +1358,12 @@ class NativeProofJourney: XCTestCase {
 
     func journeyPlaybackDiagnostics() async throws {
         let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 0)
         try launchAndResetSession()
         try signIn(using: fixture)
         try openLibraryItem(id: fixture.directItemID)

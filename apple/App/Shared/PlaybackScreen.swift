@@ -1767,8 +1767,14 @@ final class PlaybackModel {
     @ObservationIgnored private let continuityTrace = PlaybackContinuityTrace()
     #endif
     // Opt-in simulator diagnostics contain transport state only, never media URLs or titles.
-    func traceContinuity(_ event: String) {
-        if PlaybackDiagnostics.shared.isRecording, !request.item.isAudio {
+    func traceContinuity(_ event: @autoclosure () -> String) {
+        var enabled = PlaybackDiagnostics.shared.isCapturing
+        #if LUMINA_UI_TESTING
+        enabled = enabled || PlaybackContinuityTrace.enabled
+        #endif
+        guard enabled else { return }
+        let event = event()
+        if PlaybackDiagnostics.shared.isCapturing, !request.item.isAudio {
             let parts = event.split(separator: "=", maxSplits: 1).map(String.init)
             let kind: PlaybackDiagnosticEvent?
             switch parts.first {
@@ -1800,7 +1806,7 @@ final class PlaybackModel {
     func recordPlaybackDiagnostic(_ event: PlaybackDiagnosticEvent, seekTarget: Double? = nil,
                                   requestedPosition: Double? = nil, nativeReason: Int? = nil,
                                   rateReason: AVPlayer.RateDidChangeReason? = nil, seekFinished: Bool? = nil) {
-        guard !request.item.isAudio, PlaybackDiagnostics.shared.isRecording else { return }
+        guard !request.item.isAudio, PlaybackDiagnostics.shared.isCapturing else { return }
         var sample = PlaybackDiagnosticSample()
         let item = player.currentItem
         sample.modelID = UUID(uuidString: lifecycleToken)
@@ -2062,6 +2068,7 @@ final class PlaybackModel {
             player.audiovisualBackgroundPlaybackPolicy = .pauses
             #endif
         }
+        recordPlaybackDiagnostic(.modelCreated)
         #if LUMINA_UI_TESTING
         PlaybackLifecycleProbe.resetCloseMarker()
         print("LUMINA_LIFECYCLE playback-model init \(lifecycleToken)")
@@ -4972,7 +4979,7 @@ private final class PlayerLayerView: UIView {
     }
 
     func traceRendering(_ event: String) {
-        if PlaybackDiagnostics.shared.isRecording {
+        if PlaybackDiagnostics.shared.isCapturing {
             let kind: PlaybackDiagnosticEvent?
             switch event {
             case "view-attached": kind = .rendererCreated

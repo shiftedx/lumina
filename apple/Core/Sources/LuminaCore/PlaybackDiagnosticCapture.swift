@@ -1,7 +1,7 @@
 import Foundation
 
 public enum PlaybackDiagnosticEvent: String, Codable, Sendable {
-    case captureStarted, captureStopped, sample, start, initialSeek, pause, play
+    case captureStarted, captureStopped, sample, modelCreated, start, initialSeek, pause, play
     case seekRequested, seekCompleted, timeJump, itemReplaced
     case sceneActive, sceneInactive, sceneBackground, appResignActive, appBecomeActive
     case audioInterruptionBegan, audioInterruptionEnded, audioRouteChanged

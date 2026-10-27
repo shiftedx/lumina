@@ -25,6 +25,9 @@ final class PlaybackDiagnostics {
             .appendingPathComponent("Lumina-playback-diagnostics.jsonl")
     }
 
+    // Read by capture hooks without adding SwiftUI observation dependencies.
+    var isCapturing: Bool { capture?.isRecording == true }
+
     private init() {
         if FileManager.default.fileExists(atPath: fileURL.path) { exportURL = fileURL }
     }
@@ -58,7 +61,7 @@ final class PlaybackDiagnostics {
     }
 
     func record(_ event: PlaybackDiagnosticEvent, sample: PlaybackDiagnosticSample) {
-        guard isRecording, let capture else { return }
+        guard let capture, capture.isRecording else { return }
         if let deadline, ProcessInfo.processInfo.systemUptime >= deadline { finish(reason: .timeout); return }
         if !capture.record(event, sample: sample) { finish(reason: .limit) }
     }

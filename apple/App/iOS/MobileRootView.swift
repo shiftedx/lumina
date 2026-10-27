@@ -13,6 +13,7 @@ struct MobileRootView: View {
     @Bindable var store: LuminaStore
     let isRestoring: Bool
     @State private var audioSession = NativeAudioSession()
+    @State private var videoSession = NativeVideoSession()
     @State private var userSettings = LuminaUserSettings()
     @State private var hasShownOnlineShell = false
     @AppStorage("lumina.appearance") private var appearance = "dark"
@@ -46,11 +47,13 @@ struct MobileRootView: View {
         }
         .foregroundStyle(LuminaTheme.ink)
         .background(LuminaTheme.paper.ignoresSafeArea())
+        .modifier(NativeVideoPlayerPresentation(session: videoSession, store: store))
+        .environment(videoSession)
         .environment(audioSession)
         .environment(userSettings)
         .preferredColorScheme(effectiveAppearance == "system" ? nil : effectiveAppearance == "light" ? .light : .dark)
         .onChange(of: store.session?.accessToken) { _, token in
-            if token == nil { audioSession.stop() }
+            if token == nil { audioSession.stop(); videoSession.dismiss() }
         }
         .onChange(of: store.isOffline) { _, _ in audioSession.connectivityDidChange() }
         .task { store.startConnectivityMonitoring() }
@@ -2372,10 +2375,8 @@ struct VideoCollectionView: View {
         .scrollClipDisabled()
         .task(id: item.id) { await load() }
         .refreshable { await load() }
-        .fullScreenCover(item: $playbackRequest, onDismiss: {
+        .nativePlayback(request: $playbackRequest, store: store) {
             Task { await load() }
-        }) { request in
-            PlaybackScreen(request: request, store: store)
         }
     }
 

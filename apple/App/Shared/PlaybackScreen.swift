@@ -52,18 +52,19 @@ private struct NativeAudioPlayerPresentation: ViewModifier {
 }
 
 #if !os(tvOS)
+#if LUMINA_UI_TESTING
+private let rebuildVideoPresentation = Notification.Name("Lumina.RebuildVideoPresentation")
+#endif
+
 private struct NativePlaybackPresentation: ViewModifier {
     @Binding var request: PlaybackRequest?
     let store: LuminaStore
     let onDismiss: () -> Void
+    @Environment(NativeVideoSession.self) private var videoSession
+    @Environment(NativeAudioSession.self) private var audioSession
 
     private var audioPresented: Binding<Bool> {
         Binding(get: { request?.item.isAudio == true }, set: { if !$0, request?.item.isAudio == true { request = nil } })
-    }
-    private var videoRequest: Binding<PlaybackRequest?> {
-        Binding(get: { request?.item.isAudio == false ? request : nil }, set: { value in
-            if request?.item.isAudio != true { request = value }
-        })
     }
 
     func body(content: Content) -> some View {
@@ -71,9 +72,74 @@ private struct NativePlaybackPresentation: ViewModifier {
             if let request, request.item.isAudio { PlaybackScreen(request: request, store: store) }
         }
         .onChange(of: audioPresented.wrappedValue) { _, presented in if !presented { onDismiss() } }
-        .fullScreenCover(item: videoRequest, onDismiss: onDismiss) { request in
-            PlaybackScreen(request: request, store: store)
+        .onChange(of: request?.id, initial: true) { _, _ in
+            guard let request, !request.item.isAudio else { return }
+            videoSession.present(request: request, store: store, audioSession: audioSession) {
+                self.request = nil
+                onDismiss()
+            }
         }
+    }
+}
+
+/// The session and its startup outlive adaptive navigation and cover content.
+@MainActor @Observable
+final class NativeVideoSession {
+    struct Presentation: Identifiable {
+        let id = UUID()
+        let playback: PlaybackModel
+    }
+    private(set) var presentation: Presentation?
+    @ObservationIgnored private var startup: Task<Void, Never>?
+    @ObservationIgnored private var onDismiss: (() -> Void)?
+
+    func present(request: PlaybackRequest, store: LuminaStore, audioSession: NativeAudioSession,
+                 onDismiss: @escaping () -> Void) {
+        guard presentation == nil else { return }
+        audioSession.stop()
+        let model = PlaybackModel(request: request, store: store, queue: [])
+        model.setActive(UIApplication.shared.applicationState == .active)
+        self.onDismiss = onDismiss
+        presentation = Presentation(playback: model)
+        startup = Task { await model.start() }
+    }
+
+    func dismiss(id: UUID? = nil) {
+        guard let presentation, id == nil || id == presentation.id else { return }
+        self.presentation = nil
+        startup?.cancel()
+        startup = nil
+        presentation.playback.close()
+        let callback = onDismiss
+        onDismiss = nil
+        callback?()
+    }
+}
+
+struct NativeVideoPlayerPresentation: ViewModifier {
+    let session: NativeVideoSession
+    let store: LuminaStore
+    #if LUMINA_UI_TESTING
+    @State private var videoPresentationGeneration = 0
+    #endif
+
+    func body(content: Content) -> some View {
+        let presentationID = session.presentation?.id
+        return content.fullScreenCover(item: Binding(
+            get: { session.presentation },
+            set: { if $0 == nil, let presentationID { session.dismiss(id: presentationID) } }
+        )) { presentation in
+            PlaybackScreen(playback: presentation.playback, store: store,
+                           onVideoDismiss: { session.dismiss(id: presentation.id) })
+                #if LUMINA_UI_TESTING
+                .id(videoPresentationGeneration)
+                #endif
+        }
+        #if LUMINA_UI_TESTING
+        .onReceive(NotificationCenter.default.publisher(for: rebuildVideoPresentation)) { _ in
+            videoPresentationGeneration += 1
+        }
+        #endif
     }
 }
 #endif
@@ -170,14 +236,17 @@ struct PlaybackScreen: View {
     #endif
     #endif
     private let store: LuminaStore
+    private let onVideoDismiss: (() -> Void)?
 
     init(request: PlaybackRequest, store: LuminaStore, queue: [MediaItem] = [], queueIndex: Int? = nil) {
         self.store = store
+        onVideoDismiss = nil
         _requestedPlayback = State(initialValue: PlaybackModel(request: request, store: store, queue: queue, queueIndex: queueIndex))
     }
 
-    init(playback: PlaybackModel, store: LuminaStore) {
+    init(playback: PlaybackModel, store: LuminaStore, onVideoDismiss: (() -> Void)? = nil) {
         self.store = store
+        self.onVideoDismiss = onVideoDismiss
         _requestedPlayback = State(initialValue: playback)
     }
 
@@ -226,6 +295,13 @@ struct PlaybackScreen: View {
             }
             #endif
             #if LUMINA_UI_TESTING && os(iOS)
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-rebuild-video-presentation") {
+                Button("Rebuild video presentation") {
+                    NotificationCenter.default.post(name: rebuildVideoPresentation, object: nil)
+                }
+                .accessibilityIdentifier("rebuildVideoPresentationButton")
+                .padding(.top, 60)
+            }
             if !requestedPlayback.request.item.isAudio {
                 Color.clear.frame(width: 1, height: 1)
                     .accessibilityElement()
@@ -320,6 +396,9 @@ struct PlaybackScreen: View {
                 do { try await audioSession.adoptForPlayback(initial) }
                 catch { presentationError = error.localizedDescription }
                 attemptedAudioAdoption = true
+            } else if onVideoDismiss != nil {
+                isMuted = initial.player.isMuted
+                revealVideoChrome()
             } else {
                 audioSession.stop()
                 await initial.start()
@@ -394,7 +473,7 @@ struct PlaybackScreen: View {
             #if os(iOS)
             cancelVideoGestures(releaseBrightness: true)
             #endif
-            if !requestedPlayback.request.item.isAudio {
+            if !requestedPlayback.request.item.isAudio, onVideoDismiss == nil {
                 playback.close()
             }
         }
@@ -1738,6 +1817,7 @@ struct PlaybackScreen: View {
     }
 
     private func finish() {
+        if let onVideoDismiss { onVideoDismiss(); return }
         if !playback.request.item.isAudio { playback.close() }
         dismiss()
     }

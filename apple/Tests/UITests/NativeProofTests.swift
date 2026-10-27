@@ -85,6 +85,13 @@ final class NativeVideoRotationContinuityTests: NativeProofJourney {
 }
 
 @MainActor
+final class NativePlaybackDiagnosticsTests: NativeProofJourney {
+    func testRecordsAndSharesPlaybackDiagnostics() async throws {
+        try await journeyPlaybackDiagnostics()
+    }
+}
+
+@MainActor
 final class NativeVideoDuoContinuityTests: NativeProofJourney {
     func testStablePlaybackDoesNotContinuouslyRewritePlayerRate() async throws {
         try await journeyVideoRateSettlesDuringPlayback()
@@ -1347,6 +1354,50 @@ class NativeProofJourney: XCTestCase {
         XCTAssertLessThanOrEqual(stillPaused, pausedAt + 0.5,
                                  "An explicitly paused video must remain paused through an orientation change.")
         try closePlayer()
+    }
+
+    func journeyPlaybackDiagnostics() async throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.directItemID)
+        try activate(element("playButton"))
+        try waitForExistence(element("playbackScreen"), timeout: 35, named: "playing video")
+        let settings = element("videoSettingsButton")
+        if !settings.isHittable { try activate(element("videoControlsSurface")) }
+        try activate(settings)
+        try activate(element("videoSettingsTab-info"))
+        let start = element("playbackDiagnosticsStartButton")
+        try revealDetailElement(start, in: element("videoSettingsPanel"), named: "start diagnostics", requiresHittable: true)
+        try activate(start)
+        try waitForExistence(element("playbackDiagnosticsRecording"), timeout: 5, named: "recording diagnostics")
+        try activate(element("videoSettingsDoneButton"))
+        if ProcessInfo.processInfo.environment["LUMINA_DIAGNOSTICS_FOLD"] == "1" {
+            print("LUMINA_DIAGNOSTICS fold capture window started")
+            try await Task.sleep(for: .seconds(25))
+        } else { try await Task.sleep(for: .seconds(5)) }
+        try tapVideoTransportAfterChromeHides(named: "pause while recording diagnostics")
+        try activate(element("videoSeekForwardButton"))
+        try await Task.sleep(for: .seconds(2))
+        try activate(element("videoSettingsButton"))
+        try activate(element("videoSettingsTab-info"))
+        let stop = element("playbackDiagnosticsStopButton")
+        try revealDetailElement(stop, in: element("videoSettingsPanel"), named: "finish diagnostics", requiresHittable: true)
+        try activate(stop)
+        let share = element("playbackDiagnosticsShareButton")
+        try waitForHittable(share, timeout: 10, named: "completed diagnostic export")
+        XCTAssertFalse(element("playbackDiagnosticsError").exists)
+        try activate(share)
+        let app = try XCTUnwrap(application)
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            app.otherElements["ActivityListView"].exists
+                || app.buttons["Save to Files"].exists
+                || app.buttons["Copy"].exists
+        }, "Sharing the completed on-device capture must open the native share sheet.")
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "Playback diagnostics native export"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     func journeyVideoRateSettlesDuringPlayback() async throws {

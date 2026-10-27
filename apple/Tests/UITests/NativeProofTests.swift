@@ -85,6 +85,17 @@ final class NativeVideoRotationContinuityTests: NativeProofJourney {
 }
 
 @MainActor
+final class NativeVideoDuoContinuityTests: NativeProofJourney {
+    func testStablePlaybackDoesNotContinuouslyRewritePlayerRate() async throws {
+        try await journeyVideoRateSettlesDuringPlayback()
+    }
+
+    func testDirectPlaybackRetainsSessionAcrossDuoPoses() async throws {
+        try await journeyVideoDuoContinuity()
+    }
+}
+
+@MainActor
 final class NativeVideoForegroundInactiveContinuityTests: NativeProofJourney {
     func testPlayingVideoContinuesAcrossControlCenter() async throws {
         try await journeyVideoPlaybackSurvivesForegroundInactiveTransition()
@@ -1335,6 +1346,113 @@ class NativeProofJourney: XCTestCase {
         let stillPaused = try waitForPlaybackValue(time, timeout: 5) { _ in true }
         XCTAssertLessThanOrEqual(stillPaused, pausedAt + 0.5,
                                  "An explicitly paused video must remain paused through an orientation change.")
+        try closePlayer()
+    }
+
+    func journeyVideoRateSettlesDuringPlayback() async throws {
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 0)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.directItemID)
+        let time = try startPlayback(using: "playButton")
+        let started = try waitForPlaybackValue(time, timeout: 20) { $0 >= 2 }
+        func rateEvents() throws -> Int {
+            let value = element("videoGestureDiagnostics").value as? String ?? ""
+            guard let field = value.split(separator: " ").first(where: { $0.hasPrefix("rateEvents=") }),
+                  let count = Int(field.dropFirst("rateEvents=".count).filter(\.isNumber)) else {
+                throw ProofFailure.ui("Missing native rate-change diagnostics.")
+            }
+            return count
+        }
+        let before = try rateEvents()
+        _ = try waitForPlaybackValue(time, timeout: 12) { $0 >= started + 5 }
+        let changes = try rateEvents() - before
+        XCTAssertLessThanOrEqual(changes, 20,
+                                 "Steady playback must settle, not recursively rewrite the AVPlayer rate (\(changes) events in five seconds).")
+        try closePlayer()
+    }
+
+    func journeyVideoDuoContinuity() async throws {
+        guard ProcessInfo.processInfo.environment["LUMINA_DUO_TRANSITIONS"] == "1" else {
+            throw XCTSkip("Opt-in live pose test: switch Closed and Open in Device Hub during the transition window.")
+        }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.episodeID, seconds: 12)
+        XCUIDevice.shared.orientation = .portrait
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        if ProcessInfo.processInfo.environment["LUMINA_DUO_ENTRY"] == "home" {
+            let home = element("homeScreen")
+            try waitForExistence(home, timeout: 30, named: "Home")
+            let episode = element("resumeItem-\(fixture.episodeID)")
+            try revealInLibraryViewport([episode], in: home)
+            try activate(episode)
+            _ = try startPlayback(using: "playButton")
+        } else {
+            try selectDestination("Video", screen: "libraryScreen")
+            try activate(element("libraryCategory-tv"))
+            try activate(element("libraryItem-\(fixture.showID)"))
+            try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "show seasons")
+            let collection = element("videoCollectionScreen")
+            let season = element("videoSeason-\(fixture.seasonID)")
+            try revealDetailElement(season, in: collection, named: "season", requiresHittable: true)
+            try activate(season)
+            let play = element("playButton")
+            try revealDetailElement(play, in: collection, named: "season play", requiresHittable: true)
+            try activate(play)
+            try waitForExistence(element("playbackScreen"), timeout: 35, named: "episode player")
+        }
+        let time = element("playbackTime")
+        var previous = try waitForPlaybackValue(time, timeout: 15) { $0 >= 13 }
+        let startedAt = Date()
+        let initialPosition = previous
+        let diagnostics = element("videoGestureDiagnostics")
+        let baseline = ProcessInfo.processInfo.environment["LUMINA_DUO_BASELINE"] == "1"
+        let initial = baseline ? "" : diagnostics.value as? String ?? ""
+        let player = initial.split(separator: " ").first { $0.hasPrefix("player=") }
+        if !baseline { XCTAssertNotNil(player) }
+        var sizes = Set<String>()
+        // This checks transport continuity, not uninterrupted rendered frames.
+        // Device Hub recordings can black out inactive displays during a fold.
+        let deadline = Date().addingTimeInterval(45)
+        print("LUMINA_DUO playing transition window started")
+        while Date() < deadline {
+            let next = try waitForPlaybackValue(time, timeout: 3) { $0 >= previous + 1 }
+            XCTAssertLessThanOrEqual(next - previous, 4, "Changing a Duo pose must not skip the playhead forward.")
+            XCTAssertGreaterThanOrEqual(next - initialPosition, Date().timeIntervalSince(startedAt) - 1.5,
+                                         "A Duo handoff must not lose playback time or stall while the clock keeps running.")
+            previous = next
+            let current = baseline ? "" : diagnostics.value as? String ?? ""
+            XCTAssertEqual(current.split(separator: " ").first { $0.hasPrefix("player=") }, player,
+                           "Changing a Duo pose must retain the playing session.")
+            sizes.insert(String(describing: element("videoControlsSurface").frame.size))
+            print("LUMINA_DUO time=\(next) \(current)")
+        }
+        XCTAssertGreaterThanOrEqual(sizes.count, 2, "Exercise Closed and Open Duo layouts during this live transition test.")
+        let transport = element("videoPlayPauseButton")
+        if !transport.isHittable { try activate(element("videoControlsSurface")) }
+        try activate(transport)
+        if !baseline { try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 5) }
+        let paused = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+        print("LUMINA_DUO paused transition window started")
+        let pausedDeadline = Date().addingTimeInterval(20)
+        while Date() < pausedDeadline {
+            let value = try waitForPlaybackValue(time, timeout: 3) { _ in true }
+            XCTAssertEqual(value, paused, accuracy: 0.5, "Changing a Duo pose must preserve explicit Pause.")
+            if !baseline { XCTAssertEqual((diagnostics.value as? String ?? "").split(separator: " ").first { $0.hasPrefix("player=") }, player) }
+            try await Task.sleep(for: .seconds(1))
+        }
         try closePlayer()
     }
 

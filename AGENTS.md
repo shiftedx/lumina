@@ -28,6 +28,7 @@ make check                                      # full gate, required before a P
 
 ## Rules
 
+- Dogfood fixes: when continuing the owner's one-issue-at-a-time batch, read the [continuation handoff](docs/design/dogfood-next-handoff.md) first.
 - Run focused tests while iterating and `make check` before handing work back.
 - Match the surrounding code: naming, comment density, idioms. No speculative abstractions.
 - Branding: before changing logos, color tokens, buttons or navigation styling, read [the shared web/iOS/tvOS brand contract](apple/docs/brand-assets.md).

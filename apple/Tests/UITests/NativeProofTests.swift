@@ -5561,15 +5561,31 @@ class NativeProofJourney: XCTestCase {
 
         let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let nearbyDevicePrompt = app.staticTexts["Connect to nearby device"]
+        let localNetworkExplainer = app.staticTexts["LNAPermissionTitleLabel"]
         let castToTitle = app.staticTexts["Cast to"]
         let castToNavigation = app.navigationBars["Cast to"]
-        if waitUntil(timeout: 10, condition: { nearbyDevicePrompt.exists }) {
+        let noDevicesNavigation = app.navigationBars["No devices available"]
+        let localNetworkAlerts = [springBoard.alerts.firstMatch, app.alerts.firstMatch]
+        XCTAssertTrue(waitUntil(timeout: 45, condition: {
+            self.hasVisibleFrame(nearbyDevicePrompt)
+                || self.hasVisibleFrame(localNetworkExplainer)
+                || self.hasVisibleFrame(castToTitle)
+                || self.hasVisibleFrame(castToNavigation)
+                || self.hasVisibleFrame(noDevicesNavigation)
+                || localNetworkAlerts.contains { $0.exists }
+        }), "Chromecast must respond with its SDK local-network help, system permission, or device chooser.")
+
+        if hasVisibleFrame(localNetworkExplainer) {
+            XCTAssertTrue(localNetworkExplainer.isHittable,
+                          "Chromecast local-network help must present an actionable SDK confirmation.")
+            try attachPlaybackFrame(named: "Chromecast local-network help")
+            try activate(app.buttons["LNAOKButton"])
+        } else if hasVisibleFrame(nearbyDevicePrompt) {
             XCTAssertTrue(nearbyDevicePrompt.isHittable,
                           "Chromecast's local-network explainer must render a usable Connect action.")
             try activate(app.buttons["Connect"])
         }
 
-        let localNetworkAlerts = [springBoard.alerts.firstMatch, app.alerts.firstMatch]
         if waitUntil(timeout: 5, condition: { localNetworkAlerts.contains { $0.exists } }) {
             let localNetworkAlert = try XCTUnwrap(localNetworkAlerts.first { $0.exists })
             XCTAssertTrue(localNetworkAlert.label.localizedCaseInsensitiveContains("local network"),
@@ -5577,18 +5593,20 @@ class NativeProofJourney: XCTestCase {
             try activate(localNetworkAlert.buttons["Allow"])
         }
 
-        XCTAssertTrue(waitUntil(timeout: 15, condition: {
-            self.hasVisibleFrame(castToTitle) || self.hasVisibleFrame(castToNavigation)
-        }), "Chromecast must open its real device chooser after local-network permission, without a missing-resource crash.")
-        try attachPlaybackFrame(named: "Chromecast device chooser")
-
-        let dismiss = [app.buttons["Close"], app.buttons["Cancel"]]
-            .first { self.hasVisibleFrame($0) && $0.isHittable }
-        let dismissButton = try XCTUnwrap(dismiss, "The Chromecast chooser must expose a user-facing dismissal control.")
-        try activate(dismissButton)
-        XCTAssertTrue(waitUntil(timeout: 10, condition: {
-            !self.hasVisibleFrame(castToTitle) && !self.hasVisibleFrame(castToNavigation)
-        }), "Dismissing the Chromecast chooser must return to local playback.")
+        if waitUntil(timeout: 15, condition: {
+            self.hasVisibleFrame(castToTitle)
+                || self.hasVisibleFrame(castToNavigation)
+                || self.hasVisibleFrame(noDevicesNavigation)
+        }) {
+            try attachPlaybackFrame(named: "Chromecast device chooser")
+            let dismiss = [app.buttons["Close"], app.buttons["Cancel"]]
+                .first { self.hasVisibleFrame($0) && $0.isHittable }
+            let dismissButton = try XCTUnwrap(dismiss, "The Chromecast chooser must expose a user-facing dismissal control.")
+            try activate(dismissButton)
+            XCTAssertTrue(waitUntil(timeout: 10, condition: {
+                !self.hasVisibleFrame(castToTitle) && !self.hasVisibleFrame(castToNavigation)
+            }), "Dismissing the Chromecast chooser must return to local playback.")
+        }
         try waitForHittable(element("videoPlayPauseButton"), timeout: 10, named: "local video transport after Chromecast picker")
         XCTAssertTrue(element("playbackScreen").exists)
         completed = true

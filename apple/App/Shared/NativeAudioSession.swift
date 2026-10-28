@@ -514,7 +514,8 @@ final class NativeAudioSession {
             }
             let resumed = PlaybackRequest(id: request.id, item: request.item, url: request.url,
                 startPositionSeconds: value.positionSeconds, mediaSourceID: request.mediaSourceID,
-                isTranscoding: request.isTranscoding, methodLabel: request.methodLabel)
+                isTranscoding: request.isTranscoding, methodLabel: request.methodLabel,
+                sourceContainer: request.sourceContainer)
             let model = PlaybackModel(request: resumed, store: store, queue: value.queue.map(\.mediaItem), queueIndex: index, initiallyPaused: true)
             adopt(model, preservingTVRestoreToggle: preservingTVRestoreToggle, preparedTracks: value.queue)
             if restoreTaskID != nil { restoreStartTask = startTask }
@@ -600,7 +601,8 @@ final class NativeAudioSession {
         let position = requestedIndex == nil && value.currentIndex != nil ? value.positionSeconds : 0
         let resumed = PlaybackRequest(id: request.id, item: request.item, url: request.url,
             startPositionSeconds: position, mediaSourceID: request.mediaSourceID,
-            isTranscoding: request.isTranscoding, methodLabel: request.methodLabel)
+            isTranscoding: request.isTranscoding, methodLabel: request.methodLabel,
+            sourceContainer: request.sourceContainer)
         tracks = value.queue
         snapshot.currentIndex = index; snapshot.positionSeconds = position
         snapshot.entryIndex = logicalIndex(for: index)

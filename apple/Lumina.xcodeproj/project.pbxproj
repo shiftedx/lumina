@@ -46,7 +46,9 @@
 		7771EE13DD444B8EA69B1F6C /* PrismCoreLicense.txt in Resources */ = {isa = PBXBuildFile; fileRef = A051F7F9433944FC188C5610 /* PrismCoreLicense.txt */; };
 		7AADFE0CF515C62B11270709 /* QueuePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ACC561F4F7F700F23190053 /* QueuePresentation.swift */; };
 		7F717D172FB4056DA14D3917 /* QueuePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ACC561F4F7F700F23190053 /* QueuePresentation.swift */; };
+		8206E66CCFC9D02DCDC3C5C9 /* NativeAudioLyrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46166871E31596AFB5E3D948 /* NativeAudioLyrics.swift */; };
 		8B7032E2E35B8FB0A4118862 /* LuminaMediaIcons.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FFD5E1F5785018A9E72B1FC6 /* LuminaMediaIcons.xcassets */; };
+		8B74E6061DDF6554EF33B879 /* NativeAudioLyrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46166871E31596AFB5E3D948 /* NativeAudioLyrics.swift */; };
 		8E6DF935A018900D2123515A /* NativeBookReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 892B855BCAA4EAABD1E4FC4B /* NativeBookReader.swift */; };
 		9229344A0A1CADBFB77AB753 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */; };
 		9249D589D38569A775ACC901 /* NativeAudioOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */; };
@@ -115,6 +117,7 @@
 		2D59285B6F891C3044052D36 /* NativeMusicCasting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMusicCasting.swift; sourceTree = "<group>"; };
 		2E804B5D3304229A2484E08D /* SubjectAwareArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubjectAwareArtwork.swift; sourceTree = "<group>"; };
 		34453117E4BDD0C2E7FDB62C /* MobilePairScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairScanner.swift; sourceTree = "<group>"; };
+		46166871E31596AFB5E3D948 /* NativeAudioLyrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAudioLyrics.swift; sourceTree = "<group>"; };
 		472E57E8C5DED5C2A9DB718D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		498D77C6C2E6F8875A165336 /* Lumina-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Lumina-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		4C28F4FC69F8D5727468CEFE /* Newsreader-Latin-variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Newsreader-Latin-variable.ttf"; sourceTree = "<group>"; };
@@ -224,6 +227,7 @@
 				E5F566EF77D6B16D5E65B900 /* LuminaProofApp.swift */,
 				9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */,
 				68AC6F32440233FD42862758 /* MediaPresentation.swift */,
+				46166871E31596AFB5E3D948 /* NativeAudioLyrics.swift */,
 				D1DEF77032E808B2BDCC57B6 /* NativeAudioOptions.swift */,
 				05F41DFC534F61A307A79CF1 /* NativeAudioSession.swift */,
 				6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */,
@@ -582,6 +586,7 @@
 				CE8AD71742A6E9BA9EAF9FF1 /* LuminaProofApp.swift in Sources */,
 				11174E8432685EE26A18174F /* LuminaTheme.swift in Sources */,
 				772908CFEACA2FD9906A96F3 /* MediaPresentation.swift in Sources */,
+				8206E66CCFC9D02DCDC3C5C9 /* NativeAudioLyrics.swift in Sources */,
 				9249D589D38569A775ACC901 /* NativeAudioOptions.swift in Sources */,
 				C6D69D97B34EB0282F10D0EB /* NativeAudioSession.swift in Sources */,
 				F8A8360A940EA872E7A225DF /* NativeMusicLibraryView.swift in Sources */,
@@ -609,6 +614,7 @@
 				FF52EACBD79D7B2000EEF1B2 /* MobilePairScanner.swift in Sources */,
 				4EF0451490EA651843F91037 /* MobileRootView.swift in Sources */,
 				1B021205E272789120A7F7E0 /* NativeAccountSettingsView.swift in Sources */,
+				8B74E6061DDF6554EF33B879 /* NativeAudioLyrics.swift in Sources */,
 				B84363C8E8679421FC58F162 /* NativeAudioOptions.swift in Sources */,
 				2CEAF8FBA29533FA96FEE29E /* NativeAudioSession.swift in Sources */,
 				8E6DF935A018900D2123515A /* NativeBookReader.swift in Sources */,

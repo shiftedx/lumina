@@ -230,6 +230,10 @@ struct PlaybackScreen: View {
     @State private var videoGestureContainerSize = CGSize.zero
     @State private var videoGestureItemID: ObjectIdentifier?
     @State private var videoSettingsDetent: PresentationDetent = .medium
+    private enum AudioCompanion { case lyrics, queue }
+    @State private var audioCompanion = AudioCompanion.lyrics
+    @State private var audioOptionsPresented = false
+    @State private var audioStageSize = CGSize.zero
     @State private var audioTimelineVisible = true
     @State private var audioIsScrubbing = false
     @State private var audioTimelineHideTask: Task<Void, Never>?
@@ -350,12 +354,12 @@ struct PlaybackScreen: View {
         .toolbar {
             if requestedPlayback.request.item.isAudio {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    audioHeaderActions
+                    if !usesExpandedAudioLayout { audioHeaderActions }
                 }
             }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarVisibility(requestedPlayback.request.item.isAudio ? .visible : .hidden, for: .navigationBar)
+        .toolbarVisibility(requestedPlayback.request.item.isAudio && !usesExpandedAudioLayout ? .visible : .hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
         .statusBarHidden(!requestedPlayback.request.item.isAudio && !videoSystemOverlaysVisible)
         .persistentSystemOverlays(requestedPlayback.request.item.isAudio || videoSystemOverlaysVisible ? .visible : .hidden)
@@ -363,7 +367,7 @@ struct PlaybackScreen: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("playbackScreen")
         #if os(iOS)
-        .standardPhonePushedChrome(isEnabled: requestedPlayback.request.item.isAudio,
+        .standardPhonePushedChrome(isEnabled: requestedPlayback.request.item.isAudio && !usesExpandedAudioLayout,
                                    foreground: .white, background: .black) {
             audioHeaderActions
         }
@@ -688,6 +692,256 @@ struct PlaybackScreen: View {
 
     #else
     private var audioStage: some View {
+        GeometryReader { geometry in
+            if expandedAudioFits(geometry.size) {
+                expandedAudioStage(in: geometry)
+            } else {
+                compactAudioStage
+            }
+        }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { audioStageSize = $0 }
+    }
+
+    private func expandedAudioFits(_ size: CGSize) -> Bool {
+        size.width >= 640 && size.height >= 560 && !dynamicTypeSize.isAccessibilitySize
+    }
+
+    private var usesExpandedAudioLayout: Bool { expandedAudioFits(audioStageSize) }
+
+    private func expandedAudioStage(in geometry: GeometryProxy) -> some View {
+        let gutter: CGFloat = geometry.size.width >= 1_100 ? 56 : 32
+        let gap: CGFloat = geometry.size.width >= 1_100 ? 64 : 32
+        let top = max(56, geometry.safeAreaInsets.top + 24)
+        let height = max(1, geometry.size.height - top - 24)
+        let columnWidth = min(520, (geometry.size.width - gutter * 2 - gap) * 0.48)
+        let hasOutputStatus = audioSession.isSonos || audioSession.pendingSpeakerStop != nil || audioSession.casting.isRemoteOutput || audioSession.casting.canReturnToDevice
+        let artworkSide = max(180, min(columnWidth, height - (hasOutputStatus ? 264 : 200)))
+        return HStack(alignment: .center, spacing: gap) {
+            VStack(spacing: 12) {
+                expandedAudioArtwork(side: artworkSide)
+                audioTimeline
+                    .overlay(alignment: .bottom) {
+                        Text(playback.request.methodLabel)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.8))
+                            .accessibilityIdentifier("audioPlaybackMethod")
+                            .allowsHitTesting(false)
+                    }
+                expandedAudioTransport
+                expandedAudioOutput
+                NativeMusicCastStatus(session: audioSession)
+                    .font(.caption)
+                if audioSession.isSonos || audioSession.pendingSpeakerStop != nil {
+                    Button("Return to this device") { Task { await audioSession.returnHere() } }
+                        .frame(minHeight: 44)
+                        .disabled(audioSession.busy)
+                        .accessibilityIdentifier("audioReturnHereButton")
+                }
+                if let error = displayedError ?? playback.syncError {
+                    Text(error).font(.callout).foregroundStyle(.white)
+                }
+            }
+            .frame(width: artworkSide)
+            .frame(width: columnWidth)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("audioPlayerPrimaryPane")
+
+            VStack(alignment: .leading, spacing: 16) {
+                if audioCompanion == .lyrics {
+                    NativeAudioLyrics(session: audioSession, playback: playback, prominent: true)
+                } else {
+                    HStack {
+                        Text("Play queue").font(.title2.bold())
+                        Spacer()
+                        Button { audioCompanion = .lyrics } label: {
+                            Text("Done").frame(minWidth: 44, minHeight: 44).contentShape(.rect)
+                        }
+                        .accessibilityIdentifier("audioQueueDoneButton")
+                    }
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 20) { audioQueueRows }
+                            .padding(.vertical, 16)
+                    }
+                    .accessibilityIdentifier("audioQueueScreen")
+                }
+                HStack(spacing: 24) {
+                    Spacer(minLength: 0)
+                    Button { audioCompanion = .lyrics } label: {
+                        Label("Lyrics", glyph: .subtitles).frame(minHeight: 44).contentShape(.rect)
+                    }
+                    .font(.callout.weight(audioCompanion == .lyrics ? .bold : .regular))
+                    .accessibilityIdentifier("audioLyrics")
+                    .accessibilityAddTraits(audioCompanion == .lyrics ? .isSelected : [])
+                    .foregroundStyle(audioCompanion == .lyrics ? .white : .white.opacity(0.65))
+                    Button { audioCompanion = .queue } label: {
+                        Label("Queue", glyph: .queue).frame(minHeight: 44).contentShape(.rect)
+                    }
+                    .font(.callout.weight(audioCompanion == .queue ? .bold : .regular))
+                    .accessibilityIdentifier("audioQueueButton")
+                    .accessibilityAddTraits(audioCompanion == .queue ? .isSelected : [])
+                    .foregroundStyle(audioCompanion == .queue ? .white : .white.opacity(0.65))
+                }
+                .font(.callout.weight(.semibold))
+                .frame(minHeight: 44)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("audioPlayerCompanionPane")
+        }
+        .padding(.horizontal, gutter)
+        .padding(.top, top)
+        .padding(.bottom, 24)
+        .frame(width: geometry.size.width, height: geometry.size.height)
+        .background {
+            CachedArtworkImage(url: store.imageURL(for: playback.request.item, maxWidth: 400)) { image in
+                image.resizable().scaledToFill().blur(radius: 70)
+            } placeholder: { LuminaTheme.theater }
+                .overlay(.black.opacity(0.68))
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .overlay(alignment: .topLeading) {
+            Button { finish() } label: {
+                LuminaIcon(glyph: .chevronDown, size: 24)
+                    .frame(width: 44, height: 44).contentShape(.rect)
+            }
+                .accessibilityLabel("Close player")
+                .padding(.leading, gutter - 10)
+                .padding(.top, max(32, geometry.safeAreaInsets.top + 8))
+                .accessibilityIdentifier("closePlayerButton")
+        }
+        .foregroundStyle(.white)
+        .buttonStyle(.plain)
+        .accessibilityAction(.escape) { finish() }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("audioPlayerStage")
+        .sheet(isPresented: $audioOptionsPresented) {
+            NavigationStack {
+                ScrollView {
+                    NativeAudioOptions(session: audioSession, playback: playback, showsLyrics: false)
+                        .padding(24)
+                }
+                .background(LuminaTheme.theater)
+                .navigationTitle("Listening options")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { audioOptionsPresented = false }
+                    }
+                }
+            }
+            .preferredColorScheme(.dark)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("audioOptionsSheet")
+        }
+    }
+
+    private func expandedAudioArtwork(side: CGFloat) -> some View {
+        ZStack(alignment: .bottom) {
+            CachedArtworkImage(url: store.imageURL(for: playback.request.item, maxWidth: 1_600)) { image in
+                image.resizable().scaledToFit()
+            } placeholder: {
+                LuminaTheme.theater.overlay { LuminaIcon(glyph: .music, size: 64) }
+            }
+            .frame(width: side, height: side)
+            .accessibilityLabel("Album artwork for \(playback.request.item.album ?? playback.request.item.name)")
+            .accessibilityValue(playback.request.item.name)
+            .accessibilityIdentifier("audioAlbumArtwork")
+            .accessibilityAction(named: "Next track") { skipAudioTrack(offset: 1) }
+            .accessibilityAction(named: "Previous track") { skipAudioTrack(offset: -1) }
+            .gesture(AudioArtworkSwipe(onSkip: skipAudioTrack))
+
+            HStack(alignment: .bottom, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(playback.request.item.name)
+                        .font(.title3.weight(.semibold)).lineLimit(2)
+                        .accessibilityIdentifier("nowPlayingTitle")
+                    Text(playback.request.item.artists?.joined(separator: ", ") ?? playback.request.item.albumArtist ?? "")
+                        .font(.body).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(16)
+            .padding(.top, 32)
+            .background {
+                LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+            }
+        }
+        .frame(width: side, height: side)
+        .clipShape(.rect(cornerRadius: 12))
+    }
+
+    private var expandedAudioTransport: some View {
+        HStack(spacing: 2) {
+            Button { playback.cycleRepeat() } label: {
+                LuminaIcon(glyph: playback.repeatMode == .one ? .repeatOne : .repeat)
+                    .frame(width: 44, height: 44).contentShape(.rect)
+            }
+                .accessibilityLabel(playback.repeatMode.label)
+                .accessibilityValue(playback.repeatMode.label)
+                .accessibilityIdentifier("audioRepeatButton")
+                .foregroundStyle(playback.repeatMode == .off ? .white.opacity(0.65) : LuminaTheme.brand)
+            Spacer(minLength: 0)
+            Button { Task { await audioSession.step(-1) } } label: {
+                LuminaIcon(glyph: .previous, variant: .solid, size: 28)
+                    .frame(width: 44, height: 44).contentShape(.rect)
+            }
+            .accessibilityLabel("Previous track")
+            .disabled((!playback.hasPrevious && !audioSession.isSonos) || audioSession.busy)
+            .accessibilityIdentifier("audioPreviousButton")
+            Button {
+                if playback.hasFinished { replay() } else { playback.togglePlayback() }
+            } label: {
+                LuminaIcon(glyph: playback.hasFinished || playback.errorMessage != nil ? .sync : playback.isPlaying ? .pause : .play,
+                           variant: .solid, size: 42)
+                    .frame(width: 64, height: 64).contentShape(.rect)
+            }
+            .accessibilityLabel(playback.hasFinished ? "Replay" : playback.errorMessage != nil ? "Retry" : playback.isPlaying ? "Pause" : "Play")
+            .accessibilityIdentifier("audioPlayPauseButton")
+            .disabled(playback.isVideoOutputUnavailable || playback.isReplaying)
+            Button { Task { await audioSession.step(1) } } label: {
+                LuminaIcon(glyph: .next, variant: .solid, size: 28)
+                    .frame(width: 44, height: 44).contentShape(.rect)
+            }
+            .accessibilityLabel("Next track")
+            .disabled((!playback.hasNext && !audioSession.isSonos) || audioSession.busy)
+            .accessibilityIdentifier("audioNextButton")
+            Spacer(minLength: 0)
+            Menu {
+                Button("Listening options") { audioOptionsPresented = true }
+                Button("Stop", glyph: .stop) { stopAudio() }
+                    .accessibilityIdentifier("audioStopButton")
+            } label: {
+                Label("More playback actions", glyph: .moreHorizontal)
+                    .labelStyle(.iconOnly).frame(width: 44, height: 44).contentShape(.rect)
+            }
+            .accessibilityIdentifier("audioOptionsButton")
+        }
+        .frame(height: 64)
+    }
+
+    private var expandedAudioOutput: some View {
+        HStack(spacing: 12) {
+            LuminaIcon(glyph: .volumeLow, size: 16).accessibilityHidden(true)
+            Slider(value: Binding(get: { expandedAudioVolume }, set: { value in
+                Task { await audioSession.setOutputVolume(value) }
+            }), in: 0...1)
+                .accessibilityLabel("Music volume")
+                .tint(LuminaTheme.brand)
+                .disabled(audioSession.busy || (audioSession.isRemoteOutput && !audioSession.casting.isRemoteOutput))
+            NativeMusicAirPlayButton(session: audioSession)
+            NativeMusicCastButton(session: audioSession)
+        }
+        .frame(height: 44)
+    }
+
+    private var expandedAudioVolume: Float {
+        if audioSession.isRemoteOutput { return Float(audioSession.casting.volume) }
+        if audioSession.isSonos { return audioSession.remoteVolumeDraft ?? Float(audioSession.outputStatus?.volume ?? 50) / 100 }
+        return audioSession.volume
+    }
+
+    private var compactAudioStage: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {

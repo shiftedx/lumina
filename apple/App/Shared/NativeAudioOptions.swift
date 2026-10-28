@@ -5,6 +5,7 @@ struct NativeAudioOptions: View {
     @Bindable var session: NativeAudioSession
     let playback: PlaybackModel
     var focusLyricsRequest: Int? = nil
+    var showsLyrics: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -23,8 +24,12 @@ struct NativeAudioOptions: View {
                 }
                 .padding(.vertical, 20)
             }
-            NativeAudioDisclosure("Lyrics", identifier: "audioLyrics",
-                                  focusRequest: focusLyricsRequest) { lyrics }
+            if showsLyrics {
+                NativeAudioDisclosure("Lyrics", identifier: "audioLyrics",
+                                      focusRequest: focusLyricsRequest) {
+                    NativeAudioLyrics(session: session, playback: playback)
+                }
+            }
             NativeAudioDisclosure("Listening options", identifier: "audioListeningOptions") {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(hasRemoteOutput ? "Remote output" : session.playbackMode == .progressive ? "Progressive source audio" : session.playbackMode == .decoded ? "Gapless buffer · 48 kHz" : "Streaming source audio")
@@ -132,49 +137,6 @@ struct NativeAudioOptions: View {
             return entry.album == track.album && entry.artist == track.artist
         }.map(\.mediaItem)
     }
-
-    private var lyrics: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let value = session.lyrics, !value.cues.isEmpty {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            ForEach(Array(value.cues.enumerated()), id: \.offset) { index, cue in
-                                Button { playback.seek(to: cue.start) } label: {
-                                    Text(cue.text)
-                                        .font(LuminaTheme.editorial(index == activeCue ? 28 : 24, relativeTo: .body))
-                                        .foregroundStyle(index == activeCue ? LuminaTheme.accentInk : .white.opacity(0.75))
-                                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                                        .padding(.vertical, 6)
-                                }
-                                #if !os(tvOS)
-                                .buttonStyle(.plain)
-                                #endif
-                                .id(index)
-                                .accessibilityAddTraits(index == activeCue ? .isSelected : [])
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 300)
-                    .onChange(of: activeCue) { _, cue in if let cue { proxy.scrollTo(cue, anchor: .center) } }
-                }
-            } else if let plain = session.lyrics?.plain, !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(plain).fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text(session.lyrics?.instrumental == true ? "Instrumental" : session.lyrics?.error ?? session.lyricsError ?? (session.lyricsLoading ? "Finding lyrics…" : "Lyrics are not available for this recording yet."))
-            }
-            if let source = session.lyrics?.source { Text(source).font(.caption).foregroundStyle(.secondary) }
-            if session.lyrics?.error != nil || session.lyricsError != nil {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Button("Retry lyrics") { session.loadLyrics(retry: true) }
-                        .accessibilityIdentifier("audioLyricsRetryButton")
-                        .disabled(session.lyricsLoading || (session.retryAllowedAt.map { $0 > context.date } ?? false))
-                }
-            }
-        }
-        .padding(.vertical, 8)
-    }
-    private var activeCue: Int? { session.lyrics?.cues.lastIndex(where: { $0.start <= playback.elapsedSeconds }) }
 
     private var sourceFormat: String? {
         let track = session.tracks[safe: playback.queueIndex]

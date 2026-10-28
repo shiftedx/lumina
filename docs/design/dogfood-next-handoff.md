@@ -5,9 +5,11 @@ Continue the owner's one-issue-at-a-time dogfood workflow. Start with the next r
 ## Starting state
 
 - Workspace: the existing `lumina-work-cleanup/lumina` checkout attached to this task.
-- Branch prepared for continuation: `codex/dogfood-next`, based on upstream `main` at `b8558b4` (merged [PR #169](https://github.com/shiftedx/lumina/pull/169)). This branch also carries this documentation-only handoff.
-- The previous implementation batch is merged; its working tree was clean. Its proof server was stopped. Other worktrees belong to separate tasks.
-- Signed iOS **0.1.0 (26)** was uploaded through Xcode Organizer on October 27, 2026; Organizer confirmed “Uploaded to Apple,” build 26. Processing and tester availability were not verified. Build 26 is consumed; preserve its archives, symbols, hashes and logs.
+- Branch: `codex/dogfood-next`, containing the accepted dogfood changes and current upstream recommendations work through [PR #170](https://github.com/shiftedx/lumina/pull/170). Fetch current `main` before the next issue; the build manifest records the final merged revision and PR.
+- The season-selector and Library cache/navigation fixes are complete. The owned proof runtime is stopped. Other worktrees and the original fold-review simulator belong to separate tasks.
+- Signed iOS **0.1.0 (27)** was uploaded through Xcode Organizer on October 28, 2026; Organizer confirmed “Uploaded to Apple,” build 27. Processing and tester availability were not verified. Builds 26 and 27 are consumed; preserve their archives, symbols, hashes and logs.
+- The completed batch replaces season posters with **Episodes · Season 1 ▾**, retains Library pages, visible artwork and scroll position on detail return, stabilizes the Library navigation inset, and adds a private 2 GiB artwork cache with a Clear action in iOS/tvOS settings.
+- Qualification: the integrated repository gate passed with both full backend and browser tiers repeated twice; both smoke tiers also passed twice. Core ran 227 cases with five platform skips and no failures. Native Library return/cache-clear workflows passed on closed, open portrait and open landscape Duo displays; season switching and direct/client-demux playback rebuild workflows passed. tvOS compiled; this release uploads iOS only.
 
 ## Work each issue
 
@@ -31,15 +33,16 @@ An issue is complete when its acceptance criterion is observable in the running 
 
 | Trigger | Reference |
 | --- | --- |
-| A regression against build 26, or details of the completed view-by-view batch | [Build 26 validation handoff](dogfood-validation-handoff.md) |
+| A regression against build 26, or details of the prior view-by-view batch | [Build 26 validation handoff](dogfood-validation-handoff.md) |
 | Playback/receiver/reader validation needs existing evidence | Ignored `output/dogfood-build-26/` and `output/visual-polish-2026-10-27/README.md` in this checkout |
 | Cast SDK version, linkage, resources or archive packaging changes | [Cast resource provenance](../../apple/Resources/GoogleCast/README.md), archive validation contracts, and the real SDK picker workflow |
+| A Library/cache regression against build 27 | [Cache boundary](../adr/0034-retain-native-artwork-in-a-private-device-cache.md), ignored `output/library-cache-release/README.md`, and the build 27 manifest |
 | Owner explicitly requests another signed build/upload | [TestFlight workflow](../../apple/docs/testflight.md) and the retained release manifest below |
 
 ## Release boundary
 
-The previous authorization to package/upload was fulfilled by build 26. Treat the next release as a separate owner-requested step; verify an unused build number before packaging. Use Xcode for an authorized upload. Browser login to App Store Connect remains outside authorization.
+The latest authorization to package/upload was fulfilled by build 27. Treat the next release as a separate owner-requested step; verify an unused build number before packaging. Use Xcode for an authorized upload. Browser login to App Store Connect remains outside authorization.
 
-The local source of truth for build 26 is ignored `apple/Distribution/0.1.0-26/ReleaseManifest.json`, alongside the signed IPA/Organizer archive, source snapshot, hashes and `What-to-Test.txt`. Keep superseded/intermediate packages separate from the uploaded package. Preserve needed ignored release artifacts before archiving or removing a worktree.
+The local source of truth for build 27 is ignored `apple/Distribution/0.1.0-27/ReleaseManifest.json`, alongside the signed IPA/Organizer archive, source snapshot, hashes and `What-to-Test.txt`. Keep superseded/intermediate packages separate from the uploaded package. Preserve needed ignored release artifacts before archiving or removing a worktree.
 
-Known qualification limits are recorded in the build 26 handoff: the full repository gate was not entirely green, and physical fold/decoder behavior, real receivers and some native appearances still need device validation. Compare new failures against that evidence; keep unexecuted checks labeled unverified. The IPA ships native iOS code; web/backend changes follow their server deployment path.
+Physical fold/decoder behavior and real receivers still need device validation. The cache probe and simulator recordings establish local reuse and coherent tested transitions, not physical-device frame rate. Compare any regression with the retained build 27 evidence; keep unexecuted checks labeled unverified. The IPA ships native iOS code; web/backend changes follow their server deployment path.

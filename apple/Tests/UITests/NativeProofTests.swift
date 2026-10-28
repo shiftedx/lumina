@@ -280,6 +280,11 @@ final class NativeHomeBrowseFiltersSearchAndHeroWatchlistTests: NativeProofJourn
     func testHomeHeroArtworkSwipesAndPlaysSelectedTitle() async throws {
         try await journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle()
     }
+    func testHomeHeroSwipeKeepsWideLayoutStable() async throws {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        try await journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle(checksLayout: true)
+    }
     func testStandardPhoneUsesBottomNavigationAndCompactBrowseMenu() async throws {
         try await journeyStandardPhoneNavigation()
     }
@@ -4448,7 +4453,7 @@ class NativeProofJourney: XCTestCase {
     #endif
 
     #if os(iOS)
-    func journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle() async throws {
+    func journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle(checksLayout: Bool = false) async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
@@ -4458,16 +4463,20 @@ class NativeProofJourney: XCTestCase {
         let api = ProofAPI(origin: origin, session: session)
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
         try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 12)
-        try launchAndResetSession()
-        try signIn(using: fixture)
-        try selectDestination("Account", screen: "accountScreen")
-        try chooseDeviceSetting("deviceAppearancePicker", option: "Dark")
-        try activate(application!.buttons.matching(NSPredicate(format: "label == %@", "Home")).firstMatch)
-        try waitForExistence(element("homeScreen"), timeout: 15, named: "Home in dark appearance")
+        try launchAndResetSession(extraLaunchArguments: checksLayout ? ["--ui-testing-static-hero-artwork"] : [])
+        try signIn(using: fixture, waitsForAccount: !checksLayout)
+        if !checksLayout {
+            try selectDestination("Account", screen: "accountScreen")
+            try chooseDeviceSetting("deviceAppearancePicker", option: "Dark")
+            try activate(application!.buttons.matching(NSPredicate(format: "label == %@", "Home")).firstMatch)
+        }
+        try waitForExistence(element("homeScreen"), timeout: 15, named: "Home hero")
         let choice = element("featuredChoice-\(fixture.directItemID)")
-        try revealInLibraryViewport([choice])
-        try activate(choice)
         let title = element("featuredTitleButton")
+        if !checksLayout || title.label != fixture.directItemTitle {
+            try revealInLibraryViewport([choice])
+            try activate(choice)
+        }
         guard waitUntil(timeout: 5, condition: { title.label == fixture.directItemTitle }) else {
             throw ProofFailure.ui("Home did not select the seeded hero before swiping.")
         }
@@ -4481,15 +4490,48 @@ class NativeProofJourney: XCTestCase {
         let y = visibleArt.minY + visibleArt.height * 0.3 - window.frame.minY
         let right = window.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: window.frame.width * 0.75, dy: y))
         let left = window.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: window.frame.width * 0.25, dy: y))
+        let initialHeroFrame = artwork.frame
+        var initialHeroY = Double(initialHeroFrame.minY)
+        var initialHeroHeight = Double(initialHeroFrame.height)
+        if checksLayout {
+            XCTAssertGreaterThan(initialHeroFrame.width, 700, "Exercise the wide hero layout")
+            let diagnostics = try XCTUnwrap(artwork.value as? String)
+            let token = try XCTUnwrap(diagnostics.split(separator: " ").first { $0.hasPrefix("frames=") })
+                .replacingOccurrences(of: "frames=", with: "")
+            let baseline = try XCTUnwrap(token.split(separator: "|").last).split(separator: ",")
+            guard baseline.count == 3 else { throw ProofFailure.ui("Hero layout measurements were incomplete.") }
+            initialHeroY = try XCTUnwrap(Double(baseline[1]))
+            initialHeroHeight = try XCTUnwrap(Double(baseline[2]))
+        }
         right.press(forDuration: 0.05, thenDragTo: left)
         guard waitUntil(timeout: 3, condition: { title.label != fixture.directItemTitle && !title.label.isEmpty }),
               !element("detailScreen").exists else {
             throw ProofFailure.ui("Swiping left on Home artwork must select the next hero without opening details.")
         }
         try attachFrame(named: "Home artwork swipe selects the next hero")
+        if checksLayout {
+            let diagnostics = try XCTUnwrap(artwork.value as? String)
+            let transition = try XCTUnwrap(diagnostics.split(separator: " ").first { $0.hasPrefix("transition=") })
+                .replacingOccurrences(of: "transition=", with: "")
+            let frames = try XCTUnwrap(diagnostics.split(separator: " ").first { $0.hasPrefix("frames=") })
+                .replacingOccurrences(of: "frames=", with: "").split(separator: "|")
+            for frame in frames {
+                let values = frame.split(separator: ",")
+                guard values.count == 3, values[0] == transition else { continue }
+                XCTAssertEqual(try XCTUnwrap(Double(values[1])), initialHeroY, accuracy: 1,
+                               "The hero and following shelves must not jump vertically during the swipe")
+                XCTAssertEqual(try XCTUnwrap(Double(values[2])), initialHeroHeight, accuracy: 1,
+                               "The hero must retain its height throughout the swipe, including artwork loading")
+            }
+        }
         left.press(forDuration: 0.05, thenDragTo: right)
         guard waitUntil(timeout: 3, condition: { title.label == fixture.directItemTitle }) else {
             throw ProofFailure.ui("Swiping right on Home artwork must return to the previous hero.")
+        }
+        if checksLayout {
+            try attachFrame(named: "Home hero after swiping in both directions")
+            completed = true
+            return
         }
         let time = try startPlayback(using: "featuredPlayButton")
         _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= 14 }
@@ -7549,7 +7591,7 @@ class NativeProofJourney: XCTestCase {
     }
     #endif
 
-    private func signIn(using fixture: ProofFixture) throws {
+    private func signIn(using fixture: ProofFixture, waitsForAccount: Bool = true) throws {
         #if os(iOS)
         try revealManualConnection()
         #endif
@@ -7585,12 +7627,12 @@ class NativeProofJourney: XCTestCase {
             throw ProofFailure.ui("Real form login did not reach Home.")
         }
         #if os(iOS)
-        try waitForPostLoginAccountDestination()
+        try waitForPostLoginControls(waitsForAccount: waitsForAccount)
         #endif
     }
 
     #if os(iOS)
-    private func waitForPostLoginAccountDestination() throws {
+    private func waitForPostLoginControls(waitsForAccount: Bool) throws {
         let prompt = application!.sheets["Save Password?"]
         let promptTitle = application!.staticTexts["Save Password?"]
         // The OS-owned password sheet can expose its decline action under a
@@ -7604,10 +7646,10 @@ class NativeProofJourney: XCTestCase {
         // same predicate deadline as the destination assertion.
         guard waitUntil(timeout: 25, condition: {
             if prompt.exists || promptTitle.exists { return true }
-            let account = self.destinationControl("Account")
-            return self.hasVisibleFrame(account) && account.isEnabled && account.isHittable
+            let control = waitsForAccount ? self.destinationControl("Account") : self.element("homeScreen")
+            return self.hasVisibleFrame(control) && control.isEnabled && (!waitsForAccount || control.isHittable)
         }) else {
-            throw ProofFailure.timeout("Timed out waiting for password storage or the Account tab after login.")
+            throw ProofFailure.timeout("Timed out waiting for password storage or post-login navigation.")
         }
         if prompt.exists || promptTitle.exists {
             guard waitUntil(timeout: 10, condition: {
@@ -7624,10 +7666,10 @@ class NativeProofJourney: XCTestCase {
         // The system sheet replaces the accessibility snapshot. Resolve the
         // destination only after it is gone instead of retaining a stale row.
         guard waitUntil(timeout: 25, condition: {
-            let account = self.destinationControl("Account")
-            return self.hasVisibleFrame(account) && account.isEnabled && account.isHittable
+            let control = waitsForAccount ? self.destinationControl("Account") : self.element("homeScreen")
+            return self.hasVisibleFrame(control) && control.isEnabled && (!waitsForAccount || control.isHittable)
         }) else {
-            throw ProofFailure.timeout("Timed out waiting for hittable Account tab after declining password storage.")
+            throw ProofFailure.timeout("Timed out waiting for post-login navigation after declining password storage.")
         }
     }
     #endif

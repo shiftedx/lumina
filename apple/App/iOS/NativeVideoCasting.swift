@@ -35,14 +35,19 @@ final class NativeVideoCasting: NSObject {
         let criteria = GCKDiscoveryCriteria(applicationID: kGCKDefaultMediaReceiverApplicationID)
         let options = GCKCastOptions(discoveryCriteria: criteria)
         options.disableAnalyticsLogging = true
-        // The SDK first-tap permission flow requires autostart to remain enabled.
-        options.disableDiscoveryAutostart = false
-        options.startDiscoveryAfterFirstTapOnCastButton = true
+        options.disableDiscoveryAutostart = true
         let logger = GCKLogger.sharedInstance()
         logger.loggingEnabled = false
         logger.fileLoggingEnabled = false
         logger.consoleLoggingEnabled = false
         _ = GCKCastContext.setSharedInstanceWith(options, error: nil)
+    }
+
+    static func presentDevicePicker() {
+        configure()
+        let context = GCKCastContext.sharedInstance()
+        context.discoveryManager.startDiscovery()
+        context.presentCastDialog()
     }
 
     func attach(_ model: PlaybackModel) {
@@ -489,13 +494,14 @@ struct NativeVideoCastButton: View {
     let playback: PlaybackModel
 
     var body: some View {
-        ZStack {
-            NativeGoogleCastButton { playback.castOwner?.requestCastFromUser() }
+        Button {
+            playback.castOwner?.requestCastFromUser()
+            NativeVideoCasting.presentDevicePicker()
+        } label: {
             LuminaIcon(glyph: .cast, size: 24)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+                .frame(minWidth: 44, minHeight: 44)
         }
-        .accessibilityElement(children: .contain)
+        .buttonStyle(.plain)
         .accessibilityIdentifier("videoChromecastButton")
         .accessibilityLabel("Chromecast")
         .disabled(playback.request.item.isAudio)
@@ -533,22 +539,6 @@ struct NativeVideoCastStatus: View {
                 .accessibilityIdentifier("videoCastError")
         }
     }
-}
-
-private struct NativeGoogleCastButton: UIViewRepresentable {
-    let onTap: () -> Void
-
-    func makeUIView(context _: Context) -> GCKUICastButton {
-        NativeVideoCasting.configure()
-        let button = GCKUICastButton(frame: .zero)
-        button.tintColor = .clear
-        button.accessibilityLabel = "Chromecast"
-        button.accessibilityIdentifier = "videoChromecastButton"
-        button.addAction(UIAction { _ in onTap() }, for: .touchDown)
-        return button
-    }
-
-    func updateUIView(_: GCKUICastButton, context _: Context) {}
 }
 
 private enum NativeVideoCastError: Error {

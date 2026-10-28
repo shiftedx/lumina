@@ -421,11 +421,14 @@ extension NativeMusicCasting: @preconcurrency GCKSessionManagerListener, @precon
 struct NativeMusicCastButton: View {
     let session: NativeAudioSession
     var body: some View {
-        ZStack {
-            NativeMusicGoogleCastButton { session.casting.requestCastFromUser() }
-            LuminaIcon(glyph: .cast, size: 24).allowsHitTesting(false).accessibilityHidden(true)
+        Button {
+            session.casting.requestCastFromUser()
+            NativeVideoCasting.presentDevicePicker()
+        } label: {
+            LuminaIcon(glyph: .cast, size: 24)
+                .frame(minWidth: 44, minHeight: 44)
         }
-        .accessibilityElement(children: .contain)
+        .buttonStyle(.plain)
         .accessibilityIdentifier("musicChromecastButton")
         .accessibilityLabel("Chromecast")
         .disabled(session.isSonos || session.isRemoteOutput)
@@ -455,18 +458,4 @@ struct NativeMusicCastStatus: View {
             .accessibilityIdentifier("musicCastStatus")
         }
     }
-}
-
-private struct NativeMusicGoogleCastButton: UIViewRepresentable {
-    let onTap: () -> Void
-    func makeUIView(context _: Context) -> GCKUICastButton {
-        NativeVideoCasting.configure()
-        let button = GCKUICastButton(frame: .zero)
-        button.tintColor = .clear
-        button.accessibilityIdentifier = "musicChromecastButton"
-        button.accessibilityLabel = "Chromecast"
-        button.addAction(UIAction { _ in onTap() }, for: .touchDown)
-        return button
-    }
-    func updateUIView(_: GCKUICastButton, context _: Context) {}
 }

@@ -8,6 +8,7 @@ const MAX_SHELL_RESOURCES = 256;
 
 const STATIC_PREFIXES = ['/assets/', '/fonts/', '/src/', '/node_modules/.vite/deps/', '/node_modules/vite/dist/'];
 const STATIC_PATHS = new Set([ENTRY_PATH, '/theme-boot.js', '/favicon.svg', '/favicon.ico', '/apple-touch-icon.png', '/media-mark.svg', '/@vite/client', '/@react-refresh']);
+const VITE_ENV_MODULE = /^\/@fs\/(?:[^/]+\/)*node_modules\/vite\/dist\/client\/env\.mjs$/;
 const PRIVATE_QUERY_KEYS = /(?:token|auth|credential|cookie|session|ticket|sig|signature|secret|password|api[_-]?key|jwt)/i;
 
 let shellBuild = null;
@@ -23,7 +24,7 @@ function safeStaticUrl(value, base) {
   url.hash = '';
   if (url.origin !== self.location.origin || url.username || url.password || url.pathname.startsWith('/api/')) return null;
   if ([...url.searchParams.keys()].some((key) => PRIVATE_QUERY_KEYS.test(key))) return null;
-  if (STATIC_PATHS.has(url.pathname) || STATIC_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) return url;
+  if (STATIC_PATHS.has(url.pathname) || STATIC_PREFIXES.some((prefix) => url.pathname.startsWith(prefix)) || VITE_ENV_MODULE.test(url.pathname)) return url;
   return null;
 }
 

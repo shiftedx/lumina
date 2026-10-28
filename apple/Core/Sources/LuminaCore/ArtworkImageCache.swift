@@ -5,13 +5,14 @@ import Foundation
 ///
 /// Keys intentionally include every URL component. Lumina's signed image URLs carry the
 /// current member credential and artwork tag, so a new session or refreshed rendition cannot
-/// read a prior member's decoded artwork. The cache never writes image data to disk.
+/// read a prior member's decoded artwork. Successful compressed renditions also have a bounded,
+/// hashed disk tier so process-local decoded cache eviction does not require another download.
 @MainActor
 public final class ArtworkImageCache {
     public static let shared = ArtworkImageCache()
 
-    public static let defaultDecodedByteLimit = 64 * 1024 * 1024
-    public static let defaultImageCountLimit = 80
+    public static let defaultDecodedByteLimit = 128 * 1024 * 1024
+    public static let defaultImageCountLimit = 256
     public static let defaultEncodedByteLimit = 32 * 1024 * 1024
 
     private final class CachedImage: NSObject {
@@ -38,6 +39,8 @@ public final class ArtworkImageCache {
     private let maximumDecodedBytes: Int
     private let maximumEncodedBytes: Int
     private let decode: @Sendable (Data) -> CGImage?
+    private let diskCache: ArtworkDiskCache?
+    private var diskGeneration: Int?
     private let images = NSCache<NSURL, CachedImage>()
     private let encodedImages = NSCache<NSURL, NSData>()
     private var inFlight = [URL: InFlight]()
@@ -51,11 +54,14 @@ public final class ArtworkImageCache {
         session: URLSession = .shared,
         maximumDecodedBytes: Int = ArtworkImageCache.defaultDecodedByteLimit,
         imageCountLimit: Int = ArtworkImageCache.defaultImageCountLimit,
-        maximumEncodedBytes: Int = ArtworkImageCache.defaultEncodedByteLimit
+        maximumEncodedBytes: Int = ArtworkImageCache.defaultEncodedByteLimit,
+        diskCache: ArtworkDiskCache? = .shared
     ) {
         self.transport = BoundedArtworkTransport(configuration: session.configuration)
         self.maximumDecodedBytes = max(1, maximumDecodedBytes)
         self.maximumEncodedBytes = max(0, maximumEncodedBytes)
+        self.diskCache = diskCache
+        self.diskGeneration = diskCache?.currentGeneration
         encodedImages.totalCostLimit = max(1, maximumEncodedBytes)
         encodedImages.countLimit = 2_000
         self.decode = BillboardArtworkPreparation.image(from:)
@@ -68,11 +74,14 @@ public final class ArtworkImageCache {
         maximumDecodedBytes: Int,
         imageCountLimit: Int,
         maximumEncodedBytes: Int = ArtworkImageCache.defaultEncodedByteLimit,
-        decode: @escaping @Sendable (Data) -> CGImage?
+        decode: @escaping @Sendable (Data) -> CGImage?,
+        diskCache: ArtworkDiskCache? = nil
     ) {
         self.transport = BoundedArtworkTransport(configuration: session.configuration)
         self.maximumDecodedBytes = max(1, maximumDecodedBytes)
         self.maximumEncodedBytes = max(0, maximumEncodedBytes)
+        self.diskCache = diskCache
+        self.diskGeneration = diskCache?.currentGeneration
         encodedImages.totalCostLimit = max(1, maximumEncodedBytes)
         encodedImages.countLimit = 2_000
         self.decode = decode
@@ -85,8 +94,9 @@ public final class ArtworkImageCache {
         images.object(forKey: url as NSURL)?.image
     }
 
-    /// Drops both resident tiers and pending artwork when the signed-in member changes.
-    public func removeAll() {
+    /// Drops resident artwork and pending loads. Include disk data for an account change or
+    /// explicit cache clear; a restored session can retain its private signed renditions.
+    public func removeAll(includingDisk: Bool = true) {
         generation &+= 1
         prefetchTask?.cancel()
         prefetchTask = nil
@@ -99,6 +109,23 @@ public final class ArtworkImageCache {
         inFlight.removeAll()
         images.removeAllObjects()
         encodedImages.removeAllObjects()
+        if includingDisk, let diskCache {
+            diskGeneration = diskCache.invalidate()
+            diskCache.scheduleRemoval()
+        }
+    }
+
+    /// Removes every artwork tier and waits until the persistent cache directory is empty.
+    public func clearAllArtwork() async {
+        removeAll(includingDisk: false)
+        guard let diskCache else { return }
+        diskGeneration = diskCache.invalidate()
+        await diskCache.removeAll()
+    }
+
+    /// Returns the compressed artwork currently retained on device.
+    public func diskUsageBytes() async -> Int {
+        await diskCache?.usageBytes() ?? 0
     }
 
     /// Visible consumers share one rendition. Work is cancelled when its last consumer leaves;
@@ -141,10 +168,25 @@ public final class ArtworkImageCache {
             activeLoads += 1
             let transport = transport, decode = decode
             let retained = encodedImages.object(forKey: url as NSURL).map { $0 as Data }
-            let task = Task.detached(priority: entry.priority) { [transport, decode] () -> PreparedImage? in
+            let diskCache = diskCache, diskGeneration = diskGeneration
+            let task = Task.detached(priority: entry.priority) { [transport, decode, diskCache, diskGeneration] () -> PreparedImage? in
                 do {
                     let data: Data
                     if let retained { data = retained }
+                    else if let diskCache, let diskGeneration,
+                            let cached = await diskCache.data(for: url, generation: diskGeneration) {
+                        guard !Task.isCancelled else { return nil }
+                        if cached.count <= BillboardArtworkPreparation.maximumEncodedBytes,
+                           let image = decode(cached) {
+                            guard !Task.isCancelled else { return nil }
+                            return (image, cached)
+                        }
+                        guard !Task.isCancelled else { return nil }
+                        await diskCache.remove(for: url, generation: diskGeneration)
+                        guard !Task.isCancelled else { return nil }
+                        if url.isFileURL { data = try Data(contentsOf: url, options: .mappedIfSafe) }
+                        else { data = try await transport.data(from: url, maximumBytes: BillboardArtworkPreparation.maximumEncodedBytes) }
+                    }
                     else if url.isFileURL { data = try Data(contentsOf: url, options: .mappedIfSafe) }
                     else { data = try await transport.data(from: url, maximumBytes: BillboardArtworkPreparation.maximumEncodedBytes) }
                     guard !Task.isCancelled, data.count <= BillboardArtworkPreparation.maximumEncodedBytes,
@@ -170,6 +212,10 @@ public final class ArtworkImageCache {
         if let result {
             if result.encoded.count <= maximumEncodedBytes {
                 encodedImages.setObject(result.encoded as NSData, forKey: url as NSURL, cost: result.encoded.count)
+            }
+            if let diskCache, let diskGeneration,
+               result.encoded.count <= BillboardArtworkPreparation.maximumEncodedBytes {
+                Task.detached { await diskCache.store(result.encoded, for: url, generation: diskGeneration) }
             }
             if let cost = decodedByteCost(of: result.image) {
                 images.setObject(CachedImage(result.image), forKey: url as NSURL, cost: cost)

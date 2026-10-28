@@ -739,7 +739,6 @@ private struct LibraryShellView: View {
     @State private var uiTestingHomeNavigationDiagnostics = "route=root generation=0"
     #endif
     @State private var libraryPath = [MediaItem]()
-    @State private var libraryNavigationRootID = UUID()
     @State private var homeCategory: HomeBrowseCategory = .all
     @State private var category: LibraryCategory = .movies
     @State private var homeLayout = LuminaHomeLayout()
@@ -771,6 +770,10 @@ private struct LibraryShellView: View {
             if selected == .home {
                 homeCategory = .all
                 resetHomeNavigation()
+            } else if selected == .library, !libraryPath.isEmpty {
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { libraryPath.removeAll() }
             }
             destination = selected
         })) {
@@ -796,6 +799,8 @@ private struct LibraryShellView: View {
             Tab("Library", image: LuminaGlyph.library.assetName(for: destination == .library ? .solid : .outline), value: .library) {
                 destinationStack(owner: .library, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader, path: $libraryPath) {
                     libraryContent
+                        .environment(\.luminaRetainsArtworkWhileHidden, !libraryPath.isEmpty)
+                        .modifier(LibraryStableNavigationBar())
                         .toolbarBackground(.hidden, for: .navigationBar)
                         .toolbar {
                             if showsCategoryHeader && !usesIPadHeaderNavigation {
@@ -815,7 +820,6 @@ private struct LibraryShellView: View {
                             }
                         }
                 }
-                .id(libraryNavigationRootID)
             }
             Tab("Requests", image: LuminaGlyph.requests.assetName(for: destination == .requests ? .solid : .outline), value: .requests) {
                 destinationStack(owner: .requests, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
@@ -1063,8 +1067,9 @@ private struct LibraryShellView: View {
     private func openLibrary(_ selected: LibraryCategory, fromHome: Bool) {
         guard store.availableLibraryCategories.contains(selected.rawValue) else { return }
         if fromHome {
-            libraryPath.removeAll()
-            libraryNavigationRootID = UUID()
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { libraryPath.removeAll() }
         }
         category = selected
         destination = .library
@@ -1644,6 +1649,14 @@ private struct NativeHomeLayoutEditor: View {
     }
 }
 
+private struct LibraryStableNavigationBar: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 27.0, *) {
+            content.toolbarMinimizationBehavior(.never, for: .navigationBar)
+        } else { content }
+    }
+}
+
 private struct HomeHeroScrollEdge: ViewModifier {
     var isEnabled: Bool
 
@@ -1769,12 +1782,6 @@ private struct VideoLibraryView: View {
                             }
                         }
                     } else {
-                        if store.isBusy {
-                            ProgressView("Refreshing…")
-                                .font(.footnote)
-                                .tint(LuminaTheme.brand)
-                        }
-
                         if let message = store.errorMessage, !message.isEmpty {
                             InlineErrorView(message: message) {
                                 refresh()
@@ -2056,7 +2063,7 @@ private struct VideoLibraryView: View {
         guard store.session != nil else { return }
         let scopeKey = alphabetScopeKey
         await store.loadLibrary(search: searchText, kind: kind, sort: sort, filters: filters)
-        guard !Task.isCancelled, scopeKey == alphabetScopeKey else { return }
+        guard scopeKey == alphabetScopeKey else { return }
         alphabetAnchorsScopeKey = scopeKey
     }
 
@@ -2068,8 +2075,8 @@ private struct VideoLibraryView: View {
         let kind = kind, sort = sort, filters = filters
         queryTask = Task {
             guard !Task.isCancelled else { return }
-            await store.loadLibrary(search: query, kind: kind, sort: sort, filters: filters)
-            guard !Task.isCancelled, scopeKey == alphabetScopeKey else { return }
+            await store.loadLibrary(search: query, kind: kind, sort: sort, filters: filters, forceRefresh: true)
+            guard scopeKey == alphabetScopeKey else { return }
             alphabetAnchorsScopeKey = scopeKey
         }
     }
@@ -2347,11 +2354,11 @@ struct VideoCollectionView: View {
         _selectedEpisodeID = State(initialValue: initialEpisodeID)
     }
 
-    private var isEpisodeFocusedSeries: Bool { item.type == "Series" && initialSeasonID != nil }
-    private var collectionSectionTitle: String { item.type == "Series" ? "Seasons" : "Episodes" }
+    private var isSeriesCollection: Bool { item.type == "Series" }
+    private var collectionSectionTitle: String { "Episodes" }
     private var collectionSectionID: String { "collection-\(item.id)-content" }
     private var hasResumeEpisode: Bool {
-        if isEpisodeFocusedSeries,
+        if isSeriesCollection,
            let selectedEpisode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
             return selectedEpisode.resumeSeconds > 5 && selectedEpisode.userData?.played != true
         }
@@ -2370,10 +2377,12 @@ struct VideoCollectionView: View {
                     collectionHero(using: proxy)
 
                     VStack(alignment: .leading, spacing: 28) {
-                        Text(collectionSectionTitle)
-                            .font(.title2.weight(.bold))
-                            .accessibilityAddTraits(.isHeader)
-                            .id(collectionSectionID)
+                        if item.type != "Series" {
+                            Text(collectionSectionTitle)
+                                .font(.title2.weight(.bold))
+                                .accessibilityAddTraits(.isHeader)
+                                .id(collectionSectionID)
+                        }
                         if let errorMessage {
                             InlineErrorView(message: errorMessage) { Task { await load() } }
                         }
@@ -2386,12 +2395,10 @@ struct VideoCollectionView: View {
                                 Text("No \(item.type == "Series" ? "seasons" : "episodes") are available. Pull to refresh after adding them to Lumina.")
                             }
                         } else if item.type == "Series" {
-                            seasonCards
-                            if isEpisodeFocusedSeries {
+                            seasonSelector
+                                .id(collectionSectionID)
+                            if isSeriesCollection {
                                 VStack(alignment: .leading, spacing: 12) {
-                                    Text("Episodes")
-                                        .font(.title2.weight(.bold))
-                                        .accessibilityAddTraits(.isHeader)
                                     if let selectedEpisode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
                                         Text(selectedEpisode.name)
                                             .font(.headline)
@@ -2469,7 +2476,7 @@ struct VideoCollectionView: View {
                         }
                     }
                 } label: {
-                    Label(collectionSectionTitle, glyph: .chevronDown)
+                    Label("Browse episodes", glyph: .chevronDown)
                         .font(.subheadline.weight(.semibold))
                 }
                 .buttonStyle(.plain)
@@ -2513,46 +2520,48 @@ struct VideoCollectionView: View {
         }
     }
 
-    @ViewBuilder private var seasonCards: some View {
-        LazyVGrid(columns: libraryGridColumns(for: dynamicTypeSize), alignment: .leading, spacing: 28) {
-            ForEach(children) { child in
-                seasonCard(child)
-            }
+    private var seasonSelector: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { seasonSelectorContent }
+            VStack(alignment: .leading, spacing: 8) { seasonSelectorContent }
         }
     }
 
-    @ViewBuilder
-    private func seasonCard(_ season: MediaItem) -> some View {
-        if isEpisodeFocusedSeries {
-            Button { Task { await selectSeason(season) } } label: {
-                MediaCard(item: season, imageURL: store.imageURL(for: season), identifierPrefix: "season", loadFraming: { await store.artworkFraming(for: $0) })
-                    .overlay {
-                        if season.id == selectedSeasonID {
-                            RoundedRectangle(cornerRadius: 12).strokeBorder(LuminaTheme.brand, lineWidth: 3)
-                        }
-                    }
+    @ViewBuilder private var seasonSelectorContent: some View {
+        Text("Episodes")
+            .font(.title2.weight(.bold))
+            .accessibilityAddTraits(.isHeader)
+        Menu {
+            Picker("Season", selection: Binding(
+                get: { selectedSeasonID },
+                set: { id in
+                    guard let season = children.first(where: { $0.id == id }),
+                          id != selectedSeasonID else { return }
+                    Task { await selectSeason(season) }
+                }
+            )) {
+                ForEach(children) { season in
+                    Text(season.name)
+                        .tag(Optional(season.id))
+                        .accessibilityIdentifier("videoSeason-\(season.id)")
+                }
             }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape([.interaction, .accessibility], Rectangle())
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(season.name)
-            .accessibilityValue(season.id == selectedSeasonID ? "Selected" : "")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAddTraits(season.id == selectedSeasonID ? .isSelected : [])
-            .accessibilityIdentifier("videoSeason-\(season.id)")
-        } else {
-            NavigationLink(value: season) {
-                MediaCard(item: season, imageURL: store.imageURL(for: season), identifierPrefix: "season", loadFraming: { await store.artworkFraming(for: $0) })
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 8) {
+                Text(children.first(where: { $0.id == selectedSeasonID })?.name ?? "Select season")
+                    .fixedSize(horizontal: false, vertical: true)
+                LuminaIcon(glyph: .chevronDown, size: 16)
             }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape([.interaction, .accessibility], Rectangle())
-            .accessibilityElement(children: .ignore)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(season.name)
-            .accessibilityIdentifier("videoSeason-\(season.id)")
+            .font(.headline)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(isLoading || isLoadingSelectedSeason)
+        .accessibilityLabel("Season")
+        .accessibilityValue(children.first(where: { $0.id == selectedSeasonID })?.name ?? "Select season")
+        .accessibilityIdentifier("videoSeasonSelector")
     }
 
     @ViewBuilder private func episodeCards(_ episodes: [MediaItem]) -> some View {
@@ -2591,7 +2600,7 @@ struct VideoCollectionView: View {
                   glyph: .play, variant: .solid, size: 24)
         }
         .buttonStyle(LuminaMediaActionStyle(primary: true))
-        .disabled(isPreparingPlayback)
+        .disabled(isPreparingPlayback || isLoading || isLoadingSelectedSeason)
         .accessibilityIdentifier("playButton")
 
         NativeWatchlistButton(item: item, store: store)
@@ -2601,7 +2610,7 @@ struct VideoCollectionView: View {
 
     private func episodeLink(_ episode: MediaItem) -> some View {
         Group {
-            if isEpisodeFocusedSeries {
+            if isSeriesCollection {
                 Button { selectedEpisodeID = episode.id } label: {
                     episodeCard(episode, selected: episode.id == selectedEpisodeID)
                 }
@@ -2690,8 +2699,18 @@ struct VideoCollectionView: View {
         detailItem = try? await store.loadItem(item)
         do {
             children = try await store.loadChildren(of: item)
-            if isEpisodeFocusedSeries, let season = children.first(where: { $0.id == selectedSeasonID }) {
-                await selectSeason(season)
+            if isSeriesCollection {
+                let resume = store.resumeItems.first {
+                    $0.type == "Episode" && $0.seriesID == item.id && $0.userData?.played != true
+                }
+                if let season = children.first(where: { $0.id == selectedSeasonID })
+                    ?? children.first(where: { $0.id == resume?.seasonID })
+                    ?? children.first {
+                    if selectedEpisodeID == nil, season.id == resume?.seasonID {
+                        selectedEpisodeID = resume?.id
+                    }
+                    await selectSeason(season)
+                }
             }
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "This collection could not load. Check your connection and try again."
@@ -2722,7 +2741,7 @@ struct VideoCollectionView: View {
     private var initialEpisodeSectionID: String { "initial-episode-section" }
 
     private func positionInitialEpisode(using proxy: ScrollViewProxy) {
-        guard isEpisodeFocusedSeries, !hasPositionedInitialEpisode,
+        guard isSeriesCollection, initialEpisodeID != nil, !hasPositionedInitialEpisode,
               let selectedEpisodeID,
               selectedSeasonEpisodes.contains(where: { $0.id == selectedEpisodeID }) else { return }
         hasPositionedInitialEpisode = true
@@ -2732,7 +2751,7 @@ struct VideoCollectionView: View {
     }
 
     private func centerInitialEpisode(using proxy: ScrollViewProxy) {
-        guard isEpisodeFocusedSeries, !hasCenteredInitialEpisode,
+        guard isSeriesCollection, initialEpisodeID != nil, !hasCenteredInitialEpisode,
               let selectedEpisodeID,
               selectedSeasonEpisodes.contains(where: { $0.id == selectedEpisodeID }) else { return }
         hasCenteredInitialEpisode = true
@@ -2757,7 +2776,7 @@ struct VideoCollectionView: View {
     }
 
     private func playableEpisode() async throws -> MediaItem {
-        if isEpisodeFocusedSeries,
+        if isSeriesCollection,
            let selectedEpisode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
             return selectedEpisode
         }
@@ -3306,21 +3325,65 @@ private struct VideoPosterWall: View {
     @ScaledMetric(relativeTo: .body) private var posterGap: CGFloat = 10
     @State private var availableWidth: CGFloat = 0
     @State private var lastVisibleItemID: String?
+    @State private var preparedItems: [MediaItem]
+    @State private var artworkPreparationTask: Task<Void, Never>?
+
+    init(items: [MediaItem], store: LuminaStore) {
+        self.items = items
+        self.store = store
+        let firstScreen = items.prefix(36).compactMap { store.imageURL(for: $0) }
+        _preparedItems = State(initialValue: firstScreen.allSatisfy {
+            ArtworkImageCache.shared.cachedImage(for: $0) != nil
+        } ? items : [])
+    }
 
     var body: some View {
-        wall(width: availableWidth)
+        Group {
+            if !items.isEmpty && (preparedItems.isEmpty || !retainsPreparedPrefix) {
+                LibraryLoadingView()
+            } else {
+                wall(width: availableWidth)
+            }
+        }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .onChange(of: items, initial: true) { _, items in
+                artworkPreparationTask?.cancel()
+                let previous = Set(preparedItems.compactMap { store.imageURL(for: $0) })
+                let urls = Array(items.compactMap { store.imageURL(for: $0) }
+                    .filter { !previous.contains($0) }.prefix(36))
+                // Keep staging alive across a transient NavigationStack disappearance.
+                // A new item set cancels this work before it can publish an old wall.
+                artworkPreparationTask = Task {
+                    await withTaskGroup(of: Void.self) { group in
+                        for url in urls {
+                            group.addTask { _ = await ArtworkImageCache.shared.image(for: url) }
+                        }
+                    }
+                    guard !Task.isCancelled else { return }
+                    preparedItems = items
+                }
+            }
+            #if LUMINA_UI_TESTING
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("libraryArtworkReadiness")
+            .accessibilityValue("ready=\(preparedItems.count) total=\(items.count)")
+            #endif
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
             .task(id: lastVisibleItemID, priority: .utility) {
                 await store.prefetchArtwork(after: lastVisibleItemID, in: items)
             }
     }
 
+    private var retainsPreparedPrefix: Bool {
+        preparedItems.count <= items.count
+            && zip(items, preparedItems).allSatisfy { $0.id == $1.id }
+    }
+
     @ViewBuilder
     private func wall(width: CGFloat) -> some View {
         if dynamicTypeSize.isAccessibilitySize {
             LazyVStack(alignment: .leading, spacing: posterGap) {
-                ForEach(items) { item in
+                ForEach(preparedItems) { item in
                     posterLink(item)
                         .frame(width: min(width, 220), alignment: .leading)
                 }
@@ -3331,7 +3394,7 @@ private struct VideoPosterWall: View {
                 alignment: .leading,
                 spacing: posterGap
             ) {
-                ForEach(items) { item in
+                ForEach(preparedItems) { item in
                     posterLink(item)
                 }
             }

@@ -222,6 +222,12 @@ final class NativeDeviceSettingsRouteTests: NativeProofJourney {
 }
 #if os(iOS)
 @MainActor
+final class NativeLibraryWarmReturnTests: NativeProofJourney {
+    func testLibraryTabReturnsToRetainedRootsAndClearsArtworkCache() throws {
+        try journeyNativeLibraryWarmReturn()
+    }
+}
+@MainActor
 final class NativeEpisodeShowContextTests: NativeProofJourney {
     func testSelectingEpisodeReturnsToItsShowWithTheEpisodeSelected() async throws {
         try await journeyEpisodeSelectionReturnsToShowContext()
@@ -1561,9 +1567,7 @@ class NativeProofJourney: XCTestCase {
             try activate(element("libraryItem-\(fixture.showID)"))
             try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "show seasons")
             let collection = element("videoCollectionScreen")
-            let season = element("videoSeason-\(fixture.seasonID)")
-            try revealDetailElement(season, in: collection, named: "season", requiresHittable: true)
-            try activate(season)
+            try selectCollectionSeason(fixture.seasonID)
             let play = element("playButton")
             try revealDetailElement(play, in: collection, named: "season play", requiresHittable: true)
             try activate(play)
@@ -3189,6 +3193,160 @@ class NativeProofJourney: XCTestCase {
         completed = true
     }
 
+    #if os(iOS)
+    /// Verifies the tab-selection path rather than the Back path: returning to
+    /// Library must reveal its retained catalog immediately, while a new Home
+    /// Browse selection can still deliberately choose a different category.
+    func journeyNativeLibraryWarmReturn() throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        guard UIDevice.current.userInterfaceIdiom != .pad else {
+            throw XCTSkip("iPad uses its unified category navigation instead of the native Library tab.")
+        }
+
+        try selectHomeLibraryCategory("movies", screen: "libraryScreen")
+        let moviesRoot = element("libraryScreen")
+        let movieCards = application!.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "libraryItem-"))
+        try waitForExistence(movieCards.firstMatch, timeout: 25, named: "prepared Movies cards before deep scroll")
+        for _ in 0..<4 {
+            try scrollLibrary(moviesRoot, up: true)
+        }
+        let movieViewport = moviesRoot.frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 2)
+        let movie = try XCTUnwrap(
+            application!.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH %@", "libraryItem-"))
+                .allElementsBoundByIndex.first { candidate in
+                    self.isFullyVerticallyContained(candidate.frame, in: movieViewport) && candidate.isHittable
+                },
+            "A deeply scrolled Movies root must expose a fully visible public title card."
+        )
+        let movieIdentifier = movie.identifier
+        let movieRootFrame = movie.frame
+        try attachFrame(named: "Movies Library root before detail")
+        try activate(movie)
+        try waitForExistence(element("detailScreen"), timeout: 20, named: "movie detail")
+        try attachFrame(named: "Movie detail before Library tab return")
+
+        let libraryTab = destinationControl("Library")
+        try waitForHittable(libraryTab, timeout: 15, named: "Library tab from movie detail")
+        try activate(libraryTab)
+        try waitForExistence(element("libraryScreen"), timeout: 15, named: "Movies Library after tab return")
+        let returnedMovie = element(movieIdentifier)
+        try waitForHittable(returnedMovie, timeout: 15, named: "returned deeply scrolled Movies fixture")
+        XCTAssertFalse(hasVisibleFrame(element("detailScreen")),
+                       "Selecting Library from a movie detail must return to the catalog root, not leave the detail active.")
+        XCTAssertEqual(returnedMovie.frame.midY, movieRootFrame.midY, accuracy: 8,
+                       "Library tab return must retain the visible Movies catalog position.")
+        try waitForPreparedLibraryArtwork()
+        try attachFrame(named: "Movies Library root after tab return")
+
+        // Re-enter the same category through Home's visible category chooser
+        // (Browse on compact phones, the category row on wider iPhones). This
+        // intentionally resets only any Library path; the already mounted
+        // Movies root and its visible item must remain usable.
+        try selectHomeLibraryCategory("movies", screen: "libraryScreen")
+        let reenteredMovie = element(movieIdentifier)
+        try waitForHittable(reenteredMovie, timeout: 15, named: "re-entered deeply scrolled Movies fixture")
+        XCTAssertEqual(reenteredMovie.frame.midY, movieRootFrame.midY, accuracy: 8,
+                       "Home Browse must not reconstruct the retained Movies root when reopening its category.")
+        try waitForPreparedLibraryArtwork()
+        try attachFrame(named: "Movies Library retained through Home Browse")
+
+        try selectHomeLibraryCategory("tv", screen: "libraryScreen")
+        let videoOptions = element("videoOptionsMenu")
+        try waitForHittable(videoOptions, timeout: 15, named: "TV library options")
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            self.accessibilityText(self.element("videoOptionsMenu")).localizedCaseInsensitiveContains("shows")
+        }, "Selecting TV from Home Browse must configure the visible Library query for Shows before revealing a card.")
+        try waitForPreparedLibraryArtwork()
+        let show = try revealLibraryItem(id: fixture.showID, named: "visible TV show fixture")
+        let showRootFrame = show.frame
+        try attachFrame(named: "TV Library root before show detail")
+        try activate(show)
+        try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "TV show detail")
+        try attachFrame(named: "TV show detail before Library tab return")
+
+        try waitForHittable(libraryTab, timeout: 15, named: "Library tab from TV show detail")
+        try activate(libraryTab)
+        try waitForExistence(element("libraryScreen"), timeout: 15, named: "TV Library after tab return")
+        let returnedShow = try revealLibraryItem(id: fixture.showID, named: "returned TV show fixture")
+        XCTAssertFalse(hasVisibleFrame(element("videoCollectionScreen")),
+                       "Selecting Library from a TV show must return to the TV catalog root, not leave the collection active.")
+        XCTAssertEqual(returnedShow.frame.midY, showRootFrame.midY, accuracy: 8,
+                       "Library tab return must retain the visible TV catalog position.")
+        try waitForPreparedLibraryArtwork()
+        try attachFrame(named: "TV Library root after tab return")
+
+        try openDeviceSettings()
+        let search = element("settingsSearchField")
+        try replaceText(search, with: "artwork cache")
+        let usage = element("deviceArtworkCacheUsage")
+        let clear = element("deviceClearArtworkCacheButton")
+        try waitForExistence(usage, timeout: 15, named: "Artwork cache usage")
+        try waitForExistence(clear, timeout: 15, named: "Artwork cache clear control")
+        try revealInLibraryViewport([usage, clear], in: element("accountScreen"))
+        try waitForHittable(clear, timeout: 15, named: "Clear artwork cache")
+        XCTAssertTrue(waitUntil(timeout: 15) {
+            !self.artworkCacheUsageReportsZero(self.element("deviceArtworkCacheUsage"))
+        }, "Browsing the prepared Library roots must retain artwork on disk before clearing it.")
+        try attachFrame(named: "Artwork cache before clearing")
+        try activate(clear)
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            !self.element("deviceClearArtworkCacheButton").isEnabled
+                || self.artworkCacheUsageReportsZero(self.element("deviceArtworkCacheUsage"))
+        }, "Artwork cache clear must either disable while deleting or finish with zero usage.")
+        XCTAssertTrue(waitUntil(timeout: 15) {
+            self.artworkCacheUsageReportsZero(self.element("deviceArtworkCacheUsage"))
+        }, "Clearing artwork cache must report zero retained artwork bytes.")
+        XCTAssertTrue(waitUntil(timeout: 10) { self.element("deviceClearArtworkCacheButton").isEnabled },
+                      "Artwork cache clear control must re-enable after its asynchronous deletion completes.")
+        try attachFrame(named: "Artwork cache cleared")
+        completed = true
+    }
+
+    private func artworkCacheUsageReportsZero(_ usage: XCUIElement) -> Bool {
+        let text = accessibilityText(usage).lowercased()
+        return text.range(of: #"\b0\s*bytes?\b"#, options: .regularExpression) != nil
+    }
+
+    private func selectHomeLibraryCategory(_ category: String, screen: String) throws {
+        try selectDestination("Home", screen: "homeScreen")
+        let compactBrowse = element("compactBrowseMenu")
+        if hasVisibleFrame(compactBrowse) {
+            try waitForHittable(compactBrowse, timeout: 15, named: "Home Browse for \(category)")
+            try activate(compactBrowse)
+            try activate(element("compactCategory-\(category)"))
+        } else {
+            let categoryRow = element("homeBrowse-\(category)")
+            try waitForHittable(categoryRow, timeout: 20, named: "Home \(category) category")
+            try activate(categoryRow)
+        }
+        try waitForExistence(element(screen), timeout: 20, named: "\(category) Library root")
+    }
+
+    private func waitForPreparedLibraryArtwork() throws {
+        let readiness = element("libraryArtworkReadiness")
+        try waitForExistence(readiness, timeout: 20, named: "prepared Library artwork")
+        XCTAssertTrue(waitUntil(timeout: 30) {
+            guard let progress = self.libraryArtworkReadiness(readiness) else { return false }
+            return progress.ready == progress.total && progress.total > 0
+        }, "A retained Library return must expose fully prepared artwork before its root is presented.")
+    }
+
+    private func libraryArtworkReadiness(_ readiness: XCUIElement) -> (ready: Int, total: Int)? {
+        let text = accessibilityText(readiness)
+        let expression = #"ready=(\d+)\s+total=(\d+)"#
+        guard let match = text.range(of: expression, options: .regularExpression) else { return nil }
+        let values = text[match].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+        guard values.count == 2 else { return nil }
+        return (values[0], values[1])
+    }
+    #endif
+
     private func openDeviceSettings() throws {
         #if os(iOS)
         try selectDestination("Account", screen: "accountScreen")
@@ -4390,14 +4548,7 @@ class NativeProofJourney: XCTestCase {
             try waitForPerformanceContainer(element("videoCollectionScreen"), timeout: 25, named: "show seasons")
             try await performanceQuietPhase("show_detail_idle")
             #if os(iOS)
-            let season = element("videoSeason-\(fixture.seasonID)")
-            try revealDetailElement(
-                season,
-                in: element("videoCollectionScreen"),
-                named: "show season",
-                requiresHittable: true
-            )
-            try activate(season)
+            try selectCollectionSeason(fixture.seasonID)
             let episode = element("videoEpisode-\(fixture.episodeID)")
             try revealDetailElement(
                 episode,
@@ -4866,9 +5017,7 @@ class NativeProofJourney: XCTestCase {
         try activate(show)
         let collection = element("videoCollectionScreen")
         try waitForExistence(collection, timeout: 20, named: "show collection")
-        let season = element("videoSeason-\(fixture.seasonID)")
-        try revealDetailElement(season, in: collection, named: "first season", requiresHittable: true)
-        try activate(season)
+        try selectCollectionSeason(fixture.seasonID)
         let selectedEpisode = element("videoEpisode-\(fixture.secondEpisodeID)")
         try revealDetailElement(selectedEpisode, in: collection, named: "direct episode", requiresHittable: true)
         try activate(selectedEpisode)
@@ -4903,9 +5052,9 @@ class NativeProofJourney: XCTestCase {
         cancelledStart.press(forDuration: 0.05, thenDragTo: cancelledEnd)
         try waitForExistence(collection, timeout: 15, named: "collection after cancelled leading-edge Back")
 
-        try completeStandardPhoneFocusedEpisodeBack(
-            in: collection,
-            selectedEpisodeID: fixture.secondEpisodeID,
+        try performStandardPhoneLeadingEdgeBack(
+            from: collection,
+            to: element("libraryScreen"),
             named: "episode collection"
         )
         XCTAssertFalse(element("detailScreen").exists,
@@ -5003,9 +5152,7 @@ class NativeProofJourney: XCTestCase {
             try assertStandardPhonePushedChrome(collection, named: "show collection in \(appearance) appearance")
             try attachFrame(named: "Standard iPhone \(appearance) show hero")
 
-            let season = element("videoSeason-\(fixture.seasonID)")
-            try revealDetailElement(season, in: collection, named: "season in \(appearance) appearance", requiresHittable: true)
-            try activate(season)
+            try selectCollectionSeason(fixture.seasonID)
             let episode = element("videoEpisode-\(fixture.secondEpisodeID)")
             try revealDetailElement(episode, in: collection, named: "selected episode in \(appearance) appearance", requiresHittable: true)
             try activate(episode)
@@ -5069,9 +5216,7 @@ class NativeProofJourney: XCTestCase {
         let collection = element("videoCollectionScreen")
         try waitForExistence(collection, timeout: 20, named: "show collection")
 
-        let season = element("videoSeason-\(fixture.seasonID)")
-        try revealDetailElement(season, in: collection, named: "first season", requiresHittable: true)
-        try activate(season)
+        try selectCollectionSeason(fixture.seasonID)
         let selectedEpisode = element("videoEpisode-\(fixture.secondEpisodeID)")
         try revealDetailElement(selectedEpisode, in: collection, named: "episode to open in its show", requiresHittable: true)
         try activate(selectedEpisode)
@@ -5086,7 +5231,7 @@ class NativeProofJourney: XCTestCase {
         }, "Opening an episode must show its selected card without manual scrolling.")
         XCTAssertTrue(accessibilityText(episodeTitle).contains(fixture.secondEpisodeTitle),
                       "The show header must identify the episode that was selected.")
-        XCTAssertTrue(waitUntil(timeout: 10) { (self.element("videoSeason-\(fixture.seasonID)").value as? String) == "Selected" },
+        XCTAssertTrue(waitUntil(timeout: 10) { (self.element("videoSeasonSelector").value as? String) == "Season 1" },
                       "The episode's season must remain selected in the show.")
         XCTAssertTrue(waitUntil(timeout: 10) { (self.element("videoEpisode-\(fixture.secondEpisodeID)").value as? String) == "Selected" },
                       "The episode selected before navigation must remain selected in its show.")
@@ -5094,18 +5239,19 @@ class NativeProofJourney: XCTestCase {
         try attachFrame(named: "iOS selected episode in parent show")
 
         let otherSeasonID = try XCTUnwrap(fixture.secondSeasonID, "Generate the second synthetic show season.")
-        let otherSeason = element("videoSeason-\(otherSeasonID)")
-        try revealDetailElement(otherSeason, in: collection, named: "another show season", requiresHittable: true)
-        try activate(otherSeason)
+        XCTAssertFalse(element("seasonArtwork-\(fixture.seasonID)").exists,
+                       "The season dropdown must replace season poster cards.")
+        try selectCollectionSeason(otherSeasonID, named: "Season 2")
+        try attachFrame(named: "Season dropdown showing second season episodes")
         let otherEpisodeID = try XCTUnwrap(fixture.secondSeasonEpisodeID, "Generate the second synthetic season episode.")
         let otherEpisode = element("videoEpisode-\(otherEpisodeID)")
         try revealDetailElement(otherEpisode, in: collection, named: "episode in another show season", requiresHittable: true)
         XCTAssertTrue(waitUntil(timeout: 10) {
-            (self.element("videoSeason-\(otherSeasonID)").value as? String) == "Selected"
+            (self.element("videoSeasonSelector").value as? String) == "Season 2"
                 && (self.element("videoEpisode-\(otherEpisodeID)").value as? String) == "Selected"
         }, "Switching seasons must retain the show and expose that season's selected episode.")
 
-        try activate(season)
+        try selectCollectionSeason(fixture.seasonID)
 
         let siblingEpisode = element("videoEpisode-\(fixture.episodeID)")
         try revealDetailElement(siblingEpisode, in: collection, named: "another episode in the selected season", requiresHittable: true)
@@ -5148,14 +5294,28 @@ class NativeProofJourney: XCTestCase {
         cancelledEdgeStart.press(forDuration: 0.05, thenDragTo: cancelledEdgeEnd)
         try waitForExistence(collection, timeout: 15, named: "collection after cancelled leading-edge Back")
 
-        try completeStandardPhoneFocusedEpisodeBack(
-            in: collection,
-            selectedEpisodeID: fixture.episodeID,
+        try performStandardPhoneLeadingEdgeBack(
+            from: collection,
+            to: element("libraryScreen"),
             named: "focused show collection"
         )
         XCTAssertFalse(element("detailScreen").exists,
                        "Leading-edge Back from the focused show collection must not open an episode detail.")
         completed = true
+    }
+
+    private func selectCollectionSeason(_ seasonID: String, named seasonName: String = "Season 1") throws {
+        let selector = element("videoSeasonSelector")
+        try revealDetailElement(selector, in: element("videoCollectionScreen"),
+                                named: "season dropdown", requiresHittable: true)
+        try activate(selector)
+        let identifiedOption = element("videoSeason-\(seasonID)")
+        let option = identifiedOption.exists ? identifiedOption : application!.buttons[seasonName]
+        try waitForHittable(option, timeout: 10, named: "season menu option")
+        try attachFrame(named: "Season dropdown options")
+        try activate(option)
+        XCTAssertTrue(waitUntil(timeout: 15) { selector.isEnabled },
+                      "Selecting a season must finish loading its episode carousel.")
     }
 
     private func assertStandardPhoneCollectionHeader(
@@ -5262,24 +5422,6 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(destination, timeout: 15, named: "destination after \(name) leading-edge Back")
     }
 
-    private func completeStandardPhoneFocusedEpisodeBack(
-        in collection: XCUIElement,
-        selectedEpisodeID: String,
-        named name: String
-    ) throws {
-        try assertStandardPhonePushedChrome(collection, named: name)
-        try performStandardPhoneEdgeGesture(named: name)
-
-        let selectedEpisodeTitle = element("collectionEpisodeTitle")
-        XCTAssertTrue(waitUntil(timeout: 15) {
-            self.hasVisibleFrame(collection) && !selectedEpisodeTitle.exists
-        }, "A completed leading-edge swipe must return from the focused episode collection to its immediate prior collection.")
-        XCTAssertNotEqual(
-            element("videoEpisode-\(selectedEpisodeID)").value as? String,
-            "Selected",
-            "The immediate prior collection must not retain the popped focused-episode selection."
-        )
-    }
     #endif
 
     func journeyNativeEpisodeSkipActionsAndNextEpisode() async throws {
@@ -5314,7 +5456,7 @@ class NativeProofJourney: XCTestCase {
                              named: "inline show season selector")
         let firstEpisode = element("videoCollectionItem-\(fixture.episodeID)")
         #else
-        try activate(element("videoSeason-\(fixture.seasonID)"))
+        try selectCollectionSeason(fixture.seasonID)
         let firstEpisode = element("videoEpisode-\(fixture.episodeID)")
         #endif
         try waitForHittable(firstEpisode, timeout: 20, named: "first episode for playback actions")
@@ -5633,9 +5775,7 @@ class NativeProofJourney: XCTestCase {
         try attachFrame(named: "Full-page show artwork before revealing seasons")
         let revealSeasons = element("collectionSeasonsButton")
         try activate(revealSeasons)
-        let season = element("videoSeason-\(fixture.seasonID)")
-        try revealDetailElement(season, in: collection, named: "season", requiresHittable: true)
-        try activate(season)
+        try selectCollectionSeason(fixture.seasonID)
         let episode = element("videoEpisode-\(fixture.episodeID)")
         try revealDetailElement(episode, in: collection, named: "episode", requiresHittable: true)
         try activate(episode)
@@ -6354,6 +6494,20 @@ class NativeProofJourney: XCTestCase {
             let hasRequiredVisibility = requiresHittable
                 ? isFullyVerticallyContained(frame, in: viewport)
                 : !visible.isNull && visible.height >= min(44, frame.height)
+            if element.identifier.hasPrefix("videoEpisode-"), hasRequiredVisibility,
+               frame.minX < viewport.minX || frame.maxX > viewport.maxX {
+                let swipeLeft = frame.midX > viewport.midX
+                let start = detail.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                    dx: viewport.width * (swipeLeft ? 0.8 : 0.2) + viewport.minX - detail.frame.minX,
+                    dy: visible.midY - detail.frame.minY
+                ))
+                let end = detail.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                    dx: viewport.width * (swipeLeft ? 0.2 : 0.8) + viewport.minX - detail.frame.minX,
+                    dy: visible.midY - detail.frame.minY
+                ))
+                start.press(forDuration: 0.05, thenDragTo: end)
+                continue
+            }
             if hasRequiredVisibility, element.isEnabled,
                (!requiresHittable || (hasVisibleFrame(element) && element.isHittable)) {
                 return
@@ -7058,8 +7212,8 @@ class NativeProofJourney: XCTestCase {
         let library = element("libraryScreen")
         try waitForExistence(library, timeout: 15, named: "library containing \(name)")
         for _ in 0..<8 {
-            if item.exists {
-                try revealInLibraryViewport([item])
+            let viewport = library.frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 2)
+            if item.exists, isFullyVerticallyContained(item.frame, in: viewport) {
                 return item
             }
             try scrollLibrary(library, up: true)

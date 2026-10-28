@@ -284,6 +284,21 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertFalse(store.hasMore)
         await store.loadMore()
         XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items" }.count, 3)
+        await store.loadLibrary()
+        XCTAssertEqual(store.items.map(\.id), ["movie-1", "movie-2"],
+                       "Returning to Library must retain all loaded pages instead of replacing the wall with page one.")
+        XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items" }.count, 3,
+                       "A warm Library return must not wait for another catalog request.")
+        await store.loadLibrary(kind: .movies)
+        await store.loadLibrary()
+        XCTAssertEqual(store.items.map(\.id), ["movie-1", "movie-2"],
+                       "Switching categories and back must restore the complete wall and pagination cursor.")
+        XCTAssertFalse(store.hasMore)
+        XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items" }.count, 4)
+        await store.loadLibrary(forceRefresh: true)
+        XCTAssertEqual(store.items.map(\.id), ["movie-1"], "Explicit refresh must still query the server.")
+        XCTAssertTrue(store.hasMore)
+        XCTAssertEqual(requests.all.filter { $0.url?.path == "/Items" }.count, 5)
     }
 
     func testTechnicalMovieFiltersCarryAcrossLibraryPagingAndAlphabetIndex() async throws {
@@ -647,6 +662,37 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(store.errorMessage, "The server returned HTTP 404 (not found). Check the server address and that Apps like Infuse is enabled in Lumina Settings.")
     }
 
+    func testCurrentLibraryLoadSurvivesAppearanceTaskCancellation() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "test-token",
+            userID: "one", username: "One", serverName: "Lumina", deviceID: "fixture")
+        let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        HomeDelayedURLProtocol.handler = { request in
+            if request.url?.path == "/Users/Me" { return response(request, json: ["Id": "one", "Name": "One"]) }
+            return response(request, json: page(items: []))
+        }
+        await store.restore()
+        let started = expectation(description: "The current Library query reached transport")
+        started.assertForOverFulfill = true
+        HomeDelayedURLProtocol.handler = { request in
+            response(request, json: page(items: [["Id": "current-library", "Name": "Current", "Type": "Movie"]]))
+        }
+        HomeDelayedURLProtocol.delay = { request in request.url?.path == "/Items" ? 0.15 : 0 }
+        HomeDelayedURLProtocol.onStart = { request in
+            if request.url?.path == "/Items" { started.fulfill() }
+        }
+        let appearance = Task { await store.loadLibrary(search: "current") }
+        await fulfillment(of: [started], timeout: 2)
+        let reappearance = Task { await store.loadLibrary(search: "current") }
+        await Task.yield()
+        appearance.cancel()
+        await appearance.value
+        await reappearance.value
+        XCTAssertEqual(store.items.map(\.id), ["current-library"],
+                       "A navigation transition may cancel a view's appearance task, but its still-current Library query must finish.")
+        XCTAssertFalse(store.isBusy)
+        XCTAssertNil(store.errorMessage)
+    }
+
     func testNewLibraryQueryCancelsTheObsoleteTransportAndPublishesOnlyTheLatestPage() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token",
             userID: "user-1", username: "Member", serverName: "Lumina", deviceID: "fixture")
@@ -687,9 +733,13 @@ final class LuminaCoreTests: XCTestCase {
         let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: credentials)
         HomeDelayedURLProtocol.handler = { @Sendable request in
             if request.url?.path == "/Users/Me" { return response(request, json: ["Id": "one", "Name": "One"]) }
+            if request.url?.path == "/Items" {
+                return response(request, json: page(items: [["Id": "retained-one", "Name": "Retained", "Type": "Movie"]]))
+            }
             return response(request, json: page(items: []))
         }
         await store.restore()
+        XCTAssertEqual(store.items.map(\.id), ["retained-one"])
         let started = expectation(description: "First member search reached transport")
         HomeDelayedURLProtocol.handler = { @Sendable request in
             response(request, json: page(items: [["Id": "private-one", "Name": "Private", "Type": "Movie"]]))
@@ -706,12 +756,18 @@ final class LuminaCoreTests: XCTestCase {
         await store.restore()
         await loading.value
         XCTAssertEqual(store.session?.userID, "two")
-        XCTAssertTrue(store.items.isEmpty, "A prior member's in-flight page must not publish under the new member")
+        XCTAssertTrue(store.items.isEmpty, "A prior member's retained pages and in-flight page must not appear under the new member")
     }
 
     func testNewHomeLoadCancelsTheObsoleteShelfRequests() async throws {
         let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
+        func awaitTransportCancellations(_ expected: Int) async {
+            let deadline = Date().addingTimeInterval(2)
+            while HomeDelayedURLProtocol.cancelledRequests < expected, Date() < deadline {
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+        }
         let counts = PathCounter()
         HomeDelayedURLProtocol.handler = { request in
             let sort = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "SortBy" }?.value
@@ -742,6 +798,7 @@ final class LuminaCoreTests: XCTestCase {
         await current.value
         await obsolete.value
 
+        await awaitTransportCancellations(3)
         XCTAssertGreaterThanOrEqual(HomeDelayedURLProtocol.cancelledRequests, 3)
         XCTAssertEqual(store.recentItems.map(\.id), ["current-recent"])
         XCTAssertEqual(store.resumeItems.map(\.id), ["current-resume"])
@@ -760,6 +817,7 @@ final class LuminaCoreTests: XCTestCase {
         await cancelledStarts.waitForThree()
         cancelled.cancel()
         await cancelled.value
+        await awaitTransportCancellations(6)
         XCTAssertGreaterThanOrEqual(HomeDelayedURLProtocol.cancelledRequests, 6)
         XCTAssertFalse(store.isHomeBusy)
     }

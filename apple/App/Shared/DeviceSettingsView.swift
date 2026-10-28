@@ -14,6 +14,8 @@ struct DeviceSettingsView: View {
     @AppStorage("native.video.subtitleAppearance") private var subtitleStyleData = ""
     @Bindable private var preferences: NativePlaybackPreferences
     @State private var licensesPresented = false
+    @State private var artworkCacheUsageBytes = 0
+    @State private var isClearingArtworkCache = false
     @FocusState private var qualityFocused: Bool
 
     init(store: LuminaStore, onSignOut: (() -> Void)? = nil, onClose: (() -> Void)? = nil, embedded: Bool = false, query: String = "") {
@@ -53,6 +55,7 @@ struct DeviceSettingsView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("deviceSettingsScreen")
+        .task { await refreshArtworkCacheUsage() }
         .sheet(isPresented: $licensesPresented) {
             PlaybackLicensesView().accessibilityIdentifier("deviceLicensesSheet")
         }
@@ -101,15 +104,24 @@ struct DeviceSettingsView: View {
                     VideoGestureSettingsView(preferences: preferences)
                 }
             }
-            if matches("downloads storage offline music movies episodes video") {
+            if matches("downloads storage offline music movies episodes video") || matches("cache artwork posters storage") {
                 LuminaSettingsSection("Storage") {
-                    NavigationLink {
-                        NativeOfflineLibraryView(store: store)
-                    } label: {
-                        LuminaSettingsActionLabel("Downloads", glyph: .download)
+                    if matches("downloads storage offline music movies episodes video") {
+                        NavigationLink {
+                            NativeOfflineLibraryView(store: store)
+                        } label: {
+                            LuminaSettingsActionLabel("Downloads", glyph: .download)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("deviceDownloadsButton")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("deviceDownloadsButton")
+                    if matches("cache artwork posters storage") {
+                        ArtworkCacheSettings(
+                            usageBytes: artworkCacheUsageBytes,
+                            isClearing: isClearingArtworkCache,
+                            clear: clearArtworkCache
+                        )
+                    }
                 }
             }
             if !embedded {
@@ -134,6 +146,20 @@ struct DeviceSettingsView: View {
             keywords.localizedCaseInsensitiveContains(String($0))
         }
     }
+
+    private func refreshArtworkCacheUsage() async {
+        artworkCacheUsageBytes = await ArtworkImageCache.shared.diskUsageBytes()
+    }
+
+    private func clearArtworkCache() {
+        guard !isClearingArtworkCache else { return }
+        isClearingArtworkCache = true
+        Task {
+            defer { isClearingArtworkCache = false }
+            await ArtworkImageCache.shared.clearAllArtwork()
+            await refreshArtworkCacheUsage()
+        }
+    }
     #endif
 
     /// Playback can change this same preference while the settings view is open.
@@ -151,6 +177,38 @@ struct DeviceSettingsView: View {
 }
 
 #if os(iOS)
+private struct ArtworkCacheSettings: View {
+    let usageBytes: Int
+    let isClearing: Bool
+    let clear: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                Text("Artwork cache")
+                Spacer(minLength: 12)
+                Text(usageBytes == 0 ? "0 bytes" : ByteCountFormatter.string(fromByteCount: Int64(usageBytes), countStyle: .file))
+                    .fontWeight(.medium)
+                    .accessibilityIdentifier("deviceArtworkCacheUsage")
+            }
+            .frame(minHeight: 44)
+            Text("Stores up to 2 GB of artwork on this device. Cleared images download again when needed.")
+                .font(.subheadline)
+                .foregroundStyle(LuminaTheme.muted)
+            Button(action: clear) {
+                LuminaSettingsActionLabel(
+                    isClearing ? "Clearing artwork cache…" : "Clear artwork cache",
+                    glyph: .trash,
+                    trailingGlyph: nil
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isClearing)
+            .accessibilityIdentifier("deviceClearArtworkCacheButton")
+        }
+    }
+}
+
 struct LuminaSettingsSection<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
@@ -453,6 +511,8 @@ private struct TVDeviceSettingsView: View {
     @Binding private var subtitleStyle: VideoSubtitleStyle
     @State private var category: TVDeviceSettingsCategory = .playback
     @State private var path = [TVDeviceSettingsRoute]()
+    @State private var artworkCacheUsageBytes = 0
+    @State private var isClearingArtworkCache = false
     @FocusState private var focusedCategory: TVDeviceSettingsCategory?
 
     init(
@@ -506,6 +566,7 @@ private struct TVDeviceSettingsView: View {
             if path.isEmpty { onClose?() }
             else { path.removeLast() }
         }
+        .task { await refreshArtworkCacheUsage() }
     }
 
     private var categoryNavigation: some View {
@@ -575,13 +636,31 @@ private struct TVDeviceSettingsView: View {
         case .storage:
             TVDeviceSettingsSection(
                 title: "Storage",
-                detail: "Downloads saved on this Apple TV are available when the server is unavailable."
+                detail: "Downloads are available when the server is unavailable. Stores up to 2 GB of artwork on this device. Cleared images download again when needed."
             ) {
                 Button { path.append(.downloads) } label: {
                     TVDeviceSettingsRow(title: "Downloads", value: "")
                 }
                 .buttonStyle(TVDeviceSettingsRowStyle())
                 .accessibilityIdentifier("deviceDownloadsButton")
+
+                TVDeviceSettingsRow(
+                    title: "Artwork cache",
+                    value: artworkCacheUsageBytes == 0 ? "0 bytes" : ByteCountFormatter.string(fromByteCount: Int64(artworkCacheUsageBytes), countStyle: .file),
+                    showsDisclosure: false
+                )
+                .accessibilityIdentifier("deviceArtworkCacheUsage")
+
+                Button(action: clearArtworkCache) {
+                    TVDeviceSettingsRow(
+                        title: isClearingArtworkCache ? "Clearing artwork cache…" : "Clear artwork cache",
+                        value: "",
+                        showsDisclosure: false
+                    )
+                }
+                .buttonStyle(TVDeviceSettingsRowStyle(destructive: true))
+                .disabled(isClearingArtworkCache)
+                .accessibilityIdentifier("deviceClearArtworkCacheButton")
             }
         case .about:
             TVDeviceSettingsSection(
@@ -706,6 +785,20 @@ private struct TVDeviceSettingsView: View {
     private func popRoute() {
         guard !path.isEmpty else { return }
         path.removeLast()
+    }
+
+    private func refreshArtworkCacheUsage() async {
+        artworkCacheUsageBytes = await ArtworkImageCache.shared.diskUsageBytes()
+    }
+
+    private func clearArtworkCache() {
+        guard !isClearingArtworkCache else { return }
+        isClearingArtworkCache = true
+        Task {
+            defer { isClearingArtworkCache = false }
+            await ArtworkImageCache.shared.clearAllArtwork()
+            await refreshArtworkCacheUsage()
+        }
     }
 
     private var qualityTitle: String {

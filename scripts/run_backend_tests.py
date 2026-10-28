@@ -58,9 +58,11 @@ def stop_owned_group(process: subprocess.Popen[object]) -> None:
     except ProcessLookupError:
         pass
     deadline = time.monotonic() + GRACE_SECONDS
-    while group_is_signalable(group) and time.monotonic() < deadline:
+    signalable = group_is_signalable(group)
+    while signalable and time.monotonic() < deadline:
         time.sleep(0.05)
-    if group_is_signalable(group):
+        signalable = group_is_signalable(group)
+    if signalable:
         try:
             os.killpg(group, signal.SIGKILL)
         except ProcessLookupError:

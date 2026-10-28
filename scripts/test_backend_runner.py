@@ -136,7 +136,7 @@ class BackendRunnerTests(unittest.TestCase):
         with mock.patch.object(
             runner.os,
             "killpg",
-            side_effect=[None, PermissionError, PermissionError],
+            side_effect=[None, PermissionError, None],
         ) as killpg:
             runner.stop_owned_group(process)
 
@@ -144,7 +144,6 @@ class BackendRunnerTests(unittest.TestCase):
             killpg.call_args_list,
             [
                 mock.call(12345, runner.signal.SIGINT),
-                mock.call(12345, 0),
                 mock.call(12345, 0),
             ],
         )
@@ -157,7 +156,7 @@ class BackendRunnerTests(unittest.TestCase):
         with mock.patch.object(
             runner.os,
             "killpg",
-            side_effect=[None, PermissionError, PermissionError],
+            side_effect=[None, PermissionError, None],
         ) as killpg:
             runner.stop_owned_group(process)
 
@@ -165,7 +164,6 @@ class BackendRunnerTests(unittest.TestCase):
             killpg.call_args_list,
             [
                 mock.call(12345, runner.signal.SIGINT),
-                mock.call(12345, 0),
                 mock.call(12345, 0),
             ],
         )

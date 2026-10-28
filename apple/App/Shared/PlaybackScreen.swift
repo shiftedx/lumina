@@ -715,8 +715,10 @@ struct PlaybackScreen: View {
         let height = max(1, geometry.size.height - top - 24)
         let columnWidth = min(520, (geometry.size.width - gutter * 2 - gap) * 0.48)
         let hasOutputStatus = audioSession.isSonos || audioSession.pendingSpeakerStop != nil || audioSession.casting.isRemoteOutput || audioSession.casting.canReturnToDevice
-        let artworkSide = max(180, min(columnWidth, height - (hasOutputStatus ? 264 : 200)))
-        return HStack(alignment: .center, spacing: gap) {
+        // Align artwork with the prominent lyrics' first line, keeping room for controls below.
+        let primaryTopInset: CGFloat = 48
+        let artworkSide = max(180, min(columnWidth, height - primaryTopInset - (hasOutputStatus ? 288 : 224)))
+        return HStack(alignment: .top, spacing: gap) {
             VStack(spacing: 12) {
                 expandedAudioArtwork(side: artworkSide)
                 audioTimeline
@@ -728,7 +730,6 @@ struct PlaybackScreen: View {
                             .allowsHitTesting(false)
                     }
                 expandedAudioTransport
-                expandedAudioRoutes
                 NativeMusicCastStatus(session: audioSession)
                     .font(.caption)
                 if audioSession.isSonos || audioSession.pendingSpeakerStop != nil {
@@ -746,9 +747,13 @@ struct PlaybackScreen: View {
                 if let error = displayedError ?? playback.syncError {
                     Text(error).font(.callout).foregroundStyle(.white)
                 }
+                Spacer(minLength: 0)
+                expandedAudioRoutes
             }
             .frame(width: artworkSide)
             .frame(width: columnWidth)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.top, primaryTopInset)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("audioPlayerPrimaryPane")
 

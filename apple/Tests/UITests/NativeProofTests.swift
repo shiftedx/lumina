@@ -1126,6 +1126,31 @@ class NativeProofJourney: XCTestCase {
             let lyricCue = menuAction(fixtureLyric)
             try waitForExistence(lyricCue, timeout: 20, named: "prominent fixture lyric")
             XCTAssertTrue(hasVisibleFrame(lyricCue))
+            try attachFrame(named: "Wide album artwork aligns with the first lyric")
+            let lyricScreenshot = try applicationWindow().screenshot().image
+            let lyricFormat = UIGraphicsImageRendererFormat()
+            lyricFormat.scale = 1
+            let lyricImage = try XCTUnwrap(UIGraphicsImageRenderer(size: viewport.size, format: lyricFormat).image { _ in
+                lyricScreenshot.draw(in: CGRect(origin: .zero, size: viewport.size))
+            }.cgImage)
+            let recognition = VNRecognizeTextRequest()
+            recognition.recognitionLevel = .accurate
+            try VNImageRequestHandler(cgImage: lyricImage, orientation: .up).perform([recognition])
+            let firstLine = try XCTUnwrap(recognition.results?.first { observation in
+                guard let text = observation.topCandidates(1).first?.string else { return false }
+                return fixtureLyric.hasPrefix(text)
+            }, "The first lyric must be readable beside the artwork.")
+            let lyricTop = viewport.minY + (1 - firstLine.boundingBox.maxY) * viewport.height
+            XCTAssertEqual(artwork.frame.minY, lyricTop, accuracy: 8,
+                           "Wide artwork and the first lyric must share a top edge while the transport stays visible.")
+            for output in [element("audioAirPlayButton"), element("musicChromecastButton")] {
+                try waitForExistence(output, timeout: 5, named: "wide audio output \(output.identifier)")
+                XCTAssertTrue(hasVisibleFrame(output))
+                for companion in [lyrics, queue] {
+                    XCTAssertEqual(output.frame.midY, companion.frame.midY, accuracy: 2,
+                                   "Wide output and companion controls must share the bottom row.")
+                }
+            }
             let primaryRight = [artwork.frame.maxX, title.frame.maxX, timeline.frame.maxX, transport.frame.maxX].max()!
             XCTAssertGreaterThan(lyricCue.frame.minX, primaryRight,
                                  "The prominent fixture lyric must occupy the right companion pane beside the primary controls.")

@@ -728,7 +728,7 @@ struct PlaybackScreen: View {
                             .allowsHitTesting(false)
                     }
                 expandedAudioTransport
-                expandedAudioOutput
+                expandedAudioRoutes
                 NativeMusicCastStatus(session: audioSession)
                     .font(.caption)
                 if audioSession.isSonos || audioSession.pendingSpeakerStop != nil {
@@ -736,6 +736,12 @@ struct PlaybackScreen: View {
                         .frame(minHeight: 44)
                         .disabled(audioSession.busy)
                         .accessibilityIdentifier("audioReturnHereButton")
+                }
+                if audioSession.pendingSpeakerStop != nil {
+                    Button("Retry stopping remote output") { Task { await audioSession.retryStoppingSpeaker() } }
+                        .frame(minHeight: 44)
+                        .disabled(audioSession.busy)
+                        .accessibilityIdentifier("audioRetryStoppingRemoteOutputButton")
                 }
                 if let error = displayedError ?? playback.syncError {
                     Text(error).font(.callout).foregroundStyle(.white)
@@ -920,25 +926,13 @@ struct PlaybackScreen: View {
         .frame(height: 64)
     }
 
-    private var expandedAudioOutput: some View {
+    private var expandedAudioRoutes: some View {
         HStack(spacing: 12) {
-            LuminaIcon(glyph: .volumeLow, size: 16).accessibilityHidden(true)
-            Slider(value: Binding(get: { expandedAudioVolume }, set: { value in
-                Task { await audioSession.setOutputVolume(value) }
-            }), in: 0...1)
-                .accessibilityLabel("Music volume")
-                .tint(LuminaTheme.brand)
-                .disabled(audioSession.busy || (audioSession.isRemoteOutput && !audioSession.casting.isRemoteOutput))
+            Spacer(minLength: 0)
             NativeMusicAirPlayButton(session: audioSession)
             NativeMusicCastButton(session: audioSession)
         }
         .frame(height: 44)
-    }
-
-    private var expandedAudioVolume: Float {
-        if audioSession.isRemoteOutput { return Float(audioSession.casting.volume) }
-        if audioSession.isSonos { return audioSession.remoteVolumeDraft ?? Float(audioSession.outputStatus?.volume ?? 50) / 100 }
-        return audioSession.volume
     }
 
     private var compactAudioStage: some View {
@@ -2155,6 +2149,10 @@ struct PlaybackScreen: View {
             .accessibilityIdentifier("audioQueueButton")
         audioPlayPauseButton
         audioRepeatButton.labelStyle(.iconOnly)
+        #if os(iOS)
+        NativeMusicAirPlayButton(session: audioSession)
+        NativeMusicCastButton(session: audioSession)
+        #endif
         Button("Stop", glyph: .stop, variant: .solid) { stopAudio() }
             .labelStyle(.iconOnly)
             .accessibilityIdentifier("audioStopButton")

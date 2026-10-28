@@ -940,8 +940,9 @@ class NativeProofJourney: XCTestCase {
         for _ in 0..<4 where !track.exists { albumScreen.swipeUp() }
         try revealInLibraryViewport([track], in: albumScreen)
         try activate(track)
-        try waitForExistence(element("detailScreen"), timeout: 20, named: "track detail")
-        let time = try startPlayback(using: "playButton")
+        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "direct track player")
+        let time = element("playbackTime")
+        try waitForExistence(time, timeout: 20, named: "audio playback time")
         let beforeBrowse = try waitForPlaybackValue(time, timeout: 15) { $0 >= 2 }
         try closePlayer()
         try selectDestination("Home", screen: "homeScreen")
@@ -1048,14 +1049,14 @@ class NativeProofJourney: XCTestCase {
         try attachFrame(named: "Audio albums with synthetic artwork")
         try activate(album)
         try waitForExistence(element("musicCollectionScreen"), timeout: 25, named: "album tracks")
-        let track = element("musicItem-\(fixture.audioTrackID)")
+        let track = element("musicItem-\(fixture.audioSecondTrackID)")
         #if os(iOS)
         let albumScreen = element("musicCollectionScreen")
         for _ in 0..<4 where !track.exists { albumScreen.swipeUp() }
         try revealInLibraryViewport([track], in: albumScreen)
         #endif
-        try waitForExistence(track, timeout: 20, named: "synthetic album track")
-        XCTAssertTrue(track.label.contains(fixture.audioTrackTitle))
+        try waitForExistence(track, timeout: 20, named: "second synthetic album track")
+        XCTAssertTrue(track.label.contains(fixture.audioSecondTrackTitle))
         try attachFrame(named: "Album track list")
         try activate(track)
         #if os(tvOS)
@@ -1067,9 +1068,32 @@ class NativeProofJourney: XCTestCase {
         let time = element("playbackTime")
         try waitForExistence(time, timeout: 20, named: "audio playback time")
         #else
-        try waitForExistence(element("detailScreen"), timeout: 20, named: "audio track detail")
-        let time = try startPlayback(using: "playButton")
+        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "direct audio player")
+        let time = element("playbackTime")
+        try waitForExistence(time, timeout: 20, named: "audio playback time")
         #endif
+        XCTAssertEqual(currentAudioTitle(), fixture.audioSecondTrackTitle,
+                       "Selecting a non-first album track must begin playback at that track.")
+        var selectedSecondTrackPublished = false
+        let selectionDeadline = Date().addingTimeInterval(20)
+        while Date() < selectionDeadline {
+            if let saved = try await api.musicJSON(identity: identity, path: "session") as? [String: Any],
+               let queue = saved["queue"] as? [[String: Any]] {
+                let ids = queue.compactMap { $0["id"] as? String }.map {
+                    $0.replacingOccurrences(of: "-", with: "").lowercased()
+                }
+                let expected = [fixture.audioTrackID, fixture.audioSecondTrackID].map {
+                    $0.replacingOccurrences(of: "-", with: "").lowercased()
+                }
+                if ids == expected, saved["current_index"] as? Int == 1 {
+                    selectedSecondTrackPublished = true
+                    break
+                }
+            }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        XCTAssertTrue(selectedSecondTrackPublished,
+                      "Direct album-track playback must preserve the full queue and publish the selected second index.")
         let initial = try waitForPlaybackValue(time, timeout: 15) { _ in true }
         _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= initial + 5 }
         #if os(iOS)
@@ -1149,17 +1173,15 @@ class NativeProofJourney: XCTestCase {
         #if os(tvOS)
         try waitForExistence(element("musicCollectionScreen"), timeout: 15, named: "album after browsing from audio")
         try waitForExistence(element("nowPlayingBar"), timeout: 15, named: "persistent now-playing bar")
-        XCTAssertTrue(element("nowPlayingBar").label.contains(fixture.audioTrackTitle))
-        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.audioTrackID, minimum: 3)
+        XCTAssertTrue(element("nowPlayingBar").label.contains(fixture.audioSecondTrackTitle))
+        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.audioSecondTrackID, minimum: 3)
         try unwindTVAudioToRoot()
         #else
-        try waitForExistence(element("detailScreen"), timeout: 15, named: "track detail after browsing from audio")
+        try waitForExistence(element("musicCollectionScreen"), timeout: 15, named: "album after closing audio")
         try waitForExistence(element("nowPlayingBar"), timeout: 15, named: "persistent now-playing bar")
-        XCTAssertTrue(element("nowPlayingBar").label.contains(fixture.audioTrackTitle))
-        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.audioTrackID, minimum: 3)
-        try activate(application!.buttons.matching(identifier: "BackButton").firstMatch)
-        try waitForExistence(element("musicCollectionScreen"), timeout: 20, named: "album after track detail")
-        try activate(application!.buttons.matching(identifier: "BackButton").firstMatch)
+        XCTAssertTrue(element("nowPlayingBar").label.contains(fixture.audioSecondTrackTitle))
+        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.audioSecondTrackID, minimum: 3)
+        try musicBack()
         try waitForExistence(element("audioScreen"), timeout: 20, named: "Audio catalog while music continues")
         #endif
         try selectDestination("Video", screen: "libraryScreen")
@@ -1168,7 +1190,7 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Audio", screen: "audioScreen")
         try activate(element("nowPlayingBar"))
         try waitForExistence(element("audioPlayerStage"), timeout: 20, named: "reopened persistent audio player")
-        XCTAssertEqual(currentAudioTitle(), fixture.audioTrackTitle)
+        XCTAssertEqual(currentAudioTitle(), fixture.audioSecondTrackTitle)
         let reopened = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
         XCTAssertGreaterThanOrEqual(reopened, beforeBrowse + 2, "Browsing destinations restarted or paused the audio session.")
         try attachFrame(named: "Persistent audio reopened after browsing Video and Audio")
@@ -1190,7 +1212,7 @@ class NativeProofJourney: XCTestCase {
               waitUntil(timeout: 15, condition: { !self.hasVisibleFrame(self.element("nowPlayingBar")) }) else {
             throw ProofFailure.ui("Explicit Stop did not dismiss playback and clear the persistent now-playing bar.")
         }
-        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.audioTrackID, minimum: 3)
+        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.audioSecondTrackID, minimum: 3)
 
         completed = true
     }
@@ -1996,27 +2018,17 @@ class NativeProofJourney: XCTestCase {
         try activate(menuAction("15 minutes"))
         XCTAssertFalse(element("audioSleepTimerButton").label.contains("Off"))
         #if os(iOS)
-        try revealMusicControl(element("audioOutput"))
-        try activate(element("audioOutput"))
-        XCTAssertTrue(waitUntil(timeout: 5, condition: {
-            let header = self.element("audioOutput")
-            return header.exists && header.value as? String == "Expanded"
-        }), "Audio output must expand before its native route controls are queried")
-        let optionsSheet = element("audioOptionsSheet")
-        let airPlay = usesWideAudioLayout
-            ? optionsSheet.descendants(matching: .other).matching(identifier: "audioAirPlayButton").firstMatch
-            : element("audioAirPlayButton")
-        let chromecast = usesWideAudioLayout
-            ? optionsSheet.buttons.matching(identifier: "musicChromecastButton").firstMatch
-            : element("musicChromecastButton")
+        XCTAssertFalse(element("audioOutput").exists,
+                       "iOS listening options must not hide output routing in a disclosure.")
         if usesWideAudioLayout {
-            XCTAssertTrue(waitUntil(timeout: 10) {
-                airPlay.exists && airPlay.isHittable && chromecast.exists && chromecast.isHittable
-            }, "Listening options must expose their own route controls in the wide player.")
-        } else {
-            try revealMusicControl(airPlay)
-            try revealMusicControl(chromecast)
+            try activate(application!.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch)
+            XCTAssertTrue(waitUntil(timeout: 10) { !self.hasVisibleFrame(self.element("audioOptionsSheet")) },
+                          "Closing listening options must return to the persistent wide player controls.")
         }
+        let airPlay = element("audioAirPlayButton")
+        let chromecast = element("musicChromecastButton")
+        try waitForHittable(airPlay, timeout: 15, named: "persistent AirPlay control")
+        try waitForHittable(chromecast, timeout: 15, named: "persistent Chromecast control")
         XCTAssertGreaterThanOrEqual(airPlay.frame.width, 44, "AirPlay needs a 44 pt touch target.")
         XCTAssertGreaterThanOrEqual(airPlay.frame.height, 44, "AirPlay needs a 44 pt touch target.")
         XCTAssertGreaterThanOrEqual(chromecast.frame.width, 44, "Chromecast needs a 44 pt touch target.")
@@ -2027,24 +2039,8 @@ class NativeProofJourney: XCTestCase {
         XCTAssertFalse(application!.switches["Compatibility mode for Sonos S1"].exists)
         XCTAssertFalse(application!.buttons["Refresh Sonos speakers"].exists)
         XCTAssertFalse(application!.staticTexts["Sonos receives at most the next 100 tracks. The local player pauses after the speaker acknowledges the transfer."].exists)
-        let volume = usesWideAudioLayout
-            ? optionsSheet.sliders["Music volume"]
-            : application!.sliders["Music volume"]
-        if usesWideAudioLayout {
-            XCTAssertTrue(waitUntil(timeout: 10) { volume.exists && volume.isHittable },
-                          "Listening options must expose their own output volume in the wide player.")
-        } else {
-            try revealMusicControl(volume)
-        }
-        XCTAssertTrue(volume.isEnabled, "Local output volume must remain available before a receiver handoff.")
-        volume.adjust(toNormalizedSliderPosition: 0.7)
-        #endif
-        #if os(iOS)
-        if usesWideAudioLayout {
-            try activate(application!.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch)
-            XCTAssertTrue(waitUntil(timeout: 10) { !self.hasVisibleFrame(self.element("audioOptionsSheet")) },
-                          "Closing wide listening options must return to the inline Lyrics companion.")
-        }
+        XCTAssertFalse(application!.sliders["Music volume"].exists,
+                       "Music must use device volume rather than an app volume slider.")
         #endif
         try revealMusicControl(element("audioLyrics"))
         #if os(iOS)
@@ -3704,8 +3700,9 @@ class NativeProofJourney: XCTestCase {
         let track = element("musicItem-\(fixture.audioTrackID)")
         try revealInLibraryViewport([track], in: album)
         try activate(track)
-        try waitForExistence(element("detailScreen"), timeout: 20, named: "standard-phone audio track detail")
-        let audioTime = try startPlayback(using: "playButton")
+        try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "standard-phone direct audio player")
+        let audioTime = element("playbackTime")
+        try waitForExistence(audioTime, timeout: 20, named: "standard-phone audio playback time")
         let beforePushedBrowse = try waitForPlaybackValue(audioTime, timeout: 15) { $0 >= 1 }
         try closePlayer()
         #endif
@@ -4882,9 +4879,9 @@ class NativeProofJourney: XCTestCase {
             let time = element("playbackTime")
             try waitForExistence(time, timeout: 20, named: "TV audio playback time")
             #else
-            try waitForPerformanceContainer(element("detailScreen"), timeout: 20, named: "audio track detail")
-            try await performanceQuietPhase("audio_track_detail_idle")
-            let time = try startPlayback(using: "playButton")
+            try waitForPerformanceContainer(element("audioPlayerStage"), timeout: 30, named: "direct audio player")
+            let time = element("playbackTime")
+            try waitForExistence(time, timeout: 20, named: "audio playback time")
             #endif
             let playingAt = try waitForPlaybackValue(time, timeout: 20) { _ in true }
             _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= playingAt + 1 }
@@ -4909,7 +4906,6 @@ class NativeProofJourney: XCTestCase {
                 fixture.sharedMusicPlaylistID,
                 "Generate the shared music playlist proof fixture."
             )
-            try musicBack()
             try musicBack()
             try waitForExistence(element("audioScreen"), timeout: 15, named: "audio catalog after playback")
             try activate(element("musicOptionsMenu"))

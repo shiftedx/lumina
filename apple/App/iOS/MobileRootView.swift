@@ -1357,8 +1357,13 @@ private struct HomeSearchView: View {
     @State private var loading = false
     @State private var message: String?
     @State private var selectedSearchItem: MediaItem?
+    @Environment(NativeAudioSession.self) private var audioSession
+    @State private var presentedPlayback: PlaybackModel?
+    @State private var startingTrack = false
+    @State private var playbackError: String?
 
     var body: some View {
+        Group {
         if usesStandardPhonePushedChrome {
             searchContent
                 .navigationDestination(item: $selectedSearchItem) { item in
@@ -1370,6 +1375,11 @@ private struct HomeSearchView: View {
             searchContent
                 .searchable(text: $query, isPresented: $searchPresented, prompt: "Films, shows, and music")
         }
+        }
+        .nativeAudioPlayer(playback: $presentedPlayback, store: store)
+        .alert("Playback unavailable", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
+            Button("OK") { playbackError = nil }
+        } message: { Text(playbackError ?? "") }
     }
 
     private var searchContent: some View {
@@ -1409,7 +1419,10 @@ private struct HomeSearchView: View {
                 }
                 ForEach(results) { item in
                     Group {
-                        if usesStandardPhonePushedChrome {
+                        if item.isAudio {
+                            Button { playTrack(item) } label: { searchResultRow(item) }
+                                .disabled(startingTrack || audioSession.busy)
+                        } else if usesStandardPhonePushedChrome {
                             Button { selectedSearchItem = item } label: {
                                 searchResultRow(item)
                             }
@@ -1456,7 +1469,18 @@ private struct HomeSearchView: View {
                 }
             }
             Spacer()
-            LuminaIcon(glyph: .forward, size: 20).foregroundStyle(.secondary)
+            LuminaIcon(glyph: item.isAudio ? .play : .forward, size: 20).foregroundStyle(.secondary)
+        }
+    }
+
+    private func playTrack(_ item: MediaItem) {
+        guard !startingTrack else { return }
+        startingTrack = true
+        let sourceItems = results.filter(\.isAudio)
+        Task {
+            defer { startingTrack = false }
+            do { presentedPlayback = try await audioSession.play(items: sourceItems, startingAt: item, store: store) }
+            catch { playbackError = "Playback could not start. Check your connection and try again." }
         }
     }
 
@@ -3064,7 +3088,7 @@ private struct MusicCollectionView: View {
     private var albumTracks: some View {
         LazyVStack(spacing: 0) {
             ForEach(Array(children.enumerated()), id: \.element.id) { index, track in
-                NavigationLink(value: track) {
+                Button { playTrack(track) } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         Text(String(track.indexNumber ?? index + 1))
                             .font(.caption.monospacedDigit())
@@ -3088,6 +3112,7 @@ private struct MusicCollectionView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .disabled(preparingPlayback || audioSession.busy)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(mediaAccessibilityLabel(for: track))
                 .accessibilityValue(track.durationSeconds > 0 ? Duration.seconds(track.durationSeconds).formatted(.units(allowed: [.minutes, .seconds], width: .wide)) : "")
@@ -3115,6 +3140,18 @@ private struct MusicCollectionView: View {
         .controlSize(.large)
         .disabled(preparingPlayback)
         .accessibilityIdentifier("musicShuffleButton")
+    }
+
+    private func playTrack(_ track: MediaItem) {
+        guard !preparingPlayback else { return }
+        preparingPlayback = true
+        playbackError = nil
+        let items = children
+        Task {
+            defer { preparingPlayback = false }
+            do { albumPlayback = try await audioSession.play(items: items, startingAt: track, store: store) }
+            catch { playbackError = "Playback could not start. Check your connection and try again." }
+        }
     }
 
     private func playCollection(shuffled: Bool) {
@@ -3153,6 +3190,10 @@ private struct MusicGrid: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.horizontalSizeClass) private var widthClass
     @State private var lastVisibleItemID: String?
+    @Environment(NativeAudioSession.self) private var audioSession
+    @State private var presentedPlayback: PlaybackModel?
+    @State private var startingTrack = false
+    @State private var playbackError: String?
 
     private var columns: [GridItem] {
         if dynamicTypeSize.isAccessibilitySize { return libraryGridColumns(for: dynamicTypeSize) }
@@ -3163,9 +3204,7 @@ private struct MusicGrid: View {
     var body: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
             ForEach(items) { item in
-                NavigationLink(value: item) {
-                    MediaCard(item: item, imageURL: store.imageURL(for: item), identifierPrefix: identifierPrefix, loadFraming: { await store.artworkFraming(for: $0) })
-                }
+                itemControl(item)
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(mediaAccessibilityLabel(for: item))
@@ -3173,10 +3212,40 @@ private struct MusicGrid: View {
                 .onAppear { lastVisibleItemID = item.id }
             }
         }
+        .nativeAudioPlayer(playback: $presentedPlayback, store: store)
+        .alert("Playback unavailable", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
+            Button("OK") { playbackError = nil }
+        } message: { Text(playbackError ?? "") }
         .task(id: lastVisibleItemID, priority: .utility) {
             await store.prefetchArtwork(after: lastVisibleItemID, in: items)
         }
     }
+    @ViewBuilder
+    private func itemControl(_ item: MediaItem) -> some View {
+        if item.isAudio {
+            Button { playTrack(item) } label: { card(item) }
+                .disabled(startingTrack || audioSession.busy)
+        } else {
+            NavigationLink(value: item) { card(item) }
+        }
+    }
+
+    private func card(_ item: MediaItem) -> some View {
+        MediaCard(item: item, imageURL: store.imageURL(for: item), identifierPrefix: identifierPrefix,
+                  loadFraming: { await store.artworkFraming(for: $0) })
+    }
+
+    private func playTrack(_ item: MediaItem) {
+        guard !startingTrack else { return }
+        startingTrack = true
+        let sourceItems = items
+        Task {
+            defer { startingTrack = false }
+            do { presentedPlayback = try await audioSession.play(items: sourceItems, startingAt: item, store: store) }
+            catch { playbackError = "Playback could not start. Check your connection and try again." }
+        }
+    }
+
 }
 
 /// An inactive native search drawer still occupies space on Duo. Install it only

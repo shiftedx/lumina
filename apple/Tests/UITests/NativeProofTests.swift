@@ -5419,14 +5419,53 @@ class NativeProofJourney: XCTestCase {
 
         try launchAndResetSession()
         try signIn(using: fixture)
-        let browse = element("compactBrowseMenu")
-        try waitForHittable(browse, timeout: 20, named: "compact Browse menu")
-        try activate(browse)
-        try activate(element("compactCategory-tv"))
-        try waitForExistence(element("libraryScreen"), timeout: 20, named: "TV library from Browse")
+        try selectTourLibraryCategory("tv", screen: "libraryScreen")
         try activate(element("libraryItem-\(fixture.showID)"))
         let collection = element("videoCollectionScreen")
         try waitForExistence(collection, timeout: 20, named: "show collection")
+
+        let seriesAboutFirstParagraph = try XCTUnwrap(
+            fixture.seriesAboutFirstParagraph,
+            "Generate the rich synthetic series About fixture."
+        )
+        let seriesAboutFinalParagraph = try XCTUnwrap(
+            fixture.seriesAboutFinalParagraph,
+            "Generate the rich synthetic series About fixture."
+        )
+        let seriesAboutSource = try XCTUnwrap(
+            fixture.seriesAboutSource,
+            "Generate the rich synthetic series About fixture."
+        )
+        let secondEpisodeAbout = try XCTUnwrap(
+            fixture.secondEpisodeAbout,
+            "Generate the synthetic second-episode About fixture."
+        )
+        let secondEpisodeAboutSource = try XCTUnwrap(
+            fixture.secondEpisodeAboutSource,
+            "Generate the synthetic second-episode About fixture."
+        )
+        let secondEpisodeAboutNote = try XCTUnwrap(
+            fixture.secondEpisodeAboutNote,
+            "Generate the synthetic second-episode About fixture."
+        )
+        let episodeAbout = try XCTUnwrap(
+            fixture.episodeAbout,
+            "Generate the synthetic first-episode About fixture."
+        )
+        let episodeAboutSource = try XCTUnwrap(
+            fixture.episodeAboutSource,
+            "Generate the synthetic first-episode About fixture."
+        )
+
+        func aboutElement(_ identifier: String, in about: XCUIElement) -> XCUIElement {
+            about.descendants(matching: .any).matching(identifier: identifier).firstMatch
+        }
+
+        func aboutText(_ text: String, in about: XCUIElement) -> XCUIElement {
+            about.descendants(matching: .staticText)
+                .matching(NSPredicate(format: "label == %@", text))
+                .firstMatch
+        }
 
         try selectCollectionSeason(fixture.seasonID)
         let selectedEpisode = element("videoEpisode-\(fixture.secondEpisodeID)")
@@ -5447,8 +5486,54 @@ class NativeProofJourney: XCTestCase {
                       "The episode's season must remain selected in the show.")
         XCTAssertTrue(waitUntil(timeout: 10) { (self.element("videoEpisode-\(fixture.secondEpisodeID)").value as? String) == "Selected" },
                       "The episode selected before navigation must remain selected in its show.")
-        try assertStandardPhoneCollectionHeader(in: collection, phase: "auto-positioned selected episode", requiresVisibleHeader: true)
+        if usesStandardPhonePushedChrome {
+            try assertStandardPhoneCollectionHeader(in: collection, phase: "auto-positioned selected episode", requiresVisibleHeader: true)
+        }
         try attachFrame(named: "iOS selected episode in parent show")
+
+        let selectedEpisodeAbout = element("episodeAbout")
+        try revealDetailElement(selectedEpisodeAbout, in: collection,
+                                named: "selected episode About", requiresHittable: false)
+        let selectedEpisodeSource = aboutElement("mediaAboutSource", in: selectedEpisodeAbout)
+        try waitForExistence(selectedEpisodeSource, timeout: 15, named: "selected episode About source")
+        XCTAssertEqual(selectedEpisodeSource.label, "Source: \(secondEpisodeAboutSource)",
+                       "The selected episode must expose its own source as a plain caption.")
+        let selectedEpisodeText = aboutText(secondEpisodeAbout, in: selectedEpisodeAbout)
+        try waitForExistence(selectedEpisodeText, timeout: 15, named: "selected episode About text")
+        let selectedEpisodeNotes = aboutElement("mediaAboutNotes", in: selectedEpisodeAbout)
+        try revealDetailElement(selectedEpisodeNotes, in: collection,
+                                named: "selected episode About notes", requiresHittable: true)
+        let selectedEpisodeNote = aboutText(secondEpisodeAboutNote, in: selectedEpisodeAbout)
+        XCTAssertFalse(hasVisibleFrame(selectedEpisodeNote),
+                       "Episode About notes must start collapsed.")
+        try activate(selectedEpisodeNotes)
+        try waitForExistence(selectedEpisodeNote, timeout: 15, named: "expanded selected episode About note")
+
+        let seriesAbout = element("seriesAbout")
+        XCTAssertFalse(hasVisibleFrame(seriesAbout),
+                       "The series About section must start collapsed behind its disclosure.")
+        let seriesAboutToggle = element("seriesAboutToggle")
+        try revealDetailElement(seriesAboutToggle, in: collection,
+                                named: "series About disclosure", requiresHittable: true)
+        try activate(seriesAboutToggle)
+        try waitForExistence(seriesAbout, timeout: 15, named: "expanded series About")
+        let seriesSource = aboutElement("mediaAboutSource", in: seriesAbout)
+        try waitForExistence(seriesSource, timeout: 15, named: "series About source")
+        XCTAssertEqual(seriesSource.label, "Source: \(seriesAboutSource)")
+        let showMore = aboutElement("mediaAboutShowMore", in: seriesAbout)
+        try revealDetailElement(showMore, in: collection,
+                                named: "series About Show more", requiresHittable: true)
+        try activate(showMore)
+        let seriesFirstText = aboutText(seriesAboutFirstParagraph, in: seriesAbout)
+        try waitForExistence(seriesFirstText, timeout: 15, named: "expanded series About opening synopsis")
+        let seriesFinalText = aboutText(seriesAboutFinalParagraph, in: seriesAbout)
+        try waitForExistence(seriesFinalText, timeout: 15, named: "expanded series About synopsis")
+        let showLess = aboutElement("mediaAboutShowLess", in: seriesAbout)
+        try revealDetailElement(showLess, in: collection,
+                                named: "series About Show less", requiresHittable: true)
+        try activate(showLess)
+        try waitForExistence(aboutElement("mediaAboutShowMore", in: seriesAbout), timeout: 15,
+                             named: "collapsed series About synopsis")
 
         let otherSeasonID = try XCTUnwrap(fixture.secondSeasonID, "Generate the second synthetic show season.")
         XCTAssertFalse(element("seasonArtwork-\(fixture.seasonID)").exists,
@@ -5473,6 +5558,17 @@ class NativeProofJourney: XCTestCase {
                 && (self.element("videoEpisode-\(fixture.episodeID)").value as? String) == "Selected"
         }, "Selecting another episode must stay in the show and update its selected playback target.")
 
+        let siblingEpisodeAbout = element("episodeAbout")
+        try revealDetailElement(siblingEpisodeAbout, in: collection,
+                                named: "newly selected episode About", requiresHittable: false)
+        let siblingEpisodeText = aboutText(episodeAbout, in: siblingEpisodeAbout)
+        try waitForExistence(siblingEpisodeText, timeout: 15, named: "newly selected episode About text")
+        XCTAssertEqual(aboutElement("mediaAboutSource", in: siblingEpisodeAbout).label,
+                       "Source: \(episodeAboutSource)",
+                       "Selecting a different episode must replace its source instead of using the series overview.")
+        XCTAssertFalse(aboutText(secondEpisodeAbout, in: siblingEpisodeAbout).exists,
+                       "Selecting a different episode must replace the prior episode overview.")
+
         let play = element("playButton")
         try revealDetailElement(play, in: collection, named: "selected episode play", requiresHittable: true)
         try attachFrame(named: "Standard iPhone visible selected episode Play")
@@ -5490,27 +5586,32 @@ class NativeProofJourney: XCTestCase {
         railStart.press(forDuration: 0.05, thenDragTo: railEnd)
         try waitForExistence(collection, timeout: 15, named: "show collection after horizontal episode-rail drag")
 
-        collection.swipeUp()
-        try assertStandardPhoneCollectionHeader(in: collection, phase: "scrolled selected episode", requiresVisibleHeader: false)
+        if usesStandardPhonePushedChrome {
+            collection.swipeUp()
+            try assertStandardPhoneCollectionHeader(in: collection, phase: "scrolled selected episode", requiresVisibleHeader: false)
 
-        // Start at the physical leading edge, in the hero gap above either
-        // horizontal rail. This verifies native interactive-pop rather than a
-        // generic swipe that could scroll season or episode content instead.
-        // First cancel a short drag: it must leave the collection in place.
-        let cancelledEdgeStart = application!.windows.firstMatch.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.01, dy: 0.24)
-        )
-        let cancelledEdgeEnd = application!.windows.firstMatch.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.07, dy: 0.24)
-        )
-        cancelledEdgeStart.press(forDuration: 0.05, thenDragTo: cancelledEdgeEnd)
-        try waitForExistence(collection, timeout: 15, named: "collection after cancelled leading-edge Back")
+            // Start at the physical leading edge, in the hero gap above either
+            // horizontal rail. This verifies native interactive-pop rather than a
+            // generic swipe that could scroll season or episode content instead.
+            // First cancel a short drag: it must leave the collection in place.
+            let cancelledEdgeStart = application!.windows.firstMatch.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.01, dy: 0.24)
+            )
+            let cancelledEdgeEnd = application!.windows.firstMatch.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.07, dy: 0.24)
+            )
+            cancelledEdgeStart.press(forDuration: 0.05, thenDragTo: cancelledEdgeEnd)
+            try waitForExistence(collection, timeout: 15, named: "collection after cancelled leading-edge Back")
 
-        try performStandardPhoneLeadingEdgeBack(
-            from: collection,
-            to: element("libraryScreen"),
-            named: "focused show collection"
-        )
+            try performStandardPhoneLeadingEdgeBack(
+                from: collection,
+                to: element("libraryScreen"),
+                named: "focused show collection"
+            )
+        } else {
+            try activate(application!.buttons.matching(identifier: "BackButton").firstMatch)
+            try waitForExistence(element("libraryScreen"), timeout: 15, named: "Library after show Back")
+        }
         XCTAssertFalse(element("detailScreen").exists,
                        "Leading-edge Back from the focused show collection must not open an episode detail.")
         completed = true
@@ -8325,12 +8426,23 @@ private struct ProofFixture: Decodable {
     let matrixItemTitle: String
     let showID: String
     let showTitle: String
+    let seriesAboutFirstParagraph: String?
+    let seriesAboutFinalParagraph: String?
+    let seriesAboutSource: String?
+    let seriesAboutFirstNote: String?
+    let seriesAboutSecondNote: String?
     let seasonID: String
     let secondSeasonID: String?
     let episodeID: String
     let episodeTitle: String
+    let episodeAbout: String?
+    let episodeAboutSource: String?
+    let episodeAboutNote: String?
     let secondEpisodeID: String
     let secondEpisodeTitle: String
+    let secondEpisodeAbout: String?
+    let secondEpisodeAboutSource: String?
+    let secondEpisodeAboutNote: String?
     let secondSeasonEpisodeID: String?
     let secondSeasonEpisodeTitle: String?
     let episodeIntroEndSeconds: Double

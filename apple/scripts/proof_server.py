@@ -50,6 +50,39 @@ SHOW_TITLE = "The Observatory Signal Logs"
 EPISODE_TITLE = "The First Signal"
 SECOND_EPISODE_TITLE = "Morning Coordinates"
 SECOND_SEASON_EPISODE_TITLE = "The Signal Returns"
+SERIES_ABOUT_FIRST_PARAGRAPH = (
+    "Across three careful seasons, the Observatory Signal Logs follows the people who maintain a weather station "
+    "built into a retired orbital relay. Each recovered transmission changes what the crew believes the station was "
+    "meant to protect."
+)
+SERIES_ABOUT_FINAL_PARAGRAPH = (
+    "The series moves between the quiet routines of calibration, the practical work of preserving damaged recordings, "
+    "and the larger mystery carried by voices that arrive decades after their senders vanished. Its archive is a map, "
+    "a workplace, and an invitation to listen more closely."
+)
+SERIES_ABOUT_MIDDLE_PARAGRAPH = (
+    "Mira and her neighbors compare field notes with messages found in obsolete navigation beacons, discovering that "
+    "the same constellation has been guiding strangers toward the relay for generations. Every episode adds a new "
+    "fragment without erasing the uncertainty that makes the signal worth following."
+)
+SERIES_ABOUT_SOURCE = "Observatory Studio"
+SERIES_ABOUT_FIRST_NOTE = "All transmission logs in this proof fixture are newly authored synthetic text."
+SERIES_ABOUT_SECOND_NOTE = "Episode summaries remain distinct so the selected card owns its own context."
+SERIES_OVERVIEW = "\n\n".join((
+    SERIES_ABOUT_FIRST_PARAGRAPH,
+    SERIES_ABOUT_MIDDLE_PARAGRAPH,
+    SERIES_ABOUT_FINAL_PARAGRAPH,
+    f"(Source: {SERIES_ABOUT_SOURCE})",
+    "Notes:\n"
+    f"- {SERIES_ABOUT_FIRST_NOTE}\n"
+    f"- {SERIES_ABOUT_SECOND_NOTE}",
+))
+FIRST_EPISODE_OVERVIEW = "Mira traces a faint pulse to the relay's oldest antenna and finds a calibration note addressed to no one."
+FIRST_EPISODE_SOURCE = "North Relay Archive"
+FIRST_EPISODE_NOTE = "The antenna map was drawn for this disposable proof fixture."
+SECOND_EPISODE_OVERVIEW = "A dawn transmission gives the crew new coordinates, but its final line points beyond the station's known charts."
+SECOND_EPISODE_SOURCE = "Morning Signal Desk"
+SECOND_EPISODE_NOTE = "The coordinate sequence is unique to the second episode fixture."
 EPISODE_INTRO_END_SECONDS = 10
 EPISODE_CREDITS_START_SECONDS = 75
 PERFORMANCE_CATALOGUE_COUNT_ENV = "LUMINA_NATIVE_PERF_CATALOGUE_COUNT"
@@ -850,6 +883,11 @@ def make_movie(media_root: Path, title: str, year: int, extension: str, poster_s
         make_title_logo(folder / "logo.png")
 
 
+def xml_text(value: str) -> str:
+    """Keep generated overview text literal while writing the small fixture NFO files."""
+    return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def make_music(media_root: Path, artwork: Path | None = None) -> None:
     """Original generated tone and artwork; no downloaded music or recordings."""
     folder = media_root / "Music" / AUDIO_ARTIST / f"{AUDIO_ALBUM} (2026)"
@@ -912,7 +950,10 @@ def make_show(media_root: Path) -> None:
     """Reuse only this harness's original generated video and artwork."""
     show = media_root / "Shows" / SHOW_TITLE
     show.mkdir(parents=True, exist_ok=True)
-    (show / "tvshow.nfo").write_text(f"<tvshow><title>{SHOW_TITLE}</title><plot>Synthetic observatory episode fixture.</plot></tvshow>", encoding="utf-8")
+    (show / "tvshow.nfo").write_text(
+        f"<tvshow><title>{xml_text(SHOW_TITLE)}</title><plot>{xml_text(SERIES_OVERVIEW)}</plot></tvshow>",
+        encoding="utf-8",
+    )
     movie = media_root / "Movies" / f"{DIRECT_TITLE} (2026)"
     poster = movie / "poster.png" if (movie / "poster.png").is_file() else movie / "poster.jpg"
     shutil.copyfile(poster, show / poster.name)
@@ -931,8 +972,13 @@ def make_show(media_root: Path) -> None:
             ffmpeg("-i", movie / f"{DIRECT_TITLE} (2026).mp4", "-c", "copy", season / f"{stem}.mkv")
         else:
             shutil.copyfile(movie / f"{DIRECT_TITLE} (2026).mp4", season / f"{stem}.mp4")
+        overview, source, note = {
+            EPISODE_TITLE: (FIRST_EPISODE_OVERVIEW, FIRST_EPISODE_SOURCE, FIRST_EPISODE_NOTE),
+            SECOND_EPISODE_TITLE: (SECOND_EPISODE_OVERVIEW, SECOND_EPISODE_SOURCE, SECOND_EPISODE_NOTE),
+        }.get(title, ("Synthetic second-season episode.", "Seasonal Signal Desk", "This episode remains outside the About workflow."))
+        episode_overview = f"{overview}\n\n(Source: {source})\n\nNotes:\n- {note}"
         (season / f"{stem}.nfo").write_text(
-            f"<episodedetails><title>{title}</title><showtitle>{SHOW_TITLE}</showtitle><season>{season_number}</season><episode>{episode_number}</episode><plot>Synthetic episode.</plot></episodedetails>",
+            f"<episodedetails><title>{xml_text(title)}</title><showtitle>{xml_text(SHOW_TITLE)}</showtitle><season>{season_number}</season><episode>{episode_number}</episode><plot>{xml_text(episode_overview)}</plot></episodedetails>",
             encoding="utf-8",
         )
 
@@ -1041,12 +1087,23 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
             "matrixItemTitle": MATRIX_TITLE,
             "showID": uuid.UUID(show_id).hex,
             "showTitle": SHOW_TITLE,
+            "seriesAboutFirstParagraph": SERIES_ABOUT_FIRST_PARAGRAPH,
+            "seriesAboutFinalParagraph": SERIES_ABOUT_FINAL_PARAGRAPH,
+            "seriesAboutSource": SERIES_ABOUT_SOURCE,
+            "seriesAboutFirstNote": SERIES_ABOUT_FIRST_NOTE,
+            "seriesAboutSecondNote": SERIES_ABOUT_SECOND_NOTE,
             "seasonID": uuid.UUID(season_id).hex,
             "secondSeasonID": uuid.UUID(second_season_id).hex,
             "episodeID": uuid.UUID(titles[("episode", EPISODE_TITLE)]).hex,
             "episodeTitle": EPISODE_TITLE,
+            "episodeAbout": FIRST_EPISODE_OVERVIEW,
+            "episodeAboutSource": FIRST_EPISODE_SOURCE,
+            "episodeAboutNote": FIRST_EPISODE_NOTE,
             "secondEpisodeID": uuid.UUID(titles[("episode", SECOND_EPISODE_TITLE)]).hex,
             "secondEpisodeTitle": SECOND_EPISODE_TITLE,
+            "secondEpisodeAbout": SECOND_EPISODE_OVERVIEW,
+            "secondEpisodeAboutSource": SECOND_EPISODE_SOURCE,
+            "secondEpisodeAboutNote": SECOND_EPISODE_NOTE,
             "secondSeasonEpisodeID": uuid.UUID(second_season_episode_title.id).hex,
             "secondSeasonEpisodeTitle": SECOND_SEASON_EPISODE_TITLE,
             "episodeIntroEndSeconds": EPISODE_INTRO_END_SECONDS,

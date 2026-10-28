@@ -29,6 +29,9 @@ final class NativeSearchPresentationTests: NativeProofJourney {
 @MainActor
 final class NativeNativeBooksReadTurnAndRestoreAllFormatsTests: NativeProofJourney {
     func testNativeBooksReadTurnAndRestoreAllFormats() async throws { try await journeyNativeBooksReadTurnAndRestoreAllFormats() }
+    func testReadingCheckpointSurvivesBackground() async throws {
+        try await journeyNativeBooksReadTurnAndRestoreAllFormats(backgroundCheckpoint: true)
+    }
 }
 @MainActor
 final class NativeVisualConsistencyTests: NativeProofJourney {
@@ -263,6 +266,15 @@ final class NativeOpenDuoLibraryHeaderTests: NativeProofJourney {
 #endif
 
 #if os(iOS)
+#if os(iOS)
+@MainActor
+final class NativeIdleBackgroundTests: NativeProofJourney {
+    func testIdleHomeReturnsAfterUsingAnotherApp() async throws {
+        try await journeyIdleHomeReturnsAfterUsingAnotherApp()
+    }
+}
+#endif
+
 @MainActor
 final class NativeHomeBrowseFiltersSearchAndHeroWatchlistTests: NativeProofJourney {
     func testHomeHeroArtworkSwipesAndPlaysSelectedTitle() async throws {
@@ -371,7 +383,26 @@ class NativeProofJourney: XCTestCase {
     }
 
     #if os(iOS)
-    func journeyNativeBooksReadTurnAndRestoreAllFormats() async throws {
+    func journeyIdleHomeReturnsAfterUsingAnotherApp() async throws {
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try waitForExistence(element("homeScreen"), timeout: 20, named: "idle Home")
+        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        defer { settings.terminate() }
+        for _ in 0..<3 {
+            try backgroundApplication()
+            settings.activate()
+            XCTAssertTrue(settings.wait(for: .runningForeground, timeout: 10))
+            try await Task.sleep(for: .seconds(5))
+            application!.activate()
+            try waitForExistence(element("homeScreen"), timeout: 20, named: "Home after using another app")
+            XCTAssertFalse(element("playbackScreen").exists, "Returning from idle background must not open a player")
+            XCTAssertFalse(element("audioPlayerStage").exists, "Idle backgrounding must not present music playback")
+        }
+    }
+
+    func journeyNativeBooksReadTurnAndRestoreAllFormats(backgroundCheckpoint: Bool = false) async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
@@ -384,7 +415,7 @@ class NativeProofJourney: XCTestCase {
         defer { session.invalidateAndCancel() }
         let api = ProofAPI(origin: origin, session: session)
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
-        let books = [epub, pdf, cbz, cbr]
+        let books = backgroundCheckpoint ? [epub] : [epub, pdf, cbz, cbr]
         try launchAndResetSession()
         for book in books { try await api.seedBookProgress(identity: identity, bookID: book) }
         try signIn(using: fixture)
@@ -397,7 +428,10 @@ class NativeProofJourney: XCTestCase {
             let card = element("book-\(book)")
             try revealBookItem(card)
             try waitForExistence(card, timeout: 20, named: "native book catalog entry")
-            try activate(card)
+            if backgroundCheckpoint {
+                // Keep the tap inside the card's leading artwork, clear of the Duo utility rail.
+                card.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.3)).tap()
+            } else { try activate(card) }
             try activate(element("bookControlsButton"))
             let position = element("bookPosition")
             try waitForExistence(position, timeout: 20, named: "native reader position")
@@ -416,9 +450,18 @@ class NativeProofJourney: XCTestCase {
                 try waitForExistence(application!.images.matching(NSPredicate(format: "label == %@", page)).firstMatch,
                                      timeout: 20, named: "selected native image page")
             }
+            if backgroundCheckpoint {
+                try backgroundApplication()
+                try await Task.sleep(for: .seconds(2))
+                application!.activate()
+                XCTAssertEqual(element("bookPosition").label, selected, "Background checkpointing must preserve the current reading position")
+            }
             try activate(element("bookCloseButton"))
             try revealBookItem(card)
-            try activate(card)
+            if backgroundCheckpoint {
+                // Keep the tap inside the card's leading artwork, clear of the Duo utility rail.
+                card.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.3)).tap()
+            } else { try activate(card) }
             try activate(element("bookControlsButton"))
             try waitForExistence(element("bookPosition"), timeout: 20, named: "restored native book position")
             guard waitUntil(timeout: 30, condition: { self.element("bookPosition").label == selected }) else {
@@ -914,13 +957,15 @@ class NativeProofJourney: XCTestCase {
         let initial = try waitForPlaybackValue(time, timeout: 5) { _ in true }
         _ = try waitForPlaybackValue(time, timeout: 10) { $0 >= initial + 3 }
         XCTAssertEqual(artwork.value as? String, fixture.audioTrackTitle, "Progress updates must retain lock-screen artwork.")
-        let beforeBackground = try waitForPlaybackValue(time, timeout: 5) { _ in true }
-        try backgroundApplication()
-        try await Task.sleep(for: .seconds(3))
-        application!.activate()
-        let afterBackground = try waitForPlaybackValue(time, timeout: 5) { _ in true }
-        XCTAssertGreaterThanOrEqual(afterBackground, beforeBackground + 2, "Music must continue while other apps are in the foreground.")
-        XCTAssertEqual(artwork.value as? String, fixture.audioTrackTitle, "Background playback must retain audio metadata and artwork for system surfaces.")
+        for _ in 0..<3 {
+            let beforeBackground = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+            try backgroundApplication()
+            try await Task.sleep(for: .seconds(3))
+            application!.activate()
+            let afterBackground = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+            XCTAssertGreaterThanOrEqual(afterBackground, beforeBackground + 2, "Music must continue while other apps are in the foreground.")
+            XCTAssertEqual(artwork.value as? String, fixture.audioTrackTitle, "Background playback must retain audio metadata and artwork for system surfaces.")
+        }
         try activate(element("audioPlayPauseButton"))
         XCTAssertEqual(artwork.value as? String, fixture.audioTrackTitle, "Pausing must retain lock-screen artwork.")
         let albumArt = element("audioAlbumArtwork")

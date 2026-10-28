@@ -387,7 +387,7 @@ it does not establish device scrolling FPS, cold-image latency or behavior under
 memory pressure. Run from `apple/`:
 
 ```sh
-mise exec -- swiftc -swift-version 6 -O Core/Sources/LuminaCore/BillboardArtworkPreparation.swift Core/Sources/LuminaCore/ArtworkImageCache.swift scripts/benchmark_artwork_preparation.swift -o /tmp/lumina-artwork-benchmark
+mise exec -- swiftc -swift-version 6 -O Core/Sources/LuminaCore/BillboardArtworkPreparation.swift Core/Sources/LuminaCore/ArtworkImageCache.swift Core/Sources/LuminaCore/ArtworkDiskCache.swift scripts/benchmark_artwork_preparation.swift -o /tmp/lumina-artwork-benchmark
 mise exec -- ../scripts/with-lock.sh /tmp/lumina-perf.lock 1800 /tmp/lumina-artwork-benchmark
 mise exec -- swift test --package-path Core --filter BillboardArtworkPreparationTests
 ```
@@ -565,3 +565,31 @@ Reproduce the callback comparison with two optimized benchmark binaries built wi
 Focused validation: generic iOS and tvOS Simulator Release app builds pass; two native MKV/readiness tests pass; the signed Release tvOS Simulator workflow passes with no skips, checking periodic server progress before pause/close, pause stability, close, saved-position seek, and continued playback after reopening. Four earlier CLI decoder probes (H.264/stereo FLAC and HEVC/7.1 FLAC on tvOS Simulator and iPhone Duo Simulator) delivered frames/audio, advanced and sought; their baseline CPU values are retained in the result JSON and are not comparative app CPU measurements.
 
 Physical Apple TV CPU/energy/thermal validation remains pending because the device is unavailable. Full-suite testing remains reserved for release, as requested.
+
+### Native Library returns and persistent artwork (2026-10-27)
+
+A repeated Library appearance previously requested page one again and discarded
+already loaded pages. The retained pagination workflow reproduced the failure
+(two loaded items became one, with an additional `/Items` request) before the fix.
+The same warm return now retains the complete wall and paging cursor without a
+new catalog request. Up to eight query snapshots retain category/filter paging;
+explicit refresh still reaches the server and session changes discard snapshots.
+
+The native artwork cache adds a 2 GiB compressed disk tier, a 128 MiB / 256-image
+decoded tier, and a settings clear action on iOS and tvOS. Disk I/O and decoding
+stay off the main actor; signed URL hashes isolate renditions and credentials.
+A queue-owned LRU index avoids an O(n²) directory scan while filling a large
+library. See ADR 0034 for persistence and cleanup boundaries. The Library keeps
+its navigation root and visible image state during a pushed detail, and prepares
+the first viewport before publishing a fresh poster wall.
+
+An optimized host probe with a synthetic 400 × 600 JPEG and 100 ms network delay
+measured a 107.979 ms median cold load versus 2.787 ms from disk across five fresh
+cache instances with memory retention disabled. The persisted returns made no
+additional network requests. These measurements isolate cache reuse; they do not
+measure physical-device frame rate or end-to-end Library transition latency.
+
+Qualification and before/after captures for this change are recorded in ignored
+`output/library-cache-release/README.md`. Core request-count and persistence
+checks are distinct from physical-device transition latency; a passing XCTest
+journey alone does not establish that a system glass animation never hitches.

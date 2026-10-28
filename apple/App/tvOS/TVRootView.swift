@@ -1302,7 +1302,7 @@ private struct TVVideoView: View {
                         if store.isBusy && store.items.isEmpty {
                             ProgressView("Loading video…").frame(maxWidth: .infinity, minHeight: 360)
                         } else if store.items.isEmpty {
-                            TVMessageView(title: browse.query.isEmpty && !hasFilters ? "No videos here yet" : "No matching videos", message: store.errorMessage ?? "Try another search or choose a different category.", actionTitle: "Refresh") { Task { await reload() } }
+                            TVMessageView(title: browse.query.isEmpty && !hasFilters ? "No videos here yet" : "No matching videos", message: store.errorMessage ?? "Try another search or choose a different category.", actionTitle: "Refresh") { Task { await reload(forceRefresh: true) } }
                         } else {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 32, alignment: .top)], spacing: 52) {
                                 ForEach(store.items) { item in
@@ -1435,8 +1435,8 @@ private struct TVVideoView: View {
         pendingRestoredItemID = nil
     }
 
-    private func reload() async {
-        await store.loadLibrary(search: browse.query, kind: browse.kind, sort: browse.sort, filters: browse.filters)
+    private func reload(forceRefresh: Bool = false) async {
+        await store.loadLibrary(search: browse.query, kind: browse.kind, sort: browse.sort, filters: browse.filters, forceRefresh: forceRefresh)
     }
 }
 

@@ -2,6 +2,10 @@ import SwiftUI
 import LuminaCore
 import UIKit
 
+extension EnvironmentValues {
+    @Entry var luminaRetainsArtworkWhileHidden = false
+}
+
 /// Presents decoded artwork from Lumina's process cache and keeps loading work tied to the URL.
 /// A remounted cell can synchronously reuse its decoded image instead of flashing its placeholder.
 @MainActor
@@ -11,6 +15,7 @@ struct CachedArtworkImage<Content: View, Placeholder: View>: View {
     @ViewBuilder let placeholder: () -> Placeholder
     @State private var source: UIImage?
     @State private var loadedURL: URL?
+    @Environment(\.luminaRetainsArtworkWhileHidden) private var retainsArtworkWhileHidden
 
     private var displayedSource: UIImage? {
         if loadedURL == url, let source { return source }
@@ -26,8 +31,11 @@ struct CachedArtworkImage<Content: View, Placeholder: View>: View {
                 placeholder()
             }
         }
-        .onDisappear { source = nil; loadedURL = nil }
+        .onDisappear {
+            if !retainsArtworkWhileHidden { source = nil; loadedURL = nil }
+        }
         .task(id: url) {
+            if loadedURL == url, source != nil { return }
             guard let url else {
                 source = nil
                 loadedURL = nil
@@ -54,6 +62,7 @@ struct SubjectAwareArtwork: View {
     var loadFraming: @MainActor (URL) async -> HeroFraming? = { _ in nil }
     @State private var source: UIImage?
     @State private var loadedURL: URL?
+    @Environment(\.luminaRetainsArtworkWhileHidden) private var retainsArtworkWhileHidden
     @State private var framing: HeroFraming?
 
     private var displayedSource: UIImage? {
@@ -78,8 +87,11 @@ struct SubjectAwareArtwork: View {
             }
         }
         .clipped()
-        .onDisappear { source = nil; loadedURL = nil }
+        .onDisappear {
+            if !retainsArtworkWhileHidden { source = nil; loadedURL = nil }
+        }
         .task(id: url) {
+            if loadedURL == url, source != nil { return }
             source = nil
             loadedURL = nil
             framing = nil

@@ -222,6 +222,12 @@ final class NativeDeviceSettingsRouteTests: NativeProofJourney {
 }
 #if os(iOS)
 @MainActor
+final class NativeLibraryWarmReturnTests: NativeProofJourney {
+    func testLibraryTabReturnsToRetainedRootsAndClearsArtworkCache() throws {
+        try journeyNativeLibraryWarmReturn()
+    }
+}
+@MainActor
 final class NativeEpisodeShowContextTests: NativeProofJourney {
     func testSelectingEpisodeReturnsToItsShowWithTheEpisodeSelected() async throws {
         try await journeyEpisodeSelectionReturnsToShowContext()
@@ -3186,6 +3192,160 @@ class NativeProofJourney: XCTestCase {
         #endif
         completed = true
     }
+
+    #if os(iOS)
+    /// Verifies the tab-selection path rather than the Back path: returning to
+    /// Library must reveal its retained catalog immediately, while a new Home
+    /// Browse selection can still deliberately choose a different category.
+    func journeyNativeLibraryWarmReturn() throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        guard UIDevice.current.userInterfaceIdiom != .pad else {
+            throw XCTSkip("iPad uses its unified category navigation instead of the native Library tab.")
+        }
+
+        try selectHomeLibraryCategory("movies", screen: "libraryScreen")
+        let moviesRoot = element("libraryScreen")
+        let movieCards = application!.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "libraryItem-"))
+        try waitForExistence(movieCards.firstMatch, timeout: 25, named: "prepared Movies cards before deep scroll")
+        for _ in 0..<4 {
+            try scrollLibrary(moviesRoot, up: true)
+        }
+        let movieViewport = moviesRoot.frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 2)
+        let movie = try XCTUnwrap(
+            application!.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH %@", "libraryItem-"))
+                .allElementsBoundByIndex.first { candidate in
+                    self.isFullyVerticallyContained(candidate.frame, in: movieViewport) && candidate.isHittable
+                },
+            "A deeply scrolled Movies root must expose a fully visible public title card."
+        )
+        let movieIdentifier = movie.identifier
+        let movieRootFrame = movie.frame
+        try attachFrame(named: "Movies Library root before detail")
+        try activate(movie)
+        try waitForExistence(element("detailScreen"), timeout: 20, named: "movie detail")
+        try attachFrame(named: "Movie detail before Library tab return")
+
+        let libraryTab = destinationControl("Library")
+        try waitForHittable(libraryTab, timeout: 15, named: "Library tab from movie detail")
+        try activate(libraryTab)
+        try waitForExistence(element("libraryScreen"), timeout: 15, named: "Movies Library after tab return")
+        let returnedMovie = element(movieIdentifier)
+        try waitForHittable(returnedMovie, timeout: 15, named: "returned deeply scrolled Movies fixture")
+        XCTAssertFalse(hasVisibleFrame(element("detailScreen")),
+                       "Selecting Library from a movie detail must return to the catalog root, not leave the detail active.")
+        XCTAssertEqual(returnedMovie.frame.midY, movieRootFrame.midY, accuracy: 8,
+                       "Library tab return must retain the visible Movies catalog position.")
+        try waitForPreparedLibraryArtwork()
+        try attachFrame(named: "Movies Library root after tab return")
+
+        // Re-enter the same category through Home's visible category chooser
+        // (Browse on compact phones, the category row on wider iPhones). This
+        // intentionally resets only any Library path; the already mounted
+        // Movies root and its visible item must remain usable.
+        try selectHomeLibraryCategory("movies", screen: "libraryScreen")
+        let reenteredMovie = element(movieIdentifier)
+        try waitForHittable(reenteredMovie, timeout: 15, named: "re-entered deeply scrolled Movies fixture")
+        XCTAssertEqual(reenteredMovie.frame.midY, movieRootFrame.midY, accuracy: 8,
+                       "Home Browse must not reconstruct the retained Movies root when reopening its category.")
+        try waitForPreparedLibraryArtwork()
+        try attachFrame(named: "Movies Library retained through Home Browse")
+
+        try selectHomeLibraryCategory("tv", screen: "libraryScreen")
+        let videoOptions = element("videoOptionsMenu")
+        try waitForHittable(videoOptions, timeout: 15, named: "TV library options")
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            self.accessibilityText(self.element("videoOptionsMenu")).localizedCaseInsensitiveContains("shows")
+        }, "Selecting TV from Home Browse must configure the visible Library query for Shows before revealing a card.")
+        try waitForPreparedLibraryArtwork()
+        let show = try revealLibraryItem(id: fixture.showID, named: "visible TV show fixture")
+        let showRootFrame = show.frame
+        try attachFrame(named: "TV Library root before show detail")
+        try activate(show)
+        try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "TV show detail")
+        try attachFrame(named: "TV show detail before Library tab return")
+
+        try waitForHittable(libraryTab, timeout: 15, named: "Library tab from TV show detail")
+        try activate(libraryTab)
+        try waitForExistence(element("libraryScreen"), timeout: 15, named: "TV Library after tab return")
+        let returnedShow = try revealLibraryItem(id: fixture.showID, named: "returned TV show fixture")
+        XCTAssertFalse(hasVisibleFrame(element("videoCollectionScreen")),
+                       "Selecting Library from a TV show must return to the TV catalog root, not leave the collection active.")
+        XCTAssertEqual(returnedShow.frame.midY, showRootFrame.midY, accuracy: 8,
+                       "Library tab return must retain the visible TV catalog position.")
+        try waitForPreparedLibraryArtwork()
+        try attachFrame(named: "TV Library root after tab return")
+
+        try openDeviceSettings()
+        let search = element("settingsSearchField")
+        try replaceText(search, with: "artwork cache")
+        let usage = element("deviceArtworkCacheUsage")
+        let clear = element("deviceClearArtworkCacheButton")
+        try waitForExistence(usage, timeout: 15, named: "Artwork cache usage")
+        try waitForExistence(clear, timeout: 15, named: "Artwork cache clear control")
+        try revealInLibraryViewport([usage, clear], in: element("accountScreen"))
+        try waitForHittable(clear, timeout: 15, named: "Clear artwork cache")
+        XCTAssertTrue(waitUntil(timeout: 15) {
+            !self.artworkCacheUsageReportsZero(self.element("deviceArtworkCacheUsage"))
+        }, "Browsing the prepared Library roots must retain artwork on disk before clearing it.")
+        try attachFrame(named: "Artwork cache before clearing")
+        try activate(clear)
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            !self.element("deviceClearArtworkCacheButton").isEnabled
+                || self.artworkCacheUsageReportsZero(self.element("deviceArtworkCacheUsage"))
+        }, "Artwork cache clear must either disable while deleting or finish with zero usage.")
+        XCTAssertTrue(waitUntil(timeout: 15) {
+            self.artworkCacheUsageReportsZero(self.element("deviceArtworkCacheUsage"))
+        }, "Clearing artwork cache must report zero retained artwork bytes.")
+        XCTAssertTrue(waitUntil(timeout: 10) { self.element("deviceClearArtworkCacheButton").isEnabled },
+                      "Artwork cache clear control must re-enable after its asynchronous deletion completes.")
+        try attachFrame(named: "Artwork cache cleared")
+        completed = true
+    }
+
+    private func artworkCacheUsageReportsZero(_ usage: XCUIElement) -> Bool {
+        let text = accessibilityText(usage).lowercased()
+        return text.range(of: #"\b0\s*bytes?\b"#, options: .regularExpression) != nil
+    }
+
+    private func selectHomeLibraryCategory(_ category: String, screen: String) throws {
+        try selectDestination("Home", screen: "homeScreen")
+        let compactBrowse = element("compactBrowseMenu")
+        if hasVisibleFrame(compactBrowse) {
+            try waitForHittable(compactBrowse, timeout: 15, named: "Home Browse for \(category)")
+            try activate(compactBrowse)
+            try activate(element("compactCategory-\(category)"))
+        } else {
+            let categoryRow = element("homeBrowse-\(category)")
+            try waitForHittable(categoryRow, timeout: 20, named: "Home \(category) category")
+            try activate(categoryRow)
+        }
+        try waitForExistence(element(screen), timeout: 20, named: "\(category) Library root")
+    }
+
+    private func waitForPreparedLibraryArtwork() throws {
+        let readiness = element("libraryArtworkReadiness")
+        try waitForExistence(readiness, timeout: 20, named: "prepared Library artwork")
+        XCTAssertTrue(waitUntil(timeout: 30) {
+            guard let progress = self.libraryArtworkReadiness(readiness) else { return false }
+            return progress.ready == progress.total && progress.total > 0
+        }, "A retained Library return must expose fully prepared artwork before its root is presented.")
+    }
+
+    private func libraryArtworkReadiness(_ readiness: XCUIElement) -> (ready: Int, total: Int)? {
+        let text = accessibilityText(readiness)
+        let expression = #"ready=(\d+)\s+total=(\d+)"#
+        guard let match = text.range(of: expression, options: .regularExpression) else { return nil }
+        let values = text[match].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+        guard values.count == 2 else { return nil }
+        return (values[0], values[1])
+    }
+    #endif
 
     private func openDeviceSettings() throws {
         #if os(iOS)
@@ -7052,8 +7212,8 @@ class NativeProofJourney: XCTestCase {
         let library = element("libraryScreen")
         try waitForExistence(library, timeout: 15, named: "library containing \(name)")
         for _ in 0..<8 {
-            if item.exists {
-                try revealInLibraryViewport([item])
+            let viewport = library.frame.intersection(try applicationViewport()).insetBy(dx: 0, dy: 2)
+            if item.exists, isFullyVerticallyContained(item.frame, in: viewport) {
                 return item
             }
             try scrollLibrary(library, up: true)

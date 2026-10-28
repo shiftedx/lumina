@@ -136,7 +136,7 @@ extension BillboardArtworkPreparationTests {
         XCTAssertEqual(recorder.requestCount, 7, "Account teardown clears compressed artwork as well as decoded images")
 
         let noRetention = ArtworkImageCache(session: URLSession(configuration: configuration),
-            maximumDecodedBytes: 4, imageCountLimit: 4, maximumEncodedBytes: 4)
+            maximumDecodedBytes: 4, imageCountLimit: 4, maximumEncodedBytes: 4, diskCache: nil)
         _ = await noRetention.image(for: currentRendition)
         _ = await noRetention.image(for: currentRendition)
         XCTAssertEqual(recorder.requestCount, 9, "A rendition exceeding both cache budgets must not be retained")
@@ -153,7 +153,7 @@ extension BillboardArtworkPreparationTests {
         defer { ArtworkCacheURLProtocol.handler = nil }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ArtworkCacheURLProtocol.self]
-        let cache = ArtworkImageCache(session: URLSession(configuration: configuration))
+        let cache = ArtworkImageCache(session: URLSession(configuration: configuration), diskCache: nil)
         let upcoming = (0..<40).map { URL(string: "https://images.example/Items/\($0)/Images/Primary?tag=current")! }
         await cache.prefetch(upcoming)
         XCTAssertEqual(recorder.requestCount, 16, "Lookahead must stop at a small window, not fetch the entire library")
@@ -184,7 +184,7 @@ extension BillboardArtworkPreparationTests {
                 defer { concurrency.end() }
                 if block { blocker.arriveAndWait() }
                 return BillboardArtworkPreparation.image(from: data)
-            })
+            }, diskCache: nil)
         let firstWindow = (0..<16).map { URL(string: "https://images.example/Items/\($0)/Images/Primary")! }
         let nextWindow = (16..<32).map { URL(string: "https://images.example/Items/\($0)/Images/Primary")! }
         let first = Task { await cache.prefetch(firstWindow) }
@@ -266,6 +266,273 @@ extension BillboardArtworkPreparationTests {
         XCTAssertEqual(requests.requestCount, 3, "A valid streamed response must still populate the decoded cache")
         XCTAssertEqual(decoder.decodeCount, 1)
     }
+
+    @MainActor
+    func testDiskArtworkCacheWarmsNewInstanceAndClearForcesNetwork() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LuminaArtworkTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let diskCache = ArtworkDiskCache(directory: directory, maximumBytes: 8 * 1024 * 1024)
+        let recorder = ArtworkRequestRecorder()
+        let data = jpeg(width: 120, height: 180)
+        ArtworkCacheURLProtocol.handler = { request in
+            recorder.record(request.url)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        defer { ArtworkCacheURLProtocol.handler = nil }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ArtworkCacheURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let firstURL = try XCTUnwrap(URL(string: "https://images.example/Items/one/Images/Primary?tag=current&ApiKey=member-one"))
+        let anotherMemberURL = try XCTUnwrap(URL(string: "https://images.example/Items/one/Images/Primary?tag=current&ApiKey=member-two"))
+
+        let firstCache = ArtworkImageCache(session: session, diskCache: diskCache)
+        let firstImage = await firstCache.image(for: firstURL)
+        XCTAssertNotNil(firstImage)
+        XCTAssertEqual(recorder.requestCount, 1)
+
+        let warmCache = ArtworkImageCache(session: session, diskCache: diskCache)
+        let warmImage = await warmCache.image(for: firstURL)
+        XCTAssertNotNil(warmImage)
+        XCTAssertEqual(recorder.requestCount, 1, "A new cache instance reuses the persisted compressed rendition")
+        let anotherMemberImage = await warmCache.image(for: anotherMemberURL)
+        XCTAssertNotNil(anotherMemberImage)
+        XCTAssertEqual(recorder.requestCount, 2, "The full signed URL, including member credential, is part of the disk key")
+        let usageBeforeClear = await warmCache.diskUsageBytes()
+        XCTAssertGreaterThan(usageBeforeClear, 0)
+
+        await warmCache.clearAllArtwork()
+        let usageAfterClear = await warmCache.diskUsageBytes()
+        XCTAssertEqual(usageAfterClear, 0)
+
+        let afterClear = ArtworkImageCache(session: session, diskCache: diskCache)
+        let afterClearImage = await afterClear.image(for: firstURL)
+        XCTAssertNotNil(afterClearImage)
+        XCTAssertEqual(recorder.requestCount, 3, "An explicit clear prevents a persisted rendition from satisfying the next request")
+    }
+
+    @MainActor
+    func testClearingDiskArtworkCacheRejectsAnInflightWrite() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LuminaArtworkTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let diskCache = ArtworkDiskCache(directory: directory, maximumBytes: 8 * 1024 * 1024)
+        let recorder = ArtworkRequestRecorder()
+        let blocker = ArtworkResponseBlocker()
+        let requestGate = ArtworkRequestGate()
+        let data = jpeg(width: 120, height: 180)
+        ArtworkCacheURLProtocol.handler = { request in
+            recorder.record(request.url)
+            if requestGate.claimFirst() { blocker.arriveAndWait() }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        defer { ArtworkCacheURLProtocol.handler = nil }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ArtworkCacheURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let url = try XCTUnwrap(URL(string: "https://images.example/Items/one/Images/Primary?tag=pending&ApiKey=member-one"))
+        let cache = ArtworkImageCache(session: session, diskCache: diskCache)
+
+        let staleLoad = Task { await cache.image(for: url) }
+        let started = await blocker.waitForStart()
+        XCTAssertTrue(started)
+        await cache.clearAllArtwork()
+        blocker.unblock()
+        let staleImage = await staleLoad.value
+        XCTAssertNil(staleImage)
+
+        let nextCache = ArtworkImageCache(session: session, diskCache: diskCache)
+        let imageAfterClear = await nextCache.image(for: url)
+        XCTAssertNotNil(imageAfterClear)
+        XCTAssertEqual(recorder.requestCount, 2, "The completed predecessor must not recreate disk data after a clear")
+    }
+
+    func testDiskArtworkCachePrunesToItsByteLimit() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LuminaArtworkTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let diskCache = ArtworkDiskCache(directory: directory, maximumBytes: 4)
+        let firstURL = try XCTUnwrap(URL(string: "https://images.example/one?ApiKey=member-one"))
+        let secondURL = try XCTUnwrap(URL(string: "https://images.example/two?ApiKey=member-one"))
+        let generation = diskCache.currentGeneration
+        await diskCache.store(Data([1, 2, 3]), for: firstURL, generation: generation)
+        await diskCache.store(Data([4, 5, 6]), for: secondURL, generation: generation)
+
+        let usage = await diskCache.usageBytes()
+        XCTAssertLessThanOrEqual(usage, 4)
+    }
+
+    @MainActor
+    func testDiskArtworkCacheRetainsRecentlyReadRenditionWhenPruning() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LuminaArtworkTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let data = jpeg(width: 120, height: 180)
+        let diskCache = ArtworkDiskCache(directory: directory, maximumBytes: data.count * 2)
+        let firstURL = try XCTUnwrap(URL(string: "https://images.example/one?ApiKey=member-one"))
+        let secondURL = try XCTUnwrap(URL(string: "https://images.example/two?ApiKey=member-one"))
+        let thirdURL = try XCTUnwrap(URL(string: "https://images.example/three?ApiKey=member-one"))
+        let generation = diskCache.currentGeneration
+        await diskCache.store(data, for: firstURL, generation: generation)
+        try? await Task.sleep(for: .milliseconds(10))
+        await diskCache.store(data, for: secondURL, generation: generation)
+
+        let recorder = ArtworkRequestRecorder()
+        ArtworkCacheURLProtocol.handler = { request in
+            recorder.record(request.url)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        defer { ArtworkCacheURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ArtworkCacheURLProtocol.self]
+
+        let recentReader = ArtworkImageCache(session: URLSession(configuration: configuration), diskCache: diskCache)
+        let recentlyRead = await recentReader.image(for: firstURL)
+        XCTAssertNotNil(recentlyRead)
+        XCTAssertEqual(recorder.requestCount, 0, "The first rendition should come from disk before exercising eviction")
+
+        try? await Task.sleep(for: .milliseconds(10))
+        await diskCache.store(data, for: thirdURL, generation: generation)
+        let usage = await diskCache.usageBytes()
+        XCTAssertLessThanOrEqual(usage, data.count * 2)
+
+        let returningCache = ArtworkImageCache(session: URLSession(configuration: configuration), diskCache: diskCache)
+        let retainedImage = await returningCache.image(for: firstURL)
+        XCTAssertNotNil(retainedImage)
+        XCTAssertEqual(recorder.requestCount, 0, "A read hit must refresh the rendition before bounded LRU pruning")
+        let evictedImage = await returningCache.image(for: secondURL)
+        XCTAssertNotNil(evictedImage)
+        XCTAssertEqual(recorder.requestCount, 1, "The least recently used rendition must refetch after the byte limit is reached")
+    }
+
+    @MainActor
+    func testCorruptAndOversizedDiskArtworkFallThroughToNetwork() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LuminaArtworkTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oversized = Data(repeating: 0, count: BillboardArtworkPreparation.maximumEncodedBytes + 1)
+        let diskCache = ArtworkDiskCache(directory: directory, maximumBytes: oversized.count + 1)
+        let corruptURL = try XCTUnwrap(URL(string: "https://images.example/corrupt?ApiKey=member-one"))
+        let oversizedURL = try XCTUnwrap(URL(string: "https://images.example/oversized?ApiKey=member-one"))
+        let generation = diskCache.currentGeneration
+        await diskCache.store(Data("not an image".utf8), for: corruptURL, generation: generation)
+        await diskCache.store(oversized, for: oversizedURL, generation: generation)
+
+        let recorder = ArtworkRequestRecorder()
+        let data = jpeg(width: 120, height: 180)
+        ArtworkCacheURLProtocol.handler = { request in
+            recorder.record(request.url)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        defer { ArtworkCacheURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ArtworkCacheURLProtocol.self]
+        let cache = ArtworkImageCache(session: URLSession(configuration: configuration), diskCache: diskCache)
+
+        let corruptImage = await cache.image(for: corruptURL)
+        let oversizedImage = await cache.image(for: oversizedURL)
+        XCTAssertNotNil(corruptImage)
+        XCTAssertNotNil(oversizedImage)
+        XCTAssertEqual(recorder.requestCount, 2, "Invalid persisted bytes must be deleted and refetched, never delivered as a permanent artwork failure")
+    }
+
+    @MainActor
+    func testCancellingADiskDecodeDoesNotEvictItsValidRendition() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LuminaArtworkTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let diskCache = ArtworkDiskCache(directory: directory, maximumBytes: 8 * 1024 * 1024)
+        let recorder = ArtworkRequestRecorder()
+        let data = jpeg(width: 120, height: 180)
+        ArtworkCacheURLProtocol.handler = { request in
+            recorder.record(request.url)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        defer { ArtworkCacheURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ArtworkCacheURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let url = try XCTUnwrap(URL(string: "https://images.example/Items/one/Images/Primary?tag=current&ApiKey=member-one"))
+
+        let primingCache = ArtworkImageCache(session: session, diskCache: diskCache)
+        let primedImage = await primingCache.image(for: url)
+        XCTAssertNotNil(primedImage)
+        var persistedBytes = 0
+        for _ in 0..<100 where persistedBytes == 0 {
+            persistedBytes = await diskCache.usageBytes()
+            await Task.yield()
+        }
+        XCTAssertGreaterThan(persistedBytes, 0)
+
+        let decoder = ArtworkDecodeBlocker()
+        let cancellingCache = ArtworkImageCache(
+            session: session,
+            maximumDecodedBytes: ArtworkImageCache.defaultDecodedByteLimit,
+            imageCountLimit: ArtworkImageCache.defaultImageCountLimit,
+            decode: { bytes in
+                decoder.arriveAndWait()
+                return BillboardArtworkPreparation.image(from: bytes)
+            },
+            diskCache: diskCache
+        )
+        let pendingImage = Task { await cancellingCache.image(for: url) }
+        let decodeStarted = await decoder.waitForStart()
+        XCTAssertTrue(decodeStarted)
+        pendingImage.cancel()
+        let cancelledImage = await pendingImage.value
+        XCTAssertNil(cancelledImage)
+        decoder.unblock()
+        let decodeFinished = await decoder.waitForFinish()
+        XCTAssertTrue(decodeFinished)
+
+        let returningCache = ArtworkImageCache(session: session, diskCache: diskCache)
+        let retainedImage = await returningCache.image(for: url)
+        XCTAssertNotNil(retainedImage)
+        XCTAssertEqual(recorder.requestCount, 1, "A canceled valid disk decode must leave the persisted rendition available")
+    }
+
+    @MainActor
+    func testSynchronousRemovalPurgesDiskBeforeAnImmediateSameURLLoad() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LuminaArtworkTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let diskCache = ArtworkDiskCache(directory: directory, maximumBytes: 8 * 1024 * 1024)
+        let recorder = ArtworkRequestRecorder()
+        let data = jpeg(width: 120, height: 180)
+        ArtworkCacheURLProtocol.handler = { request in
+            recorder.record(request.url)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        defer { ArtworkCacheURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ArtworkCacheURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let url = try XCTUnwrap(URL(string: "https://images.example/Items/one/Images/Primary?tag=current&ApiKey=reused-url"))
+
+        let cache = ArtworkImageCache(session: session, diskCache: diskCache)
+        let primedImage = await cache.image(for: url)
+        XCTAssertNotNil(primedImage)
+        var persistedBytes = 0
+        for _ in 0..<100 where persistedBytes == 0 {
+            persistedBytes = await diskCache.usageBytes()
+            await Task.yield()
+        }
+        XCTAssertGreaterThan(persistedBytes, 0)
+
+        cache.removeAll()
+        let immediateImage = await cache.image(for: url)
+        XCTAssertNotNil(immediateImage)
+        XCTAssertEqual(recorder.requestCount, 2, "An immediate same-URL load after account teardown must not read the prior generation's disk bytes")
+    }
 }
 
 private final class ArtworkDecodeConcurrency: @unchecked Sendable {
@@ -291,6 +558,48 @@ private final class ArtworkRequestRecorder: @unchecked Sendable {
 
     var requestCount: Int { lock.withLock { count } }
     func record(_ url: URL?) { lock.withLock { count += 1 } }
+}
+
+private final class ArtworkRequestGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var first = true
+
+    func claimFirst() -> Bool {
+        lock.withLock {
+            defer { first = false }
+            return first
+        }
+    }
+}
+
+private final class ArtworkDecodeBlocker: @unchecked Sendable {
+    private let started = DispatchSemaphore(value: 0)
+    private let gate = DispatchSemaphore(value: 0)
+    private let finished = DispatchSemaphore(value: 0)
+
+    func arriveAndWait() {
+        started.signal()
+        gate.wait()
+        finished.signal()
+    }
+
+    func waitForStart() async -> Bool {
+        await wait(on: started)
+    }
+
+    func waitForFinish() async -> Bool {
+        await wait(on: finished)
+    }
+
+    func unblock() { gate.signal() }
+
+    private func wait(on semaphore: DispatchSemaphore) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: semaphore.wait(timeout: .now() + 5) == .success)
+            }
+        }
+    }
 }
 
 private final class ArtworkDecodeRecorder: @unchecked Sendable {

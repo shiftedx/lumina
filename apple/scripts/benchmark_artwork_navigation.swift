@@ -4,7 +4,7 @@ import Foundation
 import ImageIO
 
 // From apple/, compile the production cache and preparation implementation directly:
-// mise exec -- swiftc -swift-version 6 -O Core/Sources/LuminaCore/BillboardArtworkPreparation.swift Core/Sources/LuminaCore/ArtworkImageCache.swift scripts/benchmark_artwork_navigation.swift -o /tmp/lumina-artwork-navigation-benchmark
+// mise exec -- swiftc -swift-version 6 -O Core/Sources/LuminaCore/BillboardArtworkPreparation.swift Core/Sources/LuminaCore/ArtworkImageCache.swift Core/Sources/LuminaCore/ArtworkDiskCache.swift scripts/benchmark_artwork_navigation.swift -o /tmp/lumina-artwork-navigation-benchmark
 // Run the same no-argument executable three times in a fresh process for each revision:
 // /tmp/lumina-artwork-navigation-benchmark
 

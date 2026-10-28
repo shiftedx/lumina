@@ -8,10 +8,28 @@ let tickScale = 10_000_000.0
     public private(set) var session: LuminaSession? {
         didSet {
             if oldValue?.serverURL != session?.serverURL || oldValue?.accessToken != session?.accessToken || oldValue?.userID != session?.userID {
-                ArtworkImageCache.shared.removeAll()
+                ArtworkImageCache.shared.removeAll(includingDisk: oldValue != nil)
                 readyArtworkFramings.removeAll()
                 readyArtworkFramingOrder.removeAll()
                 availableLibraryCategories = []
+                librarySnapshots.removeAll()
+                loadedLibraryQuery = nil
+                if oldValue != nil {
+                    libraryTask?.cancel()
+                    libraryTask = nil
+                    libraryTaskQuery = nil
+                    libraryAlphabetTask?.cancel()
+                    libraryAlphabetTask = nil
+                    libraryGeneration += 1
+                    items = []
+                    recentItems = []
+                    resumeItems = []
+                    nextUpItems = []
+                    audioItems = []
+                    libraryAlphabet = []
+                    hasMore = false
+                    nextIndex = 0
+                }
             }
             music.configure(session: session)
             offline.configure(session: session)
@@ -63,6 +81,26 @@ let tickScale = 10_000_000.0
     private let client: LuminaClient
     private let credentials: CredentialStore
     private let connectivity: LuminaConnectivity
+    private struct LibraryQuery: Equatable {
+        let search: String
+        let kind: VideoBrowseKind
+        let sort: VideoSort
+        let filters: VideoFilters
+    }
+
+    private struct LibrarySnapshot {
+        let query: LibraryQuery
+        let items: [MediaItem]
+        let nextIndex: Int
+        let hasMore: Bool
+        let parentID: String?
+        let sourceProvider: String?
+        let category: String?
+        let alphabet: [LibraryAlphabetAnchor]
+    }
+
+    private var loadedLibraryQuery: LibraryQuery?
+    private var librarySnapshots: [LibrarySnapshot] = []
     private var currentSearch = ""
     private var videoKind = VideoBrowseKind.all
     private var videoSort = VideoSort.name
@@ -77,6 +115,7 @@ let tickScale = 10_000_000.0
     private var homeGeneration = 0
     private var homeTask: Task<Void, Never>?
     private var libraryTask: Task<Void, Never>?
+    private var libraryTaskQuery: LibraryQuery?
     private var libraryAlphabetTask: Task<Void, Never>?
     private var isConnectivityRefreshInFlight = false
     private var nextIndex = 0
@@ -310,6 +349,7 @@ let tickScale = 10_000_000.0
         homeTask = nil
         libraryTask?.cancel()
         libraryTask = nil
+        libraryTaskQuery = nil
         libraryAlphabetTask?.cancel()
         libraryAlphabetTask = nil
         if let session { offline.clear(session: session) }
@@ -334,8 +374,52 @@ let tickScale = 10_000_000.0
         libraryAlphabet = []
     }
 
-    public func loadLibrary(search: String = "", kind: VideoBrowseKind = .all, sort: VideoSort = .name, filters: VideoFilters = .init()) async {
+    /// Reenter a warm wall without refetching page one or discarding its pagination.
+    /// Pull-to-refresh and account/activity refreshes explicitly request fresh server state.
+    public func loadLibrary(search: String = "", kind: VideoBrowseKind = .all, sort: VideoSort = .name,
+                            filters: VideoFilters = .init(), forceRefresh: Bool = false) async {
+        guard !Task.isCancelled, session != nil else { return }
+        let query = LibraryQuery(search: search, kind: kind, sort: sort, filters: filters)
+        if !forceRefresh, let loading = libraryTask, libraryTaskQuery == query {
+            await loading.value
+            return
+        }
+        if !forceRefresh, !isOffline, loadedLibraryQuery == query, errorMessage == nil { return }
+        if !isOffline { retainLibrarySnapshot() }
+        if !forceRefresh, !isOffline, errorMessage == nil,
+           let snapshot = librarySnapshots.last(where: { $0.query == query }) {
+            libraryTask?.cancel()
+            libraryTask = nil
+            libraryTaskQuery = nil
+            libraryAlphabetTask?.cancel()
+            libraryAlphabetTask = nil
+            libraryGeneration += 1
+            currentSearch = search
+            videoKind = kind
+            videoSort = sort
+            videoFilters = filters
+            videoParentID = snapshot.parentID
+            videoSourceProvider = snapshot.sourceProvider
+            videoLuminaCategory = snapshot.category
+            nextIndex = snapshot.nextIndex
+            hasMore = snapshot.hasMore
+            libraryAlphabet = snapshot.alphabet
+            items = snapshot.items
+            loadedLibraryQuery = query
+            errorMessage = nil
+            isBusy = false
+            return
+        }
         await loadLibrary(search: search, kind: kind, sort: sort, filters: filters, clearsError: true)
+    }
+
+    private func retainLibrarySnapshot() {
+        guard let query = loadedLibraryQuery else { return }
+        librarySnapshots.removeAll { $0.query == query }
+        librarySnapshots.append(LibrarySnapshot(query: query, items: items, nextIndex: nextIndex,
+            hasMore: hasMore, parentID: videoParentID, sourceProvider: videoSourceProvider,
+            category: videoLuminaCategory, alphabet: libraryAlphabet))
+        if librarySnapshots.count > 8 { librarySnapshots.removeFirst() }
     }
 
     /// Feature-detects the server-side technical movie index only when the UI is
@@ -393,6 +477,7 @@ let tickScale = 10_000_000.0
         libraryAlphabetTask = nil
         libraryGeneration += 1
         let generation = libraryGeneration
+        libraryTaskQuery = LibraryQuery(search: search, kind: kind, sort: sort, filters: filters)
         isBusy = true
         if clearsError { errorMessage = nil }
         let task = Task { [weak self] in
@@ -401,14 +486,21 @@ let tickScale = 10_000_000.0
         }
         libraryTask = task
         defer {
-            if generation == libraryGeneration { isBusy = false; libraryTask = nil }
+            if generation == libraryGeneration {
+                isBusy = false
+                libraryTask = nil
+                libraryTaskQuery = nil
+            }
         }
-        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+        // This request belongs to the current catalog query, not an appearance task
+        // that NavigationStack may cancel while revealing its retained root.
+        await task.value
     }
 
     private func performLibraryLoad(search: String, kind: VideoBrowseKind, sort: VideoSort, filters: VideoFilters, generation: Int) async {
         guard !Task.isCancelled, generation == libraryGeneration, let active = session else { return }
         guard !isOffline else { presentOfflineItems(); return }
+        loadedLibraryQuery = nil
         do {
             currentSearch = search
             videoKind = kind
@@ -435,6 +527,7 @@ let tickScale = 10_000_000.0
             let page = try await client.items(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, search: search, start: 0, types: kind.itemTypes, sort: sort, parentID: videoParentID, sourceProvider: videoSourceProvider, luminaCategory: videoLuminaCategory, filters: filters)
             guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active) else { return }
             items = page.items.filter { ($0.isPlayable || $0.isCollection) && !$0.isAudio }
+            loadedLibraryQuery = LibraryQuery(search: search, kind: kind, sort: sort, filters: filters)
             nextIndex = (page.startIndex ?? 0) + page.items.count
             hasMore = !page.items.isEmpty && nextIndex < page.total
             if supportsLibraryAlphabet {
@@ -526,6 +619,7 @@ let tickScale = 10_000_000.0
     }
 
     public func refresh() async {
+        librarySnapshots.removeAll()
         guard !isOffline else { presentOfflineItems(); return }
         errorMessage = nil
         async let home: Void = loadHome(clearsError: false)
@@ -538,6 +632,8 @@ let tickScale = 10_000_000.0
     }
 
     private func presentOfflineItems() {
+        librarySnapshots.removeAll()
+        loadedLibraryQuery = nil
         let downloads = offlineVideoItems
         items = downloads
         recentItems = downloads
@@ -776,6 +872,7 @@ let tickScale = 10_000_000.0
     }
 
     private func replaceCachedItem(_ fresh: MediaItem) {
+        librarySnapshots.removeAll()
         items = items.compactMap { cached in
             guard cached.id == fresh.id else { return cached }
             if videoFilters.favoritesOnly && fresh.userData?.isFavorite != true { return nil }

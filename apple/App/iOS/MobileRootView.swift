@@ -1848,7 +1848,6 @@ private struct PortraitNavigationHeader<Categories: View>: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 44)
-        .background(.ultraThinMaterial, in: .capsule)
         .padding(.leading, layoutDirection == .leftToRight ? 20 : 96)
         .padding(.trailing, layoutDirection == .leftToRight ? 96 : 20)
         .padding(.top, 16)

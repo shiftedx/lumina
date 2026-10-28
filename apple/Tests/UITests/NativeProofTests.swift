@@ -251,6 +251,12 @@ final class NativeStandardPhoneAppearanceChromeTests: NativeProofJourney {
         try journeyStandardPhoneAppearanceChrome()
     }
 }
+@MainActor
+final class NativeOpenDuoLibraryHeaderTests: NativeProofJourney {
+    func testOpenDuoLibraryHeaderAndSearchKeepCategoriesClearOfChrome() throws {
+        try journeyOpenDuoLibraryHeaderAndSearch()
+    }
+}
 #endif
 
 #if os(iOS)
@@ -3914,6 +3920,194 @@ class NativeProofJourney: XCTestCase {
         try revealHomeMenuControl(third)
         try activate(third)
         try waitForExistence(element("audioScreen"), timeout: 20, named: "Third category destination")
+
+        try selectTourLibraryCategory("movies", screen: "libraryScreen")
+        try assertClosedDuoLibraryHeader()
+        try attachFrame(named: "Closed Duo Library header keeps logo categories and actions separate")
+    }
+
+    func journeyOpenDuoLibraryHeaderAndSearch() throws {
+        defer { XCUIDevice.shared.orientation = .portrait }
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        if application!.windows.firstMatch.frame.width > application!.windows.firstMatch.frame.height {
+            XCUIDevice.shared.orientation = .portrait
+        }
+        guard waitUntil(timeout: 15, condition: {
+            let frame = self.application!.windows.firstMatch.frame
+            return frame.height > frame.width
+        }) else {
+            throw ProofFailure.ui("The Duo navigation proof could not establish portrait orientation.")
+        }
+        let portrait = try applicationViewport()
+        guard UIDevice.current.userInterfaceIdiom == .phone, portrait.width >= 600 else {
+            throw XCTSkip("This layout contract targets the open Duo portrait display.")
+        }
+        try signIn(using: fixture)
+        try assertDuoHomeCategoryRail(named: "open Duo portrait Home")
+        try attachFrame(named: "Open Duo portrait Home category rail")
+
+        try selectDestination("Library", screen: "libraryScreen")
+        try assertDuoLibraryHeaderLayout(named: "open Duo portrait", expectsSearchButton: true)
+        try attachFrame(named: "Open Duo portrait Library category header")
+
+        let categories = element("libraryCategories")
+        let music = element("libraryCategory-music")
+        try revealMenuControl(music, in: categories)
+        try waitForHittable(music, timeout: 15, named: "horizontally revealed Music category")
+        try activate(music)
+        try waitForExistence(element("audioScreen"), timeout: 25, named: "Music category destination")
+
+        let books = element("libraryCategory-books")
+        try revealMenuControl(books, in: categories)
+        try waitForHittable(books, timeout: 15, named: "horizontally revealed Books category")
+        try activate(books)
+        try waitForExistence(element("booksScreen"), timeout: 25, named: "Books category destination")
+
+        try selectTourLibraryCategory("movies", screen: "libraryScreen")
+        let search = element("videoSearchButton")
+        try waitForHittable(search, timeout: 15, named: "Library search action")
+        try activate(search)
+        try waitForHittable(element("videoSearchCancelButton"), timeout: 15, named: "Library search cancel")
+        XCTAssertFalse(hasVisibleFrame(search),
+                       "Opening Library search must replace its toolbar search action rather than overlap it.")
+        try assertDuoLibraryHeaderLayout(named: "open Duo portrait search", expectsSearchButton: false)
+        try attachFrame(named: "Open Duo portrait Library search clear of header")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        // Device Hub controls the active Duo inner display; XCTest's orientation
+        // request can target the inactive display, so leave room for the observed
+        // geometry change before asserting the landscape layout.
+        guard waitUntil(timeout: 60, condition: {
+            let frame = self.application!.windows.firstMatch.frame
+            return frame.width > frame.height && frame.width >= 900
+        }) else {
+            throw ProofFailure.ui("The open Duo navigation proof did not reflow to landscape.")
+        }
+        try assertDuoLibraryHeaderLayout(named: "open Duo landscape search", expectsSearchButton: false)
+        try attachFrame(named: "Open Duo landscape Library search clear of header")
+        completed = true
+    }
+
+    private func assertDuoLibraryHeaderLayout(named posture: String, expectsSearchButton: Bool) throws {
+        let masthead = element("homeMasthead")
+        let categories = element("libraryCategories")
+        let movies = element("libraryCategory-movies")
+        let alphabet = element("videoAlphabetButton")
+        let options = element("videoOptionsMenu")
+        let search = element("videoSearchButton")
+        try waitForHittable(masthead, timeout: 15, named: "Lumina masthead in \(posture)")
+        try waitForExistence(categories, timeout: 15, named: "Library categories in \(posture)")
+        XCTAssertTrue(hasVisibleFrame(categories), "Library categories must remain visible in \(posture).")
+        try waitForHittable(movies, timeout: 15, named: "Movies category in \(posture)")
+        try waitForHittable(alphabet, timeout: 15, named: "Library alphabet action in \(posture)")
+        try waitForHittable(options, timeout: 15, named: "Library options action in \(posture)")
+        if expectsSearchButton {
+            try waitForHittable(search, timeout: 15, named: "Library search action in \(posture)")
+        } else {
+            XCTAssertFalse(hasVisibleFrame(search), "\(posture) must not retain a search action behind the open search field.")
+            let searchField = element("searchField")
+            try waitForHittable(searchField, timeout: 15, named: "Library search field in \(posture)")
+        }
+
+        let frames = XCTAttachment(string: """
+        viewport=\(try applicationViewport())
+        masthead=\(masthead.frame)
+        categories=\(categories.frame)
+        movies=\(movies.frame)
+        search=\(search.exists ? String(describing: search.frame) : "absent")
+        alphabet=\(alphabet.frame)
+        options=\(options.frame)
+        """)
+        frames.name = "Open Duo Library header frames — \(posture)"
+        frames.lifetime = .keepAlways
+        add(frames)
+
+        let viewport = try applicationViewport()
+        if viewport.height > viewport.width {
+            let toolbarBottom = max(masthead.frame.maxY, alphabet.frame.maxY, options.frame.maxY,
+                                    expectsSearchButton ? search.frame.maxY : 0)
+            XCTAssertGreaterThanOrEqual(categories.frame.minY, toolbarBottom + 4,
+                                        "The open Duo portrait category rail must begin below every toolbar control in \(posture).")
+            XCTAssertGreaterThanOrEqual(categories.frame.minX, viewport.minX,
+                                        "The open Duo portrait category rail must stay inside the leading window edge in \(posture).")
+            XCTAssertLessThanOrEqual(categories.frame.maxX, viewport.maxX,
+                                     "The open Duo portrait category rail must stay inside the trailing window edge in \(posture).")
+            XCTAssertGreaterThanOrEqual(movies.frame.minY, categories.frame.minY,
+                                        "Movies must remain in the open Duo portrait category rail in \(posture).")
+            XCTAssertGreaterThanOrEqual(movies.frame.minX, viewport.minX + 20,
+                                        "Movies must remain inside the leading category-rail gutter in \(posture).")
+            if !expectsSearchButton {
+                let searchField = element("searchField")
+                XCTAssertGreaterThanOrEqual(searchField.frame.minY, categories.frame.maxY + 4,
+                                            "The Library search field must begin below the portrait category rail in \(posture).")
+            }
+        } else {
+            let firstTrailingEdge = min(alphabet.frame.minX, options.frame.minX,
+                                        expectsSearchButton ? search.frame.minX : CGFloat.greatestFiniteMagnitude)
+            XCTAssertGreaterThanOrEqual(categories.frame.minX, masthead.frame.maxX + 8,
+                                        "The Library category viewport must start after the Lumina masthead in \(posture).")
+            XCTAssertGreaterThanOrEqual(movies.frame.minX, masthead.frame.maxX + 8,
+                                        "The first visible Movies category must clear the Lumina masthead in \(posture).")
+            XCTAssertLessThanOrEqual(categories.frame.maxX, firstTrailingEdge - 8,
+                                     "The Library category viewport must end before navigation actions in \(posture).")
+        }
+    }
+
+    private func assertDuoHomeCategoryRail(named posture: String) throws {
+        let masthead = element("homeMasthead")
+        let movies = element("homeBrowse-movies")
+        let tv = element("homeBrowse-tv")
+        let music = element("homeBrowse-music")
+        let books = element("homeBrowse-books")
+        let watchlist = element("homeBrowse-watchlist")
+        try waitForHittable(masthead, timeout: 15, named: "Lumina masthead in \(posture)")
+        try waitForHittable(movies, timeout: 15, named: "Home Movies category in \(posture)")
+        [tv, music, books, watchlist].forEach {
+            XCTAssertTrue(hasVisibleFrame($0), "Home category controls must remain visible in \(posture).")
+        }
+
+        let viewport = try applicationViewport()
+        XCTAssertGreaterThan(viewport.height, viewport.width,
+                             "The Home category rail contract applies to open Duo portrait only.")
+        let controls = [movies, tv, music, books, watchlist]
+        let railMinY = controls.map(\.frame.minY).min() ?? 0
+        let railMinX = controls.map(\.frame.minX).min() ?? 0
+        let railMaxX = controls.map(\.frame.maxX).max() ?? 0
+        XCTAssertGreaterThanOrEqual(railMinY, masthead.frame.maxY + 4,
+                                    "The open Duo portrait Home category rail must begin below the masthead in \(posture).")
+        XCTAssertGreaterThanOrEqual(railMinX, viewport.minX + 20,
+                                    "The open Duo portrait Home category rail must stay inside the leading window edge in \(posture).")
+        XCTAssertLessThanOrEqual(railMaxX, viewport.maxX - 20,
+                                 "The open Duo portrait Home category rail must stay inside the trailing window edge in \(posture).")
+    }
+
+    private func assertClosedDuoLibraryHeader() throws {
+        let masthead = element("homeMasthead")
+        let categories = element("libraryCategories")
+        let movies = element("libraryCategory-movies")
+        let alphabet = element("videoAlphabetButton")
+        let options = element("videoOptionsMenu")
+        let search = element("videoSearchButton")
+        try waitForHittable(masthead, timeout: 15, named: "Lumina masthead in closed Duo Library")
+        try waitForExistence(categories, timeout: 15, named: "Library categories in closed Duo")
+        try waitForHittable(movies, timeout: 15, named: "Movies category in closed Duo")
+        try waitForHittable(alphabet, timeout: 15, named: "Library alphabet action in closed Duo")
+        try waitForHittable(options, timeout: 15, named: "Library options action in closed Duo")
+        try waitForHittable(search, timeout: 15, named: "Library search action in closed Duo")
+
+        let firstTrailingEdge = min(alphabet.frame.minX, options.frame.minX, search.frame.minX)
+        XCTAssertGreaterThanOrEqual(categories.frame.minX, masthead.frame.maxX + 8,
+                                    "Closed Duo Library categories must clear the Lumina masthead.")
+        XCTAssertGreaterThanOrEqual(movies.frame.minX, masthead.frame.maxX + 8,
+                                    "Closed Duo Library Movies must clear the Lumina masthead.")
+        XCTAssertLessThanOrEqual(categories.frame.maxX, firstTrailingEdge - 8,
+                                 "Closed Duo Library categories must end before its actions.")
+        XCTAssertEqual(movies.frame.midY, masthead.frame.midY, accuracy: 6,
+                       "Closed Duo Library Movies must share the masthead's toolbar row.")
     }
 
 

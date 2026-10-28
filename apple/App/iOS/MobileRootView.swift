@@ -800,6 +800,7 @@ private struct LibraryShellView: View {
                 destinationStack(owner: .library, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader, path: $libraryPath) {
                     libraryContent
                         .environment(\.luminaRetainsArtworkWhileHidden, !libraryPath.isEmpty)
+                        .modifier(LibraryStableNavigationBar())
                         .toolbarBackground(.hidden, for: .navigationBar)
                         .toolbar {
                             if showsCategoryHeader && !usesIPadHeaderNavigation {
@@ -1645,6 +1646,14 @@ private struct NativeHomeLayoutEditor: View {
         case "new_in_library": store.recentItems.isEmpty
         default: true
         }
+    }
+}
+
+private struct LibraryStableNavigationBar: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 27.0, *) {
+            content.toolbarMinimizationBehavior(.never, for: .navigationBar)
+        } else { content }
     }
 }
 

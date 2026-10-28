@@ -977,6 +977,15 @@ struct LuminaCategoryBar<Content: View>: View {
     var selection: String? = nil
     var centersContent = true
     @ViewBuilder let content: Content
+    #if os(iOS)
+    @Environment(\.layoutDirection) private var layoutDirection
+    @State private var overflow = Overflow(leading: false, trailing: false)
+    private struct Overflow: Equatable {
+        let leading: Bool
+        let trailing: Bool
+    }
+    private enum ScrollAnchor { case content }
+    #endif
     #if os(iOS) && LUMINA_UI_TESTING
     @State private var uiTestingMaxVerticalPull: CGFloat = 0
     #endif
@@ -992,19 +1001,42 @@ struct LuminaCategoryBar<Content: View>: View {
                 #else
                 .padding(.horizontal, 2)
                 #endif
+                #if os(iOS)
+                .id(ScrollAnchor.content)
+                #endif
             }
             #if os(iOS)
             .scrollBounceBehavior(.basedOnSize, axes: .vertical)
             .defaultScrollAnchor(.leading, for: .initialOffset)
             .defaultScrollAnchor(centersContent ? .center : .leading, for: .alignment)
             .fixedSize(horizontal: false, vertical: true)
+            .onScrollGeometryChange(for: Overflow.self) { geometry in
+                let before = geometry.contentOffset.x + geometry.contentInsets.leading > 1
+                let after = geometry.contentSize.width + geometry.contentInsets.trailing
+                    - geometry.containerSize.width - geometry.contentOffset.x > 1
+                return layoutDirection == .leftToRight
+                    ? Overflow(leading: before, trailing: after)
+                    : Overflow(leading: after, trailing: before)
+            } action: { _, edges in overflow = edges }
+            .mask {
+                HStack(spacing: 0) {
+                    if overflow.leading { Color.clear.frame(width: 44) }
+                    Rectangle()
+                    if overflow.trailing { Color.clear.frame(width: 44) }
+                }
+            }
+            .overlay(alignment: .leading) {
+                if overflow.leading { scrollCue(using: proxy, forward: false) }
+            }
+            .overlay(alignment: .trailing) {
+                if overflow.trailing { scrollCue(using: proxy, forward: true) }
+            }
             #if LUMINA_UI_TESTING
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 abs(geometry.contentOffset.y + geometry.contentInsets.top)
             } action: { _, distance in
                 uiTestingMaxVerticalPull = max(uiTestingMaxVerticalPull, distance)
             }
-            .accessibilityValue("verticalPull=\(uiTestingMaxVerticalPull)")
             #endif
             #else
             .scrollClipDisabled()
@@ -1012,7 +1044,30 @@ struct LuminaCategoryBar<Content: View>: View {
             .onAppear { revealSelection(using: proxy) }
             .onChange(of: selection) { revealSelection(using: proxy) }
         }
+        #if os(iOS)
+        .accessibilityElement(children: .contain)
+        #if LUMINA_UI_TESTING
+        .accessibilityValue("verticalPull=\(uiTestingMaxVerticalPull)")
+        #endif
+        #endif
     }
+
+    #if os(iOS)
+    private func scrollCue(using proxy: ScrollViewProxy, forward: Bool) -> some View {
+        Button {
+            withAnimation {
+                proxy.scrollTo(ScrollAnchor.content, anchor: forward ? .trailing : .leading)
+            }
+        } label: {
+            LuminaIcon(glyph: forward ? .forward : .back, size: 14)
+                .flipsForRightToLeftLayoutDirection(true)
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(forward ? "More categories" : "Previous categories")
+        .accessibilityIdentifier(forward ? "categoryScrollForward" : "categoryScrollBack")
+    }
+    #endif
 
     private func revealSelection(using proxy: ScrollViewProxy) {
         guard let selection else { return }

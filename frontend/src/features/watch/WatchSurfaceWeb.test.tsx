@@ -111,6 +111,26 @@ describe('the web-video watch page', () => {
     expect(onOpenRelated).toHaveBeenCalledWith(savedNext);
   });
 
+  it('requests Up Next for a saved Twitch video with its source and recent chain', async () => {
+    const item = stillItem('saved-twitch', {
+      title_id: null, extractor: 'twitch', remote_id: '424242', webpage_url: 'https://www.twitch.tv/videos/424242',
+      metadata_json: { id: '424242', uploader: 'Streamer' },
+    });
+    render(watchSurface({ selection: { kind: 'library', item }, upNextExclusions: ['url:https://www.twitch.tv/videos/111111'] }));
+    await waitFor(() => expect(api.getUpNext).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'twitch', source_url: item.webpage_url, excluded_sources: ['url:https://www.twitch.tv/videos/111111'],
+    })));
+  });
+
+  it('shows a remote Up Next error and offers retry', async () => {
+    const retry = vi.fn();
+    render(watchSurface({ selection: { kind: 'remote', item: remoteEntry('v1'), preview: preview() },
+      remoteRelatedError: new Error('offline'), onRetryRemoteRelated: retry }));
+    expect(screen.getByText(/Couldn’t load suggestions/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
   it('refetches a saved video’s Up next when its library summary hydrates channel context', async () => {
     const item = stillItem('saved-1', {
       title_id: null, extractor: 'youtube', remote_id: 'saved-video', webpage_url: 'https://www.youtube.com/watch?v=saved-video',

@@ -47,6 +47,11 @@ export function remoteSourceIdentity(item: RemoteSourceIdentityInput, raw: Recor
   return sourceUrl ? `url:${canonicalRemoteSourceUrl(sourceUrl)}` : null;
 }
 
+/** A bounded playback-chain history. The backend uses these same canonical identities to omit prior sources. */
+export function appendAutoplaySources(previous: string[], current: string | null, target: string | null): string[] {
+  return [...new Set([...previous, ...(current ? [current] : []), ...(target ? [target] : [])])].slice(-50);
+}
+
 export type CapturedChatIdentityInput = {
   extractor?: string | null;
   remote_id?: string | null;

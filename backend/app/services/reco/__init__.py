@@ -95,6 +95,8 @@ class Constants:
     w_affinity: float = 2.0
     w_topic: float = 2.0
     w_interest: float = 0.5
+    anchor_match_weight: float = 10.0  # anchored shelves rank verified title similarity first
+    anchor_personal_weight: float = 0.1  # member score breaks close anchor matches
     remote_fresh_boost: float = 0.6
     remote_fresh_tau_days: float = 7.0
     title_fresh_boost: float = 0.3
@@ -183,6 +185,7 @@ class Candidate:
     channel_view_percentile: float | None = None  # within-channel percentile when ≥ 5 items of the channel are known
     rating: float | None = None  # title community rating
     vector: array | None = field(default=None, compare=False, repr=False)
+    media_type: str | None = None  # movie or series; title anchors keep their format
 
 
 @dataclass(frozen=True)

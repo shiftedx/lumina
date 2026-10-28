@@ -76,3 +76,57 @@ Browse follows the shared refreshed snapshot. No ranking constants change.
 
   Revisit when any member has at least 20,000 impressions and 500 attributed plays, and the replay shows that hand-set constants have plateaued.
 - **Use an external recommendation service or YouTube's own feed.** Rejected: household activity would leave the install, and YouTube's feed requires signing in.
+
+## Amendment: trustworthy title discovery (2026-10-27)
+
+Anchored library recommendations now require a concrete relationship before ranking.
+A shared category, decade, broad genre, high rating or recent arrival cannot alone
+qualify a title for Because you watched or More like this. The current and legacy
+policies share this admission rule. When evidence is insufficient the list is
+shorter or absent, including when embeddings are unavailable. Exploration on these
+surfaces stays inside the admitted set; general Recommended for you remains the
+place for broader member-taste discovery.
+
+Public synopsis terms and public metadata tags supplement structured title facts
+and existing embeddings. Lexical retrieval weights uncommon shared terms and can
+nominate older titles outside the newest-title pool. Neither private member notes
+nor remote provider/model calls enter request-time matching. Thresholds are initial,
+inspectable heuristics, not claims of measured user satisfaction; synthetic editorial
+checks complement the existing temporal replay. No new trained model or service is
+introduced, and DPP/calibration remain the diversity baseline.
+
+Home allocates a bounded share to each anchor and excludes titles already assigned
+to earlier shelves before ranking later ones. This preserves recommendation event
+positions and allows later shelves to replenish from their eligible candidates.
+Caches distinguish the title-policy version and allocation context. A small library
+may still have no separate general row when its useful titles fit anchored rows.
+
+Native Home carries the same member-scoped recommendation annotations and uses
+served-list validation for event attribution. Feedback is reversible and reuses the
+existing title suppression service. Native impression collection is based on visible
+dwell, not card construction. This closes an explanation/feedback gap without
+sharing household activity with another service.
+
+## Amendment: remote playback continuity (2026-10-28)
+
+YouTube/Twitch Up Next uses remote-video evidence separately from library-title
+matching. Broad categories, creator identity, generic presentation words and numbers
+cannot alone establish a topical relationship. Meaningful title overlap or a
+conservative existing-vector threshold admits a candidate; these thresholds remain
+heuristics. The same rule constrains every Up Next slot, including exploration and
+the legacy fallback. A verified next part takes priority, otherwise the strongest
+admitted relationship leads before diversity is applied to the remaining list.
+
+Up Next stays within the requested provider, checks access against both the source
+URL and declared provider, and does not fetch a provider listing in the request.
+Twitch uses the existing discovered pool; it does not acquire a new related-video
+service. Empty or sparse evidence produces an empty or shorter queue. General
+Popular items cannot fill an unrelated autoplay continuation.
+
+Web playback carries at most 50 recent canonical source identities within the
+current member's autoplay chain. The server excludes them before ranking and
+includes them in the served-list cache context; the client also rejects stale
+repeat candidates. Explicit user queue choices remain authoritative. Manual new
+playback and member switches reset the chain. Up Next fetch errors are visible and
+retryable, while a failed next-video preview stops rather than cascading through
+fallbacks. The Apple clients currently have no remote Up Next client path.

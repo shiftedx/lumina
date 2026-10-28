@@ -30,6 +30,39 @@ HEADROOM = 0.6  # the median must sit within this share of the budget
 MEMBER = make_user("reco-perf")
 GENRES = ("Drama", "Comedy", "Thriller", "Horror", "Romance", "Action", "Documentary", "Animation", "Crime", "Family",
           "Fantasy", "Mystery", "Science Fiction", "War", "Western", "History", "Music", "Adventure", "TV Movie", "Sport")
+PREMISES = (
+    "A surgeon confronts hospital politics after a risky transplant decision",  # Drama
+    "A chef plans a disastrous wedding banquet with clumsy neighbors",  # Comedy
+    "A journalist uncovers a conspiracy while tracing a missing witness",  # Thriller
+    "A haunted farmhouse draws visitors into a series of disappearances",  # Horror
+    "Two artists begin a courtship while restoring a seaside gallery",  # Romance
+    "A rescue team crosses hostile territory to recover stolen intelligence",  # Action
+    "Scientists document wildlife conservation in a threatened coastal habitat",  # Documentary
+    "Animated forest creatures protect their village from a winter storm",  # Animation
+    "A detective investigates a robbery linked to an organized crime syndicate",  # Crime
+    "Siblings rebuild their family home after an unexpected inheritance",  # Family
+    "A sorcerer guards an enchanted kingdom against a dangerous spell",  # Fantasy
+    "An archivist studies cryptic letters surrounding an old disappearance",  # Mystery
+    "A spacecraft crew follows an alien signal toward a distant planet",  # Science Fiction
+    "Medics navigate a battlefield while protecting a fragile ceasefire",  # War
+    "A rancher pursues outlaws across a remote desert frontier",  # Western
+    "An historian reconstructs a political revolt through forgotten diaries",  # History
+    "A musician records an album before a landmark concert performance",  # Music
+    "Explorers navigate a dangerous river toward a lost mountain settlement",  # Adventure
+    "A local reporter follows a civic scandal through several connected households",  # TV Movie
+    "An injured athlete trains for a championship alongside a rival",  # Sport
+)
+DETAILS = (
+    "The first clue appears during a crowded public celebration, forcing difficult choices for everyone involved",
+    "A trusted friend brings new evidence from a distant neighborhood, changing the course of the investigation",
+    "An unexpected storm interrupts the journey and leaves the group with limited resources and conflicting plans",
+    "A private disagreement becomes public, testing old loyalties before the final decision can be made",
+)
+
+
+def synopsis(n: int) -> str:
+    """A bounded 24-27 word synopsis with shared subject terms and varied details."""
+    return f"{PREMISES[n % len(PREMISES)]}. {DETAILS[(n // len(PREMISES)) % len(DETAILS)]}."
 
 
 def _tid(n: int) -> str:
@@ -49,7 +82,7 @@ def db_factory():  # noqa: ANN201 - overrides conftest's: api_client reads this 
                 id=_tid(n), type="movie", key=f"perf:{n}", name=f"Film {n}", boxset_id=_tid(TITLES + n // 4) if n % 10 == 0 else None,
                 year=1950 + n % 75, provider_ids={}, field_sources={}, images={}, category="movies",
                 metadata_json={"genres": [GENRES[n % 20], GENRES[n * 3 % 20]], "people": people, "community_rating": 5 + n % 5,
-                               "overview": f"Overview of film {n}."},
+                               "overview": synopsis(n)},
                 created_at=now - timedelta(days=n % 400),
             ))
             session.add(LibraryItem(id=f"{_tid(n)}-v", user_id="owner", visibility="shared", title=f"Film {n}", title_id=_tid(n),

@@ -1284,6 +1284,20 @@ describe('WatchSurface autoplay queue', () => {
     expect(onOpenRelated).toHaveBeenCalledWith(next);
   });
 
+  it('passes the current source into autoplay while leaving manual related opens separate', async () => {
+    const onAutoAdvanceRelated = vi.fn();
+    const onOpenRelated = vi.fn();
+    vi.mocked(getUpNext).mockResolvedValue(upNext([next]));
+    render(watchSurface({ selection: { kind: 'library', item: current }, library: [current],
+      onAutoAdvanceRelated, onOpenRelated }));
+    await waitFor(() => expect(getUpNext).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: /^Actual next video/ }));
+    expect(onOpenRelated).toHaveBeenCalledWith(next);
+    expect(onAutoAdvanceRelated).not.toHaveBeenCalled();
+    finishCurrentVideo();
+    expect(onAutoAdvanceRelated).toHaveBeenCalledWith(next, 'youtube:abc123');
+  });
+
   it('re-arms autoplay only after the same video genuinely resumes', async () => {
     const { onOpenRelated, onPlaybackCheckpoint } = await renderAutoplay();
     const media = finishCurrentVideo();
@@ -1331,6 +1345,16 @@ describe('WatchSurface autoplay queue', () => {
 
     expect(onOpenRelated).toHaveBeenCalledTimes(1);
     expect(onOpenRelated).toHaveBeenCalledWith(playableNext);
+  });
+
+  it('skips a stale recommendation from earlier in the autoplay chain', async () => {
+    const onAutoAdvanceRelated = vi.fn();
+    vi.mocked(getUpNext).mockResolvedValue(upNext([next, playableNext]));
+    render(watchSurface({ selection: { kind: 'library', item: current }, library: [current],
+      upNextExclusions: ['youtube:def456'], onAutoAdvanceRelated }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Playable next/ })).toBeTruthy());
+    finishCurrentVideo();
+    expect(onAutoAdvanceRelated).toHaveBeenCalledWith(playableNext, 'youtube:abc123');
   });
 
   it('does not auto-advance when every recommendation is not playable', async () => {

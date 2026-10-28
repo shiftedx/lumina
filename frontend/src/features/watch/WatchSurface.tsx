@@ -95,6 +95,11 @@ export function WatchSurface({
   onToggleDownloadMenu,
   onCloseDownloadMenu,
   onOpenRelated,
+  onAutoAdvanceRelated,
+  upNextExclusions = [],
+  remoteRelatedLoading = false,
+  remoteRelatedError = null,
+  onRetryRemoteRelated,
   onOpenQueued = () => undefined,
   onOpenLibraryItem,
   onFollow,
@@ -139,6 +144,11 @@ export function WatchSurface({
   onToggleDownloadMenu: () => void;
   onCloseDownloadMenu: () => void;
   onOpenRelated: (item: YouTubeSearchResult) => void;
+  onAutoAdvanceRelated?: (item: YouTubeSearchResult, currentIdentity: string | null) => void;
+  upNextExclusions?: string[];
+  remoteRelatedLoading?: boolean;
+  remoteRelatedError?: Error | null;
+  onRetryRemoteRelated?: () => void;
   onOpenQueued?: (entry: WatchQueueEntry) => void;
   onOpenLibraryItem?: (id: string) => void;
   onFollow: () => void;
@@ -220,40 +230,42 @@ export function WatchSurface({
   const knownResolution = readString(raw, 'resolution') || (sourceHeight ? `${sourceHeight}p` : null);
   const sourceUrl = preview?.webpage_url || remote?.webpage_url || local?.webpage_url || null;
   const provider = capabilities?.provider === 'youtube' ? 'YouTube' : watchProvider(raw, remote, local);
-  // Acquisition owns Up Next for remote playback. A saved YouTube video has no
+  // Acquisition owns Up Next for remote playback. A saved YouTube or Twitch video has no
   // acquisition preview, so it makes the same member-scoped request here.
-  const savedYoutubeId = local?.remote_id || readString(raw, 'id') || youtubeVideoId({ webpage_url: sourceUrl });
-  const savedYoutubeSourceUrl = sourceUrl || (savedYoutubeId ? `https://www.youtube.com/watch?v=${encodeURIComponent(savedYoutubeId)}` : null);
-  const savedYoutubeChannelId = youtubeChannelId({
+  const savedRemoteId = local?.remote_id || readString(raw, 'id') || youtubeVideoId({ webpage_url: sourceUrl });
+  const savedProvider = provider === 'YouTube' ? 'youtube' : provider === 'Twitch' ? 'twitch' : null;
+  const savedRemoteSourceUrl = sourceUrl || (savedProvider === 'youtube' && savedRemoteId ? `https://www.youtube.com/watch?v=${encodeURIComponent(savedRemoteId)}` : null);
+  const savedRemoteChannelId = youtubeChannelId({
     channel_id: readString(raw, 'channel_id'),
     uploader_id: readString(raw, 'uploader_id'),
     channel_url: readString(raw, 'channel_url'),
     uploader_url: readString(raw, 'uploader_url'),
   });
-  const savedYoutubeChannelUrl = readString(raw, 'channel_url') || readString(raw, 'uploader_url');
-  const savedYoutubeSubjects = relatedSubjectKeys({}, raw);
-  const savedYoutubeUpNextKey = local && !local.title_id && provider === 'YouTube' && !isAudioItem(local) && savedYoutubeSourceUrl
-    ? `youtube-up-next:${JSON.stringify({ item: local.id, url: savedYoutubeSourceUrl, source: savedYoutubeId, title: sourceTitle, uploader, channel: savedYoutubeChannelId, channelUrl: savedYoutubeChannelUrl, subjects: savedYoutubeSubjects })}`
+  const savedRemoteChannelUrl = readString(raw, 'channel_url') || readString(raw, 'uploader_url');
+  const savedRemoteSubjects = relatedSubjectKeys({}, raw);
+  const savedRemoteUpNextKey = local && !local.title_id && savedProvider && !isAudioItem(local) && savedRemoteSourceUrl
+    ? `remote-up-next:${JSON.stringify({ item: local.id, url: savedRemoteSourceUrl, source: savedRemoteId, provider: savedProvider, title: sourceTitle, uploader, channel: savedRemoteChannelId, channelUrl: savedRemoteChannelUrl, subjects: savedRemoteSubjects, excluded: upNextExclusions })}`
     : null;
-  const [savedYoutubeUpNextRevision, setSavedYoutubeUpNextRevision] = useState(0);
-  const savedYoutubeUpNext = useFetched(savedYoutubeUpNextKey, () => {
+  const [savedRemoteUpNextRevision, setSavedYoutubeUpNextRevision] = useState(0);
+  const savedRemoteUpNext = useFetched(savedRemoteUpNextKey, () => {
     return getUpNext({
-      source_url: savedYoutubeSourceUrl as string,
-      source_id: savedYoutubeId,
-      source: 'youtube',
+      source_url: savedRemoteSourceUrl as string,
+      source_id: savedRemoteId,
+      source: savedProvider ?? 'youtube',
       title: sourceTitle,
       uploader,
-      category_keys: savedYoutubeSubjects,
-      ...(savedYoutubeChannelId ? { channel_id: savedYoutubeChannelId } : {}),
-      ...(savedYoutubeChannelUrl && savedYoutubeChannelUrl.length <= 2_048 ? { channel_url: savedYoutubeChannelUrl } : {}),
+      category_keys: savedRemoteSubjects,
+      excluded_sources: upNextExclusions,
+      ...(savedRemoteChannelId ? { channel_id: savedRemoteChannelId } : {}),
+      ...(savedRemoteChannelUrl && savedRemoteChannelUrl.length <= 2_048 ? { channel_url: savedRemoteChannelUrl } : {}),
     });
-  }, savedYoutubeUpNextRevision);
+  }, savedRemoteUpNextRevision);
   // `useFetched` suppresses late responses for an old key. Do not show stale
   // acquisition results while this saved item's recommendation request loads.
-  const relatedForWatch = savedYoutubeUpNextKey ? savedYoutubeUpNext.data?.items ?? [] : related;
-  const relatedLoading = savedYoutubeUpNextKey ? savedYoutubeUpNext.loading : previewLoading;
-  const relatedError = savedYoutubeUpNextKey ? savedYoutubeUpNext.error : null;
-  const relatedSourceUrl = savedYoutubeSourceUrl || sourceUrl;
+  const relatedForWatch = savedRemoteUpNextKey ? savedRemoteUpNext.data?.items ?? [] : related;
+  const relatedLoading = savedRemoteUpNextKey ? savedRemoteUpNext.loading : previewLoading || remoteRelatedLoading;
+  const relatedError = savedRemoteUpNextKey ? savedRemoteUpNext.error : remoteRelatedError;
+  const relatedSourceUrl = savedRemoteSourceUrl || sourceUrl;
   const remoteIdentity = useMemo(
     () => remote && sourceUrl ? remoteSourceIdentity({ ...remote, webpage_url: sourceUrl }, raw) : null,
     [remote, sourceUrl, raw],
@@ -273,10 +285,14 @@ export function WatchSurface({
   const queuedNext = firstPlayableQueued(useWatchQueue().queue);
   // Autoplay never takes an exploration slot, nor a card the member just hid.
   const autoplayEligible = useAutoplayEligible();
-  const autoplayIndex = useMemo(
-    () => queuedNext ? -1 : visibleRelated.findIndex((item) => !capabilityActionDisabled(item.capabilities, 'play') && autoplayEligible(item)),
-    [queuedNext, visibleRelated, autoplayEligible],
-  );
+  const autoplayIndex = useMemo(() => {
+    if (queuedNext) return -1;
+    const recent = new Set(upNextExclusions);
+    return visibleRelated.findIndex((item) => {
+      const identity = remoteSourceIdentity(item);
+      return !capabilityActionDisabled(item.capabilities, 'play') && autoplayEligible(item) && (!identity || !recent.has(identity));
+    });
+  }, [queuedNext, visibleRelated, autoplayEligible, upNextExclusions]);
   const activeJob = sourceUrl ? jobs.find((job) => job.source_url === sourceUrl && ['queued', 'running', 'postprocessing'].includes(job.status)) : null;
   const saved = Boolean(local) || (remote ? remoteItemIsSaved(remote, library) : false) || jobs.some((job) => job.source_url === sourceUrl && job.status === 'completed');
   const channelUrl = readString(raw, 'channel_url') || readString(raw, 'uploader_url');
@@ -714,7 +730,11 @@ export function WatchSurface({
   function playNext() {
     if (upNext) upNext.onPlay();
     else if (queuedNext) playQueued(queuedNext);
-    else if (autoplayIndex >= 0) onOpenRelated(visibleRelated[autoplayIndex]);
+    else if (autoplayIndex >= 0) {
+      const next = visibleRelated[autoplayIndex];
+      if (onAutoAdvanceRelated) onAutoAdvanceRelated(next, currentRelatedIdentity);
+      else onOpenRelated(next);
+    }
   }
 
   // The picture-in-picture window and the system media controls name the video and skip to the next (or previous)
@@ -850,7 +870,7 @@ export function WatchSurface({
                 {local ? <LibraryCapturedChatRail currentTimeSeconds={currentTime} durationSeconds={duration} item={local} onSeek={seekPlayback} /> : null}
                 {remote ? <WatchChatSeamForViewport capabilities={capabilities} currentTime={currentTime} duration={duration} ended={liveEnded} onSeek={seekPlayback} provider={provider.toLowerCase()} sourceIdentity={remoteIdentity} sourceUrl={sourceUrl} /> : null}
                 <WatchQueuePanel autoplay={autoplayUpNext} onPlay={playQueued} />
-                <WatchRelated autoplay={autoplayUpNext} autoplayIndex={autoplayIndex} error={relatedError} items={visibleRelated} loading={relatedLoading} onAutoplayChange={onAutoplayUpNextChange} onOpen={onOpenRelated} onRetry={savedYoutubeUpNextKey ? () => setSavedYoutubeUpNextRevision((revision) => revision + 1) : undefined} remote={Boolean(remote || savedYoutubeUpNextKey)} showAutoplay={Boolean(visibleRelated.length || queuedNext)} />
+                <WatchRelated autoplay={autoplayUpNext} autoplayIndex={autoplayIndex} error={relatedError} items={visibleRelated} loading={relatedLoading} onAutoplayChange={onAutoplayUpNextChange} onOpen={onOpenRelated} onRetry={savedRemoteUpNextKey ? () => setSavedYoutubeUpNextRevision((revision) => revision + 1) : onRetryRemoteRelated} remote={Boolean(remote || savedRemoteUpNextKey)} showAutoplay={Boolean(visibleRelated.length || queuedNext)} />
                 <details className="g-watch-details">
                   <summary>Details &amp; provenance</summary>
                   {local ? <ProvenancePanel itemId={local.id} key={local.id} onOpenItem={onOpenLibraryItem} /> : (

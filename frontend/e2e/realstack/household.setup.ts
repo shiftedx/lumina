@@ -47,7 +47,7 @@ test('first owner connects and imports media during onboarding, then signs in ag
     await page.getByRole('link', { name: 'Imports', exact: true }).click();
     const run = page.getByRole('region', { name: 'Fixture media Complete' });
     await expect(run).toBeVisible({ timeout: 30_000 });
-    await expect(run.getByRole('definition').first()).toHaveText('8');
+    await expect(run.getByRole('definition').first()).toHaveText('10');
     await expect(run).toContainText('Nothing needs attention.');
   });
 

@@ -10,6 +10,7 @@ import hashlib
 import math
 import random
 from array import array
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from types import MappingProxyType
@@ -20,12 +21,15 @@ from app.services.reco import (
     CONSTANTS, SOURCE_CHANNEL, SOURCE_FOLLOW, SOURCE_HISTORY, SOURCE_SEED, SURFACE_EXPLORE, Candidate, Constants,
     MemberProfile, Ranked, SatisfiedItem, SurfaceContext, explore_positions,
 )
+from app.services.reco.title_matching import AnchorMatch, anchor_match
+from app.services.reco.remote_matching import remote_anchor_strength
 
 DAY_SECONDS = 86_400.0
 ANCHORED = frozenset({"up_next", "title_similar", "home_because"})  # surfaces whose context term C_i uses an anchor
 CALIBRATED = frozenset({"home_picked", "home_recommended", "explore_for_you"})
 _CATEGORY_LABELS = {category.key: category.label for category in POPULAR_CATEGORIES}
 _NO_NAMES: Mapping[str, str] = MappingProxyType({})
+REMOTE_MATCH_WEIGHT = 10.0  # topical evidence dominates personal taste within an eligible Up Next queue
 
 
 # ---- small maths --------------------------------------------------------------------------------------------------
@@ -554,6 +558,22 @@ def rank(candidates: Sequence[Candidate], profile: MemberProfile, ctx: SurfaceCo
     # ≈ 25 ms at a real list's ≈ 650; precompute candidate-to-centroid cosines in the pool if a budget is missed.
     unique = list({candidate.key: candidate for candidate in reversed(candidates)}.values())[::-1]  # first occurrence wins
     eligible = [candidate for candidate in unique if not vetoed(candidate, profile, ctx)]
+    matches: dict[str, AnchorMatch] = {}
+    if ctx.surface in {"home_because", "title_similar"}:
+        if ctx.anchor is None:
+            return []
+        frequency = Counter(token for candidate in eligible for token in candidate.tokens if token.startswith("subject:"))
+        matches = {candidate.key: match for candidate in eligible
+                   if (match := anchor_match(ctx.anchor, candidate, document_frequency=frequency,
+                                             document_count=len(eligible))) is not None}
+        eligible = [candidate for candidate in eligible if candidate.key in matches]
+    remote_matches: dict[str, float] = {}
+    if ctx.surface == "up_next":
+        if ctx.anchor is None:
+            return []
+        remote_matches = {candidate.key: strength for candidate in eligible
+                          if (strength := remote_anchor_strength(ctx.anchor, candidate)) is not None}
+        eligible = [candidate for candidate in eligible if candidate.key in remote_matches]
     if not eligible or ctx.k <= 0:
         return []
     centroids = [centroid.tolist() for centroid in profile.centroids]
@@ -562,16 +582,26 @@ def rank(candidates: Sequence[Candidate], profile: MemberProfile, ctx: SurfaceCo
     scored = []
     for candidate, topic in zip(eligible, topics):
         value, contributions = score(candidate, profile, ctx, topic=topic, now=now, k=k)
+        if candidate.key in matches:
+            value = k.anchor_match_weight * matches[candidate.key].strength + k.anchor_personal_weight * value
+        if candidate.key in remote_matches:
+            value += REMOTE_MATCH_WEIGHT * remote_matches[candidate.key]
         facts[candidate.key] = (topic, contributions)
         scored.append((candidate, value))
     current = channel_of(ctx.anchor, profile) if ctx.surface == "up_next" and ctx.anchor is not None else None
-    ordered = channel_cap(channel_discount(scored, profile, current_channel=current, k=k), profile, ctx.k, k)
+    discounted = channel_discount(scored, profile, current_channel=current, k=k)
+    if remote_matches:
+        discounted.sort(key=lambda pair: (-remote_matches[pair[0].key], -pair[1], pair[0].key))
+        if ctx.pinned_key in remote_matches:
+            discounted.sort(key=lambda pair: pair[0].key != ctx.pinned_key)
+    ordered = channel_cap(discounted, profile, ctx.k, k)
 
     pinned = next((pair for pair in ordered if pair[0].key == ctx.pinned_key), None) if ctx.pinned_key else None
     if pinned is not None:
         ordered.remove(pinned)
+    lead = ordered.pop(0) if ctx.surface == "up_next" and pinned is None and ordered else None
     explore_slots = explore_positions(ctx.k, SURFACE_EXPLORE[ctx.surface])
-    exploit_size = max(0, ctx.k - len(explore_slots) - (1 if pinned else 0))
+    exploit_size = max(0, ctx.k - len(explore_slots) - (1 if pinned else 0) - (1 if lead else 0))
     pool = ordered[: k.rank_pool]
     if ctx.surface in CALIBRATED:
         groups = [group_of(candidate, profile) for candidate, _value in pool]
@@ -597,6 +627,8 @@ def rank(candidates: Sequence[Candidate], profile: MemberProfile, ctx: SurfaceCo
     served: list[tuple[Candidate, float, RecoSlot, float | None]] = []
     if pinned is not None:
         served.append((pinned[0], pinned[1], "pinned", None))
+    if lead is not None:
+        served.append((lead[0], lead[1], "exploit", None))
     exploit_iter, draw_iter = iter(exploit), iter(draws)
     while len(served) < ctx.k:
         position = len(served) + 1
@@ -618,6 +650,8 @@ def rank(candidates: Sequence[Candidate], profile: MemberProfile, ctx: SurfaceCo
     for position, (candidate, value, slot, p_shown) in enumerate(served):
         code, reason = choose_reason(candidate, facts[candidate.key][1], profile, ctx, slot=slot, now=now, names=names, k=k,
                                      seeds=seeds)
+        if candidate.key in matches:
+            code, reason = "like_anchor", clip(matches[candidate.key].reason, k.reason_chars)
         ranked.append(Ranked(candidate=candidate, position=position, slot=slot, score=value, p_shown=p_shown,
                              reason_code=code, reason=reason))
     return ranked

@@ -45,6 +45,21 @@ def _slug(name: str) -> str:
 
 
 SECOND_GENRES = ("Drama", "Comedy", "Adventure", "History")  # a film's second genre, shared across tastes as in a real library
+GENRE_STORIES = {
+    "Action": ("A covert agent rescues hostages during a dangerous mission", "across the border", "inside a crowded station"),
+    "Documentary": ("Researchers document wildlife conservation in a threatened habitat", "along the coast", "deep in the forest"),
+    "Food": ("A chef opens a restaurant and develops a new kitchen menu", "for a neighborhood", "during a busy festival"),
+    "Music": ("A musician records an album and prepares a live concert", "with an orchestra", "in a small club"),
+    "Romance": ("Two strangers begin a courtship while planning a wedding", "near the seaside", "during a winter holiday"),
+    "Science Fiction": ("A spacecraft crew encounters an alien signal near a distant planet", "on an expedition", "during a rescue"),
+    "Sport": ("An athlete trains for a championship after an injury", "with a new coach", "alongside a rival"),
+    "Thriller": ("A detective investigates a disappearance and uncovers a conspiracy", "at a hotel", "inside a corporation"),
+}
+
+
+def film_overview(genre: str, n: int) -> str:
+    premise, first_detail, second_detail = GENRE_STORIES[genre]
+    return f"{premise} {first_detail if n % 2 else second_detail}."
 
 
 def film_people(genre: str, n: int) -> list[dict]:
@@ -136,7 +151,8 @@ def seed(session, data_dir: Path) -> None:  # noqa: ANN001
             rows.append(MediaTitle(
                 id=movie_id, type="movie", key=f"reco:{movie_id}", name=f"{genre} film {n}", year=1990 + 2 * n,
                 metadata_json={"genres": [genre, SECOND_GENRES[(n + genres.index(genre)) % len(SECOND_GENRES)]],
-                               "people": film_people(genre, n), "community_rating": 5.0 + (n % 7) * 0.5},
+                               "people": film_people(genre, n), "overview": film_overview(genre, n),
+                               "community_rating": 5.0 + (n % 7) * 0.5},
                 created_at=arrived, added_at=arrived,
             ))
             rows.append(LibraryItem(

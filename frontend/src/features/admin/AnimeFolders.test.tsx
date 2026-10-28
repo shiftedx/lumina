@@ -108,4 +108,15 @@ describe('AnimeFolders', () => {
     await flush(RESORT_POLL_MS * 3);
     expect(api.getMediaServerSettings).toHaveBeenCalledTimes(3);
   });
+
+  it('confirms a re-sort that finishes before Save returns', async () => {
+    api.getMediaServerSettings.mockResolvedValue(settings());
+    api.updateMediaServerSettings.mockResolvedValue(settings({ anime_folders: [], recategorising: false }));
+    saveAllStore({ spotlight: null, slices: {}, scrollY: 0, focus: null });
+    render(<AnimeFolders />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove Anime' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Titles re-sorted.')).toBeTruthy();
+    expect(restoreAllStore()).toBeNull();
+  });
 });

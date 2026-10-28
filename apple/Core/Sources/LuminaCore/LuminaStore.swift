@@ -31,11 +31,13 @@ let tickScale = 10_000_000.0
                     nextIndex = 0
                 }
             }
+            metadata.configure(session: session)
             music.configure(session: session)
             offline.configure(session: session)
         }
     }
     public let music = LuminaMusicLibrary()
+    public let metadata = LuminaMetadataEditor()
     public let offline: LuminaOfflineLibrary
     /// Reachability includes both the OS network path and failed server requests.
     public private(set) var connectivityStatus: LuminaConnectivity.Status = .unknown

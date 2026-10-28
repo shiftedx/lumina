@@ -21,6 +21,7 @@
 		30262715F64221E24896BD5A /* VideoGestureTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EF3598D94AFAAE2656F52F7 /* VideoGestureTimeline.swift */; };
 		30C04AC7785E1053F6EA6C7E /* GoogleCastUIResources.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 5BDBF7267723B81D0731ECF5 /* GoogleCastUIResources.bundle */; };
 		3122D3BDE370E8124C508C0A /* GoogleCastNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 6093A778C97EC805E77CEFF8 /* GoogleCastNotices.txt */; };
+		35EAE0A2C947B2332D3EAF7F /* NativeMetadataEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68275C483FC0C868F82A5366 /* NativeMetadataEditor.swift */; };
 		3C819D1678BE15AE0B6A8104 /* PlaybackNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = F55F2C18A68824D28C25F076 /* PlaybackNotices.txt */; };
 		3D9A96C5CA2959005785C51A /* LuminaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E2E399E65B9F344CA0623A9 /* LuminaTheme.swift */; };
 		3DA8F03457D25A57235455E4 /* GoogleSansRegular.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 8FF790C304F60AEDB99AD67F /* GoogleSansRegular.bundle */; };
@@ -139,6 +140,7 @@
 		6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMusicLibraryView.swift; sourceTree = "<group>"; };
 		6F308668F73F6F96E8F25FCF /* GoogleCastCoreResources.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = GoogleCastCoreResources.bundle; sourceTree = "<group>"; };
 		7078F0D68055CD08F15792CD /* NativeMediaAbout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaAbout.swift; sourceTree = "<group>"; };
+		68275C483FC0C868F82A5366 /* NativeMetadataEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMetadataEditor.swift; sourceTree = "<group>"; };
 		72EDB0D3E1376AA4A0663258 /* TVMusicDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVMusicDetailView.swift; sourceTree = "<group>"; };
 		7D9AE71BF493F6A950E54538 /* GoogleCastPrivacy.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = GoogleCastPrivacy.bundle; sourceTree = "<group>"; };
 		819800A042573CF485DA0430 /* iOS.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = iOS.xcassets; sourceTree = "<group>"; };
@@ -305,6 +307,7 @@
 				34453117E4BDD0C2E7FDB62C /* MobilePairScanner.swift */,
 				579E2238336BCFC991DB98C2 /* MobileRootView.swift */,
 				7078F0D68055CD08F15792CD /* NativeMediaAbout.swift */,
+				68275C483FC0C868F82A5366 /* NativeMetadataEditor.swift */,
 				EBDC1F7C8ABA920BF6757F1C /* NativeAccountSettingsView.swift */,
 				892B855BCAA4EAABD1E4FC4B /* NativeBookReader.swift */,
 				2B8A23EF15E413E17B6142A1 /* NativeBooksView.swift */,
@@ -624,6 +627,7 @@
 				F5B0240E517BA8922A99B55F /* NativeBookText.swift in Sources */,
 				67A647797CF52955C36B7932 /* NativeBooksView.swift in Sources */,
 				F1D1690E7C47C7173BCC5D19 /* NativeMediaAbout.swift in Sources */,
+				35EAE0A2C947B2332D3EAF7F /* NativeMetadataEditor.swift in Sources */,
 				5F1BFB9E8D7F345739B01208 /* NativeMusicAirPlayButton.swift in Sources */,
 				DF70A83102C482A30F51A6DC /* NativeMusicCasting.swift in Sources */,
 				C3CDF44890749BE14C5012EE /* NativeMusicLibraryView.swift in Sources */,

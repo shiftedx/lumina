@@ -73,6 +73,36 @@ def _image(request: Request, user: User, load: Callable[[], ArtworkResponse]) ->
     return Response(content=image.content, media_type=image.content_type, headers=IMAGE_HEADERS)
 
 
+def search_title_matches(title_id: str, q: str | None, year: int | None, user: User, db: Session) -> list[IdentifyCandidate]:
+    title = _title_or_404(db, title_id, user)
+    client = tmdb.client_for(YtDlpService(db).get_app_settings())
+    if client is None:
+        raise HTTPException(status_code=409, detail=NOT_CONFIGURED)
+    name = (q or "").strip() or title.name
+    year_filter = year if year is not None else (None if q else title.year)
+    try:
+        candidates = client.search("movie" if title.type == "movie" else "tv", name, year_filter)
+    except tmdb.TmdbError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    return [
+        IdentifyCandidate(
+            tmdb_id=c["tmdb_id"], name=c["name"], original_name=c["original_name"], year=c["year"], overview=c["overview"],
+            poster_url=_poster_url(c["poster_path"]), score=score,
+        )
+        for score, c in tmdb.rank(name, year_filter, candidates)
+    ]
+
+
+def identify_title_match(title_id: str, payload: IdentifyRequest, user: User, db: Session) -> MetadataRefreshResponse:
+    with write_transaction(db, name="tmdb_identify"):
+        title = _title_or_404(db, title_id, user)
+        try:
+            title_metadata.identify(title, payload.tmdb_id, utcnow())
+        except title_metadata.TitleLocked:
+            raise HTTPException(status_code=409, detail="title_locked") from None
+    return _refreshed(title)
+
+
 def register(app: FastAPI, artwork: ArtworkService) -> None:
     @app.get("/api/admin/metadata/unmatched", response_model=list[TitleSummary])
     def list_unmatched(user: User = Depends(get_admin_user), db: Session = Depends(get_db, scope="function")) -> list[TitleSummary]:
@@ -93,35 +123,13 @@ def register(app: FastAPI, artwork: ArtworkService) -> None:
         user: User = Depends(get_admin_user),
         db: Session = Depends(get_db, scope="function"),
     ) -> list[IdentifyCandidate]:
-        title = _title_or_404(db, title_id, user)
-        client = tmdb.client_for(YtDlpService(db).get_app_settings())
-        if client is None:
-            raise HTTPException(status_code=409, detail=NOT_CONFIGURED)
-        name = (q or "").strip() or title.name
-        year_filter = year if year is not None else (None if q else title.year)
-        try:
-            candidates = client.search("movie" if title.type == "movie" else "tv", name, year_filter)
-        except tmdb.TmdbError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from None
-        return [
-            IdentifyCandidate(
-                tmdb_id=c["tmdb_id"], name=c["name"], original_name=c["original_name"], year=c["year"], overview=c["overview"],
-                poster_url=_poster_url(c["poster_path"]), score=score,
-            )
-            for score, c in tmdb.rank(name, year_filter, candidates)
-        ]
+        return search_title_matches(title_id, q, year, user, db)
 
     @app.post("/api/admin/titles/{title_id}/identify", status_code=202, response_model=MetadataRefreshResponse)
     def identify_title(
         title_id: str, payload: IdentifyRequest, user: User = Depends(get_admin_user), db: Session = Depends(get_db, scope="function"),
     ) -> MetadataRefreshResponse:
-        with write_transaction(db, name="tmdb_identify"):
-            title = _title_or_404(db, title_id, user)
-            try:
-                title_metadata.identify(title, payload.tmdb_id, utcnow())
-            except title_metadata.TitleLocked:
-                raise HTTPException(status_code=409, detail="title_locked") from None
-        return _refreshed(title)
+        return identify_title_match(title_id, payload, user, db)
 
     @app.post("/api/admin/titles/{title_id}/unmatch", response_model=MetadataRefreshResponse)
     def unmatch_title(title_id: str, user: User = Depends(get_admin_user), db: Session = Depends(get_db, scope="function")) -> MetadataRefreshResponse:

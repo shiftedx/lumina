@@ -76,6 +76,13 @@ final class NativeAudioAlbumPlayAfterUnavailableRestoreTests: NativeProofJourney
 
 #if os(iOS)
 @MainActor
+final class NativeLibraryMetadataTests: NativeProofJourney {
+    func testPosterEditAndDetailFixMatchUseAuthorizedServerWorkflows() async throws {
+        try await journeyLibraryMetadata()
+    }
+}
+
+@MainActor
 final class NativePlaybackInfoTests: NativeProofJourney {
     func testInfoShowsLivePlaybackMetricsAndReturnsToVideo() async throws {
         try await journeyPlaybackInfo()
@@ -1475,6 +1482,75 @@ class NativeProofJourney: XCTestCase {
         try activate(done)
         try closePlayer()
     }
+
+    func journeyLibraryMetadata() async throws {
+        XCUIDevice.shared.orientation = .portrait
+        let correctedTitle = "Corrected synthetic title \(UUID().uuidString.prefix(4))"
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-hero-artwork"])
+        try signIn(using: fixture, waitsForAccount: false)
+        try activate(application!.buttons["Library"])
+        try waitForExistence(element("libraryScreen"), timeout: 15, named: "Library posters")
+        let poster = try revealLibraryItem(id: fixture.directItemID, named: "metadata poster")
+        try attachFrame(named: "Library before poster context menu")
+        poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.1)
+        try activate(element("editMetadataAction"))
+        let form = element("metadataEditorForm")
+        try waitForExistence(form, timeout: 8, named: "metadata editor")
+        let title = element("metadataField-name")
+        try replaceMetadataText(title, with: correctedTitle)
+        try activate(element("metadataKeyboardDone"))
+        let yearField = element("metadataField-year")
+        try revealDetailElement(yearField, in: form, named: "Year field", requiresHittable: true)
+        try replaceMetadataText(yearField, with: "2023")
+        try activate(element("metadataKeyboardDone"))
+        try attachFrame(named: "Native metadata editor from poster long press")
+        try activate(element("metadataEditorSave"))
+        XCTAssertTrue(disappears(form, timeout: 10), "Saving valid metadata must return to the library.")
+        let doc = try await api.metadataDocument(identity: identity, id: fixture.directItemID)
+        let fields = try XCTUnwrap(doc["fields"] as? [String: [String: Any]])
+        XCTAssertEqual(fields["name"]?["value"] as? String, correctedTitle)
+        XCTAssertEqual(fields["year"]?["value"] as? Int, 2023)
+        XCTAssertTrue(waitUntil(timeout: 12) { poster.exists && poster.label.contains(correctedTitle) },
+                      "The saved title must replace the old poster label without restarting the app.")
+        poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("detailScreen"), timeout: 12, named: "updated title detail")
+        try attachFrame(named: "Updated title detail overflow entry")
+        let menus = application!.descendants(matching: .any).matching(identifier: "titleActionsMenu").allElementsBoundByIndex
+        let menu = try XCTUnwrap(menus.first(where: { hasVisibleFrame($0) }))
+        menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try activate(element("fixMatchAction"))
+        try waitForExistence(element("metadataMatchQuery"), timeout: 10, named: "Fix match search")
+        try replaceMetadataText(element("metadataMatchQuery"), with: try XCTUnwrap(fixture.requestMovieTitle))
+        try activate(element("metadataKeyboardDone"))
+        try replaceMetadataText(element("metadataMatchYear"), with: "1999")
+        try activate(element("metadataKeyboardDone"))
+        try activate(element("metadataMatchSearch"))
+        let candidate = element("metadataMatch-603")
+        try revealDetailElement(candidate, in: form, named: "correct provider match", requiresHittable: true)
+        try attachFrame(named: "Native Fix match search results")
+        try activate(candidate)
+        try activate(element("metadataMatchConfirm"))
+        XCTAssertTrue(disappears(form, timeout: 10), "Confirming the provider must finish the matching workflow.")
+        let matched = try await api.metadataDocument(identity: identity, id: fixture.directItemID)
+        let matchedFields = try XCTUnwrap(matched["fields"] as? [String: [String: Any]])
+        XCTAssertEqual((matchedFields["provider_ids"]?["value"] as? [String: String])?["Tmdb"], "603")
+        XCTAssertEqual(matchedFields["name"]?["value"] as? String, correctedTitle,
+                       "Fix match must preserve user-authored edits.")
+    }
+
+    private func replaceMetadataText(_ field: XCUIElement, with text: String) throws {
+        let visible = try waitForHittable(field, timeout: 10, named: "metadata field")
+        visible.tap()
+        visible.typeKey("a", modifierFlags: .command)
+        visible.typeText(text)
+    }
+
 
     func journeyPlaybackInfo() async throws {
         XCUIDevice.shared.orientation = .portrait
@@ -9183,6 +9259,15 @@ private enum APIRequestSeasons: Decodable {
 private struct ProofAPI {
     let origin: URL
     let session: URLSession
+
+    @MainActor func metadataDocument(identity: APIIdentity, id: String) async throws -> [String: Any] {
+        var request = URLRequest(url: origin.appendingPathComponent("Lumina/Metadata/titles").appendingPathComponent(id))
+        request.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
+        guard let doc = try JSONSerialization.jsonObject(with: await send(request)) as? [String: Any] else {
+            throw ProofAPIError.malformedResponse
+        }
+        return doc
+    }
 
     @MainActor func nativeInvitations(identity: APIIdentity) async throws -> [[String: Any]] {
         var request = URLRequest(url: origin.appendingPathComponent("Lumina/Settings/admin/invites"))

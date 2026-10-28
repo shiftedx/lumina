@@ -48,6 +48,8 @@ public final class NativeVideoSource {
     }
 
     private var demux: PrismCoreSession?
+    /// Compressed bytes read from the source, excluding local HLS delivery and container framing.
+    public var sourceBytesRead: Int64? { demux?.sourceBytesRead }
     private var subtitleMaster: SubtitleMaster?
     private var externalSubtitleDirectory: URL?
     private var statusObservation: NSKeyValueObservation?

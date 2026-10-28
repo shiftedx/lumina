@@ -282,7 +282,7 @@ final class LuminaClient: @unchecked Sendable {
         var query = [URLQueryItem(name: "ApiKey", value: token)]
         if compatible { query.append(URLQueryItem(name: "format", value: "flac")) }
         guard item.isAudio, let stream = url(origin: origin, path: "/Audio/\(item.id)/stream", query: query), sameOrigin(origin, stream) else { throw LuminaError.unsafeURL }
-        return PlaybackRequest(id: UUID().uuidString, item: item, url: stream, startPositionSeconds: 0, mediaSourceID: item.id, isTranscoding: false, methodLabel: compatible ? "Compatible audio" : "Direct audio")
+        return PlaybackRequest(id: UUID().uuidString, item: item, url: stream, startPositionSeconds: 0, mediaSourceID: item.id, isTranscoding: false, methodLabel: compatible ? "Compatible audio" : "Direct audio", sourceContainer: item.container)
     }
 
     func playbackInfo(origin: URL, token: String, deviceID: String, item: MediaItem, forceTranscode: Bool,
@@ -350,7 +350,7 @@ final class LuminaClient: @unchecked Sendable {
             return PlaybackRequest(id: result.playSessionID, item: item, url: direct, startPositionSeconds: start,
                                    mediaSourceID: source.id, isTranscoding: false, methodLabel: "Direct",
                                    usesClientDemux: !item.isAudio && ["mkv", "matroska"].contains((source.container ?? item.container ?? "").lowercased()),
-                                   bitRate: source.bitRate,
+                                   bitRate: source.bitRate, sourceContainer: source.container,
                                    mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
                                    subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters,
                                    resolvedQuality: quality)
@@ -359,7 +359,7 @@ final class LuminaClient: @unchecked Sendable {
               let hls = URL(string: raw, relativeTo: origin)?.absoluteURL, sameOrigin(origin, hls) else { throw LuminaError.unsafeURL }
         return PlaybackRequest(id: result.playSessionID, item: item, url: hls, startPositionSeconds: start,
                                mediaSourceID: source.id, isTranscoding: true, methodLabel: "HLS",
-                               bitRate: source.bitRate,
+                               bitRate: source.bitRate, sourceContainer: source.container,
                                mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
                                subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters,
                                resolvedQuality: quality)

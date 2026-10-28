@@ -1801,6 +1801,13 @@ struct PlaybackScreen: View {
                     videoPictureInPictureButton
                         .frame(width: 44, height: 44)
                     Spacer(minLength: 0)
+                    Button("Playback info", glyph: .info, size: 24) {
+                        presentVideoSettings()
+                        videoSettingsDetent = .large
+                    }
+                    .labelStyle(.iconOnly)
+                    .accessibilityIdentifier("videoInfoButton")
+                    .frame(width: 44, height: 44)
                     videoMuteControl
                 }
                 .buttonStyle(.plain)
@@ -2506,6 +2513,7 @@ final class PlaybackModel {
     }
     #endif
     private var videoSource = NativeVideoSource()
+    var videoSourceBytesRead: Int64? { videoSource.sourceBytesRead }
     private(set) var isSwitchingVideoStream = false
     private(set) var videoStreamError: String?
     private(set) var sourceAudioIsAutomatic = true
@@ -4626,7 +4634,7 @@ private struct VideoPlaybackSettings: View {
     private var categoryHeader: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack {
-                Text("Playback settings").font(.headline)
+                Text(tab == .info ? "Playback info" : "Playback settings").font(.headline)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 16)
                 if let onDone {
@@ -4679,11 +4687,13 @@ private struct VideoPlaybackSettings: View {
                 Text(methodLabel)
                     .accessibilityIdentifier("videoPlaybackMethod")
             }
+            #if os(iOS)
+            PlaybackInfoView(playback: playback, audioGroup: tracks.audioGroup)
+            PlaybackDiagnosticsControls(playback: playback)
+            #else
             if let container = item.container, !container.isEmpty {
                 LabeledContent("Container", value: container.uppercased())
             }
-            #if os(iOS)
-            PlaybackDiagnosticsControls(playback: playback)
             #endif
             if let error = playback.videoActionsError {
                 Text(error).font(.callout)

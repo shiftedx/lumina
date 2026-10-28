@@ -1096,7 +1096,8 @@ let tickScale = 10_000_000.0
                                    startPositionSeconds: startPositionSeconds ?? (item.isAudio ? 0 : offline.resumeSeconds(for: item.id)),
                                    mediaSourceID: item.id, isTranscoding: false,
                                    methodLabel: item.isAudio ? "Downloaded audio" : "Downloaded video",
-                                   usesClientDemux: !item.isAudio && local.pathExtension.lowercased() == "mkv")
+                                   usesClientDemux: !item.isAudio && local.pathExtension.lowercased() == "mkv",
+                                   sourceContainer: local.pathExtension.isEmpty ? nil : local.pathExtension)
         }
         guard !isOffline, let active = session else { throw LuminaError.notSignedIn }
         let current = try await client.item(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID, id: item.id, userID: active.userID)

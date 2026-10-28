@@ -76,6 +76,13 @@ final class NativeAudioAlbumPlayAfterUnavailableRestoreTests: NativeProofJourney
 
 #if os(iOS)
 @MainActor
+final class NativePlaybackInfoTests: NativeProofJourney {
+    func testInfoShowsLivePlaybackMetricsAndReturnsToVideo() async throws {
+        try await journeyPlaybackInfo()
+    }
+}
+
+@MainActor
 final class NativeVideoGestureTests: NativeProofJourney {
     func testVerticalSwipesAdjustDeviceControlsWithoutPlayerVolumeSlider() async throws {
         try await journeyVideoDeviceControls()
@@ -1466,6 +1473,69 @@ class NativeProofJourney: XCTestCase {
         }
         try attachFrame(named: "Portrait playback settings remain usable in the system sheet")
         try activate(done)
+        try closePlayer()
+    }
+
+    func journeyPlaybackInfo() async throws {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.episodeID, seconds: 12)
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-hero-artwork"])
+        try signIn(using: fixture, waitsForAccount: false)
+        let play = element("featuredPlayButton")
+        try waitForExistence(play, timeout: 20, named: "Home hero Play")
+        XCTAssertTrue(hasVisibleFrame(play))
+        play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("playbackScreen"), timeout: 35, named: "video player")
+        try tapVideoTransportAfterChromeHides(named: "pause before inspecting playback info")
+        try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 5)
+        try activate(element("videoInfoButton"))
+        let panel = element("videoSettingsPanel")
+        let stats = element("videoPlaybackStats")
+        try waitForExistence(stats, timeout: 10, named: "stats for nerds")
+        func samples() -> Int {
+            Int((stats.value as? String ?? "").replacingOccurrences(of: "samples=", with: "")) ?? 0
+        }
+        XCTAssertTrue(waitUntil(timeout: 8) { samples() >= 2 }, "Info must refresh live metrics while visible.")
+        XCTAssertTrue(accessibilityText(element("playbackStat-resolution")).contains("×"))
+        XCTAssertTrue(accessibilityText(element("playbackStat-videoCodec")).contains("H.264"),
+                      "Video format must come from the playing track.")
+        try attachFrame(named: "Playback info live video metrics")
+        for id in ["hdr", "fps", "currentFPS", "delivery", "recentDownload", "throughput", "transferred", "buffer", "stalls", "dropped", "audioCodec", "audioFormat", "sourceContainer"] {
+            let row = element("playbackStat-\(id)")
+            try revealDetailElement(row, in: panel, named: "playback metric \(id)", requiresHittable: false)
+            XCTAssertTrue(row.exists)
+        }
+        XCTAssertTrue(accessibilityText(element("playbackStat-audioCodec")).contains("AAC"))
+        XCTAssertTrue(accessibilityText(element("playbackStat-audioFormat")).contains("kHz"))
+        XCTAssertFalse(accessibilityText(element("playbackStat-sourceContainer")).contains("Not reported"),
+                       "PlaybackInfo must retain the selected source container even when Home's card omits it.")
+        XCTAssertFalse(element("playbackDiagnosticsRecording").exists, "Opening Info must not start a recording.")
+        try attachFrame(named: "Playback info source and live performance metrics")
+        try activate(element("videoSettingsDoneButton"))
+        XCTAssertTrue(disappears(stats, timeout: 5))
+        // Capture the visible Info target before resuming so auto-hide cannot race
+        // the second tap. Opening Info must leave active playback running.
+        let info = element("videoInfoButton")
+        let target = try XCTUnwrap(visibleApplicationWindow).coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: info.frame.midX, dy: info.frame.midY))
+        try activate(element("videoPlayPauseButton"))
+        target.tap()
+        try waitForExistence(stats, timeout: 8, named: "live playback info")
+        let time = element("playbackTime")
+        let before = try waitForPlaybackValue(time, timeout: 8) { _ in true }
+        _ = try waitForPlaybackValue(time, timeout: 8) { $0 >= before + 2 }
+        XCTAssertTrue(waitUntil(timeout: 5) { self.accessibilityText(self.element("playbackStat-state")).contains("Playing") })
+        try activate(element("videoSettingsTab-video"))
+        XCTAssertTrue(disappears(stats, timeout: 5), "Leaving Info must remove its live sampler.")
+        try activate(element("videoSettingsDoneButton"))
+        try tapVideoTransportAfterChromeHides(named: "pause after Info")
         try closePlayer()
     }
 

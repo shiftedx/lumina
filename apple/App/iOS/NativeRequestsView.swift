@@ -283,7 +283,7 @@ struct NativeRequestsView: View {
                         }.buttonStyle(.plain).accessibilityLabel("Watch trailer on YouTube")
                     }
                 }
-            }.padding(compact ? 20 : 32)
+            }.padding(LuminaTheme.contentGutter)
         }.background(.black)
     }
 

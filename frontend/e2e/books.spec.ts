@@ -265,3 +265,13 @@ for (const [name, viewport] of [['desktop', DESKTOP], ['phone', PHONE]] as const
     await page.screenshot({ path: testInfo.outputPath(`books-detail-${name}.png`), fullPage: true });
   });
 }
+
+test('phone book detail keeps a missing-cover title on one line', async ({ page }) => {
+  await openBooks(page, '/books/title/ebook-1', PHONE);
+  await expect(page.getByRole('heading', { level: 1, name: 'Northbound' })).toBeVisible();
+  expect(await page.locator('.books-title-cover .books-cover-fallback > strong').evaluate((title) => {
+    const range = document.createRange();
+    range.selectNodeContents(title);
+    return [...range.getClientRects()].filter((rect) => rect.width > 0).length;
+  })).toBe(1);
+});

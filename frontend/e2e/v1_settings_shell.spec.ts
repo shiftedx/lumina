@@ -50,6 +50,40 @@ test('phone settings keeps direct navigation and every playback control on one p
   await expect(page.getByRole('button', { name: 'Add root', exact: true })).toBeVisible();
 });
 
+test('resizing settings keeps the active category visible without losing the current form', async ({ page }) => {
+  await page.setViewportSize({ width: 951, height: 844 });
+  await mockApi(page, {}); await mockAdminFixtures(page);
+  await page.goto('/settings/library?page=folders#settings-group-folders'); await signIn(page);
+  const rail = page.getByRole('navigation', { name: 'Settings sections' });
+  const active = rail.getByRole('link', { name: 'Library & storage', exact: true });
+  await expect(active).toHaveAttribute('aria-current', 'page');
+  const path = page.getByRole('textbox', { name: 'Container path', exact: true });
+  await path.fill('/media/resize-proof'); await path.focus();
+  await page.evaluate(() => window.scrollTo(0, 400));
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const testWindow = window as Window & { settingsRailScrollIntoViewCalls?: number };
+    testWindow.settingsRailScrollIntoViewCalls = 0;
+    const native = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function (arg) {
+      testWindow.settingsRailScrollIntoViewCalls = (testWindow.settingsRailScrollIntoViewCalls ?? 0) + 1;
+      return native.call(this, arg);
+    };
+  });
+  for (const width of [720, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect.poll(async () => {
+      const [railBox, activeBox] = await Promise.all([rail.boundingBox(), active.boundingBox()]);
+      return Boolean(railBox && activeBox && activeBox.x >= railBox.x + 16 && activeBox.x + activeBox.width <= railBox.x + railBox.width - 16);
+    }).toBe(true);
+    await expect(path).toHaveValue('/media/resize-proof');
+    await expect(path).toBeFocused();
+    expect(await page.evaluate(() => (window as Window & { settingsRailScrollIntoViewCalls?: number }).settingsRailScrollIntoViewCalls ?? 0)).toBe(0);
+    expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+    await expect(page).toHaveURL(/\/settings\/library\?page=folders#settings-group-folders$/);
+  }
+});
+
 test('search finds a destination and saves the real setting on its own page', async ({ page }) => {
   const saved = await mockApi(page, { sidebar_collapsed: false }); await page.goto('/settings'); await signIn(page);
   await page.getByRole('searchbox', { name: 'Search settings' }).fill('dark');

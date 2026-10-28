@@ -5,6 +5,9 @@ options:
     iOS: '18.0'
     tvOS: '18.0'
 packages:
+  GoogleCast:
+    url: https://github.com/googlecast/google-cast-ios-sdk
+    exactVersion: 4.8.6
   LuminaCore:
     path: Core
 settings:
@@ -33,15 +36,22 @@ targets:
       - path: Assets/iOS.xcassets
       - path: Notices
         buildPhase: resources
+      - path: Resources/GoogleCast
+        excludes: [README.md, SHA256SUMS]
+        buildPhase: resources
       - path: Fonts
         excludes: [README.md]
         buildPhase: resources
     dependencies:
       - package: LuminaCore
+      - package: GoogleCast
+        product: GoogleCastStatic
     settings:
       base:
+        INFOPLIST_FILE: Config/iOS-Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: ai.cozylabs.lumina
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        OTHER_LDFLAGS: "$(inherited) -ObjC -lc++"
         TARGETED_DEVICE_FAMILY: '1,2'
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight

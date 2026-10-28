@@ -66,7 +66,12 @@ struct NativeAccountSettingsView: View {
                     HStack {
                         Text(profileError).font(.caption).foregroundStyle(.red)
                         Spacer()
-                        Button("Retry") { Task { await loadProfile() } }.buttonStyle(.plain)
+                        Button { Task { await loadProfile() } } label: {
+                            Text("Retry")
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(.rect)
+                        }
+                            .buttonStyle(.plain)
                     }
                 }
                 if matches("account security password sign out logout requests") {

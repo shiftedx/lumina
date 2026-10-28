@@ -75,7 +75,14 @@ private struct BillboardArtwork: View {
             source = UIImage(cgImage: image)
             loadedURL = url
         }
+        #if os(iOS) && LUMINA_UI_TESTING
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Hero artwork bounds")
+        .accessibilityIdentifier(home ? "homeHeroArtworkBounds" : "")
+        .accessibilityHidden(!home)
+        #else
         .accessibilityHidden(true)
+        #endif
         .allowsHitTesting(false)
     }
 }
@@ -177,11 +184,16 @@ struct MediaBillboard<Actions: View>: View {
     var showsContext = true
     var showsMetadata = true
     var showsProgress = true
+    /// Detail heroes make the artwork the primary surface. Keep the readability
+    /// treatment at the copy edge instead of dimming the whole image.
+    var artworkFirst = false
     var featured = false
     var artworkMotionDirection: Int? = nil
     var compactMinimumHeight: CGFloat?
+    var compactArtworkMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat?
     var topContentClearance: CGFloat = 0
+    var bottomContentClearance: CGFloat = 0
     var onOpen: ((MediaItem) -> Void)? = nil
     /// tvOS Home uses the focused title as its single browse surface. Detail
     /// billboards leave this nil so their remote directions remain unchanged.
@@ -199,23 +211,40 @@ struct MediaBillboard<Actions: View>: View {
         Group {
             if compact {
                 // Keep the title, actions, and artwork in one cinematic field on
-                // compact displays. The copy remains above the gradient instead
+                // compact displays. The copy stays with the artwork instead
                 // of becoming a second, disconnected card below the artwork.
                 copy
                     .foregroundStyle(.white)
+                    .shadow(color: featured ? .black.opacity(0.75) : .clear, radius: 2, y: 1)
                     .frame(maxWidth: .infinity, minHeight: compactMinimumHeight ?? (featured ? 336 : 380), alignment: .bottomLeading)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, LuminaTheme.contentGutter)
                     .padding(.top, topInset)
-                    .padding(.bottom, featured ? 68 : 24)
+                    .padding(.bottom, featured ? 68 + bottomContentClearance : artworkFirst ? 44 : 24)
+                    .frame(minHeight: compactArtworkMinimumHeight,
+                           maxHeight: artworkFirst ? .infinity : nil,
+                           alignment: artworkFirst ? .bottomLeading : .topLeading)
                     .background {
                         ZStack {
                             BillboardArtwork(item: item, store: store, showsPoster: true, home: featured, motionDirection: artworkMotionDirection)
-                            LinearGradient(stops: [
-                                .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.92 : 0.16), location: 0),
-                                .init(color: LuminaTheme.theater.opacity(0.16), location: 0.40),
-                                .init(color: LuminaTheme.theater.opacity(0.96), location: 1),
-                            ], startPoint: .top, endPoint: .bottom)
-                            LinearGradient(colors: [LuminaTheme.theater.opacity(0.64), .clear], startPoint: .leading, endPoint: .trailing)
+                                .overlay(alignment: .topLeading) {
+                                    if featured {
+                                        LinearGradient(colors: [.black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
+                                            .mask(LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing))
+                                            .frame(maxWidth: 720)
+                                            .frame(height: 104)
+                                            .allowsHitTesting(false)
+                                    }
+                                }
+                            if !featured {
+                                LinearGradient(stops: [
+                                    .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.92 : 0.16), location: 0),
+                                    .init(color: LuminaTheme.theater.opacity(0.16), location: 0.40),
+                                    .init(color: LuminaTheme.theater.opacity(0.96), location: 1),
+                                ], startPoint: .top, endPoint: .bottom)
+                            }
+                            if !artworkFirst && !featured {
+                                LinearGradient(colors: [LuminaTheme.theater.opacity(0.64), .clear], startPoint: .leading, endPoint: .trailing)
+                            }
                         }
                         #if !os(tvOS)
                         .ignoresSafeArea(.container, edges: [.top, .horizontal])
@@ -224,24 +253,40 @@ struct MediaBillboard<Actions: View>: View {
             } else {
                 copy
                     .foregroundStyle(.white)
+                    .shadow(color: featured ? .black.opacity(0.75) : .clear, radius: 2, y: 1)
                     .frame(maxWidth: copyWidth, alignment: .leading)
                     .padding(.horizontal, contentInset)
                     .padding(.top, topInset)
-                    .padding(.bottom, 24)
-                    .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .bottomLeading)
+                    .padding(.bottom, artworkFirst ? 44 : 24)
+                    .frame(maxWidth: .infinity, minHeight: minimumHeight,
+                           maxHeight: artworkFirst ? .infinity : nil,
+                           alignment: .bottomLeading)
                     .background {
                         ZStack {
                             BillboardArtwork(item: item, store: store, showsPoster: true, home: featured, motionDirection: artworkMotionDirection)
-                            LinearGradient(stops: [
-                                .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.96 : 0.72), location: 0),
-                                .init(color: LuminaTheme.theater.opacity(0.30), location: 0.48),
-                                .init(color: .clear, location: 0.76),
-                            ], startPoint: .leading, endPoint: .trailing)
-                            LinearGradient(stops: [
-                                .init(color: .clear, location: 0.35),
-                                .init(color: LuminaTheme.theater.opacity(0.4), location: 0.8),
-                                .init(color: LuminaTheme.theater, location: 1),
-                            ], startPoint: .top, endPoint: .bottom)
+                                .overlay(alignment: .topLeading) {
+                                    if featured {
+                                        LinearGradient(colors: [.black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
+                                            .mask(LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing))
+                                            .frame(maxWidth: 720)
+                                            .frame(height: 104)
+                                            .allowsHitTesting(false)
+                                    }
+                                }
+                            if !artworkFirst && !featured {
+                                LinearGradient(stops: [
+                                    .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.96 : 0.72), location: 0),
+                                    .init(color: LuminaTheme.theater.opacity(0.30), location: 0.48),
+                                    .init(color: .clear, location: 0.76),
+                                ], startPoint: .leading, endPoint: .trailing)
+                            }
+                            if !featured {
+                                LinearGradient(stops: [
+                                    .init(color: .clear, location: 0.35),
+                                    .init(color: LuminaTheme.theater.opacity(0.4), location: 0.8),
+                                    .init(color: LuminaTheme.theater, location: 1),
+                                ], startPoint: .top, endPoint: .bottom)
+                            }
                         }
                         #if !os(tvOS)
                         .ignoresSafeArea(.container, edges: [.top, .horizontal])
@@ -398,7 +443,7 @@ struct MediaBillboard<Actions: View>: View {
         #if os(tvOS)
         80
         #else
-        32
+        LuminaTheme.contentGutter
         #endif
     }
     private var minimumHeight: CGFloat {
@@ -472,8 +517,10 @@ struct FeaturedShelf<Actions: View>: View {
     var showsMetadata = true
     var showsProgress = true
     var compactMinimumHeight: CGFloat?
+    var compactArtworkMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat?
     var topContentClearance: CGFloat = 0
+    var bottomContentClearance: CGFloat = 0
     var onOpen: ((MediaItem) -> Void)? = nil
     /// An optional owner for the chosen hero. tvOS keeps this in its tab root
     /// so Back returns to the title the viewer last browsed; iOS keeps the
@@ -535,8 +582,10 @@ struct FeaturedShelf<Actions: View>: View {
                     featured: true,
                     artworkMotionDirection: isInteracting ? nil : index,
                     compactMinimumHeight: compactMinimumHeight,
+                    compactArtworkMinimumHeight: compactArtworkMinimumHeight,
                     wideMinimumHeight: wideMinimumHeight,
                     topContentClearance: topContentClearance,
+                    bottomContentClearance: bottomContentClearance,
                     onOpen: onOpen,
                     onBrowse: { direction in step(direction) }
                 ) {
@@ -560,7 +609,7 @@ struct FeaturedShelf<Actions: View>: View {
                     controls
                         .frame(maxWidth: .infinity, alignment: compact ? .center : .trailing)
                         .padding(.horizontal, compact ? 12 : controlInset)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, 8 + (compact ? bottomContentClearance : 0))
                 }
             }
             #if !os(tvOS)
@@ -804,7 +853,7 @@ struct MusicCollectionSpotlight: View {
         #if os(tvOS)
         80
         #else
-        24
+        LuminaTheme.contentGutter
         #endif
     }
 }
@@ -818,7 +867,7 @@ struct LuminaMediaActionStyle: ButtonStyle {
         return configuration.label
             .font(.subheadline.weight(.semibold))
             .imageScale(.small)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 16)
             .frame(minWidth: 44, minHeight: 44)
             .foregroundStyle(foreground)
             .tint(foreground)
@@ -908,7 +957,7 @@ struct LuminaQuietActionStyle: ButtonStyle {
 #if os(iOS)
 /// Cards keep their resting inset while their scroll viewport reaches the bezel.
 struct LuminaCarouselEdges: ViewModifier {
-    var inset: CGFloat = 20
+    var inset: CGFloat = LuminaTheme.contentGutter
 
     func body(content: Content) -> some View {
         content
@@ -925,6 +974,9 @@ struct LuminaCategoryBar<Content: View>: View {
     var selection: String? = nil
     var centersContent = true
     @ViewBuilder let content: Content
+    #if os(iOS) && LUMINA_UI_TESTING
+    @State private var uiTestingMaxVerticalPull: CGFloat = 0
+    #endif
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -933,15 +985,24 @@ struct LuminaCategoryBar<Content: View>: View {
                     content
                 }
                 #if os(iOS)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, LuminaTheme.contentGutter)
                 #else
                 .padding(.horizontal, 2)
                 #endif
             }
             #if os(iOS)
+            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
             .defaultScrollAnchor(.leading, for: .initialOffset)
             .defaultScrollAnchor(centersContent ? .center : .leading, for: .alignment)
             .fixedSize(horizontal: false, vertical: true)
+            #if LUMINA_UI_TESTING
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                abs(geometry.contentOffset.y + geometry.contentInsets.top)
+            } action: { _, distance in
+                uiTestingMaxVerticalPull = max(uiTestingMaxVerticalPull, distance)
+            }
+            .accessibilityValue("verticalPull=\(uiTestingMaxVerticalPull)")
+            #endif
             #else
             .scrollClipDisabled()
             #endif

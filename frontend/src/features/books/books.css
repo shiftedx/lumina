@@ -328,6 +328,7 @@
 @media (max-width: 699px) {
   .books-title-detail { grid-template-columns: 112px minmax(0, 1fr); gap: var(--g-space-5) var(--g-space-4); }
   .books-title-cover { width: 112px; grid-column: 1; grid-row: 1; }
+  .books-title-cover .books-cover-fallback > strong { font-size: 16px; hyphens: none; }
   .books-title-story { display: contents; }
   .books-title-heading { grid-column: 2; grid-row: 1; }
   .books-title-heading > .g-kicker { font-size: 12px; }

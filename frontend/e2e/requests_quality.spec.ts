@@ -258,7 +258,20 @@ for (const scheme of SCHEMES) {
       await capture(page, 'mine', viewport.name, scheme);
 
       await open(page, '/requests/manage', page.getByRole('heading', { name: /Waiting for you/ }));
-      if (viewport.name === 'phone') await expectSelectedRequestTabVisible(page);
+      if (viewport.name === 'phone') {
+        await expectSelectedRequestTabVisible(page);
+        const tabs = page.getByRole('navigation', { name: 'Requests pages' });
+        const left = page.getByRole('button', { name: 'Scroll Requests pages tabs left' });
+        const right = page.getByRole('button', { name: 'Scroll Requests pages tabs right' });
+        await expect(left).toBeEnabled();
+        await left.click();
+        await expect.poll(() => tabs.evaluate((element) => element.scrollLeft)).toBe(0);
+        await expect(left).toBeDisabled();
+        await expect(right).toBeEnabled();
+        await right.click();
+        await expect(right).toBeDisabled();
+        await expectSelectedRequestTabVisible(page);
+      }
       await expectPrimaryTarget(page.getByRole('button', { name: 'Approve with changes' }));
       await expectPrimaryTarget(page.getByRole('button', { name: 'Decline', exact: true }));
       if (viewport.name === 'phone') {

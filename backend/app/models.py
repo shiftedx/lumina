@@ -1206,6 +1206,20 @@ class MusicCastTicket(Base):
     output_format: Mapped[str] = mapped_column(String(16), default="sonos")
 
 
+class MusicReceiverTicket(Base):
+    """A paired native app grants one Chromecast receiver a bounded music queue."""
+
+    __tablename__ = "music_receiver_tickets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    issuer_device_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    item_ids: Mapped[list] = mapped_column(JSON, default=list)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class MusicFileWriteback(Base):
     """A file backup handle; restore also verifies the artifact's current digest."""
 
@@ -1759,13 +1773,20 @@ class ListeningPlayEvent(Base):
 
 
 class MediaCastTicket(Base):
-    """A receiver can read one registered file, never a browser session or arbitrary URL."""
+    """A receiver can read one registered rendition, never a browser session or arbitrary URL."""
 
     __tablename__ = "media_cast_tickets"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # Native tickets are bound to the paired Jellyfin device that issued them.
+    # Browser tickets predate that capability and deliberately remain unbound.
+    issuer_device_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     item_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Native conversion tickets own one bounded server HLS session until capability cleanup.
+    playback_session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Recreating an idle-reaped native conversion must keep its selected alternate audio.
+    audio_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     subtitle: Mapped[str | None] = mapped_column(String(128), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

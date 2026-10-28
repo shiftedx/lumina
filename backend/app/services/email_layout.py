@@ -207,8 +207,8 @@ a {{ color:{BRAND}; }}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;margin:0 auto">
 <tr><td style="padding:0 4px 20px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
 <td><a href="{e(base, quote=True)}" style="text-decoration:none"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-<td valign="middle" style="padding-right:12px"><img src="{e(base, quote=True)}{LOGO_PATH}" width="36" height="28" alt="Lumina" style="display:block;width:36px;height:28px;border:0;color:{INK_3}"></td>
-<td class="lm-ink" valign="middle" style="font-family:{SERIF};font-size:21px;font-weight:600;line-height:1;letter-spacing:.1em;color:{INK}">LUMINA</td>
+<td valign="baseline" style="padding-right:12px;vertical-align:baseline"><img src="{e(base, quote=True)}{LOGO_PATH}" width="36" height="28" alt="Lumina" style="display:inline-block;width:36px;height:28px;border:0;color:{INK_3};vertical-align:-5px"></td>
+<td class="lm-ink" valign="baseline" style="font-family:{SERIF};font-size:21px;font-weight:600;line-height:1;letter-spacing:.1em;color:{INK};vertical-align:baseline">LUMINA</td>
 </tr></table></a></td><td align="right" class="lm-ink3 lm-tagline" style="{label};color:{INK_3}">The media vault</td></tr></table></td></tr>
 <tr><td class="lm-card" bgcolor="{PAPER_2}" style="background:{PAPER_2};border-radius:12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">{hero}

@@ -44,6 +44,8 @@ def restore(backup: Path, data_dir: Path) -> Path | None:
                 copy.execute("DELETE FROM device_tokens")  # a v2 backup predates Connected apps and has no such table
             if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='music_cast_tickets'").fetchone():
                 copy.execute("DELETE FROM music_cast_tickets")
+            if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='music_receiver_tickets'").fetchone():
+                copy.execute("DELETE FROM music_receiver_tickets")
             if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='media_cast_tickets'").fetchone():
                 copy.execute("DELETE FROM media_cast_tickets")
             if copy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='mobile_pairings'").fetchone():

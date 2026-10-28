@@ -75,7 +75,7 @@ struct NativeBooksView: View {
                 minimum: typeSize.isAccessibilitySize ? 220 : compact ? 116 : 150,
                 maximum: typeSize.isAccessibilitySize ? 360 : compact ? 180 : 230
             ),
-            spacing: compact ? 14 : 22,
+            spacing: compact ? 16 : 24,
             alignment: .top
         )]
     }
@@ -83,7 +83,7 @@ struct NativeBooksView: View {
     var body: some View {
         navigationChrome {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 30) {
+            LazyVStack(alignment: .leading, spacing: 32) {
                 if let error {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(error).foregroundStyle(.secondary)
@@ -93,69 +93,81 @@ struct NativeBooksView: View {
                 if let covers {
                     if showsOverview {
                         if !featuredBooks.isEmpty {
-                            sectionTitle(overview?.continueReading.isEmpty == false ? "Continue reading" : "Recently added")
-                            ScrollView(.horizontal) {
-                                LazyHStack(alignment: .top, spacing: 14) {
-                                    ForEach(featuredBooks) { book in
-                                        bookCard(book, covers: covers)
-                                            .frame(width: typeSize.isAccessibilitySize ? 220 : 148)
+                            VStack(alignment: .leading, spacing: 12) {
+                                sectionTitle(overview?.continueReading.isEmpty == false ? "Continue reading" : "Recently added")
+                                ScrollView(.horizontal) {
+                                    LazyHStack(alignment: .top, spacing: 16) {
+                                        ForEach(featuredBooks) { book in
+                                            bookCard(book, covers: covers)
+                                                .frame(width: typeSize.isAccessibilitySize ? 220 : 148)
+                                        }
                                     }
-                                }.padding(.horizontal, 4)
-                            }.scrollIndicators(.hidden)
-                            .modifier(LuminaCarouselEdges(inset: horizontalSizeClass == .compact ? 16 : 28))
+                                }.scrollIndicators(.hidden)
+                                .modifier(LuminaCarouselEdges())
+                            }
                         }
                         if let shelves = overview?.shelves, !shelves.isEmpty {
-                            sectionTitle("Shelves")
-                            ScrollView(.horizontal) {
-                                LazyHStack(alignment: .top, spacing: 18) {
-                                    ForEach(shelves) { shelf in
-                                        NavigationLink {
-                                            NativeBooksView(store: store, session: session, shelf: shelf, covers: covers)
-                                        } label: {
-                                            VStack(alignment: .leading, spacing: 10) {
-                                                NativeBookStack(ids: Array(shelf.coverBookIDs.prefix(3)), title: shelf.name, covers: covers, count: shelf.count)
-                                                Text(shelf.name).font(.headline).foregroundStyle(.primary)
-                                                Text("\(shelf.count) \(shelf.count == 1 ? "book" : "books")").font(.caption).foregroundStyle(.secondary)
-                                            }.frame(width: 150)
-                                        }.buttonStyle(.plain).accessibilityIdentifier("bookShelf-\(shelf.id)")
-                                    }
-                                }.padding(.horizontal, 8).padding(.top, 12)
-                            }.scrollIndicators(.hidden)
-                            .modifier(LuminaCarouselEdges(inset: horizontalSizeClass == .compact ? 16 : 28))
+                            VStack(alignment: .leading, spacing: 12) {
+                                sectionTitle("Shelves")
+                                ScrollView(.horizontal) {
+                                    LazyHStack(alignment: .top, spacing: 16) {
+                                        ForEach(shelves) { shelf in
+                                            NavigationLink {
+                                                NativeBooksView(store: store, session: session, shelf: shelf, covers: covers)
+                                            } label: {
+                                                VStack(alignment: .leading, spacing: 8) {
+                                                    NativeBookStack(ids: Array(shelf.coverBookIDs.prefix(3)), title: shelf.name, covers: covers, count: shelf.count)
+                                                    Text(shelf.name).font(.headline).foregroundStyle(.primary)
+                                                    Text("\(shelf.count) \(shelf.count == 1 ? "book" : "books")").font(.caption).foregroundStyle(.secondary)
+                                                }.frame(width: 150)
+                                            }.buttonStyle(.plain).accessibilityIdentifier("bookShelf-\(shelf.id)")
+                                        }
+                                    }.padding(.top, 12)
+                                }.scrollIndicators(.hidden)
+                                .modifier(LuminaCarouselEdges())
+                            }
                         }
                         if !seriesItems.isEmpty {
-                            sectionTitle("Manga series")
-                            LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
-                                ForEach(seriesItems) { series in
-                                    NavigationLink {
-                                        NativeBooksView(store: store, session: session, series: series, covers: covers)
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 10) {
-                                            NativeBookStack(ids: series.coverBookID.map { [$0] } ?? [], title: series.title, covers: covers, count: series.volumeCount)
-                                            Text(series.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
-                                            Text("\(series.volumeCount) \(series.volumeCount == 1 ? "volume" : "volumes") · \(series.author)").font(.caption).foregroundStyle(.secondary)
-                                        }
-                                    }.buttonStyle(.plain).accessibilityIdentifier("bookSeries-\(series.id)")
+                            VStack(alignment: .leading, spacing: 12) {
+                                sectionTitle("Manga series")
+                                LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
+                                    ForEach(seriesItems) { series in
+                                        NavigationLink {
+                                            NativeBooksView(store: store, session: session, series: series, covers: covers)
+                                        } label: {
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                NativeBookStack(ids: series.coverBookID.map { [$0] } ?? [], title: series.title, covers: covers, count: series.volumeCount)
+                                                Text(series.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
+                                                Text("\(series.volumeCount) \(series.volumeCount == 1 ? "volume" : "volumes") · \(series.author)").font(.caption).foregroundStyle(.secondary)
+                                            }
+                                        }.buttonStyle(.plain).accessibilityIdentifier("bookSeries-\(series.id)")
+                                    }
+                                }
+                                if seriesCursor != nil {
+                                    Button("More manga series") { Task { await loadSeries(more: true) } }.disabled(busy)
                                 }
                             }
-                            if seriesCursor != nil {
-                                Button("More manga series") { Task { await loadSeries(more: true) } }.disabled(busy)
+                        }
+                        VStack(alignment: .leading, spacing: 12) {
+                            ViewThatFits(in: .horizontal) {
+                                HStack {
+                                    sectionTitle("All books")
+                                    Spacer()
+                                    catalogLink(covers: covers)
+                                }
+                                VStack(alignment: .leading, spacing: 8) {
+                                    sectionTitle("All books")
+                                    catalogLink(covers: covers)
+                                }
+                            }
+                            LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
+                                ForEach(books) { book in bookCard(book, covers: covers) }
                             }
                         }
-                        ViewThatFits(in: .horizontal) {
-                            HStack {
-                                sectionTitle("All books")
-                                Spacer()
-                                catalogLink(covers: covers)
-                            }
-                            VStack(alignment: .leading, spacing: 10) {
-                                sectionTitle("All books")
-                                catalogLink(covers: covers)
-                            }
+                    } else {
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
+                            ForEach(books) { book in bookCard(book, covers: covers) }
                         }
-                    }
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 26) {
-                        ForEach(books) { book in bookCard(book, covers: covers) }
                     }
                 }
                 if busy { ProgressView("Loading books…").frame(maxWidth: .infinity) }
@@ -175,8 +187,8 @@ struct NativeBooksView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, horizontalSizeClass == .compact ? 16 : 28)
-            .padding(.vertical, 18)
+            .padding(.horizontal, LuminaTheme.contentGutter)
+            .padding(.vertical, 24)
         }
         .ignoresSafeArea(.container, edges: .horizontal)
         .scrollClipDisabled()

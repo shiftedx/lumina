@@ -97,6 +97,7 @@
   --g-radius-round: 999px;
   --g-control: 44px;
   --g-topbar: 64px;
+  --g-mobile-nav-height: calc(56px + env(safe-area-inset-bottom));
   --g-sidebar: 232px;
   --g-focus-width: 2px;
 

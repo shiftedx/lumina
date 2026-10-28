@@ -395,11 +395,11 @@
 .settings-theme-choices .g-segment-icon svg { width: 24px; height: 24px; }
 @media (max-width: 800px) {
   .g-settings-navigation { position: static; }
-  .g-settings-sidebar { display: flex; overflow-x: auto; gap: 8px; padding-block: 4px 12px; scrollbar-width: thin; }
+  .g-settings-sidebar { display: flex; overflow-x: auto; gap: 8px; padding-block: 4px 12px; scroll-padding-inline: 16px; scrollbar-width: thin; }
   .g-settings-nav-group, .g-settings-nav-group ul { display: contents; }
   .g-settings-nav-group h2 { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .g-settings-sidebar li, .g-settings-about { flex: none; }
-  .g-settings-link { min-height: 44px; }
+  .g-settings-link { min-height: 44px; scroll-margin-inline: 16px; }
   .g-settings-group, .setting-row { scroll-margin-top: 80px; }
 }
 @media (forced-colors: active) {

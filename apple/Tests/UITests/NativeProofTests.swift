@@ -31,6 +31,10 @@ final class NativeNativeBooksReadTurnAndRestoreAllFormatsTests: NativeProofJourn
     func testNativeBooksReadTurnAndRestoreAllFormats() async throws { try await journeyNativeBooksReadTurnAndRestoreAllFormats() }
 }
 @MainActor
+final class NativeVisualConsistencyTests: NativeProofJourney {
+    func testMediaCatalogGuttersAndNavigation() throws { try journeyMediaCatalogGuttersAndNavigation() }
+}
+@MainActor
 final class NativeBookCurlTests: NativeProofJourney {
     func testCompactReaderDefaultsToOnePage() async throws {
         try await journeyArtworkCurlHonorsReadingOrderAndCommitsOnlyCompletedTurns(compactLayoutOnly: true)
@@ -280,6 +284,14 @@ final class NativeVideoOverlayTests: NativeProofJourney {
     func testVideoPictureInPictureContinuesInBackground() async throws { try await journeyVideoPictureInPictureContinuesInBackground() }
     #endif
 }
+#if os(iOS)
+@MainActor
+final class NativeVideoCastPickerSmokeTests: NativeProofJourney {
+    func testVideoCastPickerOpensAndReturnsToLocalPlayback() async throws {
+        try await journeyVideoCastPickerOpensAndReturnsToLocalPlayback()
+    }
+}
+#endif
 @MainActor
 final class NativeVideoSettingsTests: NativeProofJourney { func testNativeVideoDoesNotKeepDuplicateControlsOverPlayback() async throws { try await journeyNativeVideoDoesNotKeepDuplicateControlsOverPlayback() } }
 @MainActor
@@ -361,7 +373,9 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Books", screen: "booksScreen")
         try revealBookItem(element("bookCatalogButton"))
         try activate(element("bookCatalogButton"))
+        try attachFrame(named: "Books catalog before reading")
         for book in books {
+            let format = book == epub ? "EPUB" : book == pdf ? "PDF" : book == cbz ? "CBZ" : "CBR"
             let card = element("book-\(book)")
             try revealBookItem(card)
             try waitForExistence(card, timeout: 20, named: "native book catalog entry")
@@ -371,6 +385,7 @@ class NativeProofJourney: XCTestCase {
             try waitForExistence(position, timeout: 20, named: "native reader position")
             let next = element("bookNextButton")
             try waitForHittable(next, timeout: 30, named: "prepared native page")
+            try attachFrame(named: "\(format) reader with navigation controls")
             let before = position.label
             try activate(next)
             guard waitUntil(timeout: 20, condition: { position.label != before }) else {
@@ -393,6 +408,41 @@ class NativeProofJourney: XCTestCase {
             }
             try activate(element("bookCloseButton"))
         }
+        completed = true
+    }
+
+    func journeyMediaCatalogGuttersAndNavigation() throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try attachFrame(named: "Visual consistency Home")
+        try selectDestination("Video", screen: "libraryScreen")
+        try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 20, named: "movie catalog")
+        try attachFrame(named: "Visual consistency movie library")
+        try selectDestination("Audio", screen: "audioScreen")
+        try waitForExistence(element("audioItem-\(fixture.audioAlbumID)"), timeout: 20, named: "music catalog")
+        try attachFrame(named: "Visual consistency music library")
+        try selectDestination("Books", screen: "booksScreen")
+        let books = element("booksScreen")
+        let cards = books.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "book-"))
+        try waitForExistence(cards.firstMatch, timeout: 25, named: "Books overview covers")
+        let heading = books.staticTexts.matching(NSPredicate(format: "label IN %@", ["Continue reading", "Recently added"]))
+            .allElementsBoundByIndex.first(where: { hasVisibleFrame($0) })
+        let firstHeading = try XCTUnwrap(heading, "Books overview must identify its first shelf.")
+        let firstCard = try XCTUnwrap(cards.allElementsBoundByIndex.filter { hasVisibleFrame($0) }
+            .min(by: { $0.frame.minX < $1.frame.minX }), "The first Books shelf must show a cover.")
+        try attachFrame(named: "Visual consistency Books overview gutters")
+        let measurements = XCTAttachment(string: "headingX=\(firstHeading.frame.minX), firstCoverX=\(firstCard.frame.minX), viewport=\(try applicationViewport())")
+        measurements.name = "Books heading and first cover gutter measurements"
+        measurements.lifetime = .keepAlways
+        add(measurements)
+        XCTAssertEqual(firstHeading.frame.minX, try applicationViewport().minX + 20, accuracy: 1,
+                       "Books must use the same content gutter as the other media catalogs.")
+        // The accessible card bounds include its 4-point cover shadow.
+        XCTAssertEqual(firstCard.frame.minX, firstHeading.frame.minX, accuracy: 4,
+                       "The first Books cover must remain aligned with its shelf heading.")
         completed = true
     }
 
@@ -1812,6 +1862,32 @@ class NativeProofJourney: XCTestCase {
         try activate(element("audioSleepTimerButton"))
         try activate(menuAction("15 minutes"))
         XCTAssertFalse(element("audioSleepTimerButton").label.contains("Off"))
+        #if os(iOS)
+        try revealMusicControl(element("audioOutput"))
+        try activate(element("audioOutput"))
+        XCTAssertTrue(waitUntil(timeout: 5, condition: {
+            let header = self.element("audioOutput")
+            return header.exists && header.value as? String == "Expanded"
+        }), "Audio output must expand before its native route controls are queried")
+        let airPlay = element("audioAirPlayButton")
+        let chromecast = element("musicChromecastButton")
+        try revealMusicControl(airPlay)
+        try revealMusicControl(chromecast)
+        XCTAssertGreaterThanOrEqual(airPlay.frame.width, 44, "AirPlay needs a 44 pt touch target.")
+        XCTAssertGreaterThanOrEqual(airPlay.frame.height, 44, "AirPlay needs a 44 pt touch target.")
+        XCTAssertGreaterThanOrEqual(chromecast.frame.width, 44, "Chromecast needs a 44 pt touch target.")
+        XCTAssertGreaterThanOrEqual(chromecast.frame.height, 44, "Chromecast needs a 44 pt touch target.")
+        XCTAssertTrue(airPlay.isEnabled && chromecast.isEnabled,
+                      "A local session must expose, but not open, its native output pickers.")
+        XCTAssertFalse(element("audioRefreshSpeakersButton").exists)
+        XCTAssertFalse(application!.switches["Compatibility mode for Sonos S1"].exists)
+        XCTAssertFalse(application!.buttons["Refresh Sonos speakers"].exists)
+        XCTAssertFalse(application!.staticTexts["Sonos receives at most the next 100 tracks. The local player pauses after the speaker acknowledges the transfer."].exists)
+        let volume = application!.sliders["Music volume"]
+        try revealMusicControl(volume)
+        XCTAssertTrue(volume.isEnabled, "Local output volume must remain available before a receiver handoff.")
+        volume.adjust(toNormalizedSliderPosition: 0.7)
+        #endif
         try revealMusicControl(element("audioLyrics"))
         XCTAssertEqual(element("audioLyrics").value as? String, "Collapsed",
                        "Lyrics must remain collapsed until explicitly opened, including after loading.")
@@ -3425,6 +3501,7 @@ class NativeProofJourney: XCTestCase {
         let movies = element("homeBrowse-movies")
         // This fixture has no Anime library; Music is its third, equally wide label.
         let third = element("homeBrowse-music")
+        let watchlist = element("homeBrowse-watchlist")
         try waitForHittable(third, timeout: 20, named: "Third category")
         XCTAssertGreaterThanOrEqual(movies.frame.minX, masthead.frame.maxX + 8,
                                     "Categories must clear the full Lumina wordmark.")
@@ -3432,7 +3509,47 @@ class NativeProofJourney: XCTestCase {
         XCTAssertLessThanOrEqual(third.frame.maxX, row.frame.maxX - 8,
                                  "The third category must fit completely before the scroll edge.")
         XCTAssertEqual(movies.frame.midY, masthead.frame.midY, accuracy: 6)
+
+        let heroArtwork = application!.descendants(matching: .any)
+            .matching(identifier: "homeHeroArtworkBounds").firstMatch
+        try waitForExistence(heroArtwork, timeout: 15, named: "Closed Duo hero artwork bounds")
+        XCTAssertTrue(waitUntil(timeout: 15) { self.hasVisibleFrame(heroArtwork) },
+                      "Closed Duo Home must expose a visible hero artwork bounds marker.")
+        XCTAssertLessThanOrEqual(heroArtwork.frame.minY, viewport.minY + 2,
+                                 "Closed Duo hero artwork must reach the top edge of Home.")
+        XCTAssertGreaterThanOrEqual(heroArtwork.frame.maxY, viewport.maxY - 0.5,
+                                    "Closed Duo hero artwork must reach the bottom edge without a black band.")
         try attachFrame(named: "Closed Duo three complete categories")
+
+        let initialRefreshes = try homeRefreshCount()
+        try revealHomeMenuControl(watchlist)
+        try waitForHittable(watchlist, timeout: 10, named: "Horizontally revealed Watchlist category")
+        XCTAssertEqual(try homeRefreshCount(), initialRefreshes,
+                       "Horizontally scrolling Home categories must not begin Home refresh.")
+
+        let toolbarDragStart = row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        toolbarDragStart.press(forDuration: 0.1,
+                               thenDragTo: toolbarDragStart.withOffset(CGVector(dx: 0, dy: 260)),
+                               withVelocity: .slow,
+                               thenHoldForDuration: 0.5)
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(try homeRefreshCount(), initialRefreshes,
+                       "A downward gesture beginning in the horizontal category toolbar must not refresh Home.")
+        XCTAssertLessThanOrEqual(try categoryVerticalPull(), 2,
+                                 "The horizontal category toolbar must not vertically rubber-band.")
+
+        let contentDragStart = element("homeScreen").coordinate(
+            withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)
+        )
+        contentDragStart.press(forDuration: 0.1,
+                               thenDragTo: contentDragStart.withOffset(CGVector(dx: 0, dy: 250)),
+                               withVelocity: .slow,
+                               thenHoldForDuration: 0.5)
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            (try? self.homeRefreshCount()).map { $0 > initialRefreshes } ?? false
+        }, "A downward gesture in Home content must retain pull-to-refresh.")
+
+        try revealHomeMenuControl(third)
         try activate(third)
         try waitForExistence(element("audioScreen"), timeout: 20, named: "Third category destination")
     }
@@ -3441,6 +3558,28 @@ class NativeProofJourney: XCTestCase {
     #if os(iOS)
     private func revealHomeMenuControl(_ category: XCUIElement) {
         revealMenuControl(category, in: element("homeBrowsingRow"))
+    }
+
+    private func homeRefreshCount() throws -> Int {
+        let diagnostics = try XCTUnwrap(element("homeScreen").value as? String,
+                                        "UI-testing Home diagnostics must expose a refresh count.")
+        let prefix = "refreshes="
+        guard let refreshToken = diagnostics.split(separator: " ").first(where: { $0.hasPrefix(prefix) }),
+              let refreshes = Int(refreshToken.dropFirst(prefix.count)) else {
+            throw ProofFailure.ui("UI-testing Home diagnostics did not include a numeric refresh count: \(diagnostics)")
+        }
+        return refreshes
+    }
+
+    private func categoryVerticalPull() throws -> Double {
+        let diagnostics = try XCTUnwrap(element("homeBrowsingRow").value as? String,
+                                        "UI-testing category diagnostics must expose vertical pull distance.")
+        let prefix = "verticalPull="
+        guard let pullToken = diagnostics.split(separator: " ").first(where: { $0.hasPrefix(prefix) }),
+              let pull = Double(pullToken.dropFirst(prefix.count)) else {
+            throw ProofFailure.ui("UI-testing category diagnostics did not include a numeric vertical pull: \(diagnostics)")
+        }
+        return pull
     }
 
     private func revealMenuControl(_ category: XCUIElement, in menu: XCUIElement) {
@@ -3764,19 +3903,21 @@ class NativeProofJourney: XCTestCase {
         try launchAndResetSession()
         let qrLanding = element("qrPairingLanding")
         try waitForExistence(qrLanding, timeout: 20, named: "QR pairing landing")
-        XCTAssertTrue(waitUntil(timeout: 10) {
-            self.application!.staticTexts.matching(
-                NSPredicate(format: "label CONTAINS[c] %@", "Camera scanning")
-            ).firstMatch.exists
-        }, "A simulator must explain when QR camera scanning is unavailable.")
+        let cameraStatus = element("connectionCameraStatus")
+        try waitForExistence(cameraStatus, timeout: 10, named: "Camera availability")
+        XCTAssertEqual(cameraStatus.label, "Camera unavailable")
+        let manualAction = element("advancedConnectionButton")
+        XCTAssertEqual(manualAction.label, "Sign in manually")
+        XCTAssertTrue(qrLanding.label.contains("Mobile connect"),
+                      "QR setup must identify the web action needed to obtain a code.")
         XCTAssertFalse(element("serverURLField").exists,
-                       "Manual credentials must stay hidden until Advanced is explicitly chosen.")
+                       "Manual credentials must stay hidden until manual sign-in is explicitly chosen.")
         XCTAssertFalse(element("usernameField").exists,
                        "QR pairing must remain the primary mobile connection path.")
         XCTAssertFalse(element("passwordField").exists,
                        "QR pairing must not pre-expose a password field.")
         try waitForExistence(element("scanPairingCodeButton"), timeout: 10, named: "QR scan action")
-        try attachFrame(named: "QR-primary mobile welcome before Advanced")
+        try attachFrame(named: "Compact mobile connection actions")
         try revealManualConnection()
         try waitForHittable(element("serverURLField"), timeout: 20, named: "Server address")
         XCTAssertFalse(element("connectButton").isEnabled, "Empty credentials must not submit.")
@@ -3831,11 +3972,13 @@ class NativeProofJourney: XCTestCase {
         try enter(unavailableShowTitle, into: search)
         #else
         XCTAssertEqual(movie.label, movieTitle, "The Requests hero did not preserve its catalog title.")
+        try attachFrame(named: "Requests featured hero")
         try activate(element("requestsSearchButton"))
         let search = application!.searchFields.firstMatch
         try waitForHittable(search, timeout: 10, named: "Requests search")
         try activate(search)
         search.typeText(unavailableShowTitle)
+        search.typeText("\n")
         #endif
         let show = try revealRequestPoster(unavailableShowKey, named: "Requests show poster")
         #if os(tvOS)
@@ -3870,6 +4013,7 @@ class NativeProofJourney: XCTestCase {
         let freshSearch = application!.searchFields.firstMatch
         try waitForHittable(freshSearch, timeout: 10, named: "fresh Requests search")
         try replaceText(freshSearch, with: freshAnimeTitle)
+        freshSearch.typeText("\n")
         #endif
         let anime = try revealRequestPoster(freshAnimeKey, named: "searched fresh anime poster")
         try activate(anime)
@@ -4783,6 +4927,10 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 10) {
             (query.value as? String)?.localizedCaseInsensitiveContains(fixture.directItemTitle) == true
         }, "The standard-phone Home Search field must visibly retain the typed query.")
+        let clear = element("homeSearchClearButton")
+        try waitForHittable(clear, timeout: 10, named: "Home Search clear")
+        XCTAssertGreaterThanOrEqual(clear.frame.width, 44, "Home Search clear needs a 44-point-wide hit target")
+        XCTAssertGreaterThanOrEqual(clear.frame.height, 44, "Home Search clear needs a 44-point-tall hit target")
         let result = element("homeSearchResult-\(fixture.directItemID)")
         try waitForHittable(result, timeout: 20, named: "visible Home Search result")
         XCTAssertTrue(hasVisibleFrame(result), "The selected Home Search result must render in the current search screen.")
@@ -5387,6 +5535,84 @@ class NativeProofJourney: XCTestCase {
     }
     #endif
 
+    #if os(iOS)
+    func journeyVideoCastPickerOpensAndReturnsToLocalPlayback() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.directItemID)
+        _ = try startPlayback(using: "playButton")
+
+        // Pause through the public transport before requesting Cast. This holds the
+        // same player chrome a person uses while selecting an output and avoids
+        // racing its intentional four-second auto-hide interval.
+        try tapVideoTransportAfterChromeHides(named: "video pause before Chromecast")
+        let app = try XCTUnwrap(application)
+        let transport = app.buttons["videoPlayPauseButton"]
+        XCTAssertEqual(transport.label, "Play", "Chromecast begins from a visibly paused local player.")
+        // Address the wrapped UIKit control directly. The SwiftUI accessibility
+        // container has the same identifier but is not the SDK-owned button that
+        // receives the Cast default action.
+        let cast = app.buttons["videoChromecastButton"]
+        try waitForHittable(cast, timeout: 10, named: "Chromecast")
+        try activate(cast)
+
+        let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let nearbyDevicePrompt = app.staticTexts["Connect to nearby device"]
+        let localNetworkExplainer = app.staticTexts["LNAPermissionTitleLabel"]
+        let castToTitle = app.staticTexts["Cast to"]
+        let castToNavigation = app.navigationBars["Cast to"]
+        let noDevicesNavigation = app.navigationBars["No devices available"]
+        let localNetworkAlerts = [springBoard.alerts.firstMatch, app.alerts.firstMatch]
+        XCTAssertTrue(waitUntil(timeout: 45, condition: {
+            self.hasVisibleFrame(nearbyDevicePrompt)
+                || self.hasVisibleFrame(localNetworkExplainer)
+                || self.hasVisibleFrame(castToTitle)
+                || self.hasVisibleFrame(castToNavigation)
+                || self.hasVisibleFrame(noDevicesNavigation)
+                || localNetworkAlerts.contains { $0.exists }
+        }), "Chromecast must respond with its SDK local-network help, system permission, or device chooser.")
+
+        if hasVisibleFrame(localNetworkExplainer) {
+            XCTAssertTrue(localNetworkExplainer.isHittable,
+                          "Chromecast local-network help must present an actionable SDK confirmation.")
+            try attachPlaybackFrame(named: "Chromecast local-network help")
+            try activate(app.buttons["LNAOKButton"])
+        } else if hasVisibleFrame(nearbyDevicePrompt) {
+            XCTAssertTrue(nearbyDevicePrompt.isHittable,
+                          "Chromecast's local-network explainer must render a usable Connect action.")
+            try activate(app.buttons["Connect"])
+        }
+
+        if waitUntil(timeout: 5, condition: { localNetworkAlerts.contains { $0.exists } }) {
+            let localNetworkAlert = try XCTUnwrap(localNetworkAlerts.first { $0.exists })
+            XCTAssertTrue(localNetworkAlert.label.localizedCaseInsensitiveContains("local network"),
+                          "The system permission shown after Chromecast Connect must request local-network access.")
+            try activate(localNetworkAlert.buttons["Allow"])
+        }
+
+        if waitUntil(timeout: 15, condition: {
+            self.hasVisibleFrame(castToTitle)
+                || self.hasVisibleFrame(castToNavigation)
+                || self.hasVisibleFrame(noDevicesNavigation)
+        }) {
+            try attachPlaybackFrame(named: "Chromecast device chooser")
+            let dismiss = [app.buttons["Close"], app.buttons["Cancel"]]
+                .first { self.hasVisibleFrame($0) && $0.isHittable }
+            let dismissButton = try XCTUnwrap(dismiss, "The Chromecast chooser must expose a user-facing dismissal control.")
+            try activate(dismissButton)
+            XCTAssertTrue(waitUntil(timeout: 10, condition: {
+                !self.hasVisibleFrame(castToTitle) && !self.hasVisibleFrame(castToNavigation)
+            }), "Dismissing the Chromecast chooser must return to local playback.")
+        }
+        try waitForHittable(element("videoPlayPauseButton"), timeout: 10, named: "local video transport after Chromecast picker")
+        XCTAssertTrue(element("playbackScreen").exists)
+        completed = true
+    }
+    #endif
+
     func journeyVideoOverlayCentersAndDismisses() async throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
@@ -5399,6 +5625,14 @@ class NativeProofJourney: XCTestCase {
         try activate(element("libraryItem-\(fixture.showID)"))
         try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "show seasons")
         let collection = element("videoCollectionScreen")
+        let hero = element("collectionHero")
+        try waitForExistence(hero, timeout: 15, named: "full-page show artwork")
+        let detailViewport = try applicationViewport()
+        XCTAssertGreaterThanOrEqual(hero.frame.height, detailViewport.height - 2,
+                                    "The detail hero must fill the first viewport before seasons.")
+        try attachFrame(named: "Full-page show artwork before revealing seasons")
+        let revealSeasons = element("collectionSeasonsButton")
+        try activate(revealSeasons)
         let season = element("videoSeason-\(fixture.seasonID)")
         try revealDetailElement(season, in: collection, named: "season", requiresHittable: true)
         try activate(season)
@@ -5439,6 +5673,7 @@ class NativeProofJourney: XCTestCase {
         let viewport = try applicationViewport()
         XCTAssertEqual(transport.frame.midX, viewport.midX, accuracy: 2,
                        "The video transport must be centered over the full video viewport.")
+        try attachPlaybackFrame(named: "Video overlay before layout checks")
         let chrome = element("videoPlaybackChrome").frame
         XCTAssertEqual(chrome.midX, viewport.midX, accuracy: 2,
                        "Video chrome must share the video's horizontal center.")
@@ -5449,7 +5684,7 @@ class NativeProofJourney: XCTestCase {
         let mute = element("videoMuteButton").frame
         let settings = element("videoSettingsButton").frame
         if viewport.width < 600, viewport.height > viewport.width {
-            let timeline = application!.sliders["Video position"].frame
+            let timeline = element("videoTimeline").frame
             XCTAssertLessThanOrEqual(timeline.minX - viewport.minX, 24,
                                      "Portrait playback must not mirror the system rail's inset on the left.")
             XCTAssertLessThanOrEqual(viewport.maxX - timeline.maxX, 24,
@@ -5458,18 +5693,29 @@ class NativeProofJourney: XCTestCase {
             let forward = element("videoSeekForwardButton").frame
             XCTAssertLessThan(backward.midX, viewport.minX + viewport.width * 0.35)
             XCTAssertGreaterThan(forward.midX, viewport.minX + viewport.width * 0.65)
-            XCTAssertLessThanOrEqual(forward.maxX, element("nextEpisodeTransportButton").frame.minX,
-                                     "Spreading transport controls must keep Forward clear of Next Episode.")
-            XCTAssertLessThanOrEqual(close.minX - viewport.minX, 24,
-                                     "The toolbar's left edge must use its own safe-area inset.")
+            XCTAssertFalse(forward.intersects(element("nextEpisodeTransportButton").frame),
+                           "Centered transport must keep Forward clear of Next Episode.")
+            XCTAssertEqual(close.minX, settings.minX, accuracy: 2,
+                           "Top and bottom utility icons must share the same leading edge.")
         }
-        XCTAssertLessThanOrEqual(settings.maxX, mute.minX + 2)
-        XCTAssertEqual(close.midY, settings.midY, accuracy: 2)
-        XCTAssertEqual(settings.midY, mute.midY, accuracy: 2)
+        XCTAssertLessThan(close.maxY, transport.frame.minY,
+                          "Close belongs above the centered transport.")
+        XCTAssertGreaterThan(settings.minY, transport.frame.maxY,
+                             "Playback utilities belong below the centered transport.")
+        XCTAssertEqual(close.midY, mute.midY, accuracy: 2,
+                       "Close and audio share the top toolbar baseline.")
+        let airPlay = element("videoAirPlayButton").frame
+        let cast = element("videoChromecastButton").frame
+        let next = element("nextEpisodeTransportButton").frame
+        XCTAssertEqual(settings.midY, airPlay.midY, accuracy: 2)
+        XCTAssertEqual(airPlay.midY, cast.midY, accuracy: 2)
+        XCTAssertEqual(cast.midY, next.midY, accuracy: 2)
+        XCTAssertEqual((airPlay.midX + cast.midX) / 2, chrome.midX, accuracy: 2,
+                       "Output routes form one centered group between settings and next.")
         #endif
         try attachPlaybackFrame(named: "Centered video overlay")
         #if os(iOS)
-        try applicationWindow().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try applicationWindow().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.32)).tap()
         XCTAssertTrue(disappears(element("videoPlaybackChrome"), timeout: 3),
                       "Tapping the video background must dismiss paused controls immediately.")
         try activate(element("videoControlsSurface"))
@@ -6041,6 +6287,11 @@ class NativeProofJourney: XCTestCase {
         #if os(iOS)
         let requests = element("requestsScreen")
         try waitForExistence(requests, timeout: 15, named: "Requests browse catalog")
+        // Native search deliberately debounces remote catalog loading. Establish that
+        // the requested card has reached the observable UI before the viewport
+        // helper starts scrolling; otherwise it can complete all bounded drags
+        // against the pre-search grid on a compact Duo display.
+        try waitForExistence(poster, timeout: 20, named: name)
         for _ in 0..<8 {
             if poster.exists {
                 try revealInLibraryViewport([poster], in: requests)
@@ -6879,6 +7130,11 @@ class NativeProofJourney: XCTestCase {
         let app = application!
         let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         XCUIDevice.shared.press(.home)
+        if !waitUntil(timeout: 3, condition: {
+            app.state == .runningBackground || app.state == .runningBackgroundSuspended
+        }) {
+            springBoard.activate()
+        }
         let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = "Home background probe — Lumina \(app.state.rawValue), SpringBoard \(springBoard.state.rawValue)"
         screenshot.lifetime = .keepAlways

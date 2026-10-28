@@ -269,6 +269,7 @@ private struct TVConnectionView: View {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 LuminaBrandMark()
                     .frame(width: 44, height: 27)
+                    .luminaBrandMarkBaseline()
                 Text("LUMINA")
                     .font(LuminaTheme.editorial(32, relativeTo: .title3))
                     .tracking(2.4)
@@ -881,9 +882,10 @@ private struct TVLibraryView: View {
     private var header: some View {
         HStack(spacing: 0) {
             Button { selectHomeDestination(.all) } label: {
-                HStack(alignment: .lastTextBaseline, spacing: 10) {
-                    LuminaBrandMark().frame(width: 42, height: 26)
-                        .alignmentGuide(.lastTextBaseline) { $0[.bottom] }
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    LuminaBrandMark()
+                        .frame(width: 42, height: 26)
+                        .luminaBrandMarkBaseline()
                     Text("LUMINA")
                         .font(.system(size: 26, weight: .heavy))
                         .tracking(3)

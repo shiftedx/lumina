@@ -283,6 +283,12 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     ),
     37: PHOTO_FACE_INDEX_MIGRATION,  # Durable vector keys/change journal for scalable local matching.
     38: (),  # Mobile pairing handoffs are a new table; rollback drops mobile_pairings.
+    39: (
+        "ALTER TABLE media_cast_tickets ADD COLUMN issuer_device_id VARCHAR(36)",
+        "CREATE INDEX IF NOT EXISTS ix_media_cast_tickets_issuer_device_id ON media_cast_tickets (issuer_device_id)",
+        "ALTER TABLE media_cast_tickets ADD COLUMN playback_session_id VARCHAR(64)",
+        "ALTER TABLE media_cast_tickets ADD COLUMN audio_index INTEGER",
+    ),  # Native tickets bind paired devices; music_receiver_tickets comes from create_all.
 }
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
 SCHEMA_VERSION = max(MIGRATIONS, default=1)

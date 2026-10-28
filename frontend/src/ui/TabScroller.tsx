@@ -58,6 +58,14 @@ export function TabScroller({ activeKey, ariaLabel, as = 'div', children, classN
     observer.observe(element);
     return () => observer.disconnect();
   }, [activeKey, measure, revealActive]);
+  // End controls reduce the row after overflow is first detected. Reveal the
+  // selected tab again in that narrower viewport so it does not sit behind a
+  // still-enabled scroll affordance.
+  useLayoutEffect(() => {
+    if (!ends.overflow) return;
+    revealActive();
+    measure();
+  }, [ends.overflow, measure, revealActive]);
   const scroll = (direction: -1 | 1) => {
     const element = row.current;
     if (!element) return;

@@ -7,7 +7,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { type AppRoute, parseRoute, type RequestsRoute } from '../../app/routes';
 import type { UserProfile } from '../../types';
-import { Masthead } from '../../ui';
+import { Masthead, TabScroller } from '../../ui';
 import { moveFocus } from '../media/focusNav';
 import { AnimePage } from './AnimePage';
 import { Browse, SearchResults } from './Browse';
@@ -35,7 +35,6 @@ const SEARCH_DEBOUNCE_MS = 350;
 
 export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, onQueueChanged }: RequestsSurfaceProps) {
   const isAdmin = user.role === 'admin';
-  const tabsRef = useRef<HTMLElement>(null);
   const [overrides, setOverrides] = useState<Record<string, CatalogStatus>>({});
   const [asking, setAsking] = useState<CatalogItem | null>(null);
   const [quotas, setQuotas] = useState<Quota[] | null>(null);
@@ -84,18 +83,6 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
     { view: 'discover', label: 'Discover' }, { view: 'movies', label: 'Films' }, { view: 'shows', label: 'Series' }, { view: 'anime', label: 'Anime' },
     { view: 'mine', label: 'My requests' }, ...(isAdmin ? [{ view: 'manage' as const, label: 'Manage' }] : []),
   ];
-  // The phone tab row scrolls sideways. Keep the selected destination wholly visible without
-  // asking scrollIntoView to move the document and undo the member's restored page position.
-  useEffect(() => {
-    const row = tabsRef.current;
-    const tab = row?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (!row || !tab) return;
-    const left = tab.offsetLeft - row.offsetLeft;
-    const right = left + tab.offsetWidth;
-    if (left < row.scrollLeft) row.scrollLeft = left;
-    else if (right > row.scrollLeft + row.clientWidth) row.scrollLeft = right - row.clientWidth;
-  }, [route.view, isAdmin]);
-
   let body;
   if (route.view === 'title') body = <TitlePage id={route.id} key={`${route.kind}:${route.id}`} kind={route.kind} />;
   else if (route.view === 'search') body = <SearchResults query={route.query} />;
@@ -121,11 +108,11 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
               )}
               title={route.view === 'search' ? `Results for “${route.query}”` : 'Requests'}
             />
-            <nav aria-label="Requests pages" className="rq-tabs" ref={tabsRef}>
+            <TabScroller activeKey={`${route.view}:${isAdmin}`} ariaLabel="Requests pages" as="nav" className="rq-tab-scroller" rowClassName="rq-tabs">
               {tabs.map((tab) => (
                 <button aria-current={tab.view === route.view ? 'page' : undefined} key={tab.view} onClick={() => actions.go({ surface: 'requests', view: tab.view } as RequestsRoute)} type="button">{tab.label}</button>
               ))}
-            </nav>
+            </TabScroller>
           </>
         )}
         {body}

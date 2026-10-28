@@ -12,6 +12,19 @@ This is the shared identity contract for Lumina's web, iOS, and tvOS surfaces. I
 
 The native generator's `#D2A875` sunrise and `#111112` charcoal literals are **generator inputs**, not replacement canonical values. Its explicitly sRGB bitmap context transforms them into the approved rendered `#DBB688`/`#151517` output. Do not “correct” those literals or regenerate icons merely to make the source text match the rendered values; compare generated pixels with the approved assets first.
 
+## Mark and wordmark alignment
+
+In horizontal lockups, align the mark's **painted bottom edge** with the bottom
+of the capital **L**, using the text baseline. Do not center the mark against the
+text's line box or align the image canvas bottom. The approved 56×34 SVG retains
+1.5 units of transparent canvas below its horizon stroke; the shared web bar
+lockup and native `luminaBrandMarkBaseline()` account for that padding. Reuse
+these rules for login and navigation headers. The offline header's italic L has a small font-relative ink overshoot, retained
+in its optical correction. Email uses the separate PNG's padding and table-cell
+baselines. Standalone marks and vertically stacked lockups keep their existing
+alignment. Asset geometry, colors, fonts,
+and touch targets stay unchanged.
+
 ## Color-role contract
 
 | Role | Canonical use | Values / boundary |

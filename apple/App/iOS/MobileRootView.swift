@@ -308,6 +308,7 @@ private struct ConnectionView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private let artwork = ["WelcomeCoast", "WelcomeOrbit", "WelcomeDunes"]
 
@@ -388,11 +389,23 @@ private struct ConnectionView: View {
         .sheet(isPresented: $helpPresented) {
             NavigationStack {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        Text("Server access").font(.headline)
-                        Text("Ask your administrator for your server address and household account. The server’s Jellyfin-compatible API must be enabled in Manage Server → Connections → Metadata → Apps like Infuse.")
-                        Text("Two-factor authentication").font(.headline)
-                        Text("Use an app password if your account has two-factor authentication. It is used only for this sign-in attempt.")
+                    VStack(alignment: .leading, spacing: 20) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("QR setup").font(.headline)
+                            Text("Web app → Member menu → Mobile connect → Show QR code")
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Sign in manually").font(.headline)
+                            LabeledContent("Server address", value: "From your administrator")
+                            LabeledContent("Username", value: "Household account")
+                            LabeledContent("2FA", value: "App password")
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Server setting").font(.headline)
+                            Text("Manage Server → Connections → Metadata → Apps like Infuse")
+                            Text("Enable Jellyfin-compatible API")
+                                .fontWeight(.semibold)
+                        }
                     }
                     .padding(28)
                 }
@@ -414,13 +427,15 @@ private struct ConnectionView: View {
 
     private var connectionForm: some View {
         VStack(alignment: .leading, spacing: 24) {
-            HStack(spacing: 12) {
-                LuminaBrandMark().frame(width: 40, height: 25)
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                LuminaBrandMark()
+                    .frame(width: 40, height: 25)
+                    .luminaBrandMarkBaseline()
                 Text("LUMINA")
                     .font(LuminaTheme.editorial(28, relativeTo: .title2))
                     .tracking(2.4)
             }
-            Text(showManual ? "Sign in" : "Scan a QR code")
+            Text(showManual ? "Sign in" : "Connect")
                 .font(.title2.weight(.semibold))
 
             connectionMethod
@@ -431,34 +446,26 @@ private struct ConnectionView: View {
                     .accessibilityAddTraits(.isStaticText)
                     .accessibilityIdentifier("connectionError")
             }
-            Button("Connection help") { focusedField = nil; helpPresented = true }
-                .buttonStyle(LuminaQuietActionStyle())
-                .accessibilityIdentifier("connectionHelpButton")
         }
     }
 
     @ViewBuilder private var connectionMethod: some View {
         if claimingPair {
-            ProgressView("Connecting…")
-                .frame(maxWidth: .infinity, minHeight: 280)
+            VStack(alignment: .leading, spacing: 14) {
+                ProgressView("Connecting…")
+                    .frame(maxWidth: .infinity, minHeight: 280)
+                connectionHelpAction
+            }
         } else if showManual {
             manualConnection
         } else if showScanner {
-            VStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 14) {
+                pairingSetupPath
                 MobilePairScanner(onCode: claim(code:), onUnavailable: scannerUnavailable)
                     .frame(height: 280)
                     .clipShape(.rect(cornerRadius: 16))
                     .accessibilityLabel("QR code scanner")
-                Text("Open Mobile connect in Lumina on a browser, then scan its QR code.")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.74))
-                Button("Advanced") {
-                    showScanner = false
-                    showManual = true
-                    manualRequested = true
-                }
-                .buttonStyle(LuminaQuietActionStyle())
-                .accessibilityIdentifier("advancedConnectionButton")
+                secondaryConnectionActions
             }
         } else {
             qrPairingLanding
@@ -467,33 +474,66 @@ private struct ConnectionView: View {
 
     private var qrPairingLanding: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                LuminaIcon(glyph: .scanQr, size: 20)
-                Text("Connect with a QR code")
-                    .font(.headline)
-                    .accessibilityIdentifier("qrPairingLanding")
-            }
-            Text("Open Mobile connect in Lumina on a browser, then scan its QR code here.")
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.74))
+            pairingSetupPath
             if !scannerCheckFinished {
                 ProgressView("Checking camera…")
             } else if !scannerAvailable {
-                Text("Camera scanning isn’t available on this device. Choose Advanced to sign in manually.")
+                Text("Camera unavailable")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.74))
+                    .accessibilityIdentifier("connectionCameraStatus")
             }
-            Button("Scan QR code") { Task { await prepareScanner(requestPermission: true) } }
+            Button {
+                Task { await prepareScanner(requestPermission: true) }
+            } label: {
+                Text("Scan QR code").frame(maxWidth: .infinity)
+            }
                 .buttonStyle(LuminaQuietActionStyle(primary: true))
                 .disabled(!scannerAvailable)
                 .accessibilityIdentifier("scanPairingCodeButton")
-            Button("Advanced") {
-                showManual = true
-                manualRequested = true
-            }
-            .buttonStyle(LuminaQuietActionStyle())
-            .accessibilityIdentifier("advancedConnectionButton")
+            secondaryConnectionActions
         }
+    }
+
+    private var pairingSetupPath: some View {
+        Text("Web app → Member menu → Mobile connect → Show QR code")
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.white.opacity(0.82))
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("qrPairingLanding")
+    }
+
+    @ViewBuilder private var secondaryConnectionActions: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                manualSignInAction
+                connectionHelpAction
+            }
+        } else {
+            HStack(spacing: 8) {
+                manualSignInAction.frame(maxWidth: .infinity)
+                connectionHelpAction.frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var manualSignInAction: some View {
+        Button("Sign in manually") {
+            showScanner = false
+            showManual = true
+            manualRequested = true
+        }
+        .buttonStyle(LuminaQuietActionStyle())
+        .accessibilityIdentifier("advancedConnectionButton")
+    }
+
+    private var connectionHelpAction: some View {
+        Button("Help") {
+            focusedField = nil
+            helpPresented = true
+        }
+        .buttonStyle(LuminaQuietActionStyle())
+        .accessibilityIdentifier("connectionHelpButton")
     }
 
     private var manualConnection: some View {
@@ -549,6 +589,11 @@ private struct ConnectionView: View {
                 }
                 .buttonStyle(LuminaQuietActionStyle())
                 .accessibilityIdentifier("scanPairingCodeButton")
+            }
+
+            HStack {
+                connectionHelpAction
+                Spacer(minLength: 0)
             }
         }
     }
@@ -1083,6 +1128,9 @@ private struct HomeLibraryView: View {
     let uiTestingNavigationDiagnostics: String?
     let onOpenLibrary: (LibraryCategory) -> Void
     @State private var completedInitialHomeLoad = false
+    #if LUMINA_UI_TESTING
+    @State private var uiTestingHomeRefreshCount = 0
+    #endif
     @Environment(\.scenePhase) private var scenePhase
     @State private var compactHeader = false
     @State private var scrollPosition = ScrollPosition(edge: .top)
@@ -1110,8 +1158,10 @@ private struct HomeLibraryView: View {
                 if !snapshot.items.isEmpty {
                     LibraryFeaturedView(store: store, items: snapshot.items,
                         compactMinimumHeight: max(460, geometry.size.height * 0.78),
+                        compactArtworkMinimumHeight: geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom,
                         wideMinimumHeight: min(720, max(540, geometry.size.height * 0.78)),
                         topContentClearance: geometry.safeAreaInsets.top + 32,
+                        bottomContentClearance: geometry.safeAreaInsets.bottom,
                         onWatchlistChanged: { await feed.load() })
                         .padding(.horizontal, -20)
                 }
@@ -1152,6 +1202,12 @@ private struct HomeLibraryView: View {
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top > 80
         } action: { _, scrolled in compactHeader = scrolled }
+        .refreshable {
+            #if LUMINA_UI_TESTING
+            uiTestingHomeRefreshCount += 1
+            #endif
+            await store.loadHome(); await homeLayout.load(); await feed.load()
+        }
         }
 
         .navigationBarTitleDisplayMode(.inline)
@@ -1194,9 +1250,8 @@ private struct HomeLibraryView: View {
             Button("Done", role: .cancel) {}
         }
         #if LUMINA_UI_TESTING
-        .accessibilityValue(uiTestingNavigationDiagnostics ?? "")
+        .accessibilityValue("\(uiTestingNavigationDiagnostics ?? "") refreshes=\(uiTestingHomeRefreshCount)")
         #endif
-        .refreshable { await store.loadHome(); await homeLayout.load(); await feed.load() }
         .task(id: MobileHomeSessionScope(store.session)) {
             guard store.session != nil else {
                 completedInitialHomeLoad = false
@@ -1324,8 +1379,13 @@ private struct HomeSearchView: View {
                             .submitLabel(.search)
                             .accessibilityIdentifier("homeSearchField")
                         if !query.isEmpty {
-                            Button("Clear search", glyph: .close) { query = "" }
-                                .labelStyle(.iconOnly)
+                            Button { query = "" } label: {
+                                Label("Clear search", glyph: .close)
+                                    .labelStyle(.iconOnly)
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .contentShape(.rect)
+                            }
+                                .buttonStyle(.plain)
                                 .accessibilityIdentifier("homeSearchClearButton")
                         }
                     }
@@ -1600,24 +1660,12 @@ private struct VideoDetailChrome: ViewModifier {
     func body(content: Content) -> some View {
         if isEnabled {
             content
-                .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                .ignoresSafeArea(.container)
                 .modifier(HomeHeroScrollEdge(isEnabled: true))
                 .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
                 .toolbarColorScheme(.dark, for: .navigationBar)
-                .toolbar {
-                    if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .topBarLeading) {
-                            HomeHeroChrome().fixedSize()
-                        }
-                        .sharedBackgroundVisibility(.hidden)
-                    } else {
-                        ToolbarItem(placement: .topBarLeading) {
-                            HomeHeroChrome().fixedSize()
-                        }
-                    }
-                }
         } else {
             content
         }
@@ -1634,11 +1682,7 @@ private struct HomeHeroChrome: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 LuminaBrandMark()
                     .frame(width: 24, height: 24 * 34 / 56)
-                    .alignmentGuide(.firstTextBaseline) { dimensions in
-                        // SunriseShape's horizon is at 31/34 of its height;
-                        // include the rounded stroke's lower edge.
-                        dimensions.height * 31 / 34 + dimensions.width * 1.5 / 56
-                    }
+                    .luminaBrandMarkBaseline()
                 if !compact {
                     Text("LUMINA")
                         .font(.caption.weight(.black))
@@ -2279,6 +2323,7 @@ struct VideoCollectionView: View {
     let initialSeasonID: String?
     let initialEpisodeID: String?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var children: [MediaItem] = []
     @State private var selectedSeasonEpisodes: [MediaItem] = []
     @State private var selectedSeasonID: String?
@@ -2303,72 +2348,90 @@ struct VideoCollectionView: View {
     }
 
     private var isEpisodeFocusedSeries: Bool { item.type == "Series" && initialSeasonID != nil }
+    private var collectionSectionTitle: String { item.type == "Series" ? "Seasons" : "Episodes" }
+    private var collectionSectionID: String { "collection-\(item.id)-content" }
+    private var hasResumeEpisode: Bool {
+        if isEpisodeFocusedSeries,
+           let selectedEpisode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
+            return selectedEpisode.resumeSeconds > 5 && selectedEpisode.userData?.played != true
+        }
+        return store.resumeItems.contains { candidate in
+            candidate.type == "Episode"
+                && (candidate.seriesID == item.id || candidate.seasonID == item.id)
+                && candidate.resumeSeconds > 5
+                && candidate.userData?.played != true
+        }
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                MediaBillboard(item: detailItem ?? item, store: store, context: "", showsOverview: true, showsContext: false, compactMinimumHeight: 460, wideMinimumHeight: 540) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .top, spacing: 12) { playbackActions }
-                        VStack(alignment: .leading, spacing: 12) { playbackActions }
-                    }
-                    if let playbackError {
-                        Label(playbackError, glyph: .warning)
-                            .font(.callout)
-                            .foregroundStyle(LuminaTheme.accentInk)
-                            .accessibilityIdentifier("videoCollectionPlaybackError")
-                    }
-                }
-                .padding(.horizontal, -20)
+                VStack(alignment: .leading, spacing: 0) {
+                    collectionHero(using: proxy)
 
-                Text(item.type == "Series" ? "Seasons" : "Episodes")
-                    .font(.title2.weight(.bold))
-                    .accessibilityAddTraits(.isHeader)
-                if let errorMessage {
-                    InlineErrorView(message: errorMessage) { Task { await load() } }
-                }
-                if isLoading && children.isEmpty {
-                    ProgressView(item.type == "Series" ? "Loading seasons…" : "Loading episodes…")
-                } else if children.isEmpty && errorMessage == nil {
-                    ContentUnavailableView {
-                        Label("Nothing here yet", glyph: .series)
-                    } description: {
-                        Text("No \(item.type == "Series" ? "seasons" : "episodes") are available. Pull to refresh after adding them to Lumina.")
-                    }
-                } else if item.type == "Series" {
-                    seasonCards
-                    if isEpisodeFocusedSeries {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Episodes")
-                                .font(.title2.weight(.bold))
-                                .accessibilityAddTraits(.isHeader)
-                            if let selectedEpisode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
-                                Text(selectedEpisode.name)
-                                    .font(.headline)
-                                    .accessibilityIdentifier("collectionEpisodeTitle")
-                                if !selectedEpisode.displaySubtitle.isEmpty {
-                                    Text(selectedEpisode.displaySubtitle)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            if isLoadingSelectedSeason {
-                                ProgressView("Loading episodes…")
-                            } else {
-                                episodeCards(selectedSeasonEpisodes)
-                            }
+                    VStack(alignment: .leading, spacing: 28) {
+                        Text(collectionSectionTitle)
+                            .font(.title2.weight(.bold))
+                            .accessibilityAddTraits(.isHeader)
+                            .id(collectionSectionID)
+                        if let errorMessage {
+                            InlineErrorView(message: errorMessage) { Task { await load() } }
                         }
-                        .id(initialEpisodeSectionID)
+                        if isLoading && children.isEmpty {
+                            ProgressView(item.type == "Series" ? "Loading seasons…" : "Loading episodes…")
+                        } else if children.isEmpty && errorMessage == nil {
+                            ContentUnavailableView {
+                                Label("Nothing here yet", glyph: .series)
+                            } description: {
+                                Text("No \(item.type == "Series" ? "seasons" : "episodes") are available. Pull to refresh after adding them to Lumina.")
+                            }
+                        } else if item.type == "Series" {
+                            seasonCards
+                            if isEpisodeFocusedSeries {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Episodes")
+                                        .font(.title2.weight(.bold))
+                                        .accessibilityAddTraits(.isHeader)
+                                    if let selectedEpisode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
+                                        Text(selectedEpisode.name)
+                                            .font(.headline)
+                                            .accessibilityIdentifier("collectionEpisodeTitle")
+                                        if !selectedEpisode.displaySubtitle.isEmpty {
+                                            Text(selectedEpisode.displaySubtitle)
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    if isLoadingSelectedSeason {
+                                        ProgressView("Loading episodes…")
+                                    } else {
+                                        episodeCards(selectedSeasonEpisodes)
+                                    }
+                                }
+                                .id(initialEpisodeSectionID)
+                            }
+                        } else {
+                            episodeCards(children)
+                        }
+
+                        if let overview = (detailItem ?? item).overview, !overview.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("About")
+                                    .font(.title3.weight(.bold))
+                                    .accessibilityAddTraits(.isHeader)
+                                Text(overview)
+                                    .font(LuminaTheme.editorial(17, relativeTo: .body))
+                                    .lineSpacing(4)
+                            }
+                            .frame(maxWidth: 680, alignment: .leading)
+                        }
+
+                        NativeTitleSupplement(item: detailItem ?? item, store: store)
+                            .padding(.top, 4)
                     }
-                } else {
-                    episodeCards(children)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 28)
                 }
-                NativeTitleSupplement(item: detailItem ?? item, store: store)
-                    .padding(.top, 18)
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 28)
                 .frame(maxWidth: .infinity)
             }
             .onChange(of: selectedSeasonEpisodes.map(\.id)) {
@@ -2384,6 +2447,69 @@ struct VideoCollectionView: View {
         .refreshable { await load() }
         .nativePlayback(request: $playbackRequest, store: store) {
             Task { await load() }
+        }
+    }
+
+    @ViewBuilder private func collectionHero(using proxy: ScrollViewProxy) -> some View {
+        MediaBillboard(item: detailItem ?? item, store: store, context: "", showsOverview: false,
+                       showsContext: false, showsMetadata: false, artworkFirst: true,
+                       compactMinimumHeight: 0, wideMinimumHeight: 0) {
+            VStack(alignment: .leading, spacing: 14) {
+                collectionHeroMetadata
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 12) { playbackActions }
+                    VStack(alignment: .leading, spacing: 12) { playbackActions }
+                }
+                Button {
+                    if reduceMotion {
+                        proxy.scrollTo(collectionSectionID, anchor: .top)
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            proxy.scrollTo(collectionSectionID, anchor: .top)
+                        }
+                    }
+                } label: {
+                    Label(collectionSectionTitle, glyph: .chevronDown)
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .frame(minHeight: 44)
+                .accessibilityHint("Shows \(collectionSectionTitle.lowercased()) below this artwork")
+                .accessibilityIdentifier("collectionSeasonsButton")
+
+                if let playbackError {
+                    Label(playbackError, glyph: .warning)
+                        .font(.callout)
+                        .foregroundStyle(LuminaTheme.accentInk)
+                        .accessibilityIdentifier("videoCollectionPlaybackError")
+                }
+            }
+        }
+        .containerRelativeFrame(.vertical) { length, _ in length }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("collectionHero")
+    }
+
+    private var collectionHeroMetadata: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { collectionHeroMetadataContent }
+            VStack(alignment: .leading, spacing: 8) { collectionHeroMetadataContent }
+        }
+        .font(.caption.weight(.medium))
+        .textCase(.uppercase)
+        .tracking(1)
+        .foregroundStyle(.white.opacity(0.85))
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var collectionHeroMetadataContent: some View {
+        if let year = (detailItem ?? item).productionYear { Text(String(year)) }
+        if let rating = (detailItem ?? item).officialRating, !rating.isEmpty { Text(rating) }
+        if let count = (detailItem ?? item).childCount ?? (children.isEmpty ? nil : children.count) {
+            let unit = item.type == "Series"
+                ? (count == 1 ? "season" : "seasons")
+                : (count == 1 ? "episode" : "episodes")
+            Text("\(count) \(unit)")
         }
     }
 
@@ -2461,7 +2587,8 @@ struct VideoCollectionView: View {
         Button {
             preparePlayback()
         } label: {
-            Label(isPreparingPlayback ? "Preparing…" : "Play", glyph: .play, variant: .solid, size: 24)
+            Label(isPreparingPlayback ? "Preparing…" : hasResumeEpisode ? "Resume" : "Play",
+                  glyph: .play, variant: .solid, size: 24)
         }
         .buttonStyle(LuminaMediaActionStyle(primary: true))
         .disabled(isPreparingPlayback)
@@ -3078,8 +3205,10 @@ private struct LibraryFeaturedView: View {
     let store: LuminaStore
     var items: [MediaItem]? = nil
     var compactMinimumHeight: CGFloat? = 320
+    var compactArtworkMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat? = 540
     var topContentClearance: CGFloat = 0
+    var bottomContentClearance: CGFloat = 0
     var onWatchlistChanged: @MainActor () async -> Void = {}
 
     @State private var request: PlaybackRequest?
@@ -3099,8 +3228,10 @@ private struct LibraryFeaturedView: View {
             showsMetadata: false,
             showsProgress: false,
             compactMinimumHeight: compactMinimumHeight,
+            compactArtworkMinimumHeight: compactArtworkMinimumHeight,
             wideMinimumHeight: wideMinimumHeight,
             topContentClearance: topContentClearance,
+            bottomContentClearance: bottomContentClearance,
             onOpen: { detailItem = $0 }
         ) { item in
             VStack(alignment: .leading, spacing: 12) {
@@ -3775,14 +3906,49 @@ struct TitleDetailView: View {
         }
     }
 
-    private var detailHeader: some View {
-        MediaBillboard(item: currentItem, store: store, context: "", showsOverview: false, showsContext: false, compactMinimumHeight: 460, wideMinimumHeight: 540) {
+    @ViewBuilder private var detailHeader: some View {
+        if currentItem.isAudio {
+            detailBillboard
+        } else {
+            detailBillboard
+                .containerRelativeFrame(.vertical) { length, _ in length }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("detailHero")
+        }
+    }
+
+    private var detailBillboard: some View {
+        MediaBillboard(item: currentItem, store: store, context: "", showsOverview: false, showsContext: false,
+                       showsMetadata: currentItem.isAudio, artworkFirst: !currentItem.isAudio,
+                       compactMinimumHeight: currentItem.isAudio ? nil : 0,
+                       wideMinimumHeight: currentItem.isAudio ? nil : 0) {
+            if !currentItem.isAudio { detailHeroMetadata }
             if currentItem.isPlayable {
                 playbackActions
             } else {
                 Text("Playback is unavailable for this title.")
                     .font(.callout)
             }
+        }
+    }
+
+    private var detailHeroMetadata: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { detailHeroMetadataContent }
+            VStack(alignment: .leading, spacing: 8) { detailHeroMetadataContent }
+        }
+        .font(.caption.weight(.medium))
+        .textCase(.uppercase)
+        .tracking(1)
+        .foregroundStyle(.white.opacity(0.85))
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var detailHeroMetadataContent: some View {
+        if let year = currentItem.productionYear { Text(String(year)) }
+        if let rating = currentItem.officialRating, !rating.isEmpty { Text(rating) }
+        if currentItem.durationSeconds > 0 {
+            Text(Duration.seconds(currentItem.durationSeconds).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)))
         }
     }
 

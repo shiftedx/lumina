@@ -12,7 +12,8 @@
 .rq-muted { margin: 0; font: var(--g-type-small); color: var(--g-ink-3); }
 .rq-kicker { margin: 0 0 4px; color: var(--g-gold-ink); }
 
-.rq-tabs { display: flex; gap: var(--g-space-5); margin: 0 calc(-1 * var(--g-gutter)) var(--g-space-5); padding: 0 var(--g-gutter); overflow-x: auto; border-bottom: var(--g-rule); scrollbar-width: none; }
+.rq-tab-scroller { margin: 0 calc(-1 * var(--g-gutter)) var(--g-space-5); }
+.rq-tabs { display: flex; gap: var(--g-space-5); margin: 0; padding: 0 var(--g-gutter); overflow-x: auto; border-bottom: var(--g-rule); scrollbar-width: none; }
 .rq-tabs button { flex: none; min-height: var(--g-control); padding: 0; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--g-ink-2); font: var(--g-type-button); letter-spacing: var(--g-track-button); text-transform: uppercase; cursor: pointer; }
 .rq-tabs [aria-current] { border-bottom-color: var(--g-gold); color: var(--g-ink); }
 .rq-chips { display: flex; gap: 8px; margin: 0 0 var(--g-space-3); padding: 4px 0; overflow-x: auto; scrollbar-width: none; }

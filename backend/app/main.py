@@ -56,7 +56,7 @@ from app.services.requests.sync import request_sync_loop
 from app.routers import arr_observations, youtube_session as youtube_session_routes
 from app.services.arr_observer import observer_loop
 from app.services.infrastructure_connectors import observer_loop as connector_observer_loop
-from app.routers import arr_operations, music_listening_session, service_connectors, listening_export, music_requests, chromecast
+from app.routers import arr_operations, music_listening_session, music_receiver, service_connectors, listening_export, music_requests, chromecast
 from app.services.listening_export import run as listening_export_loop
 from app.services.arr_operations import reconcile_pending as reconcile_arr_operations
 from app.db import SessionLocal, get_db, init_db, session_scope
@@ -1112,6 +1112,7 @@ listening_export.register(app)
 youtube_session_routes.register(app)
 music_requests.register(app)
 chromecast.register(app)
+music_receiver.register(app)
 art.register(app)
 hero_framing_routes.register(app, artwork)
 requests_catalog.register(app)

@@ -754,8 +754,11 @@ private struct LibraryShellView: View {
             let displayHeight = geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
             // Standard phones use their bottom tabs; Duo's larger display keeps its category header.
             let showsCategoryHeader = usesIPadHeaderNavigation || min(displayWidth, displayHeight) >= 450
-            destinations(categoryBarWidth: min(560, max(100, geometry.size.width - 180)),
-                         showsCategoryHeader: showsCategoryHeader)
+            let categoryBarWidth = min(560, max(100, geometry.size.width - 180))
+            destinations(categoryBarWidth: categoryBarWidth,
+                         protectedHeaderCategoryWidth: headerCategoryWidth(for: geometry.size.width),
+                         showsCategoryHeader: showsCategoryHeader,
+                         stacksCategoryHeader: !usesIPadHeaderNavigation && displayWidth >= 600 && displayWidth < displayHeight)
         }
         .task(id: MobileHomeSessionScope(store.session)) {
             let scope = MobileHomeSessionScope(store.session)
@@ -765,7 +768,8 @@ private struct LibraryShellView: View {
         }
     }
 
-    private func destinations(categoryBarWidth: CGFloat, showsCategoryHeader: Bool) -> some View {
+    private func destinations(categoryBarWidth: CGFloat, protectedHeaderCategoryWidth: CGFloat,
+                              showsCategoryHeader: Bool, stacksCategoryHeader: Bool) -> some View {
         TabView(selection: Binding(get: { destination }, set: { selected in
             if selected == .home {
                 homeCategory = .all
@@ -782,6 +786,8 @@ private struct LibraryShellView: View {
                     if homeSessionScope == MobileHomeSessionScope(store.session) {
                         HomeLibraryView(store: store, homeLayout: homeLayout, feed: homeFeed,
                                         category: $homeCategory, categoryBarWidth: categoryBarWidth,
+                                        protectedHeaderCategoryWidth: protectedHeaderCategoryWidth,
+                                        stacksCategoryHeader: stacksCategoryHeader,
                                         showsBrowsingRow: showsCategoryHeader && !usesIPadHeaderNavigation,
                                         uiTestingNavigationDiagnostics: homeNavigationDiagnosticValue
                         ) { selected in
@@ -800,12 +806,22 @@ private struct LibraryShellView: View {
                 destinationStack(owner: .library, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader, path: $libraryPath) {
                     libraryContent
                         .environment(\.luminaRetainsArtworkWhileHidden, !libraryPath.isEmpty)
+                        .safeAreaInset(edge: .top, spacing: 0) {
+                            if stacksCategoryHeader {
+                                libraryCategories
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 56)
+                                    .background(LuminaTheme.paper)
+                            }
+                        }
                         .modifier(LibraryStableNavigationBar())
                         .toolbarBackground(.hidden, for: .navigationBar)
                         .toolbar {
-                            if showsCategoryHeader && !usesIPadHeaderNavigation {
+                            if showsCategoryHeader && !usesIPadHeaderNavigation && !stacksCategoryHeader {
                                 ToolbarItem(placement: .principal) {
-                                    libraryCategories.frame(width: categoryBarWidth)
+                                    libraryCategories
+                                        .frame(width: protectedHeaderCategoryWidth)
+                                        .clipped()
                                 }
                             }
                             if #available(iOS 26.0, *) {
@@ -851,6 +867,15 @@ private struct LibraryShellView: View {
             }
         }
         .tint(LuminaTheme.ink)
+    }
+
+    /// Principal toolbar content is centered independently of its side controls.
+    /// Reserve the larger side on both edges so scrolling labels stay clear.
+    private func headerCategoryWidth(for width: CGFloat) -> CGFloat {
+        let masthead = 104.0
+        let trailingControls = 3 * 44.0
+        let sideInset = max(masthead, trailingControls) + 40 + LuminaTheme.contentGutter
+        return min(560, max(100, width - 2 * sideInset))
     }
 
     @ViewBuilder private var libraryContent: some View {
@@ -1129,6 +1154,8 @@ private struct HomeLibraryView: View {
     let feed: LuminaHomeFeed
     @Binding var category: HomeBrowseCategory
     let categoryBarWidth: CGFloat
+    let protectedHeaderCategoryWidth: CGFloat
+    let stacksCategoryHeader: Bool
     let showsBrowsingRow: Bool
     let uiTestingNavigationDiagnostics: String?
     let onOpenLibrary: (LibraryCategory) -> Void
@@ -1137,6 +1164,7 @@ private struct HomeLibraryView: View {
     @State private var uiTestingHomeRefreshCount = 0
     #endif
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(NativeAudioSession.self) private var audioSession
     @State private var compactHeader = false
     @State private var scrollPosition = ScrollPosition(edge: .top)
     @State private var hiddenRecommendationID: String?
@@ -1221,20 +1249,21 @@ private struct HomeLibraryView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(snapshot.items.isEmpty ? nil : .dark, for: .navigationBar)
         .toolbar {
-            if #available(iOS 26.0, *), showsBrowsingRow, categoryBarWidth < 360 {
-                // Anchor the compact menu beside the wordmark, then reclaim the
-                // unused trailing space instead of centering it behind the logo.
-                ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 12) {
-                        HomeHeroChrome(compact: compactHeader).fixedSize()
-                        browsingRow.frame(width: categoryBarWidth + 40)
-                    }
+            if showsBrowsingRow, !stacksCategoryHeader, categoryBarWidth < 360 {
+                let header = HStack(spacing: 12) {
+                    HomeHeroChrome(compact: compactHeader).fixedSize()
+                    browsingRow.frame(width: browsingHeaderWidth).clipped()
                 }
-                .sharedBackgroundVisibility(.hidden)
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarLeading) { header }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarLeading) { header }
+                }
             } else {
-                if showsBrowsingRow {
+                if showsBrowsingRow, !stacksCategoryHeader {
                     ToolbarItem(placement: .principal) {
-                        browsingRow.frame(width: categoryBarWidth)
+                        browsingRow.frame(width: browsingHeaderWidth).clipped()
                     }
                 }
                 if #available(iOS 26.0, *) {
@@ -1249,6 +1278,15 @@ private struct HomeLibraryView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if showsBrowsingRow, stacksCategoryHeader {
+                browsingRow
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(.regularMaterial)
+            }
+        }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("homeScreen")
         .alert("Recommendation hidden", isPresented: $showRecommendationUndo) {
             Button("Undo") { if let hiddenRecommendationID { Task { await feed.undoHide(hiddenRecommendationID) } } }
@@ -1287,6 +1325,29 @@ private struct HomeLibraryView: View {
                         destinations: HomeBrowsingDestination.allCases.filter {
             $0 != .all && ($0.homeCategory != nil || store.availableLibraryCategories.contains($0.rawValue))
         }, onSelect: selectCategory)
+    }
+
+    private var browsingHeaderWidth: CGFloat {
+        guard categoryBarWidth < 360 else {
+            // The shared Library cap reserves three actions. Home can add both
+            // now-playing controls alongside Search and Downloads.
+            let extraControls = max(0, homeTrailingControlSlots - 3)
+            return max(100, protectedHeaderCategoryWidth - 2 * 44 * extraControls)
+        }
+        // Preserve the closed display's three-category idle viewport, then
+        // reclaim one native action slot for each additional trailing control.
+        return max(100, categoryBarWidth + 40 - 44 * (homeTrailingControlSlots - 1))
+    }
+
+    private var homeTrailingControlSlots: CGFloat {
+        var slots = 1.0 // Search
+        if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty { slots += 1 }
+        if let playback = audioSession.playback,
+           !playback.hasFinished,
+           (playback.isPlaying || !playback.initiallyPaused) {
+            slots += 2
+        }
+        return slots
     }
 
     private func selectCategory(_ selected: HomeBrowsingDestination) {

@@ -5545,16 +5545,20 @@ class NativeProofJourney: XCTestCase {
         try openLibraryItem(id: fixture.directItemID)
         _ = try startPlayback(using: "playButton")
 
-        let cast = element("videoChromecastButton")
-        // The playing overlay intentionally auto-hides. Reveal it from its
-        // documented surface rather than racing the Cast control's fade-out.
-        XCTAssertTrue(disappears(element("videoPlaybackChrome"), timeout: 10),
-                      "Playing video must hide its chrome before the Cast picker is revealed.")
-        try activate(element("videoControlsSurface"))
+        // Pause through the public transport before requesting Cast. This holds the
+        // same player chrome a person uses while selecting an output and avoids
+        // racing its intentional four-second auto-hide interval.
+        try tapVideoTransportAfterChromeHides(named: "video pause before Chromecast")
+        let app = try XCTUnwrap(application)
+        let transport = app.buttons["videoPlayPauseButton"]
+        XCTAssertEqual(transport.label, "Play", "Chromecast begins from a visibly paused local player.")
+        // Address the wrapped UIKit control directly. The SwiftUI accessibility
+        // container has the same identifier but is not the SDK-owned button that
+        // receives the Cast default action.
+        let cast = app.buttons["videoChromecastButton"]
         try waitForHittable(cast, timeout: 10, named: "Chromecast")
         try activate(cast)
 
-        let app = try XCTUnwrap(application)
         let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let nearbyDevicePrompt = app.staticTexts["Connect to nearby device"]
         let castToTitle = app.staticTexts["Cast to"]

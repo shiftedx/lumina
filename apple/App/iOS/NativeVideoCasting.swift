@@ -35,7 +35,8 @@ final class NativeVideoCasting: NSObject {
         let criteria = GCKDiscoveryCriteria(applicationID: kGCKDefaultMediaReceiverApplicationID)
         let options = GCKCastOptions(discoveryCriteria: criteria)
         options.disableAnalyticsLogging = true
-        options.disableDiscoveryAutostart = true
+        // The SDK first-tap permission flow requires autostart to remain enabled.
+        options.disableDiscoveryAutostart = false
         options.startDiscoveryAfterFirstTapOnCastButton = true
         let logger = GCKLogger.sharedInstance()
         logger.loggingEnabled = false

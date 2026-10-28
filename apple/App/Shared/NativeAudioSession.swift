@@ -3,6 +3,27 @@ import LuminaCore
 import Observation
 import UIKit
 
+/// Both music and reader checkpoints must surrender their assertion when iOS expires it.
+@MainActor
+enum NativeBackgroundCheckpoint {
+    static func run(name: String, onExpiration: @escaping @MainActor () -> Void = {},
+                    operation: @escaping @MainActor () async -> Void) async {
+        var identifier = UIBackgroundTaskIdentifier.invalid
+        let work = ExpiringBackgroundWork {
+            guard identifier != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(identifier)
+            identifier = .invalid
+        }
+        identifier = UIApplication.shared.beginBackgroundTask(withName: name) {
+            work.expire()
+            onExpiration()
+        }
+        guard identifier != .invalid else { work.expire(); return }
+        work.start(operation)
+        await work.wait()
+    }
+}
+
 private enum NativeAudioOutputError: LocalizedError {
     case returnRequired
     var errorDescription: String? { "Return to this device before starting another queue." }
@@ -61,6 +82,7 @@ final class NativeAudioSession {
     private var restoreTaskGeneration = 0
     private var startTask: Task<Void, Never>?
     private var lyricsTask: Task<Void, Never>?
+    private var isForeground = true
     private var statusTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
     private var sleepTimer: DispatchSourceTimer?
@@ -840,7 +862,7 @@ final class NativeAudioSession {
         let item = playback.request.item, owner = identity
         lyrics = store.music.cachedLyrics(for: item.id)
         lyricsError = nil; lyricsLoading = !store.isOffline
-        guard !store.isOffline else { return }
+        guard !store.isOffline, isForeground else { lyricsLoading = false; return }
         lyricsTask = Task { [weak self] in
             guard let self else { return }
             defer { if identity == owner, self.playback?.request.item.id == item.id { lyricsLoading = false } }
@@ -928,17 +950,26 @@ final class NativeAudioSession {
         }
     }
 
+    func enterBackground() {
+        isForeground = false
+        lyricsTask?.cancel(); lyricsTask = nil
+        lyricsLoading = false
+        statusTask?.cancel(); statusTask = nil
+    }
+
     func resumeAfterActivation() {
+        isForeground = true
         enforceSleepDeadline()
-        if isSonos { Task { await pollStatus() } }
+        if isSonos { startStatusPolling() }
+        if playback != nil, lyrics?.refreshing != false { loadLyrics() }
     }
 
     func flushCheckpoint() async {
         guard let store, identity == store.music.sessionIdentity else { return }
-        let task = UIApplication.shared.beginBackgroundTask(withName: "Music checkpoint")
-        defer { if task != .invalid { UIApplication.shared.endBackgroundTask(task) } }
         persist()
-        await store.music.flushCheckpoint()
+        await NativeBackgroundCheckpoint.run(name: "Music checkpoint") {
+            await store.music.flushCheckpoint()
+        }
     }
 
     func discoverSpeakers() async {
@@ -1029,6 +1060,7 @@ final class NativeAudioSession {
     }
     private func startStatusPolling() {
         statusTask?.cancel()
+        guard isForeground else { statusTask = nil; return }
         statusTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, self.isSonos, self.store?.isOffline != true else { return }

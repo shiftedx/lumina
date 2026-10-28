@@ -315,6 +315,8 @@ final class NativeMusicCasting: NSObject {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self, self.isRemoteOutput, self.ticket?.ticketID == ticket.ticketID else { return }
+                guard !Task.isCancelled else { return }
+                guard UIApplication.shared.applicationState == .active else { continue }
                 self.remoteMediaClient?.requestStatus()
                 self.update(from: self.remoteMediaClient?.mediaStatus)
             }

@@ -49,6 +49,8 @@ public final class ArtworkImageCache {
     private var generation = 0
     private var pendingPrefetch: [URL] = []
     private var prefetchTask: Task<Void, Never>?
+    private var prefetchGeneration = 0
+    private var isBackgrounded = false
 
     public init(
         session: URLSession = .shared,
@@ -89,6 +91,22 @@ public final class ArtworkImageCache {
         images.countLimit = max(1, imageCountLimit)
     }
 
+    /// Drop disposable RAM and speculative work at suspension, while keeping private disk
+    /// renditions and explicit consumers such as system Now Playing artwork available.
+    public func setBackgrounded(_ backgrounded: Bool) {
+        isBackgrounded = backgrounded
+        if backgrounded { trimMemory() }
+    }
+
+    public func trimMemory() {
+        prefetchGeneration &+= 1
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        pendingPrefetch.removeAll()
+        images.removeAllObjects()
+        encodedImages.removeAllObjects()
+    }
+
     /// Returns a previously decoded rendition without scheduling network work.
     public func cachedImage(for url: URL) -> CGImage? {
         images.object(forKey: url as NSURL)?.image
@@ -98,6 +116,7 @@ public final class ArtworkImageCache {
     /// explicit cache clear; a restored session can retain its private signed renditions.
     public func removeAll(includingDisk: Bool = true) {
         generation &+= 1
+        prefetchGeneration &+= 1
         prefetchTask?.cancel()
         prefetchTask = nil
         pendingPrefetch.removeAll()
@@ -210,14 +229,14 @@ public final class ArtworkImageCache {
         guard let entry = inFlight[url], entry.identifier == identifier, generation == scope else { return }
         inFlight[url] = nil
         if let result {
-            if result.encoded.count <= maximumEncodedBytes {
+            if !isBackgrounded, result.encoded.count <= maximumEncodedBytes {
                 encodedImages.setObject(result.encoded as NSData, forKey: url as NSURL, cost: result.encoded.count)
             }
             if let diskCache, let diskGeneration,
                result.encoded.count <= BillboardArtworkPreparation.maximumEncodedBytes {
                 Task.detached { await diskCache.store(result.encoded, for: url, generation: diskGeneration) }
             }
-            if let cost = decodedByteCost(of: result.image) {
+            if !isBackgrounded, let cost = decodedByteCost(of: result.image) {
                 images.setObject(CachedImage(result.image), forKey: url as NSURL, cost: cost)
             }
         }
@@ -227,17 +246,17 @@ public final class ArtworkImageCache {
     /// Replace stale lookahead with the latest window. A single worker keeps speculative
     /// loading at four requests even when scrolling rapidly replaces many view tasks.
     public func prefetch(_ urls: [URL]) async {
-        guard !Task.isCancelled else { return }
+        guard !isBackgrounded, !Task.isCancelled else { return }
         var seen = Set<URL>()
         pendingPrefetch = urls.prefix(16).filter { seen.insert($0).inserted && cachedImage(for: $0) == nil }
         if let prefetchTask {
             await prefetchTask.value
             return
         }
-        let scope = generation
+        let scope = prefetchGeneration
         let worker = Task(priority: .utility) {
-            defer { if self.generation == scope { self.prefetchTask = nil } }
-            while !Task.isCancelled, self.generation == scope, !self.pendingPrefetch.isEmpty {
+            defer { if self.prefetchGeneration == scope { self.prefetchTask = nil } }
+            while !Task.isCancelled, self.prefetchGeneration == scope, !self.isBackgrounded, !self.pendingPrefetch.isEmpty {
                 let batch = Array(self.pendingPrefetch.prefix(4))
                 self.pendingPrefetch.removeFirst(batch.count)
                 await withTaskGroup(of: Void.self) { group in

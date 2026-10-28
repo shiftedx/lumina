@@ -45,6 +45,75 @@ final class BillboardArtworkPreparationTests: XCTestCase {
 
 extension BillboardArtworkPreparationTests {
     @MainActor
+    func testBackgroundArtworkTrimsMemoryStopsLookaheadAndRetainsDiskRenditions() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let disk = ArtworkDiskCache(directory: directory, maximumBytes: 8 * 1024 * 1024)
+        let recorder = ArtworkRequestRecorder()
+        let data = jpeg(width: 120, height: 180)
+        ArtworkCacheURLProtocol.handler = { request in
+            recorder.record(request.url)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        defer { ArtworkCacheURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ArtworkCacheURLProtocol.self]
+        let cache = ArtworkImageCache(session: URLSession(configuration: configuration), diskCache: disk)
+        let url = URL(string: "https://images.example/visited")!
+        let next = URL(string: "https://images.example/upcoming")!
+        let image = await cache.image(for: url)
+        XCTAssertNotNil(image)
+        // A cache write is asynchronous; wait for this rendition before testing reuse.
+        for _ in 0..<100 where await disk.usageBytes() == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        cache.setBackgrounded(true)
+        XCTAssertNil(cache.cachedImage(for: url), "Suspension must release disposable decoded artwork")
+        await cache.prefetch([next])
+        XCTAssertEqual(recorder.requestCount, 1, "Background artwork lookahead must do no network work")
+        let backgroundArtwork = await cache.image(for: url)
+        XCTAssertNotNil(backgroundArtwork, "System Now Playing artwork must remain available")
+        XCTAssertNil(cache.cachedImage(for: url), "Background requests must not refill resident artwork")
+        cache.setBackgrounded(false)
+        let restored = await cache.image(for: url)
+        XCTAssertNotNil(restored)
+        XCTAssertEqual(recorder.requestCount, 1, "Foreground return must reuse the private disk rendition")
+        await cache.prefetch([next])
+        XCTAssertEqual(recorder.requestCount, 2, "Foreground lookahead must resume")
+        cache.trimMemory()
+        XCTAssertNil(cache.cachedImage(for: next), "A memory warning must release resident artwork too")
+    }
+
+    @MainActor
+    func testBackgroundingCancelsActiveLookaheadAndDiscardsItsRemainingWindow() async throws {
+        let requests = ArtworkRequestRecorder()
+        let data = jpeg(width: 120, height: 180)
+        ArtworkCacheURLProtocol.handler = { request in
+            requests.record(request.url)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        defer { ArtworkCacheURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ArtworkCacheURLProtocol.self]
+        let blocker = ArtworkResponseBlocker()
+        let concurrency = ArtworkDecodeConcurrency()
+        let cache = ArtworkImageCache(session: URLSession(configuration: configuration),
+            maximumDecodedBytes: 8 * 1024 * 1024, imageCountLimit: 32,
+            decode: { bytes in
+                let shouldBlock = concurrency.begin()
+                defer { concurrency.end() }
+                if shouldBlock { blocker.arriveAndWait() }
+                return BillboardArtworkPreparation.image(from: bytes)
+            }, diskCache: nil)
+        let urls = (0..<16).map { URL(string: "https://images.example/\($0)")! }
+        let prefetch = Task { await cache.prefetch(urls) }
+        for _ in 0..<4 { let started = await blocker.waitForStart(); XCTAssertTrue(started) }
+        cache.setBackgrounded(true)
+        for _ in 0..<4 { blocker.unblock() }
+        await prefetch.value
+        XCTAssertEqual(requests.requestCount, 4, "Only the admitted batch may start; backgrounding discards the other twelve")
+        XCTAssertTrue(urls.allSatisfy { cache.cachedImage(for: $0) == nil }, "Late decoded results must not refill the suspended cache")
+    }
+
+    @MainActor
     func testArtworkCacheCoalescesRepeatReturnsAndKeepsSignedRenditionsSeparate() async throws {
         ArtworkImageCache.shared.removeAll()
         let recorder = ArtworkRequestRecorder()

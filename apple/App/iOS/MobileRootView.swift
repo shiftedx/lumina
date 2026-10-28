@@ -69,6 +69,7 @@ struct MobileRootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                ArtworkImageCache.shared.setBackgrounded(false)
                 audioSession.resumeAfterActivation()
                 Task {
                     await store.refreshConnectivity()
@@ -79,8 +80,13 @@ struct MobileRootView: View {
                     }
                 }
             } else if phase == .background {
+                ArtworkImageCache.shared.setBackgrounded(true)
+                audioSession.enterBackground()
                 Task { await audioSession.flushCheckpoint() }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            ArtworkImageCache.shared.trimMemory()
         }
         .onOpenURL { link in
             guard store.session == nil else {

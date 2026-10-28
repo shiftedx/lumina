@@ -161,6 +161,7 @@ private final class BookReaderModel {
             saving = nil
         }
     }
+    func cancelCheckpoint() { pendingSave = nil; saving?.cancel() }
     func flush() async { await saving?.value }
     func stop() async { closed = true; generation += 1; await window.stop(); await flush() }
 }
@@ -288,9 +289,9 @@ struct NativeBookReader: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .background {
                 Task {
-                    let lease = UIApplication.shared.beginBackgroundTask(withName: "Reading progress")
-                    model.checkpoint(); await model.flush()
-                    if lease != .invalid { UIApplication.shared.endBackgroundTask(lease) }
+                    await NativeBackgroundCheckpoint.run(name: "Reading progress", onExpiration: { model.cancelCheckpoint() }) {
+                        model.checkpoint(); await model.flush()
+                    }
                 }
             }
         }

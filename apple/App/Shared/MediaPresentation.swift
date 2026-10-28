@@ -960,13 +960,14 @@ struct LuminaQuietActionStyle: ButtonStyle {
 /// Cards keep their resting inset while their scroll viewport reaches the bezel.
 struct LuminaCarouselEdges: ViewModifier {
     var inset: CGFloat = LuminaTheme.contentGutter
+    var extendsIntoSafeArea = true
 
     func body(content: Content) -> some View {
         content
             .contentMargins(.horizontal, inset, for: .scrollContent)
             .padding(.horizontal, -inset)
-            .ignoresSafeArea(.container, edges: .horizontal)
-            .scrollClipDisabled()
+            .ignoresSafeArea(.container, edges: extendsIntoSafeArea ? .horizontal : [])
+            .scrollClipDisabled(extendsIntoSafeArea)
     }
 }
 #endif

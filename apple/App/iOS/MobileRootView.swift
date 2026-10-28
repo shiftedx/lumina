@@ -782,7 +782,8 @@ private struct LibraryShellView: View {
             destination = selected
         })) {
             Tab("Home", image: LuminaGlyph.home.assetName(for: destination == .home ? .solid : .outline), value: .home) {
-                destinationStack(owner: .home, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader) {
+                destinationStack(owner: .home, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
+                                 usesPortraitRail: stacksCategoryHeader) {
                     if homeSessionScope == MobileHomeSessionScope(store.session) {
                         HomeLibraryView(store: store, homeLayout: homeLayout, feed: homeFeed,
                                         category: $homeCategory, categoryBarWidth: categoryBarWidth,
@@ -803,35 +804,39 @@ private struct LibraryShellView: View {
                 #endif
             }
             Tab("Library", image: LuminaGlyph.library.assetName(for: destination == .library ? .solid : .outline), value: .library) {
-                destinationStack(owner: .library, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader, path: $libraryPath) {
-                    libraryContent
+                destinationStack(owner: .library, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
+                                 usesPortraitRail: stacksCategoryHeader, path: $libraryPath) {
+                    libraryContent(usesPortraitRail: stacksCategoryHeader)
                         .environment(\.luminaRetainsArtworkWhileHidden, !libraryPath.isEmpty)
                         .safeAreaInset(edge: .top, spacing: 0) {
                             if stacksCategoryHeader {
-                                libraryCategories
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 56)
-                                    .background(LuminaTheme.paper)
+                                PortraitNavigationHeader {
+                                    libraryCategories(centersContent: false)
+                                }
                             }
                         }
+                        .ignoresSafeArea(.container, edges: stacksCategoryHeader ? .top : [])
                         .modifier(LibraryStableNavigationBar())
+                        .toolbarVisibility(stacksCategoryHeader ? .hidden : .visible, for: .navigationBar)
                         .toolbarBackground(.hidden, for: .navigationBar)
                         .toolbar {
                             if showsCategoryHeader && !usesIPadHeaderNavigation && !stacksCategoryHeader {
                                 ToolbarItem(placement: .principal) {
-                                    libraryCategories
+                                    libraryCategories()
                                         .frame(width: protectedHeaderCategoryWidth)
                                         .clipped()
                                 }
                             }
-                            if #available(iOS 26.0, *) {
-                                ToolbarItem(placement: .topBarLeading) {
-                                    HomeHeroChrome().fixedSize()
-                                }
-                                .sharedBackgroundVisibility(.hidden)
-                            } else {
-                                ToolbarItem(placement: .topBarLeading) {
-                                    HomeHeroChrome().fixedSize()
+                            if !stacksCategoryHeader {
+                                if #available(iOS 26.0, *) {
+                                    ToolbarItem(placement: .topBarLeading) {
+                                        HomeHeroChrome().fixedSize()
+                                    }
+                                    .sharedBackgroundVisibility(.hidden)
+                                } else {
+                                    ToolbarItem(placement: .topBarLeading) {
+                                        HomeHeroChrome().fixedSize()
+                                    }
                                 }
                             }
                         }
@@ -872,24 +877,26 @@ private struct LibraryShellView: View {
     /// Principal toolbar content is centered independently of its side controls.
     /// Reserve the larger side on both edges so scrolling labels stay clear.
     private func headerCategoryWidth(for width: CGFloat) -> CGFloat {
-        let masthead = 104.0
+        let masthead = 44.0
         let trailingControls = 3 * 44.0
         let sideInset = max(masthead, trailingControls) + 40 + LuminaTheme.contentGutter
         return min(560, max(100, width - 2 * sideInset))
     }
 
-    @ViewBuilder private var libraryContent: some View {
+    @ViewBuilder private func libraryContent(usesPortraitRail: Bool) -> some View {
         if store.availableLibraryCategories.contains(category.rawValue) {
             switch category {
             case .movies, .tv, .anime:
                 VideoLibraryView(store: store, kind: .constant(category.videoKind),
-                                 activeKind: destination == .library ? category.videoKind : nil)
+                                 activeKind: destination == .library ? category.videoKind : nil,
+                                 usesPortraitNavigationRail: usesPortraitRail)
                     .id(category)
             case .music:
-                AudioLibraryView(store: store)
+                AudioLibraryView(store: store, usesPortraitNavigationRail: usesPortraitRail)
             case .books:
                 if let session = store.session {
-                    NativeBooksView(store: store, session: session, isActive: destination == .library)
+                    NativeBooksView(store: store, session: session, isActive: destination == .library,
+                                    usesPortraitNavigationRail: usesPortraitRail)
                         .id([session.serverURL.absoluteString, session.userID, session.accessToken])
                 }
             }
@@ -898,8 +905,8 @@ private struct LibraryShellView: View {
         }
     }
 
-    private var libraryCategories: some View {
-        LuminaCategoryBar(selection: category.rawValue) {
+    private func libraryCategories(centersContent: Bool = true) -> some View {
+        LuminaCategoryBar(selection: category.rawValue, centersContent: centersContent) {
             ForEach(LibraryCategory.allCases.filter { store.availableLibraryCategories.contains($0.rawValue) }, id: \.self) { value in
                 Button {
                     category = value
@@ -965,21 +972,25 @@ private struct LibraryShellView: View {
 
     @ViewBuilder
     private func destinationStack<Content: View>(owner: LibraryDestination, categoryBarWidth: CGFloat, showsCategoryHeader: Bool,
+                                                  usesPortraitRail: Bool = false,
                                                   path: Binding<[MediaItem]>? = nil,
                                                   @ViewBuilder content: () -> Content) -> some View {
         if let path {
             NavigationStack(path: path) {
-                destinationStackContent(owner: owner, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader, content: content)
+                destinationStackContent(owner: owner, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
+                                        usesPortraitRail: usesPortraitRail, content: content)
             }
         } else {
             NavigationStack {
-                destinationStackContent(owner: owner, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader, content: content)
+                destinationStackContent(owner: owner, categoryBarWidth: categoryBarWidth, showsCategoryHeader: showsCategoryHeader,
+                                        usesPortraitRail: usesPortraitRail, content: content)
             }
         }
     }
 
     @ViewBuilder
     private func destinationStackContent<Content: View>(owner: LibraryDestination, categoryBarWidth: CGFloat, showsCategoryHeader: Bool,
+                                                         usesPortraitRail: Bool,
                                                          @ViewBuilder content: () -> Content) -> some View {
             content()
                 .toolbar {
@@ -1016,7 +1027,7 @@ private struct LibraryShellView: View {
                             .accessibilityIdentifier("compactBrowseMenu")
                         }
                     }
-                    if owner == .home, destination == .home {
+                    if owner == .home, destination == .home, !usesPortraitRail {
                         ToolbarItemGroup(placement: .topBarTrailing) {
                             if showsCategoryHeader, !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
                                 NavigationLink {
@@ -1033,7 +1044,7 @@ private struct LibraryShellView: View {
                             .accessibilityIdentifier("homeSearchButton")
                         }
                     }
-                    NativeNowPlayingToolbar(store: store)
+                    if !usesPortraitRail { NativeNowPlayingToolbar(store: store) }
                 }
                 .navigationDestination(for: MediaItem.self) { item in
                     Group {
@@ -1047,6 +1058,7 @@ private struct LibraryShellView: View {
                             TitleDetailView(item: item, store: store)
                         }
                     }
+                    .toolbarVisibility(.visible, for: .navigationBar)
                     .toolbar {
                         NativeNowPlayingToolbar(store: store)
                     }
@@ -1165,7 +1177,6 @@ private struct HomeLibraryView: View {
     #endif
     @Environment(\.scenePhase) private var scenePhase
     @Environment(NativeAudioSession.self) private var audioSession
-    @State private var compactHeader = false
     @State private var scrollPosition = ScrollPosition(edge: .top)
     @State private var hiddenRecommendationID: String?
     @State private var showRecommendationUndo = false
@@ -1232,9 +1243,6 @@ private struct HomeLibraryView: View {
         .onChange(of: category) { _, _ in
             scrollPosition.scrollTo(edge: .top)
         }
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top > 80
-        } action: { _, scrolled in compactHeader = scrolled }
         .refreshable {
             #if LUMINA_UI_TESTING
             uiTestingHomeRefreshCount += 1
@@ -1249,43 +1257,59 @@ private struct HomeLibraryView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(snapshot.items.isEmpty ? nil : .dark, for: .navigationBar)
         .toolbar {
-            if showsBrowsingRow, !stacksCategoryHeader, categoryBarWidth < 360 {
-                let header = HStack(spacing: 12) {
-                    HomeHeroChrome(compact: compactHeader).fixedSize()
-                    browsingRow.frame(width: browsingHeaderWidth).clipped()
-                }
-                if #available(iOS 26.0, *) {
-                    ToolbarItem(placement: .topBarLeading) { header }
-                        .sharedBackgroundVisibility(.hidden)
-                } else {
-                    ToolbarItem(placement: .topBarLeading) { header }
-                }
-            } else {
-                if showsBrowsingRow, !stacksCategoryHeader {
-                    ToolbarItem(placement: .principal) {
+            if !stacksCategoryHeader {
+                if showsBrowsingRow, categoryBarWidth < 360 {
+                    let header = HStack(spacing: 12) {
+                        HomeHeroChrome().fixedSize()
                         browsingRow.frame(width: browsingHeaderWidth).clipped()
                     }
-                }
-                if #available(iOS 26.0, *) {
-                    ToolbarItem(placement: .topBarLeading) {
-                        HomeHeroChrome(compact: compactHeader).fixedSize()
+                    if #available(iOS 26.0, *) {
+                        ToolbarItem(placement: .topBarLeading) { header }
+                            .sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .topBarLeading) { header }
                     }
-                    .sharedBackgroundVisibility(.hidden)
                 } else {
-                    ToolbarItem(placement: .topBarLeading) {
-                        HomeHeroChrome(compact: compactHeader).fixedSize()
+                    if showsBrowsingRow, !stacksCategoryHeader {
+                        ToolbarItem(placement: .principal) {
+                            browsingRow.frame(width: browsingHeaderWidth).clipped()
+                        }
+                    }
+                    if #available(iOS 26.0, *) {
+                        ToolbarItem(placement: .topBarLeading) {
+                            HomeHeroChrome().fixedSize()
+                        }
+                        .sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .topBarLeading) {
+                            HomeHeroChrome().fixedSize()
+                        }
                     }
                 }
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .overlay(alignment: .topLeading) {
             if showsBrowsingRow, stacksCategoryHeader {
-                browsingRow
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(.regularMaterial)
+                PortraitNavigationHeader { browsingRow }
+                    .environment(\.colorScheme, .dark)
             }
         }
+        .portraitNavigationRail(isEnabled: stacksCategoryHeader, store: store) {
+            NavigationLink {
+                HomeSearchView(store: store)
+                    .toolbarVisibility(.visible, for: .navigationBar)
+                    .toolbar { NativeNowPlayingToolbar(store: store) }
+            } label: { Label("Search", glyph: .search) }
+            .accessibilityIdentifier("homeSearchButton")
+            if !store.offline.downloadedItems.isEmpty || !store.offline.pendingItems.isEmpty {
+                NavigationLink {
+                    NativeOfflineLibraryView(store: store)
+                        .toolbarVisibility(.visible, for: .navigationBar)
+                } label: { Label("Downloads", glyph: .download) }
+                .accessibilityIdentifier("homeDownloadsButton")
+            }
+        }
+        .ignoresSafeArea(.container, edges: stacksCategoryHeader ? .top : [])
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("homeScreen")
         .alert("Recommendation hidden", isPresented: $showRecommendationUndo) {
@@ -1321,7 +1345,7 @@ private struct HomeLibraryView: View {
     }
 
     private var browsingRow: some View {
-        HomeBrowsingRow(category: category, centersContent: categoryBarWidth >= 360,
+        HomeBrowsingRow(category: category, centersContent: !stacksCategoryHeader && categoryBarWidth >= 360,
                         destinations: HomeBrowsingDestination.allCases.filter {
             $0 != .all && ($0.homeCategory != nil || store.availableLibraryCategories.contains($0.rawValue))
         }, onSelect: selectCategory)
@@ -1770,23 +1794,89 @@ private struct VideoDetailChrome: ViewModifier {
     }
 }
 
+private struct PortraitNavigationHeader<Categories: View>: View {
+    @ViewBuilder let categories: Categories
+    @Environment(\.layoutDirection) private var layoutDirection
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HomeHeroChrome()
+            categories.frame(maxWidth: .infinity).clipped()
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 44)
+        .background(.ultraThinMaterial, in: .capsule)
+        .padding(.leading, layoutDirection == .leftToRight ? 20 : 96)
+        .padding(.trailing, layoutDirection == .leftToRight ? 96 : 20)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+    }
+}
+
+private struct PortraitRailButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: 44, height: 44)
+            .contentShape(.rect)
+            .opacity(configuration.isPressed ? 0.65 : 1)
+    }
+}
+
+private struct PortraitNavigationRail<Actions: View>: ViewModifier {
+    let isEnabled: Bool
+    let store: LuminaStore
+    @ViewBuilder let actions: Actions
+    @Environment(\.layoutDirection) private var layoutDirection
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content
+                .toolbarVisibility(.hidden, for: .navigationBar)
+                .overlay {
+                    GeometryReader { geometry in
+                        VStack(spacing: 8) {
+                            actions
+                            NativeNowPlayingControls(store: store)
+                        }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(PortraitRailButtonStyle())
+                        .padding(4)
+                        .background(.regularMaterial, in: .capsule)
+                        .environment(\.layoutDirection, layoutDirection)
+                        .frame(width: 52)
+                        .padding(.top, topInset(in: geometry))
+                        .padding(.trailing, 20)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .environment(\.layoutDirection, .leftToRight)
+                    }
+                }
+        } else {
+            content
+        }
+    }
+
+    private func topInset(in geometry: GeometryProxy) -> CGFloat {
+        // Keep all browse roots below the physical status corner, including
+        // Library roots whose category header has already consumed safe area.
+        max(0, 88 - geometry.frame(in: .global).minY)
+    }
+}
+
+extension View {
+    func portraitNavigationRail<Actions: View>(isEnabled: Bool, store: LuminaStore,
+                                               @ViewBuilder actions: () -> Actions) -> some View {
+        modifier(PortraitNavigationRail(isEnabled: isEnabled, store: store, actions: actions))
+    }
+}
+
 @MainActor
 private struct HomeHeroChrome: View {
-    var compact = false
     @Environment(\.returnToLuminaHome) private var returnHome
 
     var body: some View {
         Button(action: returnHome) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                LuminaBrandMark()
-                    .frame(width: 24, height: 24 * 34 / 56)
-                    .luminaBrandMarkBaseline()
-                if !compact {
-                    Text("LUMINA")
-                        .font(.caption.weight(.black))
-                        .tracking(1.8)
-                }
-            }
+            LuminaBrandMark()
+                .frame(width: 28, height: 28 * 34 / 56)
             .foregroundStyle(LuminaTheme.ink)
         }
         .buttonStyle(.plain)
@@ -1807,6 +1897,7 @@ private struct VideoLibraryView: View {
     @State private var searchVisible = false
     @Binding var kind: VideoBrowseKind
     let activeKind: VideoBrowseKind?
+    var usesPortraitNavigationRail = false
     @State private var sort: VideoSort = .name
     @State private var filters = VideoFilters()
     @State private var filtersVisible = false
@@ -1896,6 +1987,7 @@ private struct VideoLibraryView: View {
                     }
                 }
                 .padding(.horizontal, 20)
+                .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
                 .padding(.bottom, 28)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -1975,44 +2067,20 @@ private struct VideoLibraryView: View {
                     .presentationDragIndicator(.visible)
             }
             .toolbar {
-                if !searchVisible {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Search video", glyph: .search) { searchVisible = true }
-                            .accessibilityIdentifier("videoSearchButton")
+                if !usesPortraitNavigationRail {
+                    if !searchVisible {
+                        ToolbarItem(placement: .topBarTrailing) { videoSearchButton }
                     }
-                }
-                if isAlphabetRailAvailable {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        alphabetMenu(using: scrollProxy)
+                    if isAlphabetRailAvailable {
+                        ToolbarItem(placement: .topBarTrailing) { alphabetMenu(using: scrollProxy) }
                     }
+                    ToolbarItem(placement: .topBarTrailing) { videoOptionsMenu }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Picker("Sort: \(sort.label)", selection: $sort) {
-                            ForEach(VideoSort.allCases, id: \.self) { sort in Text(sort.label).tag(sort) }
-                        }
-                        .pickerStyle(.menu)
-                        .accessibilityIdentifier("videoSortPicker")
-                        .accessibilityValue(sort.label)
-
-                        Divider()
-                        Button("Filters", glyph: .filter) {
-                            filtersVisible = true
-                        }
-                        .accessibilityIdentifier("videoFiltersButton")
-                        .accessibilityValue(filters == VideoFilters() ? "No filters" : filterSummary)
-
-                        if filters != VideoFilters() {
-                            Button("Clear filters", glyph: .close) { filters = VideoFilters() }
-                                .accessibilityIdentifier("videoClearFiltersButton")
-                        }
-                    } label: {
-                        Label("Video options, \(optionsAccessibilityValue)", glyph: .moreHorizontal)
-                            .labelStyle(.iconOnly)
-                    }
-                    .accessibilityIdentifier("videoOptionsMenu")
-                    .accessibilityValue(optionsAccessibilityValue)
-                }
+            }
+            .portraitNavigationRail(isEnabled: usesPortraitNavigationRail, store: store) {
+                if !searchVisible { videoSearchButton }
+                if isAlphabetRailAvailable { alphabetMenu(using: scrollProxy) }
+                videoOptionsMenu
             }
             .task(id: "\(kind.rawValue)-\(activeKind?.rawValue ?? "inactive")") {
                 guard activeKind == kind else { return }
@@ -2020,6 +2088,39 @@ private struct VideoLibraryView: View {
             }
         }
         }
+    }
+
+    private var videoSearchButton: some View {
+        Button("Search video", glyph: .search) { searchVisible = true }
+            .accessibilityIdentifier("videoSearchButton")
+    }
+
+    private var videoOptionsMenu: some View {
+        Menu {
+            Picker("Sort: \(sort.label)", selection: $sort) {
+                ForEach(VideoSort.allCases, id: \.self) { sort in Text(sort.label).tag(sort) }
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("videoSortPicker")
+            .accessibilityValue(sort.label)
+
+            Divider()
+            Button("Filters", glyph: .filter) {
+                filtersVisible = true
+            }
+            .accessibilityIdentifier("videoFiltersButton")
+            .accessibilityValue(filters == VideoFilters() ? "No filters" : filterSummary)
+
+            if filters != VideoFilters() {
+                Button("Clear filters", glyph: .close) { filters = VideoFilters() }
+                    .accessibilityIdentifier("videoClearFiltersButton")
+            }
+        } label: {
+            Label("Video options, \(optionsAccessibilityValue)", glyph: .moreHorizontal)
+                .labelStyle(.iconOnly)
+        }
+        .accessibilityIdentifier("videoOptionsMenu")
+        .accessibilityValue(optionsAccessibilityValue)
     }
 
     private var isAlphabetRailAvailable: Bool {
@@ -2935,6 +3036,7 @@ private enum VideoCollectionPlaybackError: LocalizedError {
 @MainActor
 private struct AudioLibraryView: View {
     let store: LuminaStore
+    var usesPortraitNavigationRail = false
     @State private var kind: MusicBrowseKind = .albums
     @State private var searchText = ""
     @State private var searchVisible = false
@@ -2976,6 +3078,7 @@ private struct AudioLibraryView: View {
                     }
                 } else {
                     MusicGrid(items: store.audioItems, store: store, identifierPrefix: "audioItem")
+                        .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
                     if store.audioHasMore {
                         Button {
                             Task { await store.loadMoreAudio() }
@@ -3006,38 +3109,51 @@ private struct AudioLibraryView: View {
         .toolbarColorScheme(featuredAlbum == nil ? nil : .dark, for: .navigationBar)
         .accessibilityIdentifier("audioScreen")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    ForEach(NativeMusicSection.allCases, id: \.self) { section in
-                        NavigationLink {
-                            NativeMusicLibraryView(store: store, section: section)
-                                .toolbar {
-                                    NativeNowPlayingToolbar(store: store)
-                                }
-                        } label: {
-                            Label(section.rawValue, glyph: section.glyph)
-                        }
-                        .accessibilityIdentifier("musicLibrary-\(section.rawValue.lowercased())")
-                    }
-                    Divider()
-                    Picker("Browse music", selection: $kind) {
-                        ForEach(MusicBrowseKind.allCases, id: \.self) { value in Text(value.label).tag(value) }
-                    }
-                    .accessibilityIdentifier("audioKindPicker")
-                } label: { Label("Music options", glyph: .moreHorizontal) }
-                .accessibilityIdentifier("musicOptionsMenu")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Search music", glyph: .search) { searchVisible = true }
-                    .accessibilityIdentifier("musicSearchButton")
+            if !usesPortraitNavigationRail {
+                ToolbarItem(placement: .topBarTrailing) { musicOptionsMenu }
+                ToolbarItem(placement: .topBarTrailing) { musicSearchButton }
             }
         }
-        .modifier(NativeSearchPresentation(text: $searchText, isPresented: $searchVisible, prompt: "Search music"))
+        .portraitNavigationRail(isEnabled: usesPortraitNavigationRail, store: store) {
+            musicSearchButton
+            musicOptionsMenu
+        }
+        .modifier(NativeSearchPresentation(text: $searchText, isPresented: $searchVisible, prompt: "Search music",
+                                           usesInlineSearch: usesPortraitNavigationRail,
+                                           onSubmit: { Task { await load() } }))
         .onSubmit(of: .search) { Task { await load() } }
         .onChange(of: searchText) { if searchText.isEmpty { Task { await load() } } }
         .task(id: kind) { await load() }
         .refreshable { await load() }
         }
+    }
+
+    private var musicSearchButton: some View {
+        Button("Search music", glyph: .search) { searchVisible = true }
+            .accessibilityIdentifier("musicSearchButton")
+    }
+
+    private var musicOptionsMenu: some View {
+        Menu {
+            ForEach(NativeMusicSection.allCases, id: \.self) { section in
+                NavigationLink {
+                    NativeMusicLibraryView(store: store, section: section)
+                        .toolbarVisibility(.visible, for: .navigationBar)
+                        .toolbar {
+                            NativeNowPlayingToolbar(store: store)
+                        }
+                } label: {
+                    Label(section.rawValue, glyph: section.glyph)
+                }
+                .accessibilityIdentifier("musicLibrary-\(section.rawValue.lowercased())")
+            }
+            Divider()
+            Picker("Browse music", selection: $kind) {
+                ForEach(MusicBrowseKind.allCases, id: \.self) { value in Text(value.label).tag(value) }
+            }
+            .accessibilityIdentifier("audioKindPicker")
+        } label: { Label("Music options", glyph: .moreHorizontal) }
+        .accessibilityIdentifier("musicOptionsMenu")
     }
 
     private func load() async {
@@ -3315,10 +3431,25 @@ struct NativeSearchPresentation: ViewModifier {
     @Binding var text: String
     @Binding var isPresented: Bool
     let prompt: String
+    var usesInlineSearch = false
+    var onSubmit: () -> Void = {}
 
     func body(content: Content) -> some View {
         Group {
-            if isPresented {
+            if isPresented && usesInlineSearch {
+                content.safeAreaInset(edge: .top, spacing: 0) {
+                    HStack(spacing: 8) {
+                        LibrarySearchBar(text: $text, prompt: prompt, onSubmit: onSubmit)
+                            .frame(height: 44)
+                        Button("Cancel") { isPresented = false }
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.trailing, 76)
+                    .padding(.vertical, 8)
+                    .background(LuminaTheme.paper)
+                }
+            } else if isPresented {
                 content.searchable(text: $text, isPresented: $isPresented,
                     placement: .navigationBarDrawer(displayMode: .always), prompt: Text(prompt))
                     .safeAreaInset(edge: .top, spacing: 0) {
@@ -3345,6 +3476,7 @@ struct NativeSearchPresentation: ViewModifier {
 
 private struct LibrarySearchBar: UIViewRepresentable {
     @Binding var text: String
+    var prompt = String(localized: "Search video")
     let onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -3352,7 +3484,7 @@ private struct LibrarySearchBar: UIViewRepresentable {
     func makeUIView(context: Context) -> UISearchBar {
         let searchBar = UISearchBar()
         searchBar.delegate = context.coordinator
-        searchBar.placeholder = String(localized: "Search video")
+        searchBar.placeholder = prompt
         searchBar.searchBarStyle = .minimal
         searchBar.autocapitalizationType = .none
         searchBar.autocorrectionType = .no

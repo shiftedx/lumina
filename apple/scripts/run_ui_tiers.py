@@ -36,9 +36,10 @@ IOS_SPECIAL_LANES = {
     "NativeStandardPhoneAppearanceChromeTests/testPushedChromeStaysClearInLightAndDarkAppearances": "iPhone",
     "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testStandardPhoneUsesBottomNavigationAndCompactBrowseMenu": "iPhone",
     "NativeAudioAlbumTrackPlaybackReportsProgressTests/testCompactMusicToolbarReopensAndResumes": "iPhone",
-    "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testClosedDisplayFitsThreeCategoriesBesideWordmark": "Duo",
+    "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testClosedDisplayFitsThreeCategoriesBesideLogo": "Duo",
     "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testHomeHeroArtworkSwipesAndPlaysSelectedTitle": "Duo",
     "NativeOpenDuoLibraryHeaderTests/testOpenDuoLibraryHeaderAndSearchKeepCategoriesClearOfChrome": "Duo",
+    "NativeOpenDuoLibraryHeaderTests/testOpenPortraitPlacesNavigationOverContentAndUtilitiesBelowStatus": "Duo",
     "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testHomeBrowseFiltersSearchAndHeroWatchlist": "Duo",
 }
 IOS_LANE_DEVICE_TYPES = {

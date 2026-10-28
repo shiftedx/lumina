@@ -10,6 +10,7 @@ struct NativeBooksView: View {
     var series: BookSeries?
     var catalogOnly = false
     var isActive = true
+    var usesPortraitNavigationRail = false
     @State private var books = [BookItem]()
     @State private var overview: BooksOverview?
     @State private var seriesItems = [BookSeries]()
@@ -36,9 +37,10 @@ struct NativeBooksView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    init(store: LuminaStore, session: LuminaSession, shelf: BookShelf? = nil, series: BookSeries? = nil, catalogOnly: Bool = false, covers: BookCoverCache? = nil, isActive: Bool = true) {
+    init(store: LuminaStore, session: LuminaSession, shelf: BookShelf? = nil, series: BookSeries? = nil, catalogOnly: Bool = false, covers: BookCoverCache? = nil, isActive: Bool = true, usesPortraitNavigationRail: Bool = false) {
         self.store = store
         self.session = session; self.shelf = shelf; self.series = series; self.catalogOnly = catalogOnly; self.isActive = isActive
+        self.usesPortraitNavigationRail = usesPortraitNavigationRail
         _covers = State(initialValue: covers)
     }
 
@@ -103,7 +105,7 @@ struct NativeBooksView: View {
                                         }
                                     }
                                 }.scrollIndicators(.hidden)
-                                .modifier(LuminaCarouselEdges())
+                                .modifier(LuminaCarouselEdges(extendsIntoSafeArea: !usesPortraitNavigationRail))
                             }
                         }
                         if let shelves = overview?.shelves, !shelves.isEmpty {
@@ -124,7 +126,7 @@ struct NativeBooksView: View {
                                         }
                                     }.padding(.top, 12)
                                 }.scrollIndicators(.hidden)
-                                .modifier(LuminaCarouselEdges())
+                                .modifier(LuminaCarouselEdges(extendsIntoSafeArea: !usesPortraitNavigationRail))
                             }
                         }
                         if !seriesItems.isEmpty {
@@ -189,6 +191,7 @@ struct NativeBooksView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, LuminaTheme.contentGutter)
             .padding(.vertical, 24)
+            .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
         }
         .ignoresSafeArea(.container, edges: .horizontal)
         .scrollClipDisabled()
@@ -196,18 +199,21 @@ struct NativeBooksView: View {
         .navigationTitle(title)
         .toolbarVisibility(.visible, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                bookOptionsMenu
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                bookSearchButton
+            if !usesPortraitNavigationRail {
+                ToolbarItem(placement: .topBarTrailing) { bookOptionsMenu }
+                ToolbarItem(placement: .topBarTrailing) { bookSearchButton }
             }
         }
         .accessibilityIdentifier("booksScreen")
         #if LUMINA_UI_TESTING
         .accessibilityValue(uiTestingLoadDiagnostics)
         #endif
-        .modifier(NativeSearchPresentation(text: $search, isPresented: $searchVisible, prompt: "Title or author"))
+        .portraitNavigationRail(isEnabled: usesPortraitNavigationRail, store: store) {
+            bookSearchButton
+            bookOptionsMenu
+        }
+        .modifier(NativeSearchPresentation(text: $search, isPresented: $searchVisible, prompt: "Title or author",
+                                           usesInlineSearch: usesPortraitNavigationRail))
         .task(id: NativeBookLoadKey(query: catalogQuery, isActive: isActive)) {
             #if LUMINA_UI_TESTING
             uiTestingLoadGeneration += 1

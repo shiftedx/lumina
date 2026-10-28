@@ -1561,9 +1561,7 @@ class NativeProofJourney: XCTestCase {
             try activate(element("libraryItem-\(fixture.showID)"))
             try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "show seasons")
             let collection = element("videoCollectionScreen")
-            let season = element("videoSeason-\(fixture.seasonID)")
-            try revealDetailElement(season, in: collection, named: "season", requiresHittable: true)
-            try activate(season)
+            try selectCollectionSeason(fixture.seasonID)
             let play = element("playButton")
             try revealDetailElement(play, in: collection, named: "season play", requiresHittable: true)
             try activate(play)
@@ -4390,14 +4388,7 @@ class NativeProofJourney: XCTestCase {
             try waitForPerformanceContainer(element("videoCollectionScreen"), timeout: 25, named: "show seasons")
             try await performanceQuietPhase("show_detail_idle")
             #if os(iOS)
-            let season = element("videoSeason-\(fixture.seasonID)")
-            try revealDetailElement(
-                season,
-                in: element("videoCollectionScreen"),
-                named: "show season",
-                requiresHittable: true
-            )
-            try activate(season)
+            try selectCollectionSeason(fixture.seasonID)
             let episode = element("videoEpisode-\(fixture.episodeID)")
             try revealDetailElement(
                 episode,
@@ -4866,9 +4857,7 @@ class NativeProofJourney: XCTestCase {
         try activate(show)
         let collection = element("videoCollectionScreen")
         try waitForExistence(collection, timeout: 20, named: "show collection")
-        let season = element("videoSeason-\(fixture.seasonID)")
-        try revealDetailElement(season, in: collection, named: "first season", requiresHittable: true)
-        try activate(season)
+        try selectCollectionSeason(fixture.seasonID)
         let selectedEpisode = element("videoEpisode-\(fixture.secondEpisodeID)")
         try revealDetailElement(selectedEpisode, in: collection, named: "direct episode", requiresHittable: true)
         try activate(selectedEpisode)
@@ -4903,9 +4892,9 @@ class NativeProofJourney: XCTestCase {
         cancelledStart.press(forDuration: 0.05, thenDragTo: cancelledEnd)
         try waitForExistence(collection, timeout: 15, named: "collection after cancelled leading-edge Back")
 
-        try completeStandardPhoneFocusedEpisodeBack(
-            in: collection,
-            selectedEpisodeID: fixture.secondEpisodeID,
+        try performStandardPhoneLeadingEdgeBack(
+            from: collection,
+            to: element("libraryScreen"),
             named: "episode collection"
         )
         XCTAssertFalse(element("detailScreen").exists,
@@ -5003,9 +4992,7 @@ class NativeProofJourney: XCTestCase {
             try assertStandardPhonePushedChrome(collection, named: "show collection in \(appearance) appearance")
             try attachFrame(named: "Standard iPhone \(appearance) show hero")
 
-            let season = element("videoSeason-\(fixture.seasonID)")
-            try revealDetailElement(season, in: collection, named: "season in \(appearance) appearance", requiresHittable: true)
-            try activate(season)
+            try selectCollectionSeason(fixture.seasonID)
             let episode = element("videoEpisode-\(fixture.secondEpisodeID)")
             try revealDetailElement(episode, in: collection, named: "selected episode in \(appearance) appearance", requiresHittable: true)
             try activate(episode)
@@ -5069,9 +5056,7 @@ class NativeProofJourney: XCTestCase {
         let collection = element("videoCollectionScreen")
         try waitForExistence(collection, timeout: 20, named: "show collection")
 
-        let season = element("videoSeason-\(fixture.seasonID)")
-        try revealDetailElement(season, in: collection, named: "first season", requiresHittable: true)
-        try activate(season)
+        try selectCollectionSeason(fixture.seasonID)
         let selectedEpisode = element("videoEpisode-\(fixture.secondEpisodeID)")
         try revealDetailElement(selectedEpisode, in: collection, named: "episode to open in its show", requiresHittable: true)
         try activate(selectedEpisode)
@@ -5086,7 +5071,7 @@ class NativeProofJourney: XCTestCase {
         }, "Opening an episode must show its selected card without manual scrolling.")
         XCTAssertTrue(accessibilityText(episodeTitle).contains(fixture.secondEpisodeTitle),
                       "The show header must identify the episode that was selected.")
-        XCTAssertTrue(waitUntil(timeout: 10) { (self.element("videoSeason-\(fixture.seasonID)").value as? String) == "Selected" },
+        XCTAssertTrue(waitUntil(timeout: 10) { (self.element("videoSeasonSelector").value as? String) == "Season 1" },
                       "The episode's season must remain selected in the show.")
         XCTAssertTrue(waitUntil(timeout: 10) { (self.element("videoEpisode-\(fixture.secondEpisodeID)").value as? String) == "Selected" },
                       "The episode selected before navigation must remain selected in its show.")
@@ -5094,18 +5079,19 @@ class NativeProofJourney: XCTestCase {
         try attachFrame(named: "iOS selected episode in parent show")
 
         let otherSeasonID = try XCTUnwrap(fixture.secondSeasonID, "Generate the second synthetic show season.")
-        let otherSeason = element("videoSeason-\(otherSeasonID)")
-        try revealDetailElement(otherSeason, in: collection, named: "another show season", requiresHittable: true)
-        try activate(otherSeason)
+        XCTAssertFalse(element("seasonArtwork-\(fixture.seasonID)").exists,
+                       "The season dropdown must replace season poster cards.")
+        try selectCollectionSeason(otherSeasonID, named: "Season 2")
+        try attachFrame(named: "Season dropdown showing second season episodes")
         let otherEpisodeID = try XCTUnwrap(fixture.secondSeasonEpisodeID, "Generate the second synthetic season episode.")
         let otherEpisode = element("videoEpisode-\(otherEpisodeID)")
         try revealDetailElement(otherEpisode, in: collection, named: "episode in another show season", requiresHittable: true)
         XCTAssertTrue(waitUntil(timeout: 10) {
-            (self.element("videoSeason-\(otherSeasonID)").value as? String) == "Selected"
+            (self.element("videoSeasonSelector").value as? String) == "Season 2"
                 && (self.element("videoEpisode-\(otherEpisodeID)").value as? String) == "Selected"
         }, "Switching seasons must retain the show and expose that season's selected episode.")
 
-        try activate(season)
+        try selectCollectionSeason(fixture.seasonID)
 
         let siblingEpisode = element("videoEpisode-\(fixture.episodeID)")
         try revealDetailElement(siblingEpisode, in: collection, named: "another episode in the selected season", requiresHittable: true)
@@ -5148,14 +5134,28 @@ class NativeProofJourney: XCTestCase {
         cancelledEdgeStart.press(forDuration: 0.05, thenDragTo: cancelledEdgeEnd)
         try waitForExistence(collection, timeout: 15, named: "collection after cancelled leading-edge Back")
 
-        try completeStandardPhoneFocusedEpisodeBack(
-            in: collection,
-            selectedEpisodeID: fixture.episodeID,
+        try performStandardPhoneLeadingEdgeBack(
+            from: collection,
+            to: element("libraryScreen"),
             named: "focused show collection"
         )
         XCTAssertFalse(element("detailScreen").exists,
                        "Leading-edge Back from the focused show collection must not open an episode detail.")
         completed = true
+    }
+
+    private func selectCollectionSeason(_ seasonID: String, named seasonName: String = "Season 1") throws {
+        let selector = element("videoSeasonSelector")
+        try revealDetailElement(selector, in: element("videoCollectionScreen"),
+                                named: "season dropdown", requiresHittable: true)
+        try activate(selector)
+        let identifiedOption = element("videoSeason-\(seasonID)")
+        let option = identifiedOption.exists ? identifiedOption : application!.buttons[seasonName]
+        try waitForHittable(option, timeout: 10, named: "season menu option")
+        try attachFrame(named: "Season dropdown options")
+        try activate(option)
+        XCTAssertTrue(waitUntil(timeout: 15) { selector.isEnabled },
+                      "Selecting a season must finish loading its episode carousel.")
     }
 
     private func assertStandardPhoneCollectionHeader(
@@ -5262,24 +5262,6 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(destination, timeout: 15, named: "destination after \(name) leading-edge Back")
     }
 
-    private func completeStandardPhoneFocusedEpisodeBack(
-        in collection: XCUIElement,
-        selectedEpisodeID: String,
-        named name: String
-    ) throws {
-        try assertStandardPhonePushedChrome(collection, named: name)
-        try performStandardPhoneEdgeGesture(named: name)
-
-        let selectedEpisodeTitle = element("collectionEpisodeTitle")
-        XCTAssertTrue(waitUntil(timeout: 15) {
-            self.hasVisibleFrame(collection) && !selectedEpisodeTitle.exists
-        }, "A completed leading-edge swipe must return from the focused episode collection to its immediate prior collection.")
-        XCTAssertNotEqual(
-            element("videoEpisode-\(selectedEpisodeID)").value as? String,
-            "Selected",
-            "The immediate prior collection must not retain the popped focused-episode selection."
-        )
-    }
     #endif
 
     func journeyNativeEpisodeSkipActionsAndNextEpisode() async throws {
@@ -5314,7 +5296,7 @@ class NativeProofJourney: XCTestCase {
                              named: "inline show season selector")
         let firstEpisode = element("videoCollectionItem-\(fixture.episodeID)")
         #else
-        try activate(element("videoSeason-\(fixture.seasonID)"))
+        try selectCollectionSeason(fixture.seasonID)
         let firstEpisode = element("videoEpisode-\(fixture.episodeID)")
         #endif
         try waitForHittable(firstEpisode, timeout: 20, named: "first episode for playback actions")
@@ -5633,9 +5615,7 @@ class NativeProofJourney: XCTestCase {
         try attachFrame(named: "Full-page show artwork before revealing seasons")
         let revealSeasons = element("collectionSeasonsButton")
         try activate(revealSeasons)
-        let season = element("videoSeason-\(fixture.seasonID)")
-        try revealDetailElement(season, in: collection, named: "season", requiresHittable: true)
-        try activate(season)
+        try selectCollectionSeason(fixture.seasonID)
         let episode = element("videoEpisode-\(fixture.episodeID)")
         try revealDetailElement(episode, in: collection, named: "episode", requiresHittable: true)
         try activate(episode)
@@ -6354,6 +6334,20 @@ class NativeProofJourney: XCTestCase {
             let hasRequiredVisibility = requiresHittable
                 ? isFullyVerticallyContained(frame, in: viewport)
                 : !visible.isNull && visible.height >= min(44, frame.height)
+            if element.identifier.hasPrefix("videoEpisode-"), hasRequiredVisibility,
+               frame.minX < viewport.minX || frame.maxX > viewport.maxX {
+                let swipeLeft = frame.midX > viewport.midX
+                let start = detail.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                    dx: viewport.width * (swipeLeft ? 0.8 : 0.2) + viewport.minX - detail.frame.minX,
+                    dy: visible.midY - detail.frame.minY
+                ))
+                let end = detail.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                    dx: viewport.width * (swipeLeft ? 0.2 : 0.8) + viewport.minX - detail.frame.minX,
+                    dy: visible.midY - detail.frame.minY
+                ))
+                start.press(forDuration: 0.05, thenDragTo: end)
+                continue
+            }
             if hasRequiredVisibility, element.isEnabled,
                (!requiresHittable || (hasVisibleFrame(element) && element.isHittable)) {
                 return

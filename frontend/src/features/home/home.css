@@ -28,8 +28,8 @@
 .gallery.home .h-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
 .gallery.home .h-hero-blur > img { filter: blur(40px) brightness(.5); transform: scale(1.2); }
 .gallery.home .h-hero-poster { position: absolute; top: var(--g-space-6); right: calc(var(--g-gutter) + 8%); height: calc(100% - 2 * var(--g-space-6) - var(--g-control)); aspect-ratio: 2 / 3; box-shadow: var(--g-elev-2); }
-.gallery.home .h-hero-scrim { position: absolute; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--g-overlay-bg) 64%, transparent), transparent 70%), var(--g-scrim); pointer-events: none; }
 .gallery.home .h-hero-text { position: relative; z-index: 1; max-width: 560px; }
+.gallery.home .h-slide:not(.is-field) .h-hero-text { text-shadow: 0 1px 3px var(--g-overlay-halo); }
 .gallery.home .h-hero .g-label { color: inherit; }
 .gallery.home .h-hero-title { margin: var(--g-space-2) 0; font: var(--g-type-display); letter-spacing: var(--g-track-display); overflow-wrap: anywhere; }
 .gallery.home .h-hero-logo { width: auto; max-width: 100%; max-height: 120px; aspect-ratio: auto; }
@@ -70,8 +70,9 @@
   .gallery.home .h-slide::before { content: ''; position: absolute; inset: 0 0 auto; height: var(--h-art); background: var(--h-hero-colour); }
   .gallery.home .h-hero-art { inset: 0 0 auto; height: var(--h-art); }
   .gallery.home .h-hero-poster { height: calc(var(--h-art) - 2 * var(--g-space-6) - var(--g-control)); }
-  .gallery.home .h-hero-scrim, .gallery.home .h-hero-overview { display: none; }
-  .gallery.home .h-hero .g-label { color: var(--g-ink-3); }
+  .gallery.home .h-hero-overview { display: none; }
+  .gallery.home .h-slide:not(.is-field) .h-hero-text { text-shadow: 0 1px 3px var(--g-overlay-halo); }
+.gallery.home .h-hero .g-label { color: var(--g-ink-3); }
   .gallery.home .h-hero .is-primary { background: var(--g-ink); color: var(--g-paper); }
   .gallery.home .h-hero-controls { top: calc(var(--h-art) - var(--g-control)); bottom: auto; color: var(--g-on-art); }
 }

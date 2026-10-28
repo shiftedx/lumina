@@ -1372,8 +1372,13 @@ private struct HomeSearchView: View {
                             .submitLabel(.search)
                             .accessibilityIdentifier("homeSearchField")
                         if !query.isEmpty {
-                            Button("Clear search", glyph: .close) { query = "" }
-                                .labelStyle(.iconOnly)
+                            Button { query = "" } label: {
+                                Label("Clear search", glyph: .close)
+                                    .labelStyle(.iconOnly)
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .contentShape(.rect)
+                            }
+                                .buttonStyle(.plain)
                                 .accessibilityIdentifier("homeSearchClearButton")
                         }
                     }

@@ -246,7 +246,6 @@ function HeroSlide({ pick, position, total, motion, warm, onPlay, onOpenTitle, o
       {/* Portrait art: the poster beside the text, over a blurred, darkened copy of itself (the same rendition, one fetch). */}
       {art.kind === 'poster' ? <GalleryArt alt="" art={art.art} card={null} className="h-hero-art h-hero-blur" colour={colour} kind="poster" priority={1} sizes={POSTER_SIZES} /> : null}
       {art.kind === 'poster' ? <GalleryArt alt="" art={art.art} card={null} className="h-hero-poster" colour={colour} kind="poster" onSettled={settle} priority={1} sizes={POSTER_SIZES} /> : null}
-      {art.kind === 'field' ? null : <div aria-hidden="true" className="h-hero-scrim" />}
       <div className="h-hero-text">
         <p className="g-label h-hero-kicker">{KICKER[pick.kind]}</p>
         <h2 className="h-hero-title" id={headingId}>

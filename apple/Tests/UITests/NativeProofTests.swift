@@ -3964,6 +3964,7 @@ class NativeProofJourney: XCTestCase {
         try enter(unavailableShowTitle, into: search)
         #else
         XCTAssertEqual(movie.label, movieTitle, "The Requests hero did not preserve its catalog title.")
+        try attachFrame(named: "Requests featured hero")
         try activate(element("requestsSearchButton"))
         let search = application!.searchFields.firstMatch
         try waitForHittable(search, timeout: 10, named: "Requests search")
@@ -4916,6 +4917,10 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 10) {
             (query.value as? String)?.localizedCaseInsensitiveContains(fixture.directItemTitle) == true
         }, "The standard-phone Home Search field must visibly retain the typed query.")
+        let clear = element("homeSearchClearButton")
+        try waitForHittable(clear, timeout: 10, named: "Home Search clear")
+        XCTAssertGreaterThanOrEqual(clear.frame.width, 44, "Home Search clear needs a 44-point-wide hit target")
+        XCTAssertGreaterThanOrEqual(clear.frame.height, 44, "Home Search clear needs a 44-point-tall hit target")
         let result = element("homeSearchResult-\(fixture.directItemID)")
         try waitForHittable(result, timeout: 20, named: "visible Home Search result")
         XCTAssertTrue(hasVisibleFrame(result), "The selected Home Search result must render in the current search screen.")

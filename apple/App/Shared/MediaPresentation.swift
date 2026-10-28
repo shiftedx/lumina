@@ -211,10 +211,11 @@ struct MediaBillboard<Actions: View>: View {
         Group {
             if compact {
                 // Keep the title, actions, and artwork in one cinematic field on
-                // compact displays. The copy remains above the gradient instead
+                // compact displays. The copy stays with the artwork instead
                 // of becoming a second, disconnected card below the artwork.
                 copy
                     .foregroundStyle(.white)
+                    .shadow(color: featured ? .black.opacity(0.75) : .clear, radius: 2, y: 1)
                     .frame(maxWidth: .infinity, minHeight: compactMinimumHeight ?? (featured ? 336 : 380), alignment: .bottomLeading)
                     .padding(.horizontal, LuminaTheme.contentGutter)
                     .padding(.top, topInset)
@@ -225,12 +226,23 @@ struct MediaBillboard<Actions: View>: View {
                     .background {
                         ZStack {
                             BillboardArtwork(item: item, store: store, showsPoster: true, home: featured, motionDirection: artworkMotionDirection)
-                            LinearGradient(stops: [
-                                .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.92 : 0.16), location: 0),
-                                .init(color: LuminaTheme.theater.opacity(0.16), location: 0.40),
-                                .init(color: LuminaTheme.theater.opacity(0.96), location: 1),
-                            ], startPoint: .top, endPoint: .bottom)
-                            if !artworkFirst {
+                                .overlay(alignment: .topLeading) {
+                                    if featured {
+                                        LinearGradient(colors: [.black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
+                                            .mask(LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing))
+                                            .frame(maxWidth: 720)
+                                            .frame(height: 104)
+                                            .allowsHitTesting(false)
+                                    }
+                                }
+                            if !featured {
+                                LinearGradient(stops: [
+                                    .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.92 : 0.16), location: 0),
+                                    .init(color: LuminaTheme.theater.opacity(0.16), location: 0.40),
+                                    .init(color: LuminaTheme.theater.opacity(0.96), location: 1),
+                                ], startPoint: .top, endPoint: .bottom)
+                            }
+                            if !artworkFirst && !featured {
                                 LinearGradient(colors: [LuminaTheme.theater.opacity(0.64), .clear], startPoint: .leading, endPoint: .trailing)
                             }
                         }
@@ -241,6 +253,7 @@ struct MediaBillboard<Actions: View>: View {
             } else {
                 copy
                     .foregroundStyle(.white)
+                    .shadow(color: featured ? .black.opacity(0.75) : .clear, radius: 2, y: 1)
                     .frame(maxWidth: copyWidth, alignment: .leading)
                     .padding(.horizontal, contentInset)
                     .padding(.top, topInset)
@@ -251,18 +264,29 @@ struct MediaBillboard<Actions: View>: View {
                     .background {
                         ZStack {
                             BillboardArtwork(item: item, store: store, showsPoster: true, home: featured, motionDirection: artworkMotionDirection)
-                            if !artworkFirst {
+                                .overlay(alignment: .topLeading) {
+                                    if featured {
+                                        LinearGradient(colors: [.black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
+                                            .mask(LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing))
+                                            .frame(maxWidth: 720)
+                                            .frame(height: 104)
+                                            .allowsHitTesting(false)
+                                    }
+                                }
+                            if !artworkFirst && !featured {
                                 LinearGradient(stops: [
                                     .init(color: LuminaTheme.theater.opacity(contrast == .increased ? 0.96 : 0.72), location: 0),
                                     .init(color: LuminaTheme.theater.opacity(0.30), location: 0.48),
                                     .init(color: .clear, location: 0.76),
                                 ], startPoint: .leading, endPoint: .trailing)
                             }
-                            LinearGradient(stops: [
-                                .init(color: .clear, location: 0.35),
-                                .init(color: LuminaTheme.theater.opacity(0.4), location: 0.8),
-                                .init(color: LuminaTheme.theater, location: 1),
-                            ], startPoint: .top, endPoint: .bottom)
+                            if !featured {
+                                LinearGradient(stops: [
+                                    .init(color: .clear, location: 0.35),
+                                    .init(color: LuminaTheme.theater.opacity(0.4), location: 0.8),
+                                    .init(color: LuminaTheme.theater, location: 1),
+                                ], startPoint: .top, endPoint: .bottom)
+                            }
                         }
                         #if !os(tvOS)
                         .ignoresSafeArea(.container, edges: [.top, .horizontal])

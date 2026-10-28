@@ -198,3 +198,25 @@ two signing/framework packaging checks, and archive/IPA distribution validation.
 **No full suite was run.** Prior issue-specific screenshot/workflow evidence is
 retained locally. Physical energy/PiP and actual receiver maintenance are still
 unverified. The iOS upload does not deploy the server-side hero-framing warm-up.
+
+### Internal dogfood package 30, 2026-10-28
+
+**iOS 0.1.0 (30) uploaded to Apple**, confirmed in Xcode Organizer. Built from clean
+`main` revision `f04761f6c481da68393159a395b7b5e507a0e603`, including all build-29
+features and merged dogfood fixes through PR #189: steady Home hero swipes,
+transparent portrait categories, system volume/brightness gestures, playback
+performance info, and permission-aware native metadata editing/matching.
+
+Xcode used cloud-managed distribution signing, preserved build 30, included
+symbols, and selected TestFlight Internal Only. Do not upload build 30 again.
+Apple processing and tester assignment are not verified; tvOS remains deferred.
+
+Ignored `apple/Distribution/0.1.0-30/` retains the exact signed uploaded IPA,
+Organizer-ready archive, matching app symbols, source snapshot/input hashes,
+release manifest, What to Test, validation output, and successful upload logs.
+The committed Xcode project was used directly; no source regeneration or build
+number changes were made in the checkout. Qualification used the existing focused
+dogfood checks plus Release archive and signed-package validation. **No full suite
+was run.** Physical volume/brightness and energy/PiP verification remain device
+checks. Native metadata actions require the matching updated Lumina server;
+this iOS upload does not deploy the server.

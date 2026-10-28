@@ -23,6 +23,8 @@
 .gallery.home .h-hero { --h-art: min(56vh, 560px); position: relative; margin: 0 calc(-1 * var(--g-gutter)); overflow: hidden; background: var(--g-overlay-bg); color: var(--g-on-art); touch-action: pan-y; }
 .gallery.home .h-hero-stage { display: grid; }
 .gallery.home .h-slide { position: relative; display: flex; grid-area: 1 / 1; height: var(--h-art); min-height: 340px; align-items: flex-end; padding: 0 var(--g-gutter) var(--g-space-6); overflow: hidden; background: var(--h-hero-colour); }
+/* A colour field has no artwork to earn the cinematic masthead; it still grows for long copy. */
+.gallery.home .h-slide.is-field { height: auto; min-height: 360px; }
 .gallery.home .h-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
 .gallery.home .h-hero-blur > img { filter: blur(40px) brightness(.5); transform: scale(1.2); }
 .gallery.home .h-hero-poster { position: absolute; top: var(--g-space-6); right: calc(var(--g-gutter) + 8%); height: calc(100% - 2 * var(--g-space-6) - var(--g-control)); aspect-ratio: 2 / 3; box-shadow: var(--g-elev-2); }
@@ -64,6 +66,7 @@
   .gallery.home .h-hero { --h-art: min(56.25vw, 420px); background: var(--g-paper); color: var(--g-ink); }
   /* A floor for the copy, so an advance between slides of different lengths rarely moves the shelves below. */
   .gallery.home .h-slide { display: block; height: auto; min-height: calc(var(--h-art) + 216px); padding: calc(var(--h-art) + var(--g-space-4)) var(--g-gutter) 0; background: var(--g-paper); color: var(--g-ink) !important; }
+  .gallery.home .h-slide.is-field { min-height: calc(var(--h-art) + 216px); }
   .gallery.home .h-slide::before { content: ''; position: absolute; inset: 0 0 auto; height: var(--h-art); background: var(--h-hero-colour); }
   .gallery.home .h-hero-art { inset: 0 0 auto; height: var(--h-art); }
   .gallery.home .h-hero-poster { height: calc(var(--h-art) - 2 * var(--g-space-6) - var(--g-control)); }

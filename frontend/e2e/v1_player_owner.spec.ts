@@ -112,5 +112,9 @@ for (const viewport of [{ width: 1536, height: 960 }, { width: 390, height: 844 
       expect(box && tabs && box.y + box.height).toBeLessThanOrEqual(tabs?.y ?? 0);
     }
     await expect(page.locator('.watch-mini [data-player-state="ready"]')).toHaveCount(1);
+    for (const control of await page.getByRole('region', { name: /^Mini player: / }).getByRole('button').all()) {
+      const bounds = await control.boundingBox();
+      expect(bounds && bounds.height).toBeGreaterThanOrEqual(44);
+    }
   });
 }

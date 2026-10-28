@@ -31,6 +31,10 @@ final class NativeNativeBooksReadTurnAndRestoreAllFormatsTests: NativeProofJourn
     func testNativeBooksReadTurnAndRestoreAllFormats() async throws { try await journeyNativeBooksReadTurnAndRestoreAllFormats() }
 }
 @MainActor
+final class NativeVisualConsistencyTests: NativeProofJourney {
+    func testMediaCatalogGuttersAndNavigation() throws { try journeyMediaCatalogGuttersAndNavigation() }
+}
+@MainActor
 final class NativeBookCurlTests: NativeProofJourney {
     func testCompactReaderDefaultsToOnePage() async throws {
         try await journeyArtworkCurlHonorsReadingOrderAndCommitsOnlyCompletedTurns(compactLayoutOnly: true)
@@ -361,7 +365,9 @@ class NativeProofJourney: XCTestCase {
         try selectDestination("Books", screen: "booksScreen")
         try revealBookItem(element("bookCatalogButton"))
         try activate(element("bookCatalogButton"))
+        try attachFrame(named: "Books catalog before reading")
         for book in books {
+            let format = book == epub ? "EPUB" : book == pdf ? "PDF" : book == cbz ? "CBZ" : "CBR"
             let card = element("book-\(book)")
             try revealBookItem(card)
             try waitForExistence(card, timeout: 20, named: "native book catalog entry")
@@ -371,6 +377,7 @@ class NativeProofJourney: XCTestCase {
             try waitForExistence(position, timeout: 20, named: "native reader position")
             let next = element("bookNextButton")
             try waitForHittable(next, timeout: 30, named: "prepared native page")
+            try attachFrame(named: "\(format) reader with navigation controls")
             let before = position.label
             try activate(next)
             guard waitUntil(timeout: 20, condition: { position.label != before }) else {
@@ -393,6 +400,41 @@ class NativeProofJourney: XCTestCase {
             }
             try activate(element("bookCloseButton"))
         }
+        completed = true
+    }
+
+    func journeyMediaCatalogGuttersAndNavigation() throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try attachFrame(named: "Visual consistency Home")
+        try selectDestination("Video", screen: "libraryScreen")
+        try waitForExistence(element("libraryItem-\(fixture.directItemID)"), timeout: 20, named: "movie catalog")
+        try attachFrame(named: "Visual consistency movie library")
+        try selectDestination("Audio", screen: "audioScreen")
+        try waitForExistence(element("audioItem-\(fixture.audioAlbumID)"), timeout: 20, named: "music catalog")
+        try attachFrame(named: "Visual consistency music library")
+        try selectDestination("Books", screen: "booksScreen")
+        let books = element("booksScreen")
+        let cards = books.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "book-"))
+        try waitForExistence(cards.firstMatch, timeout: 25, named: "Books overview covers")
+        let heading = books.staticTexts.matching(NSPredicate(format: "label IN %@", ["Continue reading", "Recently added"]))
+            .allElementsBoundByIndex.first(where: { hasVisibleFrame($0) })
+        let firstHeading = try XCTUnwrap(heading, "Books overview must identify its first shelf.")
+        let firstCard = try XCTUnwrap(cards.allElementsBoundByIndex.filter { hasVisibleFrame($0) }
+            .min(by: { $0.frame.minX < $1.frame.minX }), "The first Books shelf must show a cover.")
+        try attachFrame(named: "Visual consistency Books overview gutters")
+        let measurements = XCTAttachment(string: "headingX=\(firstHeading.frame.minX), firstCoverX=\(firstCard.frame.minX), viewport=\(try applicationViewport())")
+        measurements.name = "Books heading and first cover gutter measurements"
+        measurements.lifetime = .keepAlways
+        add(measurements)
+        XCTAssertEqual(firstHeading.frame.minX, try applicationViewport().minX + 20, accuracy: 1,
+                       "Books must use the same content gutter as the other media catalogs.")
+        // The accessible card bounds include its 4-point cover shadow.
+        XCTAssertEqual(firstCard.frame.minX, firstHeading.frame.minX, accuracy: 4,
+                       "The first Books cover must remain aligned with its shelf heading.")
         completed = true
     }
 

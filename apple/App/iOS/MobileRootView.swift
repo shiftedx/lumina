@@ -2481,7 +2481,7 @@ struct VideoCollectionView: View {
     private var collectionHeroMetadata: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) { collectionHeroMetadataContent }
-            VStack(alignment: .leading, spacing: 6) { collectionHeroMetadataContent }
+            VStack(alignment: .leading, spacing: 8) { collectionHeroMetadataContent }
         }
         .font(.caption.weight(.medium))
         .textCase(.uppercase)
@@ -3873,7 +3873,7 @@ struct TitleDetailView: View {
     private var detailHeroMetadata: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) { detailHeroMetadataContent }
-            VStack(alignment: .leading, spacing: 6) { detailHeroMetadataContent }
+            VStack(alignment: .leading, spacing: 8) { detailHeroMetadataContent }
         }
         .font(.caption.weight(.medium))
         .textCase(.uppercase)

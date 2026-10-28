@@ -20,6 +20,8 @@
 .gallery.t-page .t-back svg { width: 16px; height: 16px; }
 .gallery.t-page.is-plain .t-back { color: inherit; text-shadow: none; }
 .t-page.is-plain .t-headline { position: relative; max-width: var(--g-page-width); }
+/* Without backdrop art, a shorter colour field gets the reader to the title without changing art-led heroes. */
+.t-page.is-plain .t-hero { height: clamp(320px, 28vw, 400px); }
 
 /* Body: two columns pulled up over the hero; the story sits in the main column after the actions. */
 .t-body { position: relative; display: grid; max-width: calc(var(--g-page-width) + 2 * var(--g-gutter)); margin: -120px auto 0; padding: 0 var(--g-gutter); grid-template-areas: 'heading .' 'main side'; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); column-gap: var(--g-space-7); align-items: start; }
@@ -125,6 +127,7 @@
 /* Phone (< 600 px): one column, the side column after the actions, snapping rows. */
 @media (max-width: 599px) {
   .t-hero { height: min(56.25vw, 420px); padding-bottom: var(--g-space-4); }
+  .t-page.is-plain .t-hero { height: min(56.25vw, 420px); }
   .t-body { margin-top: -46px; grid-template-areas: 'heading' 'main' 'side'; grid-template-columns: minmax(0, 1fr); }
   .t-page.is-plain .t-body { margin-top: var(--g-space-5); }
   .t-side { margin-top: var(--g-space-5); padding: var(--g-space-5) 0 0; border-top: var(--g-rule); border-left: 0; }

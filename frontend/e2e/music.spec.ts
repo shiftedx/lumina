@@ -154,6 +154,20 @@ test('keyboard only: the tracklist is one column and Left reaches Play', async (
   await expect(page.getByRole('region', { name: 'Music player', exact: true }).getByRole('button', { name: 'Open listening room for Song 1' })).toBeVisible();
 });
 
+test('keyboard focus keeps a phone track clear of the persistent navigation', async ({ page }) => {
+  await open(page, '/audio/title/album-1', { width: 390, height: 844 });
+  const firstTrack = page.getByRole('button', { name: 'Play 1. Song 1, 1:30' });
+  await firstTrack.focus();
+  await expect(firstTrack).toBeFocused();
+  const bounds = await page.evaluate(() => {
+    const track = document.querySelector('.g-track')?.getBoundingClientRect();
+    const navigation = document.querySelector('[aria-label="Mobile primary navigation"]')?.getBoundingClientRect();
+    if (!track || !navigation) throw new Error('Expected track and mobile navigation');
+    return { track: { bottom: track.bottom }, navigation: { top: navigation.top } };
+  });
+  expect(bounds.track.bottom).toBeLessThanOrEqual(bounds.navigation.top - 8);
+});
+
 for (const scheme of ['light', 'dark'] as const) {
   for (const viewport of [DESKTOP, PHONE]) {
     test(`music pages and the listening room in ${scheme} at ${viewport.width}px: no serious axe findings or sideways scroll`, async ({ page }, testInfo) => {

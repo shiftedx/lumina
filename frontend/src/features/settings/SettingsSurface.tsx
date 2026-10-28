@@ -60,6 +60,31 @@ export function SettingsSurface({ section = null, page = null, space, onLocation
   const bookmark = window.location.hash.slice(1);
   const pendingFocus = useRef<string | null>(bookmark.startsWith('setting-') || bookmark.startsWith('settings-group-') ? bookmark : page && requestedPage ? `settings-group-${requestedPage.id}` : null);
 
+  useEffect(() => {
+    const revealActiveRailItem = () => {
+      if (searching || member || typeof window.matchMedia !== 'function' || !window.matchMedia('(max-width: 800px)').matches) return;
+      const rail = navRef.current;
+      const active = rail?.querySelector<HTMLElement>('.g-settings-link[aria-current="page"]');
+      if (!rail || !active) return;
+      const railBox = rail.getBoundingClientRect();
+      const activeBox = active.getBoundingClientRect();
+      const inset = 16;
+      if (activeBox.left < railBox.left + inset) rail.scrollLeft += activeBox.left - railBox.left - inset;
+      else if (activeBox.right > railBox.right - inset) rail.scrollLeft += activeBox.right - railBox.right + inset;
+    };
+    const frame = requestAnimationFrame(revealActiveRailItem);
+    window.addEventListener('resize', revealActiveRailItem);
+    window.visualViewport?.addEventListener('resize', revealActiveRailItem);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(revealActiveRailItem);
+    if (navRef.current) observer?.observe(navRef.current);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', revealActiveRailItem);
+      window.visualViewport?.removeEventListener('resize', revealActiveRailItem);
+      observer?.disconnect();
+    };
+  }, [locationKey, member, searching]);
+
   function choose(next: SettingsLocation, row?: string): boolean {
     const sameArea = next.section && categoryForPage(resolveSettingsPage(next.section, next.page)).id === category.id && (next.page === 'about') === (current.id === 'about');
     if ((!sameArea || searching || member) && !confirmLeaveSettings()) return false;

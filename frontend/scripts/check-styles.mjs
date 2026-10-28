@@ -16,7 +16,8 @@ const KB = 1024;
 // OLED adds a pure-black surface override and a fourth theme preview.
 // Photos adds its lazy justified timeline, people controls, and YARL viewer/plugin styles (~4.5 KB gzip).
 // Shared brand alignment also reaches the standalone offline entry (<0.1 KB gzip).
-export const CSS_BUDGET = 75.6 * KB;
+// Responsive focus clearance, missing-art fallbacks and 44px player targets add <0.2 KB gzip.
+export const CSS_BUDGET = 75.8 * KB;
 export const CORE_BUDGET = 7.1 * KB; // tokens.css + ui.css + brand.css (spec 1.8)
 // Branded select and editable suggestion controls replace browser-native popups: UI now measures 10.0 KB gzip.
 export const CHUNK_BUDGETS = { ui: 10.5 * KB, icons: 3 * KB, palette: 12 * KB, BooksSurface: 15 * KB };

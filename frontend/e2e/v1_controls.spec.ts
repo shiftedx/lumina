@@ -45,6 +45,10 @@ test('test_keyboard_only_player_flow', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   const { video, saved } = await openLibraryWatch(page, 'dark');
+  for (const control of await page.locator('.player-controls button:visible, .player-controls [role="combobox"]:visible').all()) {
+    const bounds = await control.boundingBox();
+    expect(bounds && bounds.height).toBeGreaterThanOrEqual(44);
+  }
   // The member's saved volume is applied from server ui_prefs.
   await expect.poll(() => video.evaluate((m: HTMLVideoElement) => m.volume)).toBe(0.4);
 

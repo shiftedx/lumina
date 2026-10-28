@@ -3,6 +3,9 @@ import UIKit
 
 /// Neutral theater surfaces with Lumina's warm accent and adaptive light appearance.
 public enum LuminaTheme {
+    /// Shared iOS media-page inset; hero artwork may deliberately bleed through it.
+    public static let contentGutter: CGFloat = 20
+
     /// The same licensed Newsreader face used by the web gallery, scaled with native text settings.
     public static func editorial(_ size: CGFloat, relativeTo style: Font.TextStyle = .title2, italic: Bool = false) -> Font {
         .custom(italic ? "Newsreader-16ptItalic" : "Newsreader-16ptRegular", size: size, relativeTo: style)

@@ -216,7 +216,7 @@ struct MediaBillboard<Actions: View>: View {
                 copy
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, minHeight: compactMinimumHeight ?? (featured ? 336 : 380), alignment: .bottomLeading)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, LuminaTheme.contentGutter)
                     .padding(.top, topInset)
                     .padding(.bottom, featured ? 68 + bottomContentClearance : artworkFirst ? 44 : 24)
                     .frame(minHeight: compactArtworkMinimumHeight,
@@ -419,7 +419,7 @@ struct MediaBillboard<Actions: View>: View {
         #if os(tvOS)
         80
         #else
-        32
+        LuminaTheme.contentGutter
         #endif
     }
     private var minimumHeight: CGFloat {
@@ -829,7 +829,7 @@ struct MusicCollectionSpotlight: View {
         #if os(tvOS)
         80
         #else
-        24
+        LuminaTheme.contentGutter
         #endif
     }
 }
@@ -843,7 +843,7 @@ struct LuminaMediaActionStyle: ButtonStyle {
         return configuration.label
             .font(.subheadline.weight(.semibold))
             .imageScale(.small)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 16)
             .frame(minWidth: 44, minHeight: 44)
             .foregroundStyle(foreground)
             .tint(foreground)
@@ -933,7 +933,7 @@ struct LuminaQuietActionStyle: ButtonStyle {
 #if os(iOS)
 /// Cards keep their resting inset while their scroll viewport reaches the bezel.
 struct LuminaCarouselEdges: ViewModifier {
-    var inset: CGFloat = 20
+    var inset: CGFloat = LuminaTheme.contentGutter
 
     func body(content: Content) -> some View {
         content
@@ -961,7 +961,7 @@ struct LuminaCategoryBar<Content: View>: View {
                     content
                 }
                 #if os(iOS)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, LuminaTheme.contentGutter)
                 #else
                 .padding(.horizontal, 2)
                 #endif

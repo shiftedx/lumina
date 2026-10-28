@@ -298,12 +298,15 @@ struct NativeMusicLibraryView: View {
             Button("Refresh shared queue", glyph: .sync) {
                 Task { await audioSession.refreshSharedQueue() }
             }
+            .disabled(audioSession.isRemoteOutput)
             .accessibilityIdentifier("refreshSharedQueueButton")
             if audioSession.conflict != nil {
                 Text("The server and this device have different queues. Choose which one to keep.")
                 Button("Use server queue") { Task { await audioSession.useServerSession() } }
+                    .disabled(audioSession.isRemoteOutput)
                     .accessibilityIdentifier("libraryUseServerQueueButton")
                 Button("Keep this device's queue") { Task { await audioSession.keepDeviceSession() } }
+                    .disabled(audioSession.isRemoteOutput)
                     .accessibilityIdentifier("libraryKeepDeviceQueueButton")
             }
             if let model = audioSession.playback {
@@ -315,7 +318,7 @@ struct NativeMusicLibraryView: View {
                     catch { errorMessage = error.localizedDescription }
                 }
             }
-            .disabled(audioSession.snapshot.queue.isEmpty || audioSession.busy || audioSession.conflict != nil)
+            .disabled(audioSession.snapshot.queue.isEmpty || audioSession.busy || audioSession.conflict != nil || audioSession.isRemoteOutput)
             .accessibilityIdentifier("playSavedQueueButton")
             Button("Clear listening queue", glyph: .trash, role: .destructive) { clearingQueue = true }
                 .disabled((audioSession.snapshot.queue.isEmpty && audioSession.snapshot.entries.isEmpty) || audioSession.conflict != nil)

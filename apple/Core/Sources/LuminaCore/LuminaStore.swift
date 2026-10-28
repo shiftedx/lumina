@@ -84,6 +84,10 @@ let tickScale = 10_000_000.0
     private var readyArtworkFramings = [URL: HeroFraming]()
     private var readyArtworkFramingOrder = [URL]()
     private let maximumReadyArtworkFramings = 80
+    /// Tickets are scoped to this native session only. They are never persisted or shared with
+    /// other app instances, so signing out cannot revoke another member's Cast session.
+    private var issuedChromecastTicketIDs = Set<UUID>()
+    private var issuedMusicReceiverTicketIDs = Set<UUID>()
 
     public init(playbackPreferences: NativePlaybackPreferences = NativePlaybackPreferences(),
                 connectivity: LuminaConnectivity = LuminaConnectivity(),
@@ -279,8 +283,24 @@ let tickScale = 10_000_000.0
 
     public func signOut() async {
         let active = session
-        if let active { offline.clear(session: active) }
+        let issuedTickets = issuedChromecastTicketIDs
+        let issuedMusicTickets = issuedMusicReceiverTicketIDs
+        issuedChromecastTicketIDs.removeAll()
+        issuedMusicReceiverTicketIDs.removeAll()
+        // A pending ticket mint resumes after its network await. Clear ownership
+        // before the first revoke so that completion cannot register a new ticket
+        // after sign-out; it will revoke its own stale capability instead.
         clearSession()
+        if let active {
+            for ticketID in issuedTickets {
+                try? await client.revokeChromecast(origin: active.serverURL, token: active.accessToken,
+                                                    deviceID: active.deviceID, ticketID: ticketID)
+            }
+            for ticketID in issuedMusicTickets {
+                try? await client.revokeMusicReceiver(origin: active.serverURL, token: active.accessToken,
+                                                       deviceID: active.deviceID, ticketID: ticketID)
+            }
+        }
         guard let active else { return }
         try? await client.logout(origin: active.serverURL, token: active.accessToken, deviceID: active.deviceID)
     }
@@ -1041,6 +1061,70 @@ let tickScale = 10_000_000.0
                                           audioStreamIndex: preferredAudio, subtitleStreamIndex: preferredSubtitle,
                                           mediaSourceID: source.id, startPositionSeconds: startPositionSeconds,
                                           selectedSourceChapters: selectedSourceChapters)
+    }
+
+    /// Mints a brief, receiver-scoped Chromecast capability. The returned media URL is safe to
+    /// hand to a Cast receiver and intentionally never inherits the signed-in app credential.
+    public func prepareChromecast(itemID: String, positionSeconds: Double, audioIndex: Int? = nil,
+                                  subtitle: String? = nil) async throws -> ChromecastTicket {
+        guard !isOffline, let active = session else { throw LuminaError.notSignedIn }
+        let ticket = try await client.prepareChromecast(origin: active.serverURL, token: active.accessToken,
+                                                        deviceID: active.deviceID, itemID: itemID,
+                                                        positionSeconds: positionSeconds, audioIndex: audioIndex,
+                                                        subtitle: subtitle)
+        guard isCurrent(active) else {
+            try? await client.revokeChromecast(origin: active.serverURL, token: active.accessToken,
+                                                deviceID: active.deviceID, ticketID: ticket.ticketID)
+            throw LuminaError.notSignedIn
+        }
+        issuedChromecastTicketIDs.insert(ticket.ticketID)
+        return ticket
+    }
+
+    public func renewChromecast(ticketID: UUID) async throws {
+        guard !isOffline, let active = session else { throw LuminaError.notSignedIn }
+        try await client.renewChromecast(origin: active.serverURL, token: active.accessToken,
+                                         deviceID: active.deviceID, ticketID: ticketID)
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+    }
+
+    public func revokeChromecast(ticketID: UUID) async throws {
+        guard !isOffline, let active = session else { throw LuminaError.notSignedIn }
+        try await client.revokeChromecast(origin: active.serverURL, token: active.accessToken,
+                                          deviceID: active.deviceID, ticketID: ticketID)
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        issuedChromecastTicketIDs.remove(ticketID)
+    }
+
+    /// Mints a short-lived receiver capability for an AAC-compatible music track.
+    public func prepareMusicReceiver(itemIDs: [String], currentIndex: Int,
+                                     positionSeconds: Double) async throws -> MusicReceiverTicket {
+        guard !isOffline, let active = session else { throw LuminaError.notSignedIn }
+        let ticket = try await client.prepareMusicReceiver(origin: active.serverURL, token: active.accessToken,
+                                                           deviceID: active.deviceID, itemIDs: itemIDs, currentIndex: currentIndex,
+                                                           positionSeconds: positionSeconds)
+        guard isCurrent(active) else {
+            try? await client.revokeMusicReceiver(origin: active.serverURL, token: active.accessToken,
+                                                   deviceID: active.deviceID, ticketID: ticket.ticket.ticketID)
+            throw LuminaError.notSignedIn
+        }
+        issuedMusicReceiverTicketIDs.insert(ticket.ticket.ticketID)
+        return ticket
+    }
+
+    public func renewMusicReceiver(ticketID: UUID) async throws {
+        guard !isOffline, let active = session else { throw LuminaError.notSignedIn }
+        try await client.renewMusicReceiver(origin: active.serverURL, token: active.accessToken,
+                                            deviceID: active.deviceID, ticketID: ticketID)
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+    }
+
+    public func revokeMusicReceiver(ticketID: UUID) async throws {
+        guard !isOffline, let active = session else { throw LuminaError.notSignedIn }
+        try await client.revokeMusicReceiver(origin: active.serverURL, token: active.accessToken,
+                                             deviceID: active.deviceID, ticketID: ticketID)
+        guard isCurrent(active) else { throw LuminaError.notSignedIn }
+        issuedMusicReceiverTicketIDs.remove(ticketID)
     }
 
     /// Jellyfin places chapter markers on BaseItemDto, not MediaSourceInfo. When a

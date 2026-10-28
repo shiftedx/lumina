@@ -12,8 +12,12 @@ struct NativeAudioOptions: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Your saved queue differs from the server. Choose which queue to keep.")
                     HStack {
-                        Button("Use server") { Task { await session.useServerSession() } }.accessibilityIdentifier("audioUseServerButton")
-                        Button("Keep this device") { Task { await session.keepDeviceSession() } }.accessibilityIdentifier("audioKeepDeviceButton")
+                        Button("Use server") { Task { await session.useServerSession() } }
+                            .disabled(session.isRemoteOutput)
+                            .accessibilityIdentifier("audioUseServerButton")
+                        Button("Keep this device") { Task { await session.keepDeviceSession() } }
+                            .disabled(session.isRemoteOutput)
+                            .accessibilityIdentifier("audioKeepDeviceButton")
                     }
                     .buttonStyle(.bordered)
                 }
@@ -23,7 +27,7 @@ struct NativeAudioOptions: View {
                                   focusRequest: focusLyricsRequest) { lyrics }
             NativeAudioDisclosure("Listening options", identifier: "audioListeningOptions") {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(session.isSonos ? "Sonos output" : session.playbackMode == .progressive ? "Progressive source audio" : session.playbackMode == .decoded ? "Gapless buffer · 48 kHz" : "Streaming source audio")
+                    Text(hasRemoteOutput ? "Remote output" : session.playbackMode == .progressive ? "Progressive source audio" : session.playbackMode == .decoded ? "Gapless buffer · 48 kHz" : "Streaming source audio")
                         .font(.caption).foregroundStyle(.secondary)
                     Text(sourceFormat ?? "Source format information is unavailable.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -31,12 +35,12 @@ struct NativeAudioOptions: View {
                     Toggle("Normalize loudness", isOn: $session.normalization)
                         .tint(LuminaTheme.brand)
                         .accessibilityIdentifier("audioNormalizeToggle")
-                        .disabled(session.isSonos || session.playbackMode == .streaming || !hasLoudnessMetadata)
+                        .disabled(hasRemoteOutput || session.playbackMode == .streaming || !hasLoudnessMetadata)
                     if !hasLoudnessMetadata {
                         Text("Loudness metadata is not available for this recording yet.").font(.caption)
                     }
-                    if session.playbackMode == .streaming && !session.isSonos {
-                        Text("Streaming preserves source loudness. Normalization and crossfade use buffered playback.")
+                    if session.playbackMode == .streaming && !hasRemoteOutput {
+                        Text("Streaming · source loudness")
                             .font(.caption)
                     }
                     Text("Crossfade").font(.subheadline).foregroundStyle(.secondary)
@@ -47,7 +51,7 @@ struct NativeAudioOptions: View {
                         Text("12 seconds").tag(12.0)
                     }
                     .pickerStyle(.menu)
-                    .disabled(session.isSonos || session.playbackMode == .streaming)
+                    .disabled(hasRemoteOutput || session.playbackMode == .streaming)
                     .accessibilityIdentifier("audioCrossfadePicker")
                     Menu {
                         Button("Off") { session.setSleep(minutes: nil) }
@@ -59,10 +63,10 @@ struct NativeAudioOptions: View {
                             Label("Sleep timer: \(until, style: .relative)", glyph: .sleepTimer)
                         } else { Label("Sleep timer: Off", glyph: .sleepTimer) }
                     }
-                    .disabled(session.isSonos)
+                    .disabled(hasRemoteOutput)
                     .accessibilityIdentifier("audioSleepTimerButton")
-                    if session.isSonos {
-                        Text("Normalization, crossfade, repeat and sleep timer stay on this device and are unavailable on Sonos.")
+                    if hasRemoteOutput {
+                        Text("Local processing unavailable")
                             .font(.caption)
                     }
                 }
@@ -76,7 +80,7 @@ struct NativeAudioOptions: View {
                         Text("Wait here").tag("wait")
                     }
                     .pickerStyle(.menu)
-                    .disabled(session.isSonos)
+                    .disabled(hasRemoteOutput)
                     ForEach(Array(session.pendingEntries.enumerated()), id: \.offset) { _, entry in
                         VStack(alignment: .leading) {
                             Text(entry.name ?? entry.title ?? "Requested album")
@@ -106,6 +110,7 @@ struct NativeAudioOptions: View {
             Button("Refresh shared queue", glyph: .sync) { Task { await session.refreshSharedQueue() } }
                 .font(.callout)
                 .padding(.vertical, 14)
+                .disabled(session.isRemoteOutput)
                 .accessibilityIdentifier("audioRefreshSharedQueueButton")
             if let message = session.message {
                 Text(message).font(.callout).foregroundStyle(.white.opacity(0.8))
@@ -184,44 +189,60 @@ struct NativeAudioOptions: View {
         return track.gainDB != nil || track.albumGainDB != nil
     }
     private var outputVolume: Float {
-        session.isSonos ? session.remoteVolumeDraft ?? Float(session.outputStatus?.volume ?? 50) / 100 : session.volume
+        #if os(iOS)
+        if session.isRemoteOutput { return Float(session.casting.volume) }
+        #endif
+        return session.isSonos ? session.remoteVolumeDraft ?? Float(session.outputStatus?.volume ?? 50) / 100 : session.volume
+    }
+    private var hasRemoteOutput: Bool { session.isSonos || session.isRemoteOutput }
+    private var outputVolumeAvailable: Bool {
+        #if os(iOS)
+        !session.isRemoteOutput || session.casting.isRemoteOutput
+        #else
+        true
+        #endif
     }
     private var output: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Button(session.isSonos ? "Return playback to this device" : "This device") {
-                if session.isSonos { Task { await session.returnHere() } }
+            #if os(iOS)
+            HStack(spacing: 20) {
+                HStack(spacing: 8) {
+                    NativeMusicAirPlayButton(session: session)
+                    Text("AirPlay").font(.callout.weight(.medium)).accessibilityHidden(true)
+                }
+                HStack(spacing: 8) {
+                    NativeMusicCastButton(session: session)
+                    Text("Cast").font(.callout.weight(.medium)).accessibilityHidden(true)
+                }
             }
-            .disabled(session.busy || !session.isSonos)
-            .accessibilityIdentifier("audioReturnHereButton")
+            .disabled(hasRemoteOutput || session.busy)
+            .accessibilityElement(children: .contain)
+            NativeMusicCastStatus(session: session)
+            #else
+            Text("Choose output in tvOS Control Center")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            #endif
+            if session.isSonos || session.pendingSpeakerStop != nil {
+                Button("Return to this device") { Task { await session.returnHere() } }
+                    .disabled(session.busy)
+                    .accessibilityIdentifier("audioReturnHereButton")
+            }
             #if os(tvOS)
             HStack {
                 Button("Volume down") { Task { await session.setOutputVolume(outputVolume - 0.1) } }
                 Text("\(Int(outputVolume * 100))%")
                 Button("Volume up") { Task { await session.setOutputVolume(outputVolume + 0.1) } }
             }
+            .disabled(session.busy || !outputVolumeAvailable)
             #else
             Slider(value: Binding(get: { outputVolume }, set: { value in Task { await session.setOutputVolume(value) } }), in: 0...1)
                 .accessibilityLabel("Music volume")
+                .disabled(session.busy || !outputVolumeAvailable)
             #endif
             if session.pendingSpeakerStop != nil {
-                Button("Retry stopping speaker") { Task { await session.retryStoppingSpeaker() } }
+                Button("Retry stopping remote output") { Task { await session.retryStoppingSpeaker() } }
             }
-            Toggle("Compatibility mode for Sonos S1", isOn: $session.compatibility)
-                .tint(LuminaTheme.brand)
-            Button(session.busy ? "Looking for speakers…" : "Refresh Sonos speakers") { Task { await session.discoverSpeakers() } }
-                .disabled(session.busy)
-                .accessibilityIdentifier("audioRefreshSpeakersButton")
-            ForEach(session.speakers) { speaker in
-                Button { Task { await session.cast(to: speaker) } } label: {
-                    VStack(alignment: .leading) {
-                        Text(speaker.name)
-                        Text("\(speaker.model) · \(session.compatibility ? "16-bit compatibility" : "up to 24-bit / 48 kHz")").font(.caption)
-                    }
-                }
-                .disabled(session.busy || session.tracks.isEmpty)
-            }
-            Text("Sonos receives at most the next 100 tracks. The local player pauses after the speaker acknowledges the transfer.")
-                .font(.caption)
         }
         .padding(.vertical, 8)
     }

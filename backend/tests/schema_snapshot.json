@@ -564,10 +564,13 @@
    "updated_at"
   ],
   "media_cast_tickets": [
+   "audio_index",
    "created_at",
    "expires_at",
    "id",
+   "issuer_device_id",
    "item_id",
+   "playback_session_id",
    "subtitle",
    "token_hash",
    "user_id"
@@ -748,6 +751,15 @@
    "rules",
    "shared",
    "updated_at",
+   "user_id"
+  ],
+  "music_receiver_tickets": [
+   "created_at",
+   "expires_at",
+   "id",
+   "issuer_device_id",
+   "item_ids",
+   "token_hash",
    "user_id"
   ],
   "music_track_overrides": [
@@ -1335,5 +1347,5 @@
    "user_id"
   ]
  },
- "version": 38
+ "version": 39
 }

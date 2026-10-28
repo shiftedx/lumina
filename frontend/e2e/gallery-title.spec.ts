@@ -174,6 +174,16 @@ test('desktop over the gallery styles: the art fills the hero, More like this po
   })).toBe(true);
 });
 
+test('an artless desktop title keeps its heading and Play in the first viewport', async ({ page }) => {
+  await open(page, '/title/movie-1', { ...movieOptions, detail: { ...movieOptions.detail, backdrop: null, play_item_id: 'item-movie-4k' } });
+  await expect(page.locator('.t-page')).toHaveClass(/is-plain/);
+  await expect(page.getByRole('heading', { level: 1 })).toBeInViewport({ ratio: 1 });
+  const play = page.getByRole('button', { name: 'Play', exact: true });
+  await expect(play).toBeInViewport({ ratio: 1 });
+  await play.click();
+  await expect(page).toHaveURL(/\/watch\/library\/[^/]+$/);
+});
+
 for (const width of [390, 320]) {
   test(`phone ${width}: one column with the story after the actions and the side column after it, sideways rows, no sideways page, 44px targets`, async ({ page }) => {
     await open(page, '/title/series-1', showOptions, { width, height: 844 });

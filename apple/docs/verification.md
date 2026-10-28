@@ -644,3 +644,72 @@ and debug-symbol UUIDs match. The ignored release directory retains provenance,
 141 native build-input hashes, IPA checksums and this composed browser evidence.
 No build 12 upload or production deployment was performed. The Duo, complete
 playback-settings and physical 4K/HDR/HDMI/audio limits above remain in force.
+
+
+## Duo dogfood: artwork, controls, and receiver output, 2026-10-27
+
+The pending dogfood batch adds native video and music AirPlay/Chromecast output,
+server conversion for native video receivers, and scoped music receiver queues.
+Receiver credentials are separate from native app credentials. A valid native
+video ticket recreates an idle-reaped HLS session on the next receiver request,
+including its selected audio and subtitle tracks. Cast hardware qualification
+remains outstanding; simulator checks do not establish receiver compatibility.
+
+iOS detail heroes now occupy the first viewport. The Seasons action scrolls to
+the existing collection, and synopsis/supporting detail follows below. Artwork
+uses localized bottom shading; pushed details omit the Lumina masthead while
+Home, Library, and Requests retain their navigation branding. Video controls use
+a shared inset, centered transport, and grouped output actions, with Lumina SVG
+assets and plain 44-point targets. Playback remains owned above adaptive
+presentation; the layout changes do not replace the retained player/session.
+
+Focused checks during this pass: 14 Core Chromecast client/handoff tests, nine
+backend Chromecast tests (including renewal after idle reaping), 68 music receiver,
+audio, device-lifecycle and schema tests, and the shared 144-asset icon contract
+passed. The iOS Release simulator build and these native workflows passed:
+
+- Closed Duo, 466×678 points: full-viewport hero, Seasons reveal, episode playback,
+  centered transport/output group, common utility baseline, and chrome dismissal.
+- Open Duo, 951×669 points: the same artwork and player alignment workflow.
+- Open Duo: music output controls, background pause/restore, and queue conflicts.
+- Open Duo: retained direct and client-demux playback sessions across repeated
+  presentation rebuilds, with advancing playback and no replacement session.
+
+The final open layout run is `lumina-dogfood-open-grid-r6.xcresult`; closed layout
+is `lumina-dogfood-artwork-grid-r5.xcresult`. Music and retained-session results are
+in `lumina-dogfood-open-qualified.xcresult` (that bundle's earlier overlay assertion
+failed before the footer inset correction; it is superseded by the r6 overlay run).
+These are focused simulator checks, not a full repository gate or receiver hardware
+qualification. No archive, signed export, or TestFlight upload was made.
+
+
+## Mark/wordmark baseline audit, 2026-10-27
+
+Horizontal web lockups now align the sunrise's painted bottom to the capital L,
+accounting for transparent SVG padding rather than centering the image canvas
+against the text line box. The tiny shared brand stylesheet serves login,
+navigation, onboarding, reader headers, and the standalone offline entry; the
+latter retains its original JavaScript imports and italic typography. Its L's
+font-relative ink overshoot is included in the optical correction. The shared
+CSS budgets include this stylesheet and grew by 0.1 KiB to retain a measured cap.
+
+All four native paired lockups (iOS/tvOS connection and root navigation) use the
+same painted-edge baseline modifier, including aspect-fit padding. The separate
+email PNG uses table-cell baselines; a rendered synthetic email measured a zero
+pixel difference between the mark and word's lower painted edges. No approved
+image geometry, colors, launcher assets, or playback code changed.
+
+Focused validation: WebKit and Chromium sign-in/offline lockups at 390 and 720
+points passed rendered-ink alignment checks; 14 branding/auth/offline unit tests,
+11 email tests, frontend typecheck/build/style budgets, iOS/tvOS Release simulator
+builds, and the native welcome/help/manual sign-in workflow passed. Native login
+was also visually inspected from `lumina-brand-native-welcome.xcresult`.
+
+The existing standalone offline-reload browser workflow fails after switching
+the browser context offline. The same Chromium failure was reproduced with all
+three modified web entry/style sources served verbatim from unchanged HEAD using
+a temporary Vite load overlay. This is retained as a separate baseline failure;
+no service-worker or playback changes were made to hide it. Logs:
+`/tmp/lumina-brand-offline-chromium-r3.log` and
+`/tmp/lumina-brand-offline-baseline.log`. The temporary overlay configs were removed.
+No distribution archive, signed export, or upload was made.

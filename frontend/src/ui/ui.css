@@ -1,4 +1,4 @@
-
+@import './brand.css';
 .g-label { font: var(--g-type-label); text-transform: uppercase; letter-spacing: var(--g-track-label); color: var(--g-ink-3); font-variant-numeric: tabular-nums; }
 .g-drawer { position: fixed; inset: 0 0 0 auto; width: min(360px, 100vw); max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; border-left: var(--g-hairline); border-radius: var(--g-radius-sheet) 0 0 var(--g-radius-sheet); background: var(--g-paper-2); color: var(--g-ink); }
 .g-drawer[open] { display: flex; flex-direction: column; animation: g-drawer-in var(--g-drawer); }
@@ -261,12 +261,6 @@ html.g-modal-open { scrollbar-gutter: stable; }
 .g-notice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--g-space-3); min-height: var(--g-control); padding: var(--g-space-2) 0; border-top: var(--g-rule); border-bottom: var(--g-rule); color: var(--g-ink-2); font: var(--g-type-caption); }
 .g-notice .g-text-button { padding: 0 var(--g-space-3); font: var(--g-type-button); letter-spacing: var(--g-track-button); text-decoration: underline; text-transform: uppercase; }
 
-.g-brand { --w: 32px; font-size: 18px; display: inline-flex; align-items: center; gap: 8px; }
-.g-brand.is-bar { align-items: center; }
-.g-brand-sun { width: var(--w); height: calc(var(--w) * 34 / 56); flex: none; }
-.g-brand-word { font: 500 1em / 1 var(--g-serif); letter-spacing: .1em; text-transform: uppercase; }
-.g-brand.is-hero { --w: 64px; font-size: 30px; flex-direction: column; }
-@media (max-width: 680px) { .g-brand.is-bar { --w: 26px; font-size: 14px; } }
 .g-tabular { font-variant-numeric: tabular-nums; }
 
 @media (pointer: fine) and (min-width: 600px) { .g-chip, .g-button { padding: 0 12px; } }

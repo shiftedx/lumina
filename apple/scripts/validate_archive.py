@@ -8,6 +8,17 @@ import tempfile
 from archive_stubs import placeholders
 
 
+GOOGLE_CAST_RESOURCE_BUNDLES = (
+    "GoogleCastCoreResources.bundle",
+    "GoogleCastOptionalUIResources.bundle",
+    "GoogleCastUIResources.bundle",
+    "GoogleSansBold.bundle",
+    "GoogleSansMedium.bundle",
+    "GoogleSansRegular.bundle",
+    "MaterialDialogs.bundle",
+)
+
+
 def require(condition, message):
     if not condition:
         raise SystemExit(message)
@@ -38,6 +49,13 @@ icons = info.get("CFBundleIcons", {}).get("CFBundlePrimaryIcon", {})
 require(icons, "Primary icon metadata missing")
 if platform == "tvOS":
     require(info.get("TVTopShelfImage"), "TV top shelf metadata missing")
+if platform == "iOS":
+    require(not (app / "Frameworks/GoogleCast.framework").exists(),
+            "Google Cast must be linked statically, not embedded as a framework")
+    for bundle in GOOGLE_CAST_RESOURCE_BUNDLES:
+        require((app / bundle).is_dir(), f"Google Cast resource bundle missing: {bundle}")
+    require((app / "GoogleCastPrivacy.bundle/PrivacyInfo.xcprivacy").is_file(),
+            "Google Cast privacy manifest missing")
 if not is_ipa:
     require(list((root / "dSYMs").glob("*.app.dSYM")), "Debug symbols missing")
 for path in root.rglob("*"):

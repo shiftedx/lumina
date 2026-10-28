@@ -20,20 +20,35 @@ class ArchivePlaceholderTests(unittest.TestCase):
                 subprocess.run(['xcrun', 'clang', '-target', 'arm64-apple-macos100.0',
                     '-x', 'c', '-', '-o', str(destination), *flags], input=source.encode(),
                     check=True, capture_output=True)
-            for name, code in [('Unused', ''), ('Loaded', ''), ('Resources', ''),
+            for name, code in [('Unused', ''), ('Loaded', ''), ('Resources', ''), ('GoogleCast', ''),
                                ('RealCode', 'int real_function(void) { return 42; }')]:
                 framework = app / 'Frameworks' / f'{name}.framework'
                 framework.mkdir(parents=True)
                 (framework / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable': name}))
-                compile(code, framework / name, '-dynamiclib',
-                        f'-Wl,-install_name,@rpath/{name}.framework/{name}')
+                flags = ['-dynamiclib', f'-Wl,-install_name,@rpath/{name}.framework/{name}']
+                if name == 'GoogleCast':
+                    flags += ['-target', 'arm64-apple-macos16.0']
+                compile(code, framework / name, *flags)
             (app / 'Frameworks/Resources.framework/PrivacyInfo.xcprivacy').write_text('retained resource')
+            cast = app / 'Frameworks/GoogleCast.framework'
+            (cast / 'GoogleCastUIResources.bundle').mkdir()
+            (cast / 'GoogleCastUIResources.bundle/dialog').write_bytes(b'vendor chooser resource')
+            (cast / 'PrivacyInfo.xcprivacy').write_bytes(b'vendor privacy manifest')
             compile('int main(void) { return 0; }', app / 'Synthetic',
                     '-F' + str(app / 'Frameworks'), '-Wl,-needed_framework,Loaded')
             removed = remove_placeholders(app)
             self.assertEqual(removed, ['Unused.framework'])
             self.assertEqual(sorted(f.name for f in (app / 'Frameworks').iterdir()),
-                             ['Loaded.framework', 'RealCode.framework', 'Resources.framework'])
+                             ['GoogleCast.framework', 'Loaded.framework', 'RealCode.framework', 'Resources.framework'])
+            self.assertEqual(remove_placeholders(app), [])
+            (app / 'GoogleCastUIResources.bundle').mkdir()
+            dialog = app / 'GoogleCastUIResources.bundle/dialog'
+            dialog.write_bytes(b'different resource')
+            (app / 'GoogleCastPrivacy.bundle').mkdir()
+            (app / 'GoogleCastPrivacy.bundle/PrivacyInfo.xcprivacy').write_bytes(b'vendor privacy manifest')
+            self.assertEqual(remove_placeholders(app), [], 'Unique Cast resources must be retained')
+            dialog.write_bytes(b'vendor chooser resource')
+            self.assertEqual(remove_placeholders(app), ['GoogleCast.framework'])
             self.assertEqual(remove_placeholders(app), [])
 
 

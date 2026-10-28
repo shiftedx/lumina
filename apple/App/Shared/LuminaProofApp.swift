@@ -4,6 +4,12 @@ import LuminaCore
 @main
 @MainActor
 struct LuminaProofApp: App {
+    init() {
+        #if os(iOS)
+        NativeVideoCasting.configure()
+        #endif
+    }
+
     @State private var store = makeStore()
     @State private var restorationStarted = false
     @State private var isRestoring = true
@@ -41,7 +47,7 @@ struct LuminaProofApp: App {
 /// Licenses are bundled with the app, including transitive native-library notices.
 struct PlaybackLicensesView: View {
     @Environment(\.dismiss) private var dismiss
-    private let licenses = ["PrismCoreLicense", "MPVKitLicense"].compactMap { name in
+    private let licenses = ["PrismCoreLicense", "MPVKitLicense", "GoogleCastNotices"].compactMap { name in
         Bundle.main.url(forResource: name, withExtension: "txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
     }.joined(separator: "\n\n")
 

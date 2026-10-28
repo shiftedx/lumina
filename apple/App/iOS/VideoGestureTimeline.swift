@@ -32,7 +32,7 @@ struct VideoGestureTimeline: View {
                 Circle().fill(.white).frame(width: 18, height: 18)
                     .offset(x: max(0, min(geometry.size.width - 18, geometry.size.width * progress - 9)))
                 VideoTimelineTouchSurface(
-                    enabled: !ranges.isEmpty && playback.canUseVideoActions && !playback.hasFinished,
+                    enabled: !ranges.isEmpty && playback.canSeekVideo && !playback.hasFinished,
                     value: VideoGesturePresentation.clock(position),
                     cancellationID: cancellationID,
                     event: { event, point, size in

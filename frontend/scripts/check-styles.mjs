@@ -15,8 +15,10 @@ const KB = 1024;
 // Flat settings workspaces and visual capacity, playback and activity views measure 70.4 KB gzip.
 // OLED adds a pure-black surface override and a fourth theme preview.
 // Photos adds its lazy justified timeline, people controls, and YARL viewer/plugin styles (~4.5 KB gzip).
-export const CSS_BUDGET = 75.5 * KB;
-export const CORE_BUDGET = 7 * KB; // tokens.css + ui.css (spec 1.8)
+// Shared brand alignment also reaches the standalone offline entry (<0.1 KB gzip).
+// Responsive focus clearance, missing-art fallbacks and 44px player targets add <0.2 KB gzip.
+export const CSS_BUDGET = 75.8 * KB;
+export const CORE_BUDGET = 7.1 * KB; // tokens.css + ui.css + brand.css (spec 1.8)
 // Branded select and editable suggestion controls replace browser-native popups: UI now measures 10.0 KB gzip.
 export const CHUNK_BUDGETS = { ui: 10.5 * KB, icons: 3 * KB, palette: 12 * KB, BooksSurface: 15 * KB };
 const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b/gi;
@@ -238,9 +240,9 @@ function main() {
     }
     console.log(`css total: ${(total / KB).toFixed(1)} KB gzip (budget ${CSS_BUDGET / KB} KB)`);
     if (total > CSS_BUDGET) problems.push(`CSS is ${(total / KB).toFixed(1)} KB gzip, over the ${CSS_BUDGET / KB} KB budget`);
-    const core = gzipSize(['src/styles/tokens.css', 'src/ui/ui.css'].map((file) => readFileSync(join(root, file), 'utf8')).join('\n'));
-    console.log(`tokens.css + ui.css: ${(core / KB).toFixed(1)} KB gzip (budget ${CORE_BUDGET / KB} KB)`);
-    if (core > CORE_BUDGET) problems.push(`tokens.css + ui.css are ${(core / KB).toFixed(1)} KB gzip, over ${CORE_BUDGET / KB} KB`);
+    const core = gzipSize(['src/styles/tokens.css', 'src/ui/ui.css', 'src/ui/brand.css'].map((file) => readFileSync(join(root, file), 'utf8')).join('\n'));
+    console.log(`tokens.css + ui.css + brand.css: ${(core / KB).toFixed(1)} KB gzip (budget ${CORE_BUDGET / KB} KB)`);
+    if (core > CORE_BUDGET) problems.push(`tokens.css + ui.css + brand.css are ${(core / KB).toFixed(1)} KB gzip, over ${CORE_BUDGET / KB} KB`);
     for (const [chunk, budget] of Object.entries(CHUNK_BUDGETS)) {
       const file = readdirSync(assets).find((name) => name.startsWith(`${chunk}-`) && name.endsWith('.js'));
       if (!file) { console.log(`${chunk} chunk absent`); continue; }

@@ -1,0 +1,7 @@
+.g-brand { --w: 32px; font-size: 18px; display: inline-flex; align-items: baseline; gap: 8px; }
+
+.g-brand.is-bar:not(.is-compact) .g-brand-sun { transform: translateY(calc(var(--w) * 1.5 / 56)); }
+.g-brand-sun { width: var(--w); height: auto; flex: none; }
+.g-brand-word { font: 500 1em / 1 var(--g-serif); letter-spacing: .1em; text-transform: uppercase; }
+.g-brand.is-hero { --w: 64px; font-size: 30px; flex-direction: column; align-items: center; }
+@media (max-width: 680px) { .g-brand.is-bar { --w: 26px; font-size: 14px; } }

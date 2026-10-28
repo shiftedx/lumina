@@ -263,3 +263,14 @@ def test_native_mp4_audio_has_mp4_content_type(tmp_path: Path, suffix: str) -> N
     playback = music_audio.playback_file(source)
     assert playback.path == source
     assert playback.content_type == "audio/mp4"
+
+
+def test_chromecast_audio_is_cached_as_stereo_aac_m4a(audio_cache: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    del audio_cache
+    source = tmp_path / "source.flac"
+    source.write_bytes(b"source")
+    calls = _fake_conversion(monkeypatch)
+    playback = music_audio.playback_file(source, "chromecast")
+    assert playback.path.suffix == ".m4a" and playback.content_type == "audio/mp4"
+    assert ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart"] == calls[0][calls[0].index("-c:a"):calls[0].index("-c:a") + 10]
+    playback.release()

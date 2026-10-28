@@ -51,6 +51,21 @@ test('no Continue title: the hero is the newest; Play plays it and Details opens
   await expect(page).toHaveURL(new RegExp(`/watch/library/${item.id}$`));
 });
 
+test('an artless Home hero keeps Resume in view without reserving artwork space', async ({ page }) => {
+  const artful = homeMovie(1, { play_item_id: item.id });
+  await openHome(page, { continueWatching: [continueEntry(artful)] });
+  const artworkHeight = (await page.locator('.h-slide.is-backdrop').boundingBox())!.height;
+
+  const artless = homeMovie(2, { backdrop: null, poster: null, play_item_id: item.id });
+  await openHome(page, { continueWatching: [continueEntry(artless)] });
+  await expect(page.locator('.h-slide.is-field')).toBeVisible();
+  expect((await page.locator('.h-slide.is-field').boundingBox())!.height).toBeLessThan(artworkHeight);
+  const resume = page.getByRole('button', { name: 'Resume', exact: true });
+  await expect(resume).toBeInViewport({ ratio: 1 });
+  await resume.click();
+  await expect(page).toHaveURL(new RegExp(`/watch/library/${item.id}$`));
+});
+
 test('only near shelves are requested until the member scrolls', async ({ page }) => {
   const many = Array.from({ length: 12 }, (_, index) => homeMovie(index));
   const requests = await openHome(page, {

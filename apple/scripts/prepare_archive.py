@@ -15,7 +15,7 @@ apps = list((root / 'Products/Applications').glob('*.app'))
 if len(apps) != 1 or (apps[0] / '_CodeSignature').exists():
     raise SystemExit('Expected one unsigned archived application')
 removed = remove_placeholders(apps[0])
-print(f'Removed {len(removed)} unreferenced empty Xcode framework placeholders: {", ".join(removed)}')
+print(f'Removed {len(removed)} unreferenced Xcode framework placeholders: {", ".join(removed)}')
 frameworks = sorted((apps[0] / 'Frameworks').glob('*.framework'))
 cleared = 0
 for framework in frameworks:

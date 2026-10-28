@@ -251,12 +251,21 @@ struct NativeBookReader: View {
                     Button("Contents", glyph: .list) { pageDraft = model.unit + 1; contents = true }.accessibilityIdentifier("bookContentsButton")
                     Button("Reading appearance", systemImage: "textformat.size") { appearance = true }.accessibilityIdentifier("bookAppearanceButton")
                 }
-                ToolbarItemGroup(placement: .bottomBar) {
-                    if controlsVisible {
+                if controlsVisible {
+                    ToolbarItem(placement: .bottomBar) {
                         Button("Previous page", glyph: model.manifest?.readingDirection == "rtl" ? .forward : .back) { model.turn(false, expanded: spread) }.disabled(model.busy || !model.ready).accessibilityIdentifier("bookPreviousButton")
-                        Text(position).font(.caption).accessibilityIdentifier("bookPosition")
+                    }
+                    if #available(iOS 26, *) {
+                        ToolbarItem(placement: .bottomBar) { positionLabel }
+                            .sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .bottomBar) { positionLabel }
+                    }
+                    ToolbarItem(placement: .bottomBar) {
                         Button("Next page", glyph: model.manifest?.readingDirection == "rtl" ? .back : .forward) { model.turn(true, expanded: spread) }.disabled(model.busy || !model.ready).accessibilityIdentifier("bookNextButton")
-                    } else if isProse { showControlsButton }
+                    }
+                } else if isProse {
+                    ToolbarItem(placement: .bottomBar) { showControlsButton }
                 }
             }
             .sheet(isPresented: $contents) { contentsSheet }
@@ -293,6 +302,13 @@ struct NativeBookReader: View {
             .accessibilityIdentifier("bookControlsButton")
     }
     private func turnPage(_ forward: Bool) { model.turn(forward, expanded: spread) }
+    private var positionLabel: some View {
+        Text(position)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("bookPosition")
+    }
+
     private var position: String {
         guard let manifest = model.manifest else { return "Opening book…" }
         if manifest.book.format == "epub" { return "Chapter \(model.unit + 1) of \(manifest.count) · \(model.prosePage + 1)/\(max(1, model.ranges.count))" }

@@ -37,10 +37,15 @@ def private_directory(path: Path | None) -> Path:
     return root
 
 
-def group_exists(group: int) -> bool:
+def group_is_signalable(group: int) -> bool:
+    """Return whether this runner can safely continue signaling its process group."""
     try:
         os.killpg(group, 0)
     except ProcessLookupError:
+        return False
+    except PermissionError:
+        # An inaccessible group is unsafe to signal. Its members are not
+        # necessarily all this runner's children.
         return False
     return True
 
@@ -53,13 +58,17 @@ def stop_owned_group(process: subprocess.Popen[object]) -> None:
     except ProcessLookupError:
         pass
     deadline = time.monotonic() + GRACE_SECONDS
-    while group_exists(group) and time.monotonic() < deadline:
+    while group_is_signalable(group) and time.monotonic() < deadline:
         time.sleep(0.05)
-    if group_exists(group):
+    if group_is_signalable(group):
         try:
             os.killpg(group, signal.SIGKILL)
         except ProcessLookupError:
             pass
+    elif process.poll() is None:
+        # The known leader may still be alive even though its group is no
+        # longer safe to signal. Kill only the Popen child, never the group.
+        process.kill()
     process.wait()
 
 

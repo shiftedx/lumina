@@ -130,6 +130,48 @@ class BackendRunnerTests(unittest.TestCase):
                     sentinel.kill()
                     sentinel.wait()
 
+    def test_timeout_never_escalates_an_inaccessible_process_group_after_leader_exits(self) -> None:
+        process = mock.Mock(pid=12345)
+        process.poll.return_value = 0
+        with mock.patch.object(
+            runner.os,
+            "killpg",
+            side_effect=[None, PermissionError, PermissionError],
+        ) as killpg:
+            runner.stop_owned_group(process)
+
+        self.assertEqual(
+            killpg.call_args_list,
+            [
+                mock.call(12345, runner.signal.SIGINT),
+                mock.call(12345, 0),
+                mock.call(12345, 0),
+            ],
+        )
+        process.kill.assert_not_called()
+        process.wait.assert_called_once_with()
+
+    def test_timeout_kills_only_the_known_leader_when_its_group_is_inaccessible(self) -> None:
+        process = mock.Mock(pid=12345)
+        process.poll.return_value = None
+        with mock.patch.object(
+            runner.os,
+            "killpg",
+            side_effect=[None, PermissionError, PermissionError],
+        ) as killpg:
+            runner.stop_owned_group(process)
+
+        self.assertEqual(
+            killpg.call_args_list,
+            [
+                mock.call(12345, runner.signal.SIGINT),
+                mock.call(12345, 0),
+                mock.call(12345, 0),
+            ],
+        )
+        process.kill.assert_called_once_with()
+        process.wait.assert_called_once_with()
+
 
 if __name__ == "__main__":
     unittest.main()

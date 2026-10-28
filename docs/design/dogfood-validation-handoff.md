@@ -49,3 +49,9 @@ Keep playback session/engine ownership, reader preferences/position/fit/zoom, ex
 The IPA ships native iOS changes. Web/backend changes are retained on the same source branch and require their server deployment path; do not describe them as code embedded in the IPA.
 
 Post-outage gate: backend 5,543 passed, 20 skipped and two existing concurrency tests failed; both passed a focused rerun. Frontend broad run passed 2,720 with one Requests navigation-name failure; preserving the existing accessible name resolved it, and the Requests/shared-scroller file checks passed 17/17. No claim of a green full gate is made.
+
+## Cast packaging
+
+The owner requested a corrected build26 package before upload. The initial dynamic package was validated but never uploaded; it is retained locally as `0.1.0-26-dynamic-superseded`. The corrected target uses GoogleCastStatic 4.8.6 with its matching UI bundles and vendor privacy manifest. When changing the Cast SDK version or linkage, read [resource provenance](../../apple/Resources/GoogleCast/README.md), refresh its matched resources/hashes, and run the package contract plus the real chooser UI smoke before distributing. Keep the build number26 because no prior build26 upload occurred. The local release manifest records the final upload result; consult it before retrying.
+
+Final full frontend qualification after the Requests accessible-name fix passed all 2,721 tests across 314 files. Both retained-player presentation-rebuild regressions passed again after restart: direct 105.807s, client-demux 110.158s. Corrected Cast chooser and Requests readiness workflows await the new static-linked simulator build.

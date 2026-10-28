@@ -1,0 +1,11 @@
+# Google Cast SDK 4.8.6 static iOS-device resources.
+# Each bundle digest is SHA-256 over sorted "SHA-256  relative-path" entries for
+# every regular file in that bundle. The privacy digest is the vendor file itself.
+8aa4017548e014be190de64ffb665a05da4bddf5b59060fa6fc1bd6d6914c3b1  GoogleCastCoreResources.bundle
+6bf32736e42c604996e5f28d4663c2803477fdfb043368e27db7c7049847c8d0  GoogleCastOptionalUIResources.bundle
+b529cdef58a4540dea4fb5b5c40e402d52cd62be4bfd91222168758ade93a849  GoogleCastUIResources.bundle
+24667a12cbe3c0532320e24e7c0449113b0ca3eff734b03144a666d0079231da  GoogleSansBold.bundle
+17e0574ca3225e120e83f743639d0e4d4017c7c6533452407658b1d4012f5f05  GoogleSansMedium.bundle
+c5779451dd5ec7c2bc281d34c17ad09deaa15851d1ee5650525cdf0846bfc8bf  GoogleSansRegular.bundle
+3050346238ed23f23e37bb166e37d2d71ddd2a6712557c3ea61a3a6e99c5ca56  MaterialDialogs.bundle
+bff227f9b341600e899009ff032007fed14e27f3121eb57d02d10d2dd12effd7  GoogleCastPrivacy.bundle/PrivacyInfo.xcprivacy

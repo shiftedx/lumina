@@ -284,6 +284,14 @@ final class NativeVideoOverlayTests: NativeProofJourney {
     func testVideoPictureInPictureContinuesInBackground() async throws { try await journeyVideoPictureInPictureContinuesInBackground() }
     #endif
 }
+#if os(iOS)
+@MainActor
+final class NativeVideoCastPickerSmokeTests: NativeProofJourney {
+    func testVideoCastPickerOpensAndReturnsToLocalPlayback() async throws {
+        try await journeyVideoCastPickerOpensAndReturnsToLocalPlayback()
+    }
+}
+#endif
 @MainActor
 final class NativeVideoSettingsTests: NativeProofJourney { func testNativeVideoDoesNotKeepDuplicateControlsOverPlayback() async throws { try await journeyNativeVideoDoesNotKeepDuplicateControlsOverPlayback() } }
 @MainActor
@@ -5525,6 +5533,58 @@ class NativeProofJourney: XCTestCase {
     }
     #endif
 
+    #if os(iOS)
+    func journeyVideoCastPickerOpensAndReturnsToLocalPlayback() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        try openLibraryItem(id: fixture.directItemID)
+        _ = try startPlayback(using: "playButton")
+
+        let cast = element("videoChromecastButton")
+        if !cast.isHittable { try activate(element("videoControlsSurface")) }
+        try waitForHittable(cast, timeout: 10, named: "Chromecast")
+        try activate(cast)
+
+        let app = try XCTUnwrap(application)
+        let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let nearbyDevicePrompt = app.staticTexts["Connect to nearby device"]
+        let castToTitle = app.staticTexts["Cast to"]
+        let castToNavigation = app.navigationBars["Cast to"]
+        if waitUntil(timeout: 10, condition: { nearbyDevicePrompt.exists }) {
+            XCTAssertTrue(nearbyDevicePrompt.isHittable,
+                          "Chromecast's local-network explainer must render a usable Connect action.")
+            try activate(app.buttons["Connect"])
+        }
+
+        let localNetworkAlerts = [springBoard.alerts.firstMatch, app.alerts.firstMatch]
+        if waitUntil(timeout: 5, condition: { localNetworkAlerts.contains { $0.exists } }) {
+            let localNetworkAlert = try XCTUnwrap(localNetworkAlerts.first { $0.exists })
+            XCTAssertTrue(localNetworkAlert.label.localizedCaseInsensitiveContains("local network"),
+                          "The system permission shown after Chromecast Connect must request local-network access.")
+            try activate(localNetworkAlert.buttons["Allow"])
+        }
+
+        XCTAssertTrue(waitUntil(timeout: 15, condition: {
+            self.hasVisibleFrame(castToTitle) || self.hasVisibleFrame(castToNavigation)
+        }), "Chromecast must open its real device chooser after local-network permission, without a missing-resource crash.")
+        try attachPlaybackFrame(named: "Chromecast device chooser")
+
+        let dismiss = [app.buttons["Close"], app.buttons["Cancel"]]
+            .first { self.hasVisibleFrame($0) && $0.isHittable }
+        let dismissButton = try XCTUnwrap(dismiss, "The Chromecast chooser must expose a user-facing dismissal control.")
+        try activate(dismissButton)
+        XCTAssertTrue(waitUntil(timeout: 10, condition: {
+            !self.hasVisibleFrame(castToTitle) && !self.hasVisibleFrame(castToNavigation)
+        }), "Dismissing the Chromecast chooser must return to local playback.")
+        try waitForHittable(element("videoPlayPauseButton"), timeout: 10, named: "local video transport after Chromecast picker")
+        XCTAssertTrue(element("playbackScreen").exists)
+        completed = true
+    }
+    #endif
+
     func journeyVideoOverlayCentersAndDismisses() async throws {
         var completed = false
         defer { captureScreenshot(succeeded: completed) }
@@ -6199,6 +6259,11 @@ class NativeProofJourney: XCTestCase {
         #if os(iOS)
         let requests = element("requestsScreen")
         try waitForExistence(requests, timeout: 15, named: "Requests browse catalog")
+        // Native search deliberately debounces remote catalog loading. Establish that
+        // the requested card has reached the observable UI before the viewport
+        // helper starts scrolling; otherwise it can complete all bounded drags
+        // against the pre-search grid on a compact Duo display.
+        try waitForExistence(poster, timeout: 20, named: name)
         for _ in 0..<8 {
             if poster.exists {
                 try revealInLibraryViewport([poster], in: requests)

@@ -4415,6 +4415,10 @@ class NativeProofJourney: XCTestCase {
         try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 12)
         try launchAndResetSession()
         try signIn(using: fixture)
+        try selectDestination("Account", screen: "accountScreen")
+        try chooseDeviceSetting("deviceAppearancePicker", option: "Dark")
+        try activate(application!.buttons.matching(NSPredicate(format: "label == %@", "Home")).firstMatch)
+        try waitForExistence(element("homeScreen"), timeout: 15, named: "Home in dark appearance")
         let choice = element("featuredChoice-\(fixture.directItemID)")
         try revealInLibraryViewport([choice])
         try activate(choice)
@@ -4422,6 +4426,7 @@ class NativeProofJourney: XCTestCase {
         guard waitUntil(timeout: 5, condition: { title.label == fixture.directItemTitle }) else {
             throw ProofFailure.ui("Home did not select the seeded hero before swiping.")
         }
+        try attachFrame(named: "Home hero Resume button before artwork swipe")
         let window = try applicationWindow()
         let artwork = application!.descendants(matching: .any).matching(
             NSPredicate(format: "label BEGINSWITH %@", "Featured titles,")

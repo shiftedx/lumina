@@ -934,11 +934,7 @@ class NativeProofJourney: XCTestCase {
         let fixture = try loadFixture()
         try launchAndResetSession()
         try signIn(using: fixture)
-        let initialBrowse = element("compactBrowseMenu")
-        try waitForHittable(initialBrowse, timeout: 15, named: "Home Browse before starting music")
-        try activate(initialBrowse)
-        try activate(element("compactCategory-music"))
-        try waitForExistence(element("audioScreen"), timeout: 20, named: "Music library root")
+        try selectTourAudioRoot()
         try activate(revealMusicAlbum(fixture, named: "synthetic album"))
         let albumScreen = element("musicCollectionScreen")
         try waitForExistence(albumScreen, timeout: 25, named: "album tracks")
@@ -951,7 +947,10 @@ class NativeProofJourney: XCTestCase {
         try waitForExistence(time, timeout: 20, named: "audio playback time")
         let beforeBrowse = try waitForPlaybackValue(time, timeout: 15) { $0 >= 2 }
         try closePlayer()
-        try selectDestination("Home", screen: "homeScreen")
+        let viewport = try applicationViewport()
+        let usesDuo = UIDevice.current.userInterfaceIdiom == .phone && min(viewport.width, viewport.height) >= 450
+        let usesRail = usesDuo && viewport.width > viewport.height
+        if !usesDuo { try selectDestination("Home", screen: "homeScreen") }
         let artwork = element("nowPlayingBar")
         let toggle = element("nowPlayingPauseButton")
         let search = element("homeSearchButton")
@@ -964,14 +963,19 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(artwork.label.contains(fixture.audioTrackTitle))
         XCTAssertLessThanOrEqual(artwork.frame.width, 70, "Music controls must not form a full-width footer.")
         XCTAssertLessThanOrEqual(artwork.frame.height, 70)
-        if search.frame.minY > 100 {
+        if usesRail {
             // Duo rail layouts stack controls; ordinary top bars remain horizontal.
-            XCTAssertGreaterThanOrEqual(artwork.frame.minY, search.frame.maxY - 1, "Artwork belongs below Search on the Duo rail.")
-            XCTAssertGreaterThanOrEqual(toggle.frame.minY, artwork.frame.maxY - 1, "Play/pause belongs below the artwork.")
-            XCTAssertEqual(artwork.frame.midX, search.frame.midX, accuracy: 4)
-            XCTAssertEqual(toggle.frame.midX, artwork.frame.midX, accuracy: 4)
+            guard toggle.frame.minY >= artwork.frame.maxY - 1,
+                  abs(toggle.frame.midX - artwork.frame.midX) <= 4,
+                  artwork.isHittable, toggle.isHittable else {
+                throw ProofFailure.ui("Duo Now Playing must expose separate, centered artwork and play/pause targets: artwork=\(artwork.frame), toggle=\(toggle.frame).")
+            }
+            if search.exists {
+                XCTAssertGreaterThanOrEqual(artwork.frame.minY, search.frame.maxY - 1, "Artwork belongs below Search on the Duo rail.")
+                XCTAssertEqual(artwork.frame.midX, search.frame.midX, accuracy: 4)
+            }
         }
-        try attachFrame(named: "Compact music controls beneath Search")
+        try attachFrame(named: "Compact music artwork and separate play pause control")
         try activate(toggle)
         XCTAssertTrue(waitUntil(timeout: 10) { toggle.label == "Play" })
         XCTAssertTrue(hasVisibleFrame(artwork), "Paused music must remain accessible.")
@@ -981,36 +985,38 @@ class NativeProofJourney: XCTestCase {
         // The shared standard-phone pushed header must keep the existing
         // Now Playing destination and pause/resume control usable while a
         // non-audio title is open.
-        let browse = element("compactBrowseMenu")
-        try waitForHittable(browse, timeout: 15, named: "Home Browse before pushed movie")
-        try activate(browse)
-        try activate(element("compactCategory-movies"))
-        try waitForExistence(element("libraryScreen"), timeout: 20, named: "Movies library root while music is active")
-        let movie = try revealLibraryItem(id: fixture.directItemID, named: "movie while music is active")
-        try activate(movie)
-        let movieDetail = element("detailScreen")
-        try assertStandardPhonePushedChrome(movieDetail, named: "movie detail with current audio")
-        try waitForHittable(artwork, timeout: 15, named: "Now Playing on pushed movie detail")
-        try waitForHittable(toggle, timeout: 15, named: "Now Playing pause on pushed movie detail")
-        XCTAssertTrue(artwork.label.contains(fixture.audioTrackTitle),
-                      "A pushed movie must retain the active track destination.")
-        try activate(toggle)
-        XCTAssertTrue(waitUntil(timeout: 10) { toggle.label == "Play" },
-                      "The compact action must pause the active track from a pushed movie.")
-        try activate(toggle)
-        XCTAssertTrue(waitUntil(timeout: 10) { toggle.label == "Pause" },
-                      "The compact action must resume the same track from a pushed movie.")
-        try attachFrame(named: "Standard iPhone movie retains Now Playing")
-        try activate(artwork)
-        try waitForExistence(element("audioPlayerStage"), timeout: 20, named: "full player from pushed movie")
-        XCTAssertEqual(currentAudioTitle(), fixture.audioTrackTitle,
-                       "Opening Now Playing from a pushed movie must not restart browsing or playback.")
-        XCTAssertGreaterThanOrEqual(try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }, beforeBrowse)
-        try closePlayer()
-        try waitForExistence(movieDetail, timeout: 15, named: "movie after closing full player")
-        try performStandardPhoneLeadingEdgeBack(from: movieDetail, to: element("libraryScreen"),
-                                                 named: "movie detail with current audio")
-        try selectDestination("Home", screen: "homeScreen")
+        if !usesDuo {
+            let browse = element("compactBrowseMenu")
+            try waitForHittable(browse, timeout: 15, named: "Home Browse before pushed movie")
+            try activate(browse)
+            try activate(element("compactCategory-movies"))
+            try waitForExistence(element("libraryScreen"), timeout: 20, named: "Movies library root while music is active")
+            let movie = try revealLibraryItem(id: fixture.directItemID, named: "movie while music is active")
+            try activate(movie)
+            let movieDetail = element("detailScreen")
+            try assertStandardPhonePushedChrome(movieDetail, named: "movie detail with current audio")
+            try waitForHittable(artwork, timeout: 15, named: "Now Playing on pushed movie detail")
+            try waitForHittable(toggle, timeout: 15, named: "Now Playing pause on pushed movie detail")
+            XCTAssertTrue(artwork.label.contains(fixture.audioTrackTitle),
+                          "A pushed movie must retain the active track destination.")
+            try activate(toggle)
+            XCTAssertTrue(waitUntil(timeout: 10) { toggle.label == "Play" },
+                          "The compact action must pause the active track from a pushed movie.")
+            try activate(toggle)
+            XCTAssertTrue(waitUntil(timeout: 10) { toggle.label == "Pause" },
+                          "The compact action must resume the same track from a pushed movie.")
+            try attachFrame(named: "Standard iPhone movie retains Now Playing")
+            try activate(artwork)
+            try waitForExistence(element("audioPlayerStage"), timeout: 20, named: "full player from pushed movie")
+            XCTAssertEqual(currentAudioTitle(), fixture.audioTrackTitle,
+                           "Opening Now Playing from a pushed movie must not restart browsing or playback.")
+            XCTAssertGreaterThanOrEqual(try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }, beforeBrowse)
+            try closePlayer()
+            try waitForExistence(movieDetail, timeout: 15, named: "movie after closing full player")
+            try performStandardPhoneLeadingEdgeBack(from: movieDetail, to: element("libraryScreen"),
+                                                     named: "movie detail with current audio")
+            try selectDestination("Home", screen: "homeScreen")
+        }
 
         try activate(toggle)
         try activate(artwork)

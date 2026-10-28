@@ -125,3 +125,24 @@ struct LuminaBrandMark: View {
         }
     }
 }
+
+private struct LuminaBrandMarkBaseline: ViewModifier {
+    func body(content: Content) -> some View {
+        content.alignmentGuide(.firstTextBaseline) { dimensions in
+            // The mark fits a 56 × 34 canvas. Its lowest painted point is the
+            // rounded horizon stroke at y 31, not the canvas edge. Align that
+            // painted edge to the all-caps wordmark baseline (the bottom of L).
+            let fittedWidth = min(dimensions.width, dimensions.height * 56 / 34)
+            let fittedHeight = fittedWidth * 34 / 56
+            let verticalInset = (dimensions.height - fittedHeight) / 2
+            return verticalInset + fittedHeight * 31 / 34 + fittedWidth * 1.5 / 56
+        }
+    }
+}
+
+extension View {
+    /// Aligns the sunrise mark's painted horizon to an all-caps Lumina wordmark.
+    func luminaBrandMarkBaseline() -> some View {
+        modifier(LuminaBrandMarkBaseline())
+    }
+}

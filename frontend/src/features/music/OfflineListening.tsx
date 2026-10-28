@@ -290,7 +290,7 @@ export function OfflineListening() {
   return <div className="offline-listening">
     <a className="offline-skip" href="#offline-main">Skip to saved music</a>
     <header className="offline-header">
-      <a className="offline-wordmark" href="/audio"><img src="/media-mark.svg?v=lumina-5" width="32" height="20" alt="" /> Lumina <span>/ Offline</span></a>
+      <a className="offline-wordmark g-brand is-bar" href="/audio"><img aria-hidden="true" className="g-brand-sun" src="/media-mark.svg?v=lumina-5" width="32" height="20" alt="" /><span className="g-brand-word">Lumina</span><span className="offline-wordmark-context">/ Offline</span></a>
       <div className="offline-header-actions"><span className="offline-connection"><WifiOff aria-hidden="true" /> No connection required</span><a className="offline-backlink" href="/audio"><ArrowLeft aria-hidden="true" /> Back to Music</a></div>
     </header>
 

@@ -427,8 +427,10 @@ private struct ConnectionView: View {
 
     private var connectionForm: some View {
         VStack(alignment: .leading, spacing: 24) {
-            HStack(spacing: 12) {
-                LuminaBrandMark().frame(width: 40, height: 25)
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                LuminaBrandMark()
+                    .frame(width: 40, height: 25)
+                    .luminaBrandMarkBaseline()
                 Text("LUMINA")
                     .font(LuminaTheme.editorial(28, relativeTo: .title2))
                     .tracking(2.4)
@@ -1668,11 +1670,7 @@ private struct HomeHeroChrome: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 LuminaBrandMark()
                     .frame(width: 24, height: 24 * 34 / 56)
-                    .alignmentGuide(.firstTextBaseline) { dimensions in
-                        // SunriseShape's horizon is at 31/34 of its height;
-                        // include the rounded stroke's lower edge.
-                        dimensions.height * 31 / 34 + dimensions.width * 1.5 / 56
-                    }
+                    .luminaBrandMarkBaseline()
                 if !compact {
                     Text("LUMINA")
                         .font(.caption.weight(.black))

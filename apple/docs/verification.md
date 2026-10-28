@@ -681,3 +681,35 @@ in `lumina-dogfood-open-qualified.xcresult` (that bundle's earlier overlay asser
 failed before the footer inset correction; it is superseded by the r6 overlay run).
 These are focused simulator checks, not a full repository gate or receiver hardware
 qualification. No archive, signed export, or TestFlight upload was made.
+
+
+## Mark/wordmark baseline audit, 2026-10-27
+
+Horizontal web lockups now align the sunrise's painted bottom to the capital L,
+accounting for transparent SVG padding rather than centering the image canvas
+against the text line box. The tiny shared brand stylesheet serves login,
+navigation, onboarding, reader headers, and the standalone offline entry; the
+latter retains its original JavaScript imports and italic typography. Its L's
+font-relative ink overshoot is included in the optical correction. The shared
+CSS budgets include this stylesheet and grew by 0.1 KiB to retain a measured cap.
+
+All four native paired lockups (iOS/tvOS connection and root navigation) use the
+same painted-edge baseline modifier, including aspect-fit padding. The separate
+email PNG uses table-cell baselines; a rendered synthetic email measured a zero
+pixel difference between the mark and word's lower painted edges. No approved
+image geometry, colors, launcher assets, or playback code changed.
+
+Focused validation: WebKit and Chromium sign-in/offline lockups at 390 and 720
+points passed rendered-ink alignment checks; 14 branding/auth/offline unit tests,
+11 email tests, frontend typecheck/build/style budgets, iOS/tvOS Release simulator
+builds, and the native welcome/help/manual sign-in workflow passed. Native login
+was also visually inspected from `lumina-brand-native-welcome.xcresult`.
+
+The existing standalone offline-reload browser workflow fails after switching
+the browser context offline. The same Chromium failure was reproduced with all
+three modified web entry/style sources served verbatim from unchanged HEAD using
+a temporary Vite load overlay. This is retained as a separate baseline failure;
+no service-worker or playback changes were made to hide it. Logs:
+`/tmp/lumina-brand-offline-chromium-r3.log` and
+`/tmp/lumina-brand-offline-baseline.log`. The temporary overlay configs were removed.
+No distribution archive, signed export, or upload was made.

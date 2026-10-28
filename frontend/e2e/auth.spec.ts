@@ -22,13 +22,51 @@ test('a reset link renders the new-password form', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Back to sign in' })).toBeVisible();
 });
 
-test('at phone width the left column is hidden and the bar brand shows', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+test('public brand lockups align the mark with the L across narrow layouts', async ({ page }, testInfo) => {
   await mockApi(page, {});
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
-  await expect(page.locator('.g-auth-side')).toBeHidden();
-  await expect(page.locator('.g-auth-bar')).toBeVisible();
+  for (const path of ['/', '/music-offline.html']) {
+    await page.goto(path);
+    await expect(page.getByRole('heading', { name: path === '/' ? 'Welcome home' : 'Offline listening' })).toBeVisible();
+    for (const width of [390, 720]) {
+      await page.setViewportSize({ width, height: 844 });
+      if (path === '/') {
+        await expect(page.locator('.g-auth-side')).toBeHidden();
+        await expect(page.locator('.g-auth-bar')).toBeVisible();
+      }
+      const brand = page.locator(path === '/' ? '.g-auth-bar .g-brand' : '.offline-wordmark');
+      const edges = await brand.evaluate(async (element) => {
+        await document.fonts.ready;
+        const image = element.querySelector('img')!;
+        await image.decode();
+        const word = element.querySelector<HTMLElement>('.g-brand-word')!;
+        const canvas = document.createElement('canvas');
+        const scale = 16;
+        canvas.width = image.naturalWidth * scale;
+        canvas.height = image.naturalHeight * scale;
+        const context = canvas.getContext('2d')!;
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        let lastPaintedRow = -1;
+        for (let y = 0; y < canvas.height; y++) {
+          for (let x = 0; x < canvas.width; x++) {
+            if (pixels[(y * canvas.width + x) * 4 + 3] >= 128) lastPaintedRow = y;
+          }
+        }
+        const imageBounds = image.getBoundingClientRect();
+        const markBottom = imageBounds.top + (lastPaintedRow + 1) / canvas.height * imageBounds.height;
+        const style = getComputedStyle(word);
+        context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        const baseline = document.createElement('span');
+        baseline.style.cssText = 'display:inline-block;width:0;height:0;padding:0;border:0;vertical-align:baseline';
+        word.append(baseline);
+        const letterBottom = baseline.getBoundingClientRect().top + context.measureText('L').actualBoundingBoxDescent;
+        baseline.remove();
+        return { markBottom, letterBottom };
+      });
+      expect(Math.abs(edges.markBottom - edges.letterBottom), JSON.stringify(edges)).toBeLessThanOrEqual(0.75);
+      await testInfo.attach(`${path === '/' ? 'sign-in' : 'offline'}-brand-${width}`, { body: await brand.screenshot(), contentType: 'image/png' });
+    }
+  }
 });
 
 // A 1x1 PNG: the showcase art route only has to answer with a decodable image.

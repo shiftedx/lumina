@@ -874,6 +874,7 @@ struct LuminaMediaActionStyle: ButtonStyle {
             .foregroundStyle(foreground)
             .tint(foreground)
             .background(primary ? LuminaTheme.primaryControlFill : Color.white.opacity(configuration.isPressed ? 0.14 : 0), in: .rect(cornerRadius: 10))
+            .compositingGroup()
             .opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.45)
             .contentShape(.rect(cornerRadius: 10))
     }

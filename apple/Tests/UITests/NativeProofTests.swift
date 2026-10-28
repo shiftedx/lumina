@@ -262,6 +262,9 @@ final class NativeOpenDuoLibraryHeaderTests: NativeProofJourney {
 #if os(iOS)
 @MainActor
 final class NativeHomeBrowseFiltersSearchAndHeroWatchlistTests: NativeProofJourney {
+    func testHomeHeroArtworkSwipesAndPlaysSelectedTitle() async throws {
+        try await journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle()
+    }
     func testStandardPhoneUsesBottomNavigationAndCompactBrowseMenu() async throws {
         try await journeyStandardPhoneNavigation()
     }
@@ -4214,6 +4217,54 @@ class NativeProofJourney: XCTestCase {
         let region = CGRect(x: sampleX * scale, y: 165 * scale, width: 160 * scale, height: 90 * scale)
         let sample = try XCTUnwrap(source.cropping(to: region))
         return try XCTUnwrap(UIImage(cgImage: sample).pngData())
+    }
+    #endif
+
+    #if os(iOS)
+    func journeyHomeHeroArtworkSwipesAndPlaysSelectedTitle() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 12)
+        try launchAndResetSession()
+        try signIn(using: fixture)
+        let choice = element("featuredChoice-\(fixture.directItemID)")
+        try revealInLibraryViewport([choice])
+        try activate(choice)
+        let title = element("featuredTitleButton")
+        guard waitUntil(timeout: 5, condition: { title.label == fixture.directItemTitle }) else {
+            throw ProofFailure.ui("Home did not select the seeded hero before swiping.")
+        }
+        let window = try applicationWindow()
+        let artwork = application!.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Featured titles,")
+        ).firstMatch
+        try waitForExistence(artwork, timeout: 10, named: "Home hero artwork")
+        let visibleArt = artwork.frame.intersection(window.frame)
+        let y = visibleArt.minY + visibleArt.height * 0.3 - window.frame.minY
+        let right = window.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: window.frame.width * 0.75, dy: y))
+        let left = window.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: window.frame.width * 0.25, dy: y))
+        right.press(forDuration: 0.05, thenDragTo: left)
+        guard waitUntil(timeout: 3, condition: { title.label != fixture.directItemTitle && !title.label.isEmpty }),
+              !element("detailScreen").exists else {
+            throw ProofFailure.ui("Swiping left on Home artwork must select the next hero without opening details.")
+        }
+        try attachFrame(named: "Home artwork swipe selects the next hero")
+        left.press(forDuration: 0.05, thenDragTo: right)
+        guard waitUntil(timeout: 3, condition: { title.label == fixture.directItemTitle }) else {
+            throw ProofFailure.ui("Swiping right on Home artwork must return to the previous hero.")
+        }
+        let time = try startPlayback(using: "featuredPlayButton")
+        _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= 14 }
+        try attachFrame(named: "Play starts the title selected by artwork swipes")
+        try closePlayer()
+        _ = try await waitForServerProgress(api, identity: identity, itemID: fixture.directItemID, minimum: 14)
+        completed = true
     }
     #endif
 

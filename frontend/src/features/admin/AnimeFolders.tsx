@@ -3,7 +3,7 @@
  * Anime. Admins add and remove names, then Save; the server repeats every rule, stores the list and re-sorts the
  * library in the background, and this row follows the re-sort.
  */
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { getMediaServerSettings, updateMediaServerSettings } from '../../api';
 import { Button, Field, fieldProps, Input } from '../../ui';
@@ -46,6 +46,14 @@ export function AnimeFolders() {
   const sorting = useRef(false);
   const recategorising = settings?.recategorising ?? false;
 
+  const markSorted = useCallback(() => {
+    sorting.current = false;
+    setResorted(true);
+    // The walls and the All landing kept this tab's pre-sort titles: the next visit asks again.
+    forgetWallStores();
+    forgetAllStore();
+  }, []);
+
   // While the server re-sorts, ask again every 2 s; when it finishes, say so for 10 s.
   useEffect(() => {
     if (!recategorising) return undefined;
@@ -55,14 +63,14 @@ export function AnimeFolders() {
   }, [recategorising, setData]);
   useEffect(() => {
     if (recategorising || !sorting.current) return undefined;
-    sorting.current = false;
-    setResorted(true);
-    // The walls and the All landing kept this tab's pre-sort titles: the next visit asks again.
-    forgetWallStores();
-    forgetAllStore();
+    markSorted();
+    return undefined;
+  }, [recategorising, markSorted]);
+  useEffect(() => {
+    if (!resorted) return undefined;
     const timer = setTimeout(() => setResorted(false), RESORTED_NOTE_MS);
     return () => clearTimeout(timer);
-  }, [recategorising]);
+  }, [resorted]);
 
   if (resource.error && !settings) return <p className="auth-error" role="alert">{resource.error}</p>;
   if (!settings) return <p className="admin-note" role="status">Loading media server settings…</p>;
@@ -90,6 +98,8 @@ export function AnimeFolders() {
       setData(next);
       setDraft(null);
       setStatus({ tone: 'ok', text: 'Saved.' });
+      // A small library can finish re-sorting before the Save response arrives.
+      if (!next.recategorising) markSorted();
     } catch (error) {
       setStatus({ tone: 'error', text: errorMessage(error, 'Unable to save media server settings.') });
     } finally {

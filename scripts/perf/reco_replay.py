@@ -11,6 +11,9 @@ Seam. A policy is ``recommend(session, member_id, as_of, surface, k) -> list[Can
 ``session``; surfaces are home_picked, home_recommended, home_because and up_next. The spec's seam returns item
 keys; this one returns ``Candidate`` (key + channel + published time) because the hit, diversity and freshness
 metrics need the channel and age of whatever a policy returns, including items outside any pool the harness knows.
+Title metrics score each surface independently at the requested k. Production Home may split capacity among several
+Because rows and exclude their picks from Recommended; that cross-shelf allocation is not replayed here, so these
+metrics are not measurements of the displayed Home rows or their served-list attribution.
 
 Test instances. Per active member, the newest 10 satisfied remote watches and the newest 10 satisfied title
 watches. Satisfied (pre-v9 approximation): completed, or position / duration >= 0.5. A watch is a
@@ -49,8 +52,10 @@ Metrics (each averaged per member, then across members; hits are 0/1 per instanc
   title_item_hit@10: a title instance in the top 10 of home_recommended;
   anchored_title_hit@10: a title instance in the top 10 of home_because, anchored on the member's newest completed
     title before as_of (instances without one are skipped);
-  up_next_channel_hit@10: a remote instance whose previous remote watch is under 2 h earlier: its channel in the
-    top 10 of up_next with that watch as the current source;
+  up_next_channel_hit@10 (diagnostic only): a remote instance whose previous remote watch is under 2 h earlier:
+    its channel in the top 10 of up_next with that watch as the current source. A channel hit can be an unrelated
+    video, while a relevant continuation by another creator is counted as a miss. This is not an acceptance target;
+    the separate judged remote relevance fixture checks subject continuity, lead strength, and abstention;
   coverage@20 per surface: |union of top-20 keys| / |union of eligible candidates| over all instances (household);
   home_picked top 12: distinct channels, max count of one channel (mean, worst, and worst excess over the instance's
     cap max(3, ceil(12 / channels in its eligible pool))), median published age in days. These are scored on paired
@@ -85,6 +90,7 @@ LIMITATIONS = (
     "remote pool is the copy's current Popular snapshot re-ranked at each as_of, not the snapshot live then",
     "remote_item_hit@10 is meaningful on the synthetic seed only (past production pools are unknown before v9)",
     "up_next provider-related search (live call) is unavailable offline; up_next ranks the snapshot pool only",
+    "up_next_channel_hit@10 is diagnostic only: shared channel does not prove subject continuity, and a relevant other-channel video can miss",
     "progress keeps one checkpoint per item: earlier rewatches are invisible",
     "interest rows carry the last save time, so interests saved after as_of are hidden even if held before",
     "untimestamped state (remote cleared flags, removed follows/suppressions) is taken as of the copy",
@@ -392,19 +398,50 @@ def _kind(surface: str) -> str:
     return "remote" if surface in ("home_picked", "up_next") else "title"
 
 
+def _baseline_pool(session, member_id: str, as_of: datetime, surface: str, pool) -> list[Candidate]:  # noqa: ANN001
+    """Use the same anchored eligibility contract before comparing simple ordering rules."""
+    candidates = pool(session, member_id, as_of, surface)
+    if surface != "home_because" or not candidates:
+        return candidates
+    from collections import Counter
+
+    from sqlalchemy import select
+
+    from app.models import MediaTitle
+    from app.services import embeddings
+    from app.services.reco.profile import candidate_from_title
+    from app.services.reco.title_matching import anchor_match
+
+    watched = last_watch(session, member_id, as_of, "title", completed=True)
+    if watched is None:
+        return []
+    rows = {title.id: title for title in session.scalars(select(MediaTitle).where(
+        MediaTitle.id.in_([watched.key, *(candidate.key for candidate in candidates)])))}
+    if watched.key not in rows:
+        return []
+    choice = embeddings.serving(session)
+    stored = embeddings.vector_map(session, choice.model_id) if choice is not None else {}
+    vectors = {key: value[1] for key, value in stored.items() if key in rows and value[0] == "title"}
+    anchor = candidate_from_title(rows[watched.key], vectors.get(watched.key))
+    facts = {key: candidate_from_title(title, vectors.get(key)) for key, title in rows.items() if key != watched.key}
+    frequency = Counter(token for fact in facts.values() for token in fact.tokens if token.startswith("subject:"))
+    return [candidate for candidate in candidates if candidate.key in facts and anchor_match(
+        anchor, facts[candidate.key], document_frequency=frequency, document_count=len(facts)) is not None]
+
+
 def newest_first(session, member_id: str, as_of: datetime, surface: str, k: int, pool=eligible) -> list[Candidate]:  # noqa: ANN001
-    return _newest(pool(session, member_id, as_of, surface))[:k]
+    return _newest(_baseline_pool(session, member_id, as_of, surface, pool))[:k]
 
 
 def household_top_channel(session, member_id: str, as_of: datetime, surface: str, k: int, pool=eligible) -> list[Candidate]:  # noqa: ANN001
     counts = Counter(watch.channel for watch in watches(session, None) if watch.kind == _kind(surface) and watch.at < as_of and watch.channel)
-    return sorted(_newest(pool(session, member_id, as_of, surface)), key=lambda c: -counts[c.channel])[:k]
+    return sorted(_newest(_baseline_pool(session, member_id, as_of, surface, pool)), key=lambda c: -counts[c.channel])[:k]
 
 
 def last_watch_channel(session, member_id: str, as_of: datetime, surface: str, k: int, pool=eligible) -> list[Candidate]:  # noqa: ANN001
     last = last_watch(session, member_id, as_of, _kind(surface))
     channel = last.channel if last else None
-    return sorted(_newest(pool(session, member_id, as_of, surface)), key=lambda c: not (channel and c.channel == channel))[:k]
+    return sorted(_newest(_baseline_pool(session, member_id, as_of, surface, pool)), key=lambda c: not (channel and c.channel == channel))[:k]
 
 
 POLICIES: dict[str, Policy] = {"legacy": legacy_policy, "new": new_policy, "ablation": ablation_policy}
@@ -419,6 +456,13 @@ def _mean(values: list) -> float | None:
 def _member_mean(per_member: list[dict[str, list[float]]], name: str) -> float | None:
     """Equal weight per member: each member's mean over their instances, then the mean across members."""
     return _mean([_mean(member[name]) for member in per_member if member.get(name)])
+
+
+def _hit_at_10(watch: Watch, recs: list[Candidate], metric: str) -> bool:
+    top10 = recs[:10]
+    if metric in {"remote_item_hit@10", "title_item_hit@10", "anchored_title_hit@10"}:
+        return watch.key in {candidate.key for candidate in top10}
+    return bool(watch.channel) and watch.channel in {candidate.channel for candidate in top10}
 
 
 def replay(session_factory, policy_name: str = "legacy", *, also: tuple[str, ...] = ()) -> dict:  # noqa: ANN001
@@ -470,6 +514,9 @@ def replay(session_factory, policy_name: str = "legacy", *, also: tuple[str, ...
                 for surface, metrics in surfaces.items():
                     counts[surface] += 1
                     pool = universe(session, member_id, as_of, surface)
+                    if surface == "home_because":
+                        qualified = _baseline_pool(session, member_id, as_of, surface, universe)
+                        values["anchored_eligible_hit"].append(float(watch.key in {candidate.key for candidate in qualified}))
                     pools[surface].update(c.key for c in pool)
                     values[f"pool:{surface}"].append(len(pool))
                     if surface == "home_picked" and "new" in measured:
@@ -477,9 +524,8 @@ def replay(session_factory, policy_name: str = "legacy", *, also: tuple[str, ...
                     lists: dict[str, list[Candidate]] = {}
                     for name, ranker in rankers.items():
                         recs = ranker(session, member_id, as_of, surface, 20)
-                        top10 = recs[:10]
                         for metric in metrics:
-                            hit = watch.key in {c.key for c in top10} if "item" in metric else bool(watch.channel) and watch.channel in {c.channel for c in top10}
+                            hit = _hit_at_10(watch, recs, metric)
                             values[f"{metric}:{name}"].append(float(hit))
                         if name not in measured:
                             continue
@@ -535,6 +581,7 @@ def replay(session_factory, policy_name: str = "legacy", *, also: tuple[str, ...
         "home_picked_top12": top12(policy_name),
         "by_policy": {name: {"coverage_at_20": coverage(name), "home_picked_top12": top12(name)} for name in measured},
         "pool_recall": _member_mean(per_member, "pool_recall") if "new" in measured else None,
+        "anchored_eligible_hit_ceiling": _member_mean(per_member, "anchored_eligible_hit"),
         "unresolved_keys": sum(UNRESOLVED.values()),
         "pool_size_mean": {surface: _mean(pool_sizes[surface]) for surface in SURFACES},
         "hidden_rows_summed_over_instances": dict(sorted(hidden.items())),
@@ -555,7 +602,9 @@ ORACLE_TITLE = 0.82
 
 def evaluate_targets(report: dict, *, synthetic: bool, policy: str = "new", baseline: str = "legacy") -> list[dict]:
     """The target table over a compare report. ``baseline`` is B. A missing value
-    never passes; a tie with a trivial baseline fails, except remote item against newest_first on the synthetic seed."""
+    never passes; a tie with a trivial baseline fails, except remote item against newest_first on the synthetic seed.
+    Up Next's channel hit remains in the report for diagnosis only. The judged remote relevance fixture checks whether
+    the next video actually continues the anchor topic, rejects weak distractors, and abstains without evidence."""
     rows: list[dict] = []
 
     def add(metric: str, value, required, ok: bool) -> None:  # noqa: ANN001
@@ -587,7 +636,6 @@ def evaluate_targets(report: dict, *, synthetic: bool, policy: str = "new", base
         hit("remote_channel_hit@10", lambda b: max(1.5 * b, b + 0.10), 0.30)
         hit("title_item_hit@10", lambda b: max(1.2 * b, b + 0.02))
     hit("anchored_title_hit@10", lambda b: 0.95 * b)
-    hit("up_next_channel_hit@10", lambda b: 1.2 * b, 0.40)
     b = report["by_policy"][baseline]["coverage_at_20"]["home_picked"]
     at_least("coverage@20", report["by_policy"][policy]["coverage_at_20"]["home_picked"], None if b is None else 1.5 * b, 0.25)
     mine, theirs = report["by_policy"][policy]["home_picked_top12"], report["by_policy"][baseline]["home_picked_top12"]
@@ -602,13 +650,16 @@ def evaluate_targets(report: dict, *, synthetic: bool, policy: str = "new", base
         at_most("max_one_channel_top12", mine["max_one_channel_worst"], 3)  # 
     at_most("freshness_median_days", mine["freshness_median_days"], theirs["freshness_median_days"], 21)
     for metric in HIT_METRICS:
-        if metric == "remote_item_hit@10" and not synthetic:
+        if metric == "up_next_channel_hit@10" or (metric == "remote_item_hit@10" and not synthetic):
             continue
         value = hits[metric][policy]
         for name in BASELINES:
             rival = hits[metric][name]
             # The seed's next watch is drawn from the newest uploads, so newest_first is near its oracle there; a tie passes.
-            tie_ok = synthetic and metric == "remote_item_hit@10" and name == "newest_first"
+            ceiling = report.get("anchored_eligible_hit_ceiling")
+            tie_ok = (synthetic and metric == "remote_item_hit@10" and name == "newest_first") or (
+                metric == "anchored_title_hit@10" and ceiling is not None and ceiling > 0 and value is not None
+                and rival is not None and abs(value - ceiling) <= 0.0001 and abs(rival - ceiling) <= 0.0001)
             ok = value is not None and rival is not None and (value >= rival if tie_ok else value > rival)
             add(f"{metric} {'>=' if tie_ok else '>'} {name}", value, rival, ok)
     return rows

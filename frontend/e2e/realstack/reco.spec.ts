@@ -14,7 +14,7 @@ async function writer(page: Page, origin: string) {
   };
 }
 
-type TitleRow = { kind: string; items: { id: string; play_item_id?: string | null; reco?: { list_id: string; key: string } | null }[] };
+type TitleRow = { kind: string; items: { id: string; name: string; play_item_id?: string | null; reco?: { list_id: string; key: string } | null }[] };
 const attributedPlays = async (api: Awaited<ReturnType<typeof writer>>) => {
   const body = (await (await api.get('/api/admin/diagnostics')).json()).recommendations as { surfaces: { plays: number }[] };
   return body.surfaces.reduce((sum, surface) => sum + surface.plays, 0);
@@ -25,15 +25,18 @@ test('a played recommendation is attributed and counted in Diagnostics', async (
   const api = await writer(page, baseURL!);
   const playsBefore = await attributedPlays(api);
 
-  // A fresh member has no history, so Home's title rows are empty by design: finish one movie first to seed them.
-  const movies = ((await (await api.get('/api/titles?type=movie&limit=60')).json()) as { items: { id: string; play_item_id?: string | null }[] }).items.filter((item) => item.play_item_id);
-  expect(movies.length, 'the realstack library has at least two playable movies').toBeGreaterThan(1);
-  const seeded = await api.put(`/api/library/${movies[0].play_item_id}/playback`, { position_seconds: 4, duration_seconds: 4, completed: true });
+  // Use a dedicated subject-matched pair; earlier playback journeys may have started the general movie fixtures.
+  const movies = ((await (await api.get('/api/titles?type=movie&limit=60')).json()) as { items: { id: string; name: string; play_item_id?: string | null }[] }).items;
+  const anchor = movies.find((item) => item.name === 'Realstack Reco Anchor' && item.play_item_id);
+  const match = movies.find((item) => item.name === 'Realstack Reco Match' && item.play_item_id);
+  expect(anchor, 'a playable recommendation anchor fixture').toBeTruthy();
+  expect(match, 'a playable related movie fixture').toBeTruthy();
+  const seeded = await api.put(`/api/library/${anchor!.play_item_id}/playback`, { position_seconds: 4, duration_seconds: 4, completed: true });
   expect(seeded.ok(), await seeded.text()).toBe(true);
 
   const rows = ((await (await api.get('/api/home/title-rows')).json()) as { rows: TitleRow[] }).rows;
-  const picked = rows.flatMap((row) => row.items).find((item) => item.reco && item.play_item_id);
-  expect(picked, 'a recommended title with a playable version').toBeTruthy();
+  const picked = rows.flatMap((row) => row.items).find((item) => item.id === match!.id && item.reco && item.play_item_id);
+  expect(picked, 'the subject-matched title is recommended with a playable version').toBeTruthy();
   const { list_id: listId, key } = picked!.reco!;
 
   await test.step('the client reports what it showed and opened', async () => {

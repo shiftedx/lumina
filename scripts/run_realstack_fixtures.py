@@ -31,11 +31,12 @@ def ffmpeg(*args: str | Path) -> None:
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *map(str, args)], check=True)
 
 
-def movie(root: Path, title: str, year: int, ext: str, codec: list[str], lavfi: list[str] = LAVFI) -> None:
+def movie(root: Path, title: str, year: int, ext: str, codec: list[str], lavfi: list[str] = LAVFI,
+          plot: str = "Synthetic fixture.") -> None:
     folder = root / "Movies" / f"{title} ({year})"
     folder.mkdir(parents=True)
     ffmpeg(*lavfi, *codec, "-shortest", folder / f"{title} ({year}){ext}")
-    (folder / "movie.nfo").write_text(f"<movie><title>{title}</title><year>{year}</year><plot>Synthetic fixture.</plot></movie>")
+    (folder / "movie.nfo").write_text(f"<movie><title>{title}</title><year>{year}</year><plot>{plot}</plot></movie>")
     ffmpeg("-f", "lavfi", "-i", "color=c=0x356258:size=120x180", "-frames:v", "1", folder / "poster.jpg")
 
 
@@ -43,6 +44,10 @@ def build_media(media: Path) -> None:
     movie(media, "Realstack Direct", 2024, ".webm", WEBM)
     movie(media, "Realstack Remux", 2023, ".mkv", H264)
     movie(media, "Realstack Transcode", 2022, ".mp4", HEVC)
+    movie(media, "Realstack Reco Anchor", 2021, ".webm", WEBM,
+          plot="A marine rescue crew navigates ocean storms to save stranded sailors and repair a damaged ship.")
+    movie(media, "Realstack Reco Match", 2020, ".webm", WEBM,
+          plot="A rescue crew repairs a damaged ship and saves stranded sailors during dangerous ocean storms.")
     # WebKit-only playback.webkit.spec.ts: long enough to observe a seek land ahead of the
     # converted range and restart (#137), unlike the 4 s fixtures above.
     movie(media, "Realstack Seek", 2019, ".mp4", HEVC, lavfi=SEEK_LAVFI)

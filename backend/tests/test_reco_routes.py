@@ -8,10 +8,11 @@ import uuid
 from datetime import datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.models import MemberInterest, MemberRecommendationSuppression, RecoEvent, RecoPool, RemoteMedia, SourceAutomation
+from app.models import MemberAccess, MemberInterest, MemberRecommendationSuppression, RecoEvent, RecoPool, RemoteMedia, SourceAutomation
 from app.persistence import write_transaction
 from app.services.member_follows import MemberFollowService, PlannedFollow
 from app.services.member_recommendations import MemberRecommendationPolicy
@@ -212,7 +213,8 @@ def test_up_next_route_never_searches_and_has_no_provider_seam(household) -> Non
     db = _session_with(member)
     _pooled(db, member, "p1", "Tidal pools")
     db.commit()
-    payload = main.UpNextRequest(source_url=_watch("now"), source_id="now", uploader="Harbor Films", channel_id=UC, limit=6)
+    payload = main.UpNextRequest(source_url=_watch("now"), source_id="now", title="Tidal pools guide",
+                                 uploader="Harbor Films", channel_id=UC, limit=6)
 
     response = main.up_next_recommendations(payload, object(), member, db)
 
@@ -231,6 +233,25 @@ def test_up_next_rejects_a_malformed_channel_id(db_factory, api_client) -> None:
     response = client.post("/api/discovery/up-next", json={"source_url": _watch("now"), "channel_id": "UC123"})
 
     assert response.status_code == 422
+
+
+def test_up_next_checks_actual_url_and_current_provider_access(household) -> None:  # noqa: ANN001
+    member = _member()
+    db = _session_with(member)
+    db.add(MemberAccess(user_id=member.id, streaming={"youtube": False, "twitch": True, "open_search": False}))
+    db.commit()
+    twitch = main.UpNextRequest(source_url="https://www.twitch.tv/videos/123", source="twitch", source_id="123",
+                                title="Harbor walk coast")
+
+    assert main.up_next_recommendations(twitch, object(), member, db).items == []
+    for payload, kind in (
+        (main.UpNextRequest(source_url=_watch("now"), source="youtube"), "youtube"),
+        (main.UpNextRequest(source_url=_watch("now"), source="twitch"), "youtube"),
+        (main.UpNextRequest(source_url="https://soundcloud.com/artist/track", source="soundcloud"), "open_search"),
+    ):
+        with pytest.raises(HTTPException) as refused:
+            main.up_next_recommendations(payload, object(), member, db)
+        assert (refused.value.status_code, refused.value.detail) == (403, f"streaming_blocked:{kind}")
 
 
 def test_popular_route_adds_for_you_and_the_category_order(household) -> None:  # noqa: ANN001
@@ -296,6 +317,26 @@ def test_switched_off_routes_answer_with_the_legacy_policy(household) -> None:  
     assert (popular.for_you, popular.category_order) == ([], [])
     assert household.warmed == []
     assert served_lists.find(member.id, "home_picked", "-", main.utcnow()) is None
+
+
+def test_switched_off_up_next_still_requires_subject_and_honors_session_exclusions(household, monkeypatch) -> None:  # noqa: ANN001
+    member = _member()
+    db = _session_with(member)
+    seed_app_settings(db, ai_features_disabled=["personal_recommendations"])
+    snapshot = popular_snapshot(
+        popular_item("related", ("gaming",), title="Hollow Moon route guide", uploader="Creator"),
+        popular_item("random", ("gaming",), title="Cooking stream highlights", uploader="Creator"),
+    )
+    monkeypatch.setattr(main.popular_discovery, "get_snapshot", lambda: snapshot)
+    request = main.UpNextRequest(source_url=_watch("now"), source_id="now", title="Hollow Moon speedrun",
+                                 category_keys=["gaming"], uploader="Creator")
+
+    initial = main.up_next_recommendations(request, object(), member, db)
+    excluded = main.up_next_recommendations(request.model_copy(update={"excluded_sources": ["youtube:related"]}),
+                                             object(), member, db)
+
+    assert [item.id for item in initial.items] == ["related"]
+    assert excluded.items == []
 
 
 # ---- the feedback routes ------------------------------------------------------------------------------------
@@ -372,7 +413,7 @@ def test_feedback_drops_every_cached_list_of_the_member(household) -> None:  # n
     _pooled(db, member, "x", "Harbor walk")
     _pooled(db, member, "y", "Tidal pools", channel=f"{CHANNEL}2")
     db.commit()
-    up_next = main.UpNextRequest(source_url=_watch("now"), source_id="now", title="Harbor films", uploader="Someone")
+    up_next = main.UpNextRequest(source_url=_watch("now"), source_id="now", title="Harbor walk along coast", uploader="Someone")
     x = remote_key("youtube", "x", _watch("x"))
 
     def served() -> dict[str, set[str]]:

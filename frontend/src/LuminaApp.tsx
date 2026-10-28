@@ -19,7 +19,7 @@ import { SourceSettings } from './SourceSettings';
 import { type AcquisitionDefaults, acquisitionPlanForSource } from './sourcePreferences';
 import { CollectionsPage, type CollectionsRoute } from './features/collections/HouseholdCollections';
 import { AcquisitionBatchActivity, PlaylistAcquisitionPanel } from './features/downloads/PlaylistAcquisition';
-import { remoteSourceIdentity } from './playbackModel';
+import { appendAutoplaySources, remoteSourceIdentity } from './playbackModel';
 import { buildAcquisitionFormatSelection, useMediaAcquisition } from './mediaAcquisition';
 import { useSubscriptionAcquisitionFeed } from './subscriptionFeed';
 import { applyTheme } from './theme';
@@ -384,7 +384,13 @@ export default function LuminaApp() {
   const activeDownloads = state.jobs.filter((job) => ['queued', 'running', 'postprocessing'].includes(job.status)).length;
 
   const reportMessage = useCallback((next: string) => { setMessage(next); setError(null); }, []);
-  const acquisition = useMediaAcquisition({ workspace, onMessage: reportMessage });
+  const recentRemoteSourcesRef = useRef<{ memberId: string | null; ids: string[] }>({ memberId: state.currentUser?.id ?? null, ids: [] });
+  const recentRemoteSources = () => {
+    const memberId = state.currentUser?.id ?? null;
+    if (recentRemoteSourcesRef.current.memberId !== memberId) recentRemoteSourcesRef.current = { memberId, ids: [] };
+    return recentRemoteSourcesRef.current.ids;
+  };
+  const acquisition = useMediaAcquisition({ workspace, onMessage: reportMessage, upNextExclusions: () => recentRemoteSources() });
   const subscriptionCommands = useMemo(() => createSessionGuardedChannelSubscriptionCommands({
     pause: pauseAutomation,
     resume: resumeAutomation,
@@ -697,7 +703,7 @@ export default function LuminaApp() {
   useEffect(() => { resetRecoEvents(); setPopularDiscovery(null); setPopularDiscoveryError(null); setHomeRecommendations(null); setHomeRecommendationsError(null); setHomeRecommendationsLoading(false); }, [state.currentUser?.id]);
 
   // Session revocation or a user switch stops the player: the next member never inherits it.
-  useEffect(() => { resetWatchQueue(); resetPlaybackIntent(); resetWatch(); }, [state.currentUser?.id]);
+  useEffect(() => { recentRemoteSourcesRef.current = { memberId: state.currentUser?.id ?? null, ids: [] }; resetWatchQueue(); resetPlaybackIntent(); resetWatch(); }, [state.currentUser?.id]);
 
   useEffect(() => {
     const item = watchSelection?.kind === 'library' ? watchSelection.item : null;
@@ -857,7 +863,7 @@ export default function LuminaApp() {
   // Watch's Back returns where the member came from, including the title page and season.
   function leaveWatch() { const back = previousSurface === 'watch' ? 'home' : previousSurface; const location = libraryLocation; const page = channelPage; const view = streamingView; const provider = streamingProvider; navigate(back); if (back === 'streaming') { setStreamingView(view); setStreamingProvider(provider); } if ((back === 'library' || back === 'video' || back === 'audio')) setLibraryLocation(location); if (back === 'subscriptions') setChannelPage(page); }
 
-  function openRoute(route: AppRoute, confirmed = false) {
+  function openRoute(route: AppRoute, confirmed = false, preserveRemoteChain = false) {
     route = canonicalRoute(route);
     navigationMarked.current = null; // a poster click's mark is for its own navigation only
     if (route.surface === 'streaming') {
@@ -891,9 +897,14 @@ export default function LuminaApp() {
     }
     if ('url' in route) { if (watchSelection?.kind === 'remote' && watchSelection.item.webpage_url === route.url) navigate('watch'); else void openRemote({ title: 'Loading video…', webpage_url: route.url }); return; }
     const start = route.startSeconds === undefined ? null : { libraryId: route.libraryId, seconds: route.startSeconds, nonce: performance.now() };
-    if (libraryWatchItem?.id === route.libraryId) { setWatchStart(start); navigate('watch'); return; }
+    if (libraryWatchItem?.id === route.libraryId) {
+      if (!navigate('watch', confirmed)) return;
+      if (!preserveRemoteChain) recentRemoteSourcesRef.current = { memberId: state.currentUser?.id ?? null, ids: [] };
+      setWatchStart(start); return;
+    }
     // Show the Watch loading state (no selection => no URL write) while the item loads.
-    if (!leaveSettingsOk()) return;
+    if (!confirmed && !leaveSettingsOk()) return;
+    if (!preserveRemoteChain) recentRemoteSourcesRef.current = { memberId: state.currentUser?.id ?? null, ids: [] };
     setWatchStart(start);
     // Time to first frame starts at this Play, an early session is kept for the player (one started at
     // the resume point is useless for a `t`, and so is one for another item: any unclaimed one stops now), and the
@@ -908,7 +919,7 @@ export default function LuminaApp() {
     const progress = getPlaybackProgress(route.libraryId);
     progress.catch(() => undefined); // openLibrary reports a failure; a Play that never gets that far must not leave it unhandled
     void getLibraryItem(route.libraryId).then((item) => {
-      if (request === playbackLoadRequestRef.current && workspace.isSessionTokenCurrent(token)) void openLibrary(item, true, progress, route.startSeconds);
+      if (request === playbackLoadRequestRef.current && workspace.isSessionTokenCurrent(token)) void openLibrary(item, true, progress, route.startSeconds, preserveRemoteChain);
     }).catch(() => {
       if (request !== playbackLoadRequestRef.current || !workspace.isSessionTokenCurrent(token)) return;
       takePlayIntent(); // a failed Play must not time the next one's first frame
@@ -1286,7 +1297,7 @@ export default function LuminaApp() {
 
   // Only openRoute's own load keeps the link time it just set; every other Play starts from the saved position.
   /** `early`: the item's progress, already requested beside a full item (openRoute), so neither is fetched again here. */
-  async function openLibrary(item: LibraryItem, keepStart = false, early?: Promise<PlaybackProgress | null>, requestedStartSeconds?: number) {
+  async function openLibrary(item: LibraryItem, keepStart = false, early?: Promise<PlaybackProgress | null>, requestedStartSeconds?: number, preserveRemoteChain = false) {
     if (state.currentUser && (item.kind === 'track' || item.kind === 'audio')) {
       const preserveAudioLocation = surface === 'audio';
       resetWatch();
@@ -1315,6 +1326,7 @@ export default function LuminaApp() {
       if (surface === 'watch' && !libraryWatchItem) setSurface(previousSurface === 'watch' ? 'home' : previousSurface);
       setError(stopError instanceof Error ? stopError.message : 'The speaker session could not be stopped.');
     })) return;
+    if (!preserveRemoteChain) recentRemoteSourcesRef.current = { memberId: state.currentUser?.id ?? null, ids: [] };
     if (libraryWatchItem?.id === item.id && surface !== 'watch') { navigate('watch'); return; }
     notePlayIntent({ keepRecent: true }); // TTFF; keeps openRoute's earlier mark
     holdBackground(); // the page's side requests wait for this Play's first frame, so the video's own request is not queued behind them
@@ -1343,16 +1355,18 @@ export default function LuminaApp() {
     });
   }
 
-  async function openRemote(item: YouTubeSearchResult) {
+  async function openRemote(item: YouTubeSearchResult, autoplayFrom?: string | null) {
     if (item.reco) recordRecoOpen(item.reco);
     if (!leaveSettingsOk()) return;
+    if (autoplayFrom === undefined) recentRemoteSourcesRef.current = { memberId: state.currentUser?.id ?? null, ids: [] };
+    else recentRemoteSourcesRef.current.ids = appendAutoplaySources(recentRemoteSources(), autoplayFrom, remoteSourceIdentity(item));
     // Discovery and Up next keep one source identity; use its saved copy when available.
     const lifecycle = item.capabilities?.lifecycle;
     if (lifecycle === 'vod' || lifecycle === 'completed_live' || (!lifecycle && item.kind !== 'live')) {
       const identity = remoteSourceIdentity(item);
       const savedId = item.saved_item_id || (identity ? state.library.find((saved) => saved.status === 'available'
         && remoteSourceIdentity({ id: saved.remote_id, source: saved.extractor, webpage_url: saved.webpage_url }, saved.metadata_json ?? {}) === identity)?.id : null);
-      if (savedId) { openRoute({ surface: 'watch', libraryId: savedId }); return; }
+      if (savedId) { openRoute({ surface: 'watch', libraryId: savedId }, true, autoplayFrom !== undefined); return; }
     }
     pauseMusic();
     const outputRequest = ++playbackLoadRequestRef.current;
@@ -1594,6 +1608,7 @@ export default function LuminaApp() {
     : watchSelection?.kind === 'remote'
       ? remoteSourceIdentity(watchSelection.item, watchSelection.preview?.raw || {}) || `remote:${watchSelection.item.webpage_url || watchSelection.item.id || 'unknown'}`
       : 'watch:none';
+  const upNextExclusions = recentRemoteSources();
   const channelsElement = <ChannelsSurface channelId={channelId} channels={channelAutomations} commands={subscriptionCommands} isQueueing={acquisition.isQueueing} library={state.library} onAutomationChange={handleAutomationChange} onAutomationRemoved={handleAutomationRemoved} onExplore={() => openRoute({ surface: 'streaming', view: 'home' })} onOpen={openRemoteStable} onOpenChannel={(id) => { setChannelId(id); setSurface(id ? 'subscriptions' : 'streaming'); setStreamingView('channels'); window.scrollTo({ top: 0 }); }} onQueue={queueRemoteStable} onRecover={recoverSubscription} onRetry={() => { subscriptionRetryFocusRequestedRef.current = true; setSubscriptionRefreshGeneration((generation) => generation + 1); }} outcomes={subscriptionOutcomes} live={liveDiscovery} refreshing={subscriptionRefreshing} />;
   // Twitch on / Kick off until the member's choices resolver supplies the list.
   const streamingElement = <StreamingSurface channels={channelsElement} fromChannels={subscriptionVideos} explore={{ error: exploreError, isQueueing: acquisition.isQueueing, library: state.library, loading: exploreLoading, onOpen: openRemoteStable, onOpenTitle: openTitleStable, onQueue: queueRemoteStable, onSearch: runExploreStable, popular: popularDiscovery, popularError: popularDiscoveryError, libraryResults: exploreResults.library, onLoadMore: exploreResults.limit < EXPLORE_MAX && exploreResults.items.length >= exploreResults.limit ? loadMoreExploreStable : undefined, onOpenLibrary: openLibraryStable, query: exploreQuery, results: exploreResults.items, sourceErrors: exploreResults.errors, titleResults: exploreResults.titles, rail: exploreRail, onRailChange: setExploreRail }} live={{ channels: channelAutomations, error: liveDiscoveryError, isQueueing: acquisition.isQueueing, library: state.library, onOpen: openRemoteStable, onQueue: queueRemoteStable, onRailChange: setLiveRail, onRetry: () => setLiveGeneration((value) => value + 1), rail: liveRail, settings: { commands: subscriptionCommands, onChange: handleAutomationChange, onRecover: recoverSubscription, onRemoved: handleAutomationRemoved }, snapshot: liveDiscovery }} onNavigate={(next) => openRouteStable({ surface: 'streaming', ...next })} provider={streamingProvider} providers={(['youtube', ...state.preferences.streamingProviders] as StreamingProvider[]).filter((kind) => !providerBlocked(access, kind))} query={exploreQuery} rail={(streamingView === 'live' ? liveRail : exploreRail) ?? undefined} view={streamingView} />;
@@ -1616,7 +1631,7 @@ export default function LuminaApp() {
                 : watchSelection ? null : surfaceLoading;
   // The one player owner: Watch and the mini-player are the same mounted
   // surface in a stable slot, so the media element never remounts on navigation.
-  const watchPlayer = watchSelection && !gate ? <SurfaceBoundary key={watchSurfaceKey}><Suspense fallback={surface === 'watch' ? surfaceLoading : null}><WatchSurface sourceProblem={acquisition.state.failure?.phase === 'preview' ? acquisition.state.failure.message : null} mini={surface !== 'watch'} onClose={resetWatch} onExpand={() => navigate('watch')} autoplayUpNext={state.preferences.autoplayUpNext} busy={watchSelection.kind === 'remote' && acquisition.isQueueing(watchSelection.item)} channels={channelAutomations} curation={curation} downloadMenuOpen={downloadMenuOpen} downloadQuality={acquisition.state.format} jobs={state.jobs} key={watchSurfaceKey} library={state.library} onAutoplayUpNextChange={(autoplayUpNext) => workspace.dispatch({ type: 'preferences/patch', patch: { autoplayUpNext } })} onBack={leaveWatch} onClearPlayback={handleClearPlayback} onCloseDownloadMenu={() => setDownloadMenuOpen(false)} onDownload={acquisition.queueSelection} onDownloadQuality={acquisition.chooseFormat} onFollow={followCurrentChannel} onOpenDownloads={() => navigate('downloads')} onOpenLibraryItem={(libraryId) => openRoute({ surface: 'watch', libraryId })} onOpenQueued={(entry) => entry.ref.library_item_id ? openRoute({ surface: 'watch', libraryId: entry.ref.library_item_id }) : void openRemote(queuedAsRemote(entry))} onOpenRelated={openRemote} onPlaybackCheckpoint={handlePlaybackCheckpoint} onReacquireRemote={async (item) => Boolean(await acquisition.open(item))} onRestart={handleRestartPlayback} onTheaterModeChange={(theaterMode) => workspace.dispatch({ type: 'preferences/patch', patch: { theaterMode } })} onToggleDownloadMenu={() => setDownloadMenuOpen((value) => !value)} playback={activePlayback} playlistAcquisition={playlistAcquisition} previewLoading={acquisition.state.previewing || (watchSelection.kind === 'library' && playbackLoading)} related={acquisition.state.related} captions={state.preferences.captions} onCaptionsChange={(captions) => workspace.dispatch({ type: 'preferences/patch', patch: { captions } })} playerVolume={state.preferences.playerVolume} onPlayerVolumeChange={(playerVolume) => workspace.dispatch({ type: 'preferences/patch', patch: { playerVolume } })} selection={watchSelection} onOpenTitle={openTitleStable} onPlaybackPrefsChange={patchPlaybackPrefsStable} playbackPrefs={playbackPrefs} startSeconds={watchSelection.kind === 'library' && watchStart?.libraryId === watchSelection.item.id ? watchStart.seconds : null} startNonce={watchStart?.nonce} theaterMode={state.preferences.theaterMode} /></Suspense></SurfaceBoundary> : null;
+  const watchPlayer = watchSelection && !gate ? <SurfaceBoundary key={watchSurfaceKey}><Suspense fallback={surface === 'watch' ? surfaceLoading : null}><WatchSurface sourceProblem={acquisition.state.failure?.phase === 'preview' ? acquisition.state.failure.message : null} mini={surface !== 'watch'} onClose={resetWatch} onExpand={() => navigate('watch')} autoplayUpNext={state.preferences.autoplayUpNext} busy={watchSelection.kind === 'remote' && acquisition.isQueueing(watchSelection.item)} channels={channelAutomations} curation={curation} downloadMenuOpen={downloadMenuOpen} downloadQuality={acquisition.state.format} jobs={state.jobs} key={watchSurfaceKey} library={state.library} onAutoplayUpNextChange={(autoplayUpNext) => workspace.dispatch({ type: 'preferences/patch', patch: { autoplayUpNext } })} onBack={leaveWatch} onClearPlayback={handleClearPlayback} onCloseDownloadMenu={() => setDownloadMenuOpen(false)} onDownload={acquisition.queueSelection} onDownloadQuality={acquisition.chooseFormat} onFollow={followCurrentChannel} onOpenDownloads={() => navigate('downloads')} onOpenLibraryItem={(libraryId) => openRoute({ surface: 'watch', libraryId })} onOpenQueued={(entry) => entry.ref.library_item_id ? openRoute({ surface: 'watch', libraryId: entry.ref.library_item_id }) : void openRemote(queuedAsRemote(entry))} onOpenRelated={(item) => { void openRemote(item); }} onAutoAdvanceRelated={(item, current) => { void openRemote(item, current); }} onPlaybackCheckpoint={handlePlaybackCheckpoint} onReacquireRemote={async (item) => Boolean(await acquisition.open(item))} onRestart={handleRestartPlayback} onTheaterModeChange={(theaterMode) => workspace.dispatch({ type: 'preferences/patch', patch: { theaterMode } })} onToggleDownloadMenu={() => setDownloadMenuOpen((value) => !value)} playback={activePlayback} playlistAcquisition={playlistAcquisition} previewLoading={acquisition.state.previewing || (watchSelection.kind === 'library' && playbackLoading)} related={acquisition.state.related} remoteRelatedLoading={acquisition.state.relatedLoading} remoteRelatedError={acquisition.state.relatedError} onRetryRemoteRelated={() => { void acquisition.retryRelated(); }} upNextExclusions={upNextExclusions} captions={state.preferences.captions} onCaptionsChange={(captions) => workspace.dispatch({ type: 'preferences/patch', patch: { captions } })} playerVolume={state.preferences.playerVolume} onPlayerVolumeChange={(playerVolume) => workspace.dispatch({ type: 'preferences/patch', patch: { playerVolume } })} selection={watchSelection} onOpenTitle={openTitleStable} onPlaybackPrefsChange={patchPlaybackPrefsStable} playbackPrefs={playbackPrefs} startSeconds={watchSelection.kind === 'library' && watchStart?.libraryId === watchSelection.item.id ? watchStart.seconds : null} startNonce={watchStart?.nonce} theaterMode={state.preferences.theaterMode} /></Suspense></SurfaceBoundary> : null;
 
   const content = surface === 'watch' && gate ? <WatchStopState gate={gate} onHome={() => navigate('home')} until={access?.until ?? null} />
     : (surface === 'streaming' || surface === 'subscriptions') && allStreamingBlocked(access) ? <BlockedSurface what="Streaming" />

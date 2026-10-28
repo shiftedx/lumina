@@ -212,6 +212,8 @@ export interface UpNextRequest {
   /** The current video's channel, so Up Next reads its cached listing. */
   channel_id?: string | null;
   channel_url?: string | null;
+  /** Recent sources in this playback chain, in canonical remote identity form. */
+  excluded_sources?: string[];
 }
 
 export interface YouTubeSearchResult {

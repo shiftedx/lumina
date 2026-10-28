@@ -66,14 +66,16 @@ def test_create_channel_suppression_applies_across_home_and_up_next(monkeypatch)
     monkeypatch.setattr(main, "enforce_rate_limit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         main.popular_discovery, "get_snapshot",
-        lambda: _snapshot(_item("muted", ("music",), uploader="Muted Channel"), _item("kept", ("music",), uploader="Other")),
+        lambda: _snapshot(_item("muted", ("music",), title="Harbor walk studio session", uploader="Muted Channel"),
+                          _item("kept", ("music",), title="Harbor walk acoustic set", uploader="Other")),
     )
 
     main.create_suppression(main.SuppressRecommendationRequest(scope="channel", uploader="Muted Channel"), member, db)
 
     home = [item.id for item in main.home_recommendations(object(), member, db).items]
     up_next_payload = main.UpNextRequest(
-        source_url="https://www.youtube.com/watch?v=now", source_id="now", uploader="Anchor", category_keys=["music"],
+        source_url="https://www.youtube.com/watch?v=now", source_id="now", title="Harbor walk concert",
+        uploader="Anchor", category_keys=["music"],
     )
     up_next = [item.id for item in main.up_next_recommendations(up_next_payload, object(), member, db).items]
 

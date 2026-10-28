@@ -425,10 +425,16 @@ def test_search_hint_from_dto() -> None:
 
 
 def movie_tree(media: Path) -> None:
+    plots = {
+        "Arrival": "Astronomers decode radio signals from distant planets aboard a spacecraft.",
+        "Contact": "A scientist decodes radio signals from distant planets and builds a spacecraft.",
+        "Paddington": "A bear settles into a bustling city and befriends a family.",
+    }
     for name, year, genres in (("Arrival", 2016, ("Science Fiction", "Drama")), ("Contact", 1997, ("Science Fiction", "Drama")), ("Paddington", 2014, ("Comedy",))):
         folder = media / "Movies" / f"{name} ({year})"
         write(folder / f"{name} ({year}).mkv")
-        write(folder / "movie.nfo", f"<movie><title>{name}</title><year>{year}</year>" + "".join(f"<genre>{g}</genre>" for g in genres) + "</movie>")
+        write(folder / "movie.nfo", f"<movie><title>{name}</title><year>{year}</year><plot>{plots[name]}</plot>"
+              + "".join(f"<genre>{g}</genre>" for g in genres) + "</movie>")
 
 
 def names(response) -> list[str]:  # noqa: ANN001

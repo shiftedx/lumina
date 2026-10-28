@@ -7,6 +7,21 @@ public enum HomeFeedShape: String, Codable, Sendable {
     case square
 }
 
+public struct HomeRecommendation: Codable, Hashable, Sendable {
+    public let listID: String
+    public let key: String
+    public let position: Int
+    public let slot: String
+    public let reasonCode: String
+    public let reason: String
+
+    private enum CodingKeys: String, CodingKey {
+        case key, position, slot, reason
+        case listID = "list_id"
+        case reasonCode = "reason_code"
+    }
+}
+
 /// The locally available Home refinements. They operate on the loaded Home
 /// response and therefore never turn a Home interaction into a catalog scan.
 public enum HomeBrowseCategory: String, CaseIterable, Hashable, Sendable {
@@ -66,6 +81,10 @@ public struct HomeFeedRow: Codable, Identifiable, Sendable {
     }
 }
 
+private struct HomeSuppression: Decodable {
+    let id: String
+}
+
 /// Metadata-only handoff; the native session is never sent to a provider.
 public struct HomeExternalItem: Codable, Identifiable, Sendable {
     public let id: String
@@ -103,6 +122,8 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
     private let includesExternalSources: Bool
     private var sessionGeneration = 0
     private var operationGeneration = 0
+    private var seenRecommendations = Set<String>()
+    private var hiddenTitleIDs = [String: String]()
 
     public init(session: LuminaSession? = nil, includesExternalSources: Bool = false) {
         self.includesExternalSources = includesExternalSources
@@ -127,6 +148,8 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
         isLoading = false
         hasLoaded = false
         errorMessage = nil
+        seenRecommendations = []
+        hiddenTitleIDs = [:]
     }
 
     /// Member-visible genres represented by the currently loaded local Home rows.
@@ -184,11 +207,66 @@ public struct HomeExternalItem: Codable, Identifiable, Sendable {
         do {
             let response: Response = try await request(session: session)
             guard operation == operationGeneration, currentSession == sessionGeneration else { return }
-            rows = response.rows
+            rows = withoutHiddenTitles(response.rows)
             hasLoaded = true
         } catch {
             guard operation == operationGeneration, currentSession == sessionGeneration else { return }
             errorMessage = "Home could not be loaded."
+        }
+    }
+
+    /// Called only after a card is actually visible. The served-list cache
+    /// validates both member and key before the event is stored.
+    public func record(_ kind: String, recommendation: HomeRecommendation) async {
+        guard let session, kind == "impression" || kind == "open" else { return }
+        let generation = sessionGeneration
+        let identity = "\(recommendation.listID):\(recommendation.key)"
+        if kind == "impression" && seenRecommendations.contains(identity) { return }
+        if kind == "impression" { seenRecommendations.insert(identity) }
+        let body: [String: Any] = ["events": [["kind": kind, "list_id": recommendation.listID,
+                                                "key": recommendation.key, "age_ms": 0]]]
+        let request = client.request(origin: session.serverURL, path: "/Lumina/Home/reco/events",
+                                     method: "POST", token: session.accessToken, deviceID: session.deviceID, body: body)
+        do { _ = try await client.send(request) }
+        catch {
+            if kind == "impression", generation == sessionGeneration { seenRecommendations.remove(identity) }
+        }
+    }
+
+    @discardableResult public func hide(_ item: MediaItem) async -> String? {
+        guard let session, let reco = item.luminaReco else { return nil }
+        let generation = sessionGeneration
+        let body: [String: Any] = ["scope": "title", "title_id": reco.key,
+                                   "key": reco.key, "list_id": reco.listID]
+        let request = client.request(origin: session.serverURL, path: "/Lumina/Home/reco/suppressions",
+                                     method: "POST", token: session.accessToken, deviceID: session.deviceID, body: body)
+        guard let data = try? await client.send(request),
+              let response = try? JSONDecoder().decode(HomeSuppression.self, from: data) else { return nil }
+        guard generation == sessionGeneration else { return nil }
+        hiddenTitleIDs[response.id] = item.id
+        rows = withoutHiddenTitles(rows)
+        return response.id
+    }
+
+    public func undoHide(_ suppressionID: String) async {
+        guard let session, hiddenTitleIDs[suppressionID] != nil else { return }
+        let generation = sessionGeneration
+        let request = client.request(origin: session.serverURL,
+                                     path: "/Lumina/Settings/suppressions/\(suppressionID)",
+                                     method: "DELETE", token: session.accessToken, deviceID: session.deviceID)
+        guard (try? await client.send(request)) != nil else { return }
+        guard generation == sessionGeneration else { return }
+        hiddenTitleIDs.removeValue(forKey: suppressionID)
+        await load()
+    }
+
+    private func withoutHiddenTitles(_ rows: [HomeFeedRow]) -> [HomeFeedRow] {
+        let hidden = Set(hiddenTitleIDs.values)
+        guard !hidden.isEmpty else { return rows }
+        return rows.compactMap { row in
+            let remaining = row.items.filter { !hidden.contains($0.id) }
+            return remaining.isEmpty && (row.externalItems ?? []).isEmpty ? nil
+                : row.replacing(items: remaining, externalItems: row.externalItems)
         }
     }
 

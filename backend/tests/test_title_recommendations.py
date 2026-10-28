@@ -75,10 +75,12 @@ WATCHED_ID = "00000000-0000-4000-8000-000000000001"
 def _library(session):
     member = make_user("member")
     session.add_all([make_user("owner"), make_user("other"), member])
-    add_movie(session, WATCHED_ID, "Watched", genres=["Drama"], people=["Amy Adams"])
+    add_movie(session, WATCHED_ID, "Watched", genres=["Drama"], people=["Amy Adams"],
+              overview="A hospital surgeon faces difficult transplant decisions with patients.")
     add_movie(session, "started", "Started", genres=["Horror"])
     add_movie(session, "drama2", "Another Drama", genres=["Drama"])
-    add_movie(session, "adams", "Adams Film", people=["Amy Adams"])
+    add_movie(session, "adams", "Adams Film", people=["Amy Adams"],
+              overview="A hospital surgeon weighs transplant decisions with patients and families.")
     add_movie(session, "horror2", "Another Horror", genres=["Horror"])
     add_movie(session, "private", "Private Drama", genres=["Drama"], owner="other", visibility="private")
     add_movie(session, "cooking", "Cooking Show", genres=["Food"])
@@ -131,7 +133,7 @@ def test_cold_member_gets_nothing_without_an_anchor_and_a_ranked_list_with_one()
 
     assert policy.titles(cold, types=("movie",)) == []
     similar = [title.id for title in policy.titles(cold, anchor=WATCHED_ID, types=("movie",))]
-    assert similar[0] == "adams"  # shares a person with the anchor (0.75 context)
+    assert similar == ["adams"]  # subject evidence, not an unrelated drama or exploration fill
     assert WATCHED_ID not in similar and "private" not in similar
     assert policy.titles(cold, anchor="private", types=("movie",)) == []  # an invisible anchor answers nothing
 

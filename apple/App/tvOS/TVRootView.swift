@@ -1108,6 +1108,8 @@ private struct TVHomeView: View {
     #endif
 
     @State private var loadingInitialLibrary = false
+    @State private var hiddenRecommendationID: String?
+    @State private var showRecommendationUndo = false
     private var refinement: HomeRefinementResult {
         feed.refined(HomeRefinement(category: category), heroItems: store.featuredItems)
     }
@@ -1156,7 +1158,8 @@ private struct TVHomeView: View {
                             TVRail(title: row.title, items: row.items, store: store,
                                    poster: row.shape == .poster,
                                    identifierPrefix: row.shelfID == .continueWatching ? "resumeItem" : row.shelfID == .nextUp ? "nextUpItem" : "homeRow-\(row.id)",
-                                   onOpen: onOpen)
+                                   onOpen: onOpen, feed: feed,
+                                   onHide: { hiddenRecommendationID = $0; showRecommendationUndo = true })
                                 .focusSection()
                         }
                         }
@@ -1176,6 +1179,10 @@ private struct TVHomeView: View {
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .top])
         .accessibilityIdentifier("homeScreen")
+        .alert("Recommendation hidden", isPresented: $showRecommendationUndo) {
+            Button("Undo") { if let hiddenRecommendationID { Task { await feed.undoHide(hiddenRecommendationID) } } }
+            Button("Done", role: .cancel) {}
+        }
         #if LUMINA_UI_TESTING
         .accessibilityValue(audioSession.uiTestingTVRestoreDiagnostics)
         #endif
@@ -1773,6 +1780,8 @@ private struct TVRail: View {
     var poster = false
     var identifierPrefix = "resumeItem"
     let onOpen: (MediaItem) -> Void
+    var feed: LuminaHomeFeed? = nil
+    var onHide: (String) -> Void = { _ in }
 
     private var captionPresentation: TVRailCaptionPresentation {
         TVRailCaptionPresentation(identifierPrefix: identifierPrefix)
@@ -1789,7 +1798,20 @@ private struct TVRail: View {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 32) {
                     ForEach(items) { item in
-                        TVMediaCard(item: item, store: store, poster: presentsPosters, captionPresentation: captionPresentation) { onOpen(item) }
+                        TVRecommendationCard(item: item, feed: feed, onHide: onHide) {
+                            TVMediaCard(item: item, store: store, poster: presentsPosters, captionPresentation: captionPresentation) {
+                                if let reco = item.luminaReco { Task { await feed?.record("open", recommendation: reco) } }
+                                onOpen(item)
+                            }
+                            .accessibilityHint(item.luminaReco?.reason ?? "")
+                            .overlay(alignment: .bottomLeading) {
+                                if let reason = item.luminaReco?.reason {
+                                    Text(reason).font(.caption).lineLimit(2).padding(8)
+                                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                                        .accessibilityHidden(true)
+                                }
+                            }
+                        }
                             .frame(width: item.isAudio || item.type.hasPrefix("Music") ? 260 : presentsPosters ? 220 : 400)
                             .accessibilityIdentifier("\(identifierPrefix)-\(item.id)")
                     }
@@ -1799,6 +1821,41 @@ private struct TVRail: View {
             .scrollClipDisabled()
         }
         .padding(.horizontal, 80)
+    }
+}
+
+@MainActor private struct TVRecommendationCard<Content: View>: View {
+    let item: MediaItem
+    let feed: LuminaHomeFeed?
+    let onHide: (String) -> Void
+    let content: Content
+    @State private var isVisible = false
+
+    init(item: MediaItem, feed: LuminaHomeFeed?, onHide: @escaping (String) -> Void, @ViewBuilder content: () -> Content) {
+        self.item = item
+        self.feed = feed
+        self.onHide = onHide
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .onScrollVisibilityChange(threshold: 0.6) { isVisible = $0 }
+            .task(id: isVisible) {
+                guard isVisible, let reco = item.luminaReco else { return }
+                try? await Task.sleep(for: .milliseconds(600))
+                guard !Task.isCancelled else { return }
+                await feed?.record("impression", recommendation: reco)
+            }
+            .contextMenu {
+                if item.luminaReco != nil {
+                    Button("Not interested") {
+                        Task {
+                            if let hidden = await feed?.hide(item) { onHide(hidden) }
+                        }
+                    }
+                }
+            }
     }
 }
 

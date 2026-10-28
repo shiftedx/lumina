@@ -5,14 +5,17 @@ from typing import Annotated
 from hashlib import sha256
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.media_schemas import SmartCollectionRule
-from app.models import LibraryItem, MediaTitle, PlaybackProgress, SourceAutomation
+from app.models import LibraryItem, MediaTitle, PlaybackProgress, SourceAutomation, utcnow
+from app.media_schemas import RecoEventBatch
+from app.schemas import SuppressRecommendationRequest, SuppressionResponse
+from app.services.reco.events import RecoEventService
 from app.persistence import write_transaction
 from app.routers import discovery
 from app.routers.jellyfin_integration import JellyfinCaller, jellyfin_caller
@@ -22,6 +25,7 @@ from app.services import smart_collections, streaming_gate
 from app.services.household_collections import HouseholdCollectionService
 from app.services.library import LibraryService
 from app.services.playlists import WatchQueueService
+from app.services.rate_limit import rate_limiter
 from app.services.titles import TitleService
 from app.services.user_settings import UserSettingsService
 
@@ -151,9 +155,14 @@ def _continue_listening(mapper: jf.JellyfinMapper, caller: JellyfinCaller, db: S
     return mapper.item_dtos(rows)
 
 
-def _title_dtos(mapper: jf.JellyfinMapper, ids: list[str]) -> list[dict]:
+def _title_dtos(mapper: jf.JellyfinMapper, items: list) -> list[dict]:
     """The mapper keeps a title's member progress, art scope, and preferred version intact."""
-    return mapper.by_ids(ids[:_ROW_LIMIT])
+    annotations = {item.id: item.reco for item in items if item.reco is not None}
+    dtos = mapper.by_ids([item.id for item in items[:_ROW_LIMIT]])
+    for dto in dtos:
+        if annotation := annotations.get(jf.parse_item_id(dto.get("Id"))):
+            dto["LuminaReco"] = annotation.model_dump(mode="json")
+    return dtos
 
 
 def _new_in_library(mapper: jf.JellyfinMapper, caller: JellyfinCaller, db: Session) -> list[dict]:
@@ -390,11 +399,11 @@ def get_rows(request: Request, caller: Caller, db: Db, include_external: bool = 
         "recent_music": lambda: [_row("recent_music", "recent_music", "Recently added music", "square", _recent_music(mapper, caller, db))],
         "continue_listening": lambda: [_row("continue_listening", "continue_listening", "Continue listening", "square", _continue_listening(mapper, caller, db))],
         "because_you_watched": lambda: [
-            _row(row.id, "because_you_watched", row.title, "poster", _title_dtos(mapper, [item.id for item in row.items]))
+            _row(row.id, "because_you_watched", row.title, "poster", _title_dtos(mapper, row.items))
             for row in [row for row in title_rows if row.kind == "because_you_watched"][:_BECAUSE_ROWS]
         ],
         "recommended": lambda: [
-            _row(row.id, "recommended", row.title, "poster", _title_dtos(mapper, [item.id for item in row.items]))
+            _row(row.id, "recommended", row.title, "poster", _title_dtos(mapper, row.items))
             for row in title_rows if row.kind == "recommended"
         ],
         "collections": lambda: _collections(mapper, caller, db),
@@ -412,3 +421,25 @@ def get_rows(request: Request, caller: Caller, db: Db, include_external: bool = 
         rows.extend(built)
     _attach_home_metadata(rows, mapper, db)
     return {"rows": rows}
+
+
+@router.post("/reco/events", status_code=204)
+async def post_reco_events(batch: RecoEventBatch, request: Request, caller: Caller, db: Db) -> Response:
+    """Connected-app tokens use the same served-list validation as browser events."""
+    if len(await request.body()) > 32 * 1024:
+        raise HTTPException(status_code=413, detail="Request body is too large.")
+    rate_limiter.check("reco_events", f"user:{caller.user.id}", user_id=caller.user.id)
+    with write_transaction(db, name="native_reco_events"):
+        RecoEventService(db).record_client(caller.user, batch, now=utcnow())
+    return Response(status_code=204)
+
+
+@router.post("/reco/suppressions", response_model=SuppressionResponse)
+def suppress_recommendation(payload: SuppressRecommendationRequest, caller: Caller, db: Db) -> SuppressionResponse:
+    if payload.scope != "title":
+        raise HTTPException(status_code=422, detail="Native Home accepts title feedback only.")
+    rate_limiter.check("reco_feedback", f"user:{caller.user.id}", user_id=caller.user.id)
+    # Share the browser's visibility check, member suppression, feedback event,
+    # and cache invalidation contract without exposing cookie-session routes.
+    from app.main import create_suppression
+    return create_suppression(payload, current_user=caller.user, db=db)

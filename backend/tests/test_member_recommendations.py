@@ -208,7 +208,9 @@ def test_up_next_endpoint_never_searches_a_provider(monkeypatch) -> None:
     db.add(member)
     db.commit()
     monkeypatch.setattr(main, "enforce_rate_limit", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main.popular_discovery, "get_snapshot", lambda: _snapshot(_item("local-news", ("news",))))
+    monkeypatch.setattr(main.popular_discovery, "get_snapshot", lambda: _snapshot(
+        _item("local-news", ("news",), title="Harbor flood local report"),
+    ))
 
     class _Refusing:
         def __init__(self, _db):
@@ -220,7 +222,7 @@ def test_up_next_endpoint_never_searches_a_provider(monkeypatch) -> None:
     monkeypatch.setattr(main, "YtDlpService", _Refusing)
     payload = main.UpNextRequest(
         source_url="https://www.youtube.com/watch?v=now", source_id="now",
-        uploader="NowPlaying", category_keys=["news"],
+        title="Harbor flood live update", uploader="NowPlaying", category_keys=["news"],
     )
 
     result = main.up_next_recommendations(payload, object(), member, db)

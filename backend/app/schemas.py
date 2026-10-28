@@ -214,9 +214,17 @@ class UpNextRequest(BaseModel):
     uploader: str | None = None
     category_keys: list[str] = Field(default_factory=list, max_length=25)
     limit: int = Field(default=12, ge=1, le=24)
+    excluded_sources: list[str] = Field(default_factory=list, max_length=50)
     # The current video's channel, so Up Next can read its cached listing (no provider call).
     channel_id: str | None = Field(default=None, pattern=r"^UC[0-9A-Za-z_-]{22}$")
     channel_url: str | None = Field(default=None, max_length=2_048)
+
+    @field_validator("excluded_sources")
+    @classmethod
+    def bounded_excluded_sources(cls, identities: list[str]) -> list[str]:
+        if any(not identity or len(identity) > 4_096 for identity in identities):
+            raise ValueError("Invalid excluded source identity")
+        return identities
 
 
 # The member's own watch state on a remote entry, set per request after any cache.

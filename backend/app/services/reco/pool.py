@@ -17,7 +17,7 @@ import re
 import threading
 import weakref
 from bisect import bisect_left
-from collections import Counter, deque
+from collections import Counter, defaultdict, deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -163,7 +163,8 @@ def _media(
     short = kind == "short" or "/shorts/" in webpage_url or (duration is not None and duration < MIN_DURATION_SECONDS)
     live = kind == "live" or lifecycle in ("live", "upcoming")
     unplayable = (availability or "").strip().casefold() in _UNPLAYABLE_AVAILABILITY
-    extractor, remote_id = (None, None) if canonical.startswith("url:") else canonical.split(":", 1)
+    # URL-keyed sources still need their provider for wire entries and same-provider Up Next filtering.
+    extractor, remote_id = (provider.casefold(), None) if canonical.startswith("url:") else canonical.split(":", 1)
     channel_id = uploader_id if uploader_id and CHANNEL_ID.fullmatch(uploader_id) else None  # a handle is not a stable id
     return Media(
         key=key, source_identity=canonical, extractor=extractor, remote_id=remote_id, webpage_url=webpage_url,
@@ -992,11 +993,23 @@ class PoolTitle(NamedTuple):
 class TitleBase:
     """The member's visible, unstarted movies and series as of a moment: built once per request, read by each of its lists."""
     titles: tuple[PoolTitle, ...]
+    postings: Mapping[str, list[str]] = field(default_factory=dict, compare=False, repr=False)
     _overlaps: dict[int, tuple[MemberProfile, list[tuple[float, str]]]] = field(default_factory=dict, compare=False, repr=False)
 
     @functools.cached_property
     def newest(self) -> list[PoolTitle]:
         return sorted(self.titles, key=lambda title: (title.arrived_at, title.id), reverse=True)
+
+    def token_postings(self) -> Mapping[str, list[str]]:
+        if self.postings or not self.titles:
+            return self.postings
+        found: dict[str, list[str]] = defaultdict(list)
+        for title in self.titles:
+            for token in title.tokens:
+                if token.startswith((*_OVERLAP_PREFIXES, "subject:")):
+                    found[token].append(title.id)
+        object.__setattr__(self, "postings", found)
+        return found
 
     def by_overlap(self, profile: MemberProfile) -> list[tuple[float, str]]:
         """(weighted genre, cast, director and collection overlap with what the member finished, id), best first: once per
@@ -1008,9 +1021,16 @@ class TitleBase:
         for item in profile.satisfied:
             if item.target_kind == "title":
                 for token in item.tokens:
-                    if token.startswith(_OVERLAP_PREFIXES):
+                    if token.startswith((*_OVERLAP_PREFIXES, "subject:")):
                         liked[token] += item.weight
-        ranked = sorted(((sum(liked[token] for token in title.tokens if token in liked), title.id) for title in self.titles), reverse=True)
+        scores: Counter[str] = Counter()
+        eligible = {title.id for title in self.titles}
+        for token, value in liked.items():
+            hits = [title_id for title_id in self.token_postings().get(token, ()) if title_id in eligible]
+            weight = math.log1p((len(self.titles) + 1) / (1 + len(hits))) if token.startswith("subject:") else 1.0
+            for title_id in hits:
+                scores[title_id] += value * weight
+        ranked = sorted(((score, title_id) for title_id, score in scores.items()), reverse=True)
         self._overlaps[id(profile)] = (profile, ranked)
         return ranked
 
@@ -1019,6 +1039,10 @@ class TitleBase:
 # bumps, plus the columns raw SQL rewrites (category, added_at: db.py) and the other token columns, all as stored.
 # Cleared wholesale past TITLE_FACTS_MAX entries, an LRU if a library outgrows it.
 _TITLE_FACTS: weakref.WeakKeyDictionary[object, dict[str, tuple[tuple, PoolTitle]]] = weakref.WeakKeyDictionary()
+# Rebuilt with facts under one lock. These postings include every title cached for the engine;
+# each request filters them by its own visible, unstarted, as-of title ids before scoring.
+_TITLE_POSTINGS: weakref.WeakKeyDictionary[object, dict[str, list[str]]] = weakref.WeakKeyDictionary()
+_TITLE_CACHE_LOCK = threading.RLock()
 TITLE_FACTS_MAX = 50_000
 _FACTS_CHUNK = 500
 _STAMP = (
@@ -1028,11 +1052,17 @@ _STAMP = (
 
 
 def title_base(db: Session, member: User, *, as_of: datetime | None = None) -> TitleBase:
+    with _TITLE_CACHE_LOCK:
+        return _title_base_locked(db, member, as_of=as_of)
+
+
+def _title_base_locked(db: Session, member: User, *, as_of: datetime | None = None) -> TitleBase:
     """The population: visible, unstarted movies and series that had arrived by ``as_of``. Titles come from a
     per-process cache checked against their stored columns, so a warm request parses no metadata, dates or names."""
     started = MemberRecommendationPolicy(db)._title_history(member, until=as_of)  # noqa: SLF001 - the one definition of "started"
     query = select(*_STAMP).where(MediaTitle.type.in_(TITLE_POOL_TYPES), LibraryService.visible_title_predicate(member))
-    facts = _TITLE_FACTS.setdefault(db.get_bind(), {})
+    bind = db.get_bind()
+    facts = _TITLE_FACTS.setdefault(bind, {})
     titles: list[PoolTitle] = []
     stale: list[tuple] = []
     # Iteration alone buffers all ORM rows; bounded fetches avoid full-GC tails.
@@ -1046,6 +1076,9 @@ def title_base(db: Session, member: User, *, as_of: datetime | None = None) -> T
             stale.append(tuple(row))
     if len(facts) + len(stale) > TITLE_FACTS_MAX:
         facts.clear()
+        _TITLE_POSTINGS.pop(bind, None)
+    if stale:
+        _TITLE_POSTINGS.pop(bind, None)
     for chunk in batched(stale, _FACTS_CHUNK):
         loaded = {row[0]: row[1:] for row in db.execute(
             select(MediaTitle.id, MediaTitle.type, MediaTitle.name, MediaTitle.metadata_json, MediaTitle.added_at, MediaTitle.created_at)
@@ -1058,7 +1091,15 @@ def title_base(db: Session, member: User, *, as_of: datetime | None = None) -> T
             title = PoolTitle(title_id, kind, name, boxset_id, added_at or created_at, tokens, reco_profile.rating_of(metadata))
             facts[title_id] = (row, title)  # another request may clear facts meanwhile: never read it back
             titles.append(title)
-    return TitleBase(tuple(title for title in titles if as_of is None or title.arrived_at <= as_of))
+    postings = _TITLE_POSTINGS.get(bind)
+    if postings is None:
+        postings = defaultdict(list)
+        for _stamp, title in facts.values():
+            for token in title.tokens:
+                if token.startswith((*_OVERLAP_PREFIXES, "subject:")):
+                    postings[token].append(title.id)
+        _TITLE_POSTINGS[bind] = postings
+    return TitleBase(tuple(title for title in titles if as_of is None or title.arrived_at <= as_of), postings)
 
 
 def title_candidates(
@@ -1086,12 +1127,13 @@ def title_candidates(
     vectors = {title_id: stored[title_id][1] for title_id in tokens if title_id in stored and stored[title_id][0] == "title"}
 
     picked: set[str] = set()
-    if profile.centroids:
-        taste = ((max(embeddings.cosine(centroid, vector) for centroid in profile.centroids), title_id) for title_id, vector in vectors.items())
-        picked.update(title_id for _score, title_id in heapq.nlargest(TITLE_BY_TASTE, taste))
-    overlap = islice(((score, title_id) for score, title_id in base.by_overlap(profile) if title_id in eligible), TITLE_BY_OVERLAP)
-    picked.update(title_id for score, title_id in overlap if score > 0)
-    picked.update(islice((title.id for title in base.newest if title.id in eligible), TITLE_NEWEST))
+    if anchor is None:
+        if profile.centroids:
+            taste = ((max(embeddings.cosine(centroid, vector) for centroid in profile.centroids), title_id) for title_id, vector in vectors.items())
+            picked.update(title_id for _score, title_id in heapq.nlargest(TITLE_BY_TASTE, taste))
+        overlap = islice(((score, title_id) for score, title_id in base.by_overlap(profile) if title_id in eligible), TITLE_BY_OVERLAP)
+        picked.update(title_id for score, title_id in overlap if score > 0)
+        picked.update(islice((title.id for title in base.newest if title.id in eligible), TITLE_NEWEST))
     if anchor is not None:
         anchor_tokens = frozenset(token for token in reco_profile.title_tokens(anchor) if token.startswith(_OVERLAP_PREFIXES))  # cat:/decade: alone are not alikeness
         if anchor.id in stored and stored[anchor.id][0] == "title":
@@ -1099,11 +1141,23 @@ def title_candidates(
             picked.update(title_id for _score, title_id in heapq.nlargest(TITLE_NEIGHBOURS, nearest))
         shared = ((len(found & anchor_tokens), title_id) for title_id, found in tokens.items())
         picked.update(title_id for count, title_id in heapq.nlargest(TITLE_NEIGHBOURS, shared) if count > 0)
-        if anchor.boxset_id:
-            picked.update(title.id for title in titles if title.boxset_id == anchor.boxset_id)
+        # Rare shared synopsis terms nominate older titles beyond newest/taste/structured overlap.
+        subjects = {token for token in reco_profile.title_tokens(anchor) if token.startswith("subject:")}
+        if subjects:
+            lexical: Counter[str] = Counter()
+            for token in subjects:
+                hits = [title_id for title_id in base.token_postings().get(token, ()) if title_id in eligible]
+                weight = math.log1p((len(titles) + 1) / (1 + len(hits)))
+                for title_id in hits:
+                    lexical[title_id] += weight
+            picked.update(title_id for _score, title_id in heapq.nlargest(
+                TITLE_NEIGHBOURS, ((score, title_id) for title_id, score in lexical.items())))
+        collection = anchor.id if anchor.type == "boxset" else anchor.boxset_id
+        if collection:
+            picked.update(title.id for title in titles if title.boxset_id == collection)
     return [  # reco_profile.candidate_from_title, from the selected columns
         Candidate(key=title.id, target_kind="title", title=title.name, channel_key=title.boxset_id, channel_name=None,
                   tokens=title.tokens, published_at=title.arrived_at, sources=SOURCE_LIBRARY, rating=title.rating,
-                  vector=vectors.get(title.id))
+                  vector=vectors.get(title.id), media_type=title.type)
         for title in sorted(titles, key=lambda title: title.id) if title.id in picked
     ]

@@ -233,6 +233,27 @@ describe('media acquisition interface', () => {
     expect(result.current.state.related.map((item) => item.title)).toEqual(['Related B']);
   });
 
+  it('sends recent autoplay sources and exposes a retryable Up Next failure', async () => {
+    const workspace = acquisitionWorkspace();
+    vi.mocked(getUpNext).mockRejectedValueOnce(new Error('Unavailable')).mockResolvedValueOnce(upNextSnapshot([remote]));
+    const { result } = renderHook(() => useMediaAcquisition({ workspace, onMessage: vi.fn(),
+      upNextExclusions: () => ['youtube:prior', 'youtube:current'] }));
+
+    await act(async () => { await result.current.open(remote); });
+    await vi.waitFor(() => expect(result.current.state.relatedError?.message).toBe('Unavailable'));
+    expect(getUpNext).toHaveBeenCalledWith(expect.objectContaining({ excluded_sources: ['youtube:prior', 'youtube:current'] }));
+    await act(async () => { await result.current.retryRelated(); });
+    expect(result.current.state.related.map((item) => item.id)).toEqual([remote.id]);
+    expect(result.current.state.relatedError).toBeNull();
+  });
+
+  it('does not invent a YouTube watch address for an id-only Twitch item', async () => {
+    const { result } = renderHook(() => useMediaAcquisition({ workspace: acquisitionWorkspace(), onMessage: vi.fn() }));
+    await act(async () => { await result.current.open({ id: '424242', source: 'twitch', title: 'Stream' }); });
+    expect(result.current.state.failure?.phase).toBe('preview');
+    expect(previewUrl).not.toHaveBeenCalled();
+  });
+
   it('tracks distinct queue requests independently and suppresses concurrent duplicates', async () => {
     const workspace = acquisitionWorkspace();
     const second = { ...remote, id: 'video-2', title: 'Remote sequel', webpage_url: 'https://example.test/video-2' };

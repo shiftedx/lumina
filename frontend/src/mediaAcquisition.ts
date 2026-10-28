@@ -10,6 +10,7 @@ import type {
   DownloadJob,
   FormatSelection,
   PreviewResponse,
+  UpNextRequest,
   YouTubeSearchResult,
 } from './types';
 import type { WorkspaceAction, WorkspaceState } from './workspace';
@@ -38,6 +39,8 @@ export interface AcquisitionSelection {
 export interface MediaAcquisitionState {
   selection: AcquisitionSelection | null;
   related: YouTubeSearchResult[];
+  relatedLoading: boolean;
+  relatedError: Error | null;
   previewing: boolean;
   queueingSourceUrls: string[];
   format: AcquisitionFormat;
@@ -52,6 +55,7 @@ interface MediaAcquisitionOptions {
     isSessionTokenCurrent: (token: number) => boolean;
   };
   onMessage: (message: string) => void;
+  upNextExclusions?: () => string[];
 }
 
 export interface MediaAcquisition {
@@ -65,6 +69,7 @@ export interface MediaAcquisition {
   reset: () => void;
   resetSession: () => void;
   clearFailure: () => void;
+  retryRelated: () => Promise<void>;
 }
 
 /**
@@ -81,6 +86,8 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
   const preferredFormat: AcquisitionFormat = preferences.formatPreset;
   const [selection, setSelection] = useState<AcquisitionSelection | null>(null);
   const [related, setRelated] = useState<YouTubeSearchResult[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [relatedError, setRelatedError] = useState<Error | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [queueingSourceUrls, setQueueingSourceUrls] = useState<string[]>([]);
   const [format, setFormat] = useState<AcquisitionFormat>(preferredFormat);
@@ -89,6 +96,7 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
   const previewAbort = useRef<AbortController | null>(null);
   const previewChoiceKey = useRef<string | null>(null);
   const activeQueueRequests = useRef(new Map<string, symbol>());
+  const relatedRequest = useRef<{ payload: UpNextRequest; generation: number; sessionToken: number } | null>(null);
 
   useEffect(() => setFormat(preferredFormat), [preferredFormat]);
   useEffect(() => () => { previewGeneration.current += 1; previewAbort.current?.abort(); }, []);
@@ -115,6 +123,25 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
     });
   }, []);
 
+  const retryRelated = useCallback(async () => {
+    const pending = relatedRequest.current;
+    if (!pending) return;
+    setRelatedLoading(true);
+    setRelatedError(null);
+    try {
+      const snapshot = await getUpNext(pending.payload);
+      if (pending.generation === previewGeneration.current && workspace.isSessionTokenCurrent(pending.sessionToken)) {
+        setRelated(snapshot.items);
+      }
+    } catch (error) {
+      if (pending.generation === previewGeneration.current && workspace.isSessionTokenCurrent(pending.sessionToken)) {
+        setRelatedError(error instanceof Error ? error : new Error('Up Next could not load.'));
+      }
+    } finally {
+      if (pending.generation === previewGeneration.current && workspace.isSessionTokenCurrent(pending.sessionToken)) setRelatedLoading(false);
+    }
+  }, [workspace]);
+
   const open = useCallback((item: YouTubeSearchResult): Promise<PreviewResponse | null> | null => {
     const sourceUrl = sourceUrlFor(item);
     const generation = ++previewGeneration.current;
@@ -122,6 +149,9 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
     const controller = new AbortController();
     previewAbort.current = controller;
     setRelated([]);
+    setRelatedLoading(false);
+    setRelatedError(null);
+    relatedRequest.current = null;
     previewChoiceKey.current = null;
     setFailure(null);
     if (!sourceUrl) {
@@ -149,7 +179,7 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
         // Up Next / related media comes ranked from the one shared recommendation
         // policy (ADR 0007); the frontend ranks nothing. Failure is swallowed so a
         // recommendation error never interrupts playback of the current source.
-        void getUpNext({
+        relatedRequest.current = { payload: {
           source_url: inspected.webpage_url || sourceUrl,
           source_id: resolvedItem.id ?? null,
           source: resolvedItem.source,
@@ -157,11 +187,9 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
           uploader: resolvedItem.uploader ?? null,
           category_keys: relatedSubjectKeys(item, inspected.raw),
           ...upNextChannel(inspected, resolvedItem),
-        }).then((snapshot) => {
-          if (generation === previewGeneration.current && workspace.isSessionTokenCurrent(sessionToken)) {
-            setRelated(snapshot.items);
-          }
-        }).catch(() => undefined);
+          excluded_sources: options.upNextExclusions?.() ?? [],
+        }, generation, sessionToken };
+        void retryRelated();
         return inspected;
       } catch (error) {
         if (generation === previewGeneration.current && workspace.isSessionTokenCurrent(sessionToken)) {
@@ -172,7 +200,7 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
         if (generation === previewGeneration.current && workspace.isSessionTokenCurrent(sessionToken)) setPreviewing(false);
       }
     })();
-  }, [format, formatSelection, preferences, recordFailure, workspace]);
+  }, [format, formatSelection, options, preferences, recordFailure, retryRelated, workspace]);
 
   const queue = useCallback(async (
     item: YouTubeSearchResult,
@@ -271,6 +299,9 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
     previewChoiceKey.current = null;
     setSelection(null);
     setRelated([]);
+    setRelatedLoading(false);
+    setRelatedError(null);
+    relatedRequest.current = null;
     setPreviewing(false);
     setFailure(null);
   }, []);
@@ -286,6 +317,8 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
     state: {
       selection,
       related,
+      relatedLoading,
+      relatedError,
       previewing,
       queueingSourceUrls,
       format,
@@ -300,11 +333,12 @@ export function useMediaAcquisition(options: MediaAcquisitionOptions): MediaAcqu
     reset,
     resetSession,
     clearFailure: () => setFailure(null),
+    retryRelated,
   };
 }
 
 function sourceUrlFor(item: YouTubeSearchResult): string | null {
-  return item.webpage_url || (item.id ? `https://www.youtube.com/watch?v=${item.id}` : null);
+  return item.webpage_url || (item.id && (!item.source || item.source === 'youtube') ? `https://www.youtube.com/watch?v=${item.id}` : null);
 }
 
 /** The current video's channel for Up Next: the extractor's own record first, then the entry. */

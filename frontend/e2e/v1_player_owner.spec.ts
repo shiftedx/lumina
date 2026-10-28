@@ -62,6 +62,14 @@ test('test_one_media_instance', async ({ page }) => {
 test('test_miniplayer_keyboard_and_progress_saving', async ({ page }) => {
   const { video, checkpoints } = await openWatch(page);
   await goHome(page);
+  // The synthetic clip is only 1.5 s long; keep it playing while focus assertions run under load.
+  await video.evaluate(async (media: HTMLVideoElement) => {
+    media.loop = true;
+    media.playbackRate = 0.1;
+    const seeked = new Promise<void>((resolve) => media.addEventListener('seeked', () => resolve(), { once: true }));
+    media.currentTime = 0;
+    await seeked;
+  });
   const mini = page.getByRole('region', { name: /^Mini player: / });
   const play = mini.getByRole('button', { name: 'Play', exact: true });
   await play.focus();

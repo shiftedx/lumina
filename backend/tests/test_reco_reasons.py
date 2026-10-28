@@ -25,7 +25,7 @@ GRAMMAR = {
     "explore": r"Something different(?: · like .{1,32})?",
     "same_channel": r"More from .{1,32}",
     "like_current": r"Like what you're watching",
-    "like_anchor": r"Like .{1,32}",
+    "like_anchor": r"Same collection|Shared subject: .+ and .+|Same creator|Shared cast|Similar story",
     "follow_new": r"New from .{1,32}, which you follow",
     "channel": r"Because you watch .{1,32}|With .{1,32}|More .{1,32}",
     "finished": r"Because you finished .{1,32}",
@@ -150,15 +150,16 @@ def test_more_like_this_names_the_anchor_for_its_franchise_and_follows_the_gramm
     served = _policy(db).similar(member, db.get(MediaTitle, _tid(1)), k=12)
 
     sequel = next(r for r in served.items if r.candidate.key == _tid(2))
-    assert (sequel.reason_code, sequel.reason) == ("like_anchor", "Like Arrival")
+    assert (sequel.reason_code, sequel.reason) == ("like_anchor", "Same collection")
     _assert_grammar((r.reason_code, r.reason) for r in served.items)
 
 
 def test_title_rows_and_similar_routes_annotate_every_item() -> None:
     member = _member()
     db = _session(member)
+    story = "Doctors perform emergency surgery for patients at a hospital"
     for n in range(1, 7):
-        add_movie(db, _tid(n), f"Drama {n}", genres=["Drama"], people=["Ada Quill"])
+        add_movie(db, _tid(n), f"Drama {n}", genres=["Drama"], people=["Ada Quill"], overview=story)
     db.commit()
     add_progress(db, member.id, f"{_tid(1)}-v", completed=True, at=utcnow() - timedelta(days=1))  # the routes read the real clock
     db.commit()
@@ -175,8 +176,9 @@ def test_title_rows_and_similar_routes_annotate_every_item() -> None:
 def test_jellyfin_gets_ranked_ids_and_no_reasons() -> None:
     member = _member()
     db = _session(member)
+    story = "Doctors perform emergency surgery for patients at a hospital"
     for n in range(1, 5):
-        add_movie(db, _tid(n), f"Drama {n}", genres=["Drama"])
+        add_movie(db, _tid(n), f"Drama {n}", genres=["Drama"], overview=story)
     db.commit()
     add_progress(db, member.id, f"{_tid(1)}-v", completed=True, at=NOW)
     db.commit()

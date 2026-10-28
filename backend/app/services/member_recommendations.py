@@ -504,9 +504,21 @@ class MemberRecommendationPolicy:
         )
         anchor_facts = TitleFacts.of(anchor_title) if anchor_title is not None else None
         cosines = self._anchor_cosines(anchor_title) if anchor_title is not None else {}
+        anchor_candidate = None
+        if anchor_title is not None:
+            from app.services.reco.profile import candidate_from_title
+            anchor_candidate = candidate_from_title(anchor_title, None)
+            from app.services.reco.title_matching import anchor_match
+            from collections import Counter
+            title_candidates = [candidate_from_title(title, None) for title in candidates]
+            frequency = Counter(token for candidate in title_candidates for token in candidate.tokens
+                                if token.startswith("subject:"))
         established: list[_Candidate] = []
         exploration: list[_Candidate] = []
         for position, (title, fact) in enumerate(zip(candidates, facts)):
+            if anchor_candidate is not None and anchor_match(anchor_candidate, title_candidates[position],
+                    document_frequency=frequency, document_count=len(facts), cosine_override=cosines.get(title.id)) is None:
+                continue
             score = score_title(fact, signals, anchor_facts, anchor_cosine=cosines.get(title.id))
             candidate = _Candidate(item=title, key=title.id, provider_position=position, score=score)
             # Exploration = no genre/people overlap with anything the member watched, saved or is looking at.

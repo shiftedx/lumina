@@ -4270,7 +4270,9 @@ private struct StandardPhonePushedHeader<Actions: View>: View {
             actions.labelStyle(.iconOnly)
 
             if let store {
-                NativeNowPlayingControls(store: store)
+                HStack(spacing: 0) {
+                    NativeNowPlayingControls(store: store)
+                }
             }
         }
         .foregroundStyle(foreground)
@@ -4347,7 +4349,7 @@ struct NativeNowPlayingControls: View {
         if let playback = audioSession.playback,
            !playback.hasFinished,
            (playback.isPlaying || !playback.initiallyPaused) {
-            HStack(spacing: 0) {
+            Group {
                 artworkLink(for: playback)
                 playPauseButton(for: playback)
             }

@@ -3978,6 +3978,7 @@ class NativeProofJourney: XCTestCase {
         try waitForHittable(search, timeout: 10, named: "Requests search")
         try activate(search)
         search.typeText(unavailableShowTitle)
+        search.typeText("\n")
         #endif
         let show = try revealRequestPoster(unavailableShowKey, named: "Requests show poster")
         #if os(tvOS)
@@ -4012,6 +4013,7 @@ class NativeProofJourney: XCTestCase {
         let freshSearch = application!.searchFields.firstMatch
         try waitForHittable(freshSearch, timeout: 10, named: "fresh Requests search")
         try replaceText(freshSearch, with: freshAnimeTitle)
+        freshSearch.typeText("\n")
         #endif
         let anime = try revealRequestPoster(freshAnimeKey, named: "searched fresh anime poster")
         try activate(anime)
@@ -5544,7 +5546,11 @@ class NativeProofJourney: XCTestCase {
         _ = try startPlayback(using: "playButton")
 
         let cast = element("videoChromecastButton")
-        if !cast.isHittable { try activate(element("videoControlsSurface")) }
+        // The playing overlay intentionally auto-hides. Reveal it from its
+        // documented surface rather than racing the Cast control's fade-out.
+        XCTAssertTrue(disappears(element("videoPlaybackChrome"), timeout: 10),
+                      "Playing video must hide its chrome before the Cast picker is revealed.")
+        try activate(element("videoControlsSurface"))
         try waitForHittable(cast, timeout: 10, named: "Chromecast")
         try activate(cast)
 

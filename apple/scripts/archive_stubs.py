@@ -1,4 +1,4 @@
-"""Remove Xcode's unreferenced, resource-free static-framework placeholder dylibs."""
+"""Remove unreferenced Xcode stubs; preserve runtime code and unique resources."""
 import pathlib
 import plistlib
 import re
@@ -33,7 +33,10 @@ def placeholders(app):
         sections = re.findall(r'sectname (\S+)\s+segname \S+\s+addr \S+\s+size (0x[\da-fA-F]+)', loads)
         if not sections or any(int(size, 16) for _, size in sections):
             continue
-        if set(re.findall(r'\bnsyms (\d+)\b', loads)) != {'0'} or set(re.findall(r'\bminos (\S+)', loads)) != {'100.0'}:
+        if set(re.findall(r'\bnsyms (\d+)\b', loads)) != {'0'}:
+            continue
+        # Cast's resource-only stub uses the SDK's real deployment minimum.
+        if framework.name != 'GoogleCast.framework' and set(re.findall(r'\bminos (\S+)', loads)) != {'100.0'}:
             continue
         install_name = re.search(r'cmd LC_ID_DYLIB\s+cmdsize \d+\s+name (.+?) \(offset', loads)
         if not install_name or any(ref.endswith(f'/{framework.name}/{binary.name}') for ref in references):
@@ -42,7 +45,15 @@ def placeholders(app):
         resources = [p for p in framework.rglob('*') if p.is_file()
                      and '_CodeSignature' not in p.relative_to(framework).parts
                      and p.relative_to(framework).as_posix() not in allowed]
-        if not resources:
+        copied_cast_resources = []
+        if framework.name == 'GoogleCast.framework':
+            for resource in resources:
+                relative = resource.relative_to(framework)
+                destination = (app / 'GoogleCastPrivacy.bundle/PrivacyInfo.xcprivacy'
+                               if relative.as_posix() == 'PrivacyInfo.xcprivacy' else app / relative)
+                copied_cast_resources.append(destination.is_file()
+                                             and destination.read_bytes() == resource.read_bytes())
+        if not resources or (copied_cast_resources and all(copied_cast_resources)):
             found.append(framework)
     return found
 

@@ -77,6 +77,10 @@ final class NativeAudioAlbumPlayAfterUnavailableRestoreTests: NativeProofJourney
 #if os(iOS)
 @MainActor
 final class NativeVideoGestureTests: NativeProofJourney {
+    func testVerticalSwipesAdjustDeviceControlsWithoutPlayerVolumeSlider() async throws {
+        try await journeyVideoDeviceControls()
+    }
+
     func testSurfaceGesturesSeekAndKeepPausedPlaybackPaused() async throws {
         try await journeyVideoSurfaceGestures()
     }
@@ -1462,6 +1466,53 @@ class NativeProofJourney: XCTestCase {
         }
         try attachFrame(named: "Portrait playback settings remain usable in the system sheet")
         try activate(done)
+        try closePlayer()
+    }
+
+    func journeyVideoDeviceControls() async throws {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let fixture = try loadFixture()
+        try launchAndResetSession(extraLaunchArguments: ["--ui-testing-static-hero-artwork"])
+        try signIn(using: fixture, waitsForAccount: false)
+        let play = element("featuredPlayButton")
+        try waitForExistence(play, timeout: 20, named: "Home hero Play")
+        XCTAssertTrue(hasVisibleFrame(play))
+        play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("playbackScreen"), timeout: 35, named: "video player")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let surface = element("videoControlsSurface")
+        XCTAssertTrue(waitUntil(timeout: 15) { surface.frame.width > surface.frame.height })
+        try tapVideoTransportAfterChromeHides(named: "pause for device control checks")
+        try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 5)
+        let diagnostics = element("videoGestureDiagnostics")
+        func level(_ key: String) -> Double {
+            let value = diagnostics.value as? String ?? ""
+            return value.split(separator: " ").first { $0.hasPrefix(key + "=") }
+                .flatMap { Double($0.dropFirst(key.count + 1)) } ?? -1
+        }
+        let initial = level("brightness")
+        XCTAssertGreaterThanOrEqual(initial, 0, "The video must attach to its display's brightness control.")
+        // Start in the middle of the surface, clear of transport and timeline controls.
+        let upward = initial < 0.7
+        let startY = upward ? 0.6 : 0.35
+        let endY = upward ? 0.35 : 0.6
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: startY))
+            .press(forDuration: 0.05, thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: endY)))
+        XCTAssertTrue(waitUntil(timeout: 3) { abs(level("brightnessRequested") - initial) > 0.1 && level("brightnessRequested") >= 0 },
+                      "A left-side swipe must keep sending brightness changes to UIScreen beyond its first event. \(diagnostics.value ?? "absent")")
+        XCTAssertTrue((diagnostics.value as? String ?? "").contains("last=endAdjustment(LuminaCore.VideoGestureAdjustment.brightness)"),
+                      "The brightness swipe must finish without being cancelled by its own writes.")
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.35))
+            .press(forDuration: 0.05, thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.6)))
+        XCTAssertTrue((diagnostics.value as? String ?? "").contains("last=endAdjustment(LuminaCore.VideoGestureAdjustment.volume)"),
+                      "The volume swipe must reach its adjustment handler.")
+        XCTAssertEqual(level("playerVolume"), 1, accuracy: 0.001,
+                       "Volume swipes must leave AVPlayer at unity and adjust the device output instead.")
+        try waitForHittable(element("closePlayerButton"), timeout: 5, named: "visible video controls")
+        XCTAssertFalse(element("videoSystemVolume").exists)
+        XCTAssertFalse(element("videoCastVolume").exists)
+        try attachFrame(named: "Video controls use device volume and brightness")
         try closePlayer()
     }
 

@@ -1116,3 +1116,33 @@ def test_native_backdrop_framing_reuses_web_analysis_and_requires_visibility(jf,
     assert get(jf, "/Items/00000000000000000000000000000000/Images/Backdrop/0/Framing", tag=tag).status_code == 404
     assert get(jf, f"/Items/{jellyfin_id(SECRET_SERIES)}/Images/Backdrop/0/Framing", tag=tag).status_code == 404
     assert len(calls) == 1
+
+    with db_module.SessionLocal() as db:
+        series = db.get(MediaTitle, SERIES)
+        series.images = {**series.images, "Backdrop": {"path": "show-fanart.jpg", "tag": "show-fresh"}}
+        db.commit()
+        series_source = image_url(series, "Backdrop")
+    watch(ALICE, FILE[S1E1], hours=1, completed=True)
+    warmed.clear()
+    episode = get(jf, "/Shows/NextUp").json()["Items"][0]
+    assert episode["ParentBackdropItemId"] == jellyfin_id(SERIES)
+    assert warmed == [(ALICE, SERIES)]
+    inherited_path = f"/Items/{episode['ParentBackdropItemId']}/Images/Backdrop/0/Framing"
+    assert get(jf, inherited_path, tag=episode["ParentBackdropImageTags"][0]).json()["state"] == "ready"
+    assert calls[-1] == (series_source, ALICE)
+
+    watch(ALICE, FILE[S1E2], hours=2, position=300)
+    warmed.clear()
+    assert get(jf, "/UserItems/Resume").json()["Items"][0]["Id"] == jellyfin_id(S1E2)
+    assert warmed.count((ALICE, SERIES)) == 1
+    warmed.clear()
+    get(jf, "/Items", Ids=f"{jellyfin_id(S1E1)},{jellyfin_id(S1E2)}")
+    assert warmed.count((ALICE, SERIES)) == 1, "Episodes sharing a backdrop must consume only one warm-up candidate."
+
+    with db_module.SessionLocal() as db:
+        own_art = db.get(MediaTitle, S1E2)
+        own_art.images = {**own_art.images, "Backdrop": {"path": "episode-fanart.jpg", "tag": "episode-fresh"}}
+        db.commit()
+    warmed.clear()
+    assert get(jf, f"/Items/{jellyfin_id(S1E2)}").json()["BackdropImageTags"]
+    assert (ALICE, SERIES) not in warmed, "Do not warm an inherited backdrop when the app displays the episode's own artwork."

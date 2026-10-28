@@ -253,6 +253,9 @@ final class NativeStandardPhoneAppearanceChromeTests: NativeProofJourney {
 }
 @MainActor
 final class NativeOpenDuoLibraryHeaderTests: NativeProofJourney {
+    func testOpenPortraitPlacesNavigationOverContentAndUtilitiesBelowStatus() async throws {
+        try await journeyPortraitNavigationWithMusic()
+    }
     func testOpenDuoLibraryHeaderAndSearchKeepCategoriesClearOfChrome() throws {
         try journeyOpenDuoLibraryHeaderAndSearch()
     }
@@ -268,7 +271,7 @@ final class NativeHomeBrowseFiltersSearchAndHeroWatchlistTests: NativeProofJourn
     func testStandardPhoneUsesBottomNavigationAndCompactBrowseMenu() async throws {
         try await journeyStandardPhoneNavigation()
     }
-    func testClosedDisplayFitsThreeCategoriesBesideWordmark() async throws {
+    func testClosedDisplayFitsThreeCategoriesBesideLogo() async throws {
         try await journeyClosedDisplayCategoryWidth()
     }
     func testHomeBrowseFiltersSearchAndHeroWatchlist() async throws {
@@ -3906,7 +3909,7 @@ class NativeProofJourney: XCTestCase {
         let watchlist = element("homeBrowse-watchlist")
         try waitForHittable(third, timeout: 20, named: "Third category")
         XCTAssertGreaterThanOrEqual(movies.frame.minX, masthead.frame.maxX + 8,
-                                    "Categories must clear the full Lumina wordmark.")
+                                    "Categories must clear the Lumina logo.")
         XCTAssertGreaterThanOrEqual(movies.frame.minX, row.frame.minX)
         XCTAssertLessThanOrEqual(third.frame.maxX, row.frame.maxX - 8,
                                  "The third category must fit completely before the scroll edge.")
@@ -3958,6 +3961,122 @@ class NativeProofJourney: XCTestCase {
         try selectTourLibraryCategory("movies", screen: "libraryScreen")
         try assertClosedDuoLibraryHeader()
         try attachFrame(named: "Closed Duo Library header keeps logo categories and actions separate")
+    }
+
+    func journeyPortraitNavigationWithMusic() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        let fixture = try loadFixture()
+        try launchAndResetSession()
+        let viewport = try applicationViewport()
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              viewport.width >= 600, viewport.height > viewport.width else {
+            throw XCTSkip("Use the open Duo portrait display for this navigation workflow.")
+        }
+        try signIn(using: fixture)
+        try selectTourAudioRoot()
+        try activate(revealMusicAlbum(fixture, named: "portrait navigation album"))
+        try startMusicCollectionPlayback()
+        try activate(element("audioPlayPauseButton"))
+        try closePlayer()
+        try selectDestination("Home", screen: "homeScreen")
+        try attachFrame(named: "Open portrait Home with paused Now Playing")
+        try assertPortraitNavigation(categories: "homeBrowsingRow", firstCategory: "homeBrowse-movies", search: "homeSearchButton")
+        let hero = application!.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Featured titles,")
+        ).firstMatch
+        guard hero.frame.minY <= viewport.minY + 4 else {
+            throw ProofFailure.ui("Home artwork must extend behind the portrait header instead of beginning below a full-width bar: \(hero.frame).")
+        }
+        let pause = element("nowPlayingPauseButton")
+        try activate(pause)
+        guard waitUntil(timeout: 10, condition: { pause.label == "Pause" }) else {
+            throw ProofFailure.ui("Portrait rail play must resume the current track.")
+        }
+        try activate(pause)
+        try activate(element("nowPlayingBar"))
+        try waitForExistence(element("audioPlayerStage"), timeout: 15, named: "player from portrait artwork control")
+        XCTAssertEqual(currentAudioTitle(), fixture.audioTrackTitle)
+        XCTAssertEqual(element("audioPlayPauseButton").label, "Play")
+        try closePlayer()
+        try activate(element("homeSearchButton"))
+        try waitForExistence(element("homeSearchScreen"), timeout: 15, named: "portrait Home search")
+        try performStandardPhoneEdgeGesture(named: "portrait Home search")
+        try waitForExistence(element("homeScreen"), timeout: 15, named: "Home after portrait search")
+        try selectTourLibraryCategory("movies", screen: "libraryScreen")
+        try assertPortraitNavigation(categories: "libraryCategories", firstCategory: "libraryCategory-movies", search: "videoSearchButton")
+        try attachFrame(named: "Open portrait Library with categories and status-side actions")
+        try activate(element("videoSearchButton"))
+        try waitForHittable(element("searchField"), timeout: 15, named: "portrait Library search field")
+        try activate(element("videoSearchCancelButton"))
+        try selectTourLibraryCategory("music", screen: "audioScreen")
+        try assertPortraitNavigation(categories: "libraryCategories", firstCategory: "libraryCategory-movies", search: "musicSearchButton")
+        try attachFrame(named: "Open portrait Music uses the shared navigation positions")
+        try activate(element("musicSearchButton"))
+        let musicSearch = application!.searchFields.firstMatch
+        try waitForHittable(musicSearch, timeout: 10, named: "portrait Music search")
+        XCTAssertGreaterThanOrEqual(musicSearch.frame.minY, element("libraryCategories").frame.maxY + 4)
+        try attachFrame(named: "Open portrait Music search below categories")
+        try activate(musicSearch)
+        musicSearch.typeText("portrait-nav-no-match\n")
+        try waitForExistence(application!.staticTexts["No music found"], timeout: 15, named: "portrait Music search results")
+        try activate(application!.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "Close", "close"])).firstMatch)
+        XCTAssertTrue(disappears(musicSearch, timeout: 10))
+        try selectTourLibraryCategory("books", screen: "booksScreen")
+        try attachFrame(named: "Open portrait Books on category entry")
+        try assertPortraitNavigation(categories: "libraryCategories", firstCategory: "libraryCategory-movies", search: "booksSearchButton")
+        try attachFrame(named: "Open portrait Books uses the shared navigation positions")
+        let comicID = try XCTUnwrap(fixture.comicBookID)
+        let shelves = application!.scrollViews.containing(.button, identifier: "book-\(comicID)").allElementsBoundByIndex
+        let recentBooks = try XCTUnwrap(shelves.min { $0.frame.height < $1.frame.height })
+        let lastBook = recentBooks.buttons.matching(identifier: "book-\(comicID)").firstMatch
+        try waitForExistence(lastBook, timeout: 15, named: "last cover in portrait Books shelf")
+        let initialBookX = lastBook.frame.minX
+        recentBooks.swipeLeft()
+        XCTAssertLessThan(lastBook.frame.minX, initialBookX - 10, "The final cover must remain reachable by swiping beside the utility rail.")
+        XCTAssertLessThanOrEqual(lastBook.frame.maxX, element("booksSearchButton").frame.minX - 8,
+                                 "The revealed cover must stay clear of the utility rail.")
+        try attachFrame(named: "Open portrait Books reveals the last cover clear of navigation")
+        try activate(element("booksSearchButton"))
+        let booksSearch = application!.searchFields.firstMatch
+        try waitForHittable(booksSearch, timeout: 10, named: "portrait Books search")
+        XCTAssertGreaterThanOrEqual(booksSearch.frame.minY, element("libraryCategories").frame.maxY + 4)
+        try attachFrame(named: "Open portrait Books search below categories")
+        try activate(booksSearch)
+        booksSearch.typeText("portrait-nav-no-match\n")
+        try waitForExistence(application!.staticTexts["No matching books"], timeout: 15, named: "portrait Books search results")
+        try activate(application!.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "Close", "close"])).firstMatch)
+        XCTAssertTrue(disappears(booksSearch, timeout: 10))
+        try activate(element("nowPlayingBar"))
+        try waitForExistence(element("audioPlayerStage"), timeout: 15, named: "player from portrait Books")
+        try stopAudioPlayer()
+        completed = true
+    }
+
+    private func assertPortraitNavigation(categories categoryID: String, firstCategory: String, search searchID: String) throws {
+        let viewport = try applicationViewport()
+        let mark = element("homeMasthead")
+        let categories = element(categoryID)
+        let first = element(firstCategory)
+        let search = element(searchID)
+        let artwork = element("nowPlayingBar")
+        let toggle = element("nowPlayingPauseButton")
+        try waitForExistence(categories, timeout: 15, named: "portrait category row")
+        for (control, name) in [(mark, "logo"), (first, "first category"), (search, "Search"),
+                                (artwork, "Now Playing artwork"), (toggle, "play/pause")] {
+            try waitForHittable(control, timeout: 15, named: "portrait navigation \(name)")
+        }
+        guard mark.frame.width <= 60, mark.frame.minY <= 32, abs(first.frame.midY - mark.frame.midY) <= 6,
+              categories.frame.maxX <= search.frame.minX - 8 else {
+            throw ProofFailure.ui("Portrait navigation must align mark-only branding and categories in one row clear of the utility rail: mark=\(mark.frame), categories=\(categories.frame).")
+        }
+        guard search.frame.minX >= viewport.maxX - 80, search.frame.minY >= 72, search.frame.maxY <= 144,
+              artwork.frame.minY >= search.frame.maxY + 4,
+              toggle.frame.minY >= artwork.frame.maxY + 4,
+              abs(artwork.frame.midX - search.frame.midX) <= 4,
+              abs(toggle.frame.midX - search.frame.midX) <= 4 else {
+            throw ProofFailure.ui("Portrait Search and Now Playing must stack below the system status corner: search=\(search.frame), artwork=\(artwork.frame), toggle=\(toggle.frame).")
+        }
     }
 
     func journeyOpenDuoLibraryHeaderAndSearch() throws {
@@ -4062,10 +4181,10 @@ class NativeProofJourney: XCTestCase {
 
         let viewport = try applicationViewport()
         if viewport.height > viewport.width {
-            let toolbarBottom = max(masthead.frame.maxY, alphabet.frame.maxY, options.frame.maxY,
-                                    expectsSearchButton ? search.frame.maxY : 0)
-            XCTAssertGreaterThanOrEqual(categories.frame.minY, toolbarBottom + 4,
-                                        "The open Duo portrait category rail must begin below every toolbar control in \(posture).")
+            XCTAssertEqual(movies.frame.midY, masthead.frame.midY, accuracy: 6,
+                           "Portrait categories must share the mark's baseline in \(posture).")
+            XCTAssertLessThanOrEqual(categories.frame.maxX, options.frame.minX - 8,
+                                     "Portrait categories must clear the status-side utility rail in \(posture).")
             XCTAssertGreaterThanOrEqual(categories.frame.minX, viewport.minX,
                                         "The open Duo portrait category rail must stay inside the leading window edge in \(posture).")
             XCTAssertLessThanOrEqual(categories.frame.maxX, viewport.maxX,
@@ -4108,11 +4227,11 @@ class NativeProofJourney: XCTestCase {
         XCTAssertGreaterThan(viewport.height, viewport.width,
                              "The Home category rail contract applies to open Duo portrait only.")
         let controls = [movies, tv, music, books, watchlist]
-        let railMinY = controls.map(\.frame.minY).min() ?? 0
+
         let railMinX = controls.map(\.frame.minX).min() ?? 0
         let railMaxX = controls.map(\.frame.maxX).max() ?? 0
-        XCTAssertGreaterThanOrEqual(railMinY, masthead.frame.maxY + 4,
-                                    "The open Duo portrait Home category rail must begin below the masthead in \(posture).")
+        XCTAssertEqual(movies.frame.midY, masthead.frame.midY, accuracy: 6,
+                       "Portrait Home categories must share the mark's baseline in \(posture).")
         XCTAssertGreaterThanOrEqual(railMinX, viewport.minX + 20,
                                     "The open Duo portrait Home category rail must stay inside the leading window edge in \(posture).")
         XCTAssertLessThanOrEqual(railMaxX, viewport.maxX - 20,

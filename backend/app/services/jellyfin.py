@@ -589,20 +589,26 @@ class JellyfinMapper:
     # ---- titles -------------------------------------------------------------------
 
     def title_dtos(self, titles: list[MediaTitle], *, sources: bool | None = None, batch: TitleBatch | None = None) -> list[dict]:
-        hero_framing.hero_framing.warm_library(self.user.id, titles)
         sources = self.sources if sources is None else sources
         batch = batch or self.titles.load(
             self.user, titles, with_artifacts=sources, with_metadata=sources, with_artwork=False,
         )
         dtos = [self.title_dto(title, batch, sources=sources) for title in titles]
+        backdrop_owners: dict[str, MediaTitle] = {}
         people = people_for_titles(self.db, titles) if (sources or self.people) else {}  # one query, only when projected
         for title, dto in zip(titles, dtos, strict=True):
+            owner = title if title.type in ("movie", "series") else None
+            if not dto.get("BackdropImageTags") and dto.get("ParentBackdropImageTags"):
+                _, owner = batch.ancestors(title)
+            if owner is not None:
+                backdrop_owners[owner.id] = owner
             extra = title_metadata_fields(title)
             if dto.get("RunTimeTicks"):
                 extra.pop("RunTimeTicks", None)  # probe runtime wins over TMDB's
             dto.update(extra)
             if people.get(title.id):
                 dto["People"] = person_dtos(people[title.id], lambda target, kind, source: image_tag(self.key, target, kind, source))
+        hero_framing.hero_framing.warm_library(self.user.id, backdrop_owners.values())
         return dtos
 
     def title_dto(self, title: MediaTitle, batch: TitleBatch, *, sources: bool = False) -> dict:

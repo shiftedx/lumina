@@ -175,3 +175,26 @@ workflows passed separately on clean iPad simulators: format recovery, downloade
 audio, advanced listening/queue controls, and direct resume/compatible video
 progress. Native fixture refresh and UI navigation repairs preserve those
 behavior assertions. Physical-device formats and output remain for dogfooding.
+
+
+### Internal dogfood package 29, 2026-10-28
+
+**iOS 0.1.0 (29) uploaded to Apple**, confirmed in Xcode Organizer. The package
+was built from clean `main` revision `d165cf8e2c658867b3fad1b1fe4802a632019ef8`,
+including the build-28 feature stack and all merged dogfood fixes through PR #183.
+It uses TestFlight Internal Only, retains build 29, and uploads symbols. Do not
+submit build 29 again. Apple processing and tester assignment are not verified.
+tvOS remains deferred.
+
+Ignored `apple/Distribution/0.1.0-29/` retains the exact uploaded IPA, signed export
+and Organizer reference, source archive/snapshot, input and artifact hashes,
+matching app dSYM, upload logs and confirmation. XcodeGen refreshed only project
+object identifiers/group ordering; the derived project and patch are retained,
+and the checkout was restored to its committed project after archiving.
+
+Release qualification was focused at the owner's request: 18 background/cache
+Core checks, five native workflows, normal simulator and Release device builds,
+two signing/framework packaging checks, and archive/IPA distribution validation.
+**No full suite was run.** Prior issue-specific screenshot/workflow evidence is
+retained locally. Physical energy/PiP and actual receiver maintenance are still
+unverified. The iOS upload does not deploy the server-side hero-framing warm-up.

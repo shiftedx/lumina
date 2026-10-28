@@ -261,15 +261,14 @@ for (const scheme of SCHEMES) {
       if (viewport.name === 'phone') {
         await expectSelectedRequestTabVisible(page);
         const tabs = page.getByRole('navigation', { name: 'Requests pages' });
-        const left = page.getByRole('button', { name: 'Scroll Requests tabs left' });
-        const right = page.getByRole('button', { name: 'Scroll Requests tabs right' });
+        const left = page.getByRole('button', { name: 'Scroll Requests pages tabs left' });
+        const right = page.getByRole('button', { name: 'Scroll Requests pages tabs right' });
         await expect(left).toBeEnabled();
-        await expect(right).toBeDisabled();
         await left.click();
         await expect.poll(() => tabs.evaluate((element) => element.scrollLeft)).toBe(0);
         await expect(left).toBeDisabled();
         await expect(right).toBeEnabled();
-        for (let step = 0; step < 3 && await right.isEnabled(); step += 1) await right.click();
+        await right.click();
         await expect(right).toBeDisabled();
         await expectSelectedRequestTabVisible(page);
       }

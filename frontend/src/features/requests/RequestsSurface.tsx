@@ -108,7 +108,7 @@ export function RequestsSurface({ route, user, session, onRoute, onOpenRoute, on
               )}
               title={route.view === 'search' ? `Results for “${route.query}”` : 'Requests'}
             />
-            <TabScroller activeKey={`${route.view}:${isAdmin}`} ariaLabel="Requests" as="nav" className="rq-tab-scroller" rowClassName="rq-tabs">
+            <TabScroller activeKey={`${route.view}:${isAdmin}`} ariaLabel="Requests pages" as="nav" className="rq-tab-scroller" rowClassName="rq-tabs">
               {tabs.map((tab) => (
                 <button aria-current={tab.view === route.view ? 'page' : undefined} key={tab.view} onClick={() => actions.go({ surface: 'requests', view: tab.view } as RequestsRoute)} type="button">{tab.label}</button>
               ))}

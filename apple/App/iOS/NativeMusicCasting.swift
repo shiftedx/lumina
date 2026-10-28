@@ -427,6 +427,7 @@ struct NativeMusicCastButton: View {
         } label: {
             LuminaIcon(glyph: .cast, size: 24)
                 .frame(minWidth: 44, minHeight: 44)
+                .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("musicChromecastButton")

@@ -602,7 +602,7 @@ class NativeProofJourney: XCTestCase {
             try activate(element("nowPlayingBar"))
             try waitForExistence(element("audioPlayerStage"), timeout: 20, named: "remote-started album player")
             _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 3 }
-            try activate(element("audioStopButton"))
+            try stopAudioPlayer()
         }
         let play = application!.buttons.matching(NSPredicate(format: "label == %@", "Play album")).firstMatch
         #else
@@ -738,87 +738,125 @@ class NativeProofJourney: XCTestCase {
         try attachFrame(named: "TV artwork-first player with ordered listening controls")
         #endif
         #if os(iOS)
-        let back = application!.buttons.matching(identifier: "BackButton").firstMatch
-        XCTAssertTrue(back.exists, "Music must use the app's standard navigation back button.")
-        XCTAssertFalse(element("closePlayerButton").exists, "Music must not invent a second back control.")
-        XCTAssertTrue(element("audioQueueButton").exists)
-        XCTAssertTrue(element("audioStopButton").exists)
         let transport = element("audioPlayPauseButton")
-        try waitForHittable(transport, timeout: 15, named: "Navigation Play/Pause")
-        XCTAssertFalse(element("audioPreviousButton").exists)
-        XCTAssertFalse(element("audioNextButton").exists)
         let queue = element("audioQueueButton")
         let window = application!.windows.firstMatch.frame
-        if queue.frame.minY > back.frame.maxY {
-            XCTAssertLessThan(queue.frame.midY, transport.frame.midY,
-                              "Queue must be the first action in the navigation rail.")
-            XCTAssertEqual(transport.frame.midX, queue.frame.midX, accuracy: 3,
-                           "Play/Pause must share the navigation rail with Queue.")
-        } else {
-            XCTAssertEqual(transport.frame.midY, queue.frame.midY, accuracy: 3,
-                           "Play/Pause must share the navigation bar with Queue.")
-        }
         let timeline = element("audioTimeline")
         let artwork = element("audioAlbumArtwork")
         try waitForExistence(artwork, timeout: 15, named: "Full-screen album artwork")
-        XCTAssertTrue(waitUntil(timeout: 3) { !timeline.exists }, "Track progress must fade while artwork is idle.")
-        artwork.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
-        XCTAssertTrue(timeline.exists, "Tapping artwork must reveal track progress immediately.")
-        let slider = application!.sliders["Track position"]
-        XCTAssertTrue(slider.exists, "The revealed timeline must support seeking.")
-        let sliderFrame = slider.frame
-        let timelineFrame = timeline.frame
-        XCTAssertGreaterThan(timelineFrame.minY, window.minY + window.height * 0.7,
-                             "Only the track timeline should occupy the bottom of the artwork stage.")
-        XCTAssertLessThanOrEqual(timelineFrame.maxY, window.maxY)
-        XCTAssertLessThanOrEqual(timelineFrame.minX, window.minX + 26)
-        XCTAssertGreaterThanOrEqual(timelineFrame.maxX, window.maxX - 26,
-                                    "Track progress must span the normal navigation area.")
-        XCTAssertTrue(waitUntil(timeout: 3) { !timeline.exists }, "Revealed progress must fade again after inactivity.")
+        let usesWideAudioLayout = !UIApplication.shared.preferredContentSizeCategory.isAccessibilityCategory
+            && window.width >= 640 && window.height >= 560
+        if usesWideAudioLayout {
+            try waitForExistence(timeline, timeout: 15, named: "wide album timeline")
+            XCTAssertEqual(artwork.frame.width, artwork.frame.height,
+                           accuracy: max(6, artwork.frame.width * 0.03),
+                           "Wide album artwork must remain square.")
+            for control in [queue, transport, timeline, element("audioPreviousButton"), element("audioNextButton")] {
+                try waitForExistence(control, timeout: 15, named: "wide player \(control.identifier)")
+                XCTAssertTrue(hasVisibleFrame(control), "Wide player must retain \(control.identifier) on screen.")
+            }
+            try await Task.sleep(for: .seconds(1.2))
+            for control in [timeline, transport, queue, element("audioPreviousButton"), element("audioNextButton")] {
+                XCTAssertTrue(hasVisibleFrame(control), "Wide player controls must persist after the compact timeline timeout.")
+            }
+            let slider = application!.sliders["Track position"]
+            try waitForHittable(slider, timeout: 15, named: "wide track position")
+            slider.adjust(toNormalizedSliderPosition: 0.6)
+            _ = try waitForPlaybackValue(element("playbackTime"), timeout: 10) { $0 >= 45 }
+            try activate(element("audioNextButton"))
+            XCTAssertTrue(waitUntil(timeout: 20) { self.currentAudioTitle() == fixture.audioSecondTrackTitle },
+                          "Wide Next must advance the album queue.")
+            try activate(element("audioPreviousButton"))
+            XCTAssertTrue(waitUntil(timeout: 20) { self.currentAudioTitle() == fixture.audioTrackTitle },
+                          "Wide Previous must return to the prior album track.")
+            try attachFrame(named: "Wide player keeps square artwork and persistent transport")
+        } else {
+            let back = application!.buttons.matching(identifier: "BackButton").firstMatch
+            XCTAssertFalse(element("closePlayerButton").exists, "Music must not invent a second back control.")
+            XCTAssertTrue(queue.exists)
+            XCTAssertTrue(element("audioStopButton").exists)
+            try waitForHittable(transport, timeout: 15, named: "Navigation Play/Pause")
+            XCTAssertFalse(element("audioPreviousButton").exists)
+            XCTAssertFalse(element("audioNextButton").exists)
+            if usesStandardPhonePushedChrome {
+                XCTAssertFalse(hasVisibleFrame(back),
+                               "The standard-phone player must use its leading-edge Back gesture instead of a visible Back button.")
+                let header = element("standardPhoneNavigationHeader")
+                try waitForExistence(header, timeout: 15, named: "standard-phone music navigation header")
+                XCTAssertTrue(hasVisibleFrame(header))
+                XCTAssertEqual(transport.frame.midY, queue.frame.midY, accuracy: 3,
+                               "Queue and Play/Pause must share the standard-phone navigation header.")
+            } else {
+                XCTAssertTrue(back.exists, "Music must use the app's standard navigation back button.")
+                if queue.frame.minY > back.frame.maxY {
+                    XCTAssertLessThan(queue.frame.midY, transport.frame.midY,
+                                      "Queue must be the first action in the navigation rail.")
+                    XCTAssertEqual(transport.frame.midX, queue.frame.midX, accuracy: 3,
+                                   "Play/Pause must share the navigation rail with Queue.")
+                } else {
+                    XCTAssertEqual(transport.frame.midY, queue.frame.midY, accuracy: 3,
+                                   "Play/Pause must share the navigation bar with Queue.")
+                }
+            }
+            XCTAssertTrue(waitUntil(timeout: 3) { !timeline.exists }, "Track progress must fade while artwork is idle.")
+            artwork.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+            XCTAssertTrue(timeline.exists, "Tapping artwork must reveal track progress immediately.")
+            let slider = application!.sliders["Track position"]
+            XCTAssertTrue(slider.exists, "The revealed timeline must support seeking.")
+            let sliderFrame = slider.frame
+            let timelineFrame = timeline.frame
+            XCTAssertGreaterThan(timelineFrame.minY, window.minY + window.height * 0.7,
+                                 "Only the track timeline should occupy the bottom of the artwork stage.")
+            XCTAssertLessThanOrEqual(timelineFrame.maxY, window.maxY)
+            XCTAssertLessThanOrEqual(timelineFrame.minX, window.minX + 26)
+            XCTAssertGreaterThanOrEqual(timelineFrame.maxX, window.maxX - 26,
+                                        "Track progress must span the normal navigation area.")
+            XCTAssertTrue(waitUntil(timeout: 3) { !timeline.exists }, "Revealed progress must fade again after inactivity.")
 
-        try activate(transport)
-        XCTAssertTrue(waitUntil(timeout: 8) { transport.label == "Play" }, "Play/Pause must pause before the seek gesture.")
-        let pausedStart = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
-        try await Task.sleep(for: .seconds(1))
-        let pausedSeconds = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
-        XCTAssertLessThanOrEqual(pausedSeconds, pausedStart + 0.5, "Pausing must freeze the seek thumb before dragging.")
-        let seekStartFraction = pausedSeconds / fixture.audioTrackDurationSeconds
-        guard (0...1).contains(seekStartFraction), seekStartFraction < 0.6 else {
-            throw ProofFailure.ui("The synthetic audio timeline was not at a seekable live position.")
+            try activate(transport)
+            XCTAssertTrue(waitUntil(timeout: 8) { transport.label == "Play" }, "Play/Pause must pause before the seek gesture.")
+            let pausedStart = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+            try await Task.sleep(for: .seconds(1))
+            let pausedSeconds = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }
+            XCTAssertLessThanOrEqual(pausedSeconds, pausedStart + 0.5, "Pausing must freeze the seek thumb before dragging.")
+            let seekStartFraction = pausedSeconds / fixture.audioTrackDurationSeconds
+            guard (0...1).contains(seekStartFraction), seekStartFraction < 0.6 else {
+                throw ProofFailure.ui("The synthetic audio timeline was not at a seekable live position.")
+            }
+            let seekStart = application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(
+                dx: (sliderFrame.minX + sliderFrame.width * seekStartFraction - window.minX) / window.width,
+                dy: (sliderFrame.midY - window.minY) / window.height
+            ))
+            let seekEnd = application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(
+                dx: (sliderFrame.minX + sliderFrame.width * 0.6 - window.minX) / window.width,
+                dy: (sliderFrame.midY - window.minY) / window.height
+            ))
+            // No accessibility query may sit between this reveal and the physical drag:
+            // the public timeline intentionally auto-hides after one second.
+            artwork.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+            seekStart.press(forDuration: 0.1, thenDragTo: seekEnd)
+            try activate(transport)
+            XCTAssertTrue(waitUntil(timeout: 8) { transport.label == "Pause" }, "Play/Pause must resume after seeking.")
+            _ = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { $0 >= 45 }
+            XCTAssertTrue(waitUntil(timeout: 3) { !timeline.exists }, "Progress must fade after seeking ends.")
+            try waitForHittable(element("audioRepeatButton"), timeout: 15, named: "Repeat in navigation")
+            XCTAssertGreaterThanOrEqual(artwork.frame.height, window.height * 0.85)
+            XCTAssertLessThanOrEqual(artwork.frame.minY, window.minY + 2)
+            XCTAssertFalse(element("audioCurrentLyric").exists, "Lyrics must have one expandable presentation.")
+            XCTAssertFalse(hasVisibleFrame(element("nowPlayingTitle")),
+                           "Track details should begin below the initial artwork screen.")
+            XCTAssertFalse(hasVisibleFrame(element("audioListeningOptions")),
+                           "Listening sections should begin below the initial artwork screen.")
+            try attachFrame(named: "Artwork-first player with navigation transport and bottom timeline")
+            let swipeStart = application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.4))
+            let swipeEnd = application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.4))
+            swipeStart.press(forDuration: 0.1, thenDragTo: swipeEnd)
+            XCTAssertTrue(waitUntil(timeout: 20) { self.currentAudioTitle() == fixture.audioSecondTrackTitle },
+                          "Swiping left on artwork must advance to the next queued track.")
+            swipeEnd.press(forDuration: 0.1, thenDragTo: swipeStart)
+            XCTAssertTrue(waitUntil(timeout: 20) { self.currentAudioTitle() == fixture.audioTrackTitle },
+                          "Swiping right on artwork must return to the previous queued track.")
         }
-        let seekStart = application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(
-            dx: (sliderFrame.minX + sliderFrame.width * seekStartFraction - window.minX) / window.width,
-            dy: (sliderFrame.midY - window.minY) / window.height
-        ))
-        let seekEnd = application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(
-            dx: (sliderFrame.minX + sliderFrame.width * 0.6 - window.minX) / window.width,
-            dy: (sliderFrame.midY - window.minY) / window.height
-        ))
-        // No accessibility query may sit between this reveal and the physical drag:
-        // the public timeline intentionally auto-hides after one second.
-        artwork.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
-        seekStart.press(forDuration: 0.1, thenDragTo: seekEnd)
-        try activate(transport)
-        XCTAssertTrue(waitUntil(timeout: 8) { transport.label == "Pause" }, "Play/Pause must resume after seeking.")
-        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 5) { $0 >= 45 }
-        XCTAssertTrue(waitUntil(timeout: 3) { !timeline.exists }, "Progress must fade after seeking ends.")
-        try waitForHittable(element("audioRepeatButton"), timeout: 15, named: "Repeat in navigation")
-        XCTAssertGreaterThanOrEqual(artwork.frame.height, window.height * 0.85)
-        XCTAssertLessThanOrEqual(artwork.frame.minY, window.minY + 2)
-        XCTAssertFalse(element("audioCurrentLyric").exists, "Lyrics must have one expandable presentation.")
-        XCTAssertFalse(hasVisibleFrame(element("nowPlayingTitle")),
-                       "Track details should begin below the initial artwork screen.")
-        XCTAssertFalse(hasVisibleFrame(element("audioListeningOptions")),
-                       "Listening sections should begin below the initial artwork screen.")
-        try attachFrame(named: "Artwork-first player with navigation transport and bottom timeline")
-        let swipeStart = application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.4))
-        let swipeEnd = application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.4))
-        swipeStart.press(forDuration: 0.1, thenDragTo: swipeEnd)
-        XCTAssertTrue(waitUntil(timeout: 20) { self.currentAudioTitle() == fixture.audioSecondTrackTitle },
-                      "Swiping left on artwork must advance to the next queued track.")
-        swipeEnd.press(forDuration: 0.1, thenDragTo: swipeStart)
-        XCTAssertTrue(waitUntil(timeout: 20) { self.currentAudioTitle() == fixture.audioTrackTitle },
-                      "Swiping right on artwork must return to the previous queued track.")
 
         #endif
         if requiresCompatibleAudio {
@@ -826,13 +864,20 @@ class NativeProofJourney: XCTestCase {
             XCTAssertEqual(element("audioPlaybackMethod").label, "Compatible audio")
             XCTAssertFalse(element("replayButton").exists, "A rejected source must not be reported as completed.")
             try revealMusicControl(element("audioLyrics"))
-            XCTAssertEqual(element("audioLyrics").value as? String, "Collapsed")
-            try activate(element("audioLyrics"))
+            #if os(iOS)
+            let lyricsInitiallyCollapsed = !usesWideAudioLayout
+            #else
+            let lyricsInitiallyCollapsed = true
+            #endif
+            if lyricsInitiallyCollapsed {
+                XCTAssertEqual(element("audioLyrics").value as? String, "Collapsed")
+                try activate(element("audioLyrics"))
+            }
             let lyric = try XCTUnwrap(fixture.audioLyric)
             try waitForExistence(menuAction(lyric), timeout: 20, named: "Lyrics opened on demand")
         }
         try attachFrame(named: "Audio player with expandable lyrics")
-        try activate(element("audioStopButton"))
+        try stopAudioPlayer()
         completed = true
     }
 
@@ -872,7 +917,7 @@ class NativeProofJourney: XCTestCase {
             throw ProofFailure.ui("The next track did not publish its lock-screen artwork and title.")
         }
         try attachFrame(named: "System artwork follows the current audio track")
-        try activate(element("audioStopButton"))
+        try stopAudioPlayer()
         XCTAssertTrue(disappears(element("playbackScreen"), timeout: 15))
         completed = true
     }
@@ -968,7 +1013,7 @@ class NativeProofJourney: XCTestCase {
         XCTAssertEqual(element("audioPlayPauseButton").label, "Play")
         XCTAssertFalse(hasVisibleFrame(element("nowPlayingBar")), "Compact browsing controls must not crowd the full player.")
         try attachFrame(named: "Artwork reopens the paused full music player")
-        try activate(element("audioStopButton"))
+        try stopAudioPlayer()
         XCTAssertTrue(disappears(element("playbackScreen"), timeout: 15))
         XCTAssertFalse(hasVisibleFrame(element("nowPlayingBar")))
         completed = true
@@ -988,6 +1033,15 @@ class NativeProofJourney: XCTestCase {
         try await api.seedProgress(identity: identity, itemID: fixture.audioSecondTrackID, seconds: 0)
         try launchAndResetSession()
         try signIn(using: fixture)
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCUIDevice.shared.orientation = .landscapeLeft
+            XCTAssertTrue(waitUntil(timeout: 10) {
+                let frame = self.application!.windows.firstMatch.frame
+                return frame.width > frame.height && frame.width >= 640 && frame.height >= 560
+            }, "The iPad audio proof must use its landscape wide-player viewport.")
+        }
+        #endif
         try selectDestination("Audio", screen: "audioScreen")
         let album = try revealMusicAlbum(fixture, named: "imported synthetic album")
         XCTAssertTrue(album.label.contains(fixture.audioAlbumTitle))
@@ -1018,6 +1072,56 @@ class NativeProofJourney: XCTestCase {
         #endif
         let initial = try waitForPlaybackValue(time, timeout: 15) { _ in true }
         _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= initial + 5 }
+        #if os(iOS)
+        let viewport = try applicationViewport()
+        let usesWideAudioLayout = !UIApplication.shared.preferredContentSizeCategory.isAccessibilityCategory
+            && viewport.width >= 640 && viewport.height >= 560
+        if usesWideAudioLayout {
+            let artwork = element("audioAlbumArtwork")
+            let title = element("nowPlayingTitle")
+            let timeline = element("audioTimeline")
+            let transport = element("audioPlayPauseButton")
+            let queue = element("audioQueueButton")
+            let lyrics = element("audioLyrics")
+            try waitForExistence(artwork, timeout: 15, named: "wide album artwork")
+            XCTAssertEqual(artwork.frame.width, artwork.frame.height,
+                           accuracy: max(6, artwork.frame.width * 0.03),
+                           "Wide album artwork must remain square.")
+            for control in [artwork, title, timeline, transport] {
+                try waitForExistence(control, timeout: 15, named: "wide primary \(control.identifier)")
+                XCTAssertTrue(hasVisibleFrame(control), "Wide primary content must remain on screen: \(control.identifier).")
+            }
+
+            let fixtureLyric = try XCTUnwrap(fixture.audioLyric)
+            let lyricCue = menuAction(fixtureLyric)
+            try waitForExistence(lyricCue, timeout: 20, named: "prominent fixture lyric")
+            XCTAssertTrue(hasVisibleFrame(lyricCue))
+            let primaryRight = [artwork.frame.maxX, title.frame.maxX, timeline.frame.maxX, transport.frame.maxX].max()!
+            XCTAssertGreaterThan(lyricCue.frame.minX, primaryRight,
+                                 "The prominent fixture lyric must occupy the right companion pane beside the primary controls.")
+
+            let beforePaneSwitch = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+            try waitForHittable(queue, timeout: 15, named: "wide Queue")
+            try activate(queue)
+            let queueScreen = element("audioQueueScreen")
+            try waitForExistence(queueScreen, timeout: 15, named: "inline wide audio queue")
+            XCTAssertTrue(hasVisibleFrame(queueScreen))
+            XCTAssertGreaterThan(queueScreen.frame.midX, primaryRight,
+                                 "Wide Queue must replace the right companion content inline.")
+            XCTAssertFalse(hasVisibleFrame(element("audioOptionsSheet")),
+                           "Wide Queue must not present listening options over the player.")
+
+            try waitForHittable(lyrics, timeout: 15, named: "wide Lyrics return")
+            try activate(lyrics)
+            try waitForExistence(lyricCue, timeout: 15, named: "fixture lyric after returning from Queue")
+            XCTAssertGreaterThan(lyricCue.frame.minX, primaryRight,
+                                 "Lyrics must return to the right companion pane after closing the inline queue.")
+            let afterPaneSwitch = try waitForPlaybackValue(time, timeout: 5) { _ in true }
+            XCTAssertGreaterThanOrEqual(afterPaneSwitch, beforePaneSwitch,
+                                        "Changing wide companion content must not rewind playback.")
+            try attachFrame(named: "Wide audio player keeps playback beside inline Lyrics and Queue")
+        }
+        #endif
         #if os(tvOS)
         let beforePause = try waitForPlaybackValue(time, timeout: 5) { _ in true }
         XCUIRemote.shared.press(.playPause)
@@ -1081,7 +1185,7 @@ class NativeProofJourney: XCTestCase {
         }
         try attachFrame(named: "Paused iPhone audio keeps its expanded player without a compact bar")
         #endif
-        try activate(element("audioStopButton"))
+        try stopAudioPlayer()
         guard disappears(element("playbackScreen"), timeout: 15),
               waitUntil(timeout: 15, condition: { !self.hasVisibleFrame(self.element("nowPlayingBar")) }) else {
             throw ProofFailure.ui("Explicit Stop did not dismiss playback and clear the persistent now-playing bar.")
@@ -1193,8 +1297,7 @@ class NativeProofJourney: XCTestCase {
         }
         try activate(bar)
         try waitForExistence(element("audioPlayerStage"), timeout: 15, named: "reopened TV full player")
-        try revealMusicControl(element("audioStopButton"))
-        try activate(element("audioStopButton"))
+        try stopAudioPlayer()
         guard disappears(element("playbackScreen"), timeout: 15),
               waitUntil(timeout: 15, condition: { !self.hasVisibleFrame(bar) }) else {
             throw ProofFailure.ui("Stop in the TV full player must dismiss it and remove the compact bar.")
@@ -1811,8 +1914,7 @@ class NativeProofJourney: XCTestCase {
         XCTAssertEqual(element("audioPlaybackMethod").label, "Downloaded audio")
         let initial = try waitForPlaybackValue(element("playbackTime"), timeout: 15) { _ in true }
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= initial + 3 }
-        try revealMusicControl(element("audioStopButton"))
-        try activate(element("audioStopButton"))
+        try stopAudioPlayer()
         guard disappears(element("playbackScreen"), timeout: 15),
               disappears(element("nowPlayingBar"), timeout: 15) else {
             throw ProofFailure.ui("Explicit Stop did not dismiss downloaded playback.")
@@ -1840,6 +1942,15 @@ class NativeProofJourney: XCTestCase {
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
         try launchAndResetSession()
         try signIn(using: fixture)
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCUIDevice.shared.orientation = .landscapeLeft
+            XCTAssertTrue(waitUntil(timeout: 10) {
+                let frame = self.application!.windows.firstMatch.frame
+                return frame.width > frame.height
+            }, "The iPad listening-options proof must use its landscape player viewport.")
+        }
+        #endif
         try selectDestination("Audio", screen: "audioScreen")
         let album = try revealMusicAlbum(fixture, named: "album queue before restoration")
         try activate(album)
@@ -1847,8 +1958,26 @@ class NativeProofJourney: XCTestCase {
         try startMusicCollectionPlayback()
         try waitForExistence(element("audioPlayerStage"), timeout: 30, named: "album's advanced player")
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 4 }
+        #if os(iOS)
+        let advancedViewport = try applicationViewport()
+        let usesWideAudioLayout = !UIApplication.shared.preferredContentSizeCategory.isAccessibilityCategory
+            && advancedViewport.width >= 640 && advancedViewport.height >= 560
+        #endif
         try revealMusicControl(element("audioPlayPauseButton"))
         try activate(element("audioPlayPauseButton"))
+        #if os(iOS)
+        if usesWideAudioLayout {
+            let close = element("closePlayerButton")
+            try waitForHittable(close, timeout: 15, named: "wide player close")
+            let options = element("audioOptionsButton")
+            try waitForHittable(options, timeout: 15, named: "wide listening options menu")
+            try activate(options)
+            if !waitUntil(timeout: 3, condition: { self.element("audioListeningOptions").exists }) {
+                try activate(menuAction("Listening options"))
+            }
+            try waitForExistence(element("audioOptionsSheet"), timeout: 15, named: "wide listening options sheet")
+        }
+        #endif
         try revealMusicControl(element("audioListeningOptions"))
         try activate(element("audioListeningOptions"))
         XCTAssertTrue(waitUntil(timeout: 5, condition: {
@@ -1873,10 +2002,21 @@ class NativeProofJourney: XCTestCase {
             let header = self.element("audioOutput")
             return header.exists && header.value as? String == "Expanded"
         }), "Audio output must expand before its native route controls are queried")
-        let airPlay = element("audioAirPlayButton")
-        let chromecast = element("musicChromecastButton")
-        try revealMusicControl(airPlay)
-        try revealMusicControl(chromecast)
+        let optionsSheet = element("audioOptionsSheet")
+        let airPlay = usesWideAudioLayout
+            ? optionsSheet.descendants(matching: .other).matching(identifier: "audioAirPlayButton").firstMatch
+            : element("audioAirPlayButton")
+        let chromecast = usesWideAudioLayout
+            ? optionsSheet.buttons.matching(identifier: "musicChromecastButton").firstMatch
+            : element("musicChromecastButton")
+        if usesWideAudioLayout {
+            XCTAssertTrue(waitUntil(timeout: 10) {
+                airPlay.exists && airPlay.isHittable && chromecast.exists && chromecast.isHittable
+            }, "Listening options must expose their own route controls in the wide player.")
+        } else {
+            try revealMusicControl(airPlay)
+            try revealMusicControl(chromecast)
+        }
         XCTAssertGreaterThanOrEqual(airPlay.frame.width, 44, "AirPlay needs a 44 pt touch target.")
         XCTAssertGreaterThanOrEqual(airPlay.frame.height, 44, "AirPlay needs a 44 pt touch target.")
         XCTAssertGreaterThanOrEqual(chromecast.frame.width, 44, "Chromecast needs a 44 pt touch target.")
@@ -1887,16 +2027,39 @@ class NativeProofJourney: XCTestCase {
         XCTAssertFalse(application!.switches["Compatibility mode for Sonos S1"].exists)
         XCTAssertFalse(application!.buttons["Refresh Sonos speakers"].exists)
         XCTAssertFalse(application!.staticTexts["Sonos receives at most the next 100 tracks. The local player pauses after the speaker acknowledges the transfer."].exists)
-        let volume = application!.sliders["Music volume"]
-        try revealMusicControl(volume)
+        let volume = usesWideAudioLayout
+            ? optionsSheet.sliders["Music volume"]
+            : application!.sliders["Music volume"]
+        if usesWideAudioLayout {
+            XCTAssertTrue(waitUntil(timeout: 10) { volume.exists && volume.isHittable },
+                          "Listening options must expose their own output volume in the wide player.")
+        } else {
+            try revealMusicControl(volume)
+        }
         XCTAssertTrue(volume.isEnabled, "Local output volume must remain available before a receiver handoff.")
         volume.adjust(toNormalizedSliderPosition: 0.7)
         #endif
+        #if os(iOS)
+        if usesWideAudioLayout {
+            try activate(application!.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch)
+            XCTAssertTrue(waitUntil(timeout: 10) { !self.hasVisibleFrame(self.element("audioOptionsSheet")) },
+                          "Closing wide listening options must return to the inline Lyrics companion.")
+        }
+        #endif
         try revealMusicControl(element("audioLyrics"))
-        XCTAssertEqual(element("audioLyrics").value as? String, "Collapsed",
-                       "Lyrics must remain collapsed until explicitly opened, including after loading.")
-        try activate(element("audioLyrics"))
-        XCTAssertEqual(element("audioLyrics").value as? String, "Expanded")
+        #if os(iOS)
+        let lyricsInitiallyCollapsed = !usesWideAudioLayout
+        #else
+        let lyricsInitiallyCollapsed = true
+        #endif
+        if lyricsInitiallyCollapsed {
+            XCTAssertEqual(element("audioLyrics").value as? String, "Collapsed",
+                           "Lyrics must remain collapsed until explicitly opened, including after loading.")
+            try activate(element("audioLyrics"))
+            XCTAssertEqual(element("audioLyrics").value as? String, "Expanded")
+        } else {
+            try activate(element("audioLyrics"))
+        }
         let lyric = try XCTUnwrap(fixture.audioLyric)
         try waitForExistence(menuAction(lyric), timeout: 20, named: "timed synthetic lyrics")
         try attachFrame(named: "Native listening options and imported timed lyrics")
@@ -1974,10 +2137,24 @@ class NativeProofJourney: XCTestCase {
                                                 position: 12)
         try revealMusicControl(element("audioRepeatButton"))
         try activate(element("audioRepeatButton"))
+        #if os(iOS)
+        if usesWideAudioLayout {
+            try activate(element("audioOptionsButton"))
+            try activate(menuAction("Listening options"))
+            try waitForExistence(element("audioOptionsSheet"), timeout: 15, named: "wide conflict listening options sheet")
+        }
+        #endif
         try revealMusicControl(element("audioUseServerButton"))
         try waitForExistence(element("audioKeepDeviceButton"), timeout: 20, named: "explicit device/server conflict choices")
         try attachFrame(named: "Queue revision conflict requires a deliberate choice")
         try activate(element("audioUseServerButton"))
+        #if os(iOS)
+        if usesWideAudioLayout {
+            try activate(application!.buttons.matching(NSPredicate(format: "label == %@", "Done")).firstMatch)
+            XCTAssertTrue(waitUntil(timeout: 10) { !self.hasVisibleFrame(self.element("audioOptionsSheet")) },
+                          "The wide conflict choice must return to the inline player.")
+        }
+        #endif
         guard waitUntil(timeout: 20, condition: {
             self.hasVisibleFrame(self.element("audioPlayerStage"))
                 && self.currentAudioTitle() == fixture.audioSecondTrackTitle
@@ -2008,14 +2185,18 @@ class NativeProofJourney: XCTestCase {
                        "Reordering must preserve both duplicate occurrence identities.")
         try activate(element("audioQueueDoneButton"))
         #if os(iOS)
-        let artwork = element("audioAlbumArtwork")
-        let stage = application!.scrollViews.matching(identifier: "audioPlayerStage").firstMatch
-        for _ in 0..<8 where !artwork.exists || artwork.frame.minY < -2 {
-            stage.swipeDown()
+        if usesWideAudioLayout {
+            try activate(element("audioNextButton"))
+        } else {
+            let artwork = element("audioAlbumArtwork")
+            let stage = application!.scrollViews.matching(identifier: "audioPlayerStage").firstMatch
+            for _ in 0..<8 where !artwork.exists || artwork.frame.minY < -2 {
+                stage.swipeDown()
+            }
+            try waitForHittable(artwork, timeout: 15, named: "Artwork after returning from listening options")
+            application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.4))
+                .press(forDuration: 0.1, thenDragTo: application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.4)))
         }
-        try waitForHittable(artwork, timeout: 15, named: "Artwork after returning from listening options")
-        application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.4))
-            .press(forDuration: 0.1, thenDragTo: application!.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.4)))
         #else
         let artwork = element("audioAlbumArtwork")
         try revealMusicControl(artwork)
@@ -2038,8 +2219,16 @@ class NativeProofJourney: XCTestCase {
         }
         XCTAssertEqual(currentAudioTitle(), fixture.audioTrackTitle)
         try activate(element("audioQueueDoneButton"))
-        try revealMusicControl(element("audioStopButton"))
-        try activate(element("audioStopButton"))
+        #if os(iOS)
+        if usesWideAudioLayout {
+            try activate(element("audioOptionsButton"))
+            try activate(menuAction("Stop"))
+        } else {
+            try stopAudioPlayer()
+        }
+        #else
+        try stopAudioPlayer()
+        #endif
         guard disappears(element("playbackScreen"), timeout: 20) else {
             throw ProofFailure.ui("Stop did not dismiss the restored player")
         }
@@ -2084,8 +2273,25 @@ class NativeProofJourney: XCTestCase {
             try await Task.sleep(for: .milliseconds(500))
         }
         XCTAssertTrue(publishedNewQueue, "The next queue's selected track and Repeat change must reach the real server after Stop without relaunching.")
-        try revealMusicControl(element("audioStopButton"))
-        try activate(element("audioStopButton"))
+        #if os(iOS)
+        if usesWideAudioLayout {
+            let close = element("closePlayerButton")
+            try waitForHittable(close, timeout: 15, named: "wide close after resumed playback")
+            try activate(close)
+            guard disappears(element("playbackScreen"), timeout: 15),
+                  waitUntil(timeout: 15, condition: { self.hasVisibleFrame(self.element("nowPlayingBar")) }) else {
+                throw ProofFailure.ui("Wide Close must return to the active now-playing bar without stopping audio.")
+            }
+            try activate(element("nowPlayingBar"))
+            try waitForExistence(element("audioPlayerStage"), timeout: 15, named: "wide player reopened after Close")
+            try activate(element("audioOptionsButton"))
+            try activate(menuAction("Stop"))
+        } else {
+            try stopAudioPlayer()
+        }
+        #else
+        try stopAudioPlayer()
+        #endif
         completed = true
     }
 
@@ -3605,7 +3811,7 @@ class NativeProofJourney: XCTestCase {
         XCTAssertEqual(currentAudioTitle(), fixture.audioTrackTitle,
                        "Opening Now Playing from a pushed movie must resume the existing track, not restart browsing.")
         XCTAssertGreaterThanOrEqual(try waitForPlaybackValue(element("playbackTime"), timeout: 5) { _ in true }, beforePushedBrowse)
-        try activate(element("audioStopButton"))
+        try stopAudioPlayer()
         XCTAssertTrue(disappears(element("playbackScreen"), timeout: 15), "Stopping the current track must close the full player.")
         try waitForExistence(movieDetail, timeout: 15, named: "movie detail after closing full player")
         try performStandardPhoneLeadingEdgeBack(from: movieDetail, to: element("libraryScreen"),
@@ -3646,6 +3852,7 @@ class NativeProofJourney: XCTestCase {
         try attachFrame(named: "Standard iPhone Home category returns to requested library root")
     }
 
+    #if os(iOS)
     func journeyClosedDisplayCategoryWidth() async throws {
         let fixture = try loadFixture()
         try launchAndResetSession()
@@ -3713,7 +3920,6 @@ class NativeProofJourney: XCTestCase {
     }
 
 
-    #if os(iOS)
     private func revealHomeMenuControl(_ category: XCUIElement) {
         revealMenuControl(category, in: element("homeBrowsingRow"))
     }
@@ -4683,15 +4889,21 @@ class NativeProofJourney: XCTestCase {
             let playingAt = try waitForPlaybackValue(time, timeout: 20) { _ in true }
             _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= playingAt + 1 }
             try await performanceQuietPhase("audio_playing_idle")
-            try revealMusicControl(element("audioListeningOptions"))
-            try activate(element("audioListeningOptions"))
+            #if os(iOS)
+            let inlineCompanion = hasVisibleFrame(element("closePlayerButton"))
+            #else
+            let inlineCompanion = false
+            #endif
+            if !inlineCompanion {
+                try revealMusicControl(element("audioListeningOptions"))
+                try activate(element("audioListeningOptions"))
+            }
             try revealMusicControl(element("audioQueueButton"))
             try activate(element("audioQueueButton"))
             try waitForPerformanceContainer(element("audioQueueScreen"), timeout: 20, named: "audio queue")
             try await performanceQuietPhase("audio_queue_idle")
             try activate(element("audioQueueDoneButton"))
-            try revealMusicControl(element("audioStopButton"))
-            try activate(element("audioStopButton"))
+            try stopAudioPlayer()
             #if os(iOS)
             let sharedPlaylistID = try XCTUnwrap(
                 fixture.sharedMusicPlaylistID,
@@ -7410,12 +7622,17 @@ class NativeProofJourney: XCTestCase {
             throw ProofFailure.ui("The tvOS menu button did not close the native player.")
         }
         #else
-        let audioPlayer = element("audioPlayerStage").exists
-        let closeButton = audioPlayer
+        let audioPlayer = element("audioPlayerStage")
+        let wideAudioClose = element("closePlayerButton")
+        let isAudioPlayer = audioPlayer.exists
+        let closeButton = isAudioPlayer
             ? application!.buttons.matching(identifier: "BackButton").firstMatch
-            : application!.buttons.matching(identifier: "closePlayerButton").firstMatch
-        if audioPlayer {
-            if usesStandardPhonePushedChrome {
+            : wideAudioClose
+        if isAudioPlayer {
+            if hasVisibleFrame(wideAudioClose) {
+                try waitForHittable(wideAudioClose, timeout: 10, named: "wide audio player close")
+                try activate(wideAudioClose)
+            } else if usesStandardPhonePushedChrome {
                 XCTAssertFalse(hasVisibleFrame(closeButton),
                                "The standard-phone audio player must use native leading-edge Back instead of a visible custom Back button.")
                 try performStandardPhoneEdgeGesture(named: "audio player")
@@ -7442,6 +7659,22 @@ class NativeProofJourney: XCTestCase {
             throw ProofFailure.ui("The iOS close player button did not dismiss the native player.")
         }
         #endif
+    }
+
+    private func stopAudioPlayer() throws {
+        #if os(iOS)
+        let audioStage = element("audioPlayerStage")
+        let wideClose = element("closePlayerButton")
+        if hasVisibleFrame(audioStage), hasVisibleFrame(wideClose) {
+            let options = element("audioOptionsButton")
+            try waitForHittable(options, timeout: 10, named: "wide audio playback menu")
+            try activate(options)
+            try activate(menuAction("Stop"))
+            return
+        }
+        #endif
+        try revealMusicControl(element("audioStopButton"))
+        try activate(element("audioStopButton"))
     }
 
     #if os(iOS)

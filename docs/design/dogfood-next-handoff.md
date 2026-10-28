@@ -5,7 +5,7 @@ Continue the owner's one-issue-at-a-time dogfood workflow. Start with the next r
 ## Starting state
 
 - Workspace: the existing `lumina-work-cleanup/lumina` checkout attached to this task.
-- Branch: `codex/dogfood-next`, containing the accepted dogfood changes and current upstream recommendations work through [PR #170](https://github.com/shiftedx/lumina/pull/170). Fetch current `main` before the next issue; the build manifest records the final merged revision and PR.
+- Build 27 was merged through [PR #171](https://github.com/shiftedx/lumina/pull/171); its manifest records the released revision. Inspect the current task branch and fetch `main` before the next issue, preserving any work in progress.
 - The season-selector and Library cache/navigation fixes are complete. The owned proof runtime is stopped. Other worktrees and the original fold-review simulator belong to separate tasks.
 - Signed iOS **0.1.0 (27)** was uploaded through Xcode Organizer on October 28, 2026; Organizer confirmed “Uploaded to Apple,” build 27. Processing and tester availability were not verified. Builds 26 and 27 are consumed; preserve their archives, symbols, hashes and logs.
 - The completed batch replaces season posters with **Episodes · Season 1 ▾**, retains Library pages, visible artwork and scroll position on detail return, stabilizes the Library navigation inset, and adds a private 2 GiB artwork cache with a Clear action in iOS/tvOS settings.
@@ -25,7 +25,7 @@ An issue is complete when its acceptance criterion is observable in the running 
 
 - **Playback continuity:** one durable playback session/player survives presentation and size/posture changes. A view reconstruction must not restart playback from the server's older saved position. Preserve existing legitimate teardown/track-transition behavior. When touching playback presentation or lifecycle, retain the direct and client-demux rebuild checks for live position, paused state, and Close→fresh Play.
 - **Reader:** preserve EPUB/PDF/CBZ/CBR position, appearance, fit/zoom and page navigation. The chapter/page label is intentionally plain text.
-- **Artwork and controls:** full-page artwork leads; secondary content follows below. Home has only the minimum logo/nav corner scrim. Detail views omit the navigation wordmark. Keep semantic labels, shared gutters, usable targets and aligned controls.
+- **Artwork and controls:** compact iOS and tvOS music keep full-page artwork with secondary content below. Wide iOS music uses square artwork and persistent controls beside inline lyrics/queue. Home keeps its minimum logo/nav corner scrim; detail views omit the navigation wordmark. Preserve semantic labels, shared gutters, usable targets and aligned controls.
 - **Icons/branding:** use Lumina's bespoke SVG assets. For icon changes, read [the icon guide](../../assets/icons/STYLE_GUIDE.md); for logo/color/button/navigation changes, read [the brand contract](../../apple/docs/brand-assets.md). Use the installed Impeccable skill when auditing or polishing UI.
 - **Casting:** preserve ticket/session ownership and explicit return-to-device behavior. Simulator zero-device/network guidance proves picker/resource loading, not physical receiver discovery or remote playback.
 
@@ -37,6 +37,7 @@ An issue is complete when its acceptance criterion is observable in the running 
 | Playback/receiver/reader validation needs existing evidence | Ignored `output/dogfood-build-26/` and `output/visual-polish-2026-10-27/README.md` in this checkout |
 | Cast SDK version, linkage, resources or archive packaging changes | [Cast resource provenance](../../apple/Resources/GoogleCast/README.md), archive validation contracts, and the real SDK picker workflow |
 | A Library/cache regression against build 27 | [Cache boundary](../adr/0034-retain-native-artwork-in-a-private-device-cache.md), ignored `output/library-cache-release/README.md`, and the build 27 manifest |
+| Wide music layout, lyrics/queue switching, or player Close/Stop regression | Ignored `output/music-fullscreen/README.md` and its before/after captures; distinguish tested iPad viewports from unverified open-Duo postures |
 | Owner explicitly requests another signed build/upload | [TestFlight workflow](../../apple/docs/testflight.md) and the retained release manifest below |
 
 ## Release boundary

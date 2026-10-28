@@ -3894,6 +3894,8 @@ class NativeProofJourney: XCTestCase {
 
     #if os(iOS)
     func journeyClosedDisplayCategoryWidth() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
         let fixture = try loadFixture()
         try launchAndResetSession()
         try signIn(using: fixture)
@@ -3925,6 +3927,16 @@ class NativeProofJourney: XCTestCase {
         XCTAssertGreaterThanOrEqual(heroArtwork.frame.maxY, viewport.maxY - 0.5,
                                     "Closed Duo hero artwork must reach the bottom edge without a black band.")
         try attachFrame(named: "Closed Duo three complete categories")
+        let homeCategoryWidth = row.frame.width
+        try assertClosedNavigationClearsCamera([masthead, row])
+        let moreCategories = element("categoryScrollForward")
+        try waitForHittable(moreCategories, timeout: 10, named: "More categories affordance")
+        XCTAssertLessThanOrEqual(third.frame.maxX, moreCategories.frame.minX - 4,
+                                 "Three complete categories must remain clear of the overflow control.")
+        try activate(moreCategories)
+        try waitForHittable(watchlist, timeout: 10, named: "Watchlist revealed by More categories")
+        try activate(element("categoryScrollBack"))
+        try waitForHittable(movies, timeout: 10, named: "Movies revealed by Previous categories")
 
         let initialRefreshes = try homeRefreshCount()
         try revealHomeMenuControl(watchlist)
@@ -3957,10 +3969,60 @@ class NativeProofJourney: XCTestCase {
         try revealHomeMenuControl(third)
         try activate(third)
         try waitForExistence(element("audioScreen"), timeout: 20, named: "Third category destination")
+        try attachFrame(named: "Closed Library categories after selection from Home")
 
         try selectTourLibraryCategory("movies", screen: "libraryScreen")
         try assertClosedDuoLibraryHeader()
         try attachFrame(named: "Closed Duo Library header keeps logo categories and actions separate")
+        let libraryCategories = element("libraryCategories")
+        let libraryThird = element("libraryCategory-music")
+        try waitForHittable(libraryThird, timeout: 10, named: "third Library category without swiping")
+        XCTAssertGreaterThanOrEqual(libraryCategories.frame.width, homeCategoryWidth - 4,
+                                    "Closed Library must use the same available category width as Home.")
+        try assertClosedNavigationClearsCamera([element("homeMasthead"), libraryCategories])
+        try activate(libraryThird)
+        try waitForExistence(element("audioScreen"), timeout: 20, named: "Music selected from the wide closed Library row")
+        try activate(revealMusicAlbum(fixture, named: "closed navigation album"))
+        try startMusicCollectionPlayback()
+        try activate(element("audioPlayPauseButton"))
+        try closePlayer()
+        try selectDestination("Home", screen: "homeScreen")
+        let activeRow = element("homeBrowsingRow")
+        try waitForHittable(element("homeBrowse-music"), timeout: 15, named: "third category with Now Playing")
+        XCTAssertEqual(activeRow.frame.width, homeCategoryWidth, accuracy: 1,
+                       "Now Playing must not shrink the closed category row when actions stack vertically.")
+        try assertClosedNavigationClearsCamera([element("homeMasthead"), activeRow,
+                                               element("nowPlayingBar"), element("nowPlayingPauseButton")])
+        try attachFrame(named: "Closed Home categories retain their width with Now Playing")
+        try selectTourLibraryCategory("movies", screen: "libraryScreen")
+        try assertClosedDuoLibraryHeader()
+        try assertClosedNavigationClearsCamera([element("homeMasthead"), element("libraryCategories"),
+                                               element("nowPlayingBar"), element("nowPlayingPauseButton")])
+        try attachFrame(named: "Closed Library categories retain their width with Now Playing")
+        try activate(element("nowPlayingBar"))
+        try waitForExistence(element("audioPlayerStage"), timeout: 15, named: "player from closed navigation")
+        try stopAudioPlayer()
+        completed = true
+    }
+
+    private func assertClosedNavigationClearsCamera(_ controls: [XCUIElement]) throws {
+        let raw = try XCTUnwrap(element("navigationOcclusions").value as? String)
+        let regions = raw.split(separator: ";").compactMap { record -> CGRect? in
+            let values = record.split(separator: ",").compactMap { Double($0) }
+            guard values.count == 4 else { return nil }
+            return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+        }
+        let attachment = XCTAttachment(string: "reserved=\(raw) controls=\(controls.map(\.frame))")
+        attachment.name = "Closed navigation hardware clearance"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let cameraRegions = regions.filter { $0.minY < 80 && $0.width < 80 && $0.height < 80 }
+        XCTAssertFalse(cameraRegions.isEmpty, "The closed-display proof must expose its camera occlusion.")
+        for region in regions {
+            for control in controls {
+                XCTAssertFalse(control.frame.intersects(region), "Navigation must clear the camera punch hole: \(region).")
+            }
+        }
     }
 
     func journeyPortraitNavigationWithMusic() async throws {
@@ -4252,13 +4314,14 @@ class NativeProofJourney: XCTestCase {
         try waitForHittable(options, timeout: 15, named: "Library options action in closed Duo")
         try waitForHittable(search, timeout: 15, named: "Library search action in closed Duo")
 
-        let firstTrailingEdge = min(alphabet.frame.minX, options.frame.minX, search.frame.minX)
         XCTAssertGreaterThanOrEqual(categories.frame.minX, masthead.frame.maxX + 8,
                                     "Closed Duo Library categories must clear the Lumina masthead.")
         XCTAssertGreaterThanOrEqual(movies.frame.minX, masthead.frame.maxX + 8,
                                     "Closed Duo Library Movies must clear the Lumina masthead.")
-        XCTAssertLessThanOrEqual(categories.frame.maxX, firstTrailingEdge - 8,
-                                 "Closed Duo Library categories must end before its actions.")
+        for action in [alphabet, options, search] {
+            XCTAssertFalse(categories.frame.intersects(action.frame),
+                           "Closed Duo Library categories must not overlap navigation actions.")
+        }
         XCTAssertEqual(movies.frame.midY, masthead.frame.midY, accuracy: 6,
                        "Closed Duo Library Movies must share the masthead's toolbar row.")
     }

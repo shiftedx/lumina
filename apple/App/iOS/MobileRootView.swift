@@ -754,11 +754,23 @@ private struct LibraryShellView: View {
             let displayHeight = geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
             // Standard phones use their bottom tabs; Duo's larger display keeps its category header.
             let showsCategoryHeader = usesIPadHeaderNavigation || min(displayWidth, displayHeight) >= 450
-            let categoryBarWidth = min(560, max(100, geometry.size.width - 180))
+            let usesClosedCategoryRow = !usesIPadHeaderNavigation && showsCategoryHeader && displayWidth < 600
+            // The system has already removed its camera/status region from this width.
+            let closedHeaderInsets = LuminaTheme.contentGutter + 44 + 12 + 12 // Logo and its two gaps.
+            let categoryBarWidth = min(560, max(100, geometry.size.width - (usesClosedCategoryRow ? closedHeaderInsets : 180)))
             destinations(categoryBarWidth: categoryBarWidth,
                          protectedHeaderCategoryWidth: headerCategoryWidth(for: geometry.size.width),
                          showsCategoryHeader: showsCategoryHeader,
+                         usesClosedCategoryRow: usesClosedCategoryRow,
                          stacksCategoryHeader: !usesIPadHeaderNavigation && displayWidth >= 600 && displayWidth < displayHeight)
+            #if LUMINA_UI_TESTING
+            .overlay {
+                Color.clear.accessibilityElement()
+                    .accessibilityIdentifier("navigationOcclusions")
+                    .accessibilityValue(navigationOcclusions(in: geometry))
+                    .allowsHitTesting(false)
+            }
+            #endif
         }
         .task(id: MobileHomeSessionScope(store.session)) {
             let scope = MobileHomeSessionScope(store.session)
@@ -768,8 +780,20 @@ private struct LibraryShellView: View {
         }
     }
 
+    #if LUMINA_UI_TESTING
+    private func navigationOcclusions(in geometry: GeometryProxy) -> String {
+        guard #available(iOS 27.1, *) else { return "" }
+        let origin = geometry.frame(in: .global).origin
+        return geometry.reservedRegions(kind: .occlusion, layoutDirectionBehavior: .fixed)
+            .filter(\.isActive).map { region in
+                let frame = region.frame.offsetBy(dx: origin.x, dy: origin.y)
+                return "\(frame.minX),\(frame.minY),\(frame.width),\(frame.height)"
+            }.joined(separator: ";")
+    }
+    #endif
+
     private func destinations(categoryBarWidth: CGFloat, protectedHeaderCategoryWidth: CGFloat,
-                              showsCategoryHeader: Bool, stacksCategoryHeader: Bool) -> some View {
+                              showsCategoryHeader: Bool, usesClosedCategoryRow: Bool, stacksCategoryHeader: Bool) -> some View {
         TabView(selection: Binding(get: { destination }, set: { selected in
             if selected == .home {
                 homeCategory = .all
@@ -789,6 +813,7 @@ private struct LibraryShellView: View {
                                         category: $homeCategory, categoryBarWidth: categoryBarWidth,
                                         protectedHeaderCategoryWidth: protectedHeaderCategoryWidth,
                                         stacksCategoryHeader: stacksCategoryHeader,
+                                        usesClosedCategoryRow: usesClosedCategoryRow,
                                         showsBrowsingRow: showsCategoryHeader && !usesIPadHeaderNavigation,
                                         uiTestingNavigationDiagnostics: homeNavigationDiagnosticValue
                         ) { selected in
@@ -820,14 +845,26 @@ private struct LibraryShellView: View {
                         .toolbarVisibility(stacksCategoryHeader ? .hidden : .visible, for: .navigationBar)
                         .toolbarBackground(.hidden, for: .navigationBar)
                         .toolbar {
-                            if showsCategoryHeader && !usesIPadHeaderNavigation && !stacksCategoryHeader {
+                            if showsCategoryHeader && !usesIPadHeaderNavigation && !stacksCategoryHeader && usesClosedCategoryRow {
+                                let header = HStack(spacing: 12) {
+                                    HomeHeroChrome().fixedSize()
+                                    libraryCategories(centersContent: false)
+                                        .frame(width: categoryBarWidth).clipped()
+                                }
+                                if #available(iOS 26.0, *) {
+                                    ToolbarItem(placement: .topBarLeading) { header }
+                                        .sharedBackgroundVisibility(.hidden)
+                                } else {
+                                    ToolbarItem(placement: .topBarLeading) { header }
+                                }
+                            } else if showsCategoryHeader && !usesIPadHeaderNavigation && !stacksCategoryHeader {
                                 ToolbarItem(placement: .principal) {
                                     libraryCategories()
                                         .frame(width: protectedHeaderCategoryWidth)
                                         .clipped()
                                 }
                             }
-                            if !stacksCategoryHeader {
+                            if !stacksCategoryHeader && !usesClosedCategoryRow {
                                 if #available(iOS 26.0, *) {
                                     ToolbarItem(placement: .topBarLeading) {
                                         HomeHeroChrome().fixedSize()
@@ -1168,6 +1205,7 @@ private struct HomeLibraryView: View {
     let categoryBarWidth: CGFloat
     let protectedHeaderCategoryWidth: CGFloat
     let stacksCategoryHeader: Bool
+    let usesClosedCategoryRow: Bool
     let showsBrowsingRow: Bool
     let uiTestingNavigationDiagnostics: String?
     let onOpenLibrary: (LibraryCategory) -> Void
@@ -1258,7 +1296,7 @@ private struct HomeLibraryView: View {
         .toolbarColorScheme(snapshot.items.isEmpty ? nil : .dark, for: .navigationBar)
         .toolbar {
             if !stacksCategoryHeader {
-                if showsBrowsingRow, categoryBarWidth < 360 {
+                if showsBrowsingRow, usesClosedCategoryRow {
                     let header = HStack(spacing: 12) {
                         HomeHeroChrome().fixedSize()
                         browsingRow.frame(width: browsingHeaderWidth).clipped()
@@ -1345,22 +1383,21 @@ private struct HomeLibraryView: View {
     }
 
     private var browsingRow: some View {
-        HomeBrowsingRow(category: category, centersContent: !stacksCategoryHeader && categoryBarWidth >= 360,
+        HomeBrowsingRow(category: category, centersContent: !stacksCategoryHeader && !usesClosedCategoryRow,
                         destinations: HomeBrowsingDestination.allCases.filter {
             $0 != .all && ($0.homeCategory != nil || store.availableLibraryCategories.contains($0.rawValue))
         }, onSelect: selectCategory)
     }
 
     private var browsingHeaderWidth: CGFloat {
-        guard categoryBarWidth < 360 else {
+        guard usesClosedCategoryRow else {
             // The shared Library cap reserves three actions. Home can add both
             // now-playing controls alongside Search and Downloads.
             let extraControls = max(0, homeTrailingControlSlots - 3)
             return max(100, protectedHeaderCategoryWidth - 2 * 44 * extraControls)
         }
-        // Preserve the closed display's three-category idle viewport, then
-        // reclaim one native action slot for each additional trailing control.
-        return max(100, categoryBarWidth + 40 - 44 * (homeTrailingControlSlots - 1))
+        // Closed Duo places its actions in the system's vertical trailing rail.
+        return categoryBarWidth
     }
 
     private var homeTrailingControlSlots: CGFloat {

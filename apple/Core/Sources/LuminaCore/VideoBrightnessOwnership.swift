@@ -30,6 +30,15 @@ public struct VideoBrightnessOwnership: Sendable {
         return applied
     }
 
+    /// Continue an explicit adjustment without mistaking delayed display readback
+    /// for an external change. Observation belongs at the start/end of a gesture.
+    public mutating func update(_ value: Double, owner: UUID) -> Double? {
+        guard self.owner == owner, value.isFinite else { return nil }
+        let applied = min(1, max(0, value))
+        lastApplied = applied
+        return applied
+    }
+
     public mutating func release(owner: UUID, observed: Double) -> Double? {
         guard self.owner == owner else { return nil }
         let restore = observed.isFinite && lastApplied.map { abs(observed - $0) <= Self.tolerance } == true

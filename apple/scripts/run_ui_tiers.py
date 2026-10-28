@@ -37,6 +37,7 @@ IOS_SPECIAL_LANES = {
     "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testStandardPhoneUsesBottomNavigationAndCompactBrowseMenu": "iPhone",
     "NativeAudioAlbumTrackPlaybackReportsProgressTests/testCompactMusicToolbarReopensAndResumes": "iPhone",
     "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testClosedDisplayFitsThreeCategoriesBesideWordmark": "Duo",
+    "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testHomeHeroArtworkSwipesAndPlaysSelectedTitle": "Duo",
     "NativeOpenDuoLibraryHeaderTests/testOpenDuoLibraryHeaderAndSearchKeepCategoriesClearOfChrome": "Duo",
     "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testHomeBrowseFiltersSearchAndHeroWatchlist": "Duo",
 }

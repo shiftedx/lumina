@@ -613,6 +613,8 @@ struct FeaturedShelf<Actions: View>: View {
                 }
             }
             #if !os(tvOS)
+            // Decorative artwork still belongs to the hero's swipe and tap surface.
+            .contentShape(.rect)
             .onGeometryChange(for: Bool.self) { $0.size.width < minimumWideWidth } action: { compactLayout = $0 }
             #endif
             #if os(tvOS)

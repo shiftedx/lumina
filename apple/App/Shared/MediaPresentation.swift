@@ -189,6 +189,8 @@ struct MediaBillboard<Actions: View>: View {
     var artworkFirst = false
     var featured = false
     var artworkMotionDirection: Int? = nil
+    /// Home retains its measured width mode while keyed billboards enter and leave.
+    var compactLayoutOverride: Bool? = nil
     var compactMinimumHeight: CGFloat?
     var compactArtworkMinimumHeight: CGFloat?
     var wideMinimumHeight: CGFloat?
@@ -348,7 +350,7 @@ struct MediaBillboard<Actions: View>: View {
         false
         #else
         // A regular window can still contain a narrow split-view detail pane.
-        compactLayout
+        compactLayoutOverride ?? compactLayout
         #endif
     }
 
@@ -533,6 +535,10 @@ struct FeaturedShelf<Actions: View>: View {
     @State private var dragging = false
     @State private var advanceNotBefore = Date.distantPast
     @State private var compactLayout = true
+    #if os(iOS) && LUMINA_UI_TESTING
+    @State private var layoutTransition = 0
+    @State private var layoutSamples: [String] = []
+    #endif
     @FocusState private var focusedID: String?
     #if os(tvOS)
     @FocusedValue(\.featuredBillboard) private var billboardHasFocus
@@ -548,8 +554,14 @@ struct FeaturedShelf<Actions: View>: View {
     private var selectedIdentifier: String? { selection?.wrappedValue ?? selectedID }
     private var selected: MediaItem? { items.first { $0.id == selectedIdentifier } ?? items.first }
     private var index: Int { items.firstIndex { $0.id == selected?.id } ?? 0 }
+    private var ambientMotionEnabled: Bool {
+        #if os(iOS) && LUMINA_UI_TESTING
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-static-hero-artwork") { return false }
+        #endif
+        return motionEnabled
+    }
     private var canAdvance: Bool {
-        items.count > 1 && motionEnabled && !reduceMotion && !voiceOver && scenePhase == .active
+        items.count > 1 && ambientMotionEnabled && !reduceMotion && !voiceOver && scenePhase == .active
             && !isInteracting && !containsFocus && !hovered && !dragging
     }
     private var containsFocus: Bool {
@@ -580,7 +592,8 @@ struct FeaturedShelf<Actions: View>: View {
                     showsMetadata: showsMetadata,
                     showsProgress: showsProgress,
                     featured: true,
-                    artworkMotionDirection: isInteracting ? nil : index,
+                    artworkMotionDirection: isInteracting || !ambientMotionEnabled ? nil : index,
+                    compactLayoutOverride: compact,
                     compactMinimumHeight: compactMinimumHeight,
                     compactArtworkMinimumHeight: compactArtworkMinimumHeight,
                     wideMinimumHeight: wideMinimumHeight,
@@ -635,6 +648,13 @@ struct FeaturedShelf<Actions: View>: View {
             #endif
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Featured titles, \(index + 1) of \(items.count)")
+            #if os(iOS) && LUMINA_UI_TESTING
+            .accessibilityValue("transition=\(layoutTransition) frames=\(layoutSamples.joined(separator: "|"))")
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                layoutSamples.append("\(layoutTransition),\(frame.minY),\(frame.height)")
+                if layoutSamples.count > 64 { layoutSamples.removeFirst(layoutSamples.count - 64) }
+            }
+            #endif
             .task(id: selected.id) {
                 guard items.count > 1 else { return }
                 let next = items[(index + 1) % items.count]
@@ -759,6 +779,9 @@ struct FeaturedShelf<Actions: View>: View {
     private func select(_ id: String, forward: Bool? = nil, userInitiated: Bool = true) {
         if userInitiated { deferAutomaticAdvance() }
         guard id != selected?.id else { return }
+        #if os(iOS) && LUMINA_UI_TESTING
+        layoutTransition += 1
+        #endif
         movingForward = forward ?? ((items.firstIndex { $0.id == id } ?? 0) > index)
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.72)) {
             if let selection {

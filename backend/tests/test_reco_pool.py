@@ -850,6 +850,19 @@ def test_an_anchor_adds_its_neighbours_and_boxset_and_is_never_its_own_candidate
     assert "m-old-drama" not in keys
 
 
+def test_anchor_retrieves_an_old_subject_match_without_genre_or_vector(db) -> None:
+    library(db)
+    anchor = add_movie(db, "m-anchor-subject", "Clinic Night", genres=["Drama"],
+                       overview="A hospital surgeon weighs transplant ethics with patients.")
+    add_movie(db, "m-old-subject", "Ward Meeting", genres=["Mystery"], days=-300,
+              overview="A hospital surgeon confronts transplant ethics with patients.")
+    db.commit()
+
+    keys = keys_of(pool.title_candidates(db, db.get(User, "a"), make_profile(), anchor=anchor))
+
+    assert "m-old-subject" in keys
+
+
 def test_as_of_leaves_out_titles_that_arrived_later(db) -> None:
     library(db)
 
@@ -881,15 +894,19 @@ def test_taste_retrieval_takes_the_nearest_vectors_to_a_centroid(db, monkeypatch
 
 def test_cached_title_tokens_follow_a_metadata_edit_and_a_raw_category_rewrite(db) -> None:
     db.add_all([make_user("owner"), make_user("a")])
-    title = add_movie(db, "m", "Movie", genres=["Drama"])
+    title = add_movie(db, "m", "Movie", genres=["Drama"], overview="A hospital surgeon treats patients")
     db.commit()
     member = db.get(User, "a")
     tokens = lambda: next(iter(pool.title_base(db, member).titles)).tokens  # noqa: E731
 
     assert "genre:drama" in tokens()
-    title.metadata_json = {**title.metadata_json, "genres": ["Western"]}  # an ORM write bumps updated_at
+    assert "m" in pool.title_base(db, member).postings["subject:hospital"]
+    title.metadata_json = {**title.metadata_json, "genres": ["Western"],
+                           "overview": "A rancher drives cattle across the desert"}  # an ORM write bumps updated_at
     db.commit()
     assert "genre:western" in tokens() and "genre:drama" not in tokens()
+    assert "subject:hospital" not in pool.title_base(db, member).postings
+    assert "m" in pool.title_base(db, member).postings["subject:rancher"]
     db.execute(update(MediaTitle).values(category="anime").execution_options(synchronize_session=False))  # as db.CATEGORY_SQL does
     db.commit()
     assert "cat:anime" in tokens() and "cat:movies" not in tokens()

@@ -357,7 +357,7 @@ def test_the_compare_run_scores_every_policy_and_meets_quality_targets_determini
     assert 0 < report["pool_recall"] <= 1
     # Release quality gate on the same comparison workload; fix ranking, not thresholds.
     rows = replay.evaluate_targets(report, synthetic=True)
-    assert len(rows) == 24
+    assert len(rows) == 20
     failed = [f"{row['metric']}: {row['value']} needs {row['required']}" for row in rows if not row["ok"]]
     assert not failed, "\n".join(failed)
 
@@ -403,7 +403,7 @@ def test_a_report_that_meets_every_target_passes_all_of_them() -> None:
     replay = load("reco_replay")
     rows = replay.evaluate_targets(_report(), synthetic=True)
     assert _failed(rows) == set()
-    assert len(rows) == 24  # 5 hit rows + coverage + distinct + max-one + freshness + 5 hit metrics x 3 trivial baselines
+    assert len(rows) == 20  # Up Next channel hit remains diagnostic; its four acceptance rows are retired.
 
 
 def test_each_relative_target_and_floor_is_applied_at_its_boundary() -> None:
@@ -413,7 +413,6 @@ def test_each_relative_target_and_floor_is_applied_at_its_boundary() -> None:
         "hit_at_10/remote_item_hit@10/new": (0.459, "remote_item_hit@10"),  # max(1.2 x 0.375, 0.8 x oracle 0.575) = 0.46
         "hit_at_10/title_item_hit@10/new": (0.824, "title_item_hit@10"),  # R-T6: max(1.5 x 0.55, 0.8 x oracle 0.82) = 0.825
         "hit_at_10/anchored_title_hit@10/new": (0.9, "anchored_title_hit@10"),  # 0.95 x 0.95 = 0.9025
-        "hit_at_10/up_next_channel_hit@10/new": (0.565, "up_next_channel_hit@10"),  # 1.2 x 0.471 = 0.5652
         "by_policy/new/coverage_at_20": ({"home_picked": 0.44}, "coverage@20"),  # 1.5 x 0.3 = 0.45
         "by_policy/new/home_picked_top12": (_top12(9.1, 0, 4.0), "distinct_channels_top12"),  # R-T6: max(7.15, min(9.15, 10.8))
     }
@@ -461,8 +460,58 @@ def test_a_missing_value_never_passes() -> None:
 
 def test_a_tie_with_a_trivial_baseline_fails() -> None:
     replay = load("reco_replay")
-    failed = _failed(replay.evaluate_targets(_report(**{"hit_at_10/up_next_channel_hit@10/last_watch_channel": 0.60}), synthetic=True))
-    assert failed == {"up_next_channel_hit@10 > last_watch_channel"}
+    failed = _failed(replay.evaluate_targets(_report(**{"hit_at_10/remote_channel_hit@10/newest_first": 0.90}), synthetic=True))
+    assert failed == {"remote_channel_hit@10 > newest_first"}
+
+
+def test_up_next_channel_hit_is_reported_but_not_an_acceptance_target() -> None:
+    replay = load("reco_replay")
+    report = _report(**{"hit_at_10/up_next_channel_hit@10/new": 0.0})
+    assert report["hit_at_10"]["up_next_channel_hit@10"]["new"] == 0.0
+    assert _failed(replay.evaluate_targets(report, synthetic=True)) == set()
+    assert not any("up_next_channel_hit@10" in row["metric"] for row in replay.evaluate_targets(report, synthetic=True))
+
+
+def test_anchored_tie_passes_only_at_measured_eligible_ceiling() -> None:
+    replay = load("reco_replay")
+    report = _report(**{
+        "hit_at_10/anchored_title_hit@10/new": 0.8,
+        "hit_at_10/anchored_title_hit@10/legacy": 0.8,
+        "hit_at_10/anchored_title_hit@10/newest_first": 0.8,
+    })
+    report["anchored_eligible_hit_ceiling"] = 0.9
+    assert _failed(replay.evaluate_targets(report, synthetic=True)) == {"anchored_title_hit@10 > newest_first"}
+    report["anchored_eligible_hit_ceiling"] = 0.8
+    assert _failed(replay.evaluate_targets(report, synthetic=True)) == set()
+    report["anchored_eligible_hit_ceiling"] = 0.0
+    report["hit_at_10"]["anchored_title_hit@10"].update(new=0.0, newest_first=0.0, legacy=0.0)
+    assert "anchored_title_hit@10 > newest_first" in _failed(replay.evaluate_targets(report, synthetic=True))
+
+
+def test_anchored_hit_requires_the_held_out_title_not_just_its_genre() -> None:
+    replay = load("reco_replay")
+    held = replay.Watch("local", "progress", "title", "film-b", "Drama", datetime(2026, 9, 1), True, True)
+    same_genre = [replay.Candidate("film-a", "Drama")]
+
+    assert held.channel == same_genre[0].channel
+    assert not replay._hit_at_10(held, same_genre, "anchored_title_hit@10")
+    assert replay._hit_at_10(held, [*same_genre, replay.Candidate("film-b", "Drama")], "anchored_title_hit@10")
+
+
+def test_anchored_trivial_baselines_exclude_unrelated_visible_titles() -> None:
+    replay, seed = load("reco_replay"), load("seed_reco")
+    factory = memory_session_factory()
+    with factory() as session:
+        seed.seed(session, settings.data_dir)
+        as_of = seed.BASE - timedelta(days=10)
+        replay.hide_after(session, as_of, [])
+        anchor = replay.last_watch(session, "ana", as_of, "title", completed=True)
+        assert anchor is not None
+        pool = replay.eligible(session, "ana", as_of, "home_because")
+        assert any(candidate.channel != anchor.channel for candidate in pool)
+        for baseline in (replay.newest_first, replay.household_top_channel, replay.last_watch_channel):
+            ranked = baseline(session, "ana", as_of, "home_because", 20)
+            assert ranked and all(candidate.channel == anchor.channel for candidate in ranked)
 
 
 def test_the_box_caps_the_distinct_channel_bar_and_holds_one_channel_to_3_of_12() -> None:
@@ -494,4 +543,16 @@ def test_the_remote_item_row_is_judged_on_the_synthetic_seed_only() -> None:
     weak = _report(**{"hit_at_10/remote_item_hit@10/new": 0.0})
     assert "remote_item_hit@10" in _failed(replay.evaluate_targets(weak, synthetic=True))
     rows = replay.evaluate_targets(weak, synthetic=False)
-    assert _failed(rows) == set() and len(rows) == 24 - 1 - 3  # no item row, no item-versus-trivial rows
+    assert _failed(rows) == set() and len(rows) == 20 - 1 - 3  # no item row, no item-versus-trivial rows
+
+
+def test_editorial_title_relevance_and_abstention_without_embeddings() -> None:
+    """Independent synthetic subjects must retrieve related titles and reject every judged distractor."""
+    report = load("reco_relevance").evaluate()
+    assert report["passed"], report["cases"]
+
+
+def test_editorial_remote_up_next_requires_subject_evidence_and_strong_first() -> None:
+    """A broad category, channel, or another game's highlights must not fill autoplay."""
+    report = load("reco_relevance").evaluate_remote()
+    assert report["passed"], report["cases"]

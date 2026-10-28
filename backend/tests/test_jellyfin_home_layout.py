@@ -9,10 +9,14 @@ from sqlalchemy import select
 
 from app import db as db_module
 from app.main import app
-from app.models import MediaTitle, PlaybackProgress, User, UserSettings
+from app.models import MediaTitle, PlaybackProgress, RecoEvent, User, UserSettings, utcnow
+from app.media_schemas import RecoAnnotation, TitleRow, TitleRowsResponse
+from app.services.reco import Candidate, Ranked, ServedList
+from app.services.reco.events import served_lists
+from app.services.title_summaries import title_summaries
 from app.services.watch_queue import WatchQueueService
 from app.services.user_settings import UserSettingsService
-from title_support import ALICE, ALICE_TOKEN, BOB_TOKEN, FILE, MOVIE_1080, S1E1, SERIES, TRACKS, T0, jellyfin_household, mediabrowser, seed_gallery, uid
+from title_support import ALICE, ALICE_TOKEN, BOB, BOB_TOKEN, FILE, MOVIE_1080, S1E1, SECRET_SERIES, SERIES, TRACKS, T0, jellyfin_household, mediabrowser, seed_gallery, uid
 
 
 BASE = "/Lumina/Home/layout"
@@ -164,13 +168,53 @@ def test_rows_follow_the_shared_layout_and_only_serve_visible_member_media(nativ
     assert generic.status_code == 200
     assert all("LuminaCategory" not in item for item in generic.json()["Items"])
 
-    # The same route is a Connected-app surface: it cannot escape to browser
-    # routes, and another member gets neither Alice's layout nor her playback
-    # and watchlist state. Shared films may still appear in Bob's new-library row.
+    # Connected-app credentials stay in their own namespace, and Bob cannot
+    # read Alice's watchlist or playback rows.
     assert native.get(ROWS).status_code == 401
     bob = native.get(ROWS, headers=mediabrowser(BOB_TOKEN))
     assert bob.status_code == 200
     assert {row["shelf_id"] for row in bob.json()["rows"]}.isdisjoint({"watchlist", "continue_listening"})
+
+
+def test_native_recommendation_retains_annotation_and_feedback_is_member_scoped(native: TestClient, tmp_path: Path, monkeypatch) -> None:
+    from app.routers import jellyfin_home
+
+    with db_module.SessionLocal.begin() as db:
+        seed_gallery(db, tmp_path / "media")
+
+    annotation = RecoAnnotation(list_id="1234567890abcdef", key=SERIES, position=3,
+                                slot="exploit", reason_code="like_anchor", reason="Shared subject")
+
+    def rows_for(user, db):
+        title = title_summaries(db, user, [SERIES])[0].model_copy(update={"reco": annotation})
+        return TitleRowsResponse(rows=[TitleRow(id="recommended", kind="recommended", title="Recommended for you", items=[title])])
+
+    monkeypatch.setattr(jellyfin_home.discovery, "get_home_title_rows", rows_for)
+    response = native.get(ROWS, headers=mediabrowser(ALICE_TOKEN))
+    assert response.status_code == 200, response.text
+    card = next(row for row in response.json()["rows"] if row["shelf_id"] == "recommended")["items"][0]
+    assert card["LuminaReco"] == annotation.model_dump(mode="json")
+    served_lists.put(ServedList(list_id=annotation.list_id, user_id=ALICE, surface="home_recommended",
+        context_key="-", created_at=utcnow(), items=(Ranked(candidate=Candidate(
+            key=SERIES, target_kind="title", title="Show", channel_key=None, channel_name=None,
+            tokens=frozenset(), published_at=None, sources=0), position=3, slot="exploit",
+            score=1.0, p_shown=None, reason_code="like_anchor", reason="Shared subject"),)))
+    event = {"kind": "impression", "list_id": annotation.list_id, "key": SERIES, "age_ms": 0}
+    assert native.post("/Lumina/Home/reco/events", json={"events": [event]}, headers=mediabrowser(BOB_TOKEN)).status_code == 204
+    with db_module.SessionLocal() as db:
+        assert db.scalars(select(RecoEvent).where(RecoEvent.user_id == BOB, RecoEvent.list_id == annotation.list_id)).all() == []
+    assert native.post("/Lumina/Home/reco/events", json={"events": [event]}, headers=mediabrowser(ALICE_TOKEN)).status_code == 204
+    with db_module.SessionLocal() as db:
+        assert db.scalars(select(RecoEvent).where(RecoEvent.user_id == ALICE, RecoEvent.list_id == annotation.list_id)).first() is not None
+    denied = native.post("/Lumina/Home/reco/suppressions", json={"scope": "title", "title_id": SECRET_SERIES},
+                         headers=mediabrowser(ALICE_TOKEN))
+    assert denied.status_code == 404
+    hidden = native.post("/Lumina/Home/reco/suppressions", json={"scope": "title", "title_id": SERIES,
+        "key": SERIES, "list_id": annotation.list_id}, headers=mediabrowser(ALICE_TOKEN))
+    assert hidden.status_code == 200, hidden.text
+    assert native.get("/Lumina/Settings/suppressions", headers=mediabrowser(BOB_TOKEN)).json()["titles"] == []
+    assert native.delete(f"/Lumina/Settings/suppressions/{hidden.json()['id']}", headers=mediabrowser(ALICE_TOKEN)).status_code == 204
+
 
 
 def test_external_home_sources_are_opt_in_member_scoped_and_bounded(native: TestClient, monkeypatch) -> None:

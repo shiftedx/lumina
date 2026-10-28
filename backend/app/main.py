@@ -2582,7 +2582,7 @@ def _legacy_up_next(
     return response.model_copy(update={"items": _with_remote_artwork(response.items)})
 
 
-@app.post("/api/discovery/up-next", response_model=MemberRecommendationSnapshotResponse, dependencies=[Depends(require_streaming("youtube"))])
+@app.post("/api/discovery/up-next", response_model=MemberRecommendationSnapshotResponse)
 def up_next_recommendations(
     payload: UpNextRequest,
     request: Request,
@@ -2590,9 +2590,13 @@ def up_next_recommendations(
     db: Session = Depends(get_db, scope="function"),
 ) -> MemberRecommendationSnapshotResponse:
     enforce_rate_limit("up_next", request, user_id=current_user.id)
+    streaming_gate.check_url(db, current_user, payload.source_url, beyond_follows=True)
+    streaming_gate.check(db, current_user, "open_search" if payload.source == "soundcloud" else payload.source,
+                         beyond_follows=True)
     snapshot = popular_discovery.get_snapshot()
     if not reco.enabled(db):
-        return _legacy_up_next(payload, current_user, db, snapshot)
+        legacy = _legacy_up_next(payload, current_user, db, snapshot)
+        return legacy.model_copy(update={"items": _reco_policy(db).eligible_legacy_up_next(payload, legacy.items)})
     # No provider I/O; the channel being watched is read through peek_tab only.
     policy = _reco_policy(db)
     source = uncut(snapshot, popular_discovery.candidates())

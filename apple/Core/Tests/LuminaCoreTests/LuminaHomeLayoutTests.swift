@@ -8,6 +8,7 @@ final class LuminaHomeLayoutTests: XCTestCase {
         super.setUp()
         HomeLayoutProtocol.handler = nil
         HomeLayoutProtocol.responseDelay = 0
+        HomeLayoutProtocol.onStart = nil
     }
 
     func testHomeFeedLoadsAllShelfKindsAndExplicitSourceHandoffs() async throws {
@@ -48,7 +49,9 @@ final class LuminaHomeLayoutTests: XCTestCase {
             [
                 "id": "recommended", "shelf_id": "recommended", "title": "Recommended", "shape": "poster",
                 "items": [
-                    ["Id": "movie-1", "Name": "Movie", "Type": "Movie", "LuminaCategory": "movies", "Genres": ["drama"]],
+                    ["Id": "movie-1", "Name": "Movie", "Type": "Movie", "LuminaCategory": "movies", "Genres": ["drama"],
+                     "LuminaReco": ["list_id": "1234567890abcdef", "key": "11111111-1111-1111-1111-111111111111",
+                                     "position": 2, "slot": "exploit", "reason_code": "like_anchor", "reason": "Shared subject"]],
                     ["Id": "show-1", "Name": "Show", "Type": "Series", "LuminaCategory": "shows", "Genres": ["Drama"]],
                     ["Id": "anime-1", "Name": "Anime", "Type": "Series", "LuminaCategory": "anime", "Genres": ["Fantasy"]],
                 ],
@@ -64,6 +67,8 @@ final class LuminaHomeLayoutTests: XCTestCase {
             client: LuminaClient(configuration: configuration)
         )
         await feed.load()
+        XCTAssertEqual(feed.rows.last?.items.first?.luminaReco?.reason, "Shared subject")
+        XCTAssertEqual(feed.rows.last?.items.first?.luminaReco?.position, 2)
         let heroes = try JSONDecoder().decode([MediaItem].self, from: JSONSerialization.data(withJSONObject: [
             ["Id": "show-1", "Name": "Show", "Type": "Series"],
             ["Id": "movie-1", "Name": "Movie", "Type": "Movie"],
@@ -238,6 +243,60 @@ final class LuminaHomeLayoutTests: XCTestCase {
         XCTAssertTrue(layout.hasLoaded)
         XCTAssertTrue(feed.hasLoaded)
     }
+
+    func testRecommendationEventsHideUndoAndMemberSwitchUseNativeSession() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HomeLayoutProtocol.self]
+        let recorder = HomeLayoutRequestRecorder()
+        let card: [String: Any] = ["Id": "movie-1", "Name": "Movie", "Type": "Movie",
+            "LuminaReco": ["list_id": "1234567890abcdef", "key": "11111111-1111-1111-1111-111111111111",
+                           "position": 0, "slot": "exploit", "reason_code": "like_anchor", "reason": "Shared subject"]]
+        HomeLayoutProtocol.handler = { request in
+            _ = recorder.record(request)
+            let path = request.url!.path
+            let status = path == "/Lumina/Home/reco/events" || request.httpMethod == "DELETE" ? 204 : 200
+            let object: [String: Any] = path == "/Lumina/Home/rows"
+                ? ["rows": [["id": "recommended", "shelf_id": "recommended", "title": "Recommended", "shape": "poster", "items": [card]]]]
+                : ["id": "suppression-1"]
+            return (HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!,
+                    status == 204 ? Data() : try JSONSerialization.data(withJSONObject: object))
+        }
+        let session = LuminaSession(serverURL: URL(string: "https://lumina.example")!, accessToken: "member-token",
+                                    userID: "member-one", username: "Member one", serverName: "Lumina", deviceID: "device")
+        let feed = LuminaHomeFeed(session: session, client: LuminaClient(configuration: configuration))
+        await feed.load()
+        let item = try XCTUnwrap(feed.rows.first?.items.first)
+        let recommendation = try XCTUnwrap(item.luminaReco)
+        await feed.record("impression", recommendation: recommendation)
+        await feed.record("impression", recommendation: recommendation)
+        await feed.record("open", recommendation: recommendation)
+        let eventRequests = recorder.requests.filter { $0.request.url?.path == "/Lumina/Home/reco/events" }
+        XCTAssertEqual(eventRequests.count, 2)
+        XCTAssertTrue(eventRequests.allSatisfy { $0.request.value(forHTTPHeaderField: "Authorization")?.contains("member-token") == true })
+        let pendingLoadStarted = expectation(description: "A refresh begins before the title is hidden")
+        HomeLayoutProtocol.onStart = { request in
+            if request.url?.path == "/Lumina/Home/rows" { pendingLoadStarted.fulfill() }
+        }
+        HomeLayoutProtocol.responseDelay = 0.8
+        let pendingLoad = Task { await feed.load() }
+        await fulfillment(of: [pendingLoadStarted], timeout: 2)
+        HomeLayoutProtocol.responseDelay = 0
+        let hideResult = await feed.hide(item)
+        let hidden = try XCTUnwrap(hideResult)
+        XCTAssertTrue(feed.isLoading, "The earlier Home response must still be pending after feedback")
+        XCTAssertTrue(feed.rows.isEmpty)
+        await pendingLoad.value
+        XCTAssertTrue(feed.rows.isEmpty, "An in-flight Home response cannot restore a suppressed title")
+        HomeLayoutProtocol.onStart = nil
+        await feed.undoHide(hidden)
+        XCTAssertEqual(feed.rows.first?.items.first?.id, "movie-1")
+        feed.configure(session: LuminaSession(serverURL: session.serverURL, accessToken: "second-token",
+                                             userID: "member-two", username: "Member two", serverName: "Lumina", deviceID: "device"))
+        let before = recorder.requests.count
+        await feed.undoHide(hidden)
+        XCTAssertEqual(recorder.requests.count, before)
+        XCTAssertTrue(feed.rows.isEmpty)
+    }
 }
 
 private final class HomeFeedRefreshReplies: @unchecked Sendable {
@@ -267,11 +326,13 @@ private final class HomeFeedRefreshReplies: @unchecked Sendable {
 private final class HomeLayoutProtocol: URLProtocol {
     nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
     nonisolated(unsafe) static var responseDelay: TimeInterval = 0
+    nonisolated(unsafe) static var onStart: ((URLRequest) -> Void)?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        Self.onStart?(request)
         let complete = { [weak self] in
             guard let self else { return }
             do {

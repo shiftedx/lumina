@@ -16,6 +16,7 @@ from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from itertools import batched, zip_longest
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -60,6 +61,7 @@ from app.services.reco.pool import (
 )
 from app.services.reco.profile import build_profile, candidate_from_remote, candidate_from_title, profiles, remote_tokens
 from app.services.reco.ranking import rank
+from app.services.reco.remote_matching import remote_anchor_strength
 from app.services.remote_annotation import remote_source_identity
 from app.services.remote_playback import RemotePlaybackProgressService
 
@@ -80,6 +82,7 @@ _CATEGORY_KEYS = frozenset(category.key for category in POPULAR_CATEGORIES)
 # Because you watched: completions of the last 30 days, at most 3 rows.
 BECAUSE_WINDOW = timedelta(days=30)
 BECAUSE_ROWS = 3
+TITLE_LIST_VERSION = "titles-v2"  # namespace cached lists after title eligibility and Home allocation changes
 # What a surface's builder hands the ranker: the candidates, the anchor (title or current video), the pinned key.
 _Build = Callable[[MemberProfile], tuple[list[Candidate], Candidate | None, str | None]]
 
@@ -100,6 +103,13 @@ def remote_key(source: str | None, entry_id: str | None, webpage_url: str | None
         return None
 
 
+def _canonical_remote_identity(identity: str) -> str | None:
+    try:
+        return RemotePlaybackProgressService.canonical_source_identity(identity)
+    except ValueError:
+        return None
+
+
 def _canonical_categories(keys: Iterable[str]) -> tuple[str, ...]:
     """Only Popular's stable category vocabulary can form an Up Next topical anchor."""
     return tuple(dict.fromkeys(key for key in keys if key in _CATEGORY_KEYS))
@@ -107,13 +117,7 @@ def _canonical_categories(keys: Iterable[str]) -> tuple[str, ...]:
 
 def _matches_anchor(candidate: Candidate, anchor: Candidate) -> bool:
     """An anchored queue is topical: channel identity alone never turns an unrelated upload into Up Next."""
-    if not _categories_compatible(candidate, anchor):
-        return False
-    return any(not token.startswith("ch:") for token in candidate.tokens & anchor.tokens)
-
-
-def _categories_compatible(candidate: Candidate, anchor: Candidate) -> bool:
-    return not (anchor.category_keys and candidate.category_keys and not set(anchor.category_keys).intersection(candidate.category_keys))
+    return remote_anchor_strength(anchor, candidate) is not None
 
 
 def local_date(now: datetime) -> date:
@@ -135,7 +139,7 @@ def next_part_key(current: Candidate, candidates: Iterable[Candidate]) -> str | 
     the next number. Ties go to the lowest key, so the pin is the same on every request."""
     number = _part_number(current.title)
     words = _words(current.title)
-    if number is None or not words or not current.channel_key:
+    if number is None or len(words - {"part", "episode"}) < 2 or not current.channel_key:
         return None
     matches = sorted(
         candidate.key for candidate in candidates
@@ -168,7 +172,17 @@ def category_order(profile: MemberProfile, keys: Sequence[str]) -> tuple[str, ..
 
 def entry_from_media(row: RemoteMedia) -> PopularItemResponse:
     """A pooled video as a wire item: public metadata only."""
-    family = (row.extractor or "youtube").lower().split(":", 1)[0]
+    family = (row.extractor or "").lower().split(":", 1)[0]
+    if not family:
+        # Pre-provider URL-keyed cache rows stored no extractor; recover known providers without extractor I/O.
+        try:
+            host = (urlsplit(row.webpage_url or "").hostname or "").casefold()
+        except ValueError:
+            host = ""
+        family = next((source for domain, source in (
+            ("twitch.tv", "twitch"), ("kick.com", "kick"), ("soundcloud.com", "soundcloud"),
+            ("youtube.com", "youtube"), ("youtube-nocookie.com", "youtube"), ("youtu.be", "youtube"),
+        ) if host == domain or host.endswith(f".{domain}")), "youtube")
     source = family if family in _SEARCH_SOURCES else "youtube"
     return PopularItemResponse(
         id=row.remote_id, title=row.title, uploader=row.uploader, uploader_url=row.channel_url, duration=row.duration,
@@ -279,21 +293,57 @@ class RecommendationPolicy:
         return self._serve(member, "home_picked", "-", SURFACE_K["home_picked"], build, follow_cap=follows_shown)
 
     def up_next(self, member: User, snapshot: PopularSnapshot, request: UpNextRequest) -> ServedList:
-        """Up next: pool ∪ Popular ∪ the peeked listing of the channel being watched; the next part pinned."""
+        """Up next: same-provider pool ∪ Popular ∪ a cached channel listing, with topical evidence and the next part pinned."""
         current = remote_key(request.source, request.source_id, request.source_url)
-        page = self._peek(request.channel_id, warm=True)
-        context_key = self._up_next_context_key(current, request, page)
+        excluded = self._up_next_excluded(request)
+        page = self._peek(request.channel_id, warm=True) if request.source == "youtube" else None
+        context_key = self._up_next_context_key(current, request, page, excluded)
 
         def build(_profile: MemberProfile) -> tuple[list[Candidate], Candidate | None, str | None]:
             anchor = self._current(request, current)
-            candidates = self._remote_pool(member, _profile, snapshot.items, page=page, exclude=frozenset({current} if current else ()))
-            if anchor is not None:
-                topical = [candidate for candidate in candidates if _matches_anchor(candidate, anchor)]
-                candidates = topical or [candidate for candidate in candidates
-                                          if anchor.channel_key and candidate.channel_key == anchor.channel_key and _categories_compatible(candidate, anchor)]
+            if anchor is None:
+                return [], None, None
+            candidates = self._remote_pool(member, _profile, snapshot.items, page=page,
+                                           exclude=excluded | frozenset({current} if current else ()), provider=request.source)
+            candidates = [candidate for candidate in candidates if _matches_anchor(candidate, anchor)]
             return candidates, anchor, next_part_key(anchor, candidates) if anchor else None
 
         return self._serve(member, "up_next", context_key, request.limit, build)
+
+    def eligible_legacy_up_next(self, request: UpNextRequest, items: Sequence[PopularItemResponse]) -> list[PopularItemResponse]:
+        """Apply the same continuity floor to the disabled-recommender path without changing its annotations."""
+        current = remote_key(request.source, request.source_id, request.source_url)
+        anchor = self._current(request, current)
+        if anchor is None:
+            return []
+        excluded = self._up_next_excluded(request) | frozenset({current})
+        matched: list[tuple[PopularItemResponse, Candidate, float]] = []
+        for item in items:
+            if item.source != request.source:
+                continue
+            key = remote_key(item.source, item.id, item.webpage_url)
+            if key is None or key in excluded:
+                continue
+            row = self._db.get(RemoteMedia, key)
+            categories = _canonical_categories(item.category_keys)
+            stable = channel_key(item.source, item.uploader_id, item.uploader_url, item.uploader)
+            candidate = candidate_from_remote(row, sources=SOURCE_POPULAR) if row is not None else Candidate(
+                key=key, target_kind="remote", title=item.title or "", channel_key=stable, channel_name=item.uploader,
+                tokens=remote_tokens(item.title, stable, categories), published_at=item.published_at,
+                sources=SOURCE_POPULAR, category_keys=categories,
+            )
+            strength = remote_anchor_strength(anchor, candidate)
+            if strength is not None:
+                matched.append((item, candidate, strength))
+        pinned = next_part_key(anchor, (candidate for _item, candidate, _strength in matched))
+        matched.sort(key=lambda pair: (pair[1].key != pinned, -pair[2], pair[1].key))
+        return [item for item, _candidate, _strength in matched]
+
+    @staticmethod
+    def _up_next_excluded(request: UpNextRequest) -> frozenset[str]:
+        return frozenset(RemotePlaybackProgressService.source_identity_key(canonical)
+                         for identity in request.excluded_sources
+                         if (canonical := _canonical_remote_identity(identity)) is not None)
 
     def explore(self, member: User, snapshot: PopularSnapshot) -> tuple[ServedList, tuple[str, ...]]:
         """Explore's For you rail and the member's category order."""
@@ -381,19 +431,31 @@ class RecommendationPolicy:
     # ---- title surfaces ------------------------------------------------------------------------------------------
 
     def title_rows(self, member: User) -> list[tuple[TitleRowKind, MediaTitle | None, ServedList]]:
-        """Home's Because you watched rows, then Recommended for you, deduplicated in order."""
+        """Home's anchored rows and general discovery, allocating each title before ranking a later row."""
         now = self._now()
         rows: list[tuple[TitleRowKind, MediaTitle | None, ServedList]] = []
         shown: set[str] = set()
-        if shelf_visible(self._db, member.id, "because_you_watched"):
-            anchors = MemberRecommendationPolicy(self._db).recently_completed(member, since=now - BECAUSE_WINDOW, limit=BECAUSE_ROWS)
-            for anchor in anchors:
-                served = self._serve(member, "home_because", anchor.id, SURFACE_K["home_because"], self._anchored(member, anchor))
-                rows.append(("because_you_watched", anchor, _unseen(served, shown)))
-        if shelf_visible(self._db, member.id, "recommended"):
+        anchors = (MemberRecommendationPolicy(self._db).recently_completed(member, since=now - BECAUSE_WINDOW, limit=BECAUSE_ROWS)
+                   if shelf_visible(self._db, member.id, "because_you_watched") else [])
+        recommended_visible = shelf_visible(self._db, member.id, "recommended")
+        anchor_k = SURFACE_K["home_because"]
+        if anchors and recommended_visible:
+            profile = profiles.get(self._db, member.id, now=now)
+            if profile.satisfied:
+                # Split the visible, unstarted pool across anchor rows and discovery. Eligibility still decides
+                # whether an anchor can spend its allowance; a lone strong match remains on its anchor row.
+                available = len(self._titles(member, profile))
+                anchor_k = min(anchor_k, max(1, available // (len(anchors) + 1)))
+        for anchor in anchors:
+            served = self._serve(member, "home_because", f"{anchor.id}:home:{anchor_k}", anchor_k,
+                                 self._anchored(member, anchor), exclude=frozenset(shown))
+            rows.append(("because_you_watched", anchor, served))
+            shown.update(item.candidate.key for item in served.items)
+        if recommended_visible:
             served = self._serve(member, "home_recommended", "-", SURFACE_K["home_recommended"],
-                                 lambda profile: (self._titles(member, profile) if profile.satisfied else [], None, None))
-            rows.append(("recommended", None, _unseen(served, shown)))
+                                 lambda profile: (self._titles(member, profile) if profile.satisfied else [], None, None),
+                                 exclude=frozenset(shown))
+            rows.append(("recommended", None, served))
         return rows
 
     def similar(self, member: User, anchor: MediaTitle, *, k: int) -> ServedList:
@@ -410,13 +472,22 @@ class RecommendationPolicy:
     # ---- internals -------------------------------------------------------------------------------------------------
 
     def _serve(self, member: User, surface: RecoSurface, context_key: str, k: int, build: _Build, *,
-               follow_cap: bool = False) -> ServedList:
+               follow_cap: bool = False, exclude: frozenset[str] = frozenset()) -> ServedList:
         now = self._now()
+        if surface in {"home_because", "home_recommended", "title_similar"}:
+            context_key = f"{TITLE_LIST_VERSION}:{context_key}"
+        if exclude:
+            digest = hashlib.sha256("\0".join(sorted(exclude)).encode()).hexdigest()[:16]
+            context_key = f"{context_key}:excluded:{digest}"
         cached = served_lists.find(member.id, surface, context_key, now)
         if cached is not None:
             return cached
         profile = profiles.get(self._db, member.id, now=now)
         candidates, anchor, pinned = build(profile)
+        if exclude:
+            candidates = [candidate for candidate in candidates if candidate.key not in exclude]
+            if pinned in exclude:
+                pinned = None
         ctx = SurfaceContext(surface=surface, k=k, local_date=local_date(now), context_key=context_key, anchor=anchor,
                              pinned_key=pinned)
         ranked = rank(candidates, profile, ctx, now=now, names=title_names(self._db, candidates, profile))
@@ -442,7 +513,8 @@ class RecommendationPolicy:
         return page
 
     def _remote_pool(self, member: User, profile: MemberProfile, items: Sequence[PopularItem], *, page: ChannelTabPage | None = None,
-                     exclude: frozenset[str] = frozenset(), as_of: datetime | None = None) -> list[Candidate]:
+                     exclude: frozenset[str] = frozenset(), as_of: datetime | None = None,
+                     provider: str | None = None) -> list[Candidate]:
         """The member's remote candidates: their own pool, the household Popular items and the peeked
         listing; minus the current item, visible Library copies and completed items (the Popular and listing loaders know no
         member), legacy-keyed item suppressions and anything with no wire entry. Shorts, live and
@@ -456,7 +528,8 @@ class RecommendationPolicy:
         entries = self._entries(rows, list(merged), items, page)
         saved = saved_remote_keys(self._db, member, rows)
         blocked = self._hidden_items(member, entries) | saved | profile.excluded | exclude
-        return [candidate for key, candidate in merged.items() if key in entries and key not in blocked]
+        return [candidate for key, candidate in merged.items()
+                if key in entries and key not in blocked and (provider is None or entries[key].source == provider)]
 
     def _media_rows(self, keys: Sequence[str]) -> list[RemoteMedia]:
         """remote_media rows by primary key, only for keys the member's own sources produced."""
@@ -510,10 +583,12 @@ class RecommendationPolicy:
             sources=SOURCE_CURRENT_CHANNEL, category_keys=categories,
         )
 
-    def _up_next_context_key(self, current: str | None, request: UpNextRequest, page: ChannelTabPage | None) -> str:
+    def _up_next_context_key(self, current: str | None, request: UpNextRequest, page: ChannelTabPage | None,
+                             excluded: frozenset[str] = frozenset()) -> str:
         """Keep a hydrated anchor or freshly warmed channel page from reusing the sparse response for 30 minutes."""
-        fields = (current or "-", request.limit, request.title or "", request.uploader or "", request.channel_id or "",
+        fields = (current or "-", request.source, request.limit, request.title or "", request.uploader or "", request.channel_id or "",
                   request.channel_url or "", *_canonical_categories(request.category_keys),
+                  *sorted(excluded),
                   *((entry.id or entry.webpage_url or "" for entry in page.entries) if page is not None else ()))
         return hashlib.sha256("\0".join(map(str, fields)).encode()).hexdigest()
 
@@ -566,13 +641,6 @@ def title_names(db: Session, candidates: Sequence[Candidate], profile: MemberPro
     if people:
         names.update(db.execute(select(Person.id, Person.name).where(Person.id.in_(people))).tuples().all())
     return names
-
-
-def _unseen(served: ServedList, shown: set[str]) -> ServedList:
-    """Title rows are deduplicated in order; kept items keep their served positions for events."""
-    items = tuple(r for r in served.items if r.candidate.key not in shown)
-    shown.update(r.candidate.key for r in items)
-    return dataclasses.replace(served, items=items)
 
 
 def recommend(session: Session, member_id: str, as_of: datetime, surface: RecoSurface, k: int, *,

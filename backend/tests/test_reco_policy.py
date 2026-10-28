@@ -9,10 +9,12 @@ import pytest
 from sqlalchemy import event
 
 from app.media_schemas import RecoAnnotation
-from app.models import LibraryItem, MediaTitle, MemberInterest, RecoPool, RemoteMedia, RemotePlaybackProgress, SourceAutomation, UserSettings
+from app.models import LibraryItem, MediaTitle, MemberInterest, MemberRecommendationSuppression, RecoPool, RemoteMedia, RemotePlaybackProgress, SourceAutomation, UserSettings
+from app.persistence import write_transaction
 from app.schemas import UpNextRequest, YouTubeSearchResult
-from app.services.member_suppressions import MemberSuppressionService
+from app.services.member_suppressions import MemberSuppressionService, queue_member_changed
 from app.services.reco import SOURCE_FOLLOW, SOURCE_SEED, Candidate, MemberProfile, Ranked, SatisfiedItem, ServedList
+from app.services.reco import pool
 from app.services.reco.events import served_lists
 from app.services.reco.policy import (
     RecommendationPolicy,
@@ -30,7 +32,7 @@ from app.services.reco.policy import (
 )
 from app.services.remote_playback import RemotePlaybackProgressService
 from app.services.youtube_channels import ChannelTabPage
-from discovery_support import add_movie, add_progress, add_series
+from discovery_support import add_movie, add_progress, add_series, add_title
 from support import make_user, memory_session_factory, popular_item, popular_snapshot
 
 NOW = datetime(2026, 10, 1, 12, 0, 0)
@@ -96,6 +98,7 @@ def test_remote_key_is_the_remote_progress_key_for_every_spelling() -> None:
     ("Manuscript 2", "Manuscript 3", True, False),  # "pt" inside a word is not a part
     ("Step 2 of the build", "Step 3 of the build", True, False),  # "ep" inside a word is not an episode
     ("Harbor walk", "Harbor walk part 2", True, False),  # the current title carries no number
+    ("Part 3", "Part 4", True, False),  # a generic part number has no series subject
 ])
 def test_next_part_key_table(current: str, sibling: str, same_channel: bool, expected: bool) -> None:
     now_playing = _candidate("a" * 64, current)
@@ -355,7 +358,7 @@ def test_up_next_reads_the_peeked_listing_and_never_the_current_item() -> None:
     current = _pooled(db, member, "now", "Harbor walk now")
     db.commit()
     listing = ChannelTabPage(entries=(
-        YouTubeSearchResult(id="fresh", title="Harbor lanterns", uploader="Harbor Films", uploader_id=UC, uploader_url=CHANNEL,
+        YouTubeSearchResult(id="fresh", title="Harbor walk lanterns", uploader="Harbor Films", uploader_id=UC, uploader_url=CHANNEL,
                             duration=600, webpage_url=_watch("fresh"), source="youtube"),
     ), has_more=False)
     pages = FakePages(listing)
@@ -375,7 +378,7 @@ def test_up_next_keeps_a_known_subject_topical_and_merges_hydrated_anchor_catego
     member = _member()
     db = _session(member)
     _pooled(db, member, "now", "Harbor Artist evening song", category_keys=[])
-    music = _pooled(db, member, "music", "Another artist", channel=OTHER_CHANNEL, category_keys=["music"])
+    music = _pooled(db, member, "music", "Harbor Artist studio song", channel=OTHER_CHANNEL, category_keys=["music"])
     podcast = _pooled(db, member, "podcast", "Harbor Artist interview", channel=OTHER_CHANNEL, category_keys=["podcasts"])
     same_channel_podcast = _pooled(db, member, "same-podcast", "Harbor Artist discussion", channel=CHANNEL, category_keys=["podcasts"])
     db.commit()
@@ -432,8 +435,8 @@ def test_up_next_pins_the_next_part_first() -> None:
     member = _member()
     db = _session(member)
     part_four = _pooled(db, member, "part4", "Harbor walk part 4")
-    for n in range(5):
-        _pooled(db, member, f"o{n}", f"Tidal pools {n}", channel=f"{OTHER_CHANNEL}{n}")
+    for n in range(6):
+        _pooled(db, member, f"o{n}", f"Harbor walk sights {n}", days=0)
     db.commit()
     request = UpNextRequest(source_url=_watch("part3"), source_id="part3", title="Harbor walk part 3", uploader="Harbor Films",
                             channel_id=UC)
@@ -442,6 +445,88 @@ def test_up_next_pins_the_next_part_first() -> None:
 
     first = served.items[0]
     assert (first.candidate.key, first.slot, first.reason_code) == (part_four, "pinned", "next_part")
+
+
+def test_up_next_abstains_on_category_creator_and_generic_game_overlap() -> None:
+    member = _member()
+    db = _session(member)
+    related = _pooled(db, member, "moon", "Hollow Moon boss route speedrun tutorial", channel=OTHER_CHANNEL,
+                      category_keys=["gaming"])
+    _pooled(db, member, "other-game", "Neon Harbor speedrun final boss route highlights", category_keys=["gaming"])
+    _pooled(db, member, "other-upload", "Cooking highlights live", category_keys=["gaming"])
+    db.commit()
+    request = UpNextRequest(source_url=_watch("now"), source_id="now", title="Hollow Moon speedrun final boss route",
+                            category_keys=["gaming"], uploader="Harbor Films", channel_id=UC)
+
+    served = _policy(db).up_next(member, _snapshot(), request)
+
+    assert _keys(served) == [related]
+
+
+def test_up_next_does_not_treat_repeated_creator_branding_as_a_subject() -> None:
+    member = _member()
+    db = _session(member)
+    _pooled(db, member, "other", "Harbor Films mountain biking")
+    db.commit()
+    request = UpNextRequest(source_url=_watch("now"), source_id="now", title="Harbor Films cooking pasta",
+                            uploader="Harbor Films", channel_id=UC)
+
+    assert _policy(db).up_next(member, _snapshot(), request).items == ()
+
+
+def test_up_next_session_exclusions_replenish_and_change_the_cached_list() -> None:
+    member = _member()
+    db = _session(member)
+    first = _pooled(db, member, "first", "Harbor walk morning", days=1)
+    second = _pooled(db, member, "second", "Harbor walk evening", days=2)
+    db.commit()
+    policy = _policy(db)
+    request = UpNextRequest(source_url=_watch("now"), source_id="now", title="Harbor walk coast", limit=1)
+    initial = policy.up_next(member, _snapshot(), request)
+    excluded = UpNextRequest(source_url=_watch("now"), source_id="now", title="Harbor walk coast", limit=1,
+                             excluded_sources=[f"youtube:{'first' if _keys(initial) == [first] else 'second'}"])
+
+    replenished = policy.up_next(member, _snapshot(), excluded)
+
+    assert _keys(initial) in ([first], [second])
+    assert _keys(replenished) == ([second] if _keys(initial) == [first] else [first])
+    assert replenished.list_id != initial.list_id
+    malformed = request.model_copy(update={"excluded_sources": ["not-an-identity"]})
+    assert policy.up_next(member, _snapshot(), malformed).list_id == initial.list_id
+    with pytest.raises(ValueError):
+        UpNextRequest(source_url=_watch("now"), excluded_sources=["youtube:x"] * 51)
+    with pytest.raises(ValueError):
+        UpNextRequest(source_url=_watch("now"), excluded_sources=["x" * 4_097])
+
+
+def test_up_next_nominates_only_the_current_provider() -> None:
+    member = _member()
+    db = _session(member)
+    youtube = _pooled(db, member, "yt", "Harbor walk morning")
+    twitch_url = "https://www.twitch.tv/videos/123"
+    twitch = remote_key("twitch", "123", twitch_url)
+    media = pool.media_from_feed({
+        "id": "123", "webpage_url": twitch_url, "title": "Harbor walk evening", "uploader": "Harbor Live",
+        "channel_url": "https://www.twitch.tv/harbor", "duration": 600, "view_count": 1_000,
+        "capabilities": {"provider": "twitch", "lifecycle": "vod"},
+    })
+    assert media is not None and media.key == twitch
+    pool.nominate(db, member.id, [pool.Nomination(media, SOURCE_FOLLOW)], now=NOW)
+    db.commit()
+    request = UpNextRequest(source_url="https://www.twitch.tv/videos/now", source_id="now", source="twitch",
+                            title="Harbor walk coast")
+
+    served = _policy(db).up_next(member, _snapshot(), request)
+
+    assert _keys(served) == [twitch]
+    assert youtube not in _keys(served)
+    row = db.get(RemoteMedia, twitch)
+    assert row.extractor == "twitch" and entry_from_media(row).source == "twitch"
+    row.extractor = None  # existing URL-keyed rows from before provider persistence
+    db.commit()
+    served_lists.drop(member.id, "up_next")
+    assert _keys(_policy(db).up_next(member, _snapshot(), request)) == [twitch]
+    assert entry_from_media(row).source == "twitch"
 
 
 def test_picked_leaves_the_follows_shelf_its_items_and_caps_follow_only_picks() -> None:
@@ -543,7 +628,9 @@ def _library(db, member) -> dict[str, str]:  # noqa: ANN001
         ("Anchor One", "Anchor Two", "Drama A", "Drama B", "Drama C", "Drama D", "Comedy A", "Comedy B", "Private"), start=1)}
     for name, title_id in ids.items():
         genre = "Comedy" if name.startswith("Comedy") else "Drama"
-        add_movie(db, title_id, name, genres=[genre], people=["Ada Quill"],
+        overview = ("Doctors and nurses face an emergency in the hospital with patients and surgery"
+                    if genre == "Drama" else "A family plans a chaotic wedding and holiday reunion")
+        add_movie(db, title_id, name, genres=[genre], people=["Ada Quill"], overview=overview,
                   visibility="private" if name == "Private" else "shared")
     db.commit()
     add_progress(db, member.id, f"{ids['Anchor One']}-v", completed=True, at=NOW - timedelta(days=2))
@@ -565,6 +652,86 @@ def test_title_rows_dedupe_in_order_and_never_offer_an_anchor_or_a_private_title
     assert len(served_keys) == len(set(served_keys))  # deduplicated in order across rows
     assert not {ids["Anchor One"], ids["Anchor Two"], ids["Private"]} & set(served_keys)
     assert [served.surface for _kind, _anchor, served in rows] == ["home_because", "home_because", "home_recommended"]
+    assert all(served.context_key.startswith("titles-v2:") for _kind, _anchor, served in rows)
+    assert [len(served.items) for _kind, _anchor, served in rows] == [2, 2, 2]
+    assert all([item.position for item in served.items] == list(range(len(served.items))) for _kind, _anchor, served in rows)
+    assert all(annotation(served, item).position == index for _kind, _anchor, served in rows
+               for index, item in enumerate(served.items))
+    # Earlier rows cannot spend the entire pool: some general choices stay on Recommended for you.
+    assert rows[-1][2].items
+    assert all(served_lists.get(member.id, served.list_id, NOW) == served for _kind, _anchor, served in rows)
+
+
+def test_title_rows_replenish_after_exclusion_and_cache_by_visible_allocation() -> None:
+    member = _member()
+    db = _session(member)
+    ids = _library(db, member)
+    policy = _policy(db)
+
+    first = policy.title_rows(member)
+    first_ids = [served.list_id for _kind, _anchor, served in first]
+    assert [served.list_id for _kind, _anchor, served in policy.title_rows(member)] == first_ids
+    assert len([key for _kind, _anchor, served in first for key in _keys(served)]) == len(
+        {key for _kind, _anchor, served in first for key in _keys(served)})
+
+    hidden_key = _keys(first[-1][2])[0]
+    with write_transaction(db, name="test_title_suppression_recommendation_refresh"):
+        suppression = MemberSuppressionService(db).suppress_title(member, title_id=hidden_key)
+        db.get(MemberRecommendationSuppression, suppression.id).created_at = NOW - timedelta(seconds=1)
+        queue_member_changed(db, member.id)
+    refreshed = _policy(db).title_rows(member)
+    assert refreshed[-1][2].list_id != first[-1][2].list_id
+    assert hidden_key not in [key for _kind, _anchor, served in refreshed for key in _keys(served)]
+
+    # Hiding the anchor shelf changes the exclusions and must not reuse its former general list.
+    db.add(UserSettings(id=f"s-{member.id}", user_id=member.id,
+                        ui_prefs={"home_shelves": [{"id": "because_you_watched", "visible": False}]}))
+    db.commit()
+    only_general = policy.title_rows(member)
+    assert [kind for kind, _anchor, _served in only_general] == ["recommended"]
+    assert only_general[0][2].list_id != first[-1][2].list_id
+    assert ids["Private"] not in _keys(only_general[0][2])
+    assert all(item.position == index for index, item in enumerate(only_general[0][2].items))
+
+
+def test_small_library_keeps_its_only_anchor_match_and_general_discovery() -> None:
+    member = _member()
+    db = _session(member)
+    anchor, match, unrelated_one, unrelated_two = (_tid(n) for n in range(100, 104))
+    add_movie(db, anchor, "Ward", genres=["Drama"],
+              overview="A hospital physician handles emergency surgery and patient care")
+    add_movie(db, match, "Night Shift", genres=["Drama"],
+              overview="An emergency hospital physician performs surgery for patients")
+    add_movie(db, unrelated_one, "Deep Space", genres=["Science Fiction"],
+              overview="Astronauts explore a distant planet and discover a spacecraft")
+    add_movie(db, unrelated_two, "Summer Table", genres=["Comedy"],
+              overview="A family cooks dinner for a wedding celebration")
+    db.commit()
+    add_progress(db, member.id, f"{anchor}-v", completed=True, at=NOW - timedelta(days=1))
+    db.commit()
+
+    rows = _policy(db).title_rows(member)
+
+    assert _keys(rows[0][2]) == [match]
+    assert {unrelated_one, unrelated_two} <= set(_keys(rows[1][2]))
+    assert match not in _keys(rows[1][2])
+
+
+def test_boxset_anchor_recommends_its_visible_movies_in_both_policies() -> None:
+    from app.services.member_recommendations import MemberRecommendationPolicy
+
+    member = _member()
+    db = _session(member)
+    collection = _tid(180)
+    boxset = add_title(db, collection, "boxset", "Harbor Trilogy")
+    members = [_tid(181), _tid(182)]
+    for number, movie_id in enumerate(members):
+        add_movie(db, movie_id, f"Harbor Part {number + 1}", boxset_id=collection, days=-200)
+    add_movie(db, _tid(183), "Unrelated", genres=["Drama"], days=10)
+    db.commit()
+
+    assert set(_keys(_policy(db).similar(member, boxset, k=12))) == set(members)
+    assert set(title.id for title in MemberRecommendationPolicy(db).titles(member, anchor=collection, types=("movie",))) == set(members)
 
 
 def test_a_hidden_because_shelf_is_not_computed() -> None:
@@ -578,7 +745,7 @@ def test_a_hidden_because_shelf_is_not_computed() -> None:
     rows = _policy(db).title_rows(member)
 
     assert [kind for kind, _anchor, _served in rows] == ["recommended"]
-    assert served_lists.find(member.id, "home_because", _tid(2), NOW) is None
+    assert served_lists.find(member.id, "home_because", f"titles-v2:{_tid(2)}:home:20", NOW) is None
 
 
 def test_recommended_and_suggestions_are_empty_for_a_member_with_no_satisfied_history() -> None:
@@ -602,12 +769,13 @@ def test_similar_compares_like_with_like_and_anchors_episodes_on_their_series() 
 
     served = _policy(db).similar(member, db.get(MediaTitle, "show-s1e2"), k=12)
 
-    assert served.surface == "title_similar" and served.context_key == "show:12"
+    assert served.surface == "title_similar" and served.context_key == "titles-v2:show:12"
     assert "show" not in _keys(served) and _tid(1) not in _keys(served)  # never the anchor; a series is like a series
 
     movie_anchor, movie_match = _tid(50), _tid(51)
-    add_movie(db, movie_anchor, "Drama Anchor", genres=["Drama"], people=["Harbor Actor"])
-    add_movie(db, movie_match, "Drama Match", genres=["Drama"], people=["Harbor Actor"])
+    shared_story = "A hospital physician handles emergency surgery and difficult patient cases"
+    add_movie(db, movie_anchor, "Drama Anchor", genres=["Drama"], people=["Harbor Actor"], overview=shared_story)
+    add_movie(db, movie_match, "Drama Match", genres=["Drama"], people=["Harbor Actor"], overview=shared_story)
     for number in range(101):  # These fill the shared-token and newest nominations if types are filtered too late.
         add_series(db, f"zz-series-{number:03}", f"Drama Series {number}", seasons={1: 1}, genres=["Drama"], people=["Harbor Actor"])
     db.commit()
@@ -629,7 +797,7 @@ def test_suggestions_filter_types_and_never_replace_the_home_list() -> None:
     movies = policy.suggestions(member, k=5, types={"movie"})
     home = [served for kind, _anchor, served in policy.title_rows(member) if kind == "recommended"][0]
 
-    assert movies.context_key == "jellyfin:5:movie" and len(movies.items) <= 5
+    assert movies.context_key == "titles-v2:jellyfin:5:movie" and len(movies.items) <= 5
     assert "show" not in _keys(movies) and ids["Drama A"] in set(_keys(movies)) | set(_keys(home))
     assert home.list_id != movies.list_id
 

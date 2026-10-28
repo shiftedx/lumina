@@ -81,6 +81,7 @@ RATE_LIMIT_RULES: dict[str, RateLimitRule] = {
     "popular": RateLimitRule(max_requests=60, window_seconds=60),
     # The client flushes every 30 s and on pagehide, so 12 a minute is generous; per member, not per address.
     "reco_events": RateLimitRule(max_requests=12, window_seconds=60),
+    "reco_feedback": RateLimitRule(max_requests=12, window_seconds=60),
     "create_job": RateLimitRule(max_requests=20, window_seconds=60),
     "source_automation_run": RateLimitRule(max_requests=6, window_seconds=60),
     "webhook_test": RateLimitRule(max_requests=5, window_seconds=300),

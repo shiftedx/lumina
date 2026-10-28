@@ -117,6 +117,9 @@ Guarded source extraction limits each metadata response to 8 MiB and asks upstre
 
 From 1.9.0 the recommender also runs background yt-dlp searches and channel listings for each member who has watched or followed something. The whole household stays within 40 calls an hour and 300 a day, one at a time, and no search text is stored or logged. An admin can turn it off under **Manage Server → AI features → Personalised recommendations**, and a member can erase their recommendation history under **Settings → You**.
 
+Library **Because you watched** and **More like this** rows require a meaningful relationship to the selected title, even with personalised recommendations disabled. They may be shorter or absent when metadata is sparse; unrelated new arrivals do not fill the gaps. Public synopses and metadata support local matching without an embedding model, and existing local embeddings supplement that evidence when available. Imported metadata edits are picked up through the normal library scan/refresh flow. No new service, model download, database migration or configuration is required for lexical matching. **Recommended for you** keeps broader discovery separate. Native Home also shows reasons and supports **Not interested** with **Undo**, scoped to the current member.
+
+
 ## Settings navigation
 
 **My Settings → Display → OLED** uses pure-black backgrounds for the page, panels and browser chrome. The account menu and command palette offer the same choice. Themes save per member; System, Light and Dark remain available.

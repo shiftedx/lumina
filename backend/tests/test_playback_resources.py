@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -8,7 +9,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.services.playback_decision import BROWSER_DEFAULT, Limits, decide
-from app.services.playback_resources import PlaybackResources
+from app.services.playback_resources import IDLE_SECONDS, PlaybackResources
 from app.services.resource_policy import HouseholdResources, ResourceAllowances
 from tests.test_jellyfin_dto_compat import HEADERS, HEX, MOVIE_4K, jf
 from title_support import ALICE
@@ -177,7 +178,7 @@ def test_simultaneous_starts_and_direct_stop_or_expiry_free_capacity(monkeypatch
         assert sorted(pool.map(start, ("one", "two"))) == [201, 429]
     resources.release_direct("one", "one", "tv")
     assert start("two") == 201
-    resources._items[("two", "tv", "two", "direct")].touched = 0
+    resources._items[("two", "tv", "two", "direct")].touched = time.monotonic() - IDLE_SECONDS - 1
     resources.reap()
     assert start("three") == 201
 

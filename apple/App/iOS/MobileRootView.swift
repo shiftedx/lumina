@@ -1086,6 +1086,8 @@ private struct HomeLibraryView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var compactHeader = false
     @State private var scrollPosition = ScrollPosition(edge: .top)
+    @State private var hiddenRecommendationID: String?
+    @State private var showRecommendationUndo = false
 
     private var refinement: HomeRefinementResult {
         feed.refined(HomeRefinement(category: category), heroItems: store.featuredItems)
@@ -1187,6 +1189,10 @@ private struct HomeLibraryView: View {
             }
         }
         .accessibilityIdentifier("homeScreen")
+        .alert("Recommendation hidden", isPresented: $showRecommendationUndo) {
+            Button("Undo") { if let hiddenRecommendationID { Task { await feed.undoHide(hiddenRecommendationID) } } }
+            Button("Done", role: .cancel) {}
+        }
         #if LUMINA_UI_TESTING
         .accessibilityValue(uiTestingNavigationDiagnostics ?? "")
         #endif
@@ -1253,7 +1259,8 @@ private struct HomeLibraryView: View {
                     if !row.items.isEmpty {
                     MediaRail(title: row.title, items: row.items, store: store,
                               identifierPrefix: id == .continueWatching ? "resumeItem" : id == .nextUp ? "nextUpItem" : id == .newInLibrary ? "recentItem" : "homeRow-\(row.id)",
-                              wide: row.shape == .still && id != .continueWatching && id != .nextUp)
+                              wide: row.shape == .still && id != .continueWatching && id != .nextUp,
+                              feed: feed, onHide: { hiddenRecommendationID = $0; showRecommendationUndo = true })
                     }
                     if !(row.externalItems ?? []).isEmpty { HomeExternalRail(row: row) }
                 }
@@ -3241,6 +3248,8 @@ private struct MediaRail: View {
     let store: LuminaStore
     let identifierPrefix: String
     var wide = true
+    var feed: LuminaHomeFeed? = nil
+    var onHide: (String) -> Void = { _ in }
 
     @ScaledMetric(relativeTo: .body) private var posterWidth: CGFloat = 132
     @ScaledMetric(relativeTo: .body) private var stillWidth: CGFloat = 276
@@ -3259,6 +3268,7 @@ private struct MediaRail: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 10) {
                     ForEach(items) { item in
+                        HomeRailCard(item: item, feed: feed, onHide: onHide) {
                         NavigationLink(value: item) {
                             MediaCard(
                                 item: item,
@@ -3269,13 +3279,22 @@ private struct MediaRail: View {
                                 loadFraming: { await store.artworkFraming(for: $0) }
                             )
                             .frame(width: cardWidth(for: item), alignment: .leading)
+                            .overlay(alignment: .bottomLeading) {
+                                if let reason = item.luminaReco?.reason {
+                                    Text(reason).font(.caption2).lineLimit(2).padding(6)
+                                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                                        .accessibilityHidden(true)
+                                }
+                            }
                         }
                         .contentShape([.interaction, .accessibility], Rectangle())
                         .buttonStyle(.plain)
                         .accessibilityElement(children: .ignore)
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(mediaAccessibilityLabel(for: item, presentation: captionPresentation))
+                        .accessibilityHint(item.luminaReco?.reason ?? "")
                         .accessibilityIdentifier("\(identifierPrefix)-\(item.id)")
+                        }
                     }
                 }
                 .scrollTargetLayout()
@@ -3289,6 +3308,44 @@ private struct MediaRail: View {
     private func cardWidth(for item: MediaItem) -> CGFloat {
         if item.isAudio || item.type.hasPrefix("Music") { return posterWidth * 1.2 }
         return wide ? stillWidth : posterWidth
+    }
+}
+
+@MainActor private struct HomeRailCard<Content: View>: View {
+    let item: MediaItem
+    let feed: LuminaHomeFeed?
+    let onHide: (String) -> Void
+    let content: Content
+    @State private var isVisible = false
+
+    init(item: MediaItem, feed: LuminaHomeFeed?, onHide: @escaping (String) -> Void, @ViewBuilder content: () -> Content) {
+        self.item = item
+        self.feed = feed
+        self.onHide = onHide
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .onScrollVisibilityChange(threshold: 0.6) { isVisible = $0 }
+            .task(id: isVisible) {
+                guard isVisible, let reco = item.luminaReco else { return }
+                try? await Task.sleep(for: .milliseconds(600))
+                guard !Task.isCancelled else { return }
+                await feed?.record("impression", recommendation: reco)
+            }
+            .simultaneousGesture(TapGesture().onEnded {
+                if let reco = item.luminaReco { Task { await feed?.record("open", recommendation: reco) } }
+            })
+            .contextMenu {
+                if item.luminaReco != nil {
+                    Button("Not interested") {
+                        Task {
+                            if let hidden = await feed?.hide(item) { onHide(hidden) }
+                        }
+                    }
+                }
+            }
     }
 }
 

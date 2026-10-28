@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canonicalRemoteSourceUrl, capturedChatIdentity, distinctRemoteSources, remoteSourceIdentity, shouldSavePlaybackCheckpoint } from './playbackModel';
+import { appendAutoplaySources, canonicalRemoteSourceUrl, capturedChatIdentity, distinctRemoteSources, remoteSourceIdentity, shouldSavePlaybackCheckpoint } from './playbackModel';
 
 describe('playback checkpoint throttling', () => {
   it('saves useful intervals while allowing lifecycle events to flush immediately', () => {
@@ -36,6 +36,14 @@ describe('remote playback identity', () => {
     ], current, 8);
 
     expect(queue.map((item) => item.title)).toEqual(['Next']);
+  });
+
+  it('retains prior playback sources across an autoplay chain and bounds the exclusion list', () => {
+    const first = appendAutoplaySources([], 'youtube:a', 'youtube:b');
+    const second = appendAutoplaySources(first, 'youtube:b', 'youtube:c');
+    expect(second).toEqual(['youtube:a', 'youtube:b', 'youtube:c']);
+    expect(second.includes('youtube:a')).toBe(true); // C must not autoplay back to A.
+    expect(appendAutoplaySources(Array.from({ length: 50 }, (_, i) => `youtube:${i}`), 'youtube:49', 'youtube:50')).toHaveLength(50);
   });
 });
 

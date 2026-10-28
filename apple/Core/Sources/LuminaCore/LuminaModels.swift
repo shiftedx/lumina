@@ -157,6 +157,7 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
     public private(set) var genres: [String]? = nil
     /// Native Home row-only classification. General Jellyfin item DTOs intentionally omit it.
     public private(set) var luminaCategory: String? = nil
+    public private(set) var luminaReco: HomeRecommendation? = nil
     public private(set) var people: [MediaPerson]? = nil
     public let seriesName: String?
     public let seriesID: String?
@@ -231,7 +232,7 @@ public struct MediaItem: Identifiable, Codable, Hashable, Sendable {
         case id = "Id", name = "Name", type = "Type", overview = "Overview"
         case premiereDate = "PremiereDate", mediaStreams = "MediaStreams"
         case productionYear = "ProductionYear", officialRating = "OfficialRating", communityRating = "CommunityRating"
-        case genres = "Genres", luminaCategory = "LuminaCategory", people = "People", seriesName = "SeriesName"
+        case genres = "Genres", luminaCategory = "LuminaCategory", luminaReco = "LuminaReco", people = "People", seriesName = "SeriesName"
         case seriesID = "SeriesId", seasonID = "SeasonId", collectionType = "CollectionType"
         case seriesPrimaryImageTag = "SeriesPrimaryImageTag"
         case indexNumber = "IndexNumber", parentIndexNumber = "ParentIndexNumber"

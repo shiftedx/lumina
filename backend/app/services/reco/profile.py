@@ -39,6 +39,11 @@ STOPWORDS = frozenset("""
     with you your official video videos full feat episode part
 """.split())
 _WORD = re.compile(r"[^\W_]+")
+SUBJECT_STOPWORDS = STOPWORDS | frozenset("""
+    overview film movie series show story stories life lives young woman man people family world journey adventure
+    follows follow discovers find finds face faces must struggles struggle things years year time day town city
+    place through
+""".split())
 
 
 # ---- tokens and candidates --------------------------------------------------------------------------
@@ -88,6 +93,19 @@ def tokens_of(metadata: object, boxset_id: str | None, category: str | None, yea
         tokens.add(f"cat:{category}")
     if year:
         tokens.add(f"decade:{year // 10 * 10}")
+    # Public title metadata only. Synopsis words supplement broad genres and are bounded for request-time matching.
+    overview = metadata.get("overview")
+    subjects: list[str] = []
+    if isinstance(overview, str):
+        subjects.extend(word for word in _WORD.findall(overview[:4096].casefold())
+                        if len(word) >= 4 and word not in SUBJECT_STOPWORDS)
+    for field in ("tags", "styles", "mood"):
+        values = metadata.get(field)
+        if isinstance(values, list):
+            subjects.extend(word for value in values[:20] if isinstance(value, str)
+                            for word in _WORD.findall(value[:160].casefold())[:20]
+                            if len(word) >= 4 and word not in SUBJECT_STOPWORDS)
+    tokens.update(f"subject:{word}" for word in list(dict.fromkeys(subjects))[:80])
     return frozenset(tokens)
 
 
@@ -126,6 +144,7 @@ def candidate_from_title(title: MediaTitle, vector: array | None, *, sources: in
     return Candidate(
         key=title.id, target_kind="title", title=title.name, channel_key=title.boxset_id, channel_name=None,
         tokens=title_tokens(title), published_at=title.arrived_at, sources=sources, rating=_rating(title), vector=vector,
+        media_type=title.type,
     )
 
 

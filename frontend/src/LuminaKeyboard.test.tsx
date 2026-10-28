@@ -19,7 +19,7 @@ import { takePlayIntent } from './perfMetrics';
 import { artistSummary, movieSummary, titleDetail, titlePage } from './test/galleryFixtures';
 import { docFixture } from './features/titles/editor/editorFixtures';
 import { forgetTitles } from './features/gallery/titleCache';
-import { capabilities, CHANNEL_ID, channelPage } from './test/remoteFixtures';
+import { capabilities, CHANNEL_ID, channelPage, remoteEntry } from './test/remoteFixtures';
 import { recoEntry } from './test/recoFixtures';
 import { openAppPath } from './features/channels/channelMention';
 import { openMemberPicker } from './app/commands';
@@ -1020,6 +1020,70 @@ describe('Media acquisition shell integration', () => {
     await waitFor(() => expect(mocks.createJob).toHaveBeenCalledTimes(1));
     expect(mocks.createJob).toHaveBeenCalledWith(expect.objectContaining({ source_url: sourceA }));
     expect(mocks.createJob).not.toHaveBeenCalledWith(expect.objectContaining({ source_url: sourceB }));
+  });
+
+  it('keeps a playback chain across remote player remounts and skips a stale earlier source', async () => {
+    const browser = userEvent.setup();
+    const source = (id: string) => `https://www.youtube.com/watch?v=${id}`;
+    const a = remoteEntry('chain-a', { title: 'Watch A', webpage_url: source('chain-a') });
+    const b = remoteEntry('chain-b', { title: 'Watch B', webpage_url: source('chain-b') });
+    const c = remoteEntry('chain-c', { title: 'Watch C', webpage_url: source('chain-c') });
+    mocks.previewUrl.mockImplementation(async (payload: { source_url: string }) => {
+      const id = new URL(payload.source_url).searchParams.get('v') || '';
+      return { kind: 'video', title: `Watch ${id.at(-1)?.toUpperCase()}`, webpage_url: payload.source_url,
+        entries: [], raw: { id, extractor: 'youtube', duration: 120 },
+        playback: { status: 'ready', stream_id: id, transport: 'progressive', media_kind: 'video',
+          playback_url: `/api/remote-streams/${id}/content`, content_type: 'video/mp4', has_video: true,
+          has_audio: true, seekable: true } };
+    });
+    mocks.getUpNext.mockImplementation(async (payload: { source_url: string }) => upNextSnapshot(
+      payload.source_url === a.webpage_url ? [b] : payload.source_url === b.webpage_url ? [a, c] : [],
+    ));
+
+    render(<LuminaApp />);
+    await browser.type(await openPalette(browser), `${a.webpage_url}{Enter}`);
+    await screen.findByRole('heading', { level: 1, name: 'Watch A' });
+    await screen.findByRole('button', { name: /^Watch B/ });
+    fireEvent.ended(document.querySelector('video')!);
+    await screen.findByRole('heading', { level: 1, name: 'Watch B' });
+    await waitFor(() => expect(mocks.getUpNext).toHaveBeenCalledWith(expect.objectContaining({
+      source_url: b.webpage_url, excluded_sources: ['youtube:chain-a', 'youtube:chain-b'],
+    })));
+    await screen.findByRole('button', { name: /^Watch C/ });
+    fireEvent.ended(document.querySelector('video')!);
+    await screen.findByRole('heading', { level: 1, name: 'Watch C' });
+    expect(mocks.getUpNext).toHaveBeenCalledWith(expect.objectContaining({
+      source_url: c.webpage_url, excluded_sources: ['youtube:chain-a', 'youtube:chain-b', 'youtube:chain-c'],
+    }));
+    await browser.type(await openPalette(browser), `${a.webpage_url}{Enter}`);
+    await screen.findByRole('heading', { level: 1, name: 'Watch A' });
+    await waitFor(() => expect(mocks.getUpNext).toHaveBeenLastCalledWith(expect.objectContaining({
+      source_url: a.webpage_url, excluded_sources: [],
+    })));
+  });
+
+  it('preserves the recent chain when autoplay opens a saved YouTube copy', async () => {
+    const browser = userEvent.setup();
+    const sourceA = 'https://www.youtube.com/watch?v=chain-a';
+    const saved = { ...libraryItem, id: 'saved-chain-b', title_id: null, remote_id: 'chain-b',
+      title: 'Watch B', extractor: 'youtube', webpage_url: 'https://www.youtube.com/watch?v=chain-b',
+      metadata_json: { id: 'chain-b', extractor: 'youtube' } };
+    const next = remoteEntry('chain-b', { title: 'Watch B', webpage_url: saved.webpage_url, saved_item_id: saved.id });
+    mocks.previewUrl.mockResolvedValue({ kind: 'video', title: 'Watch A', webpage_url: sourceA, entries: [],
+      raw: { id: 'chain-a', extractor: 'youtube', duration: 120 },
+      playback: { status: 'ready', stream_id: 'chain-a', transport: 'progressive', media_kind: 'video',
+        playback_url: '/api/remote-streams/chain-a/content', content_type: 'video/mp4', has_video: true,
+        has_audio: true, seekable: true } });
+    mocks.getUpNext.mockImplementation(async (payload: { source_url: string }) => upNextSnapshot(payload.source_url === sourceA ? [next] : []));
+    mocks.getLibraryItem.mockResolvedValue(saved);
+
+    render(<LuminaApp />);
+    await browser.type(await openPalette(browser), `${sourceA}{Enter}`);
+    await screen.findByRole('button', { name: /^Watch B/ });
+    fireEvent.ended(document.querySelector('video')!);
+    await waitFor(() => expect(mocks.getUpNext).toHaveBeenCalledWith(expect.objectContaining({
+      source_url: saved.webpage_url, excluded_sources: ['youtube:chain-a', 'youtube:chain-b'],
+    })));
   });
 
   it.each([

@@ -12,6 +12,7 @@ from app.services.reco import (
     MemberProfile, SatisfiedItem, SurfaceContext,
 )
 from app.services.reco import ranking
+from app.services.reco.profile import remote_tokens
 
 NOW = datetime(2026, 10, 1, 12, 0, 0)
 DAY = date(2026, 10, 1)
@@ -252,6 +253,45 @@ def test_anchored_surfaces_name_the_anchor_when_context_dominates() -> None:
         "channel", "Because you watch Tide Pools")
 
 
+def test_title_anchor_requires_meaning_and_explains_only_verified_evidence() -> None:
+    anchor = _title("anchor", media_type="series", tokens=frozenset({
+        "genre:drama", "genre:live action", "cat:tv", "subject:hospital", "subject:surgeon", "subject:transplant", "subject:patients"}))
+    related = _title("related", media_type="series", tokens=frozenset({
+        "genre:drama", "subject:hospital", "subject:surgeon", "subject:transplant"}), rating=6.0)
+    unrelated = _title("unrelated", media_type="series", tokens=frozenset({"genre:drama", "cat:tv"}), rating=10.0)
+    animated = _title("animated", media_type="series", tokens=frozenset({
+        "genre:animation", "subject:hospital", "subject:surgeon"}), rating=10.0)
+    film = _title("film", media_type="movie", tokens=related.tokens, rating=10.0)
+    ctx = _ctx("title_similar", 12, anchor=anchor, context_key=anchor.key)
+
+    ranked = ranking.rank([unrelated, animated, film, related], _profile(), ctx, now=NOW)
+
+    assert [(row.candidate.key, row.reason_code) for row in ranked] == [("related", "like_anchor")]
+    assert ranked[0].reason.startswith("Shared subject: ")
+    assert all(word in {"hospital", "surgeon", "transplant"} for word in ranked[0].reason.removeprefix("Shared subject: ").split(" and "))
+    assert ranking.rank([unrelated], _profile(), ctx, now=NOW) == []
+
+
+def test_generic_synopsis_language_does_not_create_an_anchor_match() -> None:
+    from app.services.reco.profile import tokens_of
+
+    common = "A young woman finds her place in life. Her family faces a journey through the city."
+    anchor = _title("anchor", media_type="movie", tokens=tokens_of({"genres": ["Drama"], "overview": common + " A courtroom trial."},
+                                                                    None, "movies", 2020))
+    unrelated = _title("unrelated", media_type="movie", tokens=tokens_of({"genres": ["Drama"], "overview": common + " A mountain climb."},
+                                                                          None, "movies", 2020), rating=10.0)
+    assert ranking.rank([unrelated], _profile(), _ctx("title_similar", anchor=anchor), now=NOW) == []
+
+
+def test_unknown_form_does_not_let_an_animated_distraction_through_on_cosine_alone() -> None:
+    anchor = _title("ward", media_type="series", tokens=frozenset({"genre:drama", "cat:tv", "subject:hospital"}),
+                    vector=_unit(1, 0))
+    anime = _title("anime", media_type="series", tokens=frozenset({"genre:animation", "subject:hospital"}),
+                   vector=_unit(1, 0))
+
+    assert ranking.rank([anime], _profile(), _ctx("title_similar", anchor=anchor), now=NOW) == []
+
+
 def test_a_followed_upload_within_seven_days_says_so() -> None:
     fresh = _candidate("a", sources=SOURCE_FOLLOW, published_at=NOW - timedelta(days=7), channel_name="Tide Pools")
     assert _reason(fresh, {"channel": 1.26}) == ("follow_new", "New from Tide Pools, which you follow")
@@ -339,19 +379,45 @@ def test_the_same_day_gives_the_same_list_and_the_next_day_changes_only_explorat
 
 
 @pytest.mark.parametrize("surface,k,explore", [("home_picked", 24, [10, 11, 22, 23]), ("up_next", 12, [11]),
-                                               ("title_similar", 12, [11]), ("explore_popular", 24, [])])
+                                               ("explore_popular", 24, [])])
 def test_exploration_sits_only_at_the_tail_and_never_at_the_top(surface: str, k: int, explore: list[int]) -> None:
     candidates, profile = _household(unfamiliar=30)
-    served = ranking.rank(candidates, profile, _ctx(surface, k), now=NOW)
+    if surface == "up_next":
+        tokens = frozenset({"harbor", "walk", "harbor walk"})
+        candidates = [replace(candidate, title=f"Harbor walk {candidate.key}", tokens=tokens | candidate.tokens)
+                      for candidate in candidates]
+        ctx = _ctx(surface, k, anchor=_candidate("now", title="Harbor walk", tokens=tokens))
+    else:
+        ctx = _ctx(surface, k)
+    served = ranking.rank(candidates, profile, ctx, now=NOW)
     assert [r.position for r in served if r.slot == "explore"] == explore
     assert served[0].slot != "explore"  # autoplay takes the first non-explore item
 
 
 def test_a_pinned_next_part_goes_first() -> None:
     candidates, profile = _household()
-    served = ranking.rank(candidates, profile, _ctx("up_next", 12, pinned_key="f30", anchor=_candidate("now"), context_key="now"), now=NOW)
+    tokens = frozenset({"harbor", "walk", "harbor walk"})
+    candidates = [replace(candidate, title=f"Harbor walk {candidate.key}", tokens=tokens | candidate.tokens)
+                  for candidate in candidates]
+    served = ranking.rank(candidates, profile, _ctx("up_next", 12, pinned_key="f30",
+                                                    anchor=_candidate("now", title="Harbor walk", tokens=tokens),
+                                                    context_key="now"), now=NOW)
     assert (served[0].candidate.key, served[0].slot, served[0].reason_code) == ("f30", "pinned", "next_part")
     assert len(served) == 12 and [r.position for r in served if r.slot == "explore"] == [11]
+
+
+def test_up_next_vector_fallback_does_not_turn_same_creator_into_a_subject() -> None:
+    channel = "ch:harbor"
+    anchor = _candidate("now", title="Harbor Films cooking pasta", channel_key=channel, channel_name="Harbor Films",
+                        tokens=remote_tokens("Harbor Films cooking pasta", channel, ()), vector=_unit(1, 0))
+    unrelated = _candidate("same", title="Harbor Films mountain biking", channel_key=channel, channel_name="Harbor Films",
+                           tokens=remote_tokens("Harbor Films mountain biking", channel, ()), vector=_unit(1, 0))
+    other = _candidate("other", title="Spaghetti recipe", channel_key="ch:other", channel_name="Other",
+                       tokens=remote_tokens("Spaghetti recipe", "ch:other", ()), vector=_unit(1, 0))
+
+    served = ranking.rank([unrelated, other], _profile(), _ctx("up_next", 12, anchor=anchor), now=NOW)
+
+    assert [item.candidate.key for item in served] == ["other"]
 
 
 def test_too_few_explorable_items_are_backfilled_by_exploit_items() -> None:

@@ -77,7 +77,11 @@ struct NativeAudioOptions: View {
                 }
                 .padding(.vertical, 8)
             }
+            #if os(iOS)
+            audioOutputRecovery
+            #else
             NativeAudioDisclosure("Audio output", identifier: "audioOutput") { output }
+            #endif
             if !session.pendingEntries.isEmpty {
                 NativeAudioDisclosure("Requested albums", identifier: "audioRequestedAlbums") {
                     Picker("When unavailable", selection: Binding(get: { session.snapshot.unavailablePolicy }, set: session.setUnavailablePolicy)) {
@@ -150,64 +154,59 @@ struct NativeAudioOptions: View {
         guard let track = session.tracks[safe: playback.queueIndex] else { return false }
         return track.gainDB != nil || track.albumGainDB != nil
     }
+    #if os(tvOS)
     private var outputVolume: Float {
-        #if os(iOS)
-        if session.isRemoteOutput { return Float(session.casting.volume) }
-        #endif
         return session.isSonos ? session.remoteVolumeDraft ?? Float(session.outputStatus?.volume ?? 50) / 100 : session.volume
     }
+    #endif
     private var hasRemoteOutput: Bool { session.isSonos || session.isRemoteOutput }
-    private var outputVolumeAvailable: Bool {
-        #if os(iOS)
-        !session.isRemoteOutput || session.casting.isRemoteOutput
-        #else
-        true
-        #endif
-    }
-    private var output: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            #if os(iOS)
-            HStack(spacing: 20) {
-                HStack(spacing: 8) {
-                    NativeMusicAirPlayButton(session: session)
-                    Text("AirPlay").font(.callout.weight(.medium)).accessibilityHidden(true)
+
+    #if os(iOS)
+    @ViewBuilder private var audioOutputRecovery: some View {
+        if hasRemoteOutput || session.pendingSpeakerStop != nil || session.casting.canReturnToDevice {
+            VStack(alignment: .leading, spacing: 12) {
+                NativeMusicCastStatus(session: session)
+                if session.isSonos || session.pendingSpeakerStop != nil {
+                    Button("Return to this device") { Task { await session.returnHere() } }
+                        .disabled(session.busy)
+                        .accessibilityIdentifier("audioReturnHereButton")
                 }
-                HStack(spacing: 8) {
-                    NativeMusicCastButton(session: session)
-                    Text("Cast").font(.callout.weight(.medium)).accessibilityHidden(true)
+                if session.pendingSpeakerStop != nil {
+                    Button("Retry stopping remote output") { Task { await session.retryStoppingSpeaker() } }
+                        .disabled(session.busy)
+                        .accessibilityIdentifier("audioRetryStoppingRemoteOutputButton")
                 }
             }
-            .disabled(hasRemoteOutput || session.busy)
-            .accessibilityElement(children: .contain)
-            NativeMusicCastStatus(session: session)
-            #else
+            .padding(.vertical, 8)
+        }
+    }
+    #endif
+
+    #if os(tvOS)
+    private var output: some View {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Choose output in tvOS Control Center")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            #endif
             if session.isSonos || session.pendingSpeakerStop != nil {
                 Button("Return to this device") { Task { await session.returnHere() } }
                     .disabled(session.busy)
                     .accessibilityIdentifier("audioReturnHereButton")
             }
-            #if os(tvOS)
             HStack {
                 Button("Volume down") { Task { await session.setOutputVolume(outputVolume - 0.1) } }
                 Text("\(Int(outputVolume * 100))%")
                 Button("Volume up") { Task { await session.setOutputVolume(outputVolume + 0.1) } }
             }
-            .disabled(session.busy || !outputVolumeAvailable)
-            #else
-            Slider(value: Binding(get: { outputVolume }, set: { value in Task { await session.setOutputVolume(value) } }), in: 0...1)
-                .accessibilityLabel("Music volume")
-                .disabled(session.busy || !outputVolumeAvailable)
-            #endif
+            .disabled(session.busy)
             if session.pendingSpeakerStop != nil {
                 Button("Retry stopping remote output") { Task { await session.retryStoppingSpeaker() } }
+                    .accessibilityIdentifier("audioRetryStoppingRemoteOutputButton")
             }
         }
         .padding(.vertical, 8)
     }
+    #endif
 }
 
 /// Keep the expansion action and accessibility identity on the heading button alone.

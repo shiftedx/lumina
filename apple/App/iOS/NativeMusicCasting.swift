@@ -432,7 +432,7 @@ struct NativeMusicCastButton: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("musicChromecastButton")
         .accessibilityLabel("Chromecast")
-        .disabled(session.isSonos || session.isRemoteOutput)
+        .disabled(session.isSonos || session.isRemoteOutput || session.busy)
         .frame(width: 44, height: 44)
     }
 }

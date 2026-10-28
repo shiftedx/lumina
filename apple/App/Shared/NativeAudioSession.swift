@@ -35,9 +35,14 @@ final class NativeAudioSession {
             configureTransport(); persistPreferences()
         }
     }
-    var volume: Float = 0.8 {
+    #if os(iOS)
+    private static let defaultLocalVolume: Float = 1
+    #else
+    private static let defaultLocalVolume: Float = 0.8
+    #endif
+    var volume: Float = NativeAudioSession.defaultLocalVolume {
         didSet {
-            let clamped: Float = volume.isFinite ? min(1, max(0, volume)) : 0.8
+            let clamped: Float = volume.isFinite ? min(1, max(0, volume)) : Self.defaultLocalVolume
             if volume != clamped { volume = clamped; return }
             configureTransport(); persistPreferences()
         }
@@ -162,7 +167,8 @@ final class NativeAudioSession {
         adopt(model)
     }
 
-    func adopt(_ model: PlaybackModel, preservingTVRestoreToggle: Bool = false) {
+    func adopt(_ model: PlaybackModel, preservingTVRestoreToggle: Bool = false,
+               preparedTracks: [LuminaCore.MusicTrack]? = nil) {
         guard playback !== model else { return }
         guard !isRemoteOutput else {
             message = "Return playback here before starting local playback."
@@ -180,6 +186,7 @@ final class NativeAudioSession {
         playback?.close()
         transport?.stop(); transport = nil
         playback = model
+        self.preparedTracks = preparedTracks
         compatibleAudioIDs.removeAll()
         let ownerChanged = identity != model.store.music.sessionIdentity
         store = model.store
@@ -187,6 +194,17 @@ final class NativeAudioSession {
         if ownerChanged { restorePreferences(owner: identity) }
         model.audioOwner = self
         startTask = Task { await model.start() }
+    }
+
+    func play(items: [MediaItem], startingAt item: MediaItem, store: LuminaStore) async throws -> PlaybackModel {
+        let owner = store.music.sessionIdentity
+        let tracks = try await store.music.resolve(items: items.filter(\.isAudio))
+        guard owner == store.music.sessionIdentity else { throw LuminaError.notSignedIn }
+        let selectedID = item.id.replacingOccurrences(of: "-", with: "").lowercased()
+        guard let index = tracks.firstIndex(where: { $0.nativeID == selectedID }) else {
+            throw URLError(.resourceUnavailable)
+        }
+        return try await play(tracks: tracks, index: index, store: store)
     }
 
     func play(tracks: [LuminaCore.MusicTrack], index: Int = 0, store: LuminaStore, shuffle: Bool = false) async throws -> PlaybackModel {
@@ -226,10 +244,9 @@ final class NativeAudioSession {
         snapshot = MusicListeningSnapshot(revision: revision, queue: orderedTracks, currentIndex: selectedIndex,
             shuffle: shuffle, entries: orderedTracks.map { MusicQueueEntry(kind: "track", itemID: $0.id) }, entryIndex: selectedIndex)
         self.tracks = orderedTracks
-        preparedTracks = orderedTracks
         let model = PlaybackModel(request: request, store: store, queue: orderedTracks.map(\.mediaItem), queueIndex: selectedIndex)
         busy = false; transferring = false
-        adopt(model)
+        adopt(model, preparedTracks: orderedTracks)
         changed()
         return model
     }
@@ -476,9 +493,8 @@ final class NativeAudioSession {
             let resumed = PlaybackRequest(id: request.id, item: request.item, url: request.url,
                 startPositionSeconds: value.positionSeconds, mediaSourceID: request.mediaSourceID,
                 isTranscoding: request.isTranscoding, methodLabel: request.methodLabel)
-            preparedTracks = value.queue
             let model = PlaybackModel(request: resumed, store: store, queue: value.queue.map(\.mediaItem), queueIndex: index, initiallyPaused: true)
-            adopt(model, preservingTVRestoreToggle: preservingTVRestoreToggle)
+            adopt(model, preservingTVRestoreToggle: preservingTVRestoreToggle, preparedTracks: value.queue)
             if restoreTaskID != nil { restoreStartTask = startTask }
             return startTask
         } catch {
@@ -563,11 +579,11 @@ final class NativeAudioSession {
         let resumed = PlaybackRequest(id: request.id, item: request.item, url: request.url,
             startPositionSeconds: position, mediaSourceID: request.mediaSourceID,
             isTranscoding: request.isTranscoding, methodLabel: request.methodLabel)
-        tracks = value.queue; preparedTracks = value.queue
+        tracks = value.queue
         snapshot.currentIndex = index; snapshot.positionSeconds = position
         snapshot.entryIndex = logicalIndex(for: index)
         let model = PlaybackModel(request: resumed, store: store, queue: value.queue.map(\.mediaItem), queueIndex: index)
-        adopt(model)
+        adopt(model, preparedTracks: value.queue)
         changed()
         return model
     }
@@ -851,13 +867,20 @@ final class NativeAudioSession {
         let values = owner.flatMap { LuminaPreferences.defaults.dictionary(forKey: "lumina.music.preferences.\($0)") }
         normalization = values?["normalization"] as? Bool ?? true
         crossfadeSeconds = values?["crossfadeSeconds"] as? Double ?? 0
-        volume = Float(values?["volume"] as? Double ?? 0.8)
+        #if os(iOS)
+        volume = Self.defaultLocalVolume
+        #else
+        volume = Float(values?["volume"] as? Double ?? Double(Self.defaultLocalVolume))
+        #endif
         compatibility = values?["compatibility"] as? Bool ?? false
     }
     private func persistPreferences() {
         guard !restoringPreferences, let identity, identity == store?.music.sessionIdentity else { return }
-        let values: [String: Any] = ["normalization": normalization, "crossfadeSeconds": crossfadeSeconds,
-                                     "volume": Double(volume), "compatibility": compatibility]
+        var values: [String: Any] = ["normalization": normalization, "crossfadeSeconds": crossfadeSeconds,
+                                     "compatibility": compatibility]
+        #if os(tvOS)
+        values["volume"] = Double(volume)
+        #endif
         LuminaPreferences.defaults.set(values, forKey: "lumina.music.preferences.\(identity)")
     }
 
@@ -1130,7 +1153,13 @@ final class NativeAudioSession {
         #if os(iOS)
         if isRemoteOutput { casting.setVolume(Double(value)); return }
         #endif
-        guard isSonos else { remoteVolumeDraft = nil; volume = value; return }
+        guard isSonos else {
+            remoteVolumeDraft = nil
+            #if os(tvOS)
+            volume = value
+            #endif
+            return
+        }
         let target = min(1, max(0, value)), owner = identity, ticket = snapshot.activeOutput.ticketID
         remoteVolumeDraft = target
         volumeTask = Task { [weak self] in
@@ -1196,6 +1225,7 @@ final class NativeAudioSession {
         transport?.onChange = nil; transport?.onTrack = nil; transport?.onUnsupportedAudio = nil
         playback?.audioOwner = nil; playback?.close(); playback = nil
         transport?.stop(); transport = nil
+        preparedTracks = nil
         tracks = []; snapshot.queue = []; snapshot.currentIndex = nil; snapshot.positionSeconds = 0
         compatibleAudioIDs.removeAll()
         snapshot.entries = []; snapshot.entryIndex = nil; snapshot.activeOutput = .init()

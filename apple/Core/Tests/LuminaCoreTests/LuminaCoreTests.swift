@@ -1315,6 +1315,32 @@ final class LuminaCoreTests: XCTestCase {
         XCTAssertEqual(item.people?.first?.type, "Actor")
     }
 
+    func testMediaOverviewKeepsProseWhileStructuringExplicitCreditsAndNotes() {
+        let overview = MediaOverview("""
+        <p>The <strong>first</strong> sentence &amp; <em>its punctuation</em> &copy;.</p><p>The second paragraph remains intact.</p>
+        <p>(Source: The Archive)</p>
+        <p>Notes:</p><ul><li>Restored from a 35mm print.</li><li>Restored from a 35mm print.</li></ul>
+        """)
+
+        XCTAssertEqual(overview.synopsis.map(\.text), [
+            "The first sentence & its punctuation ©.",
+            "The second paragraph remains intact.",
+        ])
+        XCTAssertEqual(overview.source, "The Archive")
+        XCTAssertEqual(overview.notes.map(\.text), ["Restored from a 35mm print.", "Restored from a 35mm print."])
+
+        let manyAmpersands = String(repeating: "&", count: 100_000)
+        let plain = MediaOverview("Unknown prose &amp; <3.\n\nNotes: not a bullet list\n\n(Source credit: not structured)\n\n\(manyAmpersands)")
+        XCTAssertEqual(Array(plain.synopsis.map(\.text).dropLast()), ["Unknown prose & <3.", "Notes: not a bullet list", "(Source credit: not structured)"])
+        XCTAssertEqual(plain.synopsis.last?.text.count, manyAmpersands.count)
+        XCTAssertNil(plain.source)
+        XCTAssertTrue(plain.notes.isEmpty)
+
+        let continuedNote = MediaOverview("Notes:\n- First note\n  continues here.\nUnindented prose remains a synopsis.")
+        XCTAssertEqual(continuedNote.notes.map(\.text), ["First note continues here."])
+        XCTAssertEqual(continuedNote.synopsis.map(\.text), ["Unindented prose remains a synopsis."])
+    }
+
     func testMediaPersonDecodesCreditAndBuildsSignedImageURL() async throws {
         let saved = LuminaSession(serverURL: URL(string: "https://example.test")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
         let store = LuminaStore(client: LuminaClient(configuration: mockConfiguration()), credentials: TestCredentials(session: saved))

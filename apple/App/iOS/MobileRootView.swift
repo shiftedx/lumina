@@ -2421,17 +2421,7 @@ struct VideoCollectionView: View {
                             episodeCards(children)
                         }
 
-                        if let overview = (detailItem ?? item).overview, !overview.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("About")
-                                    .font(.title3.weight(.bold))
-                                    .accessibilityAddTraits(.isHeader)
-                                Text(overview)
-                                    .font(LuminaTheme.editorial(17, relativeTo: .body))
-                                    .lineSpacing(4)
-                            }
-                            .frame(maxWidth: 680, alignment: .leading)
-                        }
+                        collectionAbout
 
                         NativeTitleSupplement(item: detailItem ?? item, store: store)
                             .padding(.top, 4)
@@ -2440,6 +2430,9 @@ struct VideoCollectionView: View {
                     .padding(.vertical, 28)
                 }
                 .frame(maxWidth: .infinity)
+                // The hero extends under system chrome; the last disclosure must
+                // still scroll fully above the floating phone tab bar.
+                .padding(.bottom, usesStandardPhonePushedChrome ? 100 : 0)
             }
             .onChange(of: selectedSeasonEpisodes.map(\.id)) {
                 positionInitialEpisode(using: proxy)
@@ -2629,6 +2622,44 @@ struct VideoCollectionView: View {
         .id(episodeScrollID(episode.id))
     }
 
+    @ViewBuilder
+    private var collectionAbout: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if isSeriesCollection,
+               let episode = selectedSeasonEpisodes.first(where: { $0.id == selectedEpisodeID }) {
+                Text("About this episode")
+                    .font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                if let overview = episode.overview, !overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    NativeMediaAbout(overview: MediaOverview(overview))
+                        .id(episode.id)
+                        .accessibilityIdentifier("episodeAbout")
+                } else {
+                    Text("An episode synopsis is not available yet.")
+                        .font(.body).foregroundStyle(.secondary)
+                }
+                if let overview = (detailItem ?? item).overview, !overview.isEmpty {
+                    DisclosureGroup {
+                        NativeMediaAbout(overview: MediaOverview(overview))
+                            .padding(.top, 12)
+                            .accessibilityIdentifier("seriesAbout")
+                    } label: {
+                        Text("About the series").font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .accessibilityIdentifier("seriesAboutToggle")
+                    }
+                }
+            } else if let overview = (detailItem ?? item).overview, !overview.isEmpty {
+                Text("About").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                NativeMediaAbout(overview: MediaOverview(overview))
+            }
+        }
+        .tint(LuminaTheme.ink)
+        .frame(maxWidth: 600, alignment: .leading)
+        .padding(.trailing, UIDevice.current.userInterfaceIdiom == .pad || usesStandardPhonePushedChrome ? 0 : 64)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("collectionAbout")
+    }
+
     private func episodeCard(_ episode: MediaItem, selected: Bool = false) -> some View {
         ZStack(alignment: .bottomLeading) {
             ArtworkView(
@@ -2662,8 +2693,9 @@ struct VideoCollectionView: View {
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.white)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
-                if let overview = episode.overview, !overview.isEmpty {
-                    Text(overview)
+                if let overview = episode.overview,
+                   let synopsis = MediaOverview(overview).synopsis.first?.text {
+                    Text(synopsis)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.84))
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
@@ -3814,10 +3846,12 @@ struct TitleDetailView: View {
                     }
 
                     if let overview = currentItem.overview, !overview.isEmpty {
-                        Text(overview)
-                            .font(LuminaTheme.editorial(17, relativeTo: .body))
-                            .lineSpacing(4)
-                            .foregroundStyle(LuminaTheme.ink)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("About").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                            NativeMediaAbout(overview: MediaOverview(overview))
+                                .padding(.trailing, UIDevice.current.userInterfaceIdiom == .pad || usesStandardPhonePushedChrome ? 0 : 64)
+                        }
+                        .foregroundStyle(LuminaTheme.ink)
                     }
 
                     videoDownloadStatus

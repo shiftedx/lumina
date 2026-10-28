@@ -81,6 +81,7 @@
 		E7362ADB5C9D56280AFD0B88 /* MPVKitLicense.txt in Resources */ = {isa = PBXBuildFile; fileRef = CC99B1B20959608AD9B2CF88 /* MPVKitLicense.txt */; };
 		EE32F9AA47B8C8462AC4740F /* GoogleSansMedium.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 4D7C4F87CA65A5DF9C1AE381 /* GoogleSansMedium.bundle */; };
 		EEC01442ED927D3E33D7E216 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 941181C235A2128516EAE516 /* OFL.txt */; };
+		F1D1690E7C47C7173BCC5D19 /* NativeMediaAbout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7078F0D68055CD08F15792CD /* NativeMediaAbout.swift */; };
 		F29CEFA581154B26746EB073 /* LuminaIconControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22591C6BC23A526CD10749CA /* LuminaIconControls.swift */; };
 		F599CD444E8B163A5431E3A9 /* TVMediaDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025107FD778D5100813EEE31 /* TVMediaDetailView.swift */; };
 		F5B0240E517BA8922A99B55F /* NativeBookText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0EBAA5842AC90340C8E0E5 /* NativeBookText.swift */; };
@@ -137,6 +138,7 @@
 		6AC830D81757A02673E5F7D0 /* tvOS.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = tvOS.xcassets; sourceTree = "<group>"; };
 		6AD33F65A7361017AA8BD1BC /* NativeMusicLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMusicLibraryView.swift; sourceTree = "<group>"; };
 		6F308668F73F6F96E8F25FCF /* GoogleCastCoreResources.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = GoogleCastCoreResources.bundle; sourceTree = "<group>"; };
+		7078F0D68055CD08F15792CD /* NativeMediaAbout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaAbout.swift; sourceTree = "<group>"; };
 		72EDB0D3E1376AA4A0663258 /* TVMusicDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVMusicDetailView.swift; sourceTree = "<group>"; };
 		7D9AE71BF493F6A950E54538 /* GoogleCastPrivacy.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = GoogleCastPrivacy.bundle; sourceTree = "<group>"; };
 		819800A042573CF485DA0430 /* iOS.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = iOS.xcassets; sourceTree = "<group>"; };
@@ -302,6 +304,7 @@
 			children = (
 				34453117E4BDD0C2E7FDB62C /* MobilePairScanner.swift */,
 				579E2238336BCFC991DB98C2 /* MobileRootView.swift */,
+				7078F0D68055CD08F15792CD /* NativeMediaAbout.swift */,
 				EBDC1F7C8ABA920BF6757F1C /* NativeAccountSettingsView.swift */,
 				892B855BCAA4EAABD1E4FC4B /* NativeBookReader.swift */,
 				2B8A23EF15E413E17B6142A1 /* NativeBooksView.swift */,
@@ -620,6 +623,7 @@
 				8E6DF935A018900D2123515A /* NativeBookReader.swift in Sources */,
 				F5B0240E517BA8922A99B55F /* NativeBookText.swift in Sources */,
 				67A647797CF52955C36B7932 /* NativeBooksView.swift in Sources */,
+				F1D1690E7C47C7173BCC5D19 /* NativeMediaAbout.swift in Sources */,
 				5F1BFB9E8D7F345739B01208 /* NativeMusicAirPlayButton.swift in Sources */,
 				DF70A83102C482A30F51A6DC /* NativeMusicCasting.swift in Sources */,
 				C3CDF44890749BE14C5012EE /* NativeMusicLibraryView.swift in Sources */,

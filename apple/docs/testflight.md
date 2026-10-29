@@ -244,3 +244,37 @@ verified; tvOS remains deferred. Physical Duo brightness, device energy/output
 and real household-media latency still require dogfooding. Uncached remote seeks
 still need media bytes. The separately identified standard-phone portrait detail
 Play-button/tab-bar overlap is not fixed in this build.
+
+
+### Internal dogfood package 33, 2026-10-29 — upload pending
+
+Version **0.1.0 (33)** has validated unsigned Release device archives for iOS
+and tvOS in ignored `apple/Distribution/0.1.0-33/`, built from clean main
+`06faf929684b79b4e70df2228a781e43c19b8e63` (PR #206). The package preserves
+tracked native source hashes and snapshot, archive/preparation/validation logs,
+matching executable/dSYM UUIDs, export options and focused verification records.
+Identity, physical-device platform, artwork, privacy and test-fixture exclusion
+checks pass. Neither archive contains the UI-testing compilation condition.
+
+This rollup includes source-specific IMDb, Rotten Tomatoes and Metacritic
+ratings (PR #205), full lightweight catalogs and bounded poster prefetch,
+scene-display brightness targeting, artwork-first TV details, and the shared
+compositor/decoder improvements. Focused iPhone motion/layout, TV catalog,
+ratings, Remote Play/resume and direct/HLS/MKV workflows pass. The full TV
+performance tour and 503-title stress workload pass; see the
+[measurement record](tvos-performance-2026-10-29.md). The owner requested focused
+checks, so no full repository/Core/native UI suite was run.
+
+**No build-33 IPA has been signed or uploaded.** CLI iOS export failed with
+“No Accounts” and no iOS Distribution certificate. The Mac remained locked,
+preventing access to Xcode's existing cloud-signing account. The requested iOS
+upload remains pending; tvOS is staged for qualification and has no upload
+authorization. Preserve the earlier unuploaded build-32 package unchanged.
+
+After unlock, recheck live build inventory, sign/export the existing iOS archive
+with internal-only distribution and automatic build-number changes disabled,
+validate the actual signed IPA, and prepare its signed Organizer copy. Retain the
+actual uploaded artifact, symbols, logs and confirmation before updating upload
+status. The latest confirmed iOS upload remains build 31; processing and tester
+assignment are unverified. Named ratings require the matching server update;
+no household deployment or physical-TV/HDMI/HDR/audio qualification occurred.

@@ -37,7 +37,7 @@ struct TVMusicDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
+        TVHeroScrollView {
             Group {
                 if loading {
                     ProgressView("Loading music…")
@@ -87,6 +87,7 @@ struct TVMusicDetailView: View {
                 }
 
                 actionRow
+                    .focusedValue(\.tvHeroRegion, true)
                 pivotActions
                 if let errorMessage = displayedError {
                     Label(errorMessage, glyph: .warning, variant: .solid, size: 24)

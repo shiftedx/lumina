@@ -37,6 +37,7 @@ struct TVDetailView: View {
                         detailStatus
                     }
                     .focusedValue(\.tvHeroRegion, true)
+                    .focusSection()
 
                     if let overview = currentItem.overview, !overview.isEmpty {
                         TVDetailStory(overview: overview)
@@ -246,6 +247,7 @@ struct TVVideoCollectionView: View {
             VStack(alignment: .leading, spacing: 12) {
                 episodeHero
                     .focusedValue(\.tvHeroRegion, true)
+                    .focusSection()
                 collectionContent
                 if !castMembers.isEmpty {
                     TVDetailCastRail(people: castMembers, store: store)
@@ -376,7 +378,6 @@ struct TVVideoCollectionView: View {
             )
             .focused($focusedAction, equals: .more)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
     }
 

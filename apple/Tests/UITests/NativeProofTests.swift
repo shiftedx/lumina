@@ -4038,11 +4038,13 @@ class NativeProofJourney: XCTestCase {
         _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { _ in true }
         try closePlayer()
 
-        // A fresh local session must prefer the server's saved resume episode over
+        // A fresh app process must prefer the server's saved resume episode over
         // season-one's first unwatched item.
         try await api.seedProgress(identity: identity, itemID: secondSeasonEpisodeID, seconds: 30)
-        try launchAndResetSession()
-        try signIn(using: fixture)
+        let relaunched = try XCTUnwrap(application)
+        relaunched.terminate()
+        relaunched.launch()
+        try waitForExistence(element("homeScreen"), timeout: 30, named: "Home after episode process relaunch")
         try selectDestination("Video", screen: "libraryScreen")
         try activate(element("homeBrowse-tv"))
         let resumedShow = element("libraryItem-\(fixture.showID)")

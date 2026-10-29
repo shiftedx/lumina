@@ -259,8 +259,11 @@ test('Home and Home in edit mode: no serious axe findings, sideways scroll or sm
 
 /** A visible focus ring on the requested number of tab stops. */
 async function focusRingCheck(page: Page, where: string, found: string[], stopCount = 3) {
-  // Start from the top of the document: a bare body.focus() keeps the last click or focus as the starting point.
-  await page.evaluate(() => { document.body.setAttribute('tabindex', '-1'); document.body.focus(); document.body.removeAttribute('tabindex'); window.scrollTo(0, 0); });
+  // Let the route's intentional heading-focus RAF settle, then start from the document top.
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    document.body.setAttribute('tabindex', '-1'); document.body.focus(); document.body.removeAttribute('tabindex'); window.scrollTo(0, 0);
+  });
   for (let stop = 1; stop <= stopCount; stop += 1) {
     await page.keyboard.press('Tab');
     const ring = await page.evaluate(() => {
@@ -636,7 +639,8 @@ areaTest('watch-web', async ({ page, visit }) => {
   await openSigned(page, `/watch/library/${item.id}`);
   await expect(page.locator('video')).toHaveCount(1);
   await visit('editorial', true);
-  const more = page.getByRole('button', { name: 'More', exact: true });
+  // Scope this to the editorial description: the phone shell has its own More navigation control.
+  const more = page.locator('.g-watch-column').getByRole('button', { name: 'More', exact: true });
   if (await more.isVisible().catch(() => false)) { await more.click(); await visit('description-open'); }
 });
 

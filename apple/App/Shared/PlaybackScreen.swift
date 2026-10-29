@@ -1056,6 +1056,17 @@ struct PlaybackScreen: View {
 
     private func videoTouchSurface(safeArea: EdgeInsets) -> some View {
         let preferences = store.playbackPreferences
+        let topChromeBand: [CGRect]
+        if videoChromeVisible, videoGestureContainerSize.width > 0 {
+            topChromeBand = [CGRect(
+                x: 0,
+                y: 0,
+                width: videoGestureContainerSize.width,
+                height: safeArea.top + videoVerticalInset + 44
+            )]
+        } else {
+            topChromeBand = []
+        }
         return VideoGestureSurface(
             configuration: .init(gestures: .init(
                 advancedEnabled: preferences.videoGesturesEnabled,
@@ -1065,7 +1076,8 @@ struct PlaybackScreen: View {
                 doubleTapEnabled: preferences.doubleTapSkipEnabled,
                 twoFingerEnabled: preferences.twoFingerTapEnabled,
                 holdEnabled: preferences.holdSpeedEnabled),
-                safeArea: UIEdgeInsets(top: safeArea.top, left: safeArea.leading, bottom: safeArea.bottom, right: safeArea.trailing)),
+                safeArea: UIEdgeInsets(top: safeArea.top, left: safeArea.leading, bottom: safeArea.bottom, right: safeArea.trailing),
+                excludedRegions: topChromeBand),
             isInteractionEnabled: scenePhase == .active && !pictureInPictureActive && !pictureInPictureContinuing && !videoSettingsPresented && !videoSettingsVisible && displayedError == nil && !playback.hasFinished && !playback.isSwitchingVideoStream,
             isVoiceOverRunning: voiceOverEnabled,
             cancellationID: videoGestureCancellationID,

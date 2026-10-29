@@ -65,6 +65,19 @@ final class NativeAudioFormatRecoveryTests: NativeProofJourney {
     }
 }
 
+@MainActor
+final class NativeVideoFormatRecoveryTests: NativeProofJourney {
+    func testInitialFormatFailureRetriesOneCompatibleVideo() async throws {
+        try await journeyInitialVideoFormatRecovery()
+    }
+
+    #if os(iOS)
+    func testStandardPhoneInitialFormatFailureRetriesOneCompatibleVideo() async throws {
+        try await journeyInitialVideoFormatRecovery()
+    }
+    #endif
+}
+
 #if os(tvOS)
 @MainActor
 final class NativeAudioAlbumPlayAfterUnavailableRestoreTests: NativeProofJourney {
@@ -86,13 +99,6 @@ final class NativeLibraryMetadataTests: NativeProofJourney {
 final class NativePlaybackInfoTests: NativeProofJourney {
     func testInfoShowsLivePlaybackMetricsAndReturnsToVideo() async throws {
         try await journeyPlaybackInfo()
-    }
-}
-
-@MainActor
-final class NativeVideoFormatRecoveryTests: NativeProofJourney {
-    func testInitialFormatFailureRetriesOneCompatibleVideo() async throws {
-        try await journeyInitialVideoFormatRecovery()
     }
 }
 
@@ -1672,6 +1678,8 @@ class NativeProofJourney: XCTestCase {
         try closePlayer()
     }
 
+    #endif
+
     func journeyInitialVideoFormatRecovery() async throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
@@ -1700,21 +1708,40 @@ class NativeProofJourney: XCTestCase {
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
         try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 12)
 
+        #if os(iOS)
+        let recoveryLaunchArguments = UIDevice.current.userInterfaceIdiom == .pad
+            ? ["--ui-testing-static-animations"] : []
+        try launchAndResetSession(extraLaunchArguments: recoveryLaunchArguments)
+        #else
         try launchAndResetSession()
+        #endif
         try signIn(using: fixture, waitsForAccount: false)
         let resume = element("resumeItem-\(fixture.directItemID)")
         do {
             #if os(iOS)
+            try waitForExistence(resume, timeout: 25, named: "seeded direct-video resume item")
             // Interruption monitors run on a user interaction, not an AX
             // query. This ordinary Home scroll is restored below before
             // selecting the seeded Continue Watching card.
             element("homeScreen").swipeUp()
             try revealInLibraryViewport([resume], in: element("homeScreen"))
-            #endif
+            guard waitUntil(timeout: 15, condition: {
+                guard let viewport = try? self.applicationViewport() else { return false }
+                return self.hasVisibleFrame(resume)
+                    && self.isFullyVerticallyContained(resume.frame, in: viewport)
+            }) else {
+                throw ProofFailure.timeout("Timed out waiting for visible seeded direct-video resume item.")
+            }
+            // The SwiftUI rail reports this rendered card as non-hittable to
+            // XCTest. Its observed visible frame is the user-facing tap target.
+            resume.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.3)).tap()
+            #else
             #if os(tvOS)
             try waitForExistence(resume, timeout: 25, named: "seeded direct-video resume item")
             #else
             try waitForHittable(resume, timeout: 25, named: "seeded direct-video resume item")
+            #endif
+            try activate(resume)
             #endif
         } catch {
             let evidence = await api.recoveryHomeEvidence(identity: identity, itemID: fixture.directItemID,
@@ -1725,14 +1752,49 @@ class NativeProofJourney: XCTestCase {
             add(attachment)
             throw error
         }
-        try activate(resume)
         try waitForExistence(element("detailScreen"), timeout: 25, named: "direct-video detail screen")
+        #if os(iOS)
+        let play = element("playButton")
+        try waitForExistence(play, timeout: 20, named: "playButton")
+        try revealDetailElement(play, in: element("detailScreen"), named: "playButton", requiresHittable: false)
+        // The rendered Resume control can be visible without XCTest reporting
+        // it hittable; tap its observed public button frame directly.
+        if usesStandardPhonePushedChrome {
+            let visible = play.frame.intersection(try standardPhoneNavigationViewport())
+            application!.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: visible.midX, dy: visible.midY)).tap()
+        } else {
+            play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        try waitForExistence(element("playbackScreen"), timeout: 35, named: "native playback screen")
+        let time = element("playbackTime")
+        try waitForExistence(time, timeout: 20, named: "playback time")
+        #else
         let time = try startPlayback(using: "playButton")
+        #endif
         let initial = try waitForPlaybackValue(time, timeout: 25) { $0 >= 10 }
         _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= initial + 2 }
 
+        #if os(tvOS)
+        XCUIRemote.shared.press(.playPause)
+        try waitForExistence(element("videoPlayPauseButton"), timeout: 8, named: "paused recovered video transport")
+        XCUIRemote.shared.press(.menu)
+        XCUIRemote.shared.press(.down)
+        try waitForExistence(element("videoSettingsPanel"), timeout: 10, named: "recovered video settings")
+        #else
+        #if os(iOS)
+        try tapVideoTransportAfterChromeHides(named: "pause recovered video before settings")
+        try waitForVideoPlaybackDiagnostics(requested: false, playing: false, timeout: 5)
+        let info = try waitForHittable(element("videoInfoButton"), timeout: 8, named: "recovered playback info control")
+        info.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("videoSettingsPanel"), timeout: 10, named: "recovered playback info")
+        #else
         try activate(element("videoSettingsButton"))
+        #endif
+        #endif
+        #if !os(iOS)
         try activate(element("videoSettingsTab-info"))
+        #endif
         let method = element("videoPlaybackMethod")
         try waitForExistence(method, timeout: 10, named: "compatible video playback method")
         XCTAssertTrue(accessibilityText(method).contains("HLS"),
@@ -1745,12 +1807,20 @@ class NativeProofJourney: XCTestCase {
         XCTAssertTrue(evidence.sameMediaSource, "The compatible retry must retain the selected source version.")
         XCTAssertTrue(evidence.preservedOptions, "The compatible retry must retain quality, selected tracks, and its playback position.")
 
-        try attachPlaybackFrame(named: "Initial direct format failure recovered through compatible HLS")
+        #if os(tvOS)
+        XCUIRemote.shared.press(.menu)
+        guard disappears(element("videoSettingsPanel"), timeout: 10) else {
+            throw ProofFailure.timeout("Recovered video settings did not dismiss through the remote Back action.")
+        }
+        #else
         try activate(element("videoSettingsDoneButton"))
+        #endif
+        try attachPlaybackFrame(named: "Initial direct format failure recovered through compatible HLS")
         try closePlayer()
         completed = true
     }
 
+    #if os(iOS)
     func journeyVideoDeviceControls() async throws {
         XCUIDevice.shared.orientation = .portrait
         defer { XCUIDevice.shared.orientation = .portrait }
@@ -8001,7 +8071,8 @@ class NativeProofJourney: XCTestCase {
         #if os(iOS)
         let applicationViewport = try applicationViewport()
         var viewport = detail.frame.intersection(applicationViewport).insetBy(dx: 0, dy: 2)
-        if usesStandardPhonePushedChrome, detail.identifier == "videoCollectionScreen" {
+        if usesStandardPhonePushedChrome,
+           ["detailScreen", "videoCollectionScreen"].contains(detail.identifier) {
             // The compact pushed-screen header is deliberately opaque. A
             // control beneath it or the tab bar is not a visible target, even
             // if accessibility reports it as hittable through the view tree.

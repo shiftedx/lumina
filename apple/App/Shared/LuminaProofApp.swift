@@ -1,5 +1,8 @@
 import SwiftUI
 import LuminaCore
+#if os(iOS) && LUMINA_UI_TESTING
+import UIKit
+#endif
 
 @main
 @MainActor
@@ -7,12 +10,21 @@ struct LuminaProofApp: App {
     init() {
         #if os(iOS)
         NativeVideoCasting.configure()
+        #if LUMINA_UI_TESTING
+        if Self.usesStaticTestAnimations { UIView.setAnimationsEnabled(false) }
+        #endif
         #endif
     }
 
     @State private var store = makeStore()
     @State private var restorationStarted = false
     @State private var isRestoring = true
+
+    #if os(iOS) && LUMINA_UI_TESTING
+    private static var usesStaticTestAnimations: Bool {
+        ProcessInfo.processInfo.arguments.contains("--ui-testing-static-animations")
+    }
+    #endif
 
     private static func makeStore() -> LuminaStore {
         #if LUMINA_UI_TESTING
@@ -33,6 +45,14 @@ struct LuminaProofApp: App {
                 MobileRootView(store: store, isRestoring: isRestoring)
                 #endif
             }
+            #if os(iOS) && LUMINA_UI_TESTING
+            .transaction { transaction in
+                if Self.usesStaticTestAnimations {
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                }
+            }
+            #endif
             .defaultAppStorage(LuminaPreferences.defaults)
             .task {
                 guard !restorationStarted else { return }

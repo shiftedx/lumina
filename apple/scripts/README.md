@@ -21,6 +21,35 @@ Wait for “ready” before building the UI tests: their test-only build phase c
 
 The catalog has three generated H.264/AAC movies, a show/season/two-episode hierarchy imported through ordinary NFO metadata, and two numbered AAC sine-tone music tracks with generated album/artist artwork, timed lyrics, gain metadata and a shared read-only playlist. Episode files reuse the original synthetic movie bytes. Startup verifies public info and sign-in, video catalog/posters and direct/compatible negotiation, saved progress, show/season/episode relationships, music browsing and album children, authenticated artwork, fresh Audio detail, and audio stream bytes. The M4A stream must have the native-compatible `audio/mp4` content type.
 
+PR #215 adds the native video format-recovery fixture. With
+`LUMINA_NATIVE_VIDEO_FORMAT_FAILURE=1`, the server completes its ordinary
+startup verification first, then faults only the verified public item's direct
+stream bytes. A recovery client must make one H.264/SDR, stereo-AAC HLS retry
+while retaining the media source, selected options and resume position. It does
+not fault another item's direct stream or the HLS master route. The scoped UI
+selectors are
+`NativeVideoFormatRecoveryTests/testInitialFormatFailureRetriesOneCompatibleVideo`
+on iPad/Apple TV and
+`NativeVideoFormatRecoveryTests/testStandardPhoneInitialFormatFailureRetriesOneCompatibleVideo`
+on iPhone. Use a fresh fixture/broker and refresh the selected test bundle for
+each targeted run; do not reuse a fixture generated for another test class.
+The iPad recovery journey passes `--ui-testing-static-animations` to its
+`LUMINA_UI_TESTING` app build to avoid XCTest animation-idle stalls. This
+disables UIKit and SwiftUI animations only for that explicit test launch;
+shipping builds exclude the switch and the iPhone lane uses normal animations.
+
+The fixture's fast boundary checks are separate from UI execution:
+
+```sh
+mise exec -- python apple/scripts/test_ui_suite.py
+mise exec -- backend/.venv/bin/python -m unittest apple.scripts.test_proof_server
+```
+
+The first command covers the 27 broker/routing cases. The second is the one
+ASGI HTTP contract for the public-ID direct-stream fault and its untouched HLS
+route. Neither command establishes physical HDR output or hardware-decoder
+qualification.
+
 For the opt-in Duo continuity workflow, start the fixture with `LUMINA_NATIVE_EPISODE_MKV=1` to exercise client-demuxed episodes; leave it unset for MP4 episodes. Both paths appear as Direct in the app. Run `NativeVideoDuoContinuityTests` with `TEST_RUNNER_LUMINA_DUO_TRANSITIONS=1` and `LUMINA_UI_TESTING` in the app's compilation conditions. Start with Device Hub in Closed posture, then switch to Open during the printed playing window and back to Closed during the paused window. The workflow resumes an episode at 12 seconds from the season Play button; `TEST_RUNNER_LUMINA_DUO_ENTRY=home` instead uses Home's Continue Watching card. It checks player identity, real-time progress, and explicit pause preservation. It is a transport check, not proof of uninterrupted rendered frames; inspect the visible simulator window as well.
 
 For standalone fold diagnosis, launch the optimized `LUMINA_UI_TESTING` app directly with `SIMCTL_CHILD_LUMINA_PLAYBACK_TRACE=1 xcrun simctl launch --stderr=/tmp/lumina-playback-trace.log <UDID> ai.cozylabs.lumina --ui-testing`, then start playback and change poses in Device Hub. No XCTest runner is involved, so there are no scheduled pause or close actions. The trace is written to the requested stderr file and records player/item identity, actual time, saved position, buffering, seeks, lifecycle transitions, and audio interruptions, without URLs, titles, or credentials. Rendering events include view/layer/window identity, bounds, and render readiness. Per-instance interval summaries count view updates, layout callbacks, rate applications versus actual writes, and queued versus sent progress reports; detailed output is capped at 20 events per second per instance so a callback storm remains measurable without flooding the log. `NativeVideoDuoContinuityTests/testStablePlaybackDoesNotContinuouslyRewritePlayerRate` separately checks that steady playback does not enter a rate-observer feedback loop; it needs no manual pose changes.

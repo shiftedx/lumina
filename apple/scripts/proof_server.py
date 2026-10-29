@@ -559,8 +559,8 @@ def install_audio_format_failure(app: Any) -> None:
         return await call_next(request)
 
 
-def install_initial_video_format_failure(app: Any, item_id: str) -> Callable[[], None]:
-    """Reject only the first playback's direct MP4 bytes and record its compatible retry."""
+def install_initial_video_format_failure(app: Any) -> Callable[[str], None]:
+    """Reject only the verified public item's direct MP4 bytes and record its compatible retry."""
     from starlette.responses import JSONResponse, Response
 
     lock = threading.Lock()
@@ -568,11 +568,17 @@ def install_initial_video_format_failure(app: Any, item_id: str) -> Callable[[],
     direct_source_id: str | None = None
     initial: dict[str, Any] | None = None
     compatible: list[dict[str, Any]] = []
-    normalized_item_id = item_id.replace("-", "").lower()
+    normalized_item_id: str | None = None
     payload = b"not-a-real-mp4\n" * 32_768
 
     def target_item(path: list[str]) -> bool:
-        return len(path) == 4 and path[1].lower() == "items" and path[3].lower() == "playbackinfo" and path[2].replace("-", "").lower() == normalized_item_id
+        return (
+            normalized_item_id is not None
+            and len(path) == 4
+            and path[1].lower() == "items"
+            and path[3].lower() == "playbackinfo"
+            and path[2].replace("-", "").lower() == normalized_item_id
+        )
 
     def option_values(body: dict[str, Any]) -> dict[str, Any]:
         # The direct fixture has video stream 0 and its sole AAC stream 1, with
@@ -627,9 +633,13 @@ def install_initial_video_format_failure(app: Any, item_id: str) -> Callable[[],
                 ),
             }
 
-    def activate() -> None:
-        nonlocal active
+    def activate(verified_public_item_id: str) -> None:
+        nonlocal active, normalized_item_id
+        normalized = verified_public_item_id.replace("-", "").lower()
+        if not normalized:
+            raise ValueError("verified public item ID is required")
         with lock:
+            normalized_item_id = normalized
             active = True
 
     @app.middleware("http")
@@ -654,7 +664,14 @@ def install_initial_video_format_failure(app: Any, item_id: str) -> Callable[[],
                     elif initial is None:
                         initial = body
             return await call_next(request)
-        if request.method == "GET" and len(path) >= 4 and path[1].lower() == "videos" and path[2].replace("-", "").lower() == normalized_item_id and path[3].lower().startswith("stream"):
+        if (
+            request.method == "GET"
+            and normalized_item_id is not None
+            and len(path) == 4
+            and path[1].lower() == "videos"
+            and path[2].replace("-", "").lower() == normalized_item_id
+            and path[3].lower() in {"stream", "stream.mp4", "stream.m4v", "stream.mov"}
+        ):
             with lock:
                 direct_source_id = request.query_params.get("MediaSourceId")
                 faulted = True
@@ -1592,7 +1609,7 @@ def main() -> None:
             install_audio_format_failure(app)
         activate_video_format_failure = None
         if os.environ.get(VIDEO_FORMAT_FAILURE_ENV) == "1":
-            activate_video_format_failure = install_initial_video_format_failure(app, provisioned["directItemID"])
+            activate_video_format_failure = install_initial_video_format_failure(app)
         activate_restore_failure = None
         if os.environ.get("LUMINA_NATIVE_AUDIO_RESTORE_FAILURE") == "1":
             activate_restore_failure = install_audio_restore_failure(app, provisioned["audioTrackID"])
@@ -1616,7 +1633,7 @@ def main() -> None:
         print("Verifying authenticated catalog, artwork, and playback routes...", flush=True)
         verified = verify_api(provisioned, username, password)
         if activate_video_format_failure is not None:
-            activate_video_format_failure()
+            activate_video_format_failure(verified["directItemID"])
         if activate_restore_failure is not None:
             activate_restore_failure()
         if performance_request_log is not None:

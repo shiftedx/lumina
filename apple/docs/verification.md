@@ -116,14 +116,28 @@ the actual codec configuration, resolution, frame rate and PQ/HLG range.
 The image check ran without network access as a non-root user with a read-only
 root filesystem and disposable temporary storage.
 
-The new automatic format-recovery UI journey remains unqualified. Its latest
-iOS test bundle built successfully, but the simulator stopped and Xcode stalled
-collecting diagnostics before a readable final result was produced; the owned
-runner and disposable simulator were cleaned up. Earlier attempts stopped
-before playback on the password-sheet/hittability precondition, with matching
-Home/Resume API and accessibility identities. The scoped interruption-monitor
-revision has no passing execution, and the tvOS recovery journey was not run.
-The fixture scripts passed compilation and all 27 broker unit checks.
+PR #215 merged the native format-recovery path. The full iPhone recovery
+journey, iPad Pro 11-inch (M5) recovery journey and the Apple TV recovery journey passed against fresh disposable
+fixtures. Each begins with an intentionally undecodable direct response for
+the verified public item ID, then makes exactly one H.264/SDR, stereo-AAC
+compatibility request. The journeys verify the same media source, selected
+quality/tracks and resume position, then observe actual advancing recovered
+video; the TV case also records the HLS playback-info panel and dismisses it
+through the normal remote path. The fixture boundary regression keeps the
+fault disabled during startup verification and proves that it affects only the
+verified public direct-stream route, not another item or the HLS master route.
+
+The iPad run exposed a touch-routing defect: the full-screen gesture surface
+consumed the visible Info button's tap. The surface now passes the visible top
+control band through UIKit hit testing. The recovery journey passed with the
+HLS Info panel, normal dismissal and a visually inspected recovered frame.
+The iPad test explicitly disables animations in the `LUMINA_UI_TESTING` build
+to avoid repeated XCTest animation-idle stalls; shipping builds exclude this
+switch, and the iPhone runs retain normal animations.
+The routing fixture suite passed 27 cases, and the
+separate backend-virtualenv proof-server HTTP contract passed one case. These
+are local simulator and loopback results only; they do not qualify physical
+HDR display output, HDMI behavior, or hardware decode on an Apple device.
 
 This is a finite host-only AVFoundation delivery check, not a display-output
 claim. On the local arm64 macOS 27.0.1 host,

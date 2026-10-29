@@ -41,6 +41,22 @@ def facts(container, *streams, bit_rate=5_000_000, webm=False):
 
 
 MKV, MP4, AVI = "matroska,webm", "mov,mp4,m4a,3gp,3g2,mj2", "avi"
+
+
+@pytest.mark.parametrize("tonemap", ["cuda", "opencl", "vpp_qsv", "software", "none"])
+def test_dolby_vision_5_conversion_requires_a_probed_reshape_path(db_factory, monkeypatch, tonemap: str) -> None:
+    from app.routers import local_playback
+
+    source = facts(MKV, v("hevc", pix_fmt="yuv420p10le", dv=5, compat=0), a())
+    monkeypatch.setattr(local_playback.hwaccel, "choice", lambda *_: ("nvenc" if tonemap == "cuda" else "qsv", tonemap))
+    with db_factory() as db:
+        limits = local_playback.playback_limits(db, "member", source)
+    decision = decide(BROWSER_DEFAULT, source, limits)
+    assert decision.mode == ("transcode" if tonemap in {"cuda", "opencl"} else "unavailable")
+    if decision.mode == "transcode":
+        assert decision.video == "encode" and decision.tonemap
+
+
 # An Apple TV client's profile, shaped like the ones Infuse/Swiftfin post. The 10.11 regression row: conditions
 # Lumina does not model (VideoLevel, IsAnamorphic, RefFrames, an unknown future property) must be ignored.
 INFUSE = caps_from_device_profile({

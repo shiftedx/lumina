@@ -32,7 +32,7 @@ RUN apt-get update \
     && printf '%s\n' 'libarchive 3.8.10 source sha256:56cad765459d5ee25a3b761f90c47d99379d28297fbfb72d908880d6b875fb96' > /out/share/doc/libarchive/source.txt
 
 
-# ffmpeg/ffprobe are jellyfin-ffmpeg (GPL; QSV/VAAPI, OpenCL tone-mapping, chromaprint): one .deb per
+# ffmpeg/ffprobe are jellyfin-ffmpeg (GPL; QSV/VAAPI/NVENC, OpenCL/CUDA tone-mapping, chromaprint): one .deb per
 # architecture, pinned by sha256. amd64 also gets Intel's OpenCL runtime for tonemap_opencl; it is not
 # in Debian trixie, so it comes from Intel's releases at the versions Jellyfin's trixie image uses.
 # Provenance and upgrade steps: docker/README.md.
@@ -103,9 +103,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # setpriv comes from util-linux (essential in Debian); local .debs resolve their Debian dependencies.
+# Mesa supplies the userspace VA-API driver for Intel and AMD. NVIDIA's proprietary libraries
+# are deliberately mounted from the host by NVIDIA Container Toolkit, not copied into the image.
 RUN --mount=type=bind,from=media-debs,source=/debs,target=/tmp/media-debs \
     apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libseccomp2 bubblewrap=0.12.0-1~deb13u1 libgomp1 libbz2-1.0 liblzma5 libzstd1 liblz4-1 tzdata /tmp/media-debs/*.deb \
+    && apt-get install -y --no-install-recommends ca-certificates libseccomp2 bubblewrap=0.12.0-1~deb13u1 libgomp1 libbz2-1.0 liblzma5 libzstd1 liblz4-1 libva2 mesa-va-drivers tzdata /tmp/media-debs/*.deb \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg \
     && ln -s /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe

@@ -1,0 +1,18 @@
+# NVIDIA NVENC/NVDEC/CUDA hardware transcoding (Linux Docker Engine). Operator guide: docker/README.md.
+# Requires an NVIDIA driver and NVIDIA Container Toolkit on the HOST, then:
+#   docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d
+services:
+  lumina:
+    # Compose exposes all NVIDIA GPUs; ffmpeg's LUMINA_HWACCEL_GPU_INDEX selects one.
+    # To restrict access, replace count with device_ids: ["<GPU index or UUID>"].
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      # CUDA HDR tone mapping needs compute; video enables NVDEC/NVENC; utility enables nvidia-smi.
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+      LUMINA_HWACCEL_GPU_INDEX: ${LUMINA_HWACCEL_GPU_INDEX:-0}

@@ -49,11 +49,11 @@ class PlaybackResources:
         self, db: Session, user: User, request: Request, item_id: str, device: str,
         facts: dict[str, Any], caps: ClientCaps, *, max_height: int | None = None,
         max_bitrate: int | None = None, audio_index: int | None = None, subtitle_index: int | None = None,
-        logical_id: str | tuple[str, ...] | None = None,
+        logical_id: str | tuple[str, ...] | None = None, dv5_reshape: bool = False,
     ) -> Admission:
         policy = household(db)
         if policy.upload_bps is None:
-            return Admission((user.id, device, item_id, "legacy"), decide(caps, facts, Limits(max_height, max_bitrate), audio_index, subtitle_index), False, False)
+            return Admission((user.id, device, item_id, "legacy"), decide(caps, facts, Limits(max_height, max_bitrate, dv5_reshape=dv5_reshape), audio_index, subtitle_index), False, False)
         is_remote = remote(request, policy)
         allowance = effective(db, user.id)
         # LAN playback has the member slots but no upload allocation. Remote bytes
@@ -71,7 +71,7 @@ class PlaybackResources:
             house_left = max(0, policy.upload_bps - household_used)
             allocation = self._allocation(allowance.remote_stream_bps, member_left, house_left)
             bitrate = self._delivery_bitrate(allocation, bitrate)
-        decision = self._decision(facts, caps, max_height, bitrate, audio_index, subtitle_index, is_remote and allocation is not None)
+        decision = self._decision(facts, caps, max_height, bitrate, audio_index, subtitle_index, is_remote and allocation is not None, dv5_reshape=dv5_reshape)
         if decision.mode == "unavailable":
             raise HTTPException(409, "This source cannot meet the household playback limit.")
         return Admission((user.id, device, item_id, ""), decision, True, is_remote, allocation)
@@ -88,7 +88,7 @@ class PlaybackResources:
         # serializes the small in-memory reservation commit below.
         policy = household(db)
         if policy.upload_bps is None:
-            return Admission(key, decide(caps, facts, Limits(kwargs.get("max_height"), kwargs.get("max_bitrate")), kwargs.get("audio_index"), kwargs.get("subtitle_index")), False, False)
+            return Admission(key, decide(caps, facts, Limits(kwargs.get("max_height"), kwargs.get("max_bitrate"), dv5_reshape=kwargs.get("dv5_reshape", False)), kwargs.get("audio_index"), kwargs.get("subtitle_index")), False, False)
         is_remote = remote(request, policy)
         allowance = effective(db, user.id)
         with self._lock:
@@ -106,7 +106,7 @@ class PlaybackResources:
                 current_ceiling = min(ceilings) if ceilings else allocation
                 bitrate = self._delivery_bitrate(current_ceiling, kwargs.get("max_bitrate")) if is_remote and current_ceiling is not None else kwargs.get("max_bitrate")
                 decision = self._decision(
-                    facts, caps, kwargs.get("max_height"), bitrate, kwargs.get("audio_index"), kwargs.get("subtitle_index"), is_remote, allocation,
+                    facts, caps, kwargs.get("max_height"), bitrate, kwargs.get("audio_index"), kwargs.get("subtitle_index"), is_remote, allocation, dv5_reshape=kwargs.get("dv5_reshape", False),
                 )
                 if decision.mode == "unavailable":
                     raise HTTPException(409, "This source cannot meet the household playback limit.")
@@ -131,10 +131,10 @@ class PlaybackResources:
                 left_house = max(0, policy.upload_bps - used_house)
                 allocation = self._allocation(allowance.remote_stream_bps, left_member, left_house)
                 bitrate = self._delivery_bitrate(allocation, kwargs.get("max_bitrate"))
-                decision = self._decision(facts, caps, kwargs.get("max_height"), bitrate, kwargs.get("audio_index"), kwargs.get("subtitle_index"), True)
+                decision = self._decision(facts, caps, kwargs.get("max_height"), bitrate, kwargs.get("audio_index"), kwargs.get("subtitle_index"), True, dv5_reshape=kwargs.get("dv5_reshape", False))
                 preview = Admission(key, decision, True, True, allocation, uuid.uuid4().hex)
             else:
-                decision = decide(caps, facts, Limits(kwargs.get("max_height"), kwargs.get("max_bitrate")), kwargs.get("audio_index"), kwargs.get("subtitle_index"))
+                decision = decide(caps, facts, Limits(kwargs.get("max_height"), kwargs.get("max_bitrate"), dv5_reshape=kwargs.get("dv5_reshape", False)), kwargs.get("audio_index"), kwargs.get("subtitle_index"))
                 preview = Admission(key, decision, True, False, None, uuid.uuid4().hex)
             if preview.decision.mode == "unavailable":
                 raise HTTPException(409, "This source cannot meet the household playback limit.")
@@ -239,9 +239,9 @@ class PlaybackResources:
 
     def _decision(
         self, facts: dict[str, Any], caps: ClientCaps, max_height: int | None, bitrate: int | None,
-        audio_index: int | None, subtitle_index: int | None, protected_remote: bool, allocation: int | None = None,
+        audio_index: int | None, subtitle_index: int | None, protected_remote: bool, allocation: int | None = None, *, dv5_reshape: bool = False,
     ) -> Decision:
-        limits = Limits(max_height=max_height, max_bitrate=bitrate, require_known_bitrate=protected_remote)
+        limits = Limits(max_height=max_height, max_bitrate=bitrate, require_known_bitrate=protected_remote, dv5_reshape=dv5_reshape)
         decision = decide(caps, facts, limits, audio_index, subtitle_index)
         if decision.mode == "direct" or not protected_remote:
             return decision
@@ -253,7 +253,7 @@ class PlaybackResources:
             output_bitrate = min(output_bitrate, allocation - DELIVERY_HEADROOM_BPS - audio_budget)
         if output_bitrate < 1_500_000:
             raise HTTPException(429, "Household playback bandwidth is busy. Try again shortly.")
-        return decide(caps, facts, Limits(max_height=max_height, max_bitrate=output_bitrate, require_known_bitrate=True, force_audio_encode=True), audio_index, subtitle_index)
+        return decide(caps, facts, Limits(max_height=max_height, max_bitrate=output_bitrate, require_known_bitrate=True, force_audio_encode=True, dv5_reshape=dv5_reshape), audio_index, subtitle_index)
 
     def _reap_locked(self) -> None:
         deadline = time.monotonic() - IDLE_SECONDS

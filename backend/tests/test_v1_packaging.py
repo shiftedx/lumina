@@ -134,6 +134,22 @@ def test_qsv_override_passes_the_render_device_and_group() -> None:
     assert "LUMINA_RENDER_GID: ${LUMINA_RENDER_GID:?" in qsv
 
 
+def test_gpu_overrides_keep_vendor_access_out_of_the_base_container() -> None:
+    """GPU drivers belong to the host; each opt-in overlay grants only its vendor's access path."""
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    vaapi = yaml.safe_load((ROOT / "docker-compose.vaapi.yml").read_text())["services"]["lumina"]
+    nvidia = yaml.safe_load((ROOT / "docker-compose.nvidia.yml").read_text())["services"]["lumina"]
+    assert "libva2 mesa-va-drivers" in dockerfile
+    assert vaapi["devices"] == ["/dev/dri:/dev/dri"]
+    assert vaapi["environment"]["LUMINA_HWACCEL_DEVICE"].endswith("/dev/dri/renderD128}")
+    reservation = nvidia["deploy"]["resources"]["reservations"]["devices"]
+    assert reservation == [{"driver": "nvidia", "count": "all", "capabilities": ["gpu"]}]
+    assert nvidia["environment"] == {
+        "NVIDIA_DRIVER_CAPABILITIES": "compute,video,utility",
+        "LUMINA_HWACCEL_GPU_INDEX": "${LUMINA_HWACCEL_GPU_INDEX:-0}",
+    }
+
+
 def test_rollback_image_is_retained_without_starting_health_checks(tmp_path: Path) -> None:
     docker = tmp_path / "docker"
     docker.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\"\n")

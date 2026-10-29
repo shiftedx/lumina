@@ -73,6 +73,20 @@ def test_explicit_playback_storage_uses_a_disposable_child(tmp_path: Path, monke
     assert lps.session_root() == playback / "playback-sessions"
 
 
+def test_hardware_device_environment_selects_one_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LUMINA_HWACCEL_DEVICE", "/dev/dri/renderD129")
+    monkeypatch.setenv("LUMINA_HWACCEL_GPU_INDEX", "1")
+    configured = EnvSettings()
+    assert (configured.hwaccel_device, configured.hwaccel_gpu_index) == ("/dev/dri/renderD129", 1)
+    monkeypatch.setenv("LUMINA_HWACCEL_DEVICE", "/dev/dri/renderD129,driver=other")
+    with pytest.raises(ValueError):
+        EnvSettings()
+    monkeypatch.setenv("LUMINA_HWACCEL_DEVICE", "/dev/dri/renderD129")
+    monkeypatch.setenv("LUMINA_HWACCEL_GPU_INDEX", "-1")
+    with pytest.raises(ValueError):
+        EnvSettings()
+
+
 def test_ram_playback_storage_uses_its_own_available_capacity(
     registry: LocalPlaybackSessions,
     tmp_path: Path,

@@ -96,7 +96,7 @@ def playback_limits(db: Session, user_id: str, facts: dict[str, Any], max_height
     dv5 = any(s.get("dv_profile") == 5 for s in facts.get("streams") or [])
     if dv5:  # only then is the hardware probe worth waiting for
         record = db.get(AppSettings, 1)
-        dv5 = hwaccel.choice(media_tool(db, "ffmpeg"), record.hwaccel if record else "auto")[1] == "opencl"
+        dv5 = hwaccel.choice(media_tool(db, "ffmpeg"), record.hwaccel if record else "auto")[1] in {"opencl", "cuda"}
     return Limits(max_height=min(heights) if heights else None, max_bitrate=max_bitrate, dv5_reshape=dv5)
 
 
@@ -144,6 +144,7 @@ def get_local_playback(item_id: str, request: Request, profiles: str | None = Qu
         decision = playback_resources.preview(
             db, current_user, request, item.id, device, facts, caps,
             max_height=limits.max_height, max_bitrate=limits.max_bitrate,
+            dv5_reshape=limits.dv5_reshape,
             logical_id=(f"web:{item.id}", "direct"),
         ).decision
     return LocalPlaybackResponse(
@@ -184,6 +185,7 @@ def open_session(
         admission = playback_resources.admit(
             db, user, http_request, item.id, device, play_session_id or f"web:{item.id}", facts, caps,
             max_height=limits.max_height, max_bitrate=limits.max_bitrate,
+            dv5_reshape=limits.dv5_reshape,
             audio_index=request.audio_index, subtitle_index=subtitle_index,
         )
         decision = admission.decision

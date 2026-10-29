@@ -26,6 +26,8 @@ class EnvSettings(BaseSettings):
     library_dirname: str = "library"
     temp_dirname: str = "temp"
     playback_temp_dir: Path | None = None
+    hwaccel_device: str = Field(default="/dev/dri/renderD128", pattern=r"^/dev/dri/renderD[0-9]+$")
+    hwaccel_gpu_index: int = Field(default=0, ge=0)
     parser_sandbox: Literal["landlock", "namespace"] = "landlock"
     background_backfill_start_hour: int | None = Field(default=None, ge=0, le=23)
     background_backfill_end_hour: int | None = Field(default=None, ge=0, le=23)

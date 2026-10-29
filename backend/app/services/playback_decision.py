@@ -62,7 +62,7 @@ class ClientCaps:
 class Limits:
     max_height: int | None = None  # member ceiling and/or the chosen quality
     max_bitrate: int | None = None  # Jellyfin MaxStreamingBitrate
-    dv5_reshape: bool = False  # OpenCL tone-mapping can reshape Dolby Vision profile 5
+    dv5_reshape: bool = False  # OpenCL/CUDA tone-mapping can reshape Dolby Vision profile 5
     require_known_bitrate: bool = False  # a protected remote direct play must not assume an unknown source fits
     force_audio_encode: bool = False  # a constrained HLS rendition reserves a known AAC budget
 

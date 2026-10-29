@@ -25,7 +25,7 @@ from urllib.parse import quote
 
 from app.config import settings
 from app.services import subtitle_tracks
-from app.services.hwaccel import RENDER_NODE, hwaccel
+from app.services.hwaccel import ENCODERS, device_args, hwaccel
 from app.services.media_probe import LOCAL_INPUT_ARGS
 from app.services.playback_decision import Decision
 
@@ -131,18 +131,16 @@ def session_root() -> Path:
 HW_DECODE = frozenset({"h264", "hevc", "av1", "vp9", "mpeg2video", "vc1"})
 SOFTWARE_TONEMAP = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
 OPENCL_TONEMAP = "tonemap_opencl=tonemap=bt2390:desat=0:peak=100:t=bt709:m=bt709:p=bt709:format=nv12"
-# Segments are cut at every keyframe, so only the forced ones may exist (Jellyfin 10.11 EncodingHelper): libx264 adds
-# none at scene cuts, and h264_qsv makes a forced I frame an IDR (qsvenc.c marks only IDRs key). Jellyfin's x264opts
-# also make the first segments come sooner.
-ENCODERS = {
-    "none": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-sc_threshold", "0", "-x264opts", "subme=0:me_range=16:rc_lookahead=10:me=hex:open_gop=0"],
-    # QVBR/ICQ with -maxrate is the documented pairing; tune on the target hardware if bitrates overshoot.
-    "qsv": ["-c:v", "h264_qsv", "-preset", "veryfast", "-global_quality", "23", "-look_ahead", "0", "-forced_idr", "1"],
-    "vaapi": ["-c:v", "h264_vaapi", "-rc_mode", "QVBR", "-global_quality", "23"],
-}
 
 
-def _video_graph(decision: Decision, codec: str | None, hw: str, tonemap: str) -> tuple[list[str], str]:
+def _can_hw_decode(codec: str | None, pix_fmt: str | None, hw: str, tonemap: str) -> bool:
+    high10_avc = codec == "h264" and ("10" in (pix_fmt or ""))
+    if hw == "videotoolbox":
+        return codec in HW_DECODE and not high10_avc
+    return hw in {"qsv", "vaapi", "nvenc"} and codec in HW_DECODE and not high10_avc and tonemap != "software"
+
+
+def _video_graph(decision: Decision, codec: str | None, pix_fmt: str | None, hw: str, tonemap: str, *, hw_decode: bool = True) -> tuple[list[str], str]:
     """(hardware-device input args, filtergraph from the video stream to [v]) for an encoded video stream."""
     height = decision.height
     tm = tonemap if decision.tonemap else "none"
@@ -152,20 +150,40 @@ def _video_graph(decision: Decision, codec: str | None, hw: str, tonemap: str) -
     if hw == "none":
         chain = [f"scale=-2:{height}", SOFTWARE_TONEMAP if tm == "software" else "format=yuv420p"]
     else:
-        hw_decode = codec in HW_DECODE and tm != "software"
-        pre = ["-init_hw_device", f"vaapi=va:{RENDER_NODE}"]
-        if hw == "qsv":
-            pre += ["-init_hw_device", "qsv=qs@va"]
-        if tm == "opencl":
-            pre += ["-init_hw_device", "opencl=ocl@va"]
-        pre += ["-filter_hw_device", "qs" if hw == "qsv" else "va"]
-        if hw_decode:
-            pre += ["-hwaccel", hw, "-hwaccel_output_format", hw]
+        # High-10 AVC has no broadly available fixed-function decoder. Keep the GPU encoder
+        # and decode it in software; this is also the retry path for older GPU generations.
+        decode = hw_decode and _can_hw_decode(codec, pix_fmt, hw, tm)
+        if hw in {"qsv", "vaapi"}:
+            pre = device_args(hw)
+            if tm == "opencl":
+                pre += ["-init_hw_device", "opencl=ocl@va"]
+            if decode:
+                pre += ["-hwaccel", hw, "-hwaccel_output_format", hw]
+        elif hw == "nvenc":
+            pre = device_args(hw)
+            if decode:
+                pre += ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-threads", "1", "-hwaccel_flags", "+unsafe_output"]
+        elif hw == "videotoolbox" and decode:
+            # VideoToolbox returns CPU frames when no output format is forced, so
+            # the shared scale/subtitle graph stays portable.
+            pre = ["-hwaccel", "videotoolbox"]
+        # VideoToolbox and AMF hardware frames cannot reliably pass through the
+        # common subtitle/filter graph; retain their hardware encoders with CPU frames.
         if tm == "software":
-            chain = [f"scale=-2:{height}", SOFTWARE_TONEMAP, "format=nv12", "hwupload=extra_hw_frames=64"]
+            chain = [f"scale=-2:{height}", SOFTWARE_TONEMAP, "format=nv12"]
+            if hw in {"qsv", "vaapi", "nvenc"}:
+                chain.append("hwupload=extra_hw_frames=64")
+        elif hw == "nvenc":
+            fmt = "p010" if tm == "cuda" else "nv12"
+            chain = [] if decode else [f"format={fmt}", "hwupload=extra_hw_frames=64"]
+            chain.append(f"scale_cuda=w=-2:h={height}:format={fmt}")
+            if tm == "cuda":
+                chain.append("tonemap_cuda=tonemap=bt2390:desat=0:peak=100:t=bt709:m=bt709:p=bt709:format=nv12:apply_dovi=1")
+        elif hw in {"videotoolbox", "amf"}:
+            chain = [f"scale=-2:{height}", "format=nv12"]
         else:
-            fmt = "p010" if tm == "opencl" else "nv12"
-            chain = [] if hw_decode else [f"format={fmt}", "hwupload=extra_hw_frames=64"]
+            fmt = "p010" if tm in {"opencl", "vpp_qsv"} else "nv12"
+            chain = [] if decode else [f"format={fmt}", "hwupload=extra_hw_frames=64"]
             if hw == "qsv" and tm == "vpp_qsv":
                 chain.append(f"vpp_qsv=w=-1:h={height}:tonemap=1:format=nv12")
             elif hw == "qsv":
@@ -174,7 +192,10 @@ def _video_graph(decision: Decision, codec: str | None, hw: str, tonemap: str) -
                 chain.append(f"scale_vaapi=w=-2:h={height}:format={fmt}")
             if tm == "opencl":
                 chain += ["hwmap=derive_device=opencl", OPENCL_TONEMAP, f"hwmap=derive_device={hw}:reverse=1:extra_hw_frames=16"]
-        download, upload = ["hwdownload", "format=nv12"], ["hwupload=extra_hw_frames=64"]
+        if hw == "nvenc":
+            download, upload = ["hwdownload", "format=nv12"], ["hwupload=extra_hw_frames=64"]
+        elif hw in {"qsv", "vaapi"}:
+            download, upload = ["hwdownload", "format=nv12"], ["hwupload=extra_hw_frames=64"]
     head = f"[0:{decision.video_index}]{','.join(chain)}"
     if decision.burn_subtitle is None:
         return pre, f"{head}[v]"
@@ -186,7 +207,7 @@ def _video_graph(decision: Decision, codec: str | None, hw: str, tonemap: str) -
     )
 
 
-def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: Path, decision: Decision, *, hw: str = "none", tonemap: str = "none", start: float = 0, audio_gain_db: float | None = None, run: HlsRun | None = None) -> list[str]:
+def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: Path, decision: Decision, *, hw: str = "none", tonemap: str = "none", start: float = 0, audio_gain_db: float | None = None, run: HlsRun | None = None, hw_decode: bool = True) -> list[str]:
     """One command for any decision: copy what the client plays, encode the rest to H.264/AAC.
 
     A non-zero ``start`` input-seeks there (keyframe-accurate for copied video) and keeps source
@@ -206,15 +227,16 @@ def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: 
     seek = [*copy_seek, "-ss", f"{seek_at:{places}}"] if start else []
     offset = ["-output_ts_offset", f"{seek_at if run else start:{places}}"] if start else []
     length = ["-t", f"{run.length:.6f}"] if run and run.length else []
-    codec = next((s.get("codec") for s in facts.get("streams") or [] if s.get("index") == decision.video_index), None)
+    video = next((s for s in facts.get("streams") or [] if s.get("index") == decision.video_index), {})
+    codec = video.get("codec")
     pre: list[str] = []
     out: list[str] = []
     if decision.video == "encode":
-        pre, video_graph = _video_graph(decision, codec, hw, tonemap)
+        pre, video_graph = _video_graph(decision, codec, video.get("pix_fmt"), hw, tonemap, hw_decode=hw_decode)
         bitrate = decision.bitrate or 8_000_000
         out += [
             "-filter_complex", video_graph, "-map", "[v]", *ENCODERS[hw],
-            "-maxrate", str(bitrate), "-bufsize", str(bitrate * 2),
+            *(["-b:v", str(bitrate)] if hw != "none" else []), "-maxrate", str(bitrate), "-bufsize", str(bitrate * 2),
             # Web encodes: keyframes at 0, 1, 2, 3, 4, 8, 12 … s, where the 1 s first segments and the 4 s ones after them are
             # cut. A seekable (Jellyfin) run keeps the fixed 0, 1, 5, 9 … grid its up-front playlist promises (jellyfin_hls).
             "-force_key_frames", (f"expr:gte(t,max(0,n_forced*{SEGMENT_SECONDS}-{0 if run.index else SEGMENT_SECONDS - FIRST_SEGMENT_SECONDS}))" if run
@@ -248,6 +270,8 @@ def ffmpeg_command(ffmpeg: str, source: Path, facts: dict[str, Any], directory: 
 
 
 def _signal(process: subprocess.Popen, sig: int) -> None:
+    if os.name == "nt":
+        return  # Windows cannot suspend/resume arbitrary child processes with POSIX signals.
     with contextlib.suppress(ProcessLookupError):
         process.send_signal(sig)
 
@@ -255,7 +279,8 @@ def _signal(process: subprocess.Popen, sig: int) -> None:
 def _terminate(process: subprocess.Popen, grace_seconds: float = 5) -> None:
     if process.poll() is not None:
         return
-    _signal(process, signal.SIGCONT)  # a throttled child ignores SIGTERM until it runs again
+    if os.name != "nt":
+        _signal(process, signal.SIGCONT)  # a throttled child ignores SIGTERM until it runs again
     process.terminate()
     try:
         process.wait(timeout=grace_seconds)
@@ -362,7 +387,9 @@ class LocalPlaybackSessions:
             start = min(start, max(0.0, duration - SEGMENT_SECONDS))
         encode = decision.video == "encode"
         hw, tonemap = hwaccel.choice(ffmpeg, hwaccel_mode) if encode else ("none", "none")
-        key = (decision.video_index, decision.audio_index, decision.burn_subtitle, decision.height, decision.video, decision.audio, plan is not None)
+        if decision.tonemap and tonemap == "none":
+            raise ConversionError("This HDR file cannot be tone-mapped on this server.")
+        key = (decision.video_index, decision.audio_index, decision.burn_subtitle, decision.height, decision.video, decision.audio, plan is not None, hw, tonemap)
         spawn = functools.partial(
             self._spawn, user_id=user_id, item_id=item_id, device=device, play_session_id=play_session_id, ffmpeg=ffmpeg,
             source=source, facts=facts, decision=decision, start=start, audio_gain_db=audio_gain_db, key=key,
@@ -388,7 +415,7 @@ class LocalPlaybackSessions:
                 raise SessionCapError("The server is low on disk space, so playback conversion is paused.")
             for old in stale:
                 self._sessions.pop(old.id)
-            session = spawn(hw=hw, tonemap=tonemap)
+            session = spawn(hw=hw, tonemap=tonemap, hw_decode=True)
         for old in stale:
             self._dispose(old)
         try:
@@ -398,16 +425,35 @@ class LocalPlaybackSessions:
         except ConversionError:
             if hw == "none":
                 raise
-            hwaccel.record_failure()
             video = next((s for s in facts.get("streams") or [] if s.get("index") == decision.video_index), {})
+            # Older GPUs often encode a source codec they cannot decode. Retry the
+            # same encoder with CPU-decoded frames before disabling hardware.
+            if _can_hw_decode(video.get("codec"), video.get("pix_fmt"), hw, tonemap if decision.tonemap else "none"):
+                with self._lock:
+                    if any(s.user_id == user_id and s.device == device for s in self._sessions.values()):
+                        raise SupersededError("A newer playback request replaced this one.") from None
+                    if sum(s.kind.startswith("video") for s in self._sessions.values()) >= cap:
+                        raise SessionCapError(BUSY) from None
+                    session = spawn(hw=hw, tonemap=tonemap, hw_decode=False)
+                try:
+                    session = self._await_manifest(session)
+                except ConversionError:
+                    pass
+                else:
+                    hwaccel.record_success()
+                    return session
+            hwaccel.record_failure()
             if decision.tonemap and video.get("dv_profile") == 5:  # Software tone-mapping cannot reshape DV5
                 raise
+            software_tonemap = hwaccel.software_tonemap(ffmpeg, hwaccel_mode)
+            if decision.tonemap and software_tonemap == "none":
+                raise ConversionError("This HDR file cannot be tone-mapped on this server.") from None
             with self._lock:  # one software retry: the hardware path died before its first playlist
                 if any(s.user_id == user_id and s.device == device for s in self._sessions.values()):
                     raise SupersededError("A newer playback request replaced this one.") from None
                 if sum(s.kind.startswith("video") for s in self._sessions.values()) >= cap:
                     raise SessionCapError(BUSY) from None
-                session = spawn(hw="none", tonemap=hwaccel.software_tonemap(ffmpeg, hwaccel_mode))
+                session = spawn(hw="none", tonemap=software_tonemap, hw_decode=False)
             return self._await_manifest(session)
         if hw != "none":
             hwaccel.record_success()
@@ -415,7 +461,7 @@ class LocalPlaybackSessions:
 
     def _spawn(
         self, *, user_id: str, item_id: str, device: str, play_session_id: str | None, ffmpeg: str, source: Path,
-        facts: dict[str, Any], decision: Decision, start: float, audio_gain_db: float | None, key: tuple, hw: str, tonemap: str,
+        facts: dict[str, Any], decision: Decision, start: float, audio_gain_db: float | None, key: tuple, hw: str, tonemap: str, hw_decode: bool,
         plan: Plan | None = None, run: HlsRun | None = None, resource_admission: Any = None,
     ) -> PlaybackSession:
         """Launch one ffmpeg child in a fresh directory. The caller holds the lock."""
@@ -427,7 +473,7 @@ class LocalPlaybackSessions:
             # O_APPEND, so reap() can truncate the log under a running child.
             with open(directory / "ffmpeg.log", "ab") as log:  # the child keeps its own descriptor
                 return subprocess.Popen(
-                    ffmpeg_command(ffmpeg, source, facts, directory, decision, hw=hw, tonemap=tonemap, start=start, audio_gain_db=audio_gain_db, run=run),
+                    ffmpeg_command(ffmpeg, source, facts, directory, decision, hw=hw, tonemap=tonemap, start=start, audio_gain_db=audio_gain_db, run=run, hw_decode=hw_decode),
                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
                 )
 
@@ -451,11 +497,21 @@ class LocalPlaybackSessions:
             failed = session.process.poll() not in (None, 0) or time.monotonic() > deadline
             with self._lock:  # read after poll(): a supersede pops the session before it kills the child
                 superseded = self._sessions.get(session.id) is not session
+                if failed and not superseded:
+                    # Removing the failed child and detaching its admission must be
+                    # atomic with stop/supersession, which otherwise releases it.
+                    admission = session.resource_admission
+                    session.resource_admission = None
+                    self._sessions.pop(session.id)
             if superseded:
                 raise SupersededError("A newer playback request replaced this one.")
             if failed:
                 recent_errors.appendleft(_tail(session.directory / "ffmpeg.log", 500).strip() or "ffmpeg stopped before its first segment")
-                self.stop(session.id)
+                # ``start()`` may replace this failed child with another encoder.
+                # Keep its admission through that retry; the route restores it on a
+                # terminal startup failure, and a successful replacement owns it.
+                self._dispose(session)
+                session.resource_admission = admission
                 raise ConversionError("This file could not be converted for playback.")
             time.sleep(MANIFEST_POLL_SECONDS)
         return session
@@ -551,7 +607,7 @@ class LocalPlaybackSessions:
     @staticmethod
     def _throttle(session: PlaybackSession) -> None:
         """Pause ffmpeg > 120 s ahead of the player, resume under 60 s. ffmpeg renames segN into place only when complete."""
-        if session.process.poll() is not None:
+        if os.name == "nt" or session.process.poll() is not None:
             return
 
         def buffered(seconds: int) -> bool:

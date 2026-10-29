@@ -233,6 +233,7 @@ def annotate_media_sources(
             decision = playback_resources.preview(
                 db, user, http_request, item.id, device, facts, caps,
                 max_height=limits.max_height, max_bitrate=limits.max_bitrate,
+                dv5_reshape=limits.dv5_reshape,
                 audio_index=audio, subtitle_index=subtitle,
                 logical_id=(play_session_id, "direct"),
             ).decision

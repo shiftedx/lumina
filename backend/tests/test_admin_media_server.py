@@ -71,6 +71,17 @@ def test_env_key_and_public_url_are_reported(admin, monkeypatch) -> None:
     assert "env-key" not in str(body)
 
 
+@pytest.mark.parametrize("mode", ["qsv", "vaapi", "nvenc", "videotoolbox", "amf", "off"])
+def test_hardware_vendor_setting_survives_a_database_reload(admin, mode) -> None:
+    client, _, _, factory = admin
+    saved = client.put("/api/admin/media-server", json={"hwaccel": mode})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["hwaccel"] == mode
+    assert client.get("/api/admin/media-server").json()["hwaccel"] == mode
+    with factory() as db:
+        assert db.get(AppSettings, 1).hwaccel == mode
+
+
 @pytest.mark.parametrize("payload", [
     {"hwaccel": "cuda"}, {"metadata_language": "english"}, {"transcode_cache_gb": 0},
     {"max_playback_sessions": 17}, {"jellyfin_server_key": "ab" * 32}, {"tmdb_api_key": "k" * 513},

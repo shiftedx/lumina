@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -48,7 +48,7 @@ describe('WatchRelated', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('shows why each recommendation is relevant and keeps the reason in its row menu', () => {
+  it('shows why each recommendation is relevant in its row without duplicating it in the menu', () => {
     const picks = [recoEntry('a', 0, { title: 'Actual next video' }, { reason: 'Because you finished Harbor walk at dawn' }), recoEntry('b', 1, { title: 'Second video' }, { reason: 'More from Channel b', reason_code: 'same_channel' })];
     render(provider(<WatchRelated {...props} items={picks} />));
     expect(screen.getByRole('button', { name: /^Actual next video/ })).toBeTruthy();
@@ -59,7 +59,9 @@ describe('WatchRelated', () => {
     expect(screen.getByRole('button', { name: /^Second video/ }).getAttribute('aria-describedby')?.split(' ')).toContain(screen.getByText('More from Channel b').id);
     expect(screen.getByText('Plays next')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'More options for Second video' }));
-    expect(screen.getByRole('group', { name: 'More from Channel b' })).toBeTruthy();
+    const menu = screen.getByRole('menu');
+    expect(within(menu).queryByText('More from Channel b')).toBeNull();
+    expect(within(menu).getByRole('menuitem', { name: 'Not interested' })).toBeTruthy();
   });
 
   it('replaces a row with Hidden. Undo in place and leaves the other rows alone', async () => {

@@ -20,7 +20,7 @@ test('Next up → series → Season 2 → play', async ({ page }) => {
   // The hero carousel pushes the last shelves below the lazy-load margin; visit the bottom so the empty ones resolve and drop out.
   // Do not hold a shelf locator here: an empty lazy shelf legitimately unmounts as soon as its request settles.
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await expect(page.locator('.h-shelf h2')).toHaveText(['Next up', 'Because you watched Harbor Lights', 'Recently saved']);
+  await expect(page.locator('.h-shelf h2')).toHaveText(['Next up', 'More for you', 'Recently saved']);
   await page.getByRole('button', { name: 'Harbor Lights, S2 · E2' }).click();
   await expect(page).toHaveURL(/\/video\/title\/series-1\?season=2$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Harbor Lights' })).toBeVisible();

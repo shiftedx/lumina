@@ -8,6 +8,7 @@ Lumina is built on other people's work. Thank you.
 | --- | --- | --- |
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Every online source: search, streams, downloads, live chat | Unlicense |
 | [FFmpeg](https://ffmpeg.org) via [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg) 8.1.3-1 | Probing, remux, transcode, artwork | GPL-3.0 |
+| [Mesa 3D](https://www.mesa3d.org) and [libva](https://github.com/intel/libva) | VA-API userspace drivers for Intel and AMD GPU conversion | MIT |
 | [Intel compute-runtime](https://github.com/intel/compute-runtime) and [graphics compiler](https://github.com/intel/intel-graphics-compiler) | OpenCL tone-mapping on Intel GPUs (amd64) | MIT |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) | On-device search models | MIT |
 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and [CTranslate2](https://github.com/OpenNMT/CTranslate2) | On-device transcripts | MIT |

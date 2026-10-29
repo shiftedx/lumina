@@ -56,6 +56,22 @@ def test_remote_100mb_source_is_admitted_as_a_lower_viable_rendition(monkeypatch
     assert (admission.decision.mode, admission.decision.video, admission.decision.height, admission.decision.bitrate) == ("transcode", "encode", 720, 4_000_000)
 
 
+def test_dolby_vision_reshape_capability_survives_protected_preview_and_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    resources = _protected(monkeypatch, _policy())
+    source = _facts()
+    source["streams"][0].update(codec="hevc", pix_fmt="yuv420p10le", dv_profile=5, dv_compat=0)
+    user, request = SimpleNamespace(id="member"), SimpleNamespace()
+    with pytest.raises(HTTPException) as error:
+        resources.preview(None, user, request, "movie", "tv", source, BROWSER_DEFAULT)
+    assert error.value.status_code == 409
+    preview = resources.preview(None, user, request, "movie", "tv", source, BROWSER_DEFAULT, dv5_reshape=True)
+    admission = resources.admit(None, user, request, "movie", "tv", "hls", source, BROWSER_DEFAULT, dv5_reshape=True)
+    assert preview.decision == admission.decision
+    assert admission.decision.mode == "transcode" and admission.decision.tonemap
+    assert admission.allocation_bps == 8_000_000
+    assert admission.decision.bitrate < admission.allocation_bps
+
+
 def test_preview_of_an_existing_logical_playback_keeps_its_full_allocation(monkeypatch: pytest.MonkeyPatch) -> None:
     resources = _protected(monkeypatch, _policy(upload=8_000_000))
     user, request = SimpleNamespace(id="member"), SimpleNamespace()

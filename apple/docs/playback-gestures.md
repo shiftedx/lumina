@@ -19,12 +19,13 @@ interaction rules; it is guidance for the existing player, not a new engine.
 - A right swipe drives the system-owned `MPVolumeView` slider, sharing output
   volume with hardware buttons. Chromecast retains its receiver volume. The
   redundant video volume sliders are removed.
-- Brightness uses UIKit's supported main-screen brightness control while the
-  player belongs to an application scene. Duo inner-window screens are tracked
-  for attachment/transition changes but do not provide a separate supported
-  brightness-write endpoint. External presentation scenes are excluded. A shared
-  lease restores the original level on exit/inactivity/PiP only while Lumina still
-  owns the last applied value. External changes revoke ownership.
+- Brightness targets the screen of the player's application scene. On Duo,
+  `UIScreen.main` can identify the other built-in panel after unfolding; using it
+  can move the HUD while leaving the visible panel unchanged. Window attachment
+  and layout reports recheck the scene's display, releasing the old display's
+  lease when it changes. External presentation scenes remain excluded. A shared
+  per-display lease restores the original level on exit/inactivity/PiP only while
+  Lumina still owns the last applied value. External changes revoke ownership.
 - `Core/.../NativePlaybackPreferences.swift` stores device preferences in
   `UserDefaults`. New gesture choices use that model and default on; temporary
   speed and brightness never persist. Device Settings and player settings share
@@ -89,3 +90,25 @@ state tests; they are not claimed as hardware-tested. XCTest's default full-scre
 two-finger tap places contacts inside excluded system-edge bands, so it is not
 used to claim a valid centered chord. No new thumbnail provider, server endpoint,
 full repository suite, archive, upload or release was added for this task.
+
+
+## Duo brightness targeting follow-up (2026-10-28)
+
+The owner reported that the physical outer panel responded to brightness swipes,
+while the inner panel showed a moving HUD without a visible brightness change.
+The previous native check asserted only the requested level. A strengthened check
+failed on the unfolded 951×669-point player because its brightness target was not
+the screen supplied by the player's window scene. The global main-screen fallback
+has been removed; brightness writes now use that application-scene display.
+
+The existing device-controls journey now asserts display identity and retains an
+attachment containing requested brightness and active-display readback. On the
+final source it passed both the unfolded 951×669 and folded 466×678 viewports,
+including brightness/volume dispatch, pause intent and public Close. The focused
+Core gesture, playback-state and brightness-ownership filters passed 27 tests.
+
+Simulator readback remained 0.5 after writes in both postures, including the outer
+posture where the owner reports that physical control works. These results prove
+target selection and dispatch, not physical panel dimming. Physical brightness
+and restoration still need confirmation in the next requested device build;
+uploaded build 31 contains the old routing. No archive or upload was made.

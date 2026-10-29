@@ -22,7 +22,7 @@ RAW = {
     ],
     "streams": [
         {"index": 0, "codec_type": "video", "codec_name": "hevc", "profile": "Main 10", "level": 153, "width": 3840, "height": 2160,
-         "pix_fmt": "yuv420p10le", "color_transfer": "smpte2084", "avg_frame_rate": "24000/1001", "disposition": {"default": 1},
+         "pix_fmt": "yuv420p10le", "color_transfer": "smpte2084", "color_primaries": "bt2020", "color_space": "bt2020nc", "color_range": "tv", "avg_frame_rate": "24000/1001", "disposition": {"default": 1},
          "side_data_list": [{"side_data_type": "DOVI configuration record", "dv_profile": 8, "dv_bl_signal_compatibility_id": 1}]},
         {"index": 1, "codec_type": "audio", "codec_name": "truehd", "channels": 8, "channel_layout": "7.1", "sample_rate": "48000",
          "tags": {"language": "eng", "title": "Atmos"}, "disposition": {"default": 1}},
@@ -46,6 +46,7 @@ def test_every_real_stream_is_listed_with_normalized_facts() -> None:
         "index": 0, "type": "video", "codec": "hevc", "profile": "Main 10", "level": 153, "language": None, "title": None,
         "default": True, "forced": False, "hearing_impaired": False, "width": 3840, "height": 2160, "channels": None,
         "channel_layout": None, "sample_rate": None, "bit_rate": None, "pix_fmt": "yuv420p10le", "color_transfer": "smpte2084",
+        "color_primaries": "bt2020", "color_space": "bt2020nc", "color_range": "tv",
         "frame_rate": 23.976, "dv_profile": 8, "dv_compat": 1, "hdr10": False, "hdr10plus": False,
     }
     assert (truehd["language"], truehd["title"], truehd["channels"], truehd["sample_rate"], truehd["default"]) == ("eng", "Atmos", 8, 48000, True)
@@ -60,17 +61,18 @@ def test_every_real_stream_is_listed_with_normalized_facts() -> None:
     ]
 
 
-def test_frame_colors_follow_playable_video_when_cover_art_comes_first(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("transfer", [None, "smpte2084", "arib-std-b67"])
+def test_frame_colors_follow_playable_video_when_cover_art_comes_first(monkeypatch: pytest.MonkeyPatch, transfer: str | None) -> None:
     responses = iter([
         {
             "format": {"format_name": "matroska,webm"},
             "streams": [
                 {"index": 0, "codec_type": "video", "codec_name": "mjpeg", "disposition": {"attached_pic": 1}},
                 {"index": 1, "codec_type": "audio", "codec_name": "aac"},
-                {"index": 2, "codec_type": "video", "codec_name": "hevc", "color_space": "bt2020nc", "disposition": "bad"},
+                {"index": 2, "codec_type": "video", "codec_name": "hevc", "color_space": "bt2020nc", "color_transfer": transfer, "disposition": "bad"},
             ],
         },
-        {"frames": [{"stream_index": 2, "color_space": "bt2020nc", "color_transfer": "smpte2084", "color_primaries": "bt2020"}]},
+        {"frames": [{"stream_index": 2, "color_space": "bt2020nc", "color_transfer": transfer or "smpte2084", "color_primaries": "bt2020", "color_range": "tv", "pix_fmt": "yuv420p10le"}]},
     ])
     commands: list[list[str]] = []
 
@@ -84,7 +86,8 @@ def test_frame_colors_follow_playable_video_when_cover_art_comes_first(monkeypat
     assert len(commands) == 2
     assert commands[1][commands[1].index("-select_streams") + 1] == "2"
     assert facts["video_codec"] == "hevc"
-    assert facts["streams"][1]["color_transfer"] == "smpte2084"
+    stream = facts["streams"][1]
+    assert (stream["color_transfer"], stream["color_space"], stream["color_primaries"], stream["color_range"], stream["pix_fmt"]) == (transfer or "smpte2084", "bt2020nc", "bt2020", "tv", "yuv420p10le")
 
 
 def _fake_probe(tmp_path: Path, body: str) -> Path:
@@ -304,6 +307,7 @@ def test_legacy_successful_caches_are_stale_but_cached_errors_are_not() -> None:
     assert is_stale({"fingerprint": "1:1", "streams": [], "chapters": []}, "1:2")  # the file changed
     assert is_stale({"fingerprint": "1:2", "streams": []}, "1:2")  # cache predates current facts
     assert is_stale({"fingerprint": "1:2", "streams": [], "chapters": []}, "1:2")  # cache predates current version
+    assert is_stale({"fingerprint": "1:2", "streams": [], "chapters": [], "_probe_cache_version": PROBE_CACHE_VERSION - 1}, "1:2")
     assert not is_stale({
         "fingerprint": "1:2", "streams": [], "chapters": [], "_probe_cache_version": PROBE_CACHE_VERSION,
     }, "1:2")

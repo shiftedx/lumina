@@ -160,6 +160,25 @@ def test_a_decode_failure_retries_cpu_decode_with_the_hardware_encoder(registry,
     assert session.kind == "video_hw" and hwaccel.fallbacks == 0 and hwaccel.failures == 0
 
 
+def test_rkmpp_zero_copy_decoder_failure_retries_cpu_upload_with_the_same_encoder(registry, monkeypatch: pytest.MonkeyPatch) -> None:
+    """DRM-PRIME/RGA is an optional decoder path, not a reason to lose the MPP encoder."""
+    monkeypatch.setattr(hwaccel, "status", lambda ffmpeg, mode: HwStatus(active="rkmpp", probe_ok=True, encode_codecs=("h264", "hevc")))
+    monkeypatch.setattr(hwaccel, "zero_copy_supported", lambda ffmpeg, source, output, ffprobe: True)
+    monkeypatch.setenv("FAKE_FAIL_DECODE", "1")
+    calls: list[bool] = []
+    command = lps.ffmpeg_command
+
+    def record(*args, **kwargs):  # noqa: ANN002, ANN003 - forwarding a public command boundary
+        calls.append(bool(kwargs.get("zero_copy")))
+        return command(*args, **kwargs)
+
+    monkeypatch.setattr(lps, "ffmpeg_command", record)
+    facts = {**FACTS, "streams": [{**FACTS["streams"][0], "codec": "hevc", "pix_fmt": "yuv420p"}, FACTS["streams"][1]]}
+    session = registry.start(user_id="alice", item_id="i1", ffmpeg=registry.ffmpeg, ffprobe="ffprobe", source=Path("/media/x.mkv"), facts=facts, decision=VIDEO, cap=2)
+    assert calls == [True, False]
+    assert session.kind == "video_hw" and session.info["video"]["zero_copy"] is False and hwaccel.fallbacks == 0
+
+
 def test_startup_decode_retry_keeps_its_protected_resource_reservation(registry, monkeypatch: pytest.MonkeyPatch) -> None:
     import app.services.playback_resources as resources_module
 

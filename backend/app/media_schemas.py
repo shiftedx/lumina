@@ -718,6 +718,10 @@ class TranscodeDiagnostics(BaseModel):
     tonemap: TonemapMethod
     encode_codecs: list[Literal["h264", "hevc", "av1"]] = Field(default_factory=lambda: ["h264"])
     encode_errors: dict[str, str] = Field(default_factory=dict)
+    hdr_encode_ranges: dict[str, list[Literal["HDR10", "HLG"]]] = Field(default_factory=dict)
+    hdr_encode_errors: dict[str, str] = Field(default_factory=dict)
+    zero_copy_pairs: list[str] = Field(default_factory=list)
+    zero_copy_errors: dict[str, str] = Field(default_factory=dict)
     hardware_disabled: bool = False  # 3 consecutive hardware failures: software until restart
     software_fallbacks: int = 0
     sessions: dict[str, int] = Field(default_factory=dict)  # remux | audio | video_sw | video_hw -> count

@@ -28,7 +28,7 @@ from app.services.yt_dlp_service import YtDlpService
 PROBE_TIMEOUT_SECONDS = 20
 PROBE_OUTPUT_LIMIT = 1_000_000
 PROBE_TERMINATE_GRACE_SECONDS = 0.25
-PROBE_CACHE_VERSION = 4
+PROBE_CACHE_VERSION = 5
 _PROBE_CACHE_VERSION_KEY = "_probe_cache_version"
 _probe_slots = threading.BoundedSemaphore(2)
 _artifact_locks: dict[str, threading.Lock] = {}
@@ -219,7 +219,7 @@ def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
     transfer = first_video.get("color_transfer") if first_video else None
     needs_hdr_facts = first_video is not None and (
         (first_video.get("color_space") in {"bt2020nc", "bt2020c"} and not (isinstance(transfer, str) and transfer.strip()))
-        or transfer == "smpte2084"
+        or transfer in {"smpte2084", "arib-std-b67"}
     )
     if not needs_hdr_facts:
         return raw
@@ -256,7 +256,7 @@ def run_ffprobe(ffprobe: str, path: Path) -> dict[str, Any]:
     if not isinstance(first.get("color_transfer"), str) or not first["color_transfer"].strip():
         if not (isinstance(transfer, str) and transfer.strip()):
             raise ProbeError("probe_failed")
-    for key in ("color_space", "color_transfer", "color_primaries"):
+    for key in ("color_space", "color_transfer", "color_primaries", "color_range", "pix_fmt"):
         if first.get(key):
             hdr_stream[key] = first[key]
     if isinstance(first.get("side_data_list"), list):
@@ -327,6 +327,9 @@ def _stream(raw: dict[str, Any]) -> dict[str, Any]:
         "bit_rate": _int(raw.get("bit_rate")),
         "pix_fmt": _text(raw.get("pix_fmt"), 40),
         "color_transfer": _text(raw.get("color_transfer"), 40),
+        "color_primaries": _text(raw.get("color_primaries"), 40),
+        "color_space": _text(raw.get("color_space"), 40),
+        "color_range": _text(raw.get("color_range"), 40),
         "frame_rate": _rate(raw.get("avg_frame_rate") or raw.get("r_frame_rate")),
         "dv_profile": _int(dovi.get("dv_profile")),
         "dv_compat": _int(dovi.get("dv_bl_signal_compatibility_id")),

@@ -112,7 +112,7 @@ def jellyfin_master_playlist(
             db, caller.user, item, caps=pending.caps, request=payload, start=pending.start_seconds, device=caller.token_id,
             play_session_id=playsessionid, max_bitrate=pending.max_bitrate, seekable=True,
             audio_gain_db=loudness_gain_db(facts.get("loudness")) if normalize_loudness(db, caller.user.id) else None,
-            http_request=request, encode_codecs=pending.encode_codecs,
+            http_request=request, encode_codecs=pending.encode_codecs, encode_ranges=pending.encode_ranges,
         )
     playback_resources.touch(session.resource_admission)
     separate_audio = separate_audio and bool(session.info.get("audio") and session.info.get("video"))

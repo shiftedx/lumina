@@ -6,7 +6,7 @@ from dataclasses import replace
 import pytest
 
 from app.services.playback_decision import (
-    BROWSER_DEFAULT, Limits, VideoCap, caps_from_browser_profiles, caps_from_device_profile, decide,
+    BROWSER_DEFAULT, Limits, VideoCap, bit_depth, caps_from_browser_profiles, caps_from_device_profile, decide,
 )
 
 
@@ -42,6 +42,12 @@ def facts(container, *streams, bit_rate=5_000_000, webm=False):
     return {"container": container, "webm_suffix": webm, "bit_rate": bit_rate, "streams": list(streams)}
 
 
+def hdr_v(*, transfer="smpte2084", **kwargs):
+    stream = v("hevc", pix_fmt="yuv420p10le", transfer=transfer, **kwargs)
+    stream.update(color_space="bt2020nc", color_primaries="bt2020", color_range="tv")
+    return stream
+
+
 MKV, MP4, AVI = "matroska,webm", "mov,mp4,m4a,3gp,3g2,mj2", "avi"
 
 
@@ -57,6 +63,32 @@ def test_dolby_vision_5_conversion_requires_a_probed_reshape_path(db_factory, mo
     assert decision.mode == ("transcode" if tonemap in {"cuda", "opencl"} else "unavailable")
     if decision.mode == "transcode":
         assert decision.video == "encode" and decision.tonemap
+
+
+def test_hdr_output_probe_runs_only_for_an_explicit_eligible_hdr_rendition(db_factory, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.routers import local_playback
+
+    caps = replace(
+        BROWSER_DEFAULT,
+        transcode_video=("h264", "hevc"),
+        transcode_ranges={"hevc": frozenset({"HDR10"})},
+        video={**BROWSER_DEFAULT.video, "hevc": VideoCap(max_bit_depth=10, ranges=frozenset({"SDR", "HDR10"}))},
+    )
+    calls: list[tuple] = []
+    monkeypatch.setattr(local_playback, "media_tool", lambda _db, name: f"/{name}")
+    monkeypatch.setattr(local_playback.hwaccel, "output_codecs", lambda *_args: ("h264", "hevc"))
+    monkeypatch.setattr(local_playback.hwaccel, "output_ranges", lambda *args, **kwargs: calls.append((args, kwargs)) or {"hevc": frozenset({"HDR10"})})
+    source = facts(MKV, hdr_v(), a())
+
+    with db_factory() as db:
+        limits = local_playback.playback_limits(db, "member", source, caps=caps)
+        source["streams"][0]["hdr10plus"] = True
+        ineligible = local_playback.playback_limits(db, "member", source, caps=caps)
+        sdr = local_playback.playback_limits(db, "member", facts(MKV, v("mpeg4"), a()), caps=caps)
+
+    assert limits.encode_ranges == {"hevc": frozenset({"HDR10"})}
+    assert calls == [(("/ffmpeg", "auto", "/ffprobe"), {"video_range": "HDR10"})]
+    assert ineligible.encode_ranges == sdr.encode_ranges == {}
 
 
 # An Apple TV client's profile, shaped like the ones Infuse/Swiftfin post. The 10.11 regression row: conditions
@@ -237,6 +269,9 @@ def test_browser_profiles_only_add_to_the_default() -> None:
     with_ac3 = caps_from_browser_profiles(["mp4-ac3"])
     assert decide(with_ac3, facts(MP4, v(), a("ac3", 6))).mode == "direct"
     assert decide(BROWSER_DEFAULT, facts(MP4, v(), a("ac3", 6))).mode == "transcode"
+    hdr_hls = caps_from_browser_profiles(["mp4-hevc10-aac", "hls-hevc-aac", "hls-hevc-hdr10-aac"])
+    assert hdr_hls.transcode_ranges == {"hevc": frozenset({"HDR10"})}
+    assert "HDR10" in hdr_hls.video["hevc"].ranges
 
 
 def test_modern_output_requires_explicit_hls_profile_and_a_proven_encoder() -> None:
@@ -251,6 +286,126 @@ def test_modern_output_requires_explicit_hls_profile_and_a_proven_encoder() -> N
 
     baseline = decide(BROWSER_DEFAULT, source, Limits(encode_codecs=("h264", "hevc", "av1")))
     assert (baseline.video_codec, baseline.height) == ("h264", 1080)
+
+
+@pytest.mark.parametrize("transfer, expected_range", [("smpte2084", "HDR10"), ("arib-std-b67", "HLG")])
+def test_explicit_client_and_proven_server_hdr_output_preserves_the_exact_range(transfer: str, expected_range: str) -> None:
+    source = facts(MKV, hdr_v(transfer=transfer, height=2160, width=3840), a())
+    caps = replace(
+        BROWSER_DEFAULT,
+        transcode_video=("h264", "hevc"),
+        transcode_ranges={"hevc": frozenset({expected_range})},
+        video={**BROWSER_DEFAULT.video, "hevc": VideoCap(max_height=1080, max_bit_depth=10, ranges=frozenset({"SDR", expected_range}))},
+    )
+
+    decision = decide(caps, source, Limits(encode_codecs=("h264", "hevc"), encode_ranges={"hevc": frozenset({expected_range})}))
+
+    assert (decision.video, decision.video_codec, decision.video_range, decision.tonemap) == ("encode", "hevc", expected_range, False)
+
+
+def test_hdr_prefers_a_proven_preserving_codec_over_a_higher_ranked_sdr_codec() -> None:
+    source = facts(MKV, hdr_v(height=2160, width=3840), a())
+    caps = replace(
+        BROWSER_DEFAULT,
+        transcode_video=("h264", "hevc", "av1"),
+        transcode_ranges={"hevc": frozenset({"HDR10"})},
+        video={
+            **BROWSER_DEFAULT.video,
+            "hevc": VideoCap(max_height=1080, max_bit_depth=10, ranges=frozenset({"SDR", "HDR10"})),
+            "av1": VideoCap(max_bit_depth=10, ranges=frozenset({"SDR"})),
+        },
+    )
+
+    decision = decide(caps, source, Limits(encode_codecs=("h264", "hevc", "av1"), encode_ranges={"hevc": frozenset({"HDR10"})}))
+
+    assert (decision.video_codec, decision.video_range, decision.tonemap) == ("hevc", "HDR10", False)
+
+
+def test_burned_image_subtitles_force_hdr_to_sdr_or_refuse_when_sdr_is_not_allowed() -> None:
+    source = facts(MKV, hdr_v(height=2160, width=3840), a(), s("hdmv_pgs_subtitle"))
+    caps = replace(
+        BROWSER_DEFAULT,
+        transcode_video=("h264", "hevc"),
+        transcode_ranges={"hevc": frozenset({"HDR10"})},
+        video={**BROWSER_DEFAULT.video, "hevc": VideoCap(max_height=1080, max_bit_depth=10, ranges=frozenset({"SDR", "HDR10"}))},
+    )
+    limits = Limits(encode_codecs=("h264", "hevc"), encode_ranges={"hevc": frozenset({"HDR10"})})
+
+    sdr = decide(caps, source, limits, subtitle_index=2)
+    hdr_only = decide(replace(caps, transcode_video=("hevc",), video={**caps.video, "hevc": VideoCap(max_height=1080, max_bit_depth=10, ranges=frozenset({"HDR10"}))}), source, limits, subtitle_index=2)
+
+    assert (sdr.burn_subtitle, sdr.video_range, sdr.tonemap) == (2, "SDR", True)
+    assert hdr_only.mode == "unavailable"
+
+
+def test_hdr_client_that_rejects_sdr_is_not_silently_downgraded() -> None:
+    source = facts(MKV, hdr_v(height=2160, width=3840), a())
+    caps = replace(
+        BROWSER_DEFAULT,
+        transcode_video=("hevc",),
+        transcode_ranges={"hevc": frozenset({"HDR10"})},
+        video={**BROWSER_DEFAULT.video, "hevc": VideoCap(max_height=1080, max_bit_depth=10, ranges=frozenset({"HDR10"}))},
+    )
+
+    decision = decide(caps, source, Limits(encode_codecs=("hevc",)))
+
+    assert decision.mode == "unavailable"
+
+
+@pytest.mark.parametrize("extra", [{"hdr10plus": True}, {"dv_profile": 0}])
+def test_dolby_vision_and_hdr10plus_never_become_hdr_output(extra: dict) -> None:
+    source_video = hdr_v(height=2160, width=3840)
+    source_video.update(extra)
+    caps = replace(
+        BROWSER_DEFAULT,
+        transcode_video=("h264", "hevc"),
+        transcode_ranges={"hevc": frozenset({"HDR10"})},
+        video={**BROWSER_DEFAULT.video, "hevc": VideoCap(max_height=1080, max_bit_depth=10, ranges=frozenset({"SDR", "HDR10"}))},
+    )
+
+    decision = decide(caps, facts(MKV, source_video, a()), Limits(encode_codecs=("h264", "hevc"), encode_ranges={"hevc": frozenset({"HDR10"})}))
+
+    assert (decision.video_range, decision.tonemap) == ("SDR", True)
+
+
+def test_hdr_preservation_requires_complete_cicp_and_ten_bit_input() -> None:
+    source = hdr_v(height=2160, width=3840)
+    source["color_range"] = "pc"
+    caps = replace(
+        BROWSER_DEFAULT,
+        transcode_video=("h264", "hevc"),
+        transcode_ranges={"hevc": frozenset({"HDR10"})},
+        video={**BROWSER_DEFAULT.video, "hevc": VideoCap(max_height=1080, max_bit_depth=10, ranges=frozenset({"SDR", "HDR10"}))},
+    )
+
+    decision = decide(caps, facts(MKV, source, a()), Limits(encode_codecs=("h264", "hevc"), encode_ranges={"hevc": frozenset({"HDR10"})}))
+
+    assert (decision.video_range, decision.tonemap) == ("SDR", True)
+    assert bit_depth({"pix_fmt": "p010le"}) == 10
+    assert bit_depth({"pix_fmt": "p012"}) == 12
+
+
+def test_device_profiles_scope_positive_hdr_ranges_to_explicit_fmp4_hls_output() -> None:
+    profile = {
+        "TranscodingProfiles": [
+            {"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "hevc", "AudioCodec": "aac"},
+            {"Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "av1", "AudioCodec": "aac"},
+        ],
+        "CodecProfiles": [
+            {"Type": "Video", "Codec": "hevc", "Conditions": [
+                {"Condition": "LessThanEqual", "Property": "VideoBitDepth", "Value": "10"},
+                {"Condition": "EqualsAny", "Property": "VideoRangeType", "Value": "SDR|HDR10|HLG"},
+            ]},
+            {"Type": "Video", "Codec": "av1", "Conditions": [
+                {"Condition": "EqualsAny", "Property": "VideoRangeType", "Value": "HDR10|HLG"},
+            ], "ApplyConditions": [{"Condition": "Equals", "Property": "IsInterlaced", "Value": "true"}]},
+        ],
+    }
+
+    caps = caps_from_device_profile(profile)
+
+    assert caps.transcode_video == ("hevc", "av1")
+    assert caps.transcode_ranges == {"hevc": frozenset({"HDR10", "HLG"})}
 
 
 def test_negotiated_output_obeys_the_selected_codec_decoder_limits() -> None:

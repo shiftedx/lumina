@@ -58,6 +58,8 @@ class ClientCaps:
     channel_limits: Mapping[str, int] = field(default_factory=dict)  # per-codec AudioChannels limits
     audio_bit_depth_limits: Mapping[str, int] = field(default_factory=dict)  # codec or "*"; missing probe depth fails a limit
     transcode_video: tuple[str, ...] = ("h264",)  # explicit fMP4 HLS encoder codecs, never inferred from direct play
+    # Explicit HDR HLS output support. SDR remains governed by transcode_video.
+    transcode_ranges: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,8 @@ class Limits:
     require_known_bitrate: bool = False  # a protected remote direct play must not assume an unknown source fits
     force_audio_encode: bool = False  # a constrained HLS rendition reserves a known AAC budget
     encode_codecs: tuple[str, ...] = ("h264",)  # codecs proven by this server's current probe
+    # HDR output ranges proven by the selected encoder's real pipeline probe.
+    encode_ranges: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -83,6 +87,7 @@ class Decision:
     audio_channels: int | None = None  # when audio is encoded
     tonemap: bool = False
     video_codec: str = "h264"  # encoded output; copied video retains its probed source codec
+    video_range: str = "SDR"  # encoded output range; copied video retains its probed source range
     reasons: tuple[str, ...] = field(default=())
 
     @property
@@ -99,7 +104,7 @@ def video_range(stream: Mapping[str, Any]) -> str:
 
 
 def bit_depth(stream: Mapping[str, Any]) -> int:
-    match = re.search(r"p(\d{2})", stream.get("pix_fmt") or "")
+    match = re.search(r"p0?(\d{2})(?:le|be)?(?:$|[^0-9])", stream.get("pix_fmt") or "")
     return int(match[1]) if match else 8
 
 
@@ -124,22 +129,69 @@ def _height_for_bitrate(cap: int | None) -> int | None:
     return max((height for height, rate in RUNGS.items() if rate <= cap), default=min(RUNGS))
 
 
-def _encoded_video_codec(client: ClientCaps, limits: Limits) -> str | None:
-    """The best explicit fMP4 HLS codec shared by client and server.
+def _output_cap(client: ClientCaps, codec: str) -> VideoCap | None:
+    return client.video.get(codec) or client.video.get("*")
+
+
+def _hdr_source_range(video: Mapping[str, Any], rng: str) -> str | None:
+    """The exact HDR range safe to preserve, never a Dolby Vision base layer."""
+    if (
+        rng not in {"HDR10", "HLG"}
+        or video.get("dv_profile") is not None
+        or bool(video.get("hdr10plus"))
+        or bit_depth(video) < 10
+        or video.get("color_space") != "bt2020nc"
+        or video.get("color_primaries") != "bt2020"
+        or video.get("color_range") != "tv"
+    ):
+        return None
+    return rng
+
+
+def hdr_preservation_range(client: ClientCaps, facts: Mapping[str, Any]) -> str | None:
+    """The source range worth probing for, only when a client explicitly accepts it."""
+    video = next((stream for stream in facts.get("streams") or [] if isinstance(stream, dict) and stream.get("type") == "video"), None)
+    if video is None:
+        return None
+    rng = _hdr_source_range(video, video_range(video))
+    if rng is None:
+        return None
+    for codec in client.transcode_video:
+        cap = _output_cap(client, codec)
+        if cap is not None and cap.max_bit_depth >= 10 and rng in cap.ranges and rng in client.transcode_ranges.get(codec, frozenset()):
+            return rng
+    return None
+
+
+def _encoded_video_choice(client: ClientCaps, limits: Limits, video: Mapping[str, Any], rng: str, *, preserve_hdr: bool) -> tuple[str, str] | None:
+    """The best explicit fMP4 HLS output shared by client and server.
 
     Direct-play claims and wildcard device profiles are intentionally absent:
     they say nothing about a browser/client accepting a newly encoded modern
     rendition.
     """
     available = set(client.transcode_video) & set(limits.encode_codecs)
+    preserve = _hdr_source_range(video, rng) if preserve_hdr else None
+    if preserve is not None:
+        for codec in ("av1", "hevc"):
+            cap = _output_cap(client, codec)
+            if (
+                codec in available
+                and cap is not None
+                and cap.max_bit_depth >= 10
+                and preserve in cap.ranges
+                and preserve in client.transcode_ranges.get(codec, frozenset())
+                and preserve in limits.encode_ranges.get(codec, frozenset())
+            ):
+                return codec, preserve
     for codec in ("av1", "hevc", "h264"):
         if codec not in available:
             continue
-        cap = client.video.get(codec) or client.video.get("*")
-        # Every encoder output is SDR 8-bit today. A device profile's decoder
-        # limits still apply to an HLS codec it explicitly asks us to create.
+        cap = _output_cap(client, codec)
+        # SDR fallback remains 8-bit. A device profile's decoder limits still
+        # apply to an HLS codec it explicitly asks us to create.
         if cap is None or (cap.max_bit_depth >= 8 and "SDR" in cap.ranges):
-            return codec
+            return codec, "SDR"
     return None
 
 
@@ -203,13 +255,15 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
     height = bitrate = channels = None
     tonemap = False
     output_codec = "h264"
+    output_range = "SDR"
     modern_output = False
     if video is not None and not copy_video:
         if rng == "DOVI" and video.get("dv_profile") == 5 and not limits.dv5_reshape:
             return Decision("unavailable", reasons=("dolby_vision_p5",))
-        output_codec = _encoded_video_codec(client, limits)
-        if output_codec is None:
+        choice = _encoded_video_choice(client, limits, video, rng, preserve_hdr=burn is None)
+        if choice is None:
             return Decision("unavailable", reasons=tuple(reasons + ["VideoCodecNotSupported"]))
+        output_codec, output_range = choice
         modern_output = output_codec in {"hevc", "av1"}
         output = client.video.get(output_codec) or client.video.get("*") or VideoCap()
         output_cap = output.max_height
@@ -224,7 +278,7 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
             return Decision("unavailable", reasons=tuple(reasons + ["VideoResolutionNotSupported"]))
         rung = min((r for r in rungs if r >= height), default=max_height)
         bitrate = min(rungs[rung], bitrate_cap) if bitrate_cap else rungs[rung]
-        tonemap = rng not in ("SDR", "DOVIWithSDR")
+        tonemap = output_range == "SDR" and rng not in ("SDR", "DOVIWithSDR")
     if modern_output and audio is not None and audio.get("codec") != "aac":
         # Modern output is admitted only through an explicit fMP4 HLS/AAC
         # profile. Direct-play support for Opus/AC3 must not leak into it.
@@ -236,7 +290,7 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
         "remux" if both_copied else "transcode",
         video=None if video is None else "copy" if copy_video else "encode",
         audio=None if audio is None else "copy" if copy_audio else "encode",
-        burn_subtitle=burn, height=height, bitrate=bitrate, audio_channels=channels, tonemap=tonemap, video_codec=output_codec,
+        burn_subtitle=burn, height=height, bitrate=bitrate, audio_channels=channels, tonemap=tonemap, video_codec=output_codec, video_range=output_range,
         reasons=tuple(reasons), **indexes,
     )
 
@@ -278,14 +332,27 @@ def caps_from_browser_profiles(profiles: Iterable[str]) -> ClientCaps:
         transcode.append("hevc")
     if "hls-av1-aac" in names and "av1-failed" not in names:
         transcode.append("av1")
-    if video == BROWSER_DEFAULT.video and not audio and transcode == ["h264"]:
+    transcode_ranges: dict[str, frozenset[str]] = {}
+    for codec in ("hevc", "av1"):
+        if codec not in transcode:
+            continue
+        ranges = frozenset(
+            rng for rng, profile in (("HDR10", f"hls-{codec}-hdr10-aac"), ("HLG", f"hls-{codec}-hlg-aac"))
+            if profile in names
+        )
+        if ranges:
+            transcode_ranges[codec] = ranges
+            cap = video.get(codec)
+            if cap is not None:
+                video[codec] = replace(cap, ranges=cap.ranges | ranges)
+    if video == BROWSER_DEFAULT.video and not audio and transcode == ["h264"] and not transcode_ranges:
         return BROWSER_DEFAULT
     direct = list(BROWSER_DEFAULT.direct)
     browser_video = _MP4_VIDEO - ({"av1"} if "av1-failed" in names else set())
     direct[0] = DirectProfile(_MP4, browser_video | ({"hevc"} if "hevc" in video else set()), _MP4_AUDIO | audio)
     if "av1-failed" in names:
         direct[1] = DirectProfile(frozenset({"webm"}), frozenset({"vp8", "vp9"}), frozenset({"opus", "vorbis"}))
-    return replace(BROWSER_DEFAULT, direct=tuple(direct), video=video, audio=BROWSER_DEFAULT.audio | audio, transcode_video=tuple(transcode))
+    return replace(BROWSER_DEFAULT, direct=tuple(direct), video=video, audio=BROWSER_DEFAULT.audio | audio, transcode_video=tuple(transcode), transcode_ranges=transcode_ranges)
 
 
 def _tokens(value: Any) -> frozenset[str]:
@@ -326,6 +393,7 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         video_codecs |= vids
         audio |= auds
     transcode_video: set[str] = set()
+    fmp4_hls_video: set[str] = set()
     has_hls_video_profile = False
     for entry in _dicts(profile.get("TranscodingProfiles")):
         if entry.get("Type") != "Video" or str(entry.get("Protocol") or "").lower() != "hls":
@@ -344,10 +412,13 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
             transcode_video.add("h264")
         if not containers & {"mp4", "fmp4", "m4v"} or "aac" not in auds:
             continue
-        transcode_video |= vids & {"hevc", "av1"}
+        modern = vids & {"hevc", "av1"}
+        transcode_video |= modern
+        fmp4_hls_video |= modern
         if "*" in vids:
             transcode_video.add("h264")  # broad historical profiles retain only the established baseline
     caps: dict[str, dict[str, Any]] = {codec: {"max_bit_depth": 16, "ranges": ALL_RANGES} for codec in video_codecs}
+    explicit_ranges: dict[str, frozenset[str]] = {}
     max_channels, max_bitrate = 8, _number(profile.get("MaxStreamingBitrate"))
     channel_limits: dict[str, int] = {}
     audio_bit_depth_limits: dict[str, int] = {}
@@ -364,7 +435,12 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
                         key = _CAP_FIELDS[prop]
                         caps[codec][key] = min(caps[codec].get(key) or number, number)
                     elif prop == "VideoRangeType" and op in ("Equals", "EqualsAny") and isinstance(value, str):
-                        caps[codec]["ranges"] = frozenset(t.strip() for t in value.split("|") if t.strip())
+                        ranges = frozenset(t.strip() for t in value.split("|") if t.strip())
+                        caps[codec]["ranges"] = ranges
+                        containers = _tokens(entry.get("Container"))
+                        if not containers or containers & {"mp4", "fmp4", "m4v"}:
+                            prior = explicit_ranges.get(codec)
+                            explicit_ranges[codec] = ranges if prior is None else prior & ranges
                 if prop == "VideoBitrate" and op == "LessThanEqual" and number:
                     max_bitrate = min(max_bitrate or number, number)
             elif entry.get("Type") in ("VideoAudio", "Audio") and prop == "AudioChannels" and op == "LessThanEqual" and number:
@@ -377,6 +453,12 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
                     audio_bit_depth_limits[codec] = min(audio_bit_depth_limits.get(codec, number), number)
     subtitles = _dicts(profile.get("SubtitleProfiles"))
     image = any(_tokens(e.get("Format")) & IMAGE_SUBTITLE_FORMATS and e.get("Method") == "Embed" for e in subtitles)
+    final_transcode_video = (tuple(codec for codec in ("h264", "hevc", "av1") if codec in transcode_video) or ("h264",)) if not has_hls_video_profile else tuple(codec for codec in ("h264", "hevc", "av1") if codec in transcode_video)
+    transcode_ranges = {
+        codec: ranges & frozenset({"HDR10", "HLG"})
+        for codec, ranges in explicit_ranges.items()
+        if codec in fmp4_hls_video and ranges & {"HDR10", "HLG"}
+    }
     return ClientCaps(
         direct=tuple(direct),
         video={codec: VideoCap(**limits) for codec, limits in caps.items()},
@@ -391,5 +473,6 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
         # Device profiles predating TranscodingProfiles still rely on Lumina's
         # established H.264 fallback. A present HLS profile, by contrast, is an
         # explicit restriction: never manufacture a codec it did not advertise.
-        transcode_video=(tuple(codec for codec in ("h264", "hevc", "av1") if codec in transcode_video) or ("h264",)) if not has_hls_video_profile else tuple(codec for codec in ("h264", "hevc", "av1") if codec in transcode_video),
+        transcode_video=final_transcode_video,
+        transcode_ranges=transcode_ranges,
     )

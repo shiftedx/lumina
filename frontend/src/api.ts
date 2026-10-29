@@ -338,22 +338,48 @@ function av1Failed(): boolean {
   try { return localStorage.getItem(AV1_FAILED_KEY) === '1'; } catch { return false; }
 }
 // Async, so it is asked once and counts from the next request on; until then MediaSource alone decides.
-let hevcDecodes: boolean | undefined;
-function probeHevcDecode(): void {
-  if (hevcDecodes !== undefined || typeof navigator === 'undefined' || !navigator.mediaCapabilities?.decodingInfo) return;
-  hevcDecodes = true;
-  navigator.mediaCapabilities.decodingInfo({
-    type: 'media-source',
-    video: { contentType: 'video/mp4; codecs="hvc1.1.6.L93.B0"', width: 1920, height: 1080, bitrate: 8_000_000, framerate: 24 },
-  }).then((info) => { hevcDecodes = info.supported; }, () => undefined);
+const hevcDecodes = new Map<MediaDecodingType, boolean>();
+function probeHevcDecode(): boolean {
+  const type = typeof globalThis.MediaSource?.isTypeSupported === 'function' ? 'media-source' : 'file';
+  if (!hevcDecodes.has(type) && typeof navigator !== 'undefined' && navigator.mediaCapabilities?.decodingInfo) {
+    hevcDecodes.set(type, true);
+    navigator.mediaCapabilities.decodingInfo({
+      type,
+      video: { contentType: 'video/mp4; codecs="hvc1.1.6.L93.B0"', width: 1920, height: 1080, bitrate: 8_000_000, framerate: 24 },
+    }).then((info) => { hevcDecodes.set(type, info.supported); }, () => undefined);
+  }
+  return hevcDecodes.get(type) !== false;
 }
 /** HEVC counts only when the path that will play it can: hls.js (MSE) for converted playback, the element for
  * native HLS (no MediaSource, as on iPhone). canPlayType alone says yes on browsers that then never decode a frame. */
 function hevcPlays(mime: string): boolean {
   if (hevcFailed()) return false;
-  probeHevcDecode();
   const mediaSource = globalThis.MediaSource;
-  return hevcDecodes !== false && (typeof mediaSource?.isTypeSupported !== 'function' || mediaSource.isTypeSupported(mime));
+  return probeHevcDecode() && (typeof mediaSource?.isTypeSupported !== 'function' || mediaSource.isTypeSupported(mime));
+}
+
+const hdrHlsDecodes = new Map<string, boolean>();
+function hdrHlsPlays(contentType: string, profile: string, range: 'HDR10' | 'HLG', native: boolean): boolean {
+  const type = native ? 'file' : 'media-source';
+  const key = `${type}:${profile}`;
+  if (!hdrHlsDecodes.has(key) && typeof navigator !== 'undefined' && navigator.mediaCapabilities?.decodingInfo) {
+    hdrHlsDecodes.set(key, false);
+    const recognized = new Set<string>();
+    const video: VideoConfiguration = {
+      contentType, width: 3840, height: 2160, bitrate: 20_000_000, framerate: 30,
+      // WebIDL reads recognized dictionary members. Older browsers may otherwise ignore HDR fields and say yes.
+      get colorGamut(): ColorGamut { recognized.add('gamut'); return 'rec2020'; },
+      get transferFunction(): TransferFunction { recognized.add('transfer'); return range === 'HDR10' ? 'pq' : 'hlg'; },
+      get hdrMetadataType(): HdrMetadataType | undefined { recognized.add('metadata'); return range === 'HDR10' ? 'smpteSt2086' : undefined; },
+    };
+    try {
+      navigator.mediaCapabilities.decodingInfo({ type, video }).then((info) => {
+        hdrHlsDecodes.set(key, info.supported && info.smooth && recognized.has('gamut') && recognized.has('transfer')
+          && (range === 'HLG' || recognized.has('metadata')));
+      }, () => undefined);
+    } catch { /* Unsupported HDR queries retain the SDR output path. */ }
+  }
+  return hdrHlsDecodes.get(key) === true;
 }
 
 export function browserSupportedPlaybackProfiles(): string[] {
@@ -399,8 +425,20 @@ export function browserSupportedPlaybackProfiles(): string[] {
   ) profiles.push('dash-segment-base');
   // WebM VP9 carries most 1440p/2160p ladders that lack AV1; it needs MSE, not just canPlayType.
   if (profiles.includes('dash-segment-base') && mediaSource.isTypeSupported('video/webm; codecs="vp9"')) profiles.push('dash-webm-vp9');
-  // An HDR display lets the server skip tone-mapping for HDR10/HLG sources.
-  if (typeof globalThis.matchMedia === 'function' && globalThis.matchMedia('(dynamic-range: high)').matches) profiles.push('hdr');
+  if (typeof globalThis.matchMedia === 'function' && globalThis.matchMedia('(dynamic-range: high)').matches) {
+    profiles.push('hdr'); // Direct-play decoder range; encoded HDR needs its own proven HLS path.
+    const native = typeof mediaSource?.isTypeSupported !== 'function' && media.canPlayType('application/vnd.apple.mpegurl') !== '';
+    for (const [codec, contentType] of [
+      ['hevc', 'video/mp4; codecs="hvc1.2.4.L153.B0"'],
+      ['av1', 'video/mp4; codecs="av01.0.13M.10"'],
+    ] as const) {
+      if (!supported(contentType) || !(mseAudio && mediaSource.isTypeSupported(contentType) || native && codec === 'hevc')) continue;
+      for (const range of ['HDR10', 'HLG'] as const) {
+        const profile = `hls-${codec}-${range.toLowerCase()}-aac`;
+        if (hdrHlsPlays(contentType, profile, range, native)) profiles.push(profile);
+      }
+    }
+  }
   return profiles;
 }
 
@@ -989,7 +1027,7 @@ export const getMediaServerSettings = (): Promise<MediaServerSettings> => reques
 export const updateMediaServerSettings = (payload: MediaServerSettingsUpdate, options?: RequestJsonOptions): Promise<MediaServerSettings> => put('/api/admin/media-server', payload, options);
 export const discoverHouseholdTransfer = (provider: HouseholdTransferProvider, payload: HouseholdTransferRequest, signal?: AbortSignal): Promise<HouseholdTransfer> =>
   post(`/api/admin/household-transfer/${provider}/discover`, payload, { signal, timeoutMs: 120000 });
-export const runTranscodeDiagnostics = (): Promise<TranscodeDiagnostics> => post('/api/admin/media-server/transcode-diagnostics', undefined, { timeoutMs: 60000 });
+export const runTranscodeDiagnostics = (): Promise<TranscodeDiagnostics> => post('/api/admin/media-server/transcode-diagnostics', undefined, { timeoutMs: 90_000 });
 
 export const listSubtitleTracks = (itemId: string): Promise<SubtitleTrack[]> => requestJson(`/api/library/${enc(itemId)}/subtitle-tracks`, undefined, BACKGROUND);
 export type SubtitleJobRequest = { kind: 'generate' } | { kind: 'sync'; trackId: string } | { kind: 'translate'; trackId: string; targetLanguage: string };

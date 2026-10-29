@@ -158,7 +158,7 @@ describe('Media server and Playback & transcoding sections', () => {
   it('saves NVIDIA acceleration and shows its hardware diagnostics', async () => {
     setup('transcoding');
     api.updateMediaServerSettings.mockResolvedValue({ ...settings, hwaccel: 'nvenc' });
-    api.runTranscodeDiagnostics.mockResolvedValue({ hwaccel: 'nvenc', active: 'nvenc', probe_ok: true, tonemap: 'cuda', encode_codecs: ['h264', 'hevc'], encode_errors: { av1: 'AV1 encoder is unavailable on this device' }, hardware_disabled: false, software_fallbacks: 0, sessions: {}, throttled: 0, cache_bytes: 0, cache_cap_bytes: 10 * 1024 ** 3, speeds: {}, recent_errors: [] });
+    api.runTranscodeDiagnostics.mockResolvedValue({ hwaccel: 'nvenc', active: 'nvenc', probe_ok: true, tonemap: 'cuda', encode_codecs: ['h264', 'hevc'], encode_errors: { av1: 'AV1 encoder is unavailable on this device' }, hdr_encode_ranges: { hevc: ['HDR10', 'HLG'] }, hdr_encode_errors: { 'av1/HDR10': 'HDR metadata was not retained' }, hardware_disabled: false, software_fallbacks: 0, sessions: {}, throttled: 0, cache_bytes: 0, cache_cap_bytes: 10 * 1024 ** 3, speeds: {}, recent_errors: [] });
     chooseSelect(await screen.findByRole('combobox', { name: 'Hardware acceleration' }), 'NVIDIA NVENC');
     await userEvent.click(screen.getByRole('button', { name: 'Save playback and transcoding settings' }));
     await waitFor(() => expect(api.updateMediaServerSettings).toHaveBeenCalledWith({ hwaccel: 'nvenc' }));
@@ -167,8 +167,21 @@ describe('Media server and Playback & transcoding sections', () => {
     expect(facts.textContent).toContain('NVIDIA NVENC');
     expect(facts.textContent).toContain('H.264, HEVC');
     expect(facts.textContent).toContain('AV1 encoder is unavailable on this device');
+    expect(facts.textContent).toContain('HEVC: HDR10, HLG');
+    expect(facts.textContent).toContain('HDR metadata was not retained');
     expect(facts.textContent).toContain('cuda');
     expect(facts.textContent).toContain('Passed');
+  });
+
+  it('reports exact Rockchip zero-copy pairs separately from HDR preservation', async () => {
+    setup('transcoding');
+    api.runTranscodeDiagnostics.mockResolvedValue({ hwaccel: 'rkmpp', active: 'rkmpp', probe_ok: true, tonemap: 'software', hdr_encode_ranges: {}, zero_copy_pairs: ['h264->hevc'], zero_copy_errors: { 'av1->hevc': 'RGA path unavailable' }, hardware_disabled: false, software_fallbacks: 0, sessions: {}, throttled: 0, cache_bytes: 0, cache_cap_bytes: 10 * 1024 ** 3, speeds: {}, recent_errors: [] });
+    await userEvent.click(await screen.findByRole('button', { name: 'Run diagnostics' }));
+    const facts = await screen.findByRole('list', { name: 'Diagnostics' });
+    expect(facts.textContent).toContain('Rockchip MPP');
+    expect(facts.textContent).toContain('Rockchip zero-copyh264->hevc');
+    expect(facts.textContent).toContain('HDR preservationNone verified');
+    expect(facts.textContent).toContain('RGA path unavailable');
   });
 
   it('opens Fix match for an unmatched title', async () => {

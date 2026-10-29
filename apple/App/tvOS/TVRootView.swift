@@ -779,6 +779,7 @@ private struct TVLibraryView: View {
             }
             .padding(.top, contentTopPadding)
             header
+                .focusedValue(\.tvHeroRegion, true)
                 .padding(.horizontal, 80)
                 .padding(.top, 12)
                 .padding(.bottom, 12)
@@ -1134,7 +1135,7 @@ private struct TVHomeView: View {
     var body: some View {
         let snapshot = refinement
         GeometryReader { geometry in
-            ScrollView {
+            TVHeroScrollView {
                 VStack(alignment: .leading, spacing: 32) {
                     if !snapshot.items.isEmpty {
                         TVFeaturedView(
@@ -1147,6 +1148,7 @@ private struct TVHomeView: View {
                             minimumHeight: min(900, max(620, geometry.size.height * 0.82)),
                             onWatchlistChanged: { await feed.load() }
                         )
+                            .focusedValue(\.tvHeroRegion, true)
                             .focusSection()
                     } else if category != .all {
                         Text("No watchlist titles are available. Choose Home or add something to your watchlist.")
@@ -1561,7 +1563,7 @@ private struct TVAudioView: View {
     var body: some View {
         GeometryReader { geometry in
             let heroHeight = min(900, max(620, geometry.size.height * 0.82))
-            ScrollView {
+            TVHeroScrollView {
                 VStack(alignment: .leading, spacing: 32) {
                     if let featured = featuredAlbum {
                         Button { onOpen(featured) } label: {
@@ -1580,6 +1582,7 @@ private struct TVAudioView: View {
                         .accessibilityLabel("Open album \(featured.name), \(featured.displaySubtitle)")
                         .accessibilityIdentifier("audioFeaturedAlbum")
                         .ignoresSafeArea(.container, edges: .horizontal)
+                        .focusedValue(\.tvHeroRegion, true)
                         .focusSection()
                         .onMoveCommand { direction in
                             if direction == .up, focusedItemID == "audioFeaturedAlbum" {
@@ -2242,5 +2245,34 @@ private struct TVLibraryAlphabetRail: View {
 private struct TVAlphabetButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.opacity(configuration.isPressed ? 0.65 : 1)
+    }
+}
+
+// Native focus scrolling reveals the focused button, which can leave the rest of
+// a tall hero above the viewport. Restore its full artwork when focus returns.
+private struct TVHeroRegionKey: FocusedValueKey { typealias Value = Bool }
+
+extension FocusedValues {
+    var tvHeroRegion: Bool? {
+        get { self[TVHeroRegionKey.self] }
+        set { self[TVHeroRegionKey.self] = newValue }
+    }
+}
+
+struct TVHeroScrollView<Content: View>: View {
+    @ViewBuilder let content: Content
+    @State private var position = ScrollPosition(edge: .top)
+    @FocusedValue(\.tvHeroRegion) private var heroHasFocus
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ScrollView { content }
+            .scrollPosition($position)
+            .onChange(of: heroHasFocus) { _, focused in
+                guard focused == true else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    position.scrollTo(edge: .top)
+                }
+            }
     }
 }

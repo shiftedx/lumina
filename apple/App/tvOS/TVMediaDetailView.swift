@@ -24,7 +24,7 @@ struct TVDetailView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollView {
+            TVHeroScrollView {
                 VStack(alignment: .leading, spacing: 34) {
                     MediaBillboard(item: currentItem, store: store, context: "", showsOverview: false, showsContext: false,
                                    artworkFirst: true, wideMinimumHeight: min(900, max(620, geometry.size.height * 0.82))) {
@@ -36,6 +36,8 @@ struct TVDetailView: View {
                         detailActionRow
                         detailStatus
                     }
+                    .focusedValue(\.tvHeroRegion, true)
+                    .focusSection()
 
                     if let overview = currentItem.overview, !overview.isEmpty {
                         TVDetailStory(overview: overview)
@@ -241,9 +243,11 @@ struct TVVideoCollectionView: View {
         return episodes.first { $0.id == selectedEpisodeID }
     }
     var body: some View {
-        ScrollView {
+        TVHeroScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 episodeHero
+                    .focusedValue(\.tvHeroRegion, true)
+                    .focusSection()
                 collectionContent
                 if !castMembers.isEmpty {
                     TVDetailCastRail(people: castMembers, store: store)
@@ -424,12 +428,15 @@ struct TVVideoCollectionView: View {
                             ForEach(episodes) { episode in
                                 Button {
                                     selectEpisode(episode)
+                                    preparePlayback(forceTranscode: false)
                                 } label: { episodeCard(episode, selected: episode.id == selectedEpisodeID) }
                                     .buttonStyle(TVArtworkButtonStyle(aspect: 16 / 9))
+                                    .disabled(isPreparingPlayback)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .frame(width: 320, height: 248, alignment: .topLeading)
                                     .focused($focusedAction, equals: .episode(episode.id))
                                     .accessibilityIdentifier("videoCollectionItem-\(episode.id)")
+                                    .accessibilityHint("Play this episode")
                                     .accessibilityValue(episode.id == selectedEpisodeID ? "Selected" : "")
                                     .accessibilityAddTraits(episode.id == selectedEpisodeID ? .isSelected : [])
                             }

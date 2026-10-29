@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import LuminaCore
 
 /// The living-room client: a small native shell over the shared Lumina session and library store.
@@ -60,11 +61,19 @@ public struct TVRootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                ArtworkImageCache.shared.setBackgrounded(false)
+                store.setCatalogBackgrounded(false)
                 audioSession.resumeAfterActivation()
                 Task { await audioSession.refreshSharedQueue() }
             } else if phase == .background {
+                ArtworkImageCache.shared.setBackgrounded(true)
+                store.setCatalogBackgrounded(true)
+                audioSession.enterBackground()
                 Task { await audioSession.flushCheckpoint() }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            ArtworkImageCache.shared.trimMemory()
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if store.session != nil { NativeNowPlayingBar(store: store) }
@@ -1247,6 +1256,8 @@ private struct TVVideoView: View {
     @State private var lastScrollSample: (offset: Int, time: TimeInterval)?
     @State private var alphabetTask: Task<Void, Never>?
     @State private var lastVisibleItemID: String?
+    @State private var lastFocusedIndex = 0
+    @State private var movingForward = true
     @FocusState private var alphabetFocused: Bool
 
     private var requestKey: String { "\(browse.kind.rawValue)-\(browse.sort.rawValue)-\(browse.query)-\(browse.filters.genre)-\(browse.filters.year ?? 0)-\(browse.filters.unwatchedOnly)-\(browse.filters.favoritesOnly)" }
@@ -1313,11 +1324,14 @@ private struct TVVideoView: View {
                         } else {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 32, alignment: .top)], spacing: 52) {
                                 ForEach(store.items) { item in
-                                    TVMediaCard(item: item, store: store, poster: true, showsCaption: false) { onOpen(item) }
+                                    TVMediaCard(item: item, store: store, poster: true, showsCaption: false, artworkWidth: 480) { onOpen(item) }
                                         .focused($focusedItemID, equals: item.id)
                                         .id(item.id)
                                         .accessibilityIdentifier("libraryItem-\(item.id)")
                                         .onAppear { itemDidAppear(item) }
+                                        .onScrollVisibilityChange(threshold: 0.01) { visible in
+                                            if visible { lastVisibleItemID = item.id }
+                                        }
                                 }
                             }
                             .padding(.horizontal, 80)
@@ -1325,8 +1339,10 @@ private struct TVVideoView: View {
                             .focusSection()
                             .accessibilityIdentifier("libraryPosterWall")
                             if store.hasMore {
-                                Button("Show more") { Task { await store.loadMore() } }
+                                Button(store.isCatalogLoading ? "Loading library…" : "Load more") { Task { await store.loadMore() } }
                                     .buttonStyle(LuminaQuietActionStyle())
+                                    .disabled(store.isBusy || store.isCatalogLoading)
+                                    .accessibilityIdentifier("videoLoadMoreButton")
                                     .padding(32)
                             }
                             if let error = store.errorMessage {
@@ -1336,9 +1352,16 @@ private struct TVVideoView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("libraryScreen")
+                    #if LUMINA_UI_TESTING
+                    .accessibilityValue("catalog=\(store.items.count) loading=\(store.isCatalogLoading)")
+                    #endif
                     .onScrollGeometryChange(for: Int.self) { geometry in
                         Int(geometry.contentOffset.y / 128)
-                    } action: { _, offset in
+                    } action: { previousOffset, offset in
+                        if offset != previousOffset {
+                            let forward = offset > previousOffset
+                            if movingForward != forward { movingForward = forward }
+                        }
                         let now = ProcessInfo.processInfo.systemUptime
                         if let lastScrollSample {
                             let elapsed = now - lastScrollSample.time
@@ -1391,7 +1414,15 @@ private struct TVVideoView: View {
         }
         .ignoresSafeArea(.container, edges: .horizontal)
         .onChange(of: focusedItemID) { _, itemID in
-            if let itemID { browse.focusedItemID = itemID }
+            if let itemID {
+                browse.focusedItemID = itemID
+                if let index = store.items.firstIndex(where: { $0.id == itemID }) {
+                    let forward = index >= lastFocusedIndex
+                    if movingForward != forward { movingForward = forward }
+                    lastFocusedIndex = index
+                }
+                lastVisibleItemID = itemID
+            }
         }
         .onChange(of: restoreFocusRequest, initial: true) { _, request in
             guard request != nil else { return }
@@ -1399,8 +1430,10 @@ private struct TVVideoView: View {
             restoreLastSelectionIfAvailable()
         }
         .onChange(of: store.items.map(\.id)) { _, _ in restoreLastSelectionIfAvailable() }
-        .task(id: lastVisibleItemID, priority: .utility) {
-            await store.prefetchArtwork(after: lastVisibleItemID, in: store.items, maxWidth: 760)
+        .task(id: "\(lastVisibleItemID ?? "")-\(store.items.count)-\(movingForward)", priority: .utility) {
+            // Warm the poster window at its displayed rendition within the shared cache and four-load budgets.
+            await store.prefetchArtwork(after: lastVisibleItemID, in: store.items, maxWidth: 480,
+                                        count: 36, movingForward: movingForward)
         }
         .sheet(isPresented: $filtersPresented) {
             TVVideoFiltersView(filters: browse.filters) { browse.filters = $0 }
@@ -1409,6 +1442,9 @@ private struct TVVideoView: View {
         .task(id: requestKey) {
             let requestedKey = requestKey
             alphabetTask?.cancel()
+            lastVisibleItemID = nil
+            lastFocusedIndex = 0
+            movingForward = true
             alphabetLetter = nil
             alphabetRequestKey = nil
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
@@ -1429,9 +1465,8 @@ private struct TVVideoView: View {
     }
 
     private func itemDidAppear(_ item: MediaItem) {
-        lastVisibleItemID = item.id
         let loadMoreAnchor = store.items.suffix(6).first?.id
-        guard store.hasMore, item.id == loadMoreAnchor else { return }
+        guard store.hasMore, !store.isCatalogLoading, item.id == loadMoreAnchor else { return }
         Task { await store.loadMore() }
     }
 
@@ -1443,7 +1478,8 @@ private struct TVVideoView: View {
     }
 
     private func reload(forceRefresh: Bool = false) async {
-        await store.loadLibrary(search: browse.query, kind: browse.kind, sort: browse.sort, filters: browse.filters, forceRefresh: forceRefresh)
+        await store.loadLibrary(search: browse.query, kind: browse.kind, sort: browse.sort, filters: browse.filters,
+                                forceRefresh: forceRefresh, preloadCatalog: true)
     }
 }
 
@@ -1680,6 +1716,7 @@ private struct TVFeaturedView: View {
             }
             if let playbackError { Text(playbackError).font(.body) }
         }
+        .environment(\.luminaArtworkMotionEnabled, heroIsVisible)
         .onScrollVisibilityChange(threshold: 0.2) { heroIsVisible = $0 }
         .task(id: watchlistTaskID) {
             guard let item = selectedItem else {
@@ -1857,6 +1894,7 @@ struct TVMediaCard: View {
     var poster = false
     var captionPresentation: TVRailCaptionPresentation = .standard
     var showsCaption = true
+    var artworkWidth = 760
     let action: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -1868,7 +1906,7 @@ struct TVMediaCard: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 10) {
-                TVArtwork(item: item, store: store, aspect: item.isAudio || item.type.hasPrefix("Music") ? 1 : poster ? 2 / 3 : 16 / 9)
+                TVArtwork(item: item, store: store, aspect: item.isAudio || item.type.hasPrefix("Music") ? 1 : poster ? 2 / 3 : 16 / 9, maxWidth: artworkWidth)
                     .frame(maxWidth: .infinity)
                     .overlay(alignment: .bottomLeading) {
                         if !showsCaption {
@@ -2049,6 +2087,7 @@ struct TVArtwork: View {
     let item: MediaItem
     let store: LuminaStore
     let aspect: CGFloat
+    var maxWidth = 760
 
     var body: some View {
         Rectangle()
@@ -2072,7 +2111,7 @@ struct TVArtwork: View {
     }
 
     private var artworkURL: URL? {
-        aspect > 1 ? store.backdropURL(for: item, maxWidth: 760) ?? store.imageURL(for: item, maxWidth: 760) : store.imageURL(for: item, maxWidth: 760)
+        aspect > 1 ? store.backdropURL(for: item, maxWidth: maxWidth) ?? store.imageURL(for: item, maxWidth: maxWidth) : store.imageURL(for: item, maxWidth: maxWidth)
     }
 }
 

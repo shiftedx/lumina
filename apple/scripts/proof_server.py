@@ -1053,6 +1053,10 @@ def provision(state_root: Path, username: str, password: str) -> dict[str, Any]:
         direct_title.metadata_json = {**(direct_title.metadata_json or {}), "critic_rating": 88, "imdb_rating": 8.2, "rotten_tomatoes_rating": 91.5, "metacritic_rating": 73}
         direct_title.field_sources = {**(direct_title.field_sources or {}), "critic_rating": "user"}
         direct_title.provider_ids = {**direct_title.provider_ids, "Tmdb": "603"}
+        show_title.metadata_json = {**(show_title.metadata_json or {}), "imdb_rating": 6.4,
+                                    "rotten_tomatoes_rating": 0, "metacritic_rating": 39.9}
+        show_title.field_sources = {**(show_title.field_sources or {}),
+                                    **dict.fromkeys(("imdb_rating", "rotten_tomatoes_rating", "metacritic_rating"), "user")}
         show_title.provider_ids = {**show_title.provider_ids, "Tmdb": "1399", "Tvdb": "424536"}
         first_episode_title = db.query(MediaTitle).filter_by(type="episode", name=EPISODE_TITLE).one()
         second_season_episode_title = db.query(MediaTitle).filter_by(

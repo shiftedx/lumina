@@ -1,6 +1,7 @@
 import SwiftUI
 import LuminaCore
 import UIKit
+import QuartzCore
 
 extension EnvironmentValues {
     @Entry var luminaArtworkMotionEnabled = true
@@ -100,69 +101,92 @@ private struct CroppedBillboardArtwork: View {
     @Environment(\.luminaArtworkMotionEnabled) private var motionEnabled
 
     var body: some View {
+        let crop = HeroFraming.crop(framing, source: source.size, viewport: viewport, home: home)
+        let motionCrop = if let motionDirection, motionEnabled, !reduceMotion, scenePhase == .active {
+            HeroFraming.motionCrop(framing, source: source.size, viewport: viewport, home: home,
+                                   progress: 1, direction: motionDirection)
+        } else { crop }
         Group {
-            if let motionDirection, motionEnabled, !reduceMotion, scenePhase == .active,
-               HeroFraming.motionCrop(framing, source: source.size, viewport: viewport, home: home,
-                                      progress: 1, direction: motionDirection)
-                != HeroFraming.crop(framing, source: source.size, viewport: viewport, home: home) {
-                Image(uiImage: source)
-                    .resizable()
-                    .phaseAnimator([0.0, 1.0]) { artwork, progress in
-                        artwork.modifier(NormalizedArtworkCrop(
-                            framing: framing,
-                            source: source.size,
-                            viewport: viewport,
-                            home: home,
-                            progress: progress,
-                            direction: motionDirection
-                        ))
-                    } animation: { _ in
-                        .easeInOut(duration: 18)
-                    }
+            if motionCrop != crop, let image = source.cgImage {
+                BillboardPan(image: image, crop: crop, motionCrop: motionCrop, viewport: viewport)
+                    .frame(width: viewport.width, height: viewport.height)
                     .transition(.identity)
             } else {
                 Image(uiImage: source)
                     .resizable()
-                    .modifier(NormalizedArtworkCrop(
-                        framing: framing,
-                        source: source.size,
-                        viewport: viewport,
-                        home: home,
-                        progress: 0,
-                        direction: nil
-                    ))
+                    .modifier(NormalizedArtworkCrop(crop: crop, viewport: viewport))
                     .transition(.identity)
             }
         }
     }
 }
 
-private nonisolated struct NormalizedArtworkCrop: ViewModifier, Animatable {
-    let framing: HeroFraming?
-    let source: CGSize
+/// Animate the cached bitmap in the compositor without waking SwiftUI every frame.
+private struct BillboardPan: UIViewRepresentable {
+    let image: CGImage
+    let crop: CGRect
+    let motionCrop: CGRect
     let viewport: CGSize
-    let home: Bool
-    var progress: Double
-    let direction: Int?
 
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.isOpaque = false
+        view.backgroundColor = .clear
+        view.clipsToBounds = true
+        view.accessibilityElementsHidden = true
+        view.layer.addSublayer(context.coordinator.layer)
+        return view
     }
 
+    func updateUIView(_ view: UIView, context: Context) {
+        let state = context.coordinator
+        guard state.image !== image || state.crop != crop || state.motionCrop != motionCrop || state.viewport != viewport else { return }
+        state.image = image
+        state.crop = crop
+        state.motionCrop = motionCrop
+        state.viewport = viewport
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        state.layer.removeAllAnimations()
+        state.layer.frame = CGRect(origin: .zero, size: viewport)
+        state.layer.contents = image
+        state.layer.contentsGravity = .resize
+        state.layer.contentsRect = crop
+        CATransaction.commit()
+        let pan = CABasicAnimation(keyPath: "contentsRect")
+        pan.fromValue = NSValue(cgRect: crop)
+        pan.toValue = NSValue(cgRect: motionCrop)
+        pan.duration = 18
+        pan.autoreverses = true
+        pan.repeatCount = .infinity
+        pan.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        state.layer.add(pan, forKey: "ambientPan")
+    }
+
+    static func dismantleUIView(_ view: UIView, coordinator: Coordinator) {
+        coordinator.layer.removeAllAnimations()
+        coordinator.layer.contents = nil
+        coordinator.layer.removeFromSuperlayer()
+        coordinator.image = nil
+    }
+
+    final class Coordinator {
+        let layer = CALayer()
+        var image: CGImage?
+        var crop = CGRect.null
+        var motionCrop = CGRect.null
+        var viewport = CGSize.zero
+    }
+}
+
+private nonisolated struct NormalizedArtworkCrop: ViewModifier {
+    let crop: CGRect
+    let viewport: CGSize
+
     func body(content: Content) -> some View {
-        let crop = if let direction {
-            HeroFraming.motionCrop(
-                framing,
-                source: source,
-                viewport: viewport,
-                home: home,
-                progress: progress,
-                direction: direction
-            )
-        } else {
-            HeroFraming.crop(framing, source: source, viewport: viewport, home: home)
-        }
         content
             .frame(width: viewport.width / crop.width, height: viewport.height / crop.height)
             .offset(x: -crop.minX * viewport.width / crop.width, y: -crop.minY * viewport.height / crop.height)
@@ -217,7 +241,7 @@ struct MediaBillboard<Actions: View>: View {
                 // of becoming a second, disconnected card below the artwork.
                 copy
                     .foregroundStyle(.white)
-                    .shadow(color: featured ? .black.opacity(0.75) : .clear, radius: 2, y: 1)
+                    .shadow(color: featured || artworkFirst ? .black.opacity(0.75) : .clear, radius: 2, y: 1)
                     .frame(maxWidth: .infinity, minHeight: compactMinimumHeight ?? (featured ? 336 : 380), alignment: .bottomLeading)
                     .padding(.horizontal, LuminaTheme.contentGutter)
                     .padding(.top, topInset)
@@ -255,7 +279,7 @@ struct MediaBillboard<Actions: View>: View {
             } else {
                 copy
                     .foregroundStyle(.white)
-                    .shadow(color: featured ? .black.opacity(0.75) : .clear, radius: 2, y: 1)
+                    .shadow(color: featured || artworkFirst ? .black.opacity(0.75) : .clear, radius: 2, y: 1)
                     .frame(maxWidth: copyWidth, alignment: .leading)
                     .padding(.horizontal, contentInset)
                     .padding(.top, topInset)
@@ -562,7 +586,10 @@ struct FeaturedShelf<Actions: View>: View {
         return motionEnabled
     }
     private var canAdvance: Bool {
-        items.count > 1 && ambientMotionEnabled && !reduceMotion && !voiceOver && scenePhase == .active
+        #if LUMINA_UI_TESTING
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-manual-hero-selection") { return false }
+        #endif
+        return items.count > 1 && ambientMotionEnabled && !reduceMotion && !voiceOver && scenePhase == .active
             && !isInteracting && !containsFocus && !hovered && !dragging
     }
     private var containsFocus: Bool {

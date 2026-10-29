@@ -127,6 +127,47 @@ The current native evidence table tracks eight passing journeys: Home, Audio, Ad
 Use the finite-command performance lock. Fixture generation happens outside the measured process, and the benchmark does not stop other apps or flush OS caches. See [measurement results and reproduction](../docs/performance-review.md#2-whole-track-decoding--replaced-with-native-file-scheduling) for exact commands, scope and device limitations.
 
 
+## Dolby Vision local qualification
+
+The MP4 and MKV direct profiles opt into Profile 5 and supported Profile 8
+variants independently of server HLS encoding. Tests check the native request
+body, source profile/level/layer restrictions, and preservation of actual Dolby
+configuration/RPU data through the pinned MKV packaging engine. They do not
+certify a physical display or receiver.
+
+Create a bounded Profile 5 fixture from Apple's public Advanced HLS example
+outside Git. Only the init section and two video fragments are downloaded;
+video is stream-copied and a synthetic stereo AAC track is added:
+
+```sh
+mise exec -- python apple/scripts/qualify_dv5_fixture.py /tmp/lumina-dolby-fixtures/p5
+```
+
+Generate synthetic Profile 8.1/8.4 fixtures using an explicitly supplied
+[dovi_tool](https://github.com/quietvoid/dovi_tool/releases/tag/2.3.4) executable
+(tested with 2.3.4), plus FFmpeg/libx265. This helper downloads nothing and adds
+no app dependency. It generates real RPUs, injects them into Main 10 video,
+creates the matching Dolby configuration record and checks that MP4 and MKV
+retain the exact RPU sequence. Its manifest records tool versions and hashes.
+These fixtures test structural preservation, not reference color grading.
+
+```sh
+mise exec -- python apple/scripts/generate_dv_fixtures.py \
+  --dovi-tool /path/to/dovi_tool --output /tmp/lumina-dolby-fixtures/p8
+
+LUMINA_DV5_MKV_FIXTURE=/tmp/lumina-dolby-fixtures/p5/apple-dv5-two-fragment.mkv \
+LUMINA_DV8_MKV_FIXTURES=/tmp/lumina-dolby-fixtures/p8/dv8-1.mkv:/tmp/lumina-dolby-fixtures/p8/dv8-4.mkv \
+mise exec -- swift test --package-path apple/Core \
+  --filter NativeVideoSourceTests.testPublicDV5MKVRetainsMasterInitAndRPUsThroughSubtitleMaster \
+  --filter NativeVideoSourceTests.testSyntheticDV8MKVsRetainMasterInitAndRPUsThroughSubtitleMaster
+```
+
+The two opt-in cases cover all three profiles with normal and external-subtitle
+masters, every segment's Dolby configuration, one RPU per video packet, the
+complete ordered RPU sequence and independently readable seek fragments. They
+skip when their fixture environment is absent. Keep fixtures outside the source
+tree. Physical Dolby Vision, HDMI/Match Content and Atmos remain separate checks.
+
 ## Remote music startup benchmark
 
 Pass an optional codec to `benchmark_music_startup.swift` for a crossfade-off, source-loudness workload. It emits a `STARTUP` marker at confirmation, records two seconds of playback, then qualifies progressive midpoint seek and pause/resume outside the measured window. `benchmark_music_remote.py` compares five source formats with a shared per-run delivery budget, records bytes sent at confirmation and rejects any revised sample that waits for the whole input or fails seek/resume. See [progressive startup results and reproduction](../docs/performance-review.md#2a-remote-music-startup--progressive-source-playback). Use focused native transport checks and both Simulator builds for this slice; the full repository suite is deferred to the release gate at the user's request.

@@ -1,4 +1,5 @@
 import AVFoundation
+import Foundation
 import VideoToolbox
 
 /// Delivery capabilities observed from the current native AVFoundation stack.
@@ -19,10 +20,29 @@ struct NativeVideoCapabilities: Equatable, Sendable {
         case hlg = "HLG"
     }
 
+    /// MP4 codec queries gate independently qualified original delivery paths.
+    /// Dolby Vision must not broaden the server's HLS/transcode ranges.
+    struct DolbyVisionProfile: Equatable, Sendable {
+        let profile: Int
+        let compatibilityIDs: [Int]
+        let maxLevel: Int
+    }
+
     let directMP4: [Codec: Set<Range>]
     let directMP4BitDepth: [Codec: Int]
     let hls: [Codec: Set<Range>]
     let hlsBitDepth: [Codec: Int]
+    let directMP4DolbyVisionProfiles: [DolbyVisionProfile]
+
+    init(directMP4: [Codec: Set<Range>], directMP4BitDepth: [Codec: Int],
+         hls: [Codec: Set<Range>], hlsBitDepth: [Codec: Int],
+         directMP4DolbyVisionProfiles: [DolbyVisionProfile] = []) {
+        self.directMP4 = directMP4
+        self.directMP4BitDepth = directMP4BitDepth
+        self.hls = hls
+        self.hlsBitDepth = hlsBitDepth
+        self.directMP4DolbyVisionProfiles = directMP4DolbyVisionProfiles
+    }
 
     /// The established compatibility request never relies on a modern decoder
     /// or HDR output route.
@@ -30,42 +50,85 @@ struct NativeVideoCapabilities: Equatable, Sendable {
         directMP4: [.h264: [.sdr]],
         directMP4BitDepth: [.h264: 8],
         hls: [.h264: [.sdr]],
-        hlsBitDepth: [.h264: 8]
+        hlsBitDepth: [.h264: 8],
+        directMP4DolbyVisionProfiles: []
     )
 
     static func current() -> Self {
+        let queriedCodecs = Self.mp4CodecQueries.filter(playableMP4)
+        return from(RuntimeProbe(
+            hevcHardwareDecode: hardwareDecode(kCMVideoCodecType_HEVC),
+            dolbyVisionHardwareDecode: hardwareDecode(kCMVideoCodecType_DolbyVisionHEVC),
+            av1HardwareDecode: hardwareDecode(av1Codec),
+            hdrEligible: AVPlayer.eligibleForHDRPlayback,
+            dolbyVisionRoute: dolbyVisionRouteAvailable(),
+            p81Supported: p81RuntimeSupported(),
+            playableMP4Codecs: Set(queriedCodecs)
+        ))
+    }
+
+    /// Injection keeps the capability policy table-testable without claiming
+    /// that a simulator's display route is a physical Dolby Vision result.
+    struct RuntimeProbe: Sendable {
+        let hevcHardwareDecode: Bool
+        let dolbyVisionHardwareDecode: Bool
+        let av1HardwareDecode: Bool
+        let hdrEligible: Bool
+        let dolbyVisionRoute: Bool
+        let p81Supported: Bool
+        let playableMP4Codecs: Set<String>
+    }
+
+    static func from(_ probe: RuntimeProbe) -> Self {
         var direct = compatibility.directMP4
         var directBitDepth = compatibility.directMP4BitDepth
         var hls = compatibility.hls
         var hlsBitDepth = compatibility.hlsBitDepth
-        let hdr = AVPlayer.eligibleForHDRPlayback
+        let main10 = probe.hevcHardwareDecode && probe.playableMP4Codecs.contains(hevcMain10Codec)
 
-        if hardwareDecode(kCMVideoCodecType_HEVC),
-           playableMP4("hvc1.2.4.L153.B0") {
-            direct[.hevc] = ranges(main10: true, hdr: hdr)
+        if main10 {
+            direct[.hevc] = ranges(main10: true, hdr: probe.hdrEligible)
             directBitDepth[.hevc] = 10
             // Apple documents native fMP4 HEVC HDR10/HLG HLS. This is a
             // separate, deliberately conservative HLS capability claim.
-            hls[.hevc] = ranges(main10: true, hdr: hdr)
+            hls[.hevc] = ranges(main10: true, hdr: probe.hdrEligible)
             hlsBitDepth[.hevc] = 10
         }
 
-        let av1Main8 = hardwareDecode(av1Codec) && playableMP4("av01.0.13M.08")
-        let av1Main10 = hardwareDecode(av1Codec) && playableMP4("av01.0.13M.10")
+        let av1Main8 = probe.av1HardwareDecode && probe.playableMP4Codecs.contains(av1Main8Codec)
+        let av1Main10 = probe.av1HardwareDecode && probe.playableMP4Codecs.contains(av1Main10Codec)
         if av1Main8 || av1Main10 {
-            direct[.av1] = ranges(main10: av1Main10, hdr: hdr)
+            direct[.av1] = ranges(main10: av1Main10, hdr: probe.hdrEligible)
             directBitDepth[.av1] = av1Main10 ? 10 : 8
             // Apple publishes fMP4 AV1 HLS examples that require AV1
             // hardware. This is eligibility policy based on documented HLS
             // support plus the exact MP4 codec query, not an observed HLS
             // playback proof; startup retains the bounded compatibility retry.
-            hls[.av1] = ranges(main10: av1Main10, hdr: hdr)
+            hls[.av1] = ranges(main10: av1Main10, hdr: probe.hdrEligible)
             hlsBitDepth[.av1] = av1Main10 ? 10 : 8
         }
         // `isPlayableExtendedMIMEType` answers an asset/container query, not
         // an HLS MIME type. The AV1 HLS policy above rests on Apple's separate
         // documented fMP4 AV1 HLS support, plus this exact codec query.
-        return Self(directMP4: direct, directMP4BitDepth: directBitDepth, hls: hls, hlsBitDepth: hlsBitDepth)
+        let dolbyVisionProfiles: [DolbyVisionProfile]
+        if main10 && probe.hdrEligible && probe.dolbyVisionRoute {
+            var profiles = [DolbyVisionProfile]()
+            if probe.dolbyVisionHardwareDecode,
+               let level = highestDolbyVisionLevel(profile: 5, playable: probe.playableMP4Codecs) {
+                profiles.append(DolbyVisionProfile(profile: 5, compatibilityIDs: [0], maxLevel: level))
+            }
+            if let level = highestDolbyVisionLevel(profile: 8, playable: probe.playableMP4Codecs) {
+                if probe.p81Supported {
+                    profiles.append(DolbyVisionProfile(profile: 8, compatibilityIDs: [1], maxLevel: level))
+                }
+                profiles.append(DolbyVisionProfile(profile: 8, compatibilityIDs: [4], maxLevel: level))
+            }
+            dolbyVisionProfiles = profiles
+        } else {
+            dolbyVisionProfiles = []
+        }
+        return Self(directMP4: direct, directMP4BitDepth: directBitDepth, hls: hls,
+                    hlsBitDepth: hlsBitDepth, directMP4DolbyVisionProfiles: dolbyVisionProfiles)
     }
 
     func ranges(for codec: Codec, delivery: Delivery) -> Set<Range> {
@@ -88,6 +151,13 @@ struct NativeVideoCapabilities: Equatable, Sendable {
     }
 
     private static let av1Codec: CMVideoCodecType = 0x6176_3031 // `av01`
+    private static let hevcMain10Codec = "hvc1.2.4.L153.B0"
+    private static let av1Main8Codec = "av01.0.13M.08"
+    private static let av1Main10Codec = "av01.0.13M.10"
+    private static let mp4CodecQueries = [hevcMain10Codec, av1Main8Codec, av1Main10Codec]
+        + (1...9).flatMap { level in
+            [dolbyVisionCodec(profile: 5, level: level), dolbyVisionCodec(profile: 8, level: level)]
+        }
 
     private static func hardwareDecode(_ codec: CMVideoCodecType) -> Bool {
         VTIsHardwareDecodeSupported(codec)
@@ -95,6 +165,36 @@ struct NativeVideoCapabilities: Equatable, Sendable {
 
     private static func playableMP4(_ codec: String) -> Bool {
         AVURLAsset.isPlayableExtendedMIMEType("video/mp4; codecs=\"\(codec),mp4a.40.2\"")
+    }
+
+    private static func highestDolbyVisionLevel(profile: Int, playable: Set<String>) -> Int? {
+        (1...9).reversed().first { playable.contains(dolbyVisionCodec(profile: profile, level: $0)) }
+    }
+
+    private static func dolbyVisionCodec(profile: Int, level: Int) -> String {
+        String(format: "dvh1.%02d.%02d", profile, level)
+    }
+
+    private static func dolbyVisionRouteAvailable() -> Bool {
+        #if os(iOS) || os(tvOS)
+        // `eligibleForHDRPlayback` is generic. This deprecated API remains
+        // AVFoundation's public route-specific Dolby Vision signal.
+        return AVPlayer.availableHDRModes.contains(.dolbyVision)
+        #else
+        return false
+        #endif
+    }
+
+    private static func p81RuntimeSupported() -> Bool {
+        #if os(iOS)
+        if #available(iOS 27, *) { return true }
+        return false
+        #elseif os(tvOS)
+        if #available(tvOS 18, *) { return true }
+        return false
+        #else
+        return false
+        #endif
     }
 
     private static func ranges(main10: Bool, hdr: Bool) -> Set<Range> {

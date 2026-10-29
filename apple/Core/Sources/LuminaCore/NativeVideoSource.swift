@@ -48,6 +48,10 @@ public final class NativeVideoSource {
     }
 
     private var demux: PrismCoreSession?
+    // Tests can require a metadata-only HDR/DV master without claiming that the
+    // local Mac display can present it. Production always samples the current
+    // output route when it creates a new Prism session.
+    private let injectedDisplay: DisplayCapabilities?
     /// Compressed bytes read from the source, excluding local HLS delivery and container framing.
     public var sourceBytesRead: Int64? { demux?.sourceBytesRead }
     private var subtitleMaster: SubtitleMaster?
@@ -67,7 +71,9 @@ public final class NativeVideoSource {
     private static let maximumPrismPlaylistBytes = 128 << 10
     private static let maximumWebVTTSeconds = Double(Int.max / 1_000)
 
-    public init() {}
+    public init() { injectedDisplay = nil }
+
+    init(display: DisplayCapabilities) { injectedDisplay = display }
 
     // Internal accounting for the host cue replay cache, independent of HLS subtitle files.
     var retainedSubtitleHistoryBytes: Int { demux?.subtitleCueHistoryStats.retainedBytes ?? 0 }
@@ -97,7 +103,7 @@ public final class NativeVideoSource {
                 bandwidth: bandwidth
             )
         }
-        let session = try PrismCoreSession(url: url, display: .current(),
+        let session = try PrismCoreSession(url: url, display: injectedDisplay ?? .current(),
                                           segmentCacheBytes: 64 << 20,
                                           preferredAudioStreamIndex: preferredAudioStreamIndex,
                                           preferredSubtitleStreamIndex: preferredSubtitleStreamIndex,

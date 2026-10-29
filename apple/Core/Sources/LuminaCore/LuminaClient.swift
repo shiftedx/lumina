@@ -331,9 +331,21 @@ final class LuminaClient: @unchecked Sendable {
         }
         let audio = forceCompatibleVideo ? "aac" : "aac,ac3,eac3,mp3,alac,flac"
         let matroskaAudio = forceCompatibleVideo ? "aac" : "aac,ac3,eac3,alac,flac"
+        let dolbyVisionProfiles: [[String: Any]] = capabilities.directMP4DolbyVisionProfiles.map {
+            ["Profile": $0.profile, "CompatibilityIDs": $0.compatibilityIDs, "MaxLevel": $0.maxLevel]
+        }
+        // PrismCore 3.8.1's qualified Matroska packaging retains the complete
+        // P5/P8 configuration and RPU sequence, including subtitle masters.
+        // This independent delivery policy does not authorize server HLS DV.
         let directProfiles: [[String: Any]] = [
-            ["Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": codecList(direct), "AudioCodec": audio],
-            ["Type": "Video", "Container": "mkv", "VideoCodec": codecList(matroska), "AudioCodec": matroskaAudio],
+            [
+                "Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": codecList(direct), "AudioCodec": audio,
+                "LuminaDolbyVisionProfiles": dolbyVisionProfiles,
+            ],
+            [
+                "Type": "Video", "Container": "mkv", "VideoCodec": codecList(matroska), "AudioCodec": matroskaAudio,
+                "LuminaDolbyVisionProfiles": matroska.contains(.hevc) ? dolbyVisionProfiles : [],
+            ],
         ]
         var videoProfiles = [[String: Any]]()
         for codec in ordered {

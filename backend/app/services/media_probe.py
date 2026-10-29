@@ -28,7 +28,7 @@ from app.services.yt_dlp_service import YtDlpService
 PROBE_TIMEOUT_SECONDS = 20
 PROBE_OUTPUT_LIMIT = 1_000_000
 PROBE_TERMINATE_GRACE_SECONDS = 0.25
-PROBE_CACHE_VERSION = 5
+PROBE_CACHE_VERSION = 6
 _PROBE_CACHE_VERSION_KEY = "_probe_cache_version"
 _probe_slots = threading.BoundedSemaphore(2)
 _artifact_locks: dict[str, threading.Lock] = {}
@@ -277,6 +277,11 @@ def _int(value: Any) -> int | None:
         return None
 
 
+def _dovi_flag(value: Any) -> bool | None:
+    """ffprobe writes Dolby Vision presence flags as integer 0 or 1."""
+    return {0: False, 1: True}.get(value) if type(value) is int else None
+
+
 def _rate(value: Any) -> float | None:
     """ffprobe "24000/1001" -> 23.976; "0/0" and junk -> None."""
     try:
@@ -333,6 +338,10 @@ def _stream(raw: dict[str, Any]) -> dict[str, Any]:
         "frame_rate": _rate(raw.get("avg_frame_rate") or raw.get("r_frame_rate")),
         "dv_profile": _int(dovi.get("dv_profile")),
         "dv_compat": _int(dovi.get("dv_bl_signal_compatibility_id")),
+        "dv_level": _int(dovi.get("dv_level")),
+        "dv_rpu_present": _dovi_flag(dovi.get("rpu_present_flag")),
+        "dv_el_present": _dovi_flag(dovi.get("el_present_flag")),
+        "dv_bl_present": _dovi_flag(dovi.get("bl_present_flag")),
         **_hdr_side_data(raw),
     }
 

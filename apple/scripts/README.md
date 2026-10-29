@@ -207,6 +207,29 @@ engine publishes the tail snapshot after flushing; this remains structural
 conversion accounting rather than all-file corruption detection or a physical
 Dolby Vision qualification.
 
+The same generator creates explicitly signaled separate-track legacy MKVs.
+The BL record carries only base pictures; the complementary EL record carries
+enhancement pictures and RPUs. Distinct scene-refresh RPUs make incorrect frame
+association observable. A third positive uses a B-frame BL and ordered EL;
+its expected P8.1 sequence follows BL decode order after matching by PTS.
+
+```sh
+dv_fixture_dir=/tmp/lumina-dolby-fixtures/p7
+LUMINA_DV7_SEPARATE_TRACK_FIXTURES="$dv_fixture_dir/p7-separate-mel.mkv:$dv_fixture_dir/p7-separate-fel.mkv" \
+LUMINA_DV7_SEPARATE_TRACK_REORDERED_FIXTURE="$dv_fixture_dir/p7-separate-reordered-mel.mkv" \
+LUMINA_DV7_SEPARATE_TRACK_INVALID_FIXTURES="$dv_fixture_dir/p7-separate-invalid-final-rpu.mkv:$dv_fixture_dir/p7-separate-missing-el-au.mkv:$dv_fixture_dir/p7-separate-shifted-el.mkv:$dv_fixture_dir/p7-separate-ambiguous-el.mkv" \
+mise exec -- swift test --package-path apple/Core \
+  --filter 'NativeVideoSourceTests.testSeparateTrack'
+```
+
+These contracts inspect normal/subtitle masters, all independent fragments,
+unchanged BL pictures, the ordered converted RPUs and retained monotonic AAC
+timestamps. Refused pairs must surface the typed conversion failure, preserving
+the existing one-compatible-retry policy. This does not qualify unmarked
+second-video tracks, M2TS dependency-PID pairing, physical Dolby Vision output
+or full FEL reconstruction. `--reordered-only` generates just the B-frame case
+in a separate output directory when iterating on timestamp association.
+
 ## Remote music startup benchmark
 
 Pass an optional codec to `benchmark_music_startup.swift` for a crossfade-off, source-loudness workload. It emits a `STARTUP` marker at confirmation, records two seconds of playback, then qualifies progressive midpoint seek and pause/resume outside the measured window. `benchmark_music_remote.py` compares five source formats with a shared per-run delivery budget, records bytes sent at confirmation and rejects any revised sample that waits for the whole input or fails seek/resume. See [progressive startup results and reproduction](../docs/performance-review.md#2a-remote-music-startup--progressive-source-playback). Use focused native transport checks and both Simulator builds for this slice; the full repository suite is deferred to the release gate at the user's request.

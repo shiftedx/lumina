@@ -76,7 +76,7 @@ struct PlaybackLicensesView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("Playback includes PrismCore, MPVKit and FFmpeg. Complete transitive notices are included in PlaybackNotices.txt in the app bundle.")
-                    Link("PrismCore source", destination: URL(string: "https://github.com/shiftedx/PrismCore/tree/6cdfae6fc89e42c4758f23005cb6c8152d7499ec")!)
+                    Link("PrismCore source", destination: URL(string: "https://github.com/shiftedx/PrismCore/tree/0a26ce14ff0b38b56ff20c2cbd1a23b953d0a62c")!)
                     Link("MPVKit and FFmpeg source and build recipes", destination: URL(string: "https://github.com/Wenzlik/MPVKit/tree/1.0.1")!)
                     Text(licenses).font(.footnote)
                 }.padding()

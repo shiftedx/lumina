@@ -356,6 +356,7 @@ final class LuminaClient: @unchecked Sendable {
                 "Type": "Video", "Container": "mkv", "VideoCodec": codecList(matroska), "AudioCodec": matroskaAudio,
                 "LuminaDolbyVisionProfiles": matroska.contains(.hevc) ? dolbyVisionProfiles : [],
                 "LuminaDolbyVisionPackagingConversions": matroska.contains(.hevc) ? dolbyVisionPackagingConversions : [],
+                "LuminaDolbyVisionSeparateTrackPackaging": matroska.contains(.hevc) && !dolbyVisionPackagingConversions.isEmpty,
             ],
         ]
         var videoProfiles = [[String: Any]]()

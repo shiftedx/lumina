@@ -2790,6 +2790,16 @@ final class PlaybackModel {
 
     private func handleVideoPlaybackFailure(_ error: Error?) async {
         guard didSeek, !closed, !hasFinished, !isCasting, !isCommittingVideoStream, !isSwitchingVideoStream else { return }
+        let failedSource = videoSource
+        let failedRequestID = request.id
+        let error: Error? = if let error { await failedSource.playbackError(for: error) } else { error }
+        let conversion = await failedSource.dolbyVisionConversion
+        guard !closed, !hasFinished, !isCasting, !isCommittingVideoStream, !isSwitchingVideoStream,
+              videoSource === failedSource, request.id == failedRequestID else { return }
+        if conversion?.hasFailure == true {
+            videoDolbyVisionConversion = conversion
+            pauseNativePlayer()
+        }
         if compatibilityRetryRequestID != request.id,
            let error, request.canRetryCompatibleVideo(after: error, hasAdvanced: videoAdvancedRequestID == request.id) {
             compatibilityRetryRequestID = request.id
@@ -2881,7 +2891,14 @@ final class PlaybackModel {
             return
         } catch {
             do {
-                try await retryInitialCompatibleVideo(after: error)
+                let failedSource = videoSource
+                let failedRequestID = request.id
+                let playbackError = await failedSource.playbackError(for: error)
+                let conversion = await failedSource.dolbyVisionConversion
+                try Task.checkCancellation()
+                guard !closed, videoSource === failedSource, request.id == failedRequestID else { throw CancellationError() }
+                if conversion?.hasFailure == true { videoDolbyVisionConversion = conversion }
+                try await retryInitialCompatibleVideo(after: playbackError)
             } catch is CancellationError {
                 return
             } catch {
@@ -4814,7 +4831,7 @@ private struct VideoPlaybackSettings: View {
                 Text(methodLabel)
                     .accessibilityIdentifier("videoPlaybackMethod")
             }
-            if let conversion = playback.videoDolbyVisionConversion, conversion.convertedRPUs > 0 {
+            if let conversion = playback.videoDolbyVisionConversion, conversion.hasFailure || conversion.convertedRPUs > 0 {
                 LabeledContent("Dolby Vision conversion", value: conversion.hasFailure
                     ? "Conversion failed"
                     : "Profile 7 → 8.1; enhancement layer omitted")

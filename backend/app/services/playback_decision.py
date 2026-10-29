@@ -8,6 +8,7 @@ Reasons use Jellyfin's TranscodeReasons names so PlaybackInfo can emit them as t
 """
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping
@@ -50,6 +51,9 @@ class DirectProfile:
     # deliberately drops the enhancement layer. This is distinct from the
     # original-stream Dolby Vision declaration above.
     profile7_to_81_max_level: int | None = None
+    # A separate-track Profile 7 carriage needs an additional client/engine
+    # qualification; ordinary P7 conversion capability does not imply it.
+    profile7_separate_track_packaging: bool = False
 
 
 @dataclass(frozen=True)
@@ -194,8 +198,46 @@ def _profile7_source_is_convertible(video: Mapping[str, Any]) -> bool:
     )
 
 
+def _profile7_separate_track_source_is_convertible(
+    base: Mapping[str, Any] | None, videos: list[Mapping[str, Any]],
+) -> bool:
+    """Recognize only the qualified legacy BL-first two-track P7 carriage."""
+    if base is None or len(videos) != 2 or videos[0] is not base:
+        return False
+    enhancement = videos[1]
+    base_rate, enhancement_rate = base.get("frame_rate"), enhancement.get("frame_rate")
+    for rate in (base_rate, enhancement_rate):
+        if rate is not None and (
+            type(rate) not in (int, float) or not math.isfinite(rate) or rate <= 0
+        ):
+            return False
+    if base_rate is not None and enhancement_rate is not None and base_rate != enhancement_rate:
+        return False
+    return (
+        base.get("codec") == enhancement.get("codec") == "hevc"
+        and bit_depth(base) == bit_depth(enhancement) == 10
+        and type(base.get("dv_profile")) is int
+        and type(enhancement.get("dv_profile")) is int
+        and base["dv_profile"] == enhancement["dv_profile"] == 7
+        and type(base.get("dv_compat")) is int
+        and type(enhancement.get("dv_compat")) is int
+        and base["dv_compat"] == enhancement["dv_compat"] == 6
+        and type(base.get("dv_level")) is int
+        and type(enhancement.get("dv_level")) is int
+        and base["dv_level"] == enhancement["dv_level"]
+        and 1 <= base["dv_level"] <= 9
+        and base.get("dv_rpu_present") is False
+        and base.get("dv_el_present") is False
+        and base.get("dv_bl_present") is True
+        and enhancement.get("dv_rpu_present") is True
+        and enhancement.get("dv_el_present") is True
+        and enhancement.get("dv_bl_present") is False
+    )
+
+
 def _profile_can_package_profile7(
     profile: DirectProfile, tokens: set[str], video: Mapping[str, Any] | None, audio: Mapping[str, Any] | None,
+    videos: list[Mapping[str, Any]],
 ) -> bool:
     """Whether this exact MKV direct row may request client-side P7 packaging."""
     return (
@@ -203,7 +245,13 @@ def _profile_can_package_profile7(
         and profile.containers == frozenset({"mkv"})
         and video is not None
         and _profile_matches(profile, tokens, video.get("codec"), audio and audio.get("codec"))
-        and _profile7_source_is_convertible(video)
+        and (
+            _profile7_source_is_convertible(video)
+            or (
+                profile.profile7_separate_track_packaging
+                and _profile7_separate_track_source_is_convertible(video, videos)
+            )
+        )
         and video["dv_level"] <= profile.profile7_to_81_max_level
     )
 
@@ -224,8 +272,9 @@ def _is_dolby_vision_direct_candidate(
 
 def _is_profile7_packaging_direct_candidate(
     profiles: Iterable[DirectProfile], tokens: set[str], video: Mapping[str, Any] | None, audio: Mapping[str, Any] | None,
+    videos: list[Mapping[str, Any]],
 ) -> bool:
-    return any(_profile_can_package_profile7(profile, tokens, video, audio) for profile in profiles)
+    return any(_profile_can_package_profile7(profile, tokens, video, audio, videos) for profile in profiles)
 
 
 def _height_for_bitrate(cap: int | None) -> int | None:
@@ -302,7 +351,8 @@ def _encoded_video_choice(client: ClientCaps, limits: Limits, video: Mapping[str
 
 def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits(), audio_index: int | None = None, subtitle_index: int | None = None) -> Decision:
     streams = [s for s in facts.get("streams") or [] if isinstance(s, dict)]
-    video = next((s for s in streams if s.get("type") == "video"), None)
+    videos = [s for s in streams if s.get("type") == "video"]
+    video = next(iter(videos), None)
     audios = [s for s in streams if s.get("type") == "audio"]
     default_audio = next((s for s in audios if s.get("default")), audios[0] if audios else None)
     audio = next((s for s in audios if s.get("index") == audio_index), default_audio)
@@ -347,10 +397,10 @@ def decide(client: ClientCaps, facts: Mapping[str, Any], limits: Limits = Limits
     reasons = video_reasons + codec_reasons + (["SecondaryAudioNotSupported"] if secondary else [])
     tokens = _container_tokens(facts)
     direct_dovi = _is_dolby_vision_direct_candidate(client.direct, tokens, video, audio)
-    profile7_packaging = _is_profile7_packaging_direct_candidate(client.direct, tokens, video, audio)
+    profile7_packaging = _is_profile7_packaging_direct_candidate(client.direct, tokens, video, audio, videos)
     playable = any(
         _profile_matches(profile, tokens, video and video.get("codec"), audio and audio.get("codec"))
-        and (_dolby_vision_matches(profile, video) or _profile_can_package_profile7(profile, tokens, video, audio))
+        and (_dolby_vision_matches(profile, video) or _profile_can_package_profile7(profile, tokens, video, audio, videos))
         for profile in client.direct
     )
     indexes = {"video_index": video.get("index") if video else None, "audio_index": audio.get("index") if audio else None}
@@ -567,7 +617,11 @@ def caps_from_device_profile(profile: Any) -> ClientCaps:
             if entry.get("Type") == "Video" and containers == frozenset({"mkv"}) and "hevc" in vids
             else None
         )
-        direct.append(DirectProfile(containers, vids, auds, dovi, profile7_to_81))
+        separate_track_p7 = bool(
+            profile7_to_81 is not None
+            and entry.get("LuminaDolbyVisionSeparateTrackPackaging") is True
+        )
+        direct.append(DirectProfile(containers, vids, auds, dovi, profile7_to_81, separate_track_p7))
         video_codecs |= vids
         audio |= auds
     transcode_video: set[str] = set()

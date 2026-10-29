@@ -1,5 +1,5 @@
 {
-  "originHash" : "28515a7c1579789f26a1b781ce60e00c7d2da76827616991219e70b68627965a",
+  "originHash" : "1c3ac9d8efde61527fe0dccad038188da6c45e6d8a3966bcb34fc4b2ae9e0a71",
   "pins" : [
     {
       "identity" : "mpvkit",
@@ -15,7 +15,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/shiftedx/PrismCore.git",
       "state" : {
-        "revision" : "6cdfae6fc89e42c4758f23005cb6c8152d7499ec"
+        "revision" : "0a26ce14ff0b38b56ff20c2cbd1a23b953d0a62c"
       }
     }
   ],

@@ -308,6 +308,53 @@ they do not establish physical Dolby Vision output or full FEL reconstruction.
 The complete `mise exec -- make check` gate also passed: 5,783 backend tests
 (20 skips), 2,754 frontend tests and all 656 browser cases in 1,084.037 seconds.
 
+### Separate-track Profile 7 packaging, 2026-10-29
+
+PR #222 was merged after integrating main, rerunning the three Profile 7
+contracts and building both native Simulator targets. The continuation pins
+the public PrismCore fork at `0a26ce14ff0b38b56ff20c2cbd1a23b953d0a62c`.
+It recognizes only explicitly complementary P7/compatibility-6 HEVC Main 10
+BL-only and EL/RPU-only tracks in legacy MKV. The native profile additionally
+opts in with `LuminaDolbyVisionSeparateTrackPackaging: true`; older conversion
+declarations do not inherit separate-track support.
+
+Synthetic MEL/FEL pairs contain 192 base and enhancement access units.
+Hash-pinned RPUs have scene-refresh changes so incorrect temporal association
+is observable. A third fixture uses a B-frame base with a different decode
+order from its ordered EL stream. Contracts compare every base picture byte
+and converted RPU in BL decode order after matching by PTS, inspect normal
+and subtitle masters plus all independent fragments, and verify the declared
+AAC rendition retains monotonic decode timestamps. Audio can be in its own
+HLS rendition; absence from the video fragment is not evidence of dropped audio.
+
+Malformed final RPUs, missing EL access units, shifted timestamps and ambiguous
+companions fail with the typed conversion error. Native error resolution
+retains known conversion evidence through AVPlayer failure teardown and uses
+it for startup and later recovery; explicit stop/replacement clears it.
+Cancellation and direct network errors keep their existing behavior.
+
+The reordered fixture exposed a forced-reanchor stall: EL and B-frame
+presentation pre-roll could arrive after the anchor keyframe, after the old
+drop condition had cleared. The fixed producer keeps a PTS floor for both
+paired streams across the seek. Engine public-session contracts pass after
+forced cache eviction, regenerating the head and then the tail, with unchanged
+P8.1 initialization and clean conversion statistics. Reopened sources must
+retain the same pair and codec configuration.
+
+Local verification passed 18 focused Core checks with all P5/P8/P7 fixtures
+enabled and no skips. These include native decoded frames, at least one second
+of advancement, and forward/backward seeks for MEL, FEL and the reordered case.
+Generic iOS and tvOS Simulator builds passed against the exact fork revision.
+The final `mise exec -- make check` passed: 5,799 backend tests (20 skips),
+2,754 frontend tests and all 656 browser cases in 1,062.351 seconds. Its initial
+attempt ran out of host disk space; the retry passed after removing owned
+disposable build/test caches.
+
+This qualifies structural packaging and base playback locally. It does not
+qualify unmarked/ambiguous second-video layouts, M2TS dependency-PID pairing,
+physical Dolby Vision/HDMI/receiver output, reference color or FEL residual
+reconstruction. P7-to-P8.1 still omits enhancement pictures.
+
 ## Home, Video, and Audio workflow coverage, 2026-10-20
 
 The native clients open on Home, with separate Video and Audio destinations. Home uses a cinematic artwork hero with an eight-second idle rotation, manual previous/next and title selection, horizontal swiping on iOS, and an explicit Pause control. Automatic rotation stops for Reduce Motion, VoiceOver, an inactive scene, or TV focus interaction. Continue watching, Next up, and recent-video shelves use the authenticated server catalog. The recent shelf can contain movies or episodes; its first visible card is not a fixed fixture item. Authenticated artwork requests support inherited series backdrops while preserving own-art precedence.

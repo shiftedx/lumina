@@ -24,7 +24,8 @@ def run(args: list[str]) -> bytes:
 
 
 def add_configuration(data: bytes, compatibility: int, *, profile: int = 8, level: int = 1,
-                      enhancement_layer: bool = False) -> bytes:
+                      rpu_present: bool = True, enhancement_layer: bool = False,
+                      base_layer_present: bool = True) -> bytes:
     """Append the generated RPU's config to our small, moov-last fixture only.
 
     The mdat stays at its original offset, so chunk offsets remain unchanged.
@@ -56,7 +57,10 @@ def add_configuration(data: bytes, compatibility: int, *, profile: int = 8, leve
             elif kind == b"hvc1":
                 # The default remains Profile 8 with RPU+base present. Profile
                 # 7 fixtures opt into an enhancement layer explicitly.
-                flags = 0b111 if enhancement_layer else 0b101
+                # DOVIDecoderConfigurationRecord stores RPU/EL/BL in bits
+                # 2/1/0 respectively. The defaults preserve the established
+                # single-layer P8 record (RPU + BL, no EL).
+                flags = (int(rpu_present) << 2) | (int(enhancement_layer) << 1) | int(base_layer_present)
                 record = bytes([1, 0, profile << 1, (level << 3) | flags, compatibility << 4]) + bytes(19)
                 child = struct.pack(">I4s", len(record) + 8, b"dvvC") + record
                 box = struct.pack(">I4s", len(box) + len(child), kind) + box[8:] + child

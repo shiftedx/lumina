@@ -278,8 +278,9 @@ The exact submitted IPA was copied from Xcode's upload pipeline and validated
 before submission. Preserve `upload-iOS/Lumina-iOS.ipa`, its hash, final
 `Upload-iOS.xcdistributionlogs`, `UploadConfirmation-iOS.json`, and the separate
 validated signed export/Organizer reference. Do not upload iOS build 33 again.
-Processing and tester-group assignment remain unverified. tvOS remains an
-unsigned, validated staged archive with no upload performed or authorized.
+Processing and tester-group assignment remain unverified. tvOS now has a locally validated distribution-signed IPA and signed Organizer
+archive with matching executable/dSYM UUIDs. Its original unsigned source archive
+is preserved; no TV upload was performed or authorized.
 Preserve the earlier unuploaded build-32 package unchanged. Named ratings require
 the matching server update; no household deployment or physical-TV/HDMI/HDR/audio
 qualification occurred.

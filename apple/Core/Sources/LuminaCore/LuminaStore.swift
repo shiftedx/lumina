@@ -650,6 +650,8 @@ let tickScale = 10_000_000.0
               anchor.index >= 0,
               libraryAlphabet.contains(anchor) else { return nil }
         if catalogEnabled {
+            guard !Task.isCancelled else { return nil }
+            if anchor.index < items.count { return items[anchor.index].id }
             let generation = libraryGeneration
             if let catalogTask { await catalogTask.value }
             guard !Task.isCancelled, generation == libraryGeneration, isCurrent(active),

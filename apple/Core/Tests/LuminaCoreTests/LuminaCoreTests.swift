@@ -352,6 +352,9 @@ final class LuminaCoreTests: XCTestCase {
         let store = LuminaStore(client: LuminaClient(configuration: homeConfiguration()), credentials: TestCredentials(session: saved))
         HomeDelayedURLProtocol.handler = { request in
             if request.url?.path == "/Users/Me" { return response(request, json: ["Id": "user-1", "Name": "member"]) }
+            if request.url?.path == "/Lumina/Library/alphabet" {
+                return response(request, json: ["anchors": [["letter": "A", "index": 0]], "total": 3])
+            }
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
             guard request.url?.path == "/Items", query.contains(where: { $0.value == "LuminaCatalog" }) else {
                 return response(request, json: page(items: []))
@@ -370,6 +373,11 @@ final class LuminaCoreTests: XCTestCase {
         }
         await store.loadLibrary(kind: .movies, preloadCatalog: true)
         await fulfillment(of: [firstPage], timeout: 2)
+        for _ in 0..<100 where store.libraryAlphabet.isEmpty { try await Task.sleep(for: .milliseconds(1)) }
+        let a = try XCTUnwrap(store.libraryAlphabet.first)
+        let jump = await store.jumpLibrary(to: a)
+        XCTAssertEqual(jump, "movie-0")
+        XCTAssertEqual(store.items.count, 1, "Seeking an already loaded letter must not wait for the background catalog")
         store.setCatalogBackgrounded(true)
         for _ in 0..<100 where store.isBusy { try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertFalse(store.isBusy)

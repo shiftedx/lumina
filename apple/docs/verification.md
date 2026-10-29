@@ -274,7 +274,9 @@ objects. See [fixture commands](../scripts/README.md#dolby-vision-local-qualific
 The final complete Core suite executed 254 tests with five skips and zero
 failures, with all P5/P8/P7 fixture contracts enabled. Generic iOS/tvOS Simulator
 builds passed, as did the full backend suite (5,783 passed, 20 skipped) and
-2,754 frontend unit tests. The browser gate is recorded after completion below.
+2,754 frontend unit tests. The final `mise exec -- make check` passed, including
+all 656 browser cases in 1,080.958 seconds. Final iOS/tvOS builds include the
+known-failure guard on rate restoration as well as ordinary playback/rate updates.
 
 ## Home, Video, and Audio workflow coverage, 2026-10-20
 

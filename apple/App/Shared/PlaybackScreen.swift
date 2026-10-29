@@ -3180,6 +3180,7 @@ final class PlaybackModel {
         // engine's pending 2× rate; a paused engine never receives a nonzero rate.
         guard !isCasting, !request.item.isAudio, autoplayWhenReady, !closed, !hasFinished,
               !isSwitchingVideoStream, !isCommittingVideoStream,
+              videoDolbyVisionConversion?.hasFailure != true,
               player.timeControlStatus != .paused else { return }
         player.rate = Float(videoRateLease.preferredRate)
     }

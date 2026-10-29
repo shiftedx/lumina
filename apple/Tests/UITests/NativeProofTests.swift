@@ -3842,20 +3842,25 @@ class NativeProofJourney: XCTestCase {
         try waitForPreparedLibraryArtwork()
         try attachFrame(named: "TV Library root after tab return")
 
-        try openDeviceSettings()
+        // The native tab's semantic tap can resolve to an adjacent tab on this
+        // simulator. Use its observed center and verify the actual destination.
+        destinationControl("Account").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("accountScreen"), timeout: 20, named: "Account settings")
         let search = element("settingsSearchField")
-        try replaceText(search, with: "artwork cache")
+        try waitForExistence(search, timeout: 15, named: "settings search")
+        search.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        search.typeText("artwork cache\n")
         let usage = element("deviceArtworkCacheUsage")
         let clear = element("deviceClearArtworkCacheButton")
         try waitForExistence(usage, timeout: 15, named: "Artwork cache usage")
         try waitForExistence(clear, timeout: 15, named: "Artwork cache clear control")
         try revealInLibraryViewport([usage, clear], in: element("accountScreen"))
-        try waitForHittable(clear, timeout: 15, named: "Clear artwork cache")
+        XCTAssertTrue(hasVisibleFrame(clear), "The public cache-clear control must be visible")
         XCTAssertTrue(waitUntil(timeout: 15) {
             !self.artworkCacheUsageReportsZero(self.element("deviceArtworkCacheUsage"))
         }, "Browsing the prepared Library roots must retain artwork on disk before clearing it.")
         try attachFrame(named: "Artwork cache before clearing")
-        try activate(clear)
+        clear.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(waitUntil(timeout: 2) {
             !self.element("deviceClearArtworkCacheButton").isEnabled
                 || self.artworkCacheUsageReportsZero(self.element("deviceArtworkCacheUsage"))
@@ -3876,9 +3881,15 @@ class NativeProofJourney: XCTestCase {
 
     private func selectLibraryCategory(_ category: String, screen: String) throws {
         if usesStandardPhonePushedChrome {
-            try selectDestination("Library", screen: "libraryScreen")
-            let menus = application!.buttons.matching(identifier: "compactBrowseMenu").allElementsBoundByIndex
-            if let menu = menus.first(where: { hasVisibleFrame($0) }) {
+            destinationControl("Library").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            try waitForExistence(element("libraryScreen"), timeout: 20, named: "Library category root")
+            var visibleMenu: XCUIElement?
+            _ = waitUntil(timeout: 10) {
+                visibleMenu = self.application!.buttons.matching(identifier: "compactBrowseMenu")
+                    .allElementsBoundByIndex.first { self.hasVisibleFrame($0) }
+                return visibleMenu != nil
+            }
+            if let menu = visibleMenu {
                 // Use the observed public button frame; native floating toolbar
                 // controls can be visible while XCTest reports them unhittable.
                 menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
@@ -3891,7 +3902,9 @@ class NativeProofJourney: XCTestCase {
             let identified = element("compactCategory-\(category)")
             let title = category == "tv" ? "TV" : category.capitalized
             let choice = identified.exists ? identified : menuAction(title)
-            try waitForExistence(choice, timeout: 15, named: "Library \(title) choice")
+            guard waitUntil(timeout: 15, condition: { self.hasVisibleFrame(choice) }) else {
+                throw ProofFailure.timeout("The Library \(title) menu choice did not become visible.")
+            }
             choice.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         } else {
             try selectDestination("Home", screen: "homeScreen")

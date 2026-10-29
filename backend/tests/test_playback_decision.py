@@ -153,11 +153,14 @@ P7_TO_81 = [{
 }]
 
 
-def p7_packaging_client(conversions: object = P7_TO_81, *, container: str = "mkv", range_: str = "HDR10"):
+def p7_packaging_client(
+    conversions: object = P7_TO_81, *, container: str = "mkv", range_: str = "HDR10", separate_tracks: object = False,
+):
     return caps_from_device_profile({
         "DirectPlayProfiles": [{
             "Type": "Video", "Container": container, "VideoCodec": "hevc", "AudioCodec": "aac",
             "LuminaDolbyVisionProfiles": [], "LuminaDolbyVisionPackagingConversions": conversions,
+            "LuminaDolbyVisionSeparateTrackPackaging": separate_tracks,
         }],
         "CodecProfiles": [{"Type": "Video", "Codec": "hevc", "Conditions": [
             {"Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"},
@@ -170,6 +173,85 @@ def test_profile_seven_mkv_packaging_is_explicit_and_reports_its_lossy_route() -
     decision = decide(p7_packaging_client(), facts(MKV, dovi_source(7, 6, el=True), a()))
 
     assert (decision.mode, decision.video, decision.audio) == ("direct", "copy", "copy")
+    assert decision.client_packaging == "p7_to_p81_drop_el"
+
+
+def p7_separate_tracks(*, base: dict | None = None, enhancement: dict | None = None, extra: tuple[dict, ...] = ()) -> tuple[dict, ...]:
+    base = base or dovi_source(7, 6, rpu=False, el=False, bl=True)
+    enhancement = enhancement or dovi_source(7, 6, rpu=True, el=True, bl=False)
+    base.update(frame_rate=23.976)
+    enhancement.update(index=2, frame_rate=23.976)
+    return (base, a(), enhancement, *extra)
+
+
+def test_profile_seven_separate_track_packaging_is_an_explicit_mkv_direct_route() -> None:
+    decision = decide(
+        p7_packaging_client(separate_tracks=True),
+        facts(MKV, *p7_separate_tracks()),
+    )
+
+    assert (decision.mode, decision.video, decision.audio, decision.video_index) == ("direct", "copy", "copy", 0)
+    assert decision.client_packaging == "p7_to_p81_drop_el"
+
+
+@pytest.mark.parametrize("separate_tracks", [False, None, 1, "true"])
+def test_profile_seven_separate_track_packaging_requires_literal_client_opt_in(separate_tracks: object) -> None:
+    decision = decide(
+        p7_packaging_client(separate_tracks=separate_tracks),
+        facts(MKV, *p7_separate_tracks()),
+    )
+
+    assert decision.mode != "direct"
+    assert decision.client_packaging is None
+
+
+def test_profile_seven_separate_track_packaging_does_not_grant_older_clients_permission() -> None:
+    profile = {
+        "Type": "Video", "Container": "mkv", "VideoCodec": "hevc", "AudioCodec": "aac",
+        "LuminaDolbyVisionProfiles": [], "LuminaDolbyVisionPackagingConversions": P7_TO_81,
+    }
+    caps = caps_from_device_profile({"DirectPlayProfiles": [profile]})
+
+    decision = decide(caps, facts(MKV, *p7_separate_tracks()))
+
+    assert decision.mode != "direct"
+    assert decision.client_packaging is None
+
+
+@pytest.mark.parametrize("source", [
+    p7_separate_tracks()[:-1],
+    p7_separate_tracks(base=dovi_source(7, 6, rpu=True, el=False, bl=True)),
+    p7_separate_tracks(enhancement=dovi_source(7, 6, rpu=False, el=True, bl=False)),
+    p7_separate_tracks(enhancement=dovi_source(7, 6, level=8, rpu=True, el=True, bl=False)),
+    p7_separate_tracks(enhancement=dovi_source(7, 6, level=True, rpu=True, el=True, bl=False)),
+    p7_separate_tracks(enhancement=v("av1", pix_fmt="yuv420p10le", dv=7, compat=6, dv_level=9, rpu=True, el=True, bl=False, index=2)),
+    p7_separate_tracks(enhancement=v("hevc", pix_fmt="yuv420p", dv=7, compat=6, dv_level=9, rpu=True, el=True, bl=False, index=2)),
+    p7_separate_tracks(extra=(dovi_source(7, 6, rpu=True, el=True, bl=False),)),
+])
+def test_profile_seven_separate_track_packaging_fails_closed_for_malformed_or_ambiguous_carriage(source: tuple[dict, ...]) -> None:
+    decision = decide(p7_packaging_client(separate_tracks=True), facts(MKV, *source))
+
+    assert decision.mode != "direct"
+    assert decision.client_packaging is None
+
+
+def test_profile_seven_separate_track_packaging_requires_matching_declared_frame_rates_when_known() -> None:
+    source = list(p7_separate_tracks())
+    source[2]["frame_rate"] = 24.0
+
+    decision = decide(p7_packaging_client(separate_tracks=True), facts(MKV, *source))
+
+    assert decision.mode != "direct"
+    assert decision.client_packaging is None
+
+
+def test_profile_seven_interleaved_packaging_keeps_its_existing_route_with_an_alternate_video() -> None:
+    source = dovi_source(7, 6, el=True)
+    alternate = v("h264", index=2)
+
+    decision = decide(p7_packaging_client(), facts(MKV, source, a(), alternate))
+
+    assert decision.mode == "direct"
     assert decision.client_packaging == "p7_to_p81_drop_el"
 
 
@@ -190,10 +272,10 @@ def test_profile_seven_packaging_fails_closed_without_all_verified_dual_layer_fa
 
 
 def test_profile_seven_packaging_is_mkv_direct_only_and_does_not_authorize_hls() -> None:
-    source = dovi_source(7, 6, el=True)
-    missing = decide(p7_packaging_client([]), facts(MKV, source, a()))
-    mp4 = decide(p7_packaging_client(container="mp4"), facts(MP4, source, a()))
-    webm = decide(p7_packaging_client(container="mkv"), facts("matroska,webm", source, a(), webm=True))
+    source = p7_separate_tracks()
+    missing = decide(p7_packaging_client([], separate_tracks=True), facts(MKV, *source))
+    mp4 = decide(p7_packaging_client(container="mp4", separate_tracks=True), facts(MP4, *source))
+    webm = decide(p7_packaging_client(container="mkv", separate_tracks=True), facts("matroska,webm", *source, webm=True))
 
     for decision in (missing, mp4, webm):
         assert decision.mode != "direct"

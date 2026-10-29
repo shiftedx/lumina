@@ -29,8 +29,9 @@ public final class NativeVideoSource {
         public let staleUnconvertedPackets: Int
         /// Prism's verdict for the segments produced so far: at least one RPU
         /// was rewritten, no RPU or packet was refused, and an enhancement-layer
-        /// NAL was actually removed. A non-`nil` snapshot is published only
-        /// after a produced segment, not as an all-file preflight.
+        /// NAL was actually removed. A terminal pairing failure also makes
+        /// this false, even before a first segment exists. Counters describe
+        /// observed conversion work, not an all-file preflight.
         public let isClean: Bool
 
         /// The P8.1 route is unsafe until the complete conversion evidence is
@@ -70,27 +71,38 @@ public final class NativeVideoSource {
     }
 
     private var demux: PrismCoreSession?
+    private var terminalDolbyVisionConversion: DolbyVisionConversionSnapshot?
     // Tests can require a metadata-only HDR/DV master without claiming that the
     // local Mac display can present it. Production always samples the current
     // output route when it creates a new Prism session.
     private let injectedDisplay: DisplayCapabilities?
     /// Compressed bytes read from the source, excluding local HLS delivery and container framing.
     public var sourceBytesRead: Int64? { demux?.sourceBytesRead }
-    /// `nil` until PrismCore has produced conversion statistics. This is not an
-    /// all-file preflight: later packets can still make `validateDolbyVisionConversion()` fail.
+    /// `nil` until PrismCore has produced conversion statistics or rejected a
+    /// separate-track pair. Later packets can still invalidate this evidence.
     public var dolbyVisionConversion: DolbyVisionConversionSnapshot? {
         get async {
-            guard let session = demux,
-                  let conversion = await session.dolbyVisionConversion,
-                  demux === session else { return nil }
-            return .init(
-                convertedRPUs: conversion.convertedRPUs,
-                failedRPUs: conversion.failedRPUs,
-                droppedEnhancementLayerNALs: conversion.droppedEnhancementLayerNALs,
-                staleUnconvertedPackets: conversion.staleUnconvertedPackets,
-                isClean: conversion.isClean
-            )
+            guard let session = demux else { return terminalDolbyVisionConversion }
+            let snapshot = await Self.conversionSnapshot(for: session)
+            guard demux === session else { return nil }
+            return snapshot
         }
+    }
+
+    private static func conversionSnapshot(for session: PrismCoreSession) async -> DolbyVisionConversionSnapshot? {
+        let conversion = await session.dolbyVisionConversion
+        let failure = await session.remuxFailure
+        let pairingFailed: Bool
+        if case .invalidDolbyVisionConversion = failure { pairingFailed = true }
+        else { pairingFailed = false }
+        guard conversion != nil || pairingFailed else { return nil }
+        return .init(
+            convertedRPUs: conversion?.convertedRPUs ?? 0,
+            failedRPUs: conversion?.failedRPUs ?? 0,
+            droppedEnhancementLayerNALs: conversion?.droppedEnhancementLayerNALs ?? 0,
+            staleUnconvertedPackets: conversion?.staleUnconvertedPackets ?? 0,
+            isClean: conversion?.isClean == true && !pairingFailed
+        )
     }
     private var subtitleMaster: SubtitleMaster?
     private var externalSubtitleDirectory: URL?
@@ -229,7 +241,12 @@ public final class NativeVideoSource {
                 guard item.status == .failed else { return }
                 Task { @MainActor [weak self] in
                     guard self?.demux === session else { return }
-                    self?.stop()
+                    let conversion = await Self.conversionSnapshot(for: session)
+                    guard let self, self.demux === session else { return }
+                    self.stop()
+                    // The app samples conversion evidence after AVPlayer's
+                    // failure notification too; teardown must not erase it.
+                    self.terminalDolbyVisionConversion = conversion
                 }
             }
             return item
@@ -246,6 +263,9 @@ public final class NativeVideoSource {
             if let master { await Self.stop(master) }
             await session.stop()
             if let retainedDirectory { try? FileManager.default.removeItem(at: retainedDirectory) }
+            if case .invalidDolbyVisionConversion = PrismCoreError.classify(error) {
+                throw SelectionError.invalidDolbyVisionConversion
+            }
             throw error
         }
     }
@@ -253,12 +273,19 @@ public final class NativeVideoSource {
     /// Fail only once a producer observed an unsafe P7 conversion. Missing
     /// statistics are inconclusive; callers may poll this while playback proceeds.
     public func validateDolbyVisionConversion() async throws {
-        guard let session = demux,
-              let conversion = await session.dolbyVisionConversion,
-              demux === session else { return }
+        guard let conversion = await dolbyVisionConversion else { return }
         guard conversion.isClean else {
             throw SelectionError.invalidDolbyVisionConversion
         }
+    }
+
+    /// AVPlayer can report a generic loopback delivery error after the producer
+    /// rejected a pair. Keep that known conversion cause for compatible recovery.
+    public func playbackError(for error: Error) async -> Error {
+        guard !(error is CancellationError), (error as NSError).domain != NSURLErrorDomain else { return error }
+        let conversion = await dolbyVisionConversion
+        guard !Task.isCancelled else { return CancellationError() }
+        return conversion?.hasFailure == true ? SelectionError.invalidDolbyVisionConversion : error
     }
 
     private struct SubtitleRendition {
@@ -674,6 +701,7 @@ public final class NativeVideoSource {
         let master = subtitleMaster
         let retainedDirectory = externalSubtitleDirectory
         demux = nil
+        terminalDolbyVisionConversion = nil
         subtitleMaster = nil
         self.externalSubtitleDirectory = nil
         statusObservation = nil

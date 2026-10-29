@@ -517,6 +517,130 @@ final class NativeVideoSourceTests: XCTestCase {
                       "A P7 conversion that retained its EL cannot certify a single-layer master")
     }
 
+    func testSeparateTrackProfile7MKVsConvertToProfile81() async throws {
+        guard let value = ProcessInfo.processInfo.environment["LUMINA_DV7_SEPARATE_TRACK_FIXTURES"], !value.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV7_SEPARATE_TRACK_FIXTURES to generated separate-track MEL:FEL MKVs")
+        }
+        let fixtures = value.split(separator: ":").map { URL(fileURLWithPath: String($0)) }
+        XCTAssertEqual(fixtures.count, 2)
+        for (fixture, expectedName) in zip(fixtures, ["p81-separate-mel.rpu", "p81-separate-fel.rpu"]) {
+            let expected = fixture.deletingLastPathComponent().appendingPathComponent(expectedName)
+            try await assertProfile7Conversion(fixture, expectedRPU: expected, withExternalSubtitle: false, separateTracks: true)
+            try await assertProfile7Conversion(fixture, expectedRPU: expected, withExternalSubtitle: true, separateTracks: true)
+        }
+        if let path = ProcessInfo.processInfo.environment["LUMINA_DV7_SEPARATE_TRACK_REORDERED_FIXTURE"], !path.isEmpty {
+            let fixture = URL(fileURLWithPath: path)
+            let expected = fixture.deletingLastPathComponent().appendingPathComponent("p81-separate-reordered-mel.rpu")
+            try await assertProfile7Conversion(fixture, expectedRPU: expected, withExternalSubtitle: false, separateTracks: true)
+            try await assertProfile7Conversion(fixture, expectedRPU: expected, withExternalSubtitle: true, separateTracks: true)
+        }
+    }
+
+    func testSeparateTrackProfile7RejectsUnpairedOrInvalidEnhancement() async throws {
+        guard let value = ProcessInfo.processInfo.environment["LUMINA_DV7_SEPARATE_TRACK_INVALID_FIXTURES"], !value.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV7_SEPARATE_TRACK_INVALID_FIXTURES to generated invalid separate-track MKVs")
+        }
+        for path in value.split(separator: ":") {
+            let fixture = URL(fileURLWithPath: String(path))
+            XCTAssertTrue(FileManager.default.isReadableFile(atPath: fixture.path))
+            let owner = NativeVideoSource(display: .init(isHDRReady: true, isDolbyVisionCapable: true))
+            defer { owner.stop() }
+            var prepared = false
+            do {
+                let item = try await owner.prepare(url: fixture, usesClientDemux: true)
+                prepared = true
+                let masterURL = try XCTUnwrap((item.asset as? AVURLAsset)?.url)
+                let master = try await text(at: masterURL)
+                let mediaURL = try hlsVariant(master, relativeTo: masterURL)
+                let media = try await text(at: mediaURL)
+                for segment in try hlsSegments(media, relativeTo: mediaURL) {
+                    try await owner.validateDolbyVisionConversion()
+                    do {
+                        _ = try await URLSession.shared.data(for: URLRequest(url: segment, timeoutInterval: 1))
+                    }
+                    catch {
+                        // A producer can refuse a pair before serving the
+                        // requested fragment. Preserve its typed diagnosis.
+                        try await owner.validateDolbyVisionConversion()
+                        throw error
+                    }
+                }
+                try await owner.validateDolbyVisionConversion()
+                XCTFail("Invalid separate-track input must reject P8.1: \(fixture.lastPathComponent)")
+            } catch let error as NativeVideoSource.SelectionError {
+                XCTAssertEqual(error, .invalidDolbyVisionConversion, fixture.lastPathComponent)
+                if prepared {
+                    let evidence = await owner.dolbyVisionConversion
+                    XCTAssertEqual(evidence?.hasFailure, true, "Terminal evidence must survive until explicit stop")
+                    let generic = NSError(domain: AVFoundationErrorDomain, code: AVError.unknown.rawValue)
+                    let mapped = await owner.playbackError(for: generic)
+                    XCTAssertEqual(mapped as? NativeVideoSource.SelectionError, .invalidDolbyVisionConversion)
+                    let cancelled = await owner.playbackError(for: CancellationError())
+                    XCTAssertTrue(cancelled is CancellationError)
+                    let transport = URLError(.notConnectedToInternet)
+                    let retainedTransport = await owner.playbackError(for: transport)
+                    XCTAssertEqual((retainedTransport as NSError).code, transport.errorCode)
+                    XCTAssertEqual((retainedTransport as NSError).domain, NSURLErrorDomain)
+                }
+            }
+            await owner.stop().value
+            let stoppedConversion = await owner.dolbyVisionConversion
+            XCTAssertNil(stoppedConversion, "Explicit stop must clear evidence before a replacement source")
+        }
+    }
+
+    func testSeparateTrackProfile7BasePlaybackAdvancesAndSeeks() async throws {
+        guard let paths = ProcessInfo.processInfo.environment["LUMINA_DV7_SEPARATE_TRACK_FIXTURES"], !paths.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV7_SEPARATE_TRACK_FIXTURES for local native base-picture playback")
+        }
+        var fixtures = paths.split(separator: ":").map { URL(fileURLWithPath: String($0)) }
+        if let path = ProcessInfo.processInfo.environment["LUMINA_DV7_SEPARATE_TRACK_REORDERED_FIXTURE"], !path.isEmpty {
+            fixtures.append(URL(fileURLWithPath: path))
+        }
+        for fixture in fixtures {
+            let owner = NativeVideoSource()
+            let item = try await owner.prepare(url: fixture, usesClientDemux: true)
+            let frames = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ])
+            item.add(frames)
+            let player = AVPlayer(playerItem: item)
+            player.volume = 0
+            defer { player.replaceCurrentItem(with: nil); owner.stop() }
+            try await NativeVideoSource.waitUntilReady(player)
+            player.play()
+            var decoded = false
+            let deadline = ContinuousClock.now + .seconds(10)
+            while ContinuousClock.now < deadline {
+                let time = item.currentTime()
+                if frames.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) != nil { decoded = true }
+                if decoded && time.seconds >= 1 { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertTrue(decoded, fixture.lastPathComponent)
+            XCTAssertGreaterThanOrEqual(item.currentTime().seconds, 1)
+            player.pause()
+            for target in [6.2, 0.5] {
+                let finished = await player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                                                 toleranceBefore: .zero, toleranceAfter: .zero)
+                XCTAssertTrue(finished)
+                let seekDeadline = ContinuousClock.now + .seconds(5)
+                var decodedTarget = false
+                while ContinuousClock.now < seekDeadline {
+                    let time = item.currentTime()
+                    if abs(time.seconds - target) < 0.5,
+                       frames.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) != nil {
+                        decodedTarget = true
+                        break
+                    }
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+                XCTAssertTrue(decodedTarget, "Separate-track seek must render \(target)s: \(fixture.lastPathComponent)")
+            }
+            try await owner.validateDolbyVisionConversion()
+        }
+    }
+
     func testProfile7InvalidRPURefusesSingleLayerDeclaration() async throws {
         guard let value = ProcessInfo.processInfo.environment["LUMINA_DV7_INVALID_RPU_FIXTURE"], !value.isEmpty else {
             throw XCTSkip("Set LUMINA_DV7_INVALID_RPU_FIXTURE to generated p7-invalid-rpu.mkv")
@@ -573,15 +697,15 @@ final class NativeVideoSourceTests: XCTestCase {
     }
 
     private func assertProfile7Conversion(
-        _ fixture: URL, expectedRPU: URL, withExternalSubtitle: Bool
+        _ fixture: URL, expectedRPU: URL, withExternalSubtitle: Bool, separateTracks: Bool = false
     ) async throws {
         guard FileManager.default.isReadableFile(atPath: fixture.path),
               FileManager.default.isReadableFile(atPath: expectedRPU.path) else {
             throw XCTSkip("Missing generated Profile 7 conversion fixture")
         }
         XCTAssertEqual(try doviConfiguration(in: fixture), [
-            "dv_profile": "7", "dv_level": "6", "rpu_present_flag": "1",
-            "el_present_flag": "1", "bl_present_flag": "1",
+            "dv_profile": "7", "dv_level": "6", "rpu_present_flag": separateTracks ? "0" : "1",
+            "el_present_flag": separateTracks ? "0" : "1", "bl_present_flag": "1",
             "dv_bl_signal_compatibility_id": "6"
         ])
 
@@ -616,12 +740,27 @@ final class NativeVideoSourceTests: XCTestCase {
 
         let expectedPayloads = try expectedRPUPayloads(at: expectedRPU)
         let sourceNals = try hevcNALs(in: fixture, directory: directory, name: "p7-source")
-        XCTAssertTrue(sourceNals.contains { hevcNALType($0) == 63 }, "P7 fixture must contain an EL NAL")
+        if separateTracks {
+            XCTAssertGreaterThan(Set(expectedPayloads).count, 1,
+                                 "Separate-track timing evidence needs distinguishable RPUs")
+            XCTAssertEqual(try doviConfiguration(in: fixture, videoTrack: 1), [
+                "dv_profile": "7", "dv_level": "6", "rpu_present_flag": "1",
+                "el_present_flag": "1", "bl_present_flag": "0",
+                "dv_bl_signal_compatibility_id": "6"
+            ])
+            XCTAssertFalse(sourceNals.contains { hevcNALType($0) == 62 || hevcNALType($0) == 63 })
+            let enhancement = try hevcNALs(in: fixture, directory: directory, name: "p7-enhancement", videoTrack: 1)
+            XCTAssertEqual(enhancement.filter { hevcNALType($0) == 62 }.count, expectedPayloads.count)
+            XCTAssertTrue(enhancement.contains { hevcNALType($0) <= 31 })
+        } else {
+            XCTAssertTrue(sourceNals.contains { hevcNALType($0) == 63 }, "P7 fixture must contain an EL NAL")
+        }
         let sourceBaseVCL = sourceNals.filter { hevcNALType($0) <= 31 && hevcNALLayer($0) == 0 }
         XCTAssertFalse(sourceBaseVCL.isEmpty)
 
         var deliveredBaseVCL: [Data] = []
         var deliveredRPUPayloads: [Data] = []
+        var deliveredAudioDTS: [Int64] = []
         for (index, segment) in try hlsSegments(media, relativeTo: mediaURL).enumerated() {
             let fragment = try await bytes(at: segment)
             let seekTarget = directory.appendingPathComponent("p7-seek-\(index).mp4")
@@ -637,13 +776,30 @@ final class NativeVideoSourceTests: XCTestCase {
                            "P7 seek fragment \(index) retained an enhancement layer")
             deliveredBaseVCL.append(contentsOf: nals.filter { hevcNALType($0) <= 31 && hevcNALLayer($0) == 0 })
             deliveredRPUPayloads.append(contentsOf: nals.filter { hevcNALType($0) == 62 }.map { Data($0.dropFirst(2)) })
+            if separateTracks { deliveredAudioDTS.append(contentsOf: try audioPacketDTS(in: seekTarget)) }
         }
+        let conversion = await owner.dolbyVisionConversion
         XCTAssertEqual(deliveredBaseVCL, sourceBaseVCL, "P7 conversion must leave base-layer picture NALs unchanged")
         XCTAssertEqual(deliveredRPUPayloads.count, sourceBaseVCL.count, "Every P7 video packet needs a converted RPU")
         XCTAssertEqual(deliveredRPUPayloads, expectedPayloads,
                        "P7 RPUs must be rewritten to the ordered generated P8.1 vectors, not merely retagged")
+        if separateTracks {
+            if deliveredAudioDTS.isEmpty {
+                let audioURL = try hlsAudioPlaylist(master, relativeTo: masterURL)
+                let audio = try await text(at: audioURL)
+                let audioInitialization = try await bytes(at: hlsMap(audio, relativeTo: audioURL))
+                for (index, segment) in try hlsSegments(audio, relativeTo: audioURL).enumerated() {
+                    let fragment = try await bytes(at: segment)
+                    let audioTarget = directory.appendingPathComponent("p7-audio-\(index).mp4")
+                    try (audioInitialization + fragment).write(to: audioTarget, options: .atomic)
+                    deliveredAudioDTS.append(contentsOf: try audioPacketDTS(in: audioTarget))
+                }
+            }
+            XCTAssertFalse(deliveredAudioDTS.isEmpty, "Separate-track packaging must retain the selected AAC stream")
+            XCTAssertTrue(zip(deliveredAudioDTS, deliveredAudioDTS.dropFirst()).allSatisfy { pair in pair.0 < pair.1 },
+                          "Waiting for EL metadata must not reverse audio decode timestamps")
+        }
 
-        let conversion = await owner.dolbyVisionConversion
         let snapshot = try XCTUnwrap(conversion)
         XCTAssertEqual(snapshot.convertedRPUs, sourceBaseVCL.count,
                        "Successful final partial segments must contribute their converted RPUs too")
@@ -774,15 +930,28 @@ final class NativeVideoSourceTests: XCTestCase {
         }
     }
 
+    private func hlsAudioPlaylist(_ master: String, relativeTo masterURL: URL) throws -> URL {
+        let declarations = master.split(whereSeparator: \.isNewline).filter { $0.hasPrefix("#EXT-X-MEDIA:TYPE=AUDIO,") }
+        XCTAssertEqual(declarations.count, 1, "The fixture has one stream-copyable AAC source")
+        guard let declaration = declarations.first,
+              let start = declaration.range(of: "URI=\""),
+              let end = declaration[start.upperBound...].firstIndex(of: "\""),
+              let url = URL(string: String(declaration[start.upperBound..<end]), relativeTo: masterURL)?.absoluteURL else {
+            throw NSError(domain: "NativeVideoSourceTests", code: 13,
+                          userInfo: [NSLocalizedDescriptionKey: "Missing declared AAC rendition"])
+        }
+        return url
+    }
+
     private func rpuHashes(in source: URL, directory: URL, name: String) throws -> [Data] {
         try hevcNALs(in: source, directory: directory, name: name)
             .filter { hevcNALType($0) == 62 }
             .map { Data(SHA256.hash(data: $0)) }
     }
 
-    private func hevcNALs(in source: URL, directory: URL, name: String) throws -> [Data] {
+    private func hevcNALs(in source: URL, directory: URL, name: String, videoTrack: Int = 0) throws -> [Data] {
         let elementary = directory.appendingPathComponent("\(name).hevc")
-        try runFFmpeg(["-v", "error", "-nostdin", "-y", "-i", source.path, "-map", "0:v:0", "-c", "copy", "-bsf:v", "hevc_mp4toannexb", elementary.path])
+        try runFFmpeg(["-v", "error", "-nostdin", "-y", "-i", source.path, "-map", "0:v:\(videoTrack)", "-c", "copy", "-bsf:v", "hevc_mp4toannexb", elementary.path])
         return annexBNALs(try Data(contentsOf: elementary))
     }
 
@@ -813,11 +982,11 @@ final class NativeVideoSourceTests: XCTestCase {
         data.range(of: needle) != nil
     }
 
-    private func doviConfiguration(in source: URL) throws -> [String: String] {
+    private func doviConfiguration(in source: URL, videoTrack: Int = 0) throws -> [String: String] {
         let output = Pipe()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream_side_data", "-of", "json", source.path]
+        process.arguments = ["ffprobe", "-v", "error", "-select_streams", "v:\(videoTrack)", "-show_entries", "stream_side_data", "-of", "json", source.path]
         process.standardOutput = output
         try process.run()
         process.waitUntilExit()
@@ -856,6 +1025,29 @@ final class NativeVideoSourceTests: XCTestCase {
                           userInfo: [NSLocalizedDescriptionKey: "Unable to count video packets"])
         }
         return count
+    }
+
+    private func audioPacketDTS(in source: URL) throws -> [Int64] {
+        let output = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "packet=dts", "-of", "json", source.path]
+        process.standardOutput = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard process.terminationStatus == 0, let packets = root?["packets"] as? [[String: Any]] else {
+            throw NSError(domain: "NativeVideoSourceTests", code: 11,
+                          userInfo: [NSLocalizedDescriptionKey: "Unable to inspect packaged audio timestamps"])
+        }
+        return try packets.map { packet in
+            guard let dts = packet["dts"] as? NSNumber else {
+                throw NSError(domain: "NativeVideoSourceTests", code: 12,
+                              userInfo: [NSLocalizedDescriptionKey: "Packaged AAC packet lacks a decode timestamp"])
+            }
+            return dts.int64Value
+        }
     }
 
     private func annexBNALs(_ data: Data) -> [Data] {

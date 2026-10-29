@@ -19,8 +19,8 @@ export type MediaServerDraft = {
   native_streaming_enabled: boolean;
   hwaccel: HwaccelMode; max_playback_sessions: string; transcode_cache_gb: string; jellyfin_import_url: string; plex_import_url: string;
 };
-const HWACCEL: Array<[HwaccelMode, string]> = [['auto', 'Automatic'], ['qsv', 'Intel Quick Sync (QSV)'], ['vaapi', 'VA-API'], ['off', 'Off (software only)']];
-const ACTIVE_LABELS: Record<TranscodeDiagnostics['active'], string> = { qsv: 'Intel Quick Sync', vaapi: 'VA-API', none: 'Software only' };
+const HWACCEL: Array<[HwaccelMode, string]> = [['auto', 'Automatic'], ['qsv', 'Intel Quick Sync (QSV)'], ['nvenc', 'NVIDIA NVENC'], ['vaapi', 'Intel / AMD VA-API (Linux)'], ['videotoolbox', 'Apple VideoToolbox (macOS)'], ['amf', 'AMD AMF (Windows)'], ['rkmpp', 'Rockchip MPP (Linux BSP)'], ['off', 'Off (software only)']];
+const ACTIVE_LABELS: Record<TranscodeDiagnostics['active'], string> = { qsv: 'Intel Quick Sync', vaapi: 'Intel / AMD VA-API', nvenc: 'NVIDIA NVENC', videotoolbox: 'Apple VideoToolbox', amf: 'AMD AMF', rkmpp: 'Rockchip MPP', none: 'Software only' };
 
 export const draftOf = (settings: MediaServerSettings): MediaServerDraft => ({
   tmdb_api_key: '', clear_tmdb_key: false, omdb_api_key: '', clear_omdb_key: false, metadata_language: settings.metadata_language, introdb_enabled: settings.introdb_enabled, jellyfin_enabled: settings.jellyfin_enabled,
@@ -303,6 +303,8 @@ function HardwareStatus() {
           <li><span>Hardware in use</span><strong><StatusText tone={diagnostics.hardware_disabled ? 'attention' : diagnostics.active === 'none' ? 'muted' : 'ok'}>{ACTIVE_LABELS[diagnostics.active]}{diagnostics.hardware_disabled ? ' (paused after repeated failures)' : ''}</StatusText></strong></li>
           <li><span>Hardware check</span><strong><StatusText tone={diagnostics.probe_ok ? 'ok' : 'danger'}>{diagnostics.probe_ok ? 'Passed' : diagnostics.probe_error || 'Failed'}</StatusText></strong></li>
           <li><span>HDR to SDR</span><strong><StatusText tone={diagnostics.tonemap === 'none' ? 'attention' : 'ok'}>{diagnostics.tonemap === 'none' ? 'Unavailable' : diagnostics.tonemap}</StatusText></strong></li>
+          {diagnostics.encode_codecs ? <li><span>Encoding formats</span><strong>{diagnostics.encode_codecs.map((codec) => codec === 'h264' ? 'H.264' : codec.toUpperCase()).join(', ') || 'Unavailable'}</strong></li> : null}
+          {Object.entries(diagnostics.encode_errors ?? {}).map(([codec, message]) => <li key={`encoder-${codec}`}><span>{codec.toUpperCase()} check</span><strong>{message}</strong></li>)}
           <li><span>Conversions now</span><strong>{Object.values(diagnostics.sessions).reduce((sum, count) => sum + count, 0)}</strong></li>
           <li><span>Software fallbacks</span><strong>{diagnostics.software_fallbacks}</strong></li>
           <li><span>Cache</span><strong>{formatBytes(diagnostics.cache_bytes)} of {formatBytes(diagnostics.cache_cap_bytes)}</strong></li>
@@ -336,7 +338,7 @@ export const MEDIA_SECTIONS: readonly SettingsSectionDef[] = [
     id: 'transcoding', group: 'server', label: 'Transcoding', aliases: ['playback & transcoding'], summary: 'How Lumina converts video that a device cannot play as it is. The originals never change.',
     Provider: mediaServerForm('Transcoding', 'Save playback and transcoding settings'),
     entries: [
-      { id: 'transcoding.hwaccel', label: 'Hardware acceleration', advanced: true, keywords: ['gpu', 'quick sync', 'qsv', 'va-api', 'vaapi', 'intel', 'software', 'encode', 'transcode'], info: "Uses the server's graphics chip to convert video that a device cannot play as it is. Automatic uses an Intel GPU when one works and falls back to software, which is slower and uses more CPU. Affects playback for everyone on this server.", Control: Hwaccel },
+      { id: 'transcoding.hwaccel', label: 'Hardware acceleration', advanced: true, keywords: ['gpu', 'quick sync', 'qsv', 'va-api', 'vaapi', 'intel', 'nvidia', 'nvenc', 'cuda', 'amd', 'amf', 'apple', 'videotoolbox', 'rockchip', 'rkmpp', 'rga', 'hevc', 'av1', 'software', 'encode', 'transcode'], info: "Converts video with a compatible Intel, NVIDIA, AMD, Apple or Rockchip GPU and falls back to software when needed. Linux containers require GPU access and Rockchip requires a supported BSP kernel; VideoToolbox requires native macOS and AMF requires native Windows with compatible FFmpeg. Affects playback for everyone on this server.", Control: Hwaccel },
       { id: 'transcoding.max-sessions', label: 'Simultaneous conversions', advanced: true, keywords: ['simultaneous video conversions', 'transcodes', 'sessions', 'limit', 'concurrent'], info: 'How many videos Lumina may convert for playback at once, from 1 to 16. Each one uses a lot of CPU or GPU; remuxes and audio-only conversions have their own separate limit of 16. Affects everyone on this server.', Control: MaxSessions },
       { id: 'transcoding.cache', description: 'Storage limit in GB. Oldest cached videos leave first.', label: 'Conversion cache', advanced: true, keywords: ['conversion cache (gb)', 'cache size', 'gb', 'disk', 'transcode cache'], info: 'Disk space, in GB, for video Lumina has already converted, so playing it again starts at once. The oldest converted files are removed first when it fills. Affects everyone on this server.', Control: Cache },
       { id: 'transcoding.diagnostics', label: 'Hardware status', layout: 'block', advanced: true, keywords: ['run diagnostics', 'diagnostics', 'gpu check', 'hdr', 'tone mapping', 'software fallback', 'errors'], info: 'Checks whether hardware conversion works on this server and shows what is in use, HDR support, the cache and recent errors. Running it changes no setting. Only vault owners see this.', Control: HardwareStatus },

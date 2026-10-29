@@ -1,11 +1,31 @@
 import { expect, test, videoTime } from './realstack';
 
+test('a legacy source negotiates a proven modern output and WebKit decodes its real frames', async ({ page }) => {
+  // The read-only endpoint reports the completed startup encoder probes.
+  const report = await page.request.get('/api/admin/diagnostics');
+  expect(report.ok()).toBe(true);
+  const codecs = ((await report.json()).playback.encode_codecs ?? ['h264']) as string[];
+  await page.goto('/library/movies');
+  await page.getByRole('button', { name: /^Realstack Legacy,/ }).first().click();
+  const created = page.waitForResponse((response) => response.request().method() === 'POST' && /\/playback-sessions$/.test(new URL(response.url()).pathname));
+  await page.getByRole('button', { name: /^(Play|Resume(?: at .+)?|Start(?: over)?)$/ }).first().click();
+  const response = await created;
+  expect(response.ok(), await response.text()).toBe(true);
+  const session = await response.json() as { video_codec: string };
+  const profiles = new URL(response.url()).searchParams.get('profiles')?.split(',') ?? [];
+  const expected = codecs.includes('av1') && profiles.includes('hls-av1-aac') ? 'av1'
+    : codecs.includes('hevc') && profiles.includes('hls-hevc-aac') ? 'hevc' : 'h264';
+  expect(session.video_codec).toBe(expected);
+  await expect(page.getByRole('region', { name: 'Realstack Legacy player' })).toContainText('Transcoded');
+  await expect.poll(() => videoTime(page), { timeout: 15_000 }).toBeGreaterThan(0.5);
+});
+
 /**
  * Real WebKit decode of the backend's actual H.264/AAC HLS output (issue #136). Bundled
  * Chromium in `playback.spec.ts` only proves the server-side session (manifest + segment
  * bytes); this asserts real frames advance, and that a far seek restarts the conversion
  * and lands near the target (#137's seek-anywhere restart). Runs only under the
- * `webkit-playback` project — see `make e2e-browsers` — not the default `make check` gate.
+ * `webkit-playback` project — see `make e2e-browsers` — and the full `make check` gate.
  */
 
 for (const { title, via, codecs } of [

@@ -722,7 +722,7 @@ class AppSettings(Base):
     ai_features_disabled: Mapped[list] = mapped_column(JSON, default=list, server_default=text("'[]'"), nullable=False)
     # Off by default: each TheIntroDB lookup tells a third party what the household owns.
     introdb_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
-    hwaccel: Mapped[str] = mapped_column(String(8), default="auto", server_default=text("'auto'"), nullable=False)  # auto|off|qsv|vaapi
+    hwaccel: Mapped[str] = mapped_column(String(8), default="auto", server_default=text("'auto'"), nullable=False)  # SQLite does not enforce length; modes validated by HwaccelMode
     transcode_cache_gb: Mapped[int] = mapped_column(Integer, default=10, server_default=text("10"), nullable=False)
     # On-device models. NULL = the catalog default / automatic threads.
     local_search_model: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -92,7 +92,7 @@ Open <http://127.0.0.1:8765> and create the first admin. Both native amd64 and a
 | Browse and organize photographs | [Photo library](docs/photos.md) |
 | Configure, add media folders, back up, upgrade | [Operator guide](docker/README.md) |
 | Reach it from other devices | [Remote HTTPS](docker/README.md#remote-https) · [LAN HTTP mode](docker/README.md#lan-http-mode) |
-| Use hardware transcoding | [Intel QSV/VAAPI](docker/README.md#hardware-transcoding-intel-qsvvaapi) |
+| Use hardware transcoding | [Intel, AMD and NVIDIA](docker/README.md#hardware-transcoding-linux-docker-engine) |
 | Compare self-hosted media servers | [Lumina vs Plex vs Jellyfin](docs/lumina-vs-plex-vs-jellyfin.md) |
 | Connect Infuse or another Jellyfin app | [Client compatibility](docs/jellyfin-clients.md) · [Connection setup](docker/README.md#jellyfin-apps-infuse-swiftfin) |
 | Bring Jellyfin watch history and favorites | [Moving from Jellyfin](docs/jellyfin-clients.md#can-i-move-from-jellyfin-to-lumina) |

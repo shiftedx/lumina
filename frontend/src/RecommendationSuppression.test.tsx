@@ -88,7 +88,7 @@ describe('Picked for you recommendation controls', () => {
     expect(screen.queryByText('Because you finished Harbor walk at dawn')).toBeNull();
     expect(container.querySelector('.reco-reason')).toBeNull();
     await userEvent.click(trigger('Video a'));
-    expect(screen.queryByRole('group', { name: 'Because you finished Harbor walk at dawn' })).toBeNull();
+    expect(screen.queryByText('Because you finished Harbor walk at dawn')).toBeNull();
     expect(screen.getByRole('menuitem', { name: 'Not interested' })).toBeTruthy();
   });
 

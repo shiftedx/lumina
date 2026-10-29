@@ -30,7 +30,7 @@ Lumina supports online search, playback, YouTube and Twitch live streams with ch
 
 ## What hardware does Lumina need?
 
-The documented release deployment uses Docker Compose with native amd64 or arm64 images. Storage needs depend on your library and downloads; transcoding requirements depend on codecs, devices and concurrent playback. Intel QSV/VAAPI acceleration is available with the appropriate host configuration. There is no universal minimum RAM or concurrency guarantee here; follow the [installation guide](../README.md#run) and [hardware transcoding guide](../docker/README.md#hardware-transcoding-intel-qsvvaapi).
+The documented release deployment uses Docker Compose with native amd64 or arm64 images. Storage needs depend on your library and downloads; transcoding requirements depend on codecs, devices and concurrent playback. Intel QSV, Intel/AMD VA-API and NVIDIA NVENC acceleration are available with the appropriate host driver and container configuration. There is no universal minimum RAM or concurrency guarantee here; follow the [installation guide](../README.md#run) and [hardware transcoding guide](../docker/README.md#hardware-transcoding-linux-docker-engine).
 
 ## Can I watch outside my home network?
 

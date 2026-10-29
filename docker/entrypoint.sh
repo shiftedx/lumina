@@ -4,6 +4,7 @@ set -eu
 runtime_uid=${LUMINA_RUNTIME_UID:-1000}
 runtime_gid=${LUMINA_RUNTIME_GID:-1000}
 render_gid=${LUMINA_RENDER_GID:-}
+video_gid=${LUMINA_VIDEO_GID:-}
 data_dir=${LUMINA_DATA_DIR:-/app/backend/.data}
 
 case "$runtime_uid:$runtime_gid" in
@@ -13,15 +14,30 @@ case "$runtime_uid:$runtime_gid" in
     ;;
 esac
 
-# Supplementary groups are always cleared. The only group ever granted is the host's
-# render group (docker-compose.qsv.yml), so /dev/dri works and nothing else leaks in.
+# Supplementary groups are always cleared. A GPU override may grant the host render
+# group, and Rockchip's explicit override may additionally grant its video group.
+# No image or host group membership is inherited.
 case "$render_gid" in
-  '') groups=--clear-groups ;;
+  '') ;;
   *[!0-9]*|0*)
     echo "LUMINA_RENDER_GID must be the host render group's non-zero numeric ID." >&2
     exit 1
     ;;
   *) groups="--groups=$render_gid" ;;
+esac
+case "$video_gid" in
+  '') ;;
+  *[!0-9]*|0*)
+    echo "LUMINA_VIDEO_GID must be the host video group's non-zero numeric ID." >&2
+    exit 1
+    ;;
+esac
+case "$render_gid:$video_gid" in
+  :) groups=--clear-groups ;;
+  *:) groups="--groups=$render_gid" ;;
+  :*) groups="--groups=$video_gid" ;;
+  "$render_gid:$render_gid") groups="--groups=$render_gid" ;;
+  *) groups="--groups=$render_gid,$video_gid" ;;
 esac
 
 mkdir -p "$data_dir" "$HOME"

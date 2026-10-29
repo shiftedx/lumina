@@ -43,6 +43,6 @@ Matching uses file-path suffixes, then TMDB, IMDb and TVDB IDs. Different contai
 
 ## What if a client connects but cannot play?
 
-Check the [operator guide's client notes](../docker/README.md#jellyfin-apps-infuse-swiftfin) and your [hardware transcoding configuration](../docker/README.md#hardware-transcoding-intel-qsvvaapi). Direct play, remux and transcoding depend on the source file, available hardware and the client's reported capabilities. After an upgrade, close and reopen the client to refresh item details. If you report a problem, include app version, device, source codec and a sanitized description of the failure; never include passwords or token-bearing playback URLs.
+Check the [operator guide's client notes](../docker/README.md#jellyfin-apps-infuse-swiftfin) and your [hardware transcoding configuration](../docker/README.md#hardware-transcoding-linux-docker-engine). Direct play, remux and transcoding depend on the source file, available hardware and the client's reported capabilities. After an upgrade, close and reopen the client to refresh item details. If you report a problem, include app version, device, source codec and a sanitized description of the failure; never include passwords or token-bearing playback URLs.
 
 See also [Lumina vs Plex vs Jellyfin](lumina-vs-plex-vs-jellyfin.md), the [FAQ](faq.md), and [release notes](../RELEASE_NOTES.md).

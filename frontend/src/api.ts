@@ -320,12 +320,22 @@ export function previewUrl(payload: PreviewRequest, options?: RequestJsonOptions
 }
 
 const HEVC_FAILED_KEY = 'lumina.hevcFailed';
+const AV1_FAILED_KEY = 'lumina.av1Failed';
+const transientCodecFailures = new Set<string>();
 /** Set when HEVC playback failed here, so this browser asks for H.264 from then on (localPlayer.tsx). */
 export function markHevcFailed(): void {
-  try { localStorage.setItem(HEVC_FAILED_KEY, '1'); } catch { /* storage blocked: this play still falls back */ }
+  try { localStorage.setItem(HEVC_FAILED_KEY, '1'); } catch { transientCodecFailures.add('hevc'); }
 }
 function hevcFailed(): boolean {
+  if (transientCodecFailures.has('hevc')) return true;
   try { return localStorage.getItem(HEVC_FAILED_KEY) === '1'; } catch { return false; }
+}
+export function markAv1Failed(): void {
+  try { localStorage.setItem(AV1_FAILED_KEY, '1'); } catch { transientCodecFailures.add('av1'); }
+}
+function av1Failed(): boolean {
+  if (transientCodecFailures.has('av1')) return true;
+  try { return localStorage.getItem(AV1_FAILED_KEY) === '1'; } catch { return false; }
 }
 // Async, so it is asked once and counts from the next request on; until then MediaSource alone decides.
 let hevcDecodes: boolean | undefined;
@@ -349,7 +359,8 @@ function hevcPlays(mime: string): boolean {
 export function browserSupportedPlaybackProfiles(): string[] {
   if (typeof document === 'undefined') return [];
   const media = document.createElement('video');
-  const supported = (mime: string) => media.canPlayType(mime) !== '' && (!mime.includes('hvc1') || hevcPlays(mime));
+  const supported = (mime: string) => media.canPlayType(mime) !== ''
+    && (!mime.includes('hvc1') || hevcPlays(mime)) && (!mime.includes('av01') || !av1Failed());
   const profiles = [
     ["mp4-avc-aac", 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"'],
     ["mp4-av1-aac", 'video/mp4; codecs="av01.0.05M.08, mp4a.40.2"'],
@@ -369,6 +380,12 @@ export function browserSupportedPlaybackProfiles(): string[] {
     ["mp4-eac3", 'audio/mp4; codecs="ec-3"'],
   ].filter((entry) => supported(entry[1])).map((entry) => entry[0]);
   const mediaSource = globalThis.MediaSource;
+  const mseAudio = typeof mediaSource?.isTypeSupported === 'function' && mediaSource.isTypeSupported('audio/mp4; codecs="mp4a.40.2"');
+  // Direct-file support alone does not prove that the browser's HLS path can decode a new rendition.
+  if (profiles.includes('mp4-hevc-aac') && (mseAudio && mediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L93.B0"')
+    || !mediaSource && media.canPlayType('application/vnd.apple.mpegurl') !== '')) profiles.push('hls-hevc-aac');
+  if (profiles.includes('mp4-av1-aac') && mseAudio && mediaSource.isTypeSupported('video/mp4; codecs="av01.0.05M.08"')) profiles.push('hls-av1-aac');
+  if (av1Failed()) profiles.push('av1-failed');
   const dashVideoSupported = (
     profiles.includes('mp4-avc-aac') && mediaSource?.isTypeSupported('video/mp4; codecs="avc1.42E01E"')
   ) || (

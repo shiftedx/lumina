@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { releaseBackground, holdBackground } from './backgroundGate';
-import { ApiRequestError, bulkEditMetadata, checkAdminUpdates, chooseTitleImage, getAdminUpdateStatus, getMetadataHistory, getMetadataVocabulary, listImageCandidates, listMetadataEpisodes, previewMetadataRefresh, removeTitleImage, reorderBackdrops, revertMetadata, searchMetadataPeople, undoMetadataBatch, updateAdminUpdateSettings, uploadTitleImage, getTitleMetadata, saveMetadataEdits, forgetDeviceMember, getDeviceMembers, loginSession, switchMember, beaconRecoEvents, clearRecoHistory, getUpNext, sendRecoEvents, suppressRecommendation, getChannelPage, listLibraryChannels, resolveChannel, activateLocalModel, addHouseholdCollectionItem, cancelLocalModelDownload, downloadLocalModel, removeLocalModel, browserSupportedPlaybackProfiles, markHevcFailed, completeOnboarding, confirmImport, createAcquisitionBatch, deleteHouseholdCollection, deleteLibraryNote, dismissNextUp, getChannelSuggestions, getHomeRecommendations, getLibrarySections, getLocalPlaybackOptions, getMemberInterests, getTitleFacets, hideContinueWatching, listJobs, listLibrary, listLibraryNotes, listNextUp, listSeasonEpisodes, listTitles, previewJellyfinImport, previewUrl, refreshLibrary, runJellyfinImport, renameHouseholdCollection, requestSubtitleJob, resolveApiBaseUrl, retryAcquisitionEntry, searchChannels, searchLibrary, searchTitleMatches, setFavorite, skipOnboarding, unhideContinueWatching, updateLibraryNote, updateMemberInterests, updateUser } from './api';
+import { ApiRequestError, bulkEditMetadata, checkAdminUpdates, chooseTitleImage, getAdminUpdateStatus, getMetadataHistory, getMetadataVocabulary, listImageCandidates, listMetadataEpisodes, previewMetadataRefresh, removeTitleImage, reorderBackdrops, revertMetadata, searchMetadataPeople, undoMetadataBatch, updateAdminUpdateSettings, uploadTitleImage, getTitleMetadata, saveMetadataEdits, forgetDeviceMember, getDeviceMembers, loginSession, switchMember, beaconRecoEvents, clearRecoHistory, getUpNext, sendRecoEvents, suppressRecommendation, getChannelPage, listLibraryChannels, resolveChannel, activateLocalModel, addHouseholdCollectionItem, cancelLocalModelDownload, downloadLocalModel, removeLocalModel, browserSupportedPlaybackProfiles, markAv1Failed, markHevcFailed, completeOnboarding, confirmImport, createAcquisitionBatch, deleteHouseholdCollection, deleteLibraryNote, dismissNextUp, getChannelSuggestions, getHomeRecommendations, getLibrarySections, getLocalPlaybackOptions, getMemberInterests, getTitleFacets, hideContinueWatching, listJobs, listLibrary, listLibraryNotes, listNextUp, listSeasonEpisodes, listTitles, previewJellyfinImport, previewUrl, refreshLibrary, runJellyfinImport, renameHouseholdCollection, requestSubtitleJob, resolveApiBaseUrl, retryAcquisitionEntry, searchChannels, searchLibrary, searchTitleMatches, setFavorite, skipOnboarding, unhideContinueWatching, updateLibraryNote, updateMemberInterests, updateUser } from './api';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -248,6 +248,37 @@ describe('production API boundary', () => {
       expect(browserSupportedPlaybackProfiles()).not.toContain('mp4-hevc-aac');
       expect(browserSupportedPlaybackProfiles()).not.toContain('mp4-hevc10-aac');
     } finally { localStorage.clear(); }
+  });
+
+  it('offers modern HLS outputs only with a working media path and removes a codec after a decode failure', () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('probably');
+    vi.stubGlobal('MediaSource', { isTypeSupported: (mime: string) => mime.includes('audio/mp4') });
+    expect(browserSupportedPlaybackProfiles()).not.toContain('hls-hevc-aac');
+    expect(browserSupportedPlaybackProfiles()).not.toContain('hls-av1-aac');
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true });
+    expect(browserSupportedPlaybackProfiles()).toEqual(expect.arrayContaining(['hls-hevc-aac', 'hls-av1-aac']));
+    markAv1Failed();
+    try {
+      const profiles = browserSupportedPlaybackProfiles();
+      expect(profiles).toContain('av1-failed');
+      expect(profiles).not.toContain('hls-av1-aac');
+      expect(profiles).not.toContain('mp4-av1-aac');
+      expect(profiles).toContain('hls-hevc-aac');
+    } finally { localStorage.clear(); }
+  });
+
+  it('remembers failed output codecs for this page even when browser storage rejects writes', async () => {
+    vi.resetModules();
+    const isolated = await import('./api');
+    vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('probably');
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => true });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage unavailable'); });
+    isolated.markAv1Failed();
+    isolated.markHevcFailed();
+    const profiles = isolated.browserSupportedPlaybackProfiles();
+    expect(profiles).toContain('av1-failed');
+    expect(profiles).not.toContain('hls-av1-aac');
+    expect(profiles).not.toContain('hls-hevc-aac');
   });
 
   it('preserves structured acquisition failure categories for callers', async () => {

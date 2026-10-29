@@ -7,3 +7,5 @@ services:
       - /dev/dri:/dev/dri
     environment:
       LUMINA_RENDER_GID: ${LUMINA_RENDER_GID:?Set LUMINA_RENDER_GID to the host render group id (stat -c %g /dev/dri/renderD128)}
+      # Use another Intel render node on a multi-GPU host; backend validates it as a local /dev/dri/renderD* node.
+      LUMINA_HWACCEL_DEVICE: ${LUMINA_HWACCEL_DEVICE:-/dev/dri/renderD128}

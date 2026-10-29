@@ -7,13 +7,17 @@ import time
 from collections import namedtuple
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 from app.services import local_playback_sessions as lps
 from app.services.hwaccel import HwStatus, hwaccel
 from app.services.local_playback_sessions import ConversionError, LocalPlaybackSessions, SessionCapError, SupersededError, master_playlist, with_api_key
-from app.services.playback_decision import Decision
+from app.services.playback_decision import BROWSER_DEFAULT, Decision
+from app.services.playback_resources import PlaybackResources
+from app.services.resource_policy import HouseholdResources, ResourceAllowances
 
 # A stand-in ffmpeg: optional failure on hardware args, N finished segments, a progress line, a manifest, then it runs on
 # as the same shell (no exec after the manifest, or a throttle's SIGSTOP can land mid-execve and be lost).
@@ -22,6 +26,7 @@ for last; do :; done
 dir=$(dirname "$last")
 case " $* " in *" -init_hw_device "*) if [ -n "$FAKE_FAIL_HW" ]; then echo "Device creation failed: -12" >&2; exit 1; fi
   if [ -n "$FAKE_SLOW_HW" ]; then exec sleep 60; fi;; esac
+case " $* " in *" -hwaccel "*) if [ -n "$FAKE_FAIL_DECODE" ]; then echo "Decoder unsupported" >&2; exit 1; fi;; esac
 i=0
 while [ "$i" -lt "${FAKE_SEGMENTS:-0}" ]; do : > "$dir/seg$i.m4s"; i=$((i + 1)); done
 printf 'frame=10\\nspeed=1.52x\\nprogress=continue\\n' > "$dir/progress"
@@ -144,6 +149,68 @@ def test_hardware_failure_retries_once_in_software(registry, monkeypatch: pytest
     start(registry, item="i4")
     assert hwaccel.disabled and hwaccel.fallbacks == 3
     assert start(registry, item="i5").kind == "video_sw" and hwaccel.fallbacks == 3  # no more hardware attempts
+
+
+def test_a_decode_failure_retries_cpu_decode_with_the_hardware_encoder(registry, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A GPU may encode H.264 while its decoder cannot decode the HEVC source; retain its encoder."""
+    monkeypatch.setattr(hwaccel, "status", lambda ffmpeg, mode: HwStatus(active="qsv", probe_ok=True, tonemap="software", software_tonemap="software"))
+    monkeypatch.setenv("FAKE_FAIL_DECODE", "1")
+    facts = {**FACTS, "streams": [{**FACTS["streams"][0], "codec": "hevc", "pix_fmt": "yuv420p"}, FACTS["streams"][1]]}
+    session = registry.start(user_id="alice", item_id="i1", ffmpeg=registry.ffmpeg, source=Path("/media/x.mkv"), facts=facts, decision=VIDEO, cap=2)
+    assert session.kind == "video_hw" and hwaccel.fallbacks == 0 and hwaccel.failures == 0
+
+
+def test_startup_decode_retry_keeps_its_protected_resource_reservation(registry, monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.services.playback_resources as resources_module
+
+    policy = HouseholdResources(
+        upload_bps=8_000_000,
+        defaults=ResourceAllowances(remote_stream_bps=8_000_000, remote_member_bps=8_000_000, playback_sessions=1, video_encodes=1),
+    )
+    monkeypatch.setattr(resources_module, "household", lambda db: policy)
+    monkeypatch.setattr(resources_module, "effective", lambda db, user_id: policy.defaults)
+    monkeypatch.setattr(resources_module, "remote", lambda request, configured: True)
+    monkeypatch.setattr(resources_module, "runtime_state", lambda: (True, 1))
+    resources = PlaybackResources()
+    monkeypatch.setattr(resources_module, "playback_resources", resources)
+    facts = {**FACTS, "streams": [{**FACTS["streams"][0], "codec": "hevc", "pix_fmt": "yuv420p"}, FACTS["streams"][1]]}
+    admission = resources.admit(None, SimpleNamespace(id="alice"), SimpleNamespace(), "i1", "web", "hls", facts, BROWSER_DEFAULT)
+    monkeypatch.setattr(hwaccel, "status", lambda ffmpeg, mode: HwStatus(active="qsv", probe_ok=True, tonemap="software", software_tonemap="software"))
+    monkeypatch.setenv("FAKE_FAIL_DECODE", "1")
+
+    session = registry.start(user_id="alice", item_id="i1", ffmpeg=registry.ffmpeg, source=Path("/media/x.mkv"), facts=facts, decision=VIDEO, cap=2,
+                             resource_admission=admission)
+    assert resources._items[admission.key].admission.token == admission.token
+    with pytest.raises(HTTPException, match="busy"):  # the only remote allocation is still reserved by the retry
+        resources.admit(None, SimpleNamespace(id="bob"), SimpleNamespace(), "other", "tv", "hls", facts, BROWSER_DEFAULT)
+    assert registry.stop(session.id)
+    assert not resources._items
+
+
+def test_decode_retry_rechecks_the_video_cap(registry, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hwaccel, "status", lambda ffmpeg, mode: HARDWARE)
+    calls = 0
+
+    def first_failure_then_competitor(session):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            registry.stop(session.id)
+            start(registry, user="bob", device="tv", item="other", cap=1)
+            raise ConversionError("decode failed")
+        return session
+
+    monkeypatch.setattr(registry, "_await_manifest", first_failure_then_competitor)
+    facts = {**FACTS, "streams": [{**FACTS["streams"][0], "codec": "hevc", "pix_fmt": "yuv420p"}, FACTS["streams"][1]]}
+    with pytest.raises(SessionCapError, match="busy"):
+        registry.start(user_id="alice", item_id="i1", ffmpeg=registry.ffmpeg, source=Path("/media/x.mkv"), facts=facts, decision=VIDEO, cap=1)
+
+
+def test_hdr_without_a_probed_tonemap_is_refused_before_ffmpeg_starts(registry, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hwaccel, "status", lambda ffmpeg, mode: HwStatus(active="qsv", probe_ok=True))
+    with pytest.raises(ConversionError, match="tone-mapped"):
+        start(registry, replace(VIDEO, tonemap=True))
+    assert not registry._sessions
 
 
 def test_a_hardware_session_replaced_before_its_playlist_is_not_a_hardware_failure(registry, monkeypatch: pytest.MonkeyPatch) -> None:

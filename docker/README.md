@@ -86,7 +86,7 @@ The namespace profile replaces Docker's default seccomp profile. It retains the 
 
 The Docker and comparison images build [libarchive 3.8.10](https://github.com/libarchive/libarchive/releases/tag/v3.8.10) from the official source archive pinned by SHA-256, against the same trixie base as the runtime. The shared library is installed under `/usr/local/lib` and registered with `ldconfig`, so the isolated CBR worker resolves it without accepting a caller-controlled loader path. Build-time checks retain stored, compressed and solid RAR5 reading plus bounded malformed-input rejection; the BSD license and source hash are shipped under `/usr/local/share/doc/libarchive`. Optional XML backends and archive command-line tools are omitted. To upgrade, verify the upstream release signature and asset digest, update both Dockerfiles together, then qualify the actual loaded library and CBR workflows on both architectures. The bundled Jellyfin version does not imply that every native advisory is fixed; retain normal vendor security maintenance.
 
-ffmpeg/ffprobe are [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg/releases/tag/v8.1.3-1) 8.1.3-1 (GPL; QSV/VAAPI, OpenCL tone-mapping and chromaprint), installed from the release's `trixie_amd64`/`trixie_arm64` `.deb`. Each is pinned by sha256 in the `Dockerfile` (`ADD --checksum`) and symlinked from `/usr/lib/jellyfin-ffmpeg/` into `/usr/local/bin/`. On amd64 the image also installs Intel's OpenCL runtime (`intel-opencl-icd` 26.31.39395.13, `intel-igc-core-2`/`intel-igc-opencl-2` 2.40.13, `libigdgmm12` 22.10.0) from Intel's GitHub releases, again pinned by sha256. It is not packaged for Debian trixie, and the versions match Jellyfin's own trixie image. The media toolchain adds ~150 MB over the previous static build. Both ffmpeg binaries are GPL-licensed; [`CREDITS.md`](../CREDITS.md) links their source and lists every bundled component. To upgrade, read the new digests with `gh api repos/jellyfin/jellyfin-ffmpeg/releases/latest --jq '.assets[] | select(.name | test("trixie_(amd64|arm64).deb$")) | .name + " " + .digest'` (Intel: `gh api repos/intel/compute-runtime/releases/tags/<ver>` and `repos/intel/intel-graphics-compiler/releases/tags/v<ver>`), update the `ADD` lines, and rebuild.
+ffmpeg/ffprobe are [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg/releases/tag/v8.1.3-1) 8.1.3-1 (GPL; QSV, VA-API, NVENC/NVDEC, OpenCL/CUDA tone-mapping and chromaprint), installed from the release's `trixie_amd64`/`trixie_arm64` `.deb`. Each is pinned by sha256 in the `Dockerfile` (`ADD --checksum`) and symlinked from `/usr/lib/jellyfin-ffmpeg/` into `/usr/local/bin/`. The image includes Mesa VA-API userspace drivers for Intel and AMD. On amd64 it also installs Intel's OpenCL runtime (`intel-opencl-icd` 26.31.39395.13, `intel-igc-core-2`/`intel-igc-opencl-2` 2.40.13, `libigdgmm12` 22.10.0) from Intel's GitHub releases, again pinned by sha256. It is not packaged for Debian trixie, and the versions match Jellyfin's own trixie image. NVIDIA's proprietary driver libraries are not included; NVIDIA Container Toolkit mounts the compatible host driver at runtime. Both ffmpeg binaries are GPL-licensed; [`CREDITS.md`](../CREDITS.md) links their source and lists every bundled component. To upgrade, read the new digests with `gh api repos/jellyfin/jellyfin-ffmpeg/releases/latest --jq '.assets[] | select(.name | test("trixie_(amd64|arm64).deb$")) | .name + " " + .digest'` (Intel: `gh api repos/intel/compute-runtime/releases/tags/<ver>` and `repos/intel/intel-graphics-compiler/releases/tags/v<ver>`), update the `ADD` lines, and rebuild.
 
 ## Configure
 
@@ -695,19 +695,79 @@ Any other OpenAI-compatible transcription server works too: whisper.cpp's server
 `/v1/audio/transcriptions` endpoint on another host on your network. Point `LUMINA_ASR_BASE_URL`
 at it instead of running the `asr` service.
 
-## Hardware transcoding (Intel QSV/VAAPI)
+<a id="hardware-transcoding-intel-qsvvaapi"></a>
 
-On a Linux host with an Intel GPU, add the override so the container gets `/dev/dri` and the host's render group:
+## Hardware transcoding (Linux Docker Engine)
+
+Lumina detects usable H.264, HEVC and AV1 encoders with real one-frame encodes before a playback session advertises them. On Linux, `Auto` tries Intel QSV, NVIDIA NVENC, VA-API, then Rockchip MPP; set Rockchip MPP explicitly on a supported arm64 BSP host to skip the unrelated probes. A failed probe or session keeps playback working in software. H.264 remains the compatibility default; HEVC or AV1 is chosen only when a client explicitly advertises it and the selected backend passed that codec's probe. Encoded HEVC/AV1 output is SDR 8-bit, up to 2160p within the client, member and bandwidth limits; HDR sources still require tone mapping rather than HDR output preservation. The exact decode and HDR support still depends on the generation of the GPU, its driver and source codec. Check the [Jellyfin codec support guidance](https://jellyfin.org/docs/general/clients/codec-support/) and your GPU vendor's codec matrix before buying hardware.
+
+| Host hardware | Compose override | Select in Settings | Host requirement |
+| --- | --- | --- | --- |
+| Intel integrated/discrete GPU | `docker-compose.qsv.yml` | Automatic or Intel Quick Sync | `/dev/dri` render device and its render-group ID |
+| Intel or AMD GPU | `docker-compose.vaapi.yml` | Automatic or VA-API | `/dev/dri` render device and its render-group ID; a host driver with VA-API encode support |
+| NVIDIA GPU with NVENC/NVDEC | `docker-compose.nvidia.yml` | Automatic or NVIDIA NVENC | NVIDIA driver and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the Linux host |
+| Rockchip RK35xx VPU | `docker-compose.rockchip.yml` | Rockchip MPP | arm64 Linux with a supported Rockchip BSP, required VPU device nodes, and explicit render/video group IDs |
+
+The Intel QSV and VA-API overrides both expose `/dev/dri` and grant only its host render group:
 
 ```bash
 curl -fsSLO https://github.com/shiftedx/lumina/releases/download/v0.5.1/docker-compose.qsv.yml
 echo "LUMINA_RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
+# Intel QSV
 docker compose -f docker-compose.yml -f docker-compose.qsv.yml up -d --no-build
+# Or Intel/AMD VA-API
+docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d --no-build
 ```
 
-The entrypoint grants only that one supplementary group. Without the override Lumina transcodes in software. On Docker Desktop for Mac there is no `/dev/dri`, so it always runs in software.
+Use a different render node on a multi-GPU host by setting `LUMINA_HWACCEL_DEVICE=/dev/dri/renderD129` in `.env` and derive `LUMINA_RENDER_GID` from that exact node. The entrypoint grants only that one supplementary group. Without one of these overrides Lumina transcodes in software.
 
-After the container is up, open **Settings → Playback & transcoding**, keep hardware acceleration on **Auto** and run **Diagnostics**. A working Intel setup reports `active: qsv`, `probe_ok: true` and tone-mapping `opencl`. `EACCES` on `/dev/dri` means `LUMINA_RENDER_GID` is not the group that owns `/dev/dri/renderD128`. A failing hardware session retries once in software. After three hardware failures Lumina stays in software until restart, and Diagnostics shows the fallback count. Set **Max concurrent transcodes** from a load test (see the host-move checklist in the tracking issue), not from a guess. The cap counts video encodes only; remux and audio-only sessions share a fixed limit of 16.
+For NVIDIA, install and configure the host driver and NVIDIA Container Toolkit first, then start with the NVIDIA override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --no-build
+docker compose exec lumina nvidia-smi
+```
+
+The override requests the GPU and sets `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`: CUDA HDR tone mapping needs `compute`, NVENC/NVDEC need `video`, and `utility` makes `nvidia-smi` available. The override exposes all NVIDIA GPUs; `LUMINA_HWACCEL_GPU_INDEX` selects the CUDA device used by Lumina. To restrict container access to particular GPUs, replace `count: all` in the override with `device_ids: ["0"]` (or a GPU UUID); Compose does not allow both `count` and `device_ids`. With one visible GPU, keep `LUMINA_HWACCEL_GPU_INDEX=0`. NVIDIA's driver libraries come from the host through the toolkit, so do not install them in the Lumina image. This override targets Linux Docker Engine; qualify it on the actual GPU and driver using the checklist below. Docker Desktop for Mac does not expose a host GPU; Windows WSL2/Desktop GPU support is outside this deployment's qualification.
+
+### Rockchip RKMPP (arm64 Linux BSP only)
+
+The pinned arm64 jellyfin-ffmpeg package includes Rockchip's MPP and RGA userspace libraries and enables `h264_rkmpp`, `hevc_rkmpp`, `scale_rkrga`, `overlay_rkrga`, and `vpp_rkrga`. Lumina currently uses the probe-gated CPU-frame-to-RKMPP encoder path for H.264 and HEVC; it does **not** claim AV1 encoding, RGA/DRM-PRIME zero-copy filtering, or OpenCL HDR tone mapping. The target host needs a compatible Rockchip BSP kernel (Jellyfin documents 5.10 or 6.1 LTS), not a generic arm64 kernel.
+
+Before starting Lumina, ensure the modern BSP exposes the required nodes and that `mpp_service` and `rga` have the same non-root video group. Configure the host's udev/device permissions first; Lumina does not modify them.
+
+```bash
+test -c /dev/dri/renderD128 && test -c /dev/mpp_service && test -c /dev/rga && test -d /dev/dma_heap
+export LUMINA_RENDER_GID=$(stat -c %g /dev/dri/renderD128)
+export LUMINA_VIDEO_GID=$(stat -c %g /dev/mpp_service)
+test "$LUMINA_VIDEO_GID" = "$(stat -c %g /dev/rga)"
+docker compose -f docker-compose.yml -f docker-compose.rockchip.yml up -d --no-build
+```
+
+The override maps only `/dev/dri`, `/dev/dma_heap`, `/dev/mpp_service`, and `/dev/rga`, then the entrypoint drops to the runtime UID with only the explicit render and video groups. It deliberately does not use `privileged`, loosen AppArmor, or set `systempaths=unconfined`. If a target BSP requires those broader privileges, it is not supported by this overlay: leave the baseline intact and use software fallback until a narrower device policy is qualified. Jellyfin's [Rockchip guide](https://jellyfin.org/docs/general/post-install/transcoding/hardware-acceleration/rockchip/) describes its wider official-container setup and the host `libmali` requirement for RK3588 HDR/OpenCL; neither makes that stack qualified here.
+
+After the container is up, open **Settings → Playback & transcoding**, keep hardware acceleration on **Auto** and run **Diagnostics**. A working setup reports the selected `active` backend and `probe_ok: true`. Intel QSV may report `opencl` or `vpp_qsv` tone mapping; NVIDIA may report `cuda`, which also enables Dolby Vision profile 5 reshaping with jellyfin-ffmpeg. `EACCES` on a DRM render node means `LUMINA_RENDER_GID` does not own that node. A failing hardware session retries safely, and after three hardware failures Lumina stays in software until restart. Set **Max concurrent transcodes** from a load test, not from a guess. The cap counts video encodes only; remux and audio-only sessions share a fixed limit of 16.
+
+Before relying on a GPU in a household, qualify the actual server:
+
+1. Run Diagnostics after every driver or image upgrade and save the selected backend, each advertised output codec, and every probe error.
+2. Run the synthetic qualifier as the same runtime UID and explicit GPU groups. It performs a vendor encoder probe, produces HLS from generated video/audio, then checks the codec, each segment's initial keyframe, and independent FFmpeg decode. It never reads household media or contacts a service:
+
+   ```bash
+   # Intel QSV / Intel or AMD VA-API (substitute --mode vaapi when applicable)
+   docker compose exec --user root lumina sh -ec 'setpriv --reuid="${LUMINA_RUNTIME_UID:-1000}" --regid="${LUMINA_RUNTIME_GID:-1000}" --groups="$LUMINA_RENDER_GID" lumina-qualify-transcoding --mode qsv --codec h264 --codec hevc --codec av1'
+   # NVIDIA (the toolkit handles device access; no supplementary group is inherited)
+   docker compose exec --user root lumina sh -ec 'setpriv --reuid="${LUMINA_RUNTIME_UID:-1000}" --regid="${LUMINA_RUNTIME_GID:-1000}" --clear-groups lumina-qualify-transcoding --mode nvenc --codec h264 --codec hevc --codec av1 --gpu-index "${LUMINA_HWACCEL_GPU_INDEX:-0}"'
+   # Rockchip (H.264 and HEVC only)
+   docker compose exec --user root lumina sh -ec 'setpriv --reuid="${LUMINA_RUNTIME_UID:-1000}" --regid="${LUMINA_RUNTIME_GID:-1000}" --groups="$LUMINA_RENDER_GID,$LUMINA_VIDEO_GID" lumina-qualify-transcoding --mode rkmpp --codec h264 --codec hevc'
+   ```
+
+   A requested codec that the physical GPU does not implement exits non-zero; remove it from the client/device expectation rather than treating the package's encoder list as proof. The script does not qualify HDR/Dolby Vision metadata, hardware decode, RGA, client playback, quality, or concurrent throughput.
+3. Transcode one SDR H.264/HEVC title and one HDR title (plus Dolby Vision profile 5 if used) with a lowered quality setting; confirm the client plays each result and the server reports hardware activity (`nvidia-smi` for NVIDIA).
+4. Start the intended number of concurrent conversions, check that playback remains smooth, then set the conversion cap below the measured failure point.
+5. Stop and restart the container, repeat Diagnostics, and verify that a deliberately unavailable GPU still falls back to software.
+
+This is broad Linux server support, not complete Jellyfin/Plex feature parity: modern HLS output is negotiated only from explicit, successfully probed client/server support and still uses AAC audio. Rockchip has only the CPU-frame RKMPP H.264/HEVC encode path, not AV1 encode, RGA/DRM-PRIME, or HDR/OpenCL support. The Linux container deployment does not make native Windows AMF or macOS VideoToolbox server paths available.
 
 ## Remote HTTPS
 

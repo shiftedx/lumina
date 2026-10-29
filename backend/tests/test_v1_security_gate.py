@@ -87,4 +87,8 @@ def test_realstack_runner_never_ships() -> None:
     app_source = "\n".join(path.read_text() for path in (REPO / "backend" / "app").rglob("*.py"))
     assert not re.search(r"run_realstack|test_safety|REALSTACK", app_source)
     copies = re.findall(r"^COPY\s+(?:--\S+\s+)*(\S+)", (REPO / "Dockerfile").read_text(), re.MULTILINE)
-    assert copies and not [source for source in copies if source.startswith("scripts")], copies
+    # Test/fixture runners never ship. The synthetic qualifier is an explicitly
+    # bounded runtime diagnostic: stdlib-only, no network/media input, and it
+    # is exercised under the same dropped privileges as the server.
+    allowed_runtime_script = "scripts/qualify_gpu_transcoding.py"
+    assert copies and not [source for source in copies if source.startswith("scripts") and source != allowed_runtime_script], copies

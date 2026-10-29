@@ -22,9 +22,9 @@ TitleSort = Literal["name", "created", "year", "rating"]
 PersonType = Literal["Actor", "Director", "Writer", "Creator", "GuestStar", "Producer", "Composer"]
 ConnectedAppKind = Literal["jellyfin", "agent", "app_password"]
 ConnectedAppScope = Literal["read", "write"]
-HwaccelMode = Literal["auto", "off", "qsv", "vaapi"]
-HwaccelActive = Literal["qsv", "vaapi", "none"]
-TonemapMethod = Literal["opencl", "vpp_qsv", "software", "none"]
+HwaccelMode = Literal["auto", "off", "qsv", "vaapi", "nvenc", "videotoolbox", "amf", "rkmpp"]
+HwaccelActive = Literal["qsv", "vaapi", "nvenc", "videotoolbox", "amf", "rkmpp", "none"]
+TonemapMethod = Literal["opencl", "vpp_qsv", "cuda", "software", "none"]
 SubtitleOrigin = Literal["embedded", "sidecar", "caption", "generated", "synced", "translated"]
 SubtitleFormat = Literal["text", "image"]
 EnrichmentJobKind = Literal["asr", "sync", "translate", "segments", "captions"]
@@ -716,6 +716,8 @@ class TranscodeDiagnostics(BaseModel):
     probe_ok: bool
     probe_error: str | None = None
     tonemap: TonemapMethod
+    encode_codecs: list[Literal["h264", "hevc", "av1"]] = Field(default_factory=lambda: ["h264"])
+    encode_errors: dict[str, str] = Field(default_factory=dict)
     hardware_disabled: bool = False  # 3 consecutive hardware failures: software until restart
     software_fallbacks: int = 0
     sessions: dict[str, int] = Field(default_factory=dict)  # remux | audio | video_sw | video_hw -> count

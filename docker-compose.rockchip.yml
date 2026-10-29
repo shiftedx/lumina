@@ -1,0 +1,13 @@
+# Rockchip RKMPP VPU hardware transcoding (Linux arm64 BSP hosts only). Operator guide: docker/README.md.
+# Requires the host's modern Rockchip BSP device nodes and their explicit render/video group IDs.
+#   docker compose -f docker-compose.yml -f docker-compose.rockchip.yml up -d
+services:
+  lumina:
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/dma_heap:/dev/dma_heap
+      - /dev/mpp_service:/dev/mpp_service
+      - /dev/rga:/dev/rga
+    environment:
+      LUMINA_RENDER_GID: ${LUMINA_RENDER_GID:?Set LUMINA_RENDER_GID to the host render group id}
+      LUMINA_VIDEO_GID: ${LUMINA_VIDEO_GID:?Set LUMINA_VIDEO_GID to the host video group id}

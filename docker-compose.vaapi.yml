@@ -1,0 +1,11 @@
+# Intel or AMD VA-API hardware transcoding (Linux hosts with /dev/dri). Operator guide: docker/README.md.
+#   docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d
+# LUMINA_RENDER_GID is the host's render group id: stat -c %g /dev/dri/renderD128
+services:
+  lumina:
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      LUMINA_RENDER_GID: ${LUMINA_RENDER_GID:?Set LUMINA_RENDER_GID to the host render group id (stat -c %g /dev/dri/renderD128)}
+      # Use another render node on a multi-GPU host; backend validates it as a local /dev/dri/renderD* node.
+      LUMINA_HWACCEL_DEVICE: ${LUMINA_HWACCEL_DEVICE:-/dev/dri/renderD128}

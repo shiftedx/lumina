@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -57,8 +57,9 @@ describe('WatchRelated', () => {
     expect(screen.queryByText('More from Channel b')).toBeNull();
     expect(screen.getByText('Plays next')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'More options for Second video' }));
-    expect(screen.queryByRole('group', { name: 'More from Channel b' })).toBeNull();
-    expect(screen.getByRole('menuitem', { name: 'Not interested' })).toBeTruthy();
+    const menu = screen.getByRole('menu');
+    expect(within(menu).queryByText('More from Channel b')).toBeNull();
+    expect(within(menu).getByRole('menuitem', { name: 'Not interested' })).toBeTruthy();
   });
 
   it('replaces a row with Hidden. Undo in place and leaves the other rows alone', async () => {

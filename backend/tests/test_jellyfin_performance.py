@@ -92,6 +92,7 @@ def test_jellyfin_title_batch_skips_unused_artwork_loading(monkeypatch) -> None:
     mapper = object.__new__(jf.JellyfinMapper)
     mapper.sources = False
     mapper.people = False
+    mapper.catalog = False
     mapper.db = None
     calls: list[dict] = []
 

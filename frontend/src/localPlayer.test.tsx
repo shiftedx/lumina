@@ -317,6 +317,32 @@ describe('LocalLibraryPlayer HEVC fallback', () => {
   const props = { itemId: 'borat', kind: 'video' as const, poster: null, title: 'Borat', startAt: 600 };
   afterEach(() => { localStorage.clear(); vi.useRealTimers(); });
 
+  it('renegotiates failed AV1 and HEVC outputs independently of the source codec, preserving the resume point', async () => {
+    const source = { ...direct, mode: 'transcode', video_codec: 'av1', facts: { ...direct.facts, video_codec: 'vp9' } };
+    api.getLocalPlaybackOptions.mockResolvedValueOnce(source)
+      .mockResolvedValueOnce({ ...source, video_codec: 'hevc' })
+      .mockResolvedValueOnce({ ...source, video_codec: 'h264' });
+    for (const codec of ['av1', 'hevc', 'h264']) api.startLocalPlaybackSession.mockResolvedValueOnce({
+      session_id: `modern-${codec}`, mode: 'transcode', kind: 'video_hw', video_codec: codec,
+      playback_url: `/api/playback-sessions/modern-${codec}/index.m3u8`, start: 600,
+    });
+    api.stopLocalPlaybackSession.mockResolvedValue(undefined);
+    render(<LocalLibraryPlayer itemId="modern" kind="video" poster={null} title="Modern clip" startAt={600} />);
+    await waitFor(() => expect(hlsCalls.handlers).toHaveLength(1));
+    hlsCalls.handlers[0]('error', { fatal: true, type: 'mediaError' });
+    await waitFor(() => expect(hlsCalls.handlers).toHaveLength(2));
+    expect(localStorage.getItem('lumina.av1Failed')).toBe('1');
+    hlsCalls.handlers[1]('error', { fatal: true, type: 'mediaError' });
+    await waitFor(() => expect(hlsCalls.handlers).toHaveLength(3));
+    expect(localStorage.getItem('lumina.hevcFailed')).toBe('1');
+    expect(api.startLocalPlaybackSession).toHaveBeenLastCalledWith('modern', 600, undefined);
+    expect(api.stopLocalPlaybackSession).toHaveBeenCalledWith('modern-av1');
+    expect(api.stopLocalPlaybackSession).toHaveBeenCalledWith('modern-hevc');
+    hlsCalls.handlers[2]('error', { fatal: true, type: 'mediaError' });
+    expect((await screen.findAllByText('Playback of the converted file failed.')).length).toBeGreaterThan(0);
+    expect(api.startLocalPlaybackSession).toHaveBeenCalledTimes(3);
+  });
+
   async function playCopiedHevc() {
     api.getLocalPlaybackOptions.mockResolvedValueOnce(hevc).mockResolvedValueOnce({ ...hevc, mode: 'transcode' });
     api.startLocalPlaybackSession.mockResolvedValueOnce(copy).mockResolvedValueOnce(encode);

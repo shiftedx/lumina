@@ -37,6 +37,8 @@ def proof_server_environment(test_class: str) -> dict[str, str]:
         return {PLAYBACK_PREPARATION_DELAY_ENV: "3"}
     if test_class == "NativeAudioFormatRecoveryTests":
         return {"LUMINA_NATIVE_AUDIO_FORMAT_FAILURE": "1"}
+    if test_class == "NativeVideoFormatRecoveryTests":
+        return {"LUMINA_NATIVE_VIDEO_FORMAT_FAILURE": "1"}
     if test_class == "NativeAudioAlbumPlayAfterUnavailableRestoreTests":
         return {"LUMINA_NATIVE_AUDIO_RESTORE_FAILURE": "1"}
     return {}
@@ -76,6 +78,7 @@ class FixtureBroker:
             environment.pop(PLAYBACK_PREPARATION_DELAY_ENV, None)
             environment.pop("LUMINA_NATIVE_AUDIO_RESTORE_FAILURE", None)
             environment.pop("LUMINA_NATIVE_AUDIO_FORMAT_FAILURE", None)
+            environment.pop("LUMINA_NATIVE_VIDEO_FORMAT_FAILURE", None)
             environment.update(LUMINA_NATIVE_PORT="0", LUMINA_NATIVE_FIXTURE=str(fixture))
             environment.update(proof_server_environment(fixture_test_class(key)))
             # Do not retain the server's output: its errors may include the fixture path.

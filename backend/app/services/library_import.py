@@ -41,7 +41,7 @@ from app.services.library import EXTERNAL_LIBRARY_ORIGIN, LibraryService
 from app.services.library_search import LibrarySearchService, index_title, title_search_fields
 from app.services.audio_tags import AUDIO_TAG_VERSION, AudioTags, read_tags
 from app.services.cast_photos import save_people, split_crew, split_people
-from app.services.local_metadata import AUDIO_EXTENSIONS, describe, read_bounded
+from app.services.local_metadata import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, describe, read_bounded
 from app.services.media_titles import apply_field, invalidate_omdb_for_imdb_change, refresh_added_at, scanned_parent
 from app.services.categories import refresh_category
 from app.services.storage_roots import ONLINE_STATES, StorageRootService
@@ -109,9 +109,9 @@ def _wake_renditions(title_ids: list[str]) -> None:
 
 # Failed/skipped entries are kept up to this cap per run; counters stay exact.
 MAX_ENTRIES_PER_RUN = 1000
-MEDIA_EXTENSIONS = frozenset({
-    ".mp4", ".m4v", ".mkv", ".mov", ".avi", ".webm", ".ts", ".wmv", ".mpg", ".mpeg",
-}) | AUDIO_EXTENSIONS
+# Keep discovery aligned with local metadata's video classification.  The watcher
+# imports this set too, so all file-only scan paths accept the same containers.
+MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
 # Jellyfin-layout folders that never hold library media (".actors" is already hidden).
 SKIP_DIRS = frozenset({"backdrops", "theme-music"})
 ACTIVE_STATES = ("running", "cancel_requested")

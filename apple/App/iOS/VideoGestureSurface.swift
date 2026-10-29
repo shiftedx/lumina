@@ -9,7 +9,8 @@ struct VideoGestureSurface: UIViewRepresentable {
         var gestures: VideoGestureConfiguration
         var safeArea: UIEdgeInsets
         /// Regions occupied by app-owned controls in the surface's local coordinates.
-        /// The adapter rejects a contact there before the Core reducer sees it.
+        /// The UIKit surface passes these through and the adapter also rejects a
+        /// contact there before the Core reducer sees it.
         var excludedRegions: [CGRect]
 
         init(gestures: VideoGestureConfiguration = .init(), safeArea: UIEdgeInsets = .zero, excludedRegions: [CGRect] = []) {
@@ -36,6 +37,7 @@ struct VideoGestureSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> TouchView {
         let view = TouchView()
         view.coordinator = context.coordinator
+        view.excludedRegions = configuration.excludedRegions
         view.backgroundColor = .clear
         view.isMultipleTouchEnabled = true
         view.isExclusiveTouch = false
@@ -48,6 +50,7 @@ struct VideoGestureSurface: UIViewRepresentable {
         let wasInteractive = context.coordinator.isInteractionEnabled
         let wasVoiceOverRunning = context.coordinator.isVoiceOverRunning
         context.coordinator.configuration = configuration
+        view.excludedRegions = configuration.excludedRegions
         context.coordinator.isInteractionEnabled = isInteractionEnabled
         context.coordinator.isVoiceOverRunning = isVoiceOverRunning
         context.coordinator.onWindow = onWindow
@@ -209,6 +212,12 @@ struct VideoGestureSurface: UIViewRepresentable {
 
     final class TouchView: UIView {
         weak var coordinator: Coordinator?
+        var excludedRegions: [CGRect] = []
+
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            guard super.point(inside: point, with: event) else { return false }
+            return !excludedRegions.contains { $0.contains(point) }
+        }
 
         override func didMoveToWindow() {
             super.didMoveToWindow()

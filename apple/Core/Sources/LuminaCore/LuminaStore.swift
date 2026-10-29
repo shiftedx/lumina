@@ -1168,7 +1168,8 @@ let tickScale = 10_000_000.0
     public func preparePlayback(for item: MediaItem, forceTranscode: Bool = false,
                                 quality: PlaybackQuality? = nil,
                                 audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil,
-                                mediaSourceID: String? = nil, startPositionSeconds: Double? = nil) async throws -> PlaybackRequest {
+                                mediaSourceID: String? = nil, startPositionSeconds: Double? = nil,
+                                forceCompatibleVideo: Bool = false) async throws -> PlaybackRequest {
         if let local = offline.localURL(for: item.id) {
             return PlaybackRequest(id: UUID().uuidString, item: item, url: local,
                                    startPositionSeconds: startPositionSeconds ?? (item.isAudio ? 0 : offline.resumeSeconds(for: item.id)),
@@ -1189,7 +1190,8 @@ let tickScale = 10_000_000.0
                                                     audioStreamIndex: audioStreamIndex,
                                                     subtitleStreamIndex: subtitleStreamIndex,
                                                     mediaSourceID: mediaSourceID,
-                                                    startPositionSeconds: startPositionSeconds)
+                                                    startPositionSeconds: startPositionSeconds,
+                                                    forceCompatibleVideo: forceCompatibleVideo)
         guard isCurrent(active) else { throw LuminaError.notSignedIn }
         let source = try client.preferredSource(in: result, mediaSourceID: mediaSourceID)
         let streams = try client.playbackStreams(for: source, origin: active.serverURL)
@@ -1215,7 +1217,8 @@ let tickScale = 10_000_000.0
                                                           audioStreamIndex: preferredAudio,
                                                           subtitleStreamIndex: preferredSubtitle,
                                                           mediaSourceID: source.id,
-                                                          startPositionSeconds: startPositionSeconds)
+                                                          startPositionSeconds: startPositionSeconds,
+                                                          forceCompatibleVideo: forceCompatibleVideo)
             guard isCurrent(active) else { throw LuminaError.notSignedIn }
             let selectedSource = try client.preferredSource(in: selected, mediaSourceID: source.id)
             let selectedSourceChapters = try await chaptersForSelectedPlaybackSource(
@@ -1225,7 +1228,8 @@ let tickScale = 10_000_000.0
                                                       result: selected, quality: resolvedQuality,
                                                       audioStreamIndex: preferredAudio, subtitleStreamIndex: preferredSubtitle,
                                                       mediaSourceID: source.id, startPositionSeconds: startPositionSeconds,
-                                                      selectedSourceChapters: selectedSourceChapters)
+                                                      selectedSourceChapters: selectedSourceChapters,
+                                                      usesCompatibleVideo: forceCompatibleVideo)
             guard !requiresServerHLS || request.isTranscoding else { throw LuminaError.malformedResponse }
             return request
         }
@@ -1236,7 +1240,26 @@ let tickScale = 10_000_000.0
                                           result: result, quality: resolvedQuality,
                                           audioStreamIndex: preferredAudio, subtitleStreamIndex: preferredSubtitle,
                                           mediaSourceID: source.id, startPositionSeconds: startPositionSeconds,
-                                          selectedSourceChapters: selectedSourceChapters)
+                                          selectedSourceChapters: selectedSourceChapters,
+                                          usesCompatibleVideo: forceCompatibleVideo)
+    }
+
+    /// Re-request one video as H.264/SDR HLS after AVFoundation identifies an
+    /// initial codec/container failure. Callers keep the one-attempt guard;
+    /// this method does not turn transport or authorization errors into a
+    /// compatibility request.
+    public func prepareCompatiblePlayback(after request: PlaybackRequest, error: Error,
+                                          positionSeconds: Double? = nil) async throws -> PlaybackRequest {
+        guard request.canRetryCompatibleVideo(after: error) else {
+            throw LuminaError.malformedResponse
+        }
+        return try await preparePlayback(
+            for: request.item, forceTranscode: true, quality: request.resolvedQuality,
+            audioStreamIndex: request.audioStreamIndex, subtitleStreamIndex: request.subtitleStreamIndex,
+            mediaSourceID: request.mediaSourceID,
+            startPositionSeconds: positionSeconds ?? request.startPositionSeconds,
+            forceCompatibleVideo: true
+        )
     }
 
     /// Mints a brief, receiver-scoped Chromecast capability. The returned media URL is safe to

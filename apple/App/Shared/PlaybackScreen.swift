@@ -1056,6 +1056,17 @@ struct PlaybackScreen: View {
 
     private func videoTouchSurface(safeArea: EdgeInsets) -> some View {
         let preferences = store.playbackPreferences
+        let topChromeBand: [CGRect]
+        if videoChromeVisible, videoGestureContainerSize.width > 0 {
+            topChromeBand = [CGRect(
+                x: 0,
+                y: 0,
+                width: videoGestureContainerSize.width,
+                height: safeArea.top + videoVerticalInset + 44
+            )]
+        } else {
+            topChromeBand = []
+        }
         return VideoGestureSurface(
             configuration: .init(gestures: .init(
                 advancedEnabled: preferences.videoGesturesEnabled,
@@ -1065,7 +1076,8 @@ struct PlaybackScreen: View {
                 doubleTapEnabled: preferences.doubleTapSkipEnabled,
                 twoFingerEnabled: preferences.twoFingerTapEnabled,
                 holdEnabled: preferences.holdSpeedEnabled),
-                safeArea: UIEdgeInsets(top: safeArea.top, left: safeArea.leading, bottom: safeArea.bottom, right: safeArea.trailing)),
+                safeArea: UIEdgeInsets(top: safeArea.top, left: safeArea.leading, bottom: safeArea.bottom, right: safeArea.trailing),
+                excludedRegions: topChromeBand),
             isInteractionEnabled: scenePhase == .active && !pictureInPictureActive && !pictureInPictureContinuing && !videoSettingsPresented && !videoSettingsVisible && displayedError == nil && !playback.hasFinished && !playback.isSwitchingVideoStream,
             isVoiceOverRunning: voiceOverEnabled,
             cancellationID: videoGestureCancellationID,
@@ -2415,6 +2427,17 @@ final class PlaybackModel {
             }
             playbackDiagnosticObservers.append(token)
         }
+        let failure = NotificationCenter.default.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification,
+                                                            object: nil, queue: .main) { [weak self] notification in
+            guard let item = notification.object as? AVPlayerItem else { return }
+            let identity = ObjectIdentifier(item)
+            let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error ?? item.error
+            Task { @MainActor [weak self] in
+                guard let self, self.player.currentItem.map(ObjectIdentifier.init) == identity else { return }
+                await self.handleVideoPlaybackFailure(error)
+            }
+        }
+        playbackDiagnosticObservers.append(failure)
     }
 
     private func playNativePlayer() {
@@ -2543,6 +2566,8 @@ final class PlaybackModel {
     private var reportQueue: Task<Void, Never>?
     private var pendingReports: [(event: PlaybackEvent, request: PlaybackRequest, seconds: Double, paused: Bool)] = []
     private var didSeek = false
+    private var compatibilityRetryRequestID: String?
+    private var videoAdvancedRequestID: String?
     private var started = false
     private var autoplayWhenReady = true
     private var isActive = true
@@ -2741,6 +2766,73 @@ final class PlaybackModel {
     }
     #endif
 
+    private func awaitInitialPlayback(positionSeconds: Double) async throws {
+        try await NativeVideoSource.waitUntilReady(player)
+        try Task.checkCancellation()
+        guard !closed, let item = player.currentItem else { throw CancellationError() }
+        if positionSeconds > 0 {
+            traceContinuity("initial-seek")
+            let sought = await seekNativePlayer(to: CMTime(seconds: positionSeconds, preferredTimescale: 600),
+                                               toleranceBefore: .zero, toleranceAfter: .zero)
+            try Task.checkCancellation()
+            guard !closed, player.currentItem === item else { throw CancellationError() }
+            guard sought else { throw item.error ?? POSIXError(.EIO) }
+        }
+        guard item.status == .readyToPlay else { throw item.error ?? POSIXError(.EIO) }
+    }
+
+    private func handleVideoPlaybackFailure(_ error: Error?) async {
+        guard didSeek, !closed, !hasFinished, !isCasting, !isCommittingVideoStream, !isSwitchingVideoStream else { return }
+        if videoAdvancedRequestID != request.id, compatibilityRetryRequestID != request.id,
+           let error, request.canRetryCompatibleVideo(after: error) {
+            compatibilityRetryRequestID = request.id
+            let recovered = await replaceVideoStream(
+                audioIndex: request.audioStreamIndex, externalSubtitle: attachedVideoSubtitle,
+                selectsExternalSubtitle: false, changesAudio: false,
+                resumePosition: max(request.startPositionSeconds, elapsedSeconds), compatibilityError: error
+            )
+            if recovered || closed { return }
+        }
+        errorMessage = "Playback stopped. Check your connection and try again."
+    }
+
+    private func retryInitialCompatibleVideo(after error: Error) async throws {
+        let failed = request
+        guard !closed, !didSeek, compatibilityRetryRequestID != failed.id,
+              failed.canRetryCompatibleVideo(after: error) else { throw error }
+        compatibilityRetryRequestID = failed.id
+        let candidateSource = NativeVideoSource()
+        var candidateRequest: PlaybackRequest?
+        do {
+            let next = try await store.prepareCompatiblePlayback(after: failed, error: error)
+            candidateRequest = next
+            try Task.checkCancellation()
+            guard !closed, request.id == failed.id else { throw CancellationError() }
+            let subtitle = next.mediaStreams.first { $0.index == next.subtitleStreamIndex && $0.hasExternalSubtitle }
+            let item = try await prepareVideoItem(next, source: candidateSource, externalSubtitle: subtitle)
+            try Task.checkCancellation()
+            guard !closed, request.id == failed.id else { throw CancellationError() }
+            replaceNativeItem(item)
+            try await awaitInitialPlayback(positionSeconds: next.startPositionSeconds)
+            try Task.checkCancellation()
+            guard !closed, request.id == failed.id else { throw CancellationError() }
+            let previousSource = videoSource
+            enqueue(.stop, paused: true, for: failed, position: failed.startPositionSeconds)
+            request = next
+            videoSource = candidateSource
+            attachedVideoSubtitle = subtitle
+            subtitlesExplicitlyOff = next.subtitleStreamIndex == -1
+            selectedEmbeddedSubtitleStreamIndex = subtitle == nil ? next.subtitleStreamIndex : nil
+            previousSource.stop()
+        } catch {
+            candidateSource.stop()
+            if let candidateRequest {
+                enqueue(.stop, paused: true, for: candidateRequest, position: failed.startPositionSeconds)
+            }
+            throw error
+        }
+    }
+
     func start() async {
         traceContinuity("start-enter")
         guard !started, !closed else { return }
@@ -2767,35 +2859,31 @@ final class PlaybackModel {
         defer {
             if !didSeek { started = false; videoSource.stop() }
         }
-        if request.usesClientDemux || attachedVideoSubtitle != nil {
-            do {
+        do {
+            if request.usesClientDemux || attachedVideoSubtitle != nil {
                 let item = try await prepareVideoItem(request, source: videoSource, externalSubtitle: attachedVideoSubtitle)
-                guard !closed, !Task.isCancelled else { videoSource.stop(); return }
+                try Task.checkCancellation()
+                guard !closed else { throw CancellationError() }
                 replaceNativeItem(item)
+            }
+            try await awaitInitialPlayback(positionSeconds: request.startPositionSeconds)
+        } catch is CancellationError {
+            return
+        } catch {
+            do {
+                try await retryInitialCompatibleVideo(after: error)
+            } catch is CancellationError {
+                return
             } catch {
                 videoSource.stop()
-                errorMessage = "This video could not be played in its current format."
+                errorMessage = player.currentItem?.status == .failed
+                    ? (request.item.isAudio ? "This track could not be played. Check its format and try again." : "This video could not be played in its current format.")
+                    : "The media did not become ready. Check the server connection."
                 return
             }
         }
         // Do not report a zero position while the item is loading or seeking to resume.
         guard let item = player.currentItem else { return }
-        do {
-            try await NativeVideoSource.waitUntilReady(player)
-        } catch is CancellationError {
-            return
-        } catch {
-            errorMessage = item.status == .failed
-                ? (request.item.isAudio ? "This track could not be played. Check its format and try again." : "This video could not be played in its current format.")
-                : "The media did not become ready. Check the server connection."
-            return
-        }
-        guard !closed, !Task.isCancelled else { return }
-        if request.startPositionSeconds > 0 {
-            traceContinuity("initial-seek")
-            await seekNativePlayer(to: CMTime(seconds: request.startPositionSeconds, preferredTimescale: 600),
-                              toleranceBefore: .zero, toleranceAfter: .zero)
-        }
         guard !closed, !Task.isCancelled else { return }
         if !request.item.isAudio {
             item.audioTimePitchAlgorithm = .spectral
@@ -2813,12 +2901,15 @@ final class PlaybackModel {
                 self.isPlaying = self.player.timeControlStatus == .playing
                 self.applyEffectiveVideoRateIfPermitted()
                 self.updatePosition()
+                if !self.request.item.isAudio, self.elapsedSeconds > self.request.startPositionSeconds + 0.25 {
+                    self.videoAdvancedRequestID = self.request.id
+                }
                 let shouldReport = abs(self.elapsedSeconds - self.lastReport) >= NativeVideoSource.progressObservationInterval.seconds
                 if shouldReport {
                     self.enqueue(.progress, paused: self.player.timeControlStatus != .playing)
                 }
                 if self.player.currentItem?.status == .failed {
-                    self.errorMessage = "Playback stopped. Check your connection and try again."
+                    await self.handleVideoPlaybackFailure(self.player.currentItem?.error)
                 }
             }
         }
@@ -3414,7 +3505,7 @@ final class PlaybackModel {
     private func replaceVideoStream(audioIndex: Int?, externalSubtitle: PlaybackStream?,
                                     selectsExternalSubtitle: Bool, changesAudio: Bool,
                                     subtitleDelay: Double? = nil, quality: PlaybackQuality? = nil,
-                                    resumePosition: Double? = nil) async -> Bool {
+                                    resumePosition: Double? = nil, compatibilityError: Error? = nil) async -> Bool {
         guard !isCasting, !request.item.isAudio, didSeek, !closed, !hasFinished, !isSwitchingVideoStream, !isSeekingChapter,
               let previousItem = player.currentItem else {
             return false
@@ -3439,19 +3530,25 @@ final class PlaybackModel {
         var commitPosition = resumePosition ?? elapsedSeconds
         do {
             if resumePosition == nil { updatePosition() }
-            let next = try await store.preparePlayback(
-                for: request.item,
-                forceTranscode: (quality == nil && request.isTranscoding)
-                    || (externalSubtitle != nil && !request.usesClientDemux)
-                    || (audioIndex != nil && !request.usesClientDemux),
-                quality: quality ?? videoQuality,
-                audioStreamIndex: audioIndex,
-                subtitleStreamIndex: externalSubtitle != nil || subtitlesExplicitlyOff ? -1
-                    : hasExplicitEmbeddedSubtitleSelection
-                        ? selectedEmbeddedSubtitleStreamIndex ?? request.subtitleStreamIndex
-                        : nil,
-                mediaSourceID: request.mediaSourceID, startPositionSeconds: commitPosition
-            )
+            let next: PlaybackRequest
+            if let compatibilityError {
+                next = try await store.prepareCompatiblePlayback(after: request, error: compatibilityError,
+                                                                 positionSeconds: commitPosition)
+            } else {
+                next = try await store.preparePlayback(
+                    for: request.item,
+                    forceTranscode: (quality == nil && request.isTranscoding)
+                        || (externalSubtitle != nil && !request.usesClientDemux)
+                        || (audioIndex != nil && !request.usesClientDemux),
+                    quality: quality ?? videoQuality,
+                    audioStreamIndex: audioIndex,
+                    subtitleStreamIndex: externalSubtitle != nil || subtitlesExplicitlyOff ? -1
+                        : hasExplicitEmbeddedSubtitleSelection
+                            ? selectedEmbeddedSubtitleStreamIndex ?? request.subtitleStreamIndex
+                            : nil,
+                    mediaSourceID: request.mediaSourceID, startPositionSeconds: commitPosition
+                )
+            }
             candidateRequest = next
             try Task.checkCancellation()
             guard !closed else { throw CancellationError() }

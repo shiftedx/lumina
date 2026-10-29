@@ -58,7 +58,10 @@ AUDIO_EXTENSIONS = frozenset({
     ".aif", ".aiff", ".aifc", ".alac", ".ape", ".wv", ".dsf", ".dff", ".mka", ".wma",
     ".ac3", ".dts", ".amr", ".caf", ".tta", ".tak",
 })
-VIDEO_EXTENSIONS = frozenset({".mp4", ".m4v", ".mkv", ".mov", ".avi", ".webm", ".ts", ".wmv", ".mpg", ".mpeg"})
+# MPEG-TS has three common on-disk names: plain transport streams, Blu-ray
+# M2TS, and AVCHD MTS.  They all use the existing file-only mpegts demuxer.
+MPEG_TS_EXTENSIONS = frozenset({".ts", ".m2ts", ".mts"})
+VIDEO_EXTENSIONS = frozenset({".mp4", ".m4v", ".mkv", ".mov", ".avi", ".webm", ".wmv", ".mpg", ".mpeg"}) | MPEG_TS_EXTENSIONS
 
 EPISODE_PATTERN = re.compile(r"[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})|(?<![\dA-Za-z])(\d{1,2})x(\d{2,3})(?!\d)")
 MOVIE_PATTERN = re.compile(r"^(?P<title>.+?)\s*\((?P<year>(?:19|20)\d{2})\)")

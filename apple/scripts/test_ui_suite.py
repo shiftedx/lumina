@@ -104,6 +104,10 @@ class FixtureBrokerTests(unittest.TestCase):
                     proof_server_environment(fixture_test_class("NativeAudioAlbumPlayAfterUnavailableRestoreTests-instance")),
                     {"LUMINA_NATIVE_AUDIO_RESTORE_FAILURE": "1"},
                 )
+                self.assertEqual(
+                    proof_server_environment(fixture_test_class("NativeVideoFormatRecoveryTests-instance")),
+                    {"LUMINA_NATIVE_VIDEO_FORMAT_FAILURE": "1"},
+                )
                 for test_class in ("NativeLibraryCatalogScrollingTests", "NativeTVLibraryAlphabetTests"):
                     self.assertEqual(
                         proof_server_environment(fixture_test_class(f"{test_class}-instance")),
@@ -429,15 +433,16 @@ class UITierRunnerTests(unittest.TestCase):
             "Lumina-iOS-UITests/NativeAudioAlbumTrackPlaybackReportsProgressTests/testCompactMusicToolbarReopensAndResumes()",
             "Lumina-iOS-UITests/NativeVideoSettingsLayoutTests/testClosedDuoSettingsPanelKeepsControlsUsable()",
             "Lumina-iOS-UITests/NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testHomeBrowseFiltersSearchAndHeroWatchlist()",
+            "Lumina-iOS-UITests/NativeVideoFormatRecoveryTests/testStandardPhoneInitialFormatFailureRetriesOneCompatibleVideo()",
             "Lumina-iOS-UITests/NativeOrdinaryTests/testRunsOnIPad()",
         ]
         lanes = {
             lane: run_ui_tiers.selected_test_identifiers("full", discovered, lane)
             for lane in ["iPad", "iPhone", "Duo"]
         }
-        self.assertEqual(lanes["iPhone"], [discovered[0], discovered[1], discovered[2]])
+        self.assertEqual(lanes["iPhone"], [discovered[0], discovered[1], discovered[2], discovered[5]])
         self.assertEqual(lanes["Duo"], [discovered[3], discovered[4]])
-        self.assertEqual(lanes["iPad"], [discovered[5]])
+        self.assertEqual(lanes["iPad"], [discovered[6]])
         self.assertEqual(sorted(item for values in lanes.values() for item in values), sorted(discovered))
 
     def test_combined_full_coverage_rejects_lost_or_duplicate_lane_methods(self) -> None:

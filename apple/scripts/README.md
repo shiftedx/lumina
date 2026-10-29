@@ -21,6 +21,35 @@ Wait for “ready” before building the UI tests: their test-only build phase c
 
 The catalog has three generated H.264/AAC movies, a show/season/two-episode hierarchy imported through ordinary NFO metadata, and two numbered AAC sine-tone music tracks with generated album/artist artwork, timed lyrics, gain metadata and a shared read-only playlist. Episode files reuse the original synthetic movie bytes. Startup verifies public info and sign-in, video catalog/posters and direct/compatible negotiation, saved progress, show/season/episode relationships, music browsing and album children, authenticated artwork, fresh Audio detail, and audio stream bytes. The M4A stream must have the native-compatible `audio/mp4` content type.
 
+PR #215 adds the native video format-recovery fixture. With
+`LUMINA_NATIVE_VIDEO_FORMAT_FAILURE=1`, the server completes its ordinary
+startup verification first, then faults only the verified public item's direct
+stream bytes. A recovery client must make one H.264/SDR, stereo-AAC HLS retry
+while retaining the media source, selected options and resume position. It does
+not fault another item's direct stream or the HLS master route. The scoped UI
+selectors are
+`NativeVideoFormatRecoveryTests/testInitialFormatFailureRetriesOneCompatibleVideo`
+on iPad/Apple TV and
+`NativeVideoFormatRecoveryTests/testStandardPhoneInitialFormatFailureRetriesOneCompatibleVideo`
+on iPhone. Use a fresh fixture/broker and refresh the selected test bundle for
+each targeted run; do not reuse a fixture generated for another test class.
+The iPad recovery journey passes `--ui-testing-static-animations` to its
+`LUMINA_UI_TESTING` app build to avoid XCTest animation-idle stalls. This
+disables UIKit and SwiftUI animations only for that explicit test launch;
+shipping builds exclude the switch and the iPhone lane uses normal animations.
+
+The fixture's fast boundary checks are separate from UI execution:
+
+```sh
+mise exec -- python apple/scripts/test_ui_suite.py
+mise exec -- backend/.venv/bin/python -m unittest apple.scripts.test_proof_server
+```
+
+The first command covers the 27 broker/routing cases. The second is the one
+ASGI HTTP contract for the public-ID direct-stream fault and its untouched HLS
+route. Neither command establishes physical HDR output or hardware-decoder
+qualification.
+
 For the opt-in Duo continuity workflow, start the fixture with `LUMINA_NATIVE_EPISODE_MKV=1` to exercise client-demuxed episodes; leave it unset for MP4 episodes. Both paths appear as Direct in the app. Run `NativeVideoDuoContinuityTests` with `TEST_RUNNER_LUMINA_DUO_TRANSITIONS=1` and `LUMINA_UI_TESTING` in the app's compilation conditions. Start with Device Hub in Closed posture, then switch to Open during the printed playing window and back to Closed during the paused window. The workflow resumes an episode at 12 seconds from the season Play button; `TEST_RUNNER_LUMINA_DUO_ENTRY=home` instead uses Home's Continue Watching card. It checks player identity, real-time progress, and explicit pause preservation. It is a transport check, not proof of uninterrupted rendered frames; inspect the visible simulator window as well.
 
 For standalone fold diagnosis, launch the optimized `LUMINA_UI_TESTING` app directly with `SIMCTL_CHILD_LUMINA_PLAYBACK_TRACE=1 xcrun simctl launch --stderr=/tmp/lumina-playback-trace.log <UDID> ai.cozylabs.lumina --ui-testing`, then start playback and change poses in Device Hub. No XCTest runner is involved, so there are no scheduled pause or close actions. The trace is written to the requested stderr file and records player/item identity, actual time, saved position, buffering, seeks, lifecycle transitions, and audio interruptions, without URLs, titles, or credentials. Rendering events include view/layer/window identity, bounds, and render readiness. Per-instance interval summaries count view updates, layout callbacks, rate applications versus actual writes, and queued versus sent progress reports; detailed output is capped at 20 events per second per instance so a callback storm remains measurable without flooding the log. `NativeVideoDuoContinuityTests/testStablePlaybackDoesNotContinuouslyRewritePlayerRate` separately checks that steady playback does not enter a rate-observer feedback loop; it needs no manual pose changes.
@@ -126,6 +155,35 @@ Run `mise exec -- python3 apple/scripts/test_archive_signing.py` for the synthet
 regression. The helper refuses a signed application archive.
 
 Video playback probes accept `LUMINA_VIDEO_WAIT_MODE=event` to exercise native screen readiness, or `poll` to compare the former 100 ms loop. `LUMINA_VIDEO_STEADY_SECONDS=12` adds sustained frame/advance validation, process CPU and pause CPU measurements before the existing seek check. Use identical inputs/frame settings for comparisons; this host probe's BGRA sampling is measurement overhead, not the app's AVKit rendering path.
+
+For a finite local qualification of a new native HLS variant, give
+`benchmark_video_playback.swift` the exact loopback HLS entry point served to
+the client rather than a media file. The fixture needs audio, independently
+seekable fMP4 segments and at least seven seconds of media: the probe requires
+a decoded frame and one second of advancing playback, then seeks to six
+seconds and requires another decoded frame. For example, compile the
+checked-in probe and point it at a temporary loopback server:
+
+```sh
+swiftc -swift-version 6 -O -parse-as-library apple/scripts/benchmark_video_playback.swift \
+  -framework AVFoundation -framework CoreVideo -framework Foundation \
+  -o /tmp/lumina-video-probe
+/tmp/lumina-video-probe http://127.0.0.1:<port>/<master>.m3u8
+```
+
+This establishes local AVPlayer frame delivery, advancing time and seek for
+that exact host, OS, manifest and codec profile. It does not certify hardware
+decode, HDR display output, HDMI output, every AV1/HDR profile, or any other
+device. `VTIsHardwareDecodeSupported` and
+`AVURLAsset.isPlayableExtendedMIMEType` are useful candidate gates, but the
+former only reports decoder availability and the latter validates a specified
+asset/container combination, not an HLS master. Keep direct MP4 and HLS
+qualification separate. For HDR, test the actual server master as well as its
+media playlist: Apple requires `VIDEO-RANGE`, `CODECS`, average bandwidth and
+frame rate for HDR variants, while a display-ineligible host can still decode
+the fragments without proving HDR output. Apple documents AV1 HLS as fMP4 and
+requires hardware support; still retain an H.264 fallback and record actual
+playback failures.
 
 `mise exec -- swift run --package-path apple/Benchmarks -c release OfflineLibraryBenchmark 1000` creates a temporary synthetic owner-scoped offline library and reports 21-sample median CPU/wall cost for reading its metadata list. It checks purge handling and owner hiding afterward, removes its files on exit, and makes no network requests. File decoding, initial reconciliation and cold-storage costs are outside this metric.
 

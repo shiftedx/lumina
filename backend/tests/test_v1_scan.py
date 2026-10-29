@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
+import shutil
+import subprocess
 
 import pytest
 from sqlalchemy import select
@@ -142,6 +144,44 @@ def test_external_scan_zero_mutation(library: Path) -> None:
         member = client_for("member")
         assert member.get("/api/library").json()["items"] == []  # a private import stays admin-only
         assert member.post("/api/admin/imports", json={"root_id": root_id}).status_code == 403
+    assert manifest(library) == before
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")
+def test_external_scan_imports_mpeg_ts_family_as_video(library: Path) -> None:
+    """Blu-ray M2TS and AVCHD MTS are the same file-only MPEG-TS input family."""
+    movie = library / "Movies" / "Transport (2025).m2ts"
+    movie.parent.mkdir(parents=True)
+    subprocess.run([
+        shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+        "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=2:duration=1", "-an",
+        "-c:v", "mpeg2video", "-mpegts_m2ts_mode", "1", "-f", "mpegts", str(movie),
+    ], check=True, timeout=15)
+    assert movie.read_bytes()[4] == 0x47  # a 4-byte M2TS arrival timestamp precedes each TS packet
+    episode = library / "Shows" / "Transit" / "Season 01" / "Transit S01E01.mts"
+    episode.parent.mkdir(parents=True)
+    shutil.copyfile(movie, episode)
+    before = manifest(library)
+
+    with client_for("admin") as admin:
+        root_id = register_root(admin, library)
+        started = admin.post("/api/admin/imports", json={"root_id": root_id})
+        assert started.status_code == 202, started.text
+        run = admin.get(started.json()["status_url"]).json()
+        assert (run["state"], run["counters"]["indexed"]) == ("succeeded", 2)
+
+        rows = admin.get("/api/library").json()["items"]
+        by_title = {item["title"]: item for item in rows}
+        assert {item["kind"] for item in rows} == {"movie", "episode"}
+        movie_response = admin.get(f"/api/library/{by_title['Transport']['id']}/media", headers={"Range": "bytes=0-0"})
+        assert movie_response.status_code == 206
+        assert movie_response.headers["content-type"] == "video/mp2t"
+        assert movie_response.content == movie.read_bytes()[:1]
+
+    with db_module.SessionLocal() as db:
+        assert {artifact.relative_path for artifact in db.scalars(select(MediaArtifact))} == {
+            "Movies/Transport (2025).m2ts", "Shows/Transit/Season 01/Transit S01E01.mts",
+        }
     assert manifest(library) == before
 
 

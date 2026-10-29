@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Security
 import XCTest
@@ -1621,7 +1622,12 @@ final class LuminaCoreTests: XCTestCase {
     }
 
     func testPlaybackInfoUsesOnlySameOriginHLSAndReportsPositions() async throws {
-        let client = LuminaClient(configuration: mockConfiguration())
+        let client = LuminaClient(configuration: mockConfiguration(), videoCapabilities: {
+            NativeVideoCapabilities(
+                directMP4: [.h264: [.sdr], .hevc: [.sdr]], directMP4BitDepth: [.h264: 8, .hevc: 10],
+                hls: [.h264: [.sdr], .hevc: [.sdr]], hlsBitDepth: [.h264: 8, .hevc: 10]
+            )
+        })
         let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
         let requests = RequestRecorder()
         MockURLProtocol.handler = { request in
@@ -1670,6 +1676,109 @@ final class LuminaCoreTests: XCTestCase {
         ])
         XCTAssertEqual(try body(requests.all[1])["PositionTicks"] as? Int64, 125_000_000)
         XCTAssertEqual(try body(requests.all[1])["IsPaused"] as? Bool, true)
+    }
+
+    func testPlaybackInfoUsesInjectedNativeCodecAndRangeCapabilities() async throws {
+        let capabilities = NativeVideoCapabilities(
+            directMP4: [.h264: [.sdr], .hevc: [.sdr, .hdr10, .hlg], .av1: [.sdr]],
+            directMP4BitDepth: [.h264: 8, .hevc: 10, .av1: 10],
+            // AV1 is eligible for direct MP4 and fMP4 HLS, but never the
+            // independently qualified PrismCore Matroska path. HLS HEVC is
+            // intentionally SDR 8-bit; global codec-profile rules must not
+            // broaden either delivery.
+            hls: [.h264: [.sdr], .hevc: [.sdr], .av1: [.sdr]],
+            hlsBitDepth: [.h264: 8, .hevc: 8, .av1: 8]
+        )
+        let client = LuminaClient(configuration: mockConfiguration(), videoCapabilities: { capabilities })
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            return response(request, json: ["PlaySessionId": "session", "MediaSources": []])
+        }
+
+        _ = try await client.playbackInfo(origin: URL(string: "http://127.0.0.1:8765")!, token: "token", deviceID: "device", item: item, forceTranscode: false)
+        _ = try await client.playbackInfo(origin: URL(string: "http://127.0.0.1:8765")!, token: "token", deviceID: "device", item: item, forceTranscode: true, forceCompatibleVideo: true)
+
+        let modern = try XCTUnwrap(try body(requests.all[0])["DeviceProfile"] as? [String: Any])
+        let direct = try XCTUnwrap(modern["DirectPlayProfiles"] as? [[String: Any]])
+        XCTAssertEqual(direct[0]["VideoCodec"] as? String, "h264,hevc,av1")
+        XCTAssertEqual(direct[1]["VideoCodec"] as? String, "h264,hevc", "PrismCore's qualified Matroska route excludes AV1 even when fMP4 HLS can use it.")
+        let hls = try XCTUnwrap(modern["TranscodingProfiles"] as? [[String: Any]])
+        XCTAssertEqual(hls[0]["VideoCodec"] as? String, "h264,hevc,av1")
+        let codecProfiles = try XCTUnwrap(modern["CodecProfiles"] as? [[String: Any]])
+        let hevc = try XCTUnwrap(codecProfiles.first { $0["Codec"] as? String == "hevc" })
+        let hevcConditions = try XCTUnwrap(hevc["Conditions"] as? [[String: String]])
+        XCTAssertTrue(hevcConditions.contains(["Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "SDR"]))
+        XCTAssertTrue(hevcConditions.contains(["Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "8"]))
+        XCTAssertTrue(hevcConditions.contains(["Property": "Height", "Condition": "LessThanEqual", "Value": "2160"]))
+        let av1 = try XCTUnwrap(codecProfiles.first { $0["Codec"] as? String == "av1" })
+        XCTAssertTrue((av1["Conditions"] as? [[String: String]])?.contains([
+            "Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "SDR",
+        ]) == true)
+
+        let fallback = try XCTUnwrap(try body(requests.all[1])["DeviceProfile"] as? [String: Any])
+        let fallbackHLS = try XCTUnwrap(fallback["TranscodingProfiles"] as? [[String: Any]])
+        XCTAssertEqual(fallbackHLS[0]["VideoCodec"] as? String, "h264")
+        let fallbackProfiles = try XCTUnwrap(fallback["CodecProfiles"] as? [[String: Any]])
+        let fallbackVideoProfiles = fallbackProfiles.filter { $0["Type"] as? String == "Video" }
+        XCTAssertEqual(fallbackVideoProfiles.compactMap { $0["Codec"] as? String }, ["h264"])
+        let h264 = try XCTUnwrap(fallbackProfiles.first { $0["Codec"] as? String == "h264" })
+        XCTAssertTrue((h264["Conditions"] as? [[String: String]])?.contains(["Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "SDR"]) == true)
+        let fallbackDirect = try XCTUnwrap(fallback["DirectPlayProfiles"] as? [[String: Any]])
+        XCTAssertTrue(fallbackDirect.allSatisfy { $0["AudioCodec"] as? String == "aac" })
+        let aac = try XCTUnwrap(fallbackProfiles.first { $0["Codec"] as? String == "aac" })
+        XCTAssertEqual(aac["Type"] as? String, "VideoAudio")
+        XCTAssertEqual(aac["Conditions"] as? [[String: String]], [
+            ["Property": "AudioChannels", "Condition": "LessThanEqual", "Value": "2"],
+        ])
+    }
+
+    func testOnlyNarrowAVFoundationCodecFailuresCanRetryCompatibility() throws {
+        let format = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.fileFormatNotRecognized.rawValue)
+        let decoder = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.decoderNotFound.rawValue)
+        let unsupported = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.formatUnsupported.rawValue)
+        let parse = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.fileFailedToParse.rawValue)
+        let failedToParse = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.failedToParse.rawValue)
+        let nestedNetwork = NSError(
+            domain: AVFoundationErrorDomain, code: AVError.Code.decoderNotFound.rawValue,
+            userInfo: [NSUnderlyingErrorKey: URLError(.cannotConnectToHost)]
+        )
+        let nestedAuthorization = NSError(
+            domain: AVFoundationErrorDomain, code: AVError.Code.decoderNotFound.rawValue,
+            userInfo: [NSUnderlyingErrorKey: NSError(
+                domain: AVFoundationErrorDomain, code: AVError.Code.contentIsNotAuthorized.rawValue
+            )]
+        )
+        let nestedProtectedContent = NSError(
+            domain: AVFoundationErrorDomain, code: AVError.Code.decoderNotFound.rawValue,
+            userInfo: [NSUnderlyingErrorKey: NSError(
+                domain: AVFoundationErrorDomain, code: AVError.Code.contentIsProtected.rawValue
+            )]
+        )
+        let authorization = NSError(domain: AVFoundationErrorDomain, code: AVError.Code.contentIsNotAuthorized.rawValue)
+        let network = URLError(.cannotConnectToHost)
+        XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(format))
+        XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(decoder))
+        XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(unsupported))
+        XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(parse))
+        XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(failedToParse))
+        XCTAssertTrue(NativeVideoCapabilities.isFormatFailure(NativeVideoSource.SelectionError.unsupportedAudioStream(2)))
+        XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(authorization))
+        XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(network))
+        XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(nestedNetwork))
+        XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(nestedAuthorization))
+        XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(nestedProtectedContent))
+        XCTAssertFalse(NativeVideoCapabilities.isFormatFailure(CancellationError()))
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let request = PlaybackRequest(id: "play", item: item, url: URL(string: "https://lumina.example/hls")!,
+                                      startPositionSeconds: 12, mediaSourceID: "source", isTranscoding: false, methodLabel: "Direct")
+        XCTAssertTrue(request.canRetryCompatibleVideo(after: format))
+        XCTAssertFalse(request.canRetryCompatibleVideo(after: network))
+        let compatible = PlaybackRequest(id: "retry", item: item, url: request.url,
+                                         startPositionSeconds: 12, mediaSourceID: "source", isTranscoding: true,
+                                         methodLabel: "HLS", usesCompatibleVideo: true)
+        XCTAssertFalse(compatible.canRetryCompatibleVideo(after: format))
     }
 
     func testPlaybackRequestCarriesServerStreamInventoryAndExplicitSubtitleOff() throws {
@@ -2106,6 +2215,76 @@ final class LuminaCoreTests: XCTestCase {
                 "Property": "Height", "Condition": "LessThanEqual", "Value": "720",
             ]) == true)
         }
+    }
+
+    func testPrepareCompatiblePlaybackPreservesSelectionAndRequiresServerHLS() async throws {
+        let saved = LuminaSession(serverURL: URL(string: "http://127.0.0.1:8765")!, accessToken: "test-token", userID: "user-1", username: "member", serverName: "Lumina", deviceID: "test-device")
+        let client = LuminaClient(configuration: mockConfiguration())
+        let store = LuminaStore(client: client, credentials: TestCredentials(session: saved))
+        let requests = RequestRecorder()
+        MockURLProtocol.handler = { request in
+            requests.append(request)
+            switch request.url!.path {
+            case "/Users/Me": return response(request, json: ["Id": "user-1", "Name": "member"])
+            case "/Items", "/UserItems/Resume", "/Shows/NextUp": return response(request, json: page(items: []))
+            case "/Users/user-1/Items/movie-1": return response(request, json: movie())
+            case "/Items/movie-1/PlaybackInfo":
+                return response(request, json: ["PlaySessionId": "compatible", "MediaSources": [[
+                    "Id": "source-2", "SupportsDirectPlay": false, "SupportsTranscoding": true,
+                    "TranscodingUrl": "/Videos/source-2/master.m3u8?ApiKey=test-token",
+                    "DefaultAudioStreamIndex": 3,
+                    "MediaStreams": [["Index": 3, "Type": "Audio", "Codec": "aac"]],
+                ]]])
+            default: return response(request, status: 404)
+            }
+        }
+        await store.restore()
+        let item = try JSONDecoder().decode(MediaItem.self, from: json(movie()))
+        let original = PlaybackRequest(
+            id: "original", item: item, url: URL(string: "http://127.0.0.1:8765/Videos/movie-1/stream")!,
+            startPositionSeconds: 11.25, mediaSourceID: "source-2", isTranscoding: false,
+            methodLabel: "Direct", audioStreamIndex: 3, subtitleStreamIndex: -1,
+            resolvedQuality: .upTo720p
+        )
+
+        let retry = try await store.prepareCompatiblePlayback(
+            after: original,
+            error: NSError(domain: AVFoundationErrorDomain, code: AVError.Code.decoderNotFound.rawValue)
+        )
+
+        XCTAssertTrue(retry.isTranscoding)
+        XCTAssertTrue(retry.usesCompatibleVideo)
+        XCTAssertEqual(retry.mediaSourceID, "source-2")
+        XCTAssertEqual(retry.resolvedQuality, .upTo720p)
+        XCTAssertEqual(retry.audioStreamIndex, 3)
+        XCTAssertEqual(retry.subtitleStreamIndex, -1)
+        XCTAssertEqual(retry.startPositionSeconds, 11.25)
+        let playbackInfo = try XCTUnwrap(requests.all.first { $0.url?.path == "/Items/movie-1/PlaybackInfo" })
+        let posted = try body(playbackInfo)
+        XCTAssertEqual(posted["EnableDirectPlay"] as? Bool, false)
+        XCTAssertEqual(posted["MediaSourceId"] as? String, "source-2")
+        XCTAssertEqual(posted["AudioStreamIndex"] as? Int, 3)
+        XCTAssertEqual(posted["SubtitleStreamIndex"] as? Int, -1)
+        XCTAssertEqual(posted["StartTimeTicks"] as? Int64, 112_500_000)
+        let profile = try XCTUnwrap(posted["DeviceProfile"] as? [String: Any])
+        XCTAssertEqual((try XCTUnwrap(profile["TranscodingProfiles"] as? [[String: Any]])).first?["VideoCodec"] as? String, "h264")
+        XCTAssertTrue((try XCTUnwrap(profile["DirectPlayProfiles"] as? [[String: Any]])).allSatisfy { $0["AudioCodec"] as? String == "aac" })
+        let h264 = try XCTUnwrap((profile["CodecProfiles"] as? [[String: Any]])?.first { $0["Codec"] as? String == "h264" })
+        XCTAssertTrue((h264["Conditions"] as? [[String: String]])?.contains([
+            "Property": "VideoRangeType", "Condition": "EqualsAny", "Value": "SDR",
+        ]) == true)
+        let aac = try XCTUnwrap((profile["CodecProfiles"] as? [[String: Any]])?.first { $0["Codec"] as? String == "aac" })
+        XCTAssertEqual(aac["Conditions"] as? [[String: String]], [
+            ["Property": "AudioChannels", "Condition": "LessThanEqual", "Value": "2"],
+        ])
+
+        let ignoredFallback = try JSONDecoder().decode(PlaybackInfo.self, from: json(["PlaySessionId": "ignored", "MediaSources": [[
+            "Id": "source-2", "SupportsDirectPlay": true, "SupportsTranscoding": true,
+        ]]]))
+        XCTAssertThrowsError(try client.playbackRequest(
+            origin: saved.serverURL, token: saved.accessToken, item: item, result: ignoredFallback,
+            mediaSourceID: "source-2", usesCompatibleVideo: true
+        )) { XCTAssertEqual($0 as? LuminaError, .malformedResponse) }
     }
 
     func testPlaybackRequestChoosesTheExplicitReturnedMediaSourceAndBoundsStartPosition() throws {

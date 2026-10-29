@@ -198,6 +198,27 @@ def test_cleanup_failures_cannot_skip_probe_reap(monkeypatch: pytest.MonkeyPatch
     assert process.calls[1:] == ["poll", ("wait", None)]
 
 
+def test_bounded_probe_accepts_a_shorter_call_site_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    process = _FakeProcess()
+    process.running = False
+
+    class EmptySelector:
+        def register(self, *_args: object) -> None:
+            pass
+
+        def get_map(self) -> dict[object, object]:
+            return {}
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(media_probe.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(media_probe.selectors, "DefaultSelector", EmptySelector)
+    media_probe._run_bounded_process(["ffprobe"], timeout=0.1)
+    wait_call = process.calls[0]
+    assert isinstance(wait_call, tuple) and 0 < wait_call[1] <= 0.1
+
+
 @pytest.mark.parametrize("fd", [1, 2], ids=["stdout", "stderr"])
 def test_probe_caps_each_output_pipe_and_reaps_the_child(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fd: int,

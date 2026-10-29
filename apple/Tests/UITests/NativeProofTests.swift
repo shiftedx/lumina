@@ -90,6 +90,13 @@ final class NativePlaybackInfoTests: NativeProofJourney {
 }
 
 @MainActor
+final class NativeVideoFormatRecoveryTests: NativeProofJourney {
+    func testInitialFormatFailureRetriesOneCompatibleVideo() async throws {
+        try await journeyInitialVideoFormatRecovery()
+    }
+}
+
+@MainActor
 final class NativeVideoGestureTests: NativeProofJourney {
     func testVerticalSwipesAdjustDeviceControlsWithoutPlayerVolumeSlider() async throws {
         try await journeyVideoDeviceControls()
@@ -1663,6 +1670,85 @@ class NativeProofJourney: XCTestCase {
         try activate(element("videoSettingsDoneButton"))
         try tapVideoTransportAfterChromeHides(named: "pause after Info")
         try closePlayer()
+    }
+
+    func journeyInitialVideoFormatRecovery() async throws {
+        var completed = false
+        defer { if !completed { captureScreenshot(succeeded: false) } }
+        #if os(iOS)
+        // Password storage is owned by iOS and may arrive after Home has
+        // rendered. Install the monitor before authentication so XCTest can
+        // handle it at the next user interaction without a direct tap waiting
+        // for the app to become idle behind the sheet.
+        let passwordMonitor = addUIInterruptionMonitor(withDescription: "Discard disposable proof password") { alert in
+            guard alert.staticTexts["Save Password?"].exists else { return false }
+            // The system sheet can expose this under a non-Button AX trait.
+            let decline = alert.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", "Not Now"))
+                .firstMatch
+            guard decline.exists else { return false }
+            decline.tap()
+            return true
+        }
+        defer { removeUIInterruptionMonitor(passwordMonitor) }
+        #endif
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.directItemID, seconds: 12)
+
+        try launchAndResetSession()
+        try signIn(using: fixture, waitsForAccount: false)
+        let resume = element("resumeItem-\(fixture.directItemID)")
+        do {
+            #if os(iOS)
+            // Interruption monitors run on a user interaction, not an AX
+            // query. This ordinary Home scroll is restored below before
+            // selecting the seeded Continue Watching card.
+            element("homeScreen").swipeUp()
+            try revealInLibraryViewport([resume], in: element("homeScreen"))
+            #endif
+            #if os(tvOS)
+            try waitForExistence(resume, timeout: 25, named: "seeded direct-video resume item")
+            #else
+            try waitForHittable(resume, timeout: 25, named: "seeded direct-video resume item")
+            #endif
+        } catch {
+            let evidence = await api.recoveryHomeEvidence(identity: identity, itemID: fixture.directItemID,
+                                                          title: fixture.directItemTitle)
+            let attachment = XCTAttachment(string: "expected=\(fixture.directItemID) title=\(fixture.directItemTitle) ax=\(resume.exists ? resume.identifier : "absent") \(evidence)")
+            attachment.name = "Compatible-video recovery Home evidence"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            throw error
+        }
+        try activate(resume)
+        try waitForExistence(element("detailScreen"), timeout: 25, named: "direct-video detail screen")
+        let time = try startPlayback(using: "playButton")
+        let initial = try waitForPlaybackValue(time, timeout: 25) { $0 >= 10 }
+        _ = try waitForPlaybackValue(time, timeout: 20) { $0 >= initial + 2 }
+
+        try activate(element("videoSettingsButton"))
+        try activate(element("videoSettingsTab-info"))
+        let method = element("videoPlaybackMethod")
+        try waitForExistence(method, timeout: 10, named: "compatible video playback method")
+        XCTAssertTrue(accessibilityText(method).contains("HLS"),
+                      "The format retry must use the server's compatible HLS rendition.")
+
+        let evidence = try await api.initialVideoFormatRecovery()
+        XCTAssertTrue(evidence.faultedDirectStream, "The proof fixture must reject the initial direct MP4 with an HTTP 200 format fault.")
+        XCTAssertEqual(evidence.compatibilityRequests, 1, "A format failure permits exactly one compatible-video retry.")
+        XCTAssertTrue(evidence.compatibilityProfile, "The retry must negotiate only H.264/SDR-compatible playback.")
+        XCTAssertTrue(evidence.sameMediaSource, "The compatible retry must retain the selected source version.")
+        XCTAssertTrue(evidence.preservedOptions, "The compatible retry must retain quality, selected tracks, and its playback position.")
+
+        try attachPlaybackFrame(named: "Initial direct format failure recovered through compatible HLS")
+        try activate(element("videoSettingsDoneButton"))
+        try closePlayer()
+        completed = true
     }
 
     func journeyVideoDeviceControls() async throws {
@@ -8252,6 +8338,7 @@ class NativeProofJourney: XCTestCase {
             throw ProofFailure.timeout("Timed out waiting for post-login navigation after declining password storage.")
         }
     }
+
     #endif
 
     private func nativeSwitchValue(_ control: XCUIElement) -> Bool? {
@@ -9809,6 +9896,46 @@ private struct ProofAPI {
         }
     }
 
+    func initialVideoFormatRecovery() async throws -> VideoFormatRecoveryEvidence {
+        let request = URLRequest(url: origin.appendingPathComponent("Lumina/Proof/initial-video-format-recovery"))
+        return try JSONDecoder().decode(VideoFormatRecoveryEvidence.self, from: await send(request))
+    }
+
+    func recoveryHomeEvidence(identity: APIIdentity, itemID: String, title: String) async -> String {
+        func matches(_ data: Data, key: String) -> String {
+            guard let document = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return "\(key)=malformed"
+            }
+            let rows = (document["rows"] as? [[String: Any]]) ?? []
+            let items = (document["Items"] as? [[String: Any]]) ?? []
+            let entries = rows.flatMap { row in
+                ((row["items"] as? [[String: Any]]) ?? []).map { item in
+                    "\(row["shelf_id"] as? String ?? "unknown"):\(item["Id"] as? String ?? "missing"):\(item["Name"] as? String ?? "missing")"
+                }
+            } + items.map { item in
+                "resume:\(item["Id"] as? String ?? "missing"):\(item["Name"] as? String ?? "missing")"
+            }
+            let expected = entries.filter { $0.contains(itemID) || $0.contains(title) }
+            return "\(key)=\(expected.isEmpty ? "absent" : expected.joined(separator: ","))"
+        }
+        do {
+            var home = URLRequest(url: origin.appendingPathComponent("Lumina/Home/rows"))
+            home.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
+            var components = URLComponents(url: origin.appendingPathComponent("UserItems/Resume"), resolvingAgainstBaseURL: false)
+            components?.queryItems = [
+                URLQueryItem(name: "IncludeItemTypes", value: "Movie,Episode,Video"),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "Limit", value: "50"),
+            ]
+            guard let resumeURL = components?.url else { return "evidence=unavailable" }
+            var resume = URLRequest(url: resumeURL)
+            resume.setValue(identity.token, forHTTPHeaderField: "X-Emby-Token")
+            return "\(matches(try await send(home), key: "home")) \(matches(try await send(resume), key: "resume"))"
+        } catch {
+            return "evidence=unavailable"
+        }
+    }
+
     @MainActor func musicJSON(identity: APIIdentity, path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Any {
         var request = URLRequest(url: origin.appendingPathComponent("Lumina/Music/" + path))
         request.httpMethod = method
@@ -9852,6 +9979,14 @@ private struct ProofAPI {
 private struct APIIdentity {
     let token: String
     let userID: String
+}
+
+private struct VideoFormatRecoveryEvidence: Decodable {
+    let faultedDirectStream: Bool
+    let compatibilityRequests: Int
+    let compatibilityProfile: Bool
+    let sameMediaSource: Bool
+    let preservedOptions: Bool
 }
 
 private struct AuthenticationResponse: Decodable {

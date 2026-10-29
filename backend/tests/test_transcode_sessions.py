@@ -369,6 +369,55 @@ def test_jellyfin_playlists_carry_the_api_key_on_every_uri() -> None:
     assert master_playlist(session, "hls/s/index.m3u8?ApiKey=k") == "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n#EXT-X-STREAM-INF:BANDWIDTH=4000000\nhls/s/index.m3u8?ApiKey=k\n"
 
 
+def test_jellyfin_master_uses_only_verified_output_attributes_and_separate_audio_codec() -> None:
+    session = lps.PlaybackSession("s", "u", "i", "transcode", Path("/x"), None, bandwidth=4_000_000)  # type: ignore[arg-type]
+    session.info["master"] = {
+        "codecs": "av01.0.13M.10,mp4a.40.2", "resolution": "1920x1080", "frame_rate": "23.976", "video_range": "PQ",
+    }
+    assert master_playlist(session, "video.m3u8?ApiKey=k", "audio.m3u8?ApiKey=k") == (
+        '#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n'
+        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,URI="audio.m3u8?ApiKey=k"\n'
+        '#EXT-X-STREAM-INF:BANDWIDTH=4000000,CODECS="av01.0.13M.10,mp4a.40.2",RESOLUTION=1920x1080,FRAME-RATE=23.976,VIDEO-RANGE=PQ,AUDIO="audio"\n'
+        'video.m3u8?ApiKey=k\n'
+    )
+    session.info["master"]["codecs"] = "hvc1.2.4.L93,ec-3"  # All-zero HEVC constraint bytes are omitted.
+    assert 'CODECS="hvc1.2.4.L93,ec-3"' in master_playlist(session, "video.m3u8", "audio.m3u8")
+
+
+def test_master_probe_is_cached_at_startup_and_never_runs_for_master_gets(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    session = lps.PlaybackSession("s", "u", "i", "transcode", tmp_path, None, info={"video": {"range": "HLG"}})  # type: ignore[arg-type]
+    (tmp_path / "init.mp4").touch()
+    (tmp_path / "seg0.m4s").touch()
+    calls = 0
+
+    def verified(*_args):  # noqa: ANN001 - private startup seam
+        nonlocal calls
+        calls += 1
+        return {"codecs": "hvc1.2.4.L93.B0.01", "resolution": "256x144", "frame_rate": "2.000", "video_range": "HLG"}
+
+    monkeypatch.setattr(lps, "_master_attributes", verified)
+    lps._cache_master_attributes(session, "ffprobe")
+    lps._cache_master_attributes(session, "ffprobe")
+    master_playlist(session, "index.m3u8")
+    master_playlist(session, "index.m3u8")
+    assert calls == 1 and session.info["master"]["codecs"] == "hvc1.2.4.L93.B0.01"
+
+
+def test_master_playlist_rejects_untrusted_cache_fields_and_range_contradictions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    session = lps.PlaybackSession("s", "u", "i", "transcode", tmp_path, None, info={"video": {"range": "SDR"}})  # type: ignore[arg-type]
+    session.info["master"] = {"codecs": 'av01.0.13M.10\",BOGUS=1', "resolution": "1920x1080", "frame_rate": "23.976", "video_range": "PQ"}
+    assert 'CODECS=' not in master_playlist(session, "index.m3u8")
+    session.info.pop("master")
+    (tmp_path / "init.mp4").touch()
+    (tmp_path / "seg0.m4s").touch()
+    monkeypatch.setattr(lps, "_master_attributes", lambda *_args: {"codecs": "av01.0.13M.10", "resolution": "1920x1080", "frame_rate": "23.976", "video_range": "PQ"})
+    lps._cache_master_attributes(session, "ffprobe")
+    assert "master" not in session.info
+    session.info["video"]["range"] = "HDR10"
+    lps._cache_master_attributes(session, "ffprobe")
+    assert session.info["master"]["video_range"] == "PQ"
+
+
 def test_reap_bounds_the_ffmpeg_log(registry) -> None:
     session = start(registry, REMUX)
     log = session.directory / "ffmpeg.log"

@@ -104,6 +104,10 @@ class FixtureBrokerTests(unittest.TestCase):
                     proof_server_environment(fixture_test_class("NativeAudioAlbumPlayAfterUnavailableRestoreTests-instance")),
                     {"LUMINA_NATIVE_AUDIO_RESTORE_FAILURE": "1"},
                 )
+                self.assertEqual(
+                    proof_server_environment(fixture_test_class("NativeVideoFormatRecoveryTests-instance")),
+                    {"LUMINA_NATIVE_VIDEO_FORMAT_FAILURE": "1"},
+                )
                 for test_class in ("NativeLibraryCatalogScrollingTests", "NativeTVLibraryAlphabetTests"):
                     self.assertEqual(
                         proof_server_environment(fixture_test_class(f"{test_class}-instance")),

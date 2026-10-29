@@ -359,8 +359,11 @@ def test_shared_response_keeps_disconnect_receivers_request_scoped(tmp_path: Pat
     assert complete == payload[13:2097153]
 
 
-@pytest.mark.parametrize(("suffix", "expected"), [("m4a", "audio/mp4"), ("m4b", "audio/mp4"), ("mp4", "video/mp4")])
-def test_mp4_file_media_types_are_correct_for_extensionless_streams(
+@pytest.mark.parametrize(("suffix", "expected"), [
+    ("m4a", "audio/mp4"), ("m4b", "audio/mp4"), ("mp4", "video/mp4"),
+    ("ts", "video/mp2t"), ("m2ts", "video/mp2t"), ("mts", "video/mp2t"),
+])
+def test_media_file_types_are_stable_for_extensionless_streams(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suffix: str, expected: str,
 ) -> None:
     import mimetypes

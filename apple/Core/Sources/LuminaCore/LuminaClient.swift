@@ -3,6 +3,7 @@ import Foundation
 final class LuminaClient: @unchecked Sendable {
     private let session: URLSession
     private let redirectGuard: RedirectGuard
+    private let videoCapabilities: @Sendable () -> NativeVideoCapabilities
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -10,11 +11,14 @@ final class LuminaClient: @unchecked Sendable {
         configuration.timeoutIntervalForResource = 30
         redirectGuard = RedirectGuard()
         session = URLSession(configuration: configuration, delegate: redirectGuard, delegateQueue: nil)
+        videoCapabilities = NativeVideoCapabilities.current
     }
 
-    init(configuration: URLSessionConfiguration) {
+    init(configuration: URLSessionConfiguration,
+         videoCapabilities: @escaping @Sendable () -> NativeVideoCapabilities = NativeVideoCapabilities.current) {
         redirectGuard = RedirectGuard()
         session = URLSession(configuration: configuration, delegate: redirectGuard, delegateQueue: nil)
+        self.videoCapabilities = videoCapabilities
     }
 
     deinit { session.invalidateAndCancel() }
@@ -292,25 +296,10 @@ final class LuminaClient: @unchecked Sendable {
     func playbackInfo(origin: URL, token: String, deviceID: String, item: MediaItem, forceTranscode: Bool,
                       quality: PlaybackQuality = .automatic,
                       audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil,
-                      mediaSourceID: String? = nil, startPositionSeconds: Double? = nil) async throws -> PlaybackInfo {
-        var h264Conditions = [["Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "8"]]
-        var hevcConditions = [["Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": "10"]]
-        if let maximumHeight = quality.maximumHeight {
-            let heightCondition = ["Property": "Height", "Condition": "LessThanEqual", "Value": String(maximumHeight)]
-            h264Conditions.append(heightCondition)
-            hevcConditions.append(heightCondition)
-        }
-        var profile: [String: Any] = [
-            "DirectPlayProfiles": [["Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,mp3,alac,flac"],
-                                   ["Type": "Video", "Container": "mkv", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,alac,flac"]],
-            "TranscodingProfiles": [["Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": "h264", "AudioCodec": "aac"]],
-            "SubtitleProfiles": [["Format": "vtt", "Method": "External"]],
-            "CodecProfiles": [
-                ["Type": "Video", "Codec": "h264", "Conditions": h264Conditions],
-                ["Type": "Video", "Codec": "hevc", "Conditions": hevcConditions],
-                ["Type": "VideoAudio", "Codec": "flac", "Conditions": [["Property": "AudioBitDepth", "Condition": "LessThanEqual", "Value": "24"]]],
-            ],
-        ]
+                      mediaSourceID: String? = nil, startPositionSeconds: Double? = nil,
+                      forceCompatibleVideo: Bool = false) async throws -> PlaybackInfo {
+        let capabilities = forceCompatibleVideo ? .compatibility : videoCapabilities()
+        var profile = nativePlaybackProfile(capabilities, quality: quality, forceCompatibleVideo: forceCompatibleVideo)
         if let maximumBitRate = quality.maximumBitRate { profile["MaxStreamingBitrate"] = maximumBitRate }
         let start = try boundedStartPosition(startPositionSeconds, item: item)
         var body: [String: Any] = [
@@ -325,11 +314,98 @@ final class LuminaClient: @unchecked Sendable {
         return try await json(request(origin: origin, path: "/Items/\(item.id)/PlaybackInfo", method: "POST", token: token, deviceID: deviceID, body: body))
     }
 
+    private func nativePlaybackProfile(_ capabilities: NativeVideoCapabilities, quality: PlaybackQuality,
+                                       forceCompatibleVideo: Bool) -> [String: Any] {
+        let ordered = NativeVideoCapabilities.Codec.allCases
+        let direct = ordered.filter { !capabilities.ranges(for: $0, delivery: .directMP4).isEmpty }
+        let hls = ordered.filter { !capabilities.ranges(for: $0, delivery: .hls).isEmpty }
+        // ADR 0031 qualifies PrismCore's Matroska loopback route only for
+        // H.264 and HEVC. AV1 fMP4 HLS eligibility does not establish this
+        // independent local demux/packaging path.
+        let matroska = hls.filter { $0 == .h264 || $0 == .hevc }
+        let codecList: ([NativeVideoCapabilities.Codec]) -> String = { codecs in
+            codecs.map(\.rawValue).joined(separator: ",")
+        }
+        let rangeList: ([NativeVideoCapabilities.Range]) -> String = { ranges in
+            ranges.map(\.rawValue).joined(separator: "|")
+        }
+        let audio = forceCompatibleVideo ? "aac" : "aac,ac3,eac3,mp3,alac,flac"
+        let matroskaAudio = forceCompatibleVideo ? "aac" : "aac,ac3,eac3,alac,flac"
+        let directProfiles: [[String: Any]] = [
+            ["Type": "Video", "Container": "mp4,m4v,mov", "VideoCodec": codecList(direct), "AudioCodec": audio],
+            ["Type": "Video", "Container": "mkv", "VideoCodec": codecList(matroska), "AudioCodec": matroskaAudio],
+        ]
+        var videoProfiles = [[String: Any]]()
+        for codec in ordered {
+            let directRanges = capabilities.ranges(for: codec, delivery: .directMP4)
+            let hlsRanges = capabilities.ranges(for: codec, delivery: .hls)
+            let directDepth = capabilities.bitDepth(for: codec, delivery: .directMP4)
+            let hlsDepth = capabilities.bitDepth(for: codec, delivery: .hls)
+            let ranges: Set<NativeVideoCapabilities.Range>
+            let depth: Int?
+            switch (directRanges.isEmpty, hlsRanges.isEmpty) {
+            case (false, false):
+                // Codec profiles constrain both delivery paths. Do not let a
+                // direct-only HDR/Main 10 claim broaden HLS eligibility.
+                ranges = directRanges.intersection(hlsRanges)
+                if let directDepth, let hlsDepth {
+                    depth = min(directDepth, hlsDepth)
+                } else {
+                    depth = nil
+                }
+            case (false, true):
+                ranges = directRanges
+                depth = directDepth
+            case (true, false):
+                ranges = hlsRanges
+                depth = hlsDepth
+            case (true, true):
+                ranges = []
+                depth = nil
+            }
+            guard let depth, !ranges.isEmpty else { continue }
+            var conditions = [
+                ["Property": "VideoBitDepth", "Condition": "LessThanEqual", "Value": String(depth)],
+                ["Property": "VideoRangeType", "Condition": "EqualsAny", "Value": rangeList(NativeVideoCapabilities.Range.allCases.filter(ranges.contains))],
+            ]
+            if codec != .h264 {
+                // The HEVC Main 10 and AV1 codec strings queried above cover
+                // Lumina's 4K output ceiling, not an unbounded resolution.
+                conditions += [
+                    ["Property": "Width", "Condition": "LessThanEqual", "Value": "3840"],
+                    ["Property": "Height", "Condition": "LessThanEqual", "Value": "2160"],
+                ]
+            }
+            if let maximumHeight = quality.maximumHeight {
+                conditions.append(["Property": "Height", "Condition": "LessThanEqual", "Value": String(maximumHeight)])
+            }
+            videoProfiles.append(["Type": "Video", "Codec": codec.rawValue, "Conditions": conditions])
+        }
+        if forceCompatibleVideo {
+            videoProfiles.append([
+                "Type": "VideoAudio", "Codec": "aac",
+                "Conditions": [["Property": "AudioChannels", "Condition": "LessThanEqual", "Value": "2"]],
+            ])
+        } else {
+            videoProfiles.append([
+                "Type": "VideoAudio", "Codec": "flac",
+                "Conditions": [["Property": "AudioBitDepth", "Condition": "LessThanEqual", "Value": "24"]],
+            ])
+        }
+        return [
+            "DirectPlayProfiles": directProfiles,
+            "TranscodingProfiles": [["Type": "Video", "Protocol": "hls", "Container": "fmp4", "VideoCodec": codecList(hls), "AudioCodec": "aac"]],
+            "SubtitleProfiles": [["Format": "vtt", "Method": "External"]],
+            "CodecProfiles": videoProfiles,
+        ]
+    }
+
     func playbackRequest(origin: URL, token: String, item: MediaItem, result: PlaybackInfo,
                          quality: PlaybackQuality = .automatic,
                          audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil, mediaSourceID: String? = nil,
                          startPositionSeconds: Double? = nil,
-                         selectedSourceChapters: [PlaybackChapter]? = nil) throws -> PlaybackRequest {
+                         selectedSourceChapters: [PlaybackChapter]? = nil,
+                         usesCompatibleVideo: Bool = false) throws -> PlaybackRequest {
         let source = try preferredSource(in: result, mediaSourceID: mediaSourceID)
         let streams = try source.mediaStreams.map { try PlaybackStream($0, origin: origin) }
         let sourceChapters = source.chapters.map {
@@ -346,6 +422,10 @@ final class LuminaClient: @unchecked Sendable {
         let resolvedSubtitleStreamIndex = subtitleStreamIndex ?? source.defaultSubtitleStreamIndex
         let start = try boundedStartPosition(startPositionSeconds, item: item)
         if source.supportsDirectPlay {
+            // A compatible retry must receive the forced H.264/SDR HLS
+            // decision. Treat a direct response as the server ignoring that
+            // request rather than relabelling the original media compatible.
+            guard !usesCompatibleVideo else { throw LuminaError.malformedResponse }
             guard let direct = url(origin: origin, path: "/Videos/\(item.id)/stream", query: [
                 URLQueryItem(name: "MediaSourceId", value: source.id),
                 URLQueryItem(name: "Static", value: "true"),
@@ -354,6 +434,7 @@ final class LuminaClient: @unchecked Sendable {
             return PlaybackRequest(id: result.playSessionID, item: item, url: direct, startPositionSeconds: start,
                                    mediaSourceID: source.id, isTranscoding: false, methodLabel: "Direct",
                                    usesClientDemux: !item.isAudio && ["mkv", "matroska"].contains((source.container ?? item.container ?? "").lowercased()),
+                                   usesCompatibleVideo: usesCompatibleVideo,
                                    bitRate: source.bitRate, sourceContainer: source.container,
                                    mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
                                    subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters,
@@ -363,6 +444,7 @@ final class LuminaClient: @unchecked Sendable {
               let hls = URL(string: raw, relativeTo: origin)?.absoluteURL, sameOrigin(origin, hls) else { throw LuminaError.unsafeURL }
         return PlaybackRequest(id: result.playSessionID, item: item, url: hls, startPositionSeconds: start,
                                mediaSourceID: source.id, isTranscoding: true, methodLabel: "HLS",
+                               usesCompatibleVideo: usesCompatibleVideo,
                                bitRate: source.bitRate, sourceContainer: source.container,
                                mediaStreams: streams, audioStreamIndex: resolvedAudioStreamIndex,
                                subtitleStreamIndex: resolvedSubtitleStreamIndex, chapters: chapters,

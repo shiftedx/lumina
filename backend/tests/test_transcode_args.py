@@ -363,6 +363,39 @@ def test_hdr_command_keeps_p010_bt2020_and_svt_hdr_metadata() -> None:
         lps.ffmpeg_command("ffmpeg", Path("/m/hdr.mp4"), facts, OUT, replace(av1, burn_subtitle=2))
 
 
+def test_master_attributes_parse_emitted_configuration_records_and_fail_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Profiles, levels and AAC object type come from the fMP4 records, never source facts."""
+    hexdump = lambda raw: "\n00000000: " + " ".join(raw.hex()[index:index + 4] for index in range(0, len(raw.hex()), 4)) + "\n"
+    assert lps._video_codec_string({"codec_name": "h264", "codec_tag_string": "avc1", "extradata": hexdump(bytes.fromhex("014d401f"))}) == "avc1.4D401F"
+    assert lps._video_codec_string({"codec_name": "av1", "codec_tag_string": "av01", "extradata": hexdump(bytes.fromhex("81004c"))}) == "av01.0.00M.10"
+    hevc_config = bytes.fromhex("010220000000b001000000005d") + bytes(10)
+    streams = [
+        {"codec_type": "video", "codec_name": "hevc", "codec_tag_string": "hvc1", "extradata": hexdump(hevc_config),
+         "width": 256, "height": 144, "avg_frame_rate": "24000/1001", "color_transfer": "arib-std-b67",
+         "color_primaries": "bt2020", "color_space": "bt2020nc", "color_range": "tv", "pix_fmt": "yuv420p10le"},
+        {"codec_type": "audio", "codec_name": "aac", "codec_tag_string": "mp4a", "extradata": hexdump(bytes.fromhex("1188"))},
+    ]
+    result = subprocess.CompletedProcess([], 0, json.dumps({"streams": streams, "frames": [{"media_type": "video", "color_transfer": "arib-std-b67", "color_primaries": "bt2020", "color_space": "bt2020nc", "color_range": "tv", "pix_fmt": "yuv420p10le"}]}).encode(), b"")
+    monkeypatch.setattr(lps, "_run_bounded_process", lambda *_args, **_kwargs: result)
+    assert lps._master_attributes("ffprobe", tmp_path, "init.mp4", "seg0.m4s") == {
+        "codecs": "hvc1.2.4.L93.B0.01,mp4a.40.2", "resolution": "256x144", "frame_rate": "23.976", "video_range": "HLG",
+    }
+    streams[0]["color_transfer"] = "bt709"
+    result.stdout = json.dumps({"streams": streams, "frames": [{"media_type": "video", "color_transfer": "bt709", "pix_fmt": "yuv420p10le"}]}).encode()
+    sdr_attributes = lps._master_attributes("ffprobe", tmp_path, "init.mp4", "seg0.m4s")
+    assert sdr_attributes is not None and sdr_attributes["video_range"] == "SDR"
+    result.stdout = json.dumps({"streams": streams, "frames": [{"media_type": "video", "color_transfer": "unknown", "pix_fmt": "yuv420p10le"}]}).encode()
+    assert lps._master_attributes("ffprobe", tmp_path, "init.mp4", "seg0.m4s") is None
+    result.returncode = 1
+    assert lps._master_attributes("ffprobe", tmp_path, "init.mp4", "seg0.m4s") is None
+    result.returncode = 0
+    streams[0]["extradata"] = hexdump(bytes.fromhex("0102"))
+    result.stdout = json.dumps({"streams": streams, "frames": []}).encode()
+    assert lps._master_attributes("ffprobe", tmp_path, "init.mp4", "seg0.m4s") is None
+    assert lps._extradata_bytes("00000000: 014d 401f  beef") == bytes.fromhex("014d401f")
+    assert lps._audio_codec_string({"codec_name": "eac3", "codec_tag_string": "ec-3"}) == "ec-3"
+
+
 @pytest.mark.parametrize(("codec", "encoder"), [("hevc", "libx265"), ("av1", "libsvtav1")])
 def test_installed_software_modern_encoder_writes_its_negotiated_fmp4_codec(tmp_path: Path, codec: str, encoder: str) -> None:
     ffmpeg = shutil.which("ffmpeg")
@@ -371,15 +404,24 @@ def test_installed_software_modern_encoder_writes_its_negotiated_fmp4_codec(tmp_
     assert HwAccel().software_codec_supported(ffmpeg, codec)
     source, output = tmp_path / "source.mp4", tmp_path / "hls"
     output.mkdir()
-    subprocess.run([ffmpeg, "-hide_banner", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=2", "-t", "5", "-c:v", "libx264", str(source)], check=True)
-    facts = {"streams": [{"index": 0, "type": "video", "codec": "h264", "width": 64, "height": 64, "pix_fmt": "yuv420p"}]}
-    decision = Decision("transcode", video="encode", video_index=0, height=64, bitrate=1_500_000, video_codec=codec)
+    subprocess.run([ffmpeg, "-hide_banner", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=2", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+                    "-t", "5", "-c:v", "libx264", "-c:a", "aac", "-shortest", str(source)], check=True)
+    facts = {"streams": [
+        {"index": 0, "type": "video", "codec": "h264", "width": 64, "height": 64, "pix_fmt": "yuv420p"},
+        {"index": 1, "type": "audio", "codec": "aac", "channels": 1},
+    ]}
+    decision = Decision("transcode", video="encode", audio="encode", video_index=0, audio_index=1, audio_channels=1, height=64, bitrate=1_500_000, video_codec=codec)
     subprocess.run(lps.ffmpeg_command(ffmpeg, source, facts, output, decision), check=True, timeout=60)
     ffprobe = str(Path(ffmpeg).with_name("ffprobe"))
     segments = sorted(output.glob("seg*.m4s"))
     assert len(segments) > 1
     probe = subprocess.run([ffprobe, "-v", "error", "-protocol_whitelist", "file,concat", "-show_entries", "stream=codec_name", "-of", "default=nw=1:nk=1", f"concat:{output / 'init.mp4'}|{segments[0]}"], capture_output=True, text=True, check=True)
-    assert probe.stdout.strip() == codec
+    assert probe.stdout.splitlines() == [codec, "aac"]
+    attributes = lps._master_attributes(ffprobe, output, "init.mp4", segments[0].name)
+    assert attributes is not None and attributes["codecs"].endswith(",mp4a.40.2")
+    session = lps.PlaybackSession("s", "u", "i", "transcode", output, None, bandwidth=1_500_000, info={"master": attributes})  # type: ignore[arg-type]
+    master = lps.master_playlist(session, "video.m3u8", "audio.m3u8")
+    assert f'CODECS="{attributes["codecs"]}"' in master and 'AUDIO="audio"' in master
     for segment in segments:
         frames = subprocess.run([ffprobe, "-v", "error", "-protocol_whitelist", "file,concat", "-show_entries", "frame=key_frame", "-select_streams", "v:0", "-of", "default=nw=1:nk=1", f"concat:{output / 'init.mp4'}|{segment}"], capture_output=True, text=True, check=True)
         assert frames.stdout.splitlines()[0] == "1"

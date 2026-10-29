@@ -117,7 +117,7 @@ final class LuminaHomeLayoutTests: XCTestCase {
 
         XCTAssertEqual(HomeShelfID.allCases.count, 14)
         XCTAssertEqual(Array(HomeShelfID.allCases.prefix(3)), [.continueWatching, .nextUp, .live])
-        XCTAssertEqual(HomeShelfID.becauseYouWatched.title, "Because you watched…")
+        XCTAssertEqual(HomeShelfID.becauseYouWatched.title, "More for you")
         XCTAssertFalse(layout.hasLoaded)
         XCTAssertTrue(layout.shelves.allSatisfy(\.visible))
 

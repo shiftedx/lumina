@@ -87,7 +87,7 @@ def _append_output(buffer: bytearray, chunk: bytes) -> bool:
     return len(chunk) > remaining
 
 
-def _run_bounded_process(command: list[str]) -> subprocess.CompletedProcess[bytes]:
+def _run_bounded_process(command: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[bytes]:
     """Run one probe while retaining at most ``PROBE_OUTPUT_LIMIT`` bytes per output pipe."""
     try:
         process = subprocess.Popen(
@@ -105,7 +105,7 @@ def _run_bounded_process(command: list[str]) -> subprocess.CompletedProcess[byte
             selector = selectors.DefaultSelector()
         except OSError as exc:
             raise ProbeError("probe_failed") from exc
-        deadline = time.monotonic() + PROBE_TIMEOUT_SECONDS
+        deadline = time.monotonic() + (PROBE_TIMEOUT_SECONDS if timeout is None else timeout)
         failure: str | None = None
         cause: OSError | None = None
         for pipe in output:

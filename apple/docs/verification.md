@@ -90,7 +90,87 @@ Archives and signed IPAs remain in ignored `apple/Distribution/0.1.0-1/` and `ap
 
 The simulator does not establish HDR10 or Dolby Vision output, HDMI Match Content behavior, frame-rate switching, surround sound, Atmos, remote-network reliability, or App Store readiness. Use the [physical device checklist](device-validation.md) to record those results. The proof does not claim Infuse format parity.
 
-The tests cover generated SDR H.264/AAC sources. HEVC/HDR, additional audio codecs, subtitle delivery, large libraries, oldest supported OS releases and iPad multitasking need separate qualification. The 2026-10-18 Duo audit above adds display-transition and selected accessibility-setting coverage; spoken VoiceOver, RTL and Reduce Transparency remain untested.
+The earlier workflow checks cover generated SDR H.264/AAC sources; the dated local codec checks below add HEVC/AV1 fragment delivery evidence. HDR display output, additional audio codecs, subtitle delivery, large libraries, oldest supported OS releases and iPad multitasking need separate qualification. The 2026-10-18 Duo audit above adds display-transition and selected accessibility-setting coverage; spoken VoiceOver, RTL and Reduce Transparency remain untested.
+
+## Local HDR fMP4 HLS decode/seek qualification, 2026-10-29
+
+Native PlaybackInfo now takes a fresh VideoToolbox/AVFoundation capability
+snapshot for MP4 and fMP4 HLS, with HDR gated by the current output route.
+Eligible AV1 Matroska uses server HLS remuxing; Prism's native MKV path remains limited
+to qualified H.264/HEVC. An initial format failure permits one explicit
+H.264/SDR, stereo-AAC request retaining the source, quality, selected tracks
+and resume position. Network, authorization and cancellation failures retain
+their normal error behavior.
+
+The repository gate passed: 5,742 backend tests (20 expected skips), 2,754
+frontend tests and 656 browser cases. The subsequent AV1/AAC eligibility
+correction passed the extended playback-decision suite (103 tests). Both iOS
+and tvOS generic simulator application builds succeeded. These checks do not
+replace the device-output qualification below.
+
+The final serial Core run passed all 247 tests with five fixture-dependent
+skips. The local Linux arm64 image, labeled with source revision `4faeba27`,
+passed four production HEVC/AV1 × HDR10/HLG HLS encodes with AAC. Every fragment
+passed static HDR metadata verification, and each emitted master contained
+the actual codec configuration, resolution, frame rate and PQ/HLG range.
+The image check ran without network access as a non-root user with a read-only
+root filesystem and disposable temporary storage.
+
+The new automatic format-recovery UI journey remains unqualified. Its latest
+iOS test bundle built successfully, but the simulator stopped and Xcode stalled
+collecting diagnostics before a readable final result was produced; the owned
+runner and disposable simulator were cleaned up. Earlier attempts stopped
+before playback on the password-sheet/hittability precondition, with matching
+Home/Resume API and accessibility identities. The scoped interruption-monitor
+revision has no passing execution, and the tvOS recovery journey was not run.
+The fixture scripts passed compilation and all 27 broker unit checks.
+
+This is a finite host-only AVFoundation delivery check, not a display-output
+claim. On the local arm64 macOS 27.0.1 host,
+`AVPlayer.eligibleForHDRPlayback` was `false` even though VideoToolbox reported
+H.264, HEVC and AV1 hardware decoder availability. That negative HDR-display
+gate remains authoritative for native HDR advertisement on this host.
+
+The packet generated four bounded 10-bit sources using the production
+`hwaccel._hdr_source` helper: HEVC and AV1, each in HDR10 (PQ) and HLG. It
+looped each source through the HDR probe's production software encoder and
+CICP/fMP4 HLS arguments, with one-second independent segments and AAC audio.
+Production `_verify_hdr_source` and `_verify_hdr_hls` verified the
+source and every output fragment before playback: codec, 10-bit 4:2:0 pixel
+format, limited range, BT.2020 primaries/matrix, PQ or HLG transfer, and the
+MDCV/CLL static metadata. The existing frame/seek harness was then compiled
+and pointed at a loopback-only server:
+
+```sh
+swiftc -swift-version 6 -O -parse-as-library apple/scripts/benchmark_video_playback.swift \
+  -framework AVFoundation -framework CoreVideo -framework Foundation \
+  -o /tmp/lumina-video-probe
+/tmp/lumina-video-probe http://127.0.0.1:<port>/<variant>/index.m3u8
+```
+
+All four media playlists passed actual `AVPlayerItemVideoOutput` delivery,
+one-second time advance and a decoded-frame seek past six seconds. First-frame
+times were 217 ms (HEVC HDR10), 183 ms (HEVC HLG), 182 ms (AV1 HDR10), and
+185 ms (AV1 HLG); seek-plus-200-ms times were 316, 312, 321 and 319 ms,
+respectively. These measurements include the probe's BGRA frame readback and
+are not renderer performance claims.
+
+The same fixtures also exercised the current server master shape: one variant,
+`BANDWIDTH` and `EXT-X-INDEPENDENT-SEGMENTS`, without HDR rendition
+attributes. HLG HEVC and AV1 delivered frames, time advance and seek; HDR10
+HEVC and AV1 failed before frame delivery (`CoreMedia -12927`). Adding only
+`VIDEO-RANGE` made every variant fail URL parsing. A fully described test
+master (average bandwidth, bandwidth, video range, codec string, resolution,
+frame rate and no captions) retained HLG delivery but the PQ variants failed
+with AVFoundation `-11868` / CoreMedia `-17223`, consistent with this host's
+negative HDR-display eligibility. [Apple's HLS authoring
+rules](https://developer.apple.com/documentation/http-live-streaming/hls-authoring-specification-for-apple-devices/)
+require a complete HDR rendition description. The server now derives codec
+configuration, resolution, frame rate and video range from the emitted first
+fragment and caches them for the master. Masters emitted by this code passed
+the same HLG frame/advance/seek checks for HEVC and AV1; PQ retained the expected
+negative result on this host. HDR display output still needs qualification on
+an HDR-eligible device; fragment decoding on this SDR host does not certify it.
 
 Latest passing result bundles were retained locally outside the source tree under `/tmp/lumina-native-proof-validation`, with validation logs in `/tmp/lumina-native-*.log`; these are temporary evidence, not release artifacts. Reproduce the native checks using [the fixture-server instructions](../scripts/README.md).
 

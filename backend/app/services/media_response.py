@@ -14,6 +14,7 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import MutableHeaders
 from starlette.types import Receive, Scope, Send
 
+from app.services.local_metadata import MPEG_TS_EXTENSIONS
 from app.services.stream_cache import MEDIA_FILE_CHUNK_SIZE
 
 _file_receive: ContextVar[Receive] = ContextVar("media_file_receive")
@@ -31,10 +32,12 @@ def _open_seek_read(path: str, start: int, size: int) -> tuple[BinaryIO, bytes]:
 
 
 def media_content_type(path: str | os.PathLike[str], *, audio: bool = False) -> str:
-    """MP4 audio is not LATM; platform MIME registries disagree on M4A/M4B."""
+    """Use stable MIME types where platform registries disagree."""
     suffix = Path(path).suffix.lower()
     if suffix in {".m4a", ".m4b"} or (audio and suffix == ".mp4"):
         return "audio/mp4"
+    if suffix in MPEG_TS_EXTENSIONS:
+        return "video/mp2t"
     return mimetypes.guess_type(str(path))[0] or "application/octet-stream"
 
 

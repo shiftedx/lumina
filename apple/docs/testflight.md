@@ -220,3 +220,27 @@ dogfood checks plus Release archive and signed-package validation. **No full sui
 was run.** Physical volume/brightness and energy/PiP verification remain device
 checks. Native metadata actions require the matching updated Lumina server;
 this iOS upload does not deploy the server.
+
+### Dogfood package 31, 2026-10-28
+
+**iOS 0.1.0 (31) uploaded to Apple**, confirmed in Xcode Organizer with uploaded
+build number 31. Built from clean `main` revision
+`c1111788aa6696eeca602873ed50f23a31ecf25c`, retaining build-30 features and merged
+fixes through PR #198: critic ratings on heroes, removal of recommendation reason
+badges, open-display brightness routing, quiet transient Home refresh failures,
+category artwork beneath floating navigation, and immediate supersession of
+obsolete committed video seeks.
+
+Ignored `apple/Distribution/0.1.0-31/` retains the uploaded signed IPA, source
+snapshot/input hashes, matching symbols, signed Organizer archive, validation
+results, release manifest, What to Test and successful upload logs. The committed
+Xcode project was used directly with build-number overrides. No source regeneration,
+server deployment or full suite was performed. Archive and signed-package
+validation passed; the retained issue-specific playback evidence includes 13 Core
+checks, the iPhone scrub/pause workflow and a shared tvOS Simulator build.
+
+Do not upload build 31 again. Apple processing and tester assignment are not
+verified; tvOS remains deferred. Physical Duo brightness, device energy/output
+and real household-media latency still require dogfooding. Uncached remote seeks
+still need media bytes. The separately identified standard-phone portrait detail
+Play-button/tab-bar overlap is not fixed in this build.

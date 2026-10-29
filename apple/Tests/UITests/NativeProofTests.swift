@@ -3712,7 +3712,7 @@ class NativeProofJourney: XCTestCase {
         let fixture = try loadFixture()
         try launchAndResetSession()
         try signIn(using: fixture)
-        try selectHomeLibraryCategory("movies", screen: "libraryScreen")
+        try selectDestination("Library", screen: "libraryScreen")
         let readiness = element("libraryArtworkReadiness")
         try waitForExistence(readiness, timeout: 25, named: "catalog wall")
         XCTAssertTrue(waitUntil(timeout: 30) {
@@ -3730,9 +3730,22 @@ class NativeProofJourney: XCTestCase {
         library.swipeUp(velocity: .fast)
         XCTAssertTrue(waitUntil(timeout: 15) {
             !self.hasVisibleFrame(self.element(firstIdentifier))
-                && cards.allElementsBoundByIndex.contains { self.hasVisibleFrame($0) && $0.isHittable }
-        }, "A fast flick must move through the complete wall and leave usable poster controls")
+        }, "A fast flick must move through the complete wall")
         try attachFrame(named: "Poster wall after fast flick")
+        let viewport = try applicationViewport().insetBy(dx: 0, dy: 110)
+        let poster = try XCTUnwrap(cards.allElementsBoundByIndex.first {
+            self.isFullyVerticallyContained($0.frame, in: viewport)
+        }, "The landing viewport must contain a complete poster")
+        let landingIdentifier = poster.identifier
+        let landingFrame = poster.frame
+        // Layered native controls can report false AX hittability. A real tap
+        // and a detail destination prove that the visible poster is usable.
+        poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("detailScreen"), timeout: 20, named: "poster detail after fast flick")
+        try activate(destinationControl("Library"))
+        try waitForExistence(element("libraryScreen"), timeout: 15, named: "retained full catalog")
+        XCTAssertEqual(element(landingIdentifier).frame.midY, landingFrame.midY, accuracy: 8,
+                       "Returning from a landing poster must preserve the scroll position")
         library.swipeDown(velocity: .fast)
         XCTAssertTrue(waitUntil(timeout: 15) { self.hasVisibleFrame(self.element(firstIdentifier)) },
                       "Reverse scrolling must retain the beginning of the wall")
@@ -3741,8 +3754,8 @@ class NativeProofJourney: XCTestCase {
     }
 
     /// Verifies the tab-selection path rather than the Back path: returning to
-    /// Library must reveal its retained catalog immediately, while a new Home
-    /// Browse selection can still deliberately choose a different category.
+    /// Library must reveal its retained catalog immediately, while its category
+    /// chooser can still deliberately select a different catalog.
     func journeyNativeLibraryWarmReturn() throws {
         var completed = false
         defer { if !completed { captureScreenshot(succeeded: false) } }
@@ -3753,7 +3766,7 @@ class NativeProofJourney: XCTestCase {
             throw XCTSkip("iPad uses its unified category navigation instead of the native Library tab.")
         }
 
-        try selectHomeLibraryCategory("movies", screen: "libraryScreen")
+        try selectLibraryCategory("movies", screen: "libraryScreen")
         let moviesRoot = element("libraryScreen")
         let movieCards = application!.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "libraryItem-"))
@@ -3766,14 +3779,14 @@ class NativeProofJourney: XCTestCase {
             application!.descendants(matching: .any)
                 .matching(NSPredicate(format: "identifier BEGINSWITH %@", "libraryItem-"))
                 .allElementsBoundByIndex.first { candidate in
-                    self.isFullyVerticallyContained(candidate.frame, in: movieViewport) && candidate.isHittable
+                    self.isFullyVerticallyContained(candidate.frame, in: movieViewport)
                 },
             "A deeply scrolled Movies root must expose a fully visible public title card."
         )
         let movieIdentifier = movie.identifier
         let movieRootFrame = movie.frame
         try attachFrame(named: "Movies Library root before detail")
-        try activate(movie)
+        movie.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("detailScreen"), timeout: 20, named: "movie detail")
         try attachFrame(named: "Movie detail before Library tab return")
 
@@ -3782,7 +3795,7 @@ class NativeProofJourney: XCTestCase {
         try activate(libraryTab)
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "Movies Library after tab return")
         let returnedMovie = element(movieIdentifier)
-        try waitForHittable(returnedMovie, timeout: 15, named: "returned deeply scrolled Movies fixture")
+        try waitForExistence(returnedMovie, timeout: 15, named: "returned deeply scrolled Movies fixture")
         XCTAssertFalse(hasVisibleFrame(element("detailScreen")),
                        "Selecting Library from a movie detail must return to the catalog root, not leave the detail active.")
         XCTAssertEqual(returnedMovie.frame.midY, movieRootFrame.midY, accuracy: 8,
@@ -3790,36 +3803,38 @@ class NativeProofJourney: XCTestCase {
         try waitForPreparedLibraryArtwork()
         try attachFrame(named: "Movies Library root after tab return")
 
-        // Re-enter the same category through Home's visible category chooser
-        // (Browse on compact phones, the category row on wider iPhones). This
-        // intentionally resets only any Library path; the already mounted
-        // Movies root and its visible item must remain usable.
-        try selectHomeLibraryCategory("movies", screen: "libraryScreen")
+        // Re-enter the same category through the visible Library chooser (or
+        // Home's category row on wider phones). The retained Movies root and
+        // its visible item must remain usable.
+        try selectLibraryCategory("movies", screen: "libraryScreen")
         let reenteredMovie = element(movieIdentifier)
-        try waitForHittable(reenteredMovie, timeout: 15, named: "re-entered deeply scrolled Movies fixture")
+        try waitForExistence(reenteredMovie, timeout: 15, named: "re-entered deeply scrolled Movies fixture")
         XCTAssertEqual(reenteredMovie.frame.midY, movieRootFrame.midY, accuracy: 8,
-                       "Home Browse must not reconstruct the retained Movies root when reopening its category.")
+                       "Reselecting a category must not reconstruct the retained Movies root.")
         try waitForPreparedLibraryArtwork()
-        try attachFrame(named: "Movies Library retained through Home Browse")
+        try attachFrame(named: "Movies Library retained through category selection")
 
-        try selectHomeLibraryCategory("tv", screen: "libraryScreen")
+        try selectLibraryCategory("tv", screen: "libraryScreen")
         let videoOptions = element("videoOptionsMenu")
-        try waitForHittable(videoOptions, timeout: 15, named: "TV library options")
+        try waitForExistence(videoOptions, timeout: 15, named: "TV library options")
         XCTAssertTrue(waitUntil(timeout: 10) {
             self.accessibilityText(self.element("videoOptionsMenu")).localizedCaseInsensitiveContains("shows")
-        }, "Selecting TV from Home Browse must configure the visible Library query for Shows before revealing a card.")
+        }, "Selecting TV must configure the visible Library query for Shows before revealing a card.")
         try waitForPreparedLibraryArtwork()
-        let show = try revealLibraryItem(id: fixture.showID, named: "visible TV show fixture")
+        let show = element("libraryItem-\(fixture.showID)")
+        try waitForExistence(show, timeout: 15, named: "visible TV show fixture")
+        XCTAssertTrue(hasVisibleFrame(show))
         let showRootFrame = show.frame
         try attachFrame(named: "TV Library root before show detail")
-        try activate(show)
+        show.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try waitForExistence(element("videoCollectionScreen"), timeout: 20, named: "TV show detail")
         try attachFrame(named: "TV show detail before Library tab return")
 
         try waitForHittable(libraryTab, timeout: 15, named: "Library tab from TV show detail")
         try activate(libraryTab)
         try waitForExistence(element("libraryScreen"), timeout: 15, named: "TV Library after tab return")
-        let returnedShow = try revealLibraryItem(id: fixture.showID, named: "returned TV show fixture")
+        let returnedShow = element("libraryItem-\(fixture.showID)")
+        try waitForExistence(returnedShow, timeout: 15, named: "returned TV show fixture")
         XCTAssertFalse(hasVisibleFrame(element("videoCollectionScreen")),
                        "Selecting Library from a TV show must return to the TV catalog root, not leave the collection active.")
         XCTAssertEqual(returnedShow.frame.midY, showRootFrame.midY, accuracy: 8,
@@ -3859,14 +3874,27 @@ class NativeProofJourney: XCTestCase {
         return text.range(of: #"\b0\s*bytes?\b"#, options: .regularExpression) != nil
     }
 
-    private func selectHomeLibraryCategory(_ category: String, screen: String) throws {
-        try selectDestination("Home", screen: "homeScreen")
-        let compactBrowse = element("compactBrowseMenu")
-        if hasVisibleFrame(compactBrowse) {
-            try waitForHittable(compactBrowse, timeout: 15, named: "Home Browse for \(category)")
-            try activate(compactBrowse)
-            try activate(element("compactCategory-\(category)"))
+    private func selectLibraryCategory(_ category: String, screen: String) throws {
+        if usesStandardPhonePushedChrome {
+            try selectDestination("Library", screen: "libraryScreen")
+            let menus = application!.buttons.matching(identifier: "compactBrowseMenu").allElementsBoundByIndex
+            if let menu = menus.first(where: { hasVisibleFrame($0) }) {
+                // Use the observed public button frame; native floating toolbar
+                // controls can be visible while XCTest reports them unhittable.
+                menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            } else {
+                let overflow = application!.buttons.matching(identifier: "OverflowBarButtonItem").firstMatch
+                try waitForHittable(overflow, timeout: 15, named: "Library toolbar overflow")
+                try activate(overflow)
+                try activate(menuAction("Libraries"))
+            }
+            let identified = element("compactCategory-\(category)")
+            let title = category == "tv" ? "TV" : category.capitalized
+            let choice = identified.exists ? identified : menuAction(title)
+            try waitForExistence(choice, timeout: 15, named: "Library \(title) choice")
+            choice.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         } else {
+            try selectDestination("Home", screen: "homeScreen")
             let categoryRow = element("homeBrowse-\(category)")
             try waitForHittable(categoryRow, timeout: 20, named: "Home \(category) category")
             try activate(categoryRow)

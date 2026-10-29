@@ -1981,6 +1981,7 @@ private struct VideoLibraryView: View {
                             .accessibilityIdentifier("videoSearchCancelButton")
                         }
                         .padding(.trailing, geometry.safeAreaInsets.trailing)
+                        .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
                         .frame(height: 56)
                     }
 
@@ -2034,7 +2035,6 @@ private struct VideoLibraryView: View {
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
                 .padding(.bottom, 28)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -3138,7 +3138,6 @@ private struct AudioLibraryView: View {
                     }
                 } else {
                     MusicGrid(items: store.audioItems, store: store, identifierPrefix: "audioItem")
-                        .padding(.trailing, usesPortraitNavigationRail ? 76 : 0)
                     if store.audioHasMore {
                         Button {
                             Task { await store.loadMoreAudio() }

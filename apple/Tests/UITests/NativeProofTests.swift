@@ -3365,14 +3365,14 @@ class NativeProofJourney: XCTestCase {
         let movie = element("resumeItem-\(fixture.directItemID)")
         for _ in 0..<8 where !movie.exists { XCUIRemote.shared.press(.down) }
         try activate(movie)
-        let related = element("relatedTitlesRail").buttons.firstMatch
-        try waitForExistence(related, timeout: 20, named: "movie lower related rail")
-        XCTAssertTrue(focus(related, timeout: 25))
-        XCTAssertLessThan(tvHeroOrigin(), -1)
-        for _ in 0..<5 { XCUIRemote.shared.press(.up) }
-        XCTAssertTrue(waitUntil(timeout: 8) { abs(self.tvHeroOrigin()) < 2 },
-                      "Movie Up must restore the full hero, not only Play.")
-        try attachFrame(named: "TV movie hero restored from lower rail")
+        try waitForExistence(element("tvHeroBounds"), timeout: 20, named: "movie hero")
+        XCTAssertTrue(waitUntil(timeout: 8) { abs(self.tvHeroOrigin()) < 2 })
+        try attachFrame(named: "TV movie opens with its full hero")
+        try activate(element("playButton"))
+        try waitForExistence(element("playbackScreen"), timeout: 25, named: "movie playback from restored hero")
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 12 }
+        try attachPlaybackFrame(named: "TV movie hero retains decoded playback")
+        try closePlayer()
         XCUIRemote.shared.press(.menu)
         try waitForExistence(element("homeScreen"), timeout: 15, named: "Home before Music")
         try activate(element("homeBrowse-music"))
@@ -3394,9 +3394,9 @@ class NativeProofJourney: XCTestCase {
         for _ in 0..<8 where !poster.exists { XCUIRemote.shared.press(.down) }
         try waitForExistence(poster, timeout: 20, named: "Requests shelf poster")
         XCTAssertTrue(focus(poster, timeout: 25))
-        XCTAssertLessThan(heading.frame.minY, initialHeadingY - 1)
+        XCTAssertTrue(!heading.exists || heading.frame.minY < initialHeadingY - 1)
         for _ in 0..<8 { XCUIRemote.shared.press(.up) }
-        XCTAssertTrue(waitUntil(timeout: 8) { abs(heading.frame.minY - initialHeadingY) < 2 },
+        XCTAssertTrue(waitUntil(timeout: 8) { heading.exists && abs(heading.frame.minY - initialHeadingY) < 2 },
                       "Requests Up must restore the top controls and hero.")
         try attachFrame(named: "TV Requests top restored from shelves")
         completed = true

@@ -68,3 +68,13 @@ Two-page layout uses stable consecutive pairs by default on expanded displays:
 1–2, 3–4, 5–6. Manga reverses their physical placement, without mirroring artwork.
 The reading position label displays both visible page numbers, and page turns move
 between complete pairs. Opening either member of a saved pair restores that spread.
+
+
+## Unobstructed artwork controls — 2026-10-29
+
+Immersive PDF/CBZ/CBR pages no longer carry the floating ellipsis control.
+Tap once in the center of either page to reveal the reading menus; tap again
+to hide them. Double-tap and pinch retain artwork zoom, and edge swipes retain
+page turning. The page's VoiceOver custom action can still show or hide controls.
+EPUB retains its reveal action in the managed bottom bar, clear of the text.
+This source change follows uploaded iOS build 33 and is not in that package.

@@ -470,7 +470,7 @@ class NativeProofJourney: XCTestCase {
                 // Keep the tap inside the card's leading artwork, clear of the Duo utility rail.
                 card.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.3)).tap()
             } else { try activate(card) }
-            try activate(element("bookControlsButton"))
+            try showBookControls()
             let position = element("bookPosition")
             try waitForExistence(position, timeout: 20, named: "native reader position")
             let next = element("bookNextButton")
@@ -500,7 +500,7 @@ class NativeProofJourney: XCTestCase {
                 // Keep the tap inside the card's leading artwork, clear of the Duo utility rail.
                 card.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.3)).tap()
             } else { try activate(card) }
-            try activate(element("bookControlsButton"))
+            try showBookControls()
             try waitForExistence(element("bookPosition"), timeout: 20, named: "restored native book position")
             guard waitUntil(timeout: 30, condition: { self.element("bookPosition").label == selected }) else {
                 throw ProofFailure.ui("Native book did not restore the saved page.")
@@ -556,7 +556,7 @@ class NativeProofJourney: XCTestCase {
         let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
         for book in [comic, pdf] { try await api.seedBookProgress(identity: identity, bookID: book) }
         try launchAndResetSession()
-        try signIn(using: fixture)
+        try signIn(using: fixture, waitsForAccount: false)
         // Standard phones expose Books from Home's compact Browse menu rather
         // than the wide Home category rail. The shared tour helper follows
         // that public route while retaining the iPad behavior.
@@ -580,11 +580,19 @@ class NativeProofJourney: XCTestCase {
                 guard window.width < 700 else { throw XCTSkip("Requires the closed or compact reading viewport.") }
                 XCTAssertEqual(pager.value as? String, "Page 1 of \(book == comic ? 6 : 4)", "The closed screen defaults to one page.")
                 XCTAssertGreaterThanOrEqual(element("bookPrimaryPage").frame.width, window.width * 0.95)
-                try activate(element("bookControlsButton"))
+                try showBookControls()
                 try activate(element("bookCloseButton"))
                 continue
             }
             let before = pager.value as? String
+            XCTAssertFalse(element("bookControlsButton").exists, "Immersive artwork must not have a floating menu button.")
+            XCTAssertFalse(element("bookCloseButton").exists)
+            try showBookControls()
+            XCTAssertEqual(pager.value as? String, before, "Revealing menus must preserve the selected page.")
+            try attachFrame(named: "Reader menus restored with a center tap")
+            element("bookPrimaryPage").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            XCTAssertTrue(disappears(element("bookCloseButton"), timeout: 5), "A second center tap must return to unobstructed reading.")
+            XCTAssertEqual(pager.value as? String, before)
             let rtl = book == comic
             let edge = rtl ? 0.08 : 0.92
             let start = pager.coordinate(withNormalizedOffset: CGVector(dx: edge, dy: 0.8))
@@ -596,6 +604,7 @@ class NativeProofJourney: XCTestCase {
             let center = pager.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.5))
             center.doubleTap()
             XCTAssertTrue(waitUntil(timeout: 5) { (artwork.value as? String)?.contains("zoom") == true })
+            XCTAssertFalse(element("bookCloseButton").exists, "Double-tap zoom must not reveal the menus.")
             let panEnd = pager.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
             center.press(forDuration: 0.1, thenDragTo: panEnd)
             XCTAssertEqual(pager.value as? String, before, "Panning magnified artwork must not turn a page.")
@@ -626,14 +635,30 @@ class NativeProofJourney: XCTestCase {
             reverseStart.press(forDuration: 0.1, thenDragTo: reverseEnd, withVelocity: .slow, thenHoldForDuration: 0.2)
             XCTAssertTrue(waitUntil(timeout: 10) { pager.value as? String != last }, "Reverse curling must return to earlier pages.")
             let selected = pager.value as? String
-            try activate(element("bookControlsButton"))
+            try showBookControls()
             try activate(element("bookCloseButton"))
             try revealBookItem(card); try activate(card)
             try waitForExistence(pager, timeout: 30, named: "restored curled page")
             XCTAssertTrue(waitUntil(timeout: 20) { pager.value as? String == selected })
-            try activate(element("bookControlsButton"))
+            try showBookControls()
             try activate(element("bookCloseButton"))
         }
+    }
+
+    private func showBookControls() throws {
+        let proseControls = element("bookControlsButton")
+        let artwork = application!.images.matching(NSPredicate(format: "label BEGINSWITH %@", "Page ")).firstMatch
+        guard waitUntil(timeout: 30, condition: { proseControls.exists || artwork.exists }) else {
+            throw ProofFailure.ui("The reader did not prepare its page or prose controls.")
+        }
+        if proseControls.exists {
+            try activate(proseControls)
+        } else {
+            let page = element("bookPrimaryPage")
+            try waitForExistence(page, timeout: 15, named: "reading page")
+            page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        try waitForHittable(element("bookCloseButton"), timeout: 15, named: "reading controls restored")
     }
 
     private func revealBookItem(_ item: XCUIElement) throws {
@@ -6056,7 +6081,7 @@ class NativeProofJourney: XCTestCase {
             book.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.2)).tap()
             try waitForExistence(element("bookControlsButton"), timeout: 25, named: "book reader controls")
             try await performanceQuietPhase("books_reader_idle")
-            try activate(element("bookControlsButton"))
+            try showBookControls()
             try activate(element("bookCloseButton"))
             try waitForExistence(element("booksScreen"), timeout: 15, named: "books catalog after prose reader")
             let comicID = try XCTUnwrap(fixture.comicBookID, "Generate the comic book proof fixture.")
@@ -6066,7 +6091,7 @@ class NativeProofJourney: XCTestCase {
             try activate(comic)
             try waitForExistence(element("bookPrimaryPage"), timeout: 25, named: "comic reader page")
             try await performanceQuietPhase("books_comic_reader_idle")
-            try activate(element("bookControlsButton"))
+            try showBookControls()
             try activate(element("bookCloseButton"))
             try waitForExistence(element("booksScreen"), timeout: 15, named: "books catalog after comic reader")
             }

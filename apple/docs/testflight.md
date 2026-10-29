@@ -26,6 +26,19 @@ Archive creates unsigned Release device builds so an unregistered physical Apple
 
 `Config/TestFlightExport.plist` marks these builds **TestFlight Internal Only**, preserves the chosen build number, and uploads symbols. It cannot be used for external beta testing or a public Store submission. Do not retry a successful upload with the same build number; check App Store Connect for processing first.
 
+### Playback dependency release checklist
+
+Before archiving a build that changes PrismCore, resolve the native packages and
+commit the identical source URL and immutable PrismCore revision in all three
+Swift Package Manager locks: `apple/Core/Package.resolved`,
+`apple/Benchmarks/Package.resolved`, and
+`apple/Lumina.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.
+The PrismCore entry in `apple/Notices/PlaybackNotices.txt` and the two in-app
+license links must point to that same immutable public source revision, identify
+any Lumina patch, and retain the upstream authorship and license notices. Do not
+archive when the package manifest, any lock, or the notices/link targets
+disagree. This is a release review item, not an additional archive-time checker.
+
 For an explicitly requested external beta, choose a new build number and set `LUMINA_TESTFLIGHT_AUDIENCE=external` for export/upload. This clears the internal-only export flag and allows Beta App Review. It does not submit the app publicly. The **External Device Testing** group uses email invitations without a public link. Its first eligible build on each platform needs Apple's beta approval and complete review contact information before external testers can install it. Review notes explain that reviewers run the companion server and create their own account; there is no developer-hosted instance, and the reviewer credential fields remain disabled. Build **0.1.0 (2)** is the first external candidate; build **0.1.0 (1)** remains the owner's internal beta.
 
 Both external build 2 candidates were submitted on 2026-10-19 and show **Waiting for Review** in External Device Testing. **Automatically notify testers** was enabled for both submissions, so the email tester added at the owner's request will be notified after approval. The contact details and companion-server instructions are saved in App Store Connect.

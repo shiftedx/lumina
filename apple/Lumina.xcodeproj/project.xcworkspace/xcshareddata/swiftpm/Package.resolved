@@ -1,5 +1,5 @@
 {
-  "originHash" : "14f1699df2cd54e3cd2e214ae04bbf6a6d4ecf71385c7a12e8d944d100b873b3",
+  "originHash" : "7286735068dd0a3e873776903045858f301e5caadb028a47548ec0b8c342f4f4",
   "pins" : [
     {
       "identity" : "google-cast-ios-sdk",
@@ -31,10 +31,9 @@
     {
       "identity" : "prismcore",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Wenzlik/PrismCore.git",
+      "location" : "https://github.com/shiftedx/PrismCore.git",
       "state" : {
-        "revision" : "93fc45df25d1d29e2b339561f1ef0b13eae76a0e",
-        "version" : "3.8.1"
+        "revision" : "6cdfae6fc89e42c4758f23005cb6c8152d7499ec"
       }
     }
   ],

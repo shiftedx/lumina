@@ -215,10 +215,15 @@ their prior behavior; a present empty declaration denies that direct route.
 The MKV contracts inspect every segment: configuration fields equal the source,
 each video packet retains an RPU, the complete ordered RPU hash sequence equals
 the source, and each fragment can be independently demuxed as a seek target.
-Both paths use `NativeVideoSource.prepare` with the unmodified pinned PrismCore
-3.8.1. A test-only internal initializer supplies a metadata-capable display
-description so that this host can inspect full Dolby masters; production still
-samples the actual route. No display capability is forced in shipping code.
+Both paths use `NativeVideoSource.prepare` with exactly pinned PrismCore 3.8.1
+plus Lumina's minimal final-segment conversion-statistics patch. The patch
+publishes the converter's counters after the EOF tail is flushed; its dedicated
+tail-corruption regression prevents a final rejected RPU from inheriting the
+previous clean segment's verdict. This establishes metadata-conversion
+accounting, not full FEL reconstruction or physical Dolby Vision output. A
+test-only internal initializer supplies a metadata-capable display description
+so that this host can inspect full Dolby masters; production still samples the
+actual route. No display capability is forced in shipping code.
 
 The macOS 27.0.1 host reported HEVC/Dolby Vision hardware decoding and positive
 exact MP4 queries for Profiles 5 and 8 at levels 1, 7 and 9, while
@@ -259,9 +264,8 @@ The native info row says Profile 7 is converted to 8.1 with the enhancement
 layer omitted. Known failures pause playback and can request one compatible
 retry after advancement while retaining selected options and position. Snapshot
 and source/request identity checks prevent stale conversion evidence from
-affecting a replacement source. Validation samples produced-segment counters;
-it is not an atomic preflight. Prism 3.8.1 does not refresh these counters at a
-final partial segment, so errors visible only there may not trigger this check.
+affecting a replacement source. Validation samples produced-segment counters,
+including the EOF tail after the pinned patch; it is not an atomic preflight.
 
 Fixtures use synthetic eight-second video/AAC and hash-pinned upstream RPU test
 vectors, not reference-graded or private movie media. They establish structural
@@ -277,6 +281,32 @@ builds passed, as did the full backend suite (5,783 passed, 20 skipped) and
 2,754 frontend unit tests. The final `mise exec -- make check` passed, including
 all 656 browser cases in 1,080.958 seconds. Final iOS/tvOS builds include the
 known-failure guard on rate restoration as well as ordinary playback/rate updates.
+
+### Final partial-segment validation, 2026-10-29
+
+PR #220 was merged after integrating main and passing 256 Core tests (five
+opt-in server skips) and both generic native Simulator builds. Its upstream
+PrismCore 3.8.1 dependency still omitted conversion-statistics publication at
+the final partial segment. The continuation pins the minimal public fork
+revision `6cdfae6fc89e42c4758f23005cb6c8152d7499ec`, based on that exact release.
+The producer now records the final snapshot after media and renditions land,
+before notifying waiting consumers.
+
+The generated negative corpus retains 191 valid RPUs followed by a malformed
+last RPU in an eight-second source, plus a two-frame source with a valid first
+RPU and malformed last RPU. The host regression failed on upstream with a
+stale clean verdict for the long source and no verdict for the short source.
+Both now trigger the typed invalid-conversion rejection. Two fork-level
+session regressions also passed and require successful, nonempty HTTP delivery
+of the terminal fragments. Existing MEL/FEL success cases now require conversion
+counts for every base picture, including the final partial segment.
+
+The patched full Core suite passed 257 tests, with five server-fixture skips
+and all P5/P8/P7 metadata fixtures enabled. Generic iOS and tvOS Simulator
+builds passed. These checks qualify terminal conversion accounting locally;
+they do not establish physical Dolby Vision output or full FEL reconstruction.
+The complete `mise exec -- make check` gate also passed: 5,783 backend tests
+(20 skips), 2,754 frontend tests and all 656 browser cases in 1,084.037 seconds.
 
 ## Home, Video, and Audio workflow coverage, 2026-10-20
 

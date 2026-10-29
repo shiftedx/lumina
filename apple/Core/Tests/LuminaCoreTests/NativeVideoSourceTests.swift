@@ -535,6 +535,43 @@ final class NativeVideoSourceTests: XCTestCase {
         }
     }
 
+    func testProfile7FinalPartialSegmentRejectsInvalidConversion() async throws {
+        guard let value = ProcessInfo.processInfo.environment["LUMINA_DV7_INVALID_TAIL_FIXTURES"], !value.isEmpty else {
+            throw XCTSkip("Set LUMINA_DV7_INVALID_TAIL_FIXTURES to long-final-bad:two-frame-final-bad MKVs")
+        }
+        let fixtures = value.split(separator: ":").map { URL(fileURLWithPath: String($0)) }
+        XCTAssertEqual(fixtures.count, 2, "Exercise both a regular-cut tail and a tail-only source")
+        for fixture in fixtures {
+            XCTAssertTrue(FileManager.default.isReadableFile(atPath: fixture.path))
+            let owner = NativeVideoSource(display: .init(isHDRReady: true, isDolbyVisionCapable: true))
+            defer { owner.stop() }
+            do {
+                let item = try await owner.prepare(url: fixture, usesClientDemux: true)
+                let masterURL = try XCTUnwrap((item.asset as? AVURLAsset)?.url)
+                let master = try await text(at: masterURL)
+                let mediaURL = try hlsVariant(master, relativeTo: masterURL)
+                let media = try await text(at: mediaURL)
+                let segments = try hlsSegments(media, relativeTo: mediaURL)
+                XCTAssertFalse(segments.isEmpty)
+                // Demand every fragment: planned playlists can name a tail before
+                // its packets have been read and its conversion verdict exists.
+                for segment in segments { _ = try await bytes(at: segment) }
+                let conversion = await owner.dolbyVisionConversion
+                let snapshot = try XCTUnwrap(conversion, fixture.lastPathComponent)
+                XCTAssertGreaterThan(snapshot.failedRPUs + snapshot.staleUnconvertedPackets, 0,
+                                     "The malformed final RPU must reach the published verdict")
+                XCTAssertTrue(snapshot.hasFailure)
+                try await owner.validateDolbyVisionConversion()
+                XCTFail("A malformed final partial segment must reject its P8.1 declaration")
+            } catch let error as NativeVideoSource.SelectionError {
+                // Short sources can reach EOF before prepare returns; longer
+                // sources can be rejected by the same check during playback.
+                XCTAssertEqual(error, .invalidDolbyVisionConversion)
+            }
+            await owner.stop().value
+        }
+    }
+
     private func assertProfile7Conversion(
         _ fixture: URL, expectedRPU: URL, withExternalSubtitle: Bool
     ) async throws {
@@ -608,7 +645,8 @@ final class NativeVideoSourceTests: XCTestCase {
 
         let conversion = await owner.dolbyVisionConversion
         let snapshot = try XCTUnwrap(conversion)
-        XCTAssertGreaterThan(snapshot.convertedRPUs, 0)
+        XCTAssertEqual(snapshot.convertedRPUs, sourceBaseVCL.count,
+                       "Successful final partial segments must contribute their converted RPUs too")
         XCTAssertEqual(snapshot.failedRPUs, 0)
         XCTAssertGreaterThan(snapshot.droppedEnhancementLayerNALs, 0)
         XCTAssertEqual(snapshot.staleUnconvertedPackets, 0)

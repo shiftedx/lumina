@@ -9,7 +9,15 @@ AVPlayer rejects original Matroska files even when their compressed video and au
 
 ## Decision
 
-Use unmodified, exactly pinned PrismCore 3.8.1 through Swift Package Manager. Its LGPL MPVKit 1.0.1 dependency supplies FFmpeg demux/mux libraries. This is a necessary native media dependency: AVFoundation has no Matroska demuxer. Do not replace AVPlayer or enable the library's software player, audio bridge, dialogue processing or object-audio renderer in this slice.
+Use exactly pinned PrismCore 3.8.1 plus Lumina's minimal final-segment
+conversion-statistics patch through Swift Package Manager. The fork changes only
+the Profile 7 converter-statistics publication after the EOF tail has been
+flushed; its immutable revision and public source are recorded in the package
+pin and bundled notices. Its LGPL MPVKit 1.0.1 dependency supplies FFmpeg
+demux/mux libraries. This is a necessary native media dependency: AVFoundation
+has no Matroska demuxer. Do not replace AVPlayer or enable the library's
+software player, audio bridge, dialogue processing or object-audio renderer in
+this slice.
 
 `NativeVideoSource` owns one session and supplies an AVPlayerItem using a random loopback-only HLS URL. Input is the server's same-origin authenticated static original-file URL. The session packages compressed streams on demand on the device. Use coordinated HTTP range input, one muxed video/default-audio stream, a 64 MiB segment-cache budget and a four-second AVPlayer forward-buffer preference. A requested source audio-stream index uses a separate native candidate. Lumina accepts it only when PrismCore confirms that exact stream is stream-copied; a bridgeable or unavailable selection fails so the caller can retain the current item and use its server fallback. When Prism produces embedded WebVTT renditions, Lumina serves a short-lived, loopback-only subtitle master that declares only those subtitle playlists and the existing muxed variant; it does not enable Prism's all-audio-rendition master, which could select an audio bridge. The client supplies the source bitrate to that fixed variant; a conservative 50 Mb/s fallback is a scheduling ceiling, not a media capability claim. A selected external sidecar is first fetched and URL-validated by the client into a bounded local SRT/VTT file. For a Prism source it is registered before start and appears in that master. For a server HLS stream, one bounded local WebVTT sidecar is copied into the same private wrapper with a VOD playlist and an `X-TIMESTAMP-MAP`; progressive MP4 cannot receive an appended AVFoundation legible group, so the client explicitly requests compatible server HLS for that selection. The library's cache budget is a retention budget, not a hard cap on process RSS or on all buffered data. Bound the separate host subtitle-cue replay history to one byte (live-only): Lumina uses AVKit and registers no host cue overlay. Packaged WebVTT production remains intact. A future host overlay must explicitly choose its own replay window rather than restoring lifetime retention by default.
 
@@ -63,15 +71,17 @@ decoding or a lossless Dolby Vision preservation claim.
 
 `NativeVideoSource` exposes the pinned engine's produced-segment conversion
 verdict. Non-clean evidence, including zero converted RPUs or zero removed EL
-NALs, fails validation. The existing one-second playback callback samples this
-evidence with source/request identity guards; known failures pause playback and
-can use one compatible retry even after advancement, retaining position and
-selected options. Playback/rate guards keep a known-bad source paused if that
-replacement fails. This is observation, not an atomic all-file preflight:
-Prism 3.8.1 publishes statistics at ordinary segment cuts, and its final partial
-segment does not refresh them. Corruption visible only there can escape this
-counter-based check. Separate-track EL inputs and physical output still need
-qualification; the strict conversion verdict may retain their server fallback.
+NALs, fails validation. The minimal fork publishes the same snapshot after the
+EOF tail is flushed, so a final-tail conversion refusal cannot remain hidden
+behind the preceding clean segment. The existing one-second playback callback
+samples this evidence with source/request identity guards; known failures pause
+playback and can use one compatible retry even after advancement, retaining
+position and selected options. Playback/rate guards keep a known-bad source
+paused if that replacement fails. This remains observation rather than an
+atomic all-file preflight: the result says what the producer processed, not
+that a device presented Dolby Vision. Separate-track EL inputs and physical
+output still need qualification; the strict conversion verdict may retain their
+server fallback.
 
 Subtitle timing uses Prism’s existing bounded offset before session start; positive values show text later. Timing changes replace candidates transactionally so AVPlayer cannot retain subtitle segments produced with the old offset. Selected server-HLS WebVTT sidecars are staged with adjusted cue timing. This does not add a caption overlay or change burned-in/bitmap captions. Quality ceilings use the existing server PlaybackInfo decision and preserve this native decoding boundary.
 

@@ -1,5 +1,5 @@
 {
-  "originHash" : "eebde4a27fad8fdeba73ff4c2895e5a65f20e3bd24a79ae867763e1389d5e198",
+  "originHash" : "28515a7c1579789f26a1b781ce60e00c7d2da76827616991219e70b68627965a",
   "pins" : [
     {
       "identity" : "mpvkit",
@@ -13,10 +13,9 @@
     {
       "identity" : "prismcore",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Wenzlik/PrismCore.git",
+      "location" : "https://github.com/shiftedx/PrismCore.git",
       "state" : {
-        "revision" : "93fc45df25d1d29e2b339561f1ef0b13eae76a0e",
-        "version" : "3.8.1"
+        "revision" : "6cdfae6fc89e42c4758f23005cb6c8152d7499ec"
       }
     }
   ],

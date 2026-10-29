@@ -32,6 +32,10 @@ class OmdbError(RuntimeError):
     """Content-free OMDb failure."""
 
 
+class OmdbQuotaError(OmdbError):
+    """The provider rejected another request for its current quota window."""
+
+
 def effective_api_key(record: AppSettings) -> str | None:
     value = (getattr(record, "omdb_api_key", None) or settings.omdb_api_key or "").strip()
     return value or None
@@ -73,6 +77,8 @@ class OmdbClient:
         try:
             if response.final_url is not None:
                 self._validate(response.final_url)
+            if int(response.status_code) == 429:
+                raise OmdbQuotaError("OMDb request limit reached")
             if not 200 <= int(response.status_code) < 300:
                 raise OmdbError(f"OMDb returned HTTP {int(response.status_code)}")
             if response.content_type.split(";", 1)[0].strip().lower() != "application/json":
@@ -100,6 +106,8 @@ class OmdbClient:
     def ratings(self, imdb_id: str) -> dict[str, float]:
         raw = self.get(imdb_id)
         # A title-search miss or a response for another title must not become a durable score.
+        if raw.get("Response") == "False" and "request limit reached" in str(raw.get("Error") or "").casefold():
+            raise OmdbQuotaError("OMDb request limit reached")
         if raw.get("Response") == "False":
             raise OmdbError("OMDb rejected the API key or found no matching title")
         if raw.get("imdbID") != imdb_id:

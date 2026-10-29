@@ -1,5 +1,12 @@
 # Release notes
 
+## Lumina 0.5.1
+
+- Cap OMDb at 950 requests in any rolling 24 hours, including failed lookups and connection tests. Persist the allowance, cached IMDb results and unfinished work across restarts.
+- Fetch ratings for newly added unscored titles first, then the older missing-score backlog and stale ratings. Reuse partial or empty responses across duplicate titles, independently of TMDB refreshes.
+
+**Upgrade:** schema 41, with an automatic pre-upgrade backup.
+
 ## Lumina 0.5.0
 
 - Show IMDb user ratings, Rotten Tomatoes critic percentages, and Metacritic scores on title heroes with readable source logos and score-aware badges. Import named NFO ratings or optionally enrich TMDB-matched titles with an OMDb key; preserve household edits and source precedence.

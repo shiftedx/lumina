@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, model_validator
 
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.5.1"
 WILDCARD_HOSTS = {"0.0.0.0", "::", "[::]"}
 # Opt-in LAN HTTP mode (ADR 0001 amendment): RFC 1918 IPv4 only. No IPv6: Starlette's TrustedHostMiddleware
 # cannot match a bracketed IPv6 Host header, so such a URL would start but reject every request.

@@ -20,7 +20,7 @@ from app.config import settings
 from app.models import AppSettings, LibraryItem, MediaTitle, Person
 from app.persistence import write_transaction
 from app.security import get_current_user
-from app.services import omdb, title_metadata, tmdb
+from app.services import omdb, omdb_ratings, title_metadata, tmdb
 from app.services.local_ai import AiConfig, LocalAiError
 from app.services.media_titles import apply_field, jellyfin_id, synthetic_id
 from app.services.rate_limit import rate_limiter
@@ -587,11 +587,38 @@ def test_refresh_keeps_a_user_edited_provider_ids_dict_exactly(library) -> None:
     assert title.provider_ids == {"Tmdb": "603"}
 
 
-def test_omdb_uses_the_effective_imdb_identity_not_tmdbs_conflicting_id() -> None:
-    details = tmdb.Parsed(fields={}, provider_ids={"Imdb": "tt0133093"})
-    assert title_metadata._effective_imdb_id(snap(provider_ids={"Imdb": "tt9999999"}, provider_source="nfo"), details) == "tt9999999"
-    assert title_metadata._effective_imdb_id(snap(provider_ids={"Tmdb": "603"}, provider_source="user"), details) is None
-    assert title_metadata._effective_imdb_id(snap(provider_ids={"Tmdb": "603"}, provider_source="nfo"), details) == "tt0133093"
+def test_omdb_queue_caches_one_lookup_for_duplicate_titles_and_preserves_precedence(library, monkeypatch) -> None:  # noqa: ANN001
+    first = add_title(provider_ids={"Imdb": "tt0133093"}, field_sources={"provider_ids": "nfo"}, added_at=NOW)
+    second = add_title(key="root:Movies/Matrix copy", provider_ids={"Imdb": "tt0133093"},
+                       metadata_json={"imdb_rating": 9.1}, field_sources={"provider_ids": "nfo", "imdb_rating": "nfo"})
+
+    class Scores:
+        calls: list[str] = []
+
+        def ratings(self, imdb_id: str) -> dict[str, float]:
+            self.calls.append(imdb_id)
+            return {"imdb_rating": 8.7, "rotten_tomatoes_rating": 87}
+
+    scores = Scores()
+    monkeypatch.setattr(omdb_ratings.omdb, "client_for", lambda _record: scores)
+    assert omdb_ratings.run_due_batch(NOW) is False
+    assert scores.calls == ["tt0133093"]
+    assert load(first).metadata_json["imdb_rating"] == 8.7
+    assert load(second).metadata_json["imdb_rating"] == 9.1
+    assert omdb_ratings.run_due_batch(NOW + timedelta(minutes=1)) is False and scores.calls == ["tt0133093"]
+
+
+def test_omdb_queue_accepts_a_user_supplied_imdb_id_without_a_tmdb_match(library, monkeypatch) -> None:  # noqa: ANN001
+    title_id = add_title(provider_ids={"Imdb": "tt0133093"}, field_sources={"provider_ids": "user"})
+
+    class Scores:
+        def ratings(self, imdb_id: str) -> dict[str, float]:
+            assert imdb_id == "tt0133093"
+            return {"imdb_rating": 8.7}
+
+    monkeypatch.setattr(omdb_ratings.omdb, "client_for", lambda _record: Scores())
+    assert omdb_ratings.run_due_batch(NOW) is False
+    assert load(title_id).metadata_json["imdb_rating"] == 8.7
 
 
 def test_refresh_stores_omdb_scores_without_overriding_nfo_or_manual_values(library) -> None:  # noqa: ANN001
@@ -611,14 +638,12 @@ def test_refresh_stores_omdb_scores_without_overriding_nfo_or_manual_values(libr
             return {"imdb_rating": 8.7, "rotten_tomatoes_rating": 87, "metacritic_rating": 73}
 
     scores = Scores()
-    assert title_metadata.refresh_title(title_id, tmdb.TmdbClient(V3_KEY), NO_AI, NOW, omdb_client=scores) == "matched"
+    assert title_metadata.refresh_title(title_id, tmdb.TmdbClient(V3_KEY), NO_AI, NOW) == "matched"
     title = load(title_id)
-    assert scores.ids == ["tt0133093"]
+    assert scores.ids == []  # TMDB refresh no longer calls OMDb directly.
     assert title.metadata_json["imdb_rating"] == 9.1 and title.field_sources["imdb_rating"] == "nfo"
     assert title.metadata_json["rotten_tomatoes_rating"] == 99 and title.field_sources["rotten_tomatoes_rating"] == "user"
-    assert title.metadata_json["metacritic_rating"] == 73 and title.field_sources["metacritic_rating"] == "omdb"
-    with db_module.session_scope() as db:
-        assert db.get(MediaTitle, title_id).source_values["rotten_tomatoes_rating"] == {"source": "omdb", "value": 87}
+    assert "metacritic_rating" not in title.metadata_json
 
 
 def test_omdb_unavailable_does_not_fail_tmdb_or_erase_cached_scores(library) -> None:  # noqa: ANN001
@@ -631,7 +656,7 @@ def test_omdb_unavailable_does_not_fail_tmdb_or_erase_cached_scores(library) -> 
             assert imdb_id == "tt0133093"
             raise omdb.OmdbError("unavailable")
 
-    assert title_metadata.refresh_title(title_id, tmdb.TmdbClient(V3_KEY), NO_AI, NOW, omdb_client=Unavailable()) == "matched"
+    assert title_metadata.refresh_title(title_id, tmdb.TmdbClient(V3_KEY), NO_AI, NOW) == "matched"
     title = load(title_id)
     assert title.metadata_json["imdb_rating"] == 8.2 and title.field_sources["imdb_rating"] == "omdb"
     assert title.metadata_json["overview"] and title.field_sources["overview"] == "tmdb"
@@ -645,7 +670,7 @@ def test_refresh_without_an_effective_imdb_id_never_calls_omdb(library) -> None:
         def ratings(self, imdb_id: str) -> dict[str, float]:
             raise AssertionError(f"unexpected OMDb lookup for {imdb_id}")
 
-    assert title_metadata.refresh_title(title_id, tmdb.TmdbClient(V3_KEY), NO_AI, NOW, omdb_client=MustNotCall()) == "matched"
+    assert title_metadata.refresh_title(title_id, tmdb.TmdbClient(V3_KEY), NO_AI, NOW) == "matched"
 
 
 def test_stale_omdb_scores_are_rejected_when_the_identity_changes_mid_fetch(library) -> None:  # noqa: ANN001
@@ -660,7 +685,7 @@ def test_stale_omdb_scores_are_rejected_when_the_identity_changes_mid_fetch(libr
     with db_module.session_scope() as db:
         current = db.get(MediaTitle, title_id)
         snapshot = title_metadata.snapshot(db, current)
-    fetched = title_metadata.fetch(tmdb.TmdbClient(V3_KEY), snapshot, NO_AI, NOW.date(), Scores())
+    fetched = title_metadata.fetch(tmdb.TmdbClient(V3_KEY), snapshot, NO_AI, NOW.date())
     with db_module.session_scope() as db, write_transaction(db, name="test_identity_change"):
         current = db.get(MediaTitle, title_id)
         current.provider_ids = {"Tmdb": "603", "Imdb": "tt9999999"}

@@ -92,7 +92,7 @@ describe('Media server and Playback & transcoding sections', () => {
     expect(((await screen.findByLabelText(/^OMDb API key/)) as HTMLInputElement).value).toBe('');
     await userEvent.click(screen.getAllByRole('button', { name: 'Test key' }).at(1)!);
     expect(await screen.findByText('The key works.')).toBeTruthy();
-    expect(screen.getByText('Uses IMDb IDs from TMDB matches. Save the key, then refresh all metadata to fill existing titles.')).toBeTruthy();
+    expect(screen.getByText(/scores fill automatically.*prioritizing new unscored titles.*950 requests per 24 hours.*resumes after a restart/i)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'OMDb' }).getAttribute('href')).toBe('https://www.omdbapi.com/');
     expect(screen.getByRole('link', { name: 'CC BY-NC 4.0' }).getAttribute('href')).toBe('https://creativecommons.org/licenses/by-nc/4.0/');
   });

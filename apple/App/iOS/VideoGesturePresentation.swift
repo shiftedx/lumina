@@ -45,6 +45,8 @@ final class VideoGesturePresentation {
     private(set) var actionCount = 0
     private(set) var lastAction = "none"
     private(set) var lastBrightnessRequest: Double?
+    var brightnessTargetMatchesDisplay: Bool { screen != nil && screen === attachedScreen }
+    var displayBrightness: Double? { attachedScreen.map { Double($0.brightness) } }
     #endif
     private var adjustmentLevel: Double?
     private var lastAdjustmentY = 0.0
@@ -66,10 +68,9 @@ final class VideoGesturePresentation {
         guard attachedScreen !== next else { return }
         attachedScreen = next
         releaseBrightness()
-        // UIKit supports brightness writes only through the main-screen control.
-        // A Duo app window can belong to the inner display instead; track that
-        // display for transitions, without treating it as a separate backlight API.
-        screen = next == nil ? nil : UIScreen.main
+        // The player's application scene identifies the active built-in panel.
+        // UIScreen.main can still identify Duo's other panel after unfolding.
+        screen = next
     }
 
     func cancel(playback: PlaybackModel, releaseBrightness: Bool) {

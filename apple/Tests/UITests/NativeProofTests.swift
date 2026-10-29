@@ -1648,6 +1648,8 @@ class NativeProofJourney: XCTestCase {
         }
         let initial = level("brightness")
         XCTAssertGreaterThanOrEqual(initial, 0, "The video must attach to its display's brightness control.")
+        XCTAssertEqual(level("brightnessTargetMatchesDisplay"), 1,
+                       "Brightness writes must target the display containing the player, including Duo's inner display. \(diagnostics.value ?? "absent")")
         // Start in the middle of the surface, clear of transport and timeline controls.
         let upward = initial < 0.7
         let startY = upward ? 0.6 : 0.35
@@ -1656,6 +1658,10 @@ class NativeProofJourney: XCTestCase {
             .press(forDuration: 0.05, thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: endY)))
         XCTAssertTrue(waitUntil(timeout: 3) { abs(level("brightnessRequested") - initial) > 0.1 && level("brightnessRequested") >= 0 },
                       "A left-side swipe must keep sending brightness changes to UIScreen beyond its first event. \(diagnostics.value ?? "absent")")
+        let brightnessReadback = XCTAttachment(string: diagnostics.value as? String ?? "absent")
+        brightnessReadback.name = "Brightness target and display readback"
+        brightnessReadback.lifetime = .keepAlways
+        add(brightnessReadback)
         XCTAssertTrue((diagnostics.value as? String ?? "").contains("last=endAdjustment(LuminaCore.VideoGestureAdjustment.brightness)"),
                       "The brightness swipe must finish without being cancelled by its own writes.")
         surface.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.35))
@@ -1668,7 +1674,16 @@ class NativeProofJourney: XCTestCase {
         XCTAssertFalse(element("videoSystemVolume").exists)
         XCTAssertFalse(element("videoCastVolume").exists)
         try attachFrame(named: "Video controls use device volume and brightness")
-        try closePlayer()
+        let close = element("closePlayerButton")
+        if !close.exists {
+            surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        }
+        try waitForExistence(close, timeout: 5, named: "device-controls player close")
+        // Use the rendered control rather than a semantic hit point that can
+        // target the inactive panel after Duo posture changes.
+        close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(disappears(element("playbackScreen"), timeout: 10),
+                      "Closing the device-control proof must dismiss the player")
     }
 
     func journeyVideoSurfaceGestures() async throws {

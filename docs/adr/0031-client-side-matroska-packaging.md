@@ -17,6 +17,32 @@ Advertise MKV only with eligible H.264/HEVC and AAC/AC-3/E-AC-3/ALAC/FLAC. Exist
 
 Native playback profiles are built for each request from VideoToolbox hardware-decoder availability, exact AVFoundation MP4 codec queries and current `AVPlayer.eligibleForHDRPlayback`. HEVC/AV1 fMP4 HLS eligibility also relies on Apple's documented HLS support; a MIME query alone does not validate an HLS manifest. Explicit SDR/HDR10/HLG and bit-depth/4K ceilings prevent direct-play claims from broadening a more limited HLS path. Display changes are reflected by the next request. Dolby Vision/HDR10+ re-encoding and receiver/display qualification remain separate.
 
+Dolby Vision direct delivery uses a separate `LuminaDolbyVisionProfiles` array
+on each `DirectPlayProfiles` entry. Each capability names `Profile`,
+`CompatibilityIDs` and `MaxLevel`; it never broadens shared video-range or HLS
+encoder claims. The native policy requires Main 10 HEVC, current HDR eligibility,
+a Dolby Vision-specific output-route mode and an exact positive MP4 Dolby
+Vision codec query. Profile 5 additionally requires Dolby Vision hardware
+decode. Profile 8 compatibility ID 1 requires iOS/iPadOS 27 or the supported
+tvOS runtime; compatibility ID 4 is the older HLG-compatible variant. Unknown
+profiles, Profile 7 and enhancement layers are not authorized by this policy.
+The backend checks the matching container/audio/video row and fully probed
+profile, compatibility ID, level and RPU/base/enhancement-layer flags. An empty
+array denies Dolby Vision direct play on that row; an absent extension retains
+older clients' existing behavior. This exception applies only to an otherwise
+eligible direct candidate: audio, subtitles or quality constraints cannot carry
+it into a server HLS stream-copy decision. Ordinary base-layer fallback remains
+separate from a Dolby Vision preservation claim.
+
+The same bounded Profile 5/8 capabilities are advertised on the HEVC Matroska
+row after qualifying the pinned engine's packaging path independently. That
+path retains the source Dolby configuration and complete RPU sequence; adding
+an external subtitle retains Prism's full master, including primary or
+supplemental Dolby signaling and the PQ/HLG range. The tests materialize every
+independent seek fragment and compare its configuration and packet-level RPU
+sequence with the source. This is stream-copy delivery, not Dolby Vision
+re-encoding, Profile 7 conversion, or physical-display certification.
+
 Subtitle timing uses Prism’s existing bounded offset before session start; positive values show text later. Timing changes replace candidates transactionally so AVPlayer cannot retain subtitle segments produced with the old offset. Selected server-HLS WebVTT sidecars are staged with adjusted cue timing. This does not add a caption overlay or change burned-in/bitmap captions. Quality ceilings use the existing server PlaybackInfo decision and preserve this native decoding boundary.
 
 Close, completion, failure and cancellation invalidate the owned session; stop/deinitialization tears down the listener and temporary files. Replay creates a new session. Pose changes on Duo retain the existing PlaybackModel and player. Playback reports refer to the original server request and its session, never the loopback URL.

@@ -193,6 +193,44 @@ an HDR-eligible device; fragment decoding on this SDR host does not certify it.
 Latest passing result bundles were retained locally outside the source tree under `/tmp/lumina-native-proof-validation`, with validation logs in `/tmp/lumina-native-*.log`; these are temporary evidence, not release artifacts. Reproduce the native checks using [the fixture-server instructions](../scripts/README.md).
 
 
+## Dolby Vision original delivery and MKV metadata, 2026-10-29
+
+Native direct profiles now declare Dolby Vision separately for the MP4/M4V/MOV
+and locally packaged MKV routes. Profile 5/compatibility 0 and supported
+Profile 8 compatibility IDs 1 (HDR10 base) and 4 (HLG base) require the exact
+runtime codec, level and Dolby Vision route checks described in ADR 0031.
+Profile 8.1 requires iOS/iPadOS 27 or the supported tvOS runtime. Generic HDR
+eligibility alone grants no Dolby Vision capability. Server HLS encoding and
+the one-shot H.264/SDR compatibility profile do not inherit the declaration.
+The backend requires complete level/layer/RPU probe facts; probe cache version
+6 automatically refreshes older facts. Clients without the extension retain
+their prior behavior; a present empty declaration denies that direct route.
+
+| Profile | Local fixture | Direct MP4 | MKV packaging |
+| --- | --- | --- | --- |
+| 5 / compatibility 0 | Two bounded fragments from Apple's public Advanced HLS example; video copied unchanged, synthetic AAC added for transport checks | Decoded frames, advancing time and seek passed | Normal and external-subtitle master metadata checks passed |
+| 8 / compatibility 1 | Generated 8-second Main 10 PQ video, AAC and real generated RPU metadata | Decoded frames, advancing time and seek passed | Same checks passed; `hvc1` primary, Dolby supplemental codec and PQ retained |
+| 8 / compatibility 4 | Generated 8-second Main 10 HLG video, AAC and real generated RPU metadata | Decoded frames, advancing time and seek passed | Same checks passed; `hvc1` primary, Dolby supplemental codec and HLG retained |
+
+The MKV contracts inspect every segment: configuration fields equal the source,
+each video packet retains an RPU, the complete ordered RPU hash sequence equals
+the source, and each fragment can be independently demuxed as a seek target.
+Both paths use `NativeVideoSource.prepare` with the unmodified pinned PrismCore
+3.8.1. A test-only internal initializer supplies a metadata-capable display
+description so that this host can inspect full Dolby masters; production still
+samples the actual route. No display capability is forced in shipping code.
+
+Fixtures remain outside Git. The generated Profile 8 metadata is a structural
+retention test, not reference-graded Dolby Vision content. These local checks do
+not certify physical Dolby Vision presentation, dynamic tone-mapping accuracy,
+HDMI/Match Content, Atmos, Profile 7 enhancement layers or HDR10+ preservation.
+See [reproduction commands](../scripts/README.md#dolby-vision-local-qualification).
+
+The final complete LuminaCore suite executed 251 tests with five skips and zero
+failures, with both opt-in Dolby fixture cases enabled. Generic iOS and tvOS
+Simulator builds passed. The full backend suite passed 5,764 tests with 20
+skips; frontend unit tests passed 2,754 cases.
+
 ## Home, Video, and Audio workflow coverage, 2026-10-20
 
 The native clients open on Home, with separate Video and Audio destinations. Home uses a cinematic artwork hero with an eight-second idle rotation, manual previous/next and title selection, horizontal swiping on iOS, and an explicit Pause control. Automatic rotation stops for Reduce Motion, VoiceOver, an inactive scene, or TV focus interaction. Continue watching, Next up, and recent-video shelves use the authenticated server catalog. The recent shelf can contain movies or episodes; its first visible card is not a fixed fixture item. Authenticated artwork requests support inherited series backdrops while preserving own-art precedence.

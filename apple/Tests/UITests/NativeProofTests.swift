@@ -278,6 +278,10 @@ final class NativeLibraryWarmReturnTests: NativeProofJourney {
 }
 @MainActor
 final class NativeEpisodeShowContextTests: NativeProofJourney {
+    func testEpisodeControlsStayAlignedAndPlayWithoutReturningToHero() async throws {
+        try await journeyEpisodeControlsAndPlayback()
+    }
+
     func testSelectingEpisodeReturnsToItsShowWithTheEpisodeSelected() async throws {
         try await journeyEpisodeSelectionReturnsToShowContext()
     }
@@ -6684,6 +6688,65 @@ class NativeProofJourney: XCTestCase {
 
         try selectDestination("Account", screen: "accountScreen")
         try chooseDeviceSetting("deviceAppearancePicker", option: originalAppearance)
+        completed = true
+    }
+
+    func journeyEpisodeControlsAndPlayback() async throws {
+        var completed = false
+        defer { captureScreenshot(succeeded: completed) }
+        let fixture = try loadFixture()
+        let origin = try localOrigin(from: fixture.serverURL)
+        let session = makeTestAPISession(origin: origin)
+        defer { session.invalidateAndCancel() }
+        let api = ProofAPI(origin: origin, session: session)
+        let identity = try await api.authenticate(username: fixture.username, password: fixture.password)
+        try await api.seedProgress(identity: identity, itemID: fixture.episodeID, seconds: 8)
+        let otherEpisode = try XCTUnwrap(fixture.secondSeasonEpisodeID)
+        try await api.seedProgress(identity: identity, itemID: otherEpisode, seconds: 0)
+        try launchAndResetSession()
+        try signIn(using: fixture, waitsForAccount: false)
+        if usesStandardPhonePushedChrome {
+            try selectLibraryCategory("tv", screen: "libraryScreen")
+        } else {
+            destinationControl("Library").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            let category = element("libraryCategory-tv")
+            try waitForExistence(category, timeout: 20, named: "TV library category")
+            category.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        let show = try revealLibraryItem(id: fixture.showID, named: "show with contextual episode playback")
+        show.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let collection = element("videoCollectionScreen")
+        try waitForExistence(collection, timeout: 20, named: "show collection")
+        let play = element("selectedEpisodePlayButton")
+        try revealDetailElement(play, in: collection, named: "Play beside the selected episode", requiresHittable: false)
+        XCTAssertTrue(play.label.contains("Resume"), "The selected saved episode must offer Resume beside its card.")
+        let selector = element("videoSeasonSelector")
+        try revealDetailElement(selector, in: collection, named: "season controls", requiresHittable: false)
+        let controls = [selector, element("downloadEpisodesButton"), element("collectionEpisodeTitle"), play]
+        let viewport = try applicationViewport()
+        let rightEdge = viewport.maxX - (usesStandardPhonePushedChrome ? 20 : 96)
+        for control in controls {
+            XCTAssertGreaterThanOrEqual(control.frame.minX, viewport.minX + 19)
+            XCTAssertLessThanOrEqual(control.frame.maxX, rightEdge + 1,
+                                     "Episode controls must clear the floating trailing rail.")
+        }
+        XCTAssertFalse(selector.frame.intersects(element("downloadEpisodesButton").frame))
+        XCTAssertFalse(play.frame.intersects(element("collectionEpisodeTitle").frame))
+        try attachFrame(named: "Episode heading season download and contextual Resume alignment")
+        selector.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try activate(menuAction("Season 2"))
+        try waitForExistence(element("videoEpisode-\(otherEpisode)"), timeout: 20, named: "other season episode")
+        XCTAssertTrue(waitUntil(timeout: 15) { play.isEnabled && play.label == "Play" })
+        try revealDetailElement(play, in: collection, named: "selected season episode Play", requiresHittable: false)
+        XCTAssertTrue(element("collectionHero").frame.minY < viewport.minY,
+                      "Contextual playback must be reachable after scrolling away from the hero.")
+        try attachFrame(named: "Selected season episode Play without returning to hero")
+        play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try waitForExistence(element("playbackScreen"), timeout: 30, named: "contextual episode playback")
+        _ = try await waitForServerProgress(api, identity: identity, itemID: otherEpisode, minimum: 1)
+        _ = try waitForPlaybackValue(element("playbackTime"), timeout: 20) { $0 >= 2 }
+        try attachPlaybackFrame(named: "Contextual Play targets the selected season episode")
+        try closePlayer()
         completed = true
     }
 

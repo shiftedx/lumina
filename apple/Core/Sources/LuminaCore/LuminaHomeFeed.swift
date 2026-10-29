@@ -68,6 +68,7 @@ public struct HomeFeedRow: Codable, Identifiable, Sendable {
     public let shape: HomeFeedShape
     public let items: [MediaItem]
     public let externalItems: [HomeExternalItem]?
+    public var displayTitle: String { shelfID == .becauseYouWatched ? shelfID.title : title }
     public var hasItems: Bool { !items.isEmpty || !(externalItems ?? []).isEmpty }
 
     private enum CodingKeys: String, CodingKey {

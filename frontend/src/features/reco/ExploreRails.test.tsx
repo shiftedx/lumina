@@ -39,12 +39,13 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('ForYouRail', () => {
-  it('is a For you rail with each pick\'s reason in its menu, not under the card', () => {
+  it('offers recommendations and feedback without explanations', () => {
     setup(<ForYouRail items={forYou} onOpen={vi.fn()} />);
     expect(screen.getByRole('heading', { name: 'For you' })).toBeTruthy();
     expect(screen.queryByText('Because you finished Harbor walk at dawn')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'More options for Picked one' }));
-    expect(screen.getByRole('group', { name: 'Because you finished Harbor walk at dawn' })).toBeTruthy();
+    expect(screen.queryByText('Because you finished Harbor walk at dawn')).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'Not interested' })).toBeTruthy();
   });
 
   it('renders nothing for an empty list', () => {

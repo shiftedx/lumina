@@ -1303,6 +1303,7 @@ final class LuminaCoreTests: XCTestCase {
         var payload = movie()
         payload["OfficialRating"] = "PG-13"
         payload["CommunityRating"] = 8.4
+        payload["CriticRating"] = 88
         payload["Genres"] = ["Animation", "Adventure"]
         payload["People"] = [["Name": "Example Actor", "Type": "Actor"]]
 
@@ -1310,9 +1311,23 @@ final class LuminaCoreTests: XCTestCase {
 
         XCTAssertEqual(item.officialRating, "PG-13")
         XCTAssertEqual(item.communityRating, 8.4)
+        XCTAssertEqual(item.criticRatingPercentage, 88)
         XCTAssertEqual(item.genres, ["Animation", "Adventure"])
         XCTAssertEqual(item.people?.first?.name, "Example Actor")
         XCTAssertEqual(item.people?.first?.type, "Actor")
+    }
+
+    func testHeroCriticRatingOnlyDisplaysValidServerPercentages() throws {
+        for rating in [nil, -1.0, 0, 88, 100, 101] as [Double?] {
+            var payload = movie()
+            payload["CriticRating"] = rating.map { $0 as Any } ?? NSNull()
+            let item = try JSONDecoder().decode(MediaItem.self, from: json(payload))
+            let expected = rating.flatMap { (0...100).contains($0) ? Int($0) : nil }
+            XCTAssertEqual(item.criticRatingPercentage, expected)
+            let roundTrip = try JSONDecoder().decode(MediaItem.self, from: JSONEncoder().encode(item))
+            XCTAssertEqual(roundTrip.criticRatingPercentage, expected)
+        }
+        XCTAssertNil(try JSONDecoder().decode(MediaItem.self, from: json(movie())).criticRatingPercentage)
     }
 
     func testMediaOverviewKeepsProseWhileStructuringExplicitCreditsAndNotes() {

@@ -252,7 +252,6 @@ function HeroSlide({ pick, position, total, motion, warm, onPlay, onOpenTitle, o
           {logo ? <GalleryArt alt={name} art={logo} card={null} className="h-hero-logo" colour={NO_SLOT} kind="logo" onFail={() => setLogoFailed(true)} priority={1} sizes={LOGO_SIZES} /> : name}
         </h2>
         {meta ? <p className="g-label h-hero-meta">{meta}</p> : null}
-        {pick.kind === 'recommended' && pick.reason ? <p className="h-hero-why">{pick.reason}</p> : null}
         {percent === null ? null : <span aria-hidden="true" className="h-hero-progress"><span style={{ width: `${percent}%` }} /></span>}
         {overview ? <p className="h-hero-overview">{overview}</p> : null}
         <div className="h-hero-actions" data-focus-row>

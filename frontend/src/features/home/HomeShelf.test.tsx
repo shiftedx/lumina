@@ -54,16 +54,19 @@ describe('FetchedShelf', () => {
     expect(api.listNextUp).toHaveBeenCalledTimes(1);
   });
 
-  it('puts the reason and a menu under each recommended poster and nothing under a plain row', async () => {
+  it('keeps recommendations and feedback without explanatory captions or menu headers', async () => {
     api.getHomeTitleRows.mockResolvedValue({ rows: [{ id: 'row-1', kind: 'because_you_watched', title: 'Because you watched Arrival', items: [recoTitle(1, 0), recoTitle(2, 1)] }] });
     const suppress = vi.fn().mockResolvedValue({ id: 'sup-1' });
     const wrap = (ui: React.ReactNode) => <RecoFeedbackProvider onError={vi.fn()} onExpired={vi.fn()} resetKey="m" restore={vi.fn()} suppress={suppress}>{ui}</RecoFeedbackProvider>;
     const first = render(wrap(shelf('because_you_watched')));
     Observer.near();
     await screen.findAllByRole('button', { name: /^More options for Recommended Film/ });
+    expect(screen.getByRole('heading', { name: 'More for you' })).toBeTruthy();
+    expect(screen.queryByText('Because you watched Arrival')).toBeNull();
     expect(screen.queryByText('Like Arrival')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'More options for Recommended Film 1' }));
-    expect(screen.getByRole('group', { name: 'Like Arrival' })).toBeTruthy();
+    expect(screen.queryByText('Like Arrival')).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'Not interested' })).toBeTruthy();
     fireEvent.click(screen.getByRole('menuitem', { name: 'Not interested' }));
     await waitFor(() => expect(suppress).toHaveBeenCalledWith(expect.objectContaining({ scope: 'title', title_id: recoTitle(1).id })));
     expect(await screen.findByText('Hidden.')).toBeTruthy();

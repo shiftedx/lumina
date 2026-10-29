@@ -1155,7 +1155,7 @@ private struct TVHomeView: View {
                     if feed.hasLoaded {
                         ForEach(shelves.filter(\.visible)) { shelf in
                         ForEach(snapshot.rows.filter { $0.shelfID == shelf.id }) { row in
-                            TVRail(title: row.title, items: row.items, store: store,
+                            TVRail(title: row.displayTitle, items: row.items, store: store,
                                    poster: row.shape == .poster,
                                    identifierPrefix: row.shelfID == .continueWatching ? "resumeItem" : row.shelfID == .nextUp ? "nextUpItem" : "homeRow-\(row.id)",
                                    onOpen: onOpen, feed: feed,
@@ -1802,14 +1802,6 @@ private struct TVRail: View {
                             TVMediaCard(item: item, store: store, poster: presentsPosters, captionPresentation: captionPresentation) {
                                 if let reco = item.luminaReco { Task { await feed?.record("open", recommendation: reco) } }
                                 onOpen(item)
-                            }
-                            .accessibilityHint(item.luminaReco?.reason ?? "")
-                            .overlay(alignment: .bottomLeading) {
-                                if let reason = item.luminaReco?.reason {
-                                    Text(reason).font(.caption).lineLimit(2).padding(8)
-                                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                                        .accessibilityHidden(true)
-                                }
                             }
                         }
                             .frame(width: item.isAudio || item.type.hasPrefix("Music") ? 260 : presentsPosters ? 220 : 400)

@@ -25,7 +25,7 @@ public enum HomeShelfID: String, Codable, CaseIterable, Sendable {
         case .nextUp: "Next up"
         case .watchlist: "Your watchlist"
         case .newInLibrary: "New in your library"
-        case .becauseYouWatched: "Because you watched…"
+        case .becauseYouWatched: "More for you"
         case .recommended: "Recommended for you"
         case .pickedForYou: "Picked for you"
         case .collections: "Your smart collections"

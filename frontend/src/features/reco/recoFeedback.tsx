@@ -103,7 +103,7 @@ export function RecoFeedbackProvider({ suppress, restore, onExpired, onError, re
   return <Context.Provider value={api}>{children}</Context.Provider>;
 }
 
-/** What a card's art menu needs to offer feedback: the target, the server's reason (null on category rails) and the rail that owns its Undo row. */
+/** What a card's art menu needs to offer feedback: the target, its recommendation annotation (null on category rails) and the rail that owns its Undo row. */
 export type RecoArt = { target: RecoTarget; reco: RecoAnnotation | null; rail?: string };
 const ArtContext = createContext<RecoArt | null>(null);
 /** For the art menu of the card inside: null outside a recommendation list. */

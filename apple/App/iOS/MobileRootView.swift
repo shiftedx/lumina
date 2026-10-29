@@ -2579,6 +2579,7 @@ struct VideoCollectionView: View {
     @State private var playbackRequest: PlaybackRequest?
     @State private var isPreparingPlayback = false
     @State private var playbackError: String?
+    @State private var downloadsPresented = false
 
     init(item: MediaItem, store: LuminaStore, initialSeasonID: String? = nil, initialEpisodeID: String? = nil) {
         self.item = item
@@ -2613,9 +2614,13 @@ struct VideoCollectionView: View {
 
                     VStack(alignment: .leading, spacing: 28) {
                         if item.type != "Series" {
-                            Text(collectionSectionTitle)
-                                .font(.title2.weight(.bold))
-                                .accessibilityAddTraits(.isHeader)
+                            HStack {
+                                Text(collectionSectionTitle)
+                                    .font(.title2.weight(.bold))
+                                    .accessibilityAddTraits(.isHeader)
+                                Spacer()
+                                downloadButton
+                            }
                                 .id(collectionSectionID)
                         }
                         if let errorMessage {
@@ -2630,7 +2635,10 @@ struct VideoCollectionView: View {
                                 Text("No \(item.type == "Series" ? "seasons" : "episodes") are available. Pull to refresh after adding them to Lumina.")
                             }
                         } else if item.type == "Series" {
-                            seasonSelector
+                            ViewThatFits(in: .horizontal) {
+                                HStack { seasonSelector; Spacer(); downloadButton }
+                                VStack(alignment: .leading, spacing: 12) { seasonSelector; downloadButton }
+                            }
                                 .id(collectionSectionID)
                             if isSeriesCollection {
                                 VStack(alignment: .leading, spacing: 12) {
@@ -2683,9 +2691,24 @@ struct VideoCollectionView: View {
         .scrollClipDisabled()
         .task(id: item.id + "-\(store.metadata.revision)") { await load() }
         .refreshable { await load() }
+        .sheet(isPresented: $downloadsPresented) {
+            EpisodeDownloadPicker(
+                store: store, seasons: isSeriesCollection ? children : [item],
+                initialSeasonID: isSeriesCollection ? selectedSeasonID : item.id,
+                initialEpisodes: isSeriesCollection ? selectedSeasonEpisodes : children
+            )
+        }
         .nativePlayback(request: $playbackRequest, store: store) {
             Task { await load() }
         }
+    }
+
+    private var downloadButton: some View {
+        Button("Download to Device", glyph: .download) { downloadsPresented = true }
+            .buttonStyle(LuminaQuietActionStyle())
+            .disabled(isLoading || isLoadingSelectedSeason || store.isOffline)
+            .accessibilityHint("Choose episodes or whole seasons to save for offline playback.")
+            .accessibilityIdentifier("downloadEpisodesButton")
     }
 
     @ViewBuilder private var collectionActionsMenu: some View {
@@ -3082,6 +3105,153 @@ struct VideoCollectionView: View {
             throw VideoCollectionPlaybackError.noEpisodes
         }
         return episode
+    }
+}
+
+@MainActor
+private struct EpisodeDownloadPicker: View {
+    let store: LuminaStore
+    let seasons: [MediaItem]
+    @Environment(\.dismiss) private var dismiss
+    @State private var seasonID: String
+    @State private var episodesBySeason: [String: [MediaItem]]
+    @State private var selectedIDs = Set<String>()
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var retry = 0
+
+    init(store: LuminaStore, seasons: [MediaItem], initialSeasonID: String?, initialEpisodes: [MediaItem]) {
+        self.store = store
+        self.seasons = seasons
+        let season = seasons.first { $0.id == initialSeasonID } ?? seasons.first
+        _seasonID = State(initialValue: season?.id ?? "")
+        _episodesBySeason = State(initialValue: season?.id == initialSeasonID
+            ? [season?.id ?? "": initialEpisodes] : [:])
+    }
+
+    private var episodes: [MediaItem] { episodesBySeason[seasonID] ?? [] }
+    private var selectableIDs: Set<String> { Set(episodes.filter(canDownload).map(\.id)) }
+    private var selectedEpisodes: [MediaItem] {
+        seasons.flatMap { episodesBySeason[$0.id] ?? [] }
+            .filter { selectedIDs.contains($0.id) && canDownload($0) }
+    }
+    private var wholeSeasonSelected: Bool { !selectableIDs.isEmpty && selectableIDs.isSubset(of: selectedIDs) }
+
+    var body: some View {
+        NavigationStack {
+            List(selection: $selectedIDs) {
+                if seasons.count > 1 {
+                    Section {
+                        Picker("Season", selection: $seasonID) {
+                            ForEach(seasons) { season in Text(season.name).tag(season.id) }
+                        }
+                        .pickerStyle(.menu)
+                        .accessibilityIdentifier("episodeDownloadSeasonPicker")
+                    }
+                }
+                Section {
+                    if isLoading {
+                        ProgressView("Loading episodes…")
+                    } else if let errorMessage {
+                        InlineErrorView(message: errorMessage) { retry += 1 }
+                    } else if episodes.isEmpty {
+                        Text("No episodes are available in this season.").foregroundStyle(.secondary)
+                    } else {
+                        ForEach(episodes) { episode in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(episode.name).font(.body)
+                                if !episode.displaySubtitle.isEmpty {
+                                    Text(episode.displaySubtitle).font(.caption).foregroundStyle(.secondary)
+                                }
+                                if let status = status(for: episode) {
+                                    Text(status).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .tag(episode.id)
+                            .selectionDisabled(!canDownload(episode))
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("episodeDownload-\(episode.id)")
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text(seasons.first { $0.id == seasonID }?.name ?? "Episodes")
+                        Spacer()
+                        Button(wholeSeasonSelected ? "Deselect season" : "Select whole season") {
+                            if wholeSeasonSelected { selectedIDs.subtract(selectableIDs) }
+                            else { selectedIDs.formUnion(selectableIDs) }
+                        }
+                        .buttonStyle(.borderless)
+                        .frame(minHeight: 44)
+                        .disabled(isLoading || selectableIDs.isEmpty)
+                        .accessibilityIdentifier("selectDownloadSeasonButton")
+                    }
+                } footer: {
+                    Text("Selections are kept when you change seasons. Downloaded and queued episodes are already saved or in progress.")
+                }
+                Section {
+                    Text("\(selectedEpisodes.count) selected")
+                        .accessibilityIdentifier("episodeDownloadSelectionCount")
+                    Text("Videos are saved at original quality. Manage progress, cancellation and storage in Downloads.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Episodes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.accessibilityIdentifier("cancelEpisodeDownloadsButton")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Download (\(selectedEpisodes.count))") {
+                        let selected = selectedEpisodes
+                        Task { await store.downloadVideos(items: selected) }
+                        dismiss()
+                    }
+                    .disabled(selectedEpisodes.isEmpty || store.isOffline)
+                    .accessibilityIdentifier("confirmEpisodeDownloadsButton")
+                }
+            }
+            .task(id: "\(seasonID):\(retry)") { await loadSeason() }
+            .accessibilityIdentifier("episodeDownloadPicker")
+        }
+    }
+
+    private func canDownload(_ episode: MediaItem) -> Bool {
+        guard LuminaOfflineLibrary.supportsVideoDownload(episode) else { return false }
+        switch store.offline.downloadStates[episode.id] {
+        case .downloaded, .queued, .downloading: return false
+        default: return true
+        }
+    }
+
+    private func status(for episode: MediaItem) -> String? {
+        switch store.offline.downloadStates[episode.id] {
+        case .downloaded: return "On this device"
+        case .queued: return "Queued"
+        case .downloading: return "Downloading…"
+        case .failed(let message): return message
+        default: return LuminaOfflineLibrary.supportsVideoDownload(episode) ? nil : "Unavailable to download"
+        }
+    }
+
+    private func loadSeason() async {
+        store.offline.refresh()
+        errorMessage = nil
+        guard episodesBySeason[seasonID] == nil,
+              let season = seasons.first(where: { $0.id == seasonID }) else { isLoading = false; return }
+        let requestedID = seasonID
+        isLoading = true
+        defer { if seasonID == requestedID { isLoading = false } }
+        do {
+            let loaded = try await store.loadChildren(of: season)
+            guard !Task.isCancelled, seasonID == requestedID else { return }
+            episodesBySeason[requestedID] = loaded
+        } catch {
+            guard !Task.isCancelled, seasonID == requestedID else { return }
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "This season could not load. Try again."
+        }
     }
 }
 

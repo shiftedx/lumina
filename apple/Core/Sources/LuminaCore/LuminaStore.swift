@@ -1331,12 +1331,29 @@ let tickScale = 10_000_000.0
 
     /// Saves the server's original movie, episode, or video attachment for offline playback.
     public func downloadVideo(item: MediaItem) async {
-        guard !isOffline, let active = session, LuminaOfflineLibrary.supportsVideoDownload(item) else { return }
+        guard let active = session else { return }
+        await downloadVideo(item: item, for: active)
+    }
+
+    private func downloadVideo(item: MediaItem, for active: LuminaSession) async {
+        guard !Task.isCancelled, !isOffline, isCurrent(active), LuminaOfflineLibrary.supportsVideoDownload(item) else { return }
         let request = client.request(origin: active.serverURL, path: "/Items/\(item.id)/Download",
                                      token: active.accessToken, deviceID: active.deviceID)
         await offline.downloadVideo(item: item, request: request)
         guard isCurrent(active), let artwork = imageURL(for: item), artwork.scheme != "file" else { return }
         await offline.downloadArtwork(item: item, request: URLRequest(url: artwork))
+    }
+
+    /// Registers a selection with the existing serial transfer queue, scoped to the initiating session.
+    public func downloadVideos(items: [MediaItem]) async {
+        guard !isOffline, let active = session else { return }
+        var seen = Set<String>()
+        let selected = items.filter { LuminaOfflineLibrary.supportsVideoDownload($0) && seen.insert($0.id).inserted }
+        await withTaskGroup(of: Void.self) { group in
+            for item in selected {
+                group.addTask { await self.downloadVideo(item: item, for: active) }
+            }
+        }
     }
 
     /// Downloads an origin-validated WebVTT sidecar to a private temporary file. The caller owns

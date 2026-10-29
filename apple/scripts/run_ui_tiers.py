@@ -35,6 +35,7 @@ IOS_SPECIAL_LANES = {
     "NativeStandardPhonePushedChromeNavigationTests/testHomeSearchUsesLeadingEdgeBackWithoutPoppingRoot": "iPhone",
     "NativeStandardPhoneAppearanceChromeTests/testPushedChromeStaysClearInLightAndDarkAppearances": "iPhone",
     "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testStandardPhoneUsesBottomNavigationAndCompactBrowseMenu": "iPhone",
+    "NativeVideoFormatRecoveryTests/testStandardPhoneInitialFormatFailureRetriesOneCompatibleVideo": "iPhone",
     "NativeAudioAlbumTrackPlaybackReportsProgressTests/testCompactMusicToolbarReopensAndResumes": "iPhone",
     "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testClosedDisplayFitsThreeCategoriesBesideLogo": "Duo",
     "NativeHomeBrowseFiltersSearchAndHeroWatchlistTests/testHomeHeroArtworkSwipesAndPlaysSelectedTitle": "Duo",
